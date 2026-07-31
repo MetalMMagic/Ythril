@@ -42,8 +42,64 @@ function walk(dir, out = []) {
   return out;
 }
 
-/** Only this project's own namespaces — NODE_ENV, PATH and friends are not ours to document. */
-const OURS = /^(YTHRIL_|MONGO_|MCP_|OIDC_)/;
+/**
+ * Which variables are ours to document: everything the scan finds, minus an explicit ambient list.
+ *
+ * It used to be an allowlist of four namespaces — `YTHRIL_`/`MONGO_`/`MCP_`/`OIDC_` — which is the wrong
+ * polarity for a completeness gate. **No model-endpoint variable was ever in scope**: not `EMBEDDING_URL`,
+ * not `DOC_VLM_URL`, not one of the ten slots. That blind spot let three names that do not exist
+ * (`EMBEDDING_BASE_URL`, `RERANK_BASE_URL`, `NLI_BASE_URL` — the real ones drop the `BASE_`) ship in the
+ * integration guide's egress matrix, where a reader would set them and watch nothing happen.
+ *
+ * A denylist fails the right way round. A new variable in a namespace nobody anticipated is now *in* scope
+ * and has to be documented or explicitly excused; under the allowlist it was silently exempt. Widening it
+ * brought 40 more variables into scope and cost 9 doc entries, which is the ratio that makes a gate worth
+ * having rather than worth suppressing.
+ */
+const AMBIENT = new Set([
+  // The runtime's and the shell's, not ours.
+  'NODE_ENV', 'NODE_OPTIONS', 'PATH', 'HOME', 'TMPDIR', 'TEMP', 'TMP', 'HOSTNAME', 'TZ', 'LANG', 'SHELL',
+  'PWD', 'COMSPEC', 'SYSTEMROOT', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA',
+  // CI-provided.
+  'CI', 'GITHUB_TOKEN', 'GITHUB_ACTIONS', 'FORCE_JAVASCRIPT_ACTIONS_TO_NODE24',
+]);
+
+/**
+ * `SCREAMING_CASE` in the docs that is deliberately **not** a setting of ours.
+ *
+ * Each is listed with why, because an unexplained exemption is how a real finding gets waved through
+ * later by someone extending the list. Nothing here may be a variable this codebase reads — the check
+ * below asserts exactly that, so an entry added to silence a genuine finding fails.
+ */
+const NOT_A_SETTING = new Map([
+  // API error codes, documented so a client can branch on them.
+  ['INFRA_MANAGED', 'API error code'],
+  ['FEATURE_DISABLED', 'API error code'],
+  ['MFA_REQUIRED', 'API error code'],
+  ['MERKLE_DIVERGENCE', 'sync conflict code'],
+  ['REPARENT_REVERT_AVAILABLE', 'network notification code'],
+  ['ERR_ERL_UNEXPECTED_X_FORWARDED_FOR', 'an express-rate-limit error code, quoted in a troubleshooting note'],
+  // Source identifiers named in prose.
+  ['EGRESS_SLOTS', 'a TypeScript constant the egress matrix is checked against'],
+  ['FETCH_TIMEOUT_MS', 'a sync-engine constant, not settable'],
+  ['BATCH_FETCH_TIMEOUT_MS', 'a sync-engine constant, not settable'],
+  // Placeholders in copy-paste examples.
+  ['YOUR_TENANT_ID', 'placeholder in an OIDC example'],
+  ['YOUR_CLIENT_ID', 'placeholder in an OIDC example'],
+  ['YOUR_API_IDENTIFIER', 'placeholder in an OIDC example'],
+  ['YOUR_PASSWORD', 'placeholder in a login example'],
+  ['YOUR_TOKEN', 'placeholder in a curl example'],
+  // Other processes' environment, documented because an operator has to set them somewhere else.
+  ['DOCKERHUB_USERNAME', 'a GitHub Actions secret, not read by the app'],
+  ['DOCKERHUB_TOKEN', 'a GitHub Actions secret, not read by the app'],
+  ['NUMBA_CACHE_DIR', "a third-party library's env, set in a sidecar image"],
+  ['HF_HUB_OFFLINE', "a third-party library's env, set in a sidecar image"],
+  ['XDG_CACHE_HOME', "a third-party library's env, set in a sidecar image"],
+  // Removed settings the docs still name so an upgrader can find out they are gone.
+  ['MEDIA_EMBEDDING_ENABLED', 'removed in 2.0.0; documented as a breaking change'],
+]);
+
+const OURS = (name) => !AMBIENT.has(name);
 
 const NAME = '([A-Z][A-Z0-9_]{2,})';
 const READ_PATTERNS = [
@@ -84,7 +140,7 @@ function collectUsage() {
     // Gated on the file actually indexing `process.env` with a non-literal, so a module that merely
     // MENTIONS a variable name in prose or an error message does not get credit for reading it.
     if (/process\.env\[\s*[A-Za-z_$]/.test(src)) {
-      for (const m of src.matchAll(/['"]((?:YTHRIL_|MONGO_|MCP_|OIDC_)[A-Z0-9_]{2,})['"]/g)) add(m[1], f);
+      for (const m of src.matchAll(/['"]([A-Z][A-Z0-9_]{2,})['"]/g)) add(m[1], f);
     }
 
     // Compose / Dockerfile interpolation: ${VAR} and ${VAR:-default}.
@@ -100,12 +156,26 @@ function collectUsage() {
   return used;
 }
 
-function collectDocumented() {
+/**
+ * What the docs *name as a setting*, as opposed to what they merely capitalise.
+ *
+ * `SCREAMING_CASE` in prose is not only env vars — the guides are full of `HTTP`, `JSON`, `OCR`, `VLM`,
+ * `TOTP`, `SSRF`. While the scope was four namespaces the prefix filtered those out for free; a denylist
+ * does not, so the shape of the token has to.
+ *
+ * The rule: an underscore, **or** a name the code actually reads. An env var in this project either
+ * carries an underscore (`EMBEDDING_URL`, `RENDER_MAX_BYTES`) or is a single well-known word the code
+ * demonstrably reads (`PORT`, `DEBUG`). An acronym has neither. That keeps the phantom check pointed at
+ * the class of mistake it exists for — `EMBEDDING_BASE_URL` for `EMBEDDING_URL`, a name shaped exactly
+ * like a setting and belonging to nothing.
+ */
+function collectDocumented(used) {
   const docs = new Map();
   for (const f of readdirSync(join(ROOT, 'docs')).filter(n => n.endsWith('.md'))) {
     const src = readFileSync(join(ROOT, 'docs', f), 'utf8');
     for (const m of src.matchAll(/\b([A-Z][A-Z0-9_]{2,})\b/g)) {
-      if (!OURS.test(m[1])) continue;
+      if (!OURS(m[1])) continue;
+      if (!m[1].includes('_') && !used.has(m[1])) continue;
       // A trailing underscore is never a real variable — it is the stub left behind when prose names a
       // FAMILY of them, `YTHRIL_ALLOW_PRIVATE_<SLOT>` or `YTHRIL_ALLOW_PRIVATE_*`, and the word-boundary
       // match keeps only the prefix. Counting those as documented settings makes the reverse check report
@@ -120,19 +190,19 @@ function collectDocumented() {
 
 describe('env vars — docs and code agree', () => {
   const used = collectUsage();
-  const documented = collectDocumented();
+  const documented = collectDocumented(used);
 
   it('finds a meaningful number of variables (the scan itself still works)', () => {
     // Guards against a refactor silently breaking the patterns and turning both checks green by
     // finding nothing — the failure mode where a gate quietly stops gating.
-    const ours = [...used.keys()].filter(n => OURS.test(n));
+    const ours = [...used.keys()].filter(n => OURS(n));
     assert.ok(ours.length >= 25, `expected the scan to find our env vars, found ${ours.length}`);
     assert.ok(documented.size >= 15, `expected docs to name our env vars, found ${documented.size}`);
   });
 
   it('every variable the code reads is documented', () => {
     const missing = [...used.entries()]
-      .filter(([name]) => OURS.test(name) && !documented.has(name))
+      .filter(([name]) => OURS(name) && !documented.has(name))
       .map(([name, files]) => `  ${name}  (read in ${[...files].slice(0, 2).join(', ')})`);
 
     assert.equal(missing.length, 0,
@@ -141,10 +211,19 @@ describe('env vars — docs and code agree', () => {
       'our namespaces if they are genuinely internal.');
   });
 
+  it('the not-a-setting list never hides a real setting', () => {
+    // The failure this forecloses: a genuine undocumented variable gets silenced by adding it to the
+    // exemption list rather than documenting it. If the code reads a name on that list, the list is
+    // wrong, not the finding.
+    const wrong = [...NOT_A_SETTING.keys()].filter(n => used.has(n));
+    assert.deepEqual(wrong, [],
+      'these are exempted as "not a setting" but the code reads them — document them instead');
+  });
+
   it('every variable the docs name actually exists', () => {
     // The nastier direction: a reader copies it into .env, it does nothing, and nothing explains why.
     const phantom = [...documented.entries()]
-      .filter(([name]) => !used.has(name))
+      .filter(([name]) => !used.has(name) && !NOT_A_SETTING.has(name))
       .map(([name, docs]) => `  ${name}  (documented in ${[...docs].join(', ')})`);
 
     assert.equal(phantom.length, 0,

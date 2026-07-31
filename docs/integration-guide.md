@@ -212,6 +212,8 @@ DEBUG=1 docker compose up
 | `MONGO_URI` | `mongodb://ythril-mongo:27017/ythril?directConnection=true` | MongoDB connection string — any `$vectorSearch`-capable MongoDB works. The database name in the URI is used for all operations. |
 | `NODE_ENV` | `production` | Node environment |
 | `PORT` | `3200` | HTTP listen port |
+| `CLIENT_DIST` | (resolved from the image layout) | Directory the built Angular client is served from. Set by the Dockerfile; override it only when running the server against a client build in a non-standard location — a local dev checkout, or an image you re-layered. |
+| `MODEL_CACHE_DIR` | `/app/model-cache` in the image, else `<DATA_ROOT>/.model-cache` | Where the bundled in-process embedding model's weights are cached. Baked into the image so a cold start does not download them; the `DATA_ROOT` fallback is for running from source. Point it at a persistent volume if you strip the cache out of your image, or **every** boot re-downloads the model. |
 | `DEBUG` | (unset) | Set to `1` for verbose logging |
 | `MONGO_CONNECT_RETRY_MS` | `30000` | How long the **first** MongoDB connection may spend retrying before boot gives up. A container orchestrator's healthcheck can report MongoDB healthy while it is still finishing startup, so the first driver connection can have its socket reset mid-handshake — which used to kill the process outright. Only "not up yet" failures are retried (network errors, server selection, topology closed); bad credentials and a malformed URI fail immediately, because waiting cannot help and retrying would turn a clear error into a boot that appears to hang. Backoff is jittered so several instances starting together do not retry in lockstep. |
 | `SHUTDOWN_DRAIN_MS` | `8000` | How long in-flight HTTP requests get to finish after SIGTERM before their connections are forced shut. On SIGTERM the server stops accepting new connections, waits for the running ones, then flushes config and closes MongoDB. The default is sized for **Docker's 10 s stop grace period** — the whole drain plus the flush has to fit inside it or the container is SIGKILLed mid-write anyway. Kubernetes allows 30 s by default, so raise this if your orchestrator gives you longer. |
@@ -2536,6 +2538,14 @@ lightweight and carries no model weights) or stop it with no effect on today's O
 `ythril-convert` network (no database, no internet egress), non-root and resource-limited. Ythril reaches
 it via `RENDER_SIDECAR_URL`. The **application** default is `http://localhost:8100` (a sidecar in the same network namespace); `docker-compose.yml` overrides it to `http://doc-render:8100`, the service name on the internal network. Both are correct for their layer — check which one applies to your deployment rather than assuming the compose value is the default.
 
+Two limits are set **on the sidecar**, not in Ythril's config — they bound what an untrusted document can
+make it do, so they belong to the process that parses it:
+
+| Env (on the sidecar) | Default | Meaning |
+|---|---|---|
+| `RENDER_MAX_BYTES` | `104857600` (100 MiB) | Largest document the renderer will accept. |
+| `RENDER_MAX_PAGES` | `500` | Hard ceiling on pages rendered per request, whatever `maxPages` asks for. |
+
 #### Office-render sidecar (`doc-office`) — optional
 
 `doc-render` only opens PDFs, so **office** documents (DOCX, EPUB, PPTX, XLSX, ODT, RTF…) in a `vlm`/`auto`/
@@ -2551,6 +2561,12 @@ Everything stays **on-box** on the isolated `ythril-convert` network — no page
 instance. Ythril reaches it via `RENDER_OFFICE_SIDECAR_URL` (default `http://doc-office:8100` in compose).
 When it is absent, office docs simply use OCR, unchanged. LibreOffice is MPL-2.0 / LGPL-3.0 (not AGPL) and
 runs as a separate process, so it does not affect Ythril's licensing.
+
+It honours `RENDER_MAX_BYTES` and `RENDER_MAX_PAGES` exactly as `doc-render` does, plus one of its own:
+
+| Env (on the sidecar) | Default | Meaning |
+|---|---|---|
+| `OFFICE_CONVERT_TIMEOUT` | `120` | Seconds `soffice` gets to convert the document to PDF before the attempt is abandoned and the upload falls back to OCR. Raise it for very large spreadsheets; a LibreOffice conversion that hangs holds a worker slot until this fires. |
 
 #### Document Processing Configuration
 
@@ -2674,7 +2690,8 @@ They are never queued, so they do not sit at `pending` waiting for work that wil
 | `extractImages` | `true` | When `true` and `strategy` is `"hi_res"`, embedded images found in document partitions are decoded and saved as `_extracted/{originalId}/image-{N}.{ext}` subfiles. Each is automatically enqueued for the full media pipeline (caption + face recognition). Has no effect when strategy is not `"hi_res"`. |
 | `mode` | `"vlm"` | How thoroughly documents are read, low to high: `"off"` · `"ocr"` · `"vlm"` · `"repair"`, plus `"auto"`. **`"off"` means documents are stored but never analysed** — no text is extracted, so nothing in them can be recalled; those uploads are recorded as `skipped` rather than queued. `"ocr"` is OCR-only (the unstructured sidecar). `"vlm"` renders each page and transcribes it with a vision model, using OCR as grounding evidence and falling back to OCR if the result doesn't validate (so it is **never worse than OCR**). `"repair"` adds a validation-driven **repair** pass (below) on top of `"vlm"`, plus a second-model consensus pass when a `verifyModel` is set. `"auto"` means **as much as this instance can actually do** — it resolves to `"repair"` when a repair model is configured, otherwise `"vlm"`, otherwise `"ocr"`, so with no `vlmModel` set it is byte-for-byte the OCR-only path. `"max"` is the previous name for `"repair"` and is still accepted on read. |
 | `vlmModel` | `""` | Ollama vision model used for `vlm` / `auto` / `repair` (e.g. a bundled `moondream`, or a larger model you wire in). Empty ⇒ the VLM path is unavailable and extraction stays on OCR. Env override: `DOC_VLM_MODEL`. |
-| `vlmBaseUrl` | `""` | Endpoint for the VLM. Empty ⇒ falls back to the media vision provider's `baseUrl`, then `http://ollama:11434`. Env override: `DOC_VLM_URL`. |
+| `vlmBaseUrl` | `""` | Endpoint for the VLM. Empty ⇒ falls back to the media vision provider's `baseUrl`, then `http://ollama:11434`. Env override: `DOC_VLM_URL`. **Setting this marks the slot as a separate service**, so the call goes through the SSRF-guarded fetch — a private address then needs `allowPrivateModelEndpointsBySlot.docVlm` (or the instance-wide flag). |
+| *(no config key)* | — | `DOC_VLM_WIRE` — which protocol the document VLM speaks: `ollama` (`/api/chat`) or, by default, `openai` (`/chat/completions`). Env-only, because the URL cannot tell us: `http://host:11434` is either. The default matches what self-hosted inference servers overwhelmingly serve; set `DOC_VLM_WIRE=ollama` only when you point `DOC_VLM_URL` at a **separate Ollama**. It applies to all three document slots, which share one endpoint resolver. |
 | `repairModel` | `""` | Used by the **`repair`** level — and by **`auto`**, which resolves to `repair` whenever this is set. Model used for the repair pass when a page's VLM output fails OCR-evidence validation — it reconciles the draft against the OCR text in one extra text-only call. Empty ⇒ reuses `vlmModel`. Set this to wire in a stronger model you host. Env override: `DOC_REPAIR_MODEL`. |
 | `repairBaseUrl` | `""` | Endpoint for the repair model. Empty ⇒ reuses `vlmBaseUrl`. Env override: `DOC_REPAIR_URL`. |
 | `verifyModel` | `""` | Engages on the **`repair`** level, and on **`auto`** when a repair model is set (F11-d consensus). A *second* document VLM. When set, the repair level runs it as an independent second transcription of each page, reconciles it with the primary draft against the OCR text, and keeps the highest-coverage result — **never worse** than the primary. Empty ⇒ no consensus pass. Best set to a *different* model than `vlmModel`. Env override: `DOC_VERIFY_MODEL`. |
@@ -3001,7 +3018,11 @@ The worker-tuning fields — `workerConcurrency`, `workerPollIntervalMs`, `worke
 | `embedding.baseUrl` | `EMBEDDING_URL` | — | Embedding HTTP endpoint (OpenAI-compatible `/v1/embeddings`). Blank = the bundled in-process ONNX model. |
 | `embedding.model` | `EMBEDDING_MODEL` | `nomic-ai/nomic-embed-text-v1.5` | Embedding model. **Changing the model / `dimensions` / `similarity` / `prefixScheme` re-indexes every vector** (the UI requires an explicit confirmation; `POST /api/brain/spaces/:id/reindex` runs it). |
 | `embedding.prefixScheme` | `EMBEDDING_PREFIX_SCHEME` | `auto` | Task-prefix convention the model expects: `nomic` (`search_document:` / `search_query:` prefixes, trailing space included), `qwen` (instruction on the query only, passages bare), `none` (symmetric models — OpenAI `text-embedding-3-*`, bge-m3), or `auto`. **`auto` reproduces the behaviour this instance had before the field existed: `nomic` for the bundled model, `none` over HTTP — so upgrading changes no vector.** If you run nomic or Qwen behind an endpoint, set this explicitly and reindex — asymmetric models retrieve measurably worse without the prefix, and nothing errors when it is missing. |
+| `embedding.dimensions` | `EMBEDDING_DIMENSIONS` | `768` | Vector width the model emits. Must match the model — a mismatch is not detected at write time, it surfaces as recall that returns nothing. Listed with `model` above as a re-index trigger. |
 | `embedding.apiKey` | `EMBEDDING_API_KEY` | — | API key for an external embedding endpoint (stored in `secrets.json`, masked in the API). |
+| `mediaEmbedding.nli.baseUrl` | `NLI_URL` | — | Contradiction-judge endpoint. **Blank = contradiction detection has no judge** and the Contradictions view is empty by design, not by failure. Same locality rule as the reranker: a loopback or dot-less host is a sidecar and gets a plain fetch; anything else goes through the SSRF-guarded fetch. It sees **pairs of stored record texts**, so it is an egress path of the same weight as vision or STT. |
+| `mediaEmbedding.nli.model` | `NLI_MODEL` | — | NLI model name, e.g. an mDeBERTa or DeBERTa cross-encoder. Required alongside `baseUrl`. |
+| `mediaEmbedding.nli.apiKey` | `NLI_API_KEY` | — | API key for the contradiction judge (stored in `secrets.json`, masked in the API). |
 | `mediaEmbedding.rerank.baseUrl` | `RERANK_URL` | — | Reranker endpoint. **Blank = reranking is off** (there is no separate toggle). A URL ending in `/rerank` is read as the text-embeddings-inference request shape; anything else gets `/v1/rerank` appended and the Cohere/Jina shape. A loopback or dot-less host is treated as a sidecar and reached with a plain fetch; anything else goes through the SSRF-guarded fetch. |
 | `mediaEmbedding.rerank.model` | `RERANK_MODEL` | — | Cross-encoder model, e.g. `BAAI/bge-reranker-v2-m3`. Required alongside `baseUrl` — reranking is on only when both are set. |
 | `mediaEmbedding.rerank.candidateMultiplier` | `RERANK_CANDIDATE_MULTIPLIER` | `4` | Candidates fetched per requested result before reranking (2–10, and capped at 100 candidates absolutely). A reranker can only re-order what the vector search already found, so this over-fetch is the whole mechanism; at 1 it would reorder exactly the results you would have got anyway. |

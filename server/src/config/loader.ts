@@ -670,9 +670,28 @@ export interface ResolvedStorageConfig {
 const STORAGE_AREAS = ['total', 'files', 'brain'] as const;
 const STORAGE_TIERS = [['soft', 'softLimitGiB'], ['hard', 'hardLimitGiB']] as const;
 
-/** `STORAGE_TOTAL_HARD_GIB` etc. Spelled out rather than derived, so the names are greppable. */
+/**
+ * The six storage pins, written out.
+ *
+ * The comment here used to claim they were "spelled out rather than derived, so the names are greppable"
+ * while the function derived them from `area` and `tier` — so none of the six existed anywhere in the
+ * source, `grep STORAGE_TOTAL_HARD_GIB` found nothing, and the doc-coverage gate could not tell them from
+ * names that do not exist. Same fix as `SLOT_ENV_VARS` in the egress policy: six literals is the price of
+ * a setting an operator can search for.
+ */
+const STORAGE_ENV_NAMES: Record<string, string> = {
+  'total.soft': 'STORAGE_TOTAL_SOFT_GIB',
+  'total.hard': 'STORAGE_TOTAL_HARD_GIB',
+  'files.soft': 'STORAGE_FILES_SOFT_GIB',
+  'files.hard': 'STORAGE_FILES_HARD_GIB',
+  'brain.soft': 'STORAGE_BRAIN_SOFT_GIB',
+  'brain.hard': 'STORAGE_BRAIN_HARD_GIB',
+};
+
+/** `STORAGE_TOTAL_HARD_GIB` etc., from the table above. */
 function storageEnvName(area: string, tier: string): string {
-  return `STORAGE_${area.toUpperCase()}_${tier.toUpperCase()}_GIB`;
+  return STORAGE_ENV_NAMES[`${area}.${tier}`]
+    ?? `STORAGE_${area.toUpperCase()}_${tier.toUpperCase()}_GIB`;
 }
 
 export function getStorageConfig(): ResolvedStorageConfig | undefined {

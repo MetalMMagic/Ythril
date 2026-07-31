@@ -144,20 +144,55 @@ describe('HelpComponent', () => {
       expect(fetched).not.toContain('assets/docs/integration-guide.md');
     });
 
-    it('a link to a document the page does not offer keeps its default behaviour', async () => {
-      // Swallowing it would make a dead link silently do nothing, which is harder to report than a
-      // visible failure.
+    it('a link into a SPLIT guide opens that guide', async () => {
+      // The old pattern accepted a bare filename only, so every link into `integration-guide/` fell
+      // through to the browser — which resolves it against /settings/help, finds no route, and lands the
+      // reader on Brain. A documentation link that moves you to a different page is worse than a dead one.
+      const s = withHtml('<a href="integration-guide/04-brain-api.md#schema-validation">see</a>');
+      await flush();
+      s.f.detectChanges();
+      const ev = clickLink(s.f);
+      expect(ev.defaultPrevented).toBe(true);
+      expect(s.c.active()).toBe('integration-guide');
+    });
+
+    it('a link to a document the page does not offer opens in a new tab, never in the router', async () => {
+      // Previously this "kept its default behaviour", which sounds harmless and is not: the router
+      // swallows the relative href and redirects to Brain.
+      const open = vi.spyOn(window, 'open').mockImplementation(() => null);
       const s = withHtml('<a href="secret-notes.md">see</a>');
       await flush();
       s.f.detectChanges();
-      expect(clickLink(s.f).defaultPrevented).toBe(false);
+      expect(clickLink(s.f).defaultPrevented).toBe(true);
+      expect(open).toHaveBeenCalledWith('assets/docs/secret-notes.md', '_blank', 'noopener,noreferrer');
+      open.mockRestore();
     });
 
-    it('an external link is left entirely alone', async () => {
+    it('an external link opens in a new tab rather than unloading the app', async () => {
+      // The guide is a reference someone reads WHILE working. A same-tab navigation throws away whatever
+      // they had open, and `noopener,noreferrer` keeps the new page from reaching back through it.
+      const open = vi.spyOn(window, 'open').mockImplementation(() => null);
       const s = withHtml('<a href="https://example.com/x">out</a>');
       await flush();
       s.f.detectChanges();
-      expect(clickLink(s.f).defaultPrevented).toBe(false);
+      expect(clickLink(s.f).defaultPrevented).toBe(true);
+      expect(open).toHaveBeenCalledWith('https://example.com/x', '_blank', 'noopener,noreferrer');
+      open.mockRestore();
+    });
+
+    it('a modified click is left for the browser to handle', async () => {
+      // Ctrl/cmd-click already means "new tab". Intercepting it would replace the reader's intent with
+      // ours, and they may have meant a background tab.
+      const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+      const s = withHtml('<a href="https://example.com/x">out</a>');
+      await flush();
+      s.f.detectChanges();
+      const a2 = (s.f.nativeElement as HTMLElement).querySelector('.doc article a')!;
+      const ev = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0, ctrlKey: true });
+      a2.dispatchEvent(ev);
+      expect(ev.defaultPrevented).toBe(false);
+      expect(open).not.toHaveBeenCalled();
+      open.mockRestore();
     });
 
     it('a ctrl/cmd-click is never swallowed — open-in-new-tab still works', async () => {

@@ -225,16 +225,37 @@ export class HelpComponent implements OnInit {
       return;
     }
 
-    // A relative `<file>.md` (optionally with its own #anchor) — only if that guide is actually offered.
-    const crossDoc = /^(?:\.\/)?([a-z0-9-]+)\.md(?:#(.*))?$/i.exec(href);
+    // A relative markdown link, at any depth: `userguide.md`, `./userguide.md`, `../integration-guide.md`,
+    // `integration-guide/04-brain-api.md#schema-validation`.
+    //
+    // The depth matters now that a guide is split across a subdirectory. The old pattern only accepted a
+    // bare filename, so every link into `integration-guide/` fell through — and "falling through" is not
+    // the harmless default it reads as: the browser resolves the relative href against `/settings/help`,
+    // the router finds no route, and the wildcard lands the reader on **Brain**. A documentation link
+    // that dumps you on a different page is worse than one that does nothing.
+    const crossDoc = /^(?:\.{0,2}\/)*([a-z0-9-]+(?:\/[a-z0-9-]+)*\.md)(?:#(.*))?$/i.exec(href);
     if (crossDoc) {
-      const target = HELP_DOCS.find(d => d.file === `${crossDoc[1]}.md`);
-      // An unoffered target keeps its default behaviour rather than being silently swallowed: a dead
-      // link that visibly does nothing is easier to report than one that is quietly ignored.
-      if (!target) return;
       ev.preventDefault();
-      this.open(target.id, crossDoc[2]);
+      const path = crossDoc[1]!;
+      const target = HELP_DOCS.find(d =>
+        d.file === path || ('parts' in d && (d.parts as readonly string[]).includes(path)));
+      if (target) { this.open(target.id, crossDoc[2]); return; }
+      // A markdown file this page does not offer. `help-docs-coverage` should make that impossible, but
+      // if it happens the reader gets the raw document in a new tab rather than being silently moved.
+      this.openExternally(`assets/docs/${path}${crossDoc[2] ? `#${crossDoc[2]}` : ''}`);
+      return;
     }
+
+    // Anything else — an absolute URL, a mailto:, a link to a repo file. A same-tab navigation would
+    // unload the app and lose whatever the reader was doing; the guide is a reference they are reading
+    // *while* working.
+    ev.preventDefault();
+    this.openExternally(href);
+  }
+
+  /** Open in a new tab, without handing the opener over. */
+  private openExternally(url: string): void {
+    window.open(url, '_blank', 'noopener,noreferrer');
   }
 
   /** Bring a heading into view by its slug id. Missing ids are a no-op — a stale anchor in a document

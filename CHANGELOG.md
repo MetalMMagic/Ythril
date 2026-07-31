@@ -76,6 +76,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A link in a guide could dump you on the Brain page.** Reported by the owner. Any link the Help
+  page did not recognise "kept its default behaviour" — which sounds harmless and is not: the browser
+  resolves the relative href against `/settings/help`, the router matches nothing, and the wildcard
+  lands the reader on **Brain**. A documentation link that moves you somewhere unrelated is worse than
+  one that does nothing.
+  - Two populations hit it. **External links** unloaded the whole app in the same tab — a guide is a
+    reference someone reads *while* working, so that throws away whatever they had open. And **links
+    into a subdirectory** were never matched at all: the pattern accepted a bare filename only, so
+    every `integration-guide/NN-part.md#anchor` fell through. That second population is one I created
+    hours earlier by splitting the guide.
+  - Now: an in-document anchor scrolls; a markdown link at **any depth** resolves to the guide that
+    owns it — including a part of a split guide — and opens it; anything else opens in a **new tab**
+    with `noopener,noreferrer`. Nothing reaches the router. A ctrl/cmd-click is still left to the
+    browser, because the reader may have meant a background tab.
+  - Both tests that previously pinned this behaviour asserted the broken half — *"keeps its default
+    behaviour"* and *"is left entirely alone"*. They now assert the tab.
+
 - **The shipped guides have never been styled.** Not badly styled — **unstyled**. The Help page and the
   Markdown file preview both render through `[innerHTML]`, and Angular's emulated encapsulation stamps
   `_ngcontent-*` only on elements the TEMPLATE creates. So `.doc p` compiled to `.doc p[_ngcontent-xyz]`

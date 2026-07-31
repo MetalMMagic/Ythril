@@ -110,6 +110,16 @@ export function fileEmbedText(
   description?: string,
   properties?: Record<string, string | number | boolean>,
   entityNames: string[] = [],
+  /**
+   * A converted document's own opening prose, when it has one.
+   *
+   * Appended rather than replacing the description because the two answer different questions. Once
+   * `description` became generated prose, a search for a phrase the reader remembers *from the document*
+   * had nothing to match on the parent record — the extractive text used to be the description, and
+   * generating one would have quietly removed it from the embedding. Last, so the fields that identify
+   * the record still lead.
+   */
+  excerpt?: string,
 ): string {
   const parts: string[] = [filePath];
   if (entityNames.length > 0) parts.push(entityNames.join(' '));
@@ -119,5 +129,10 @@ export function fileEmbedText(
     const vals = Object.values(properties).map(v => String(v)).filter(v => v.trim());
     if (vals.length > 0) parts.push(vals.join(' '));
   }
+  // Skipped when it merely repeats the description — which is exactly the case on an instance with no
+  // model configured, where the extractive text IS the description. Embedding it twice would weight one
+  // paragraph of one record against everything else in the space.
+  const trimmedExcerpt = excerpt?.trim();
+  if (trimmedExcerpt && trimmedExcerpt !== description?.trim()) parts.push(trimmedExcerpt);
   return parts.join(' ');
 }

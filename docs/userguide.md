@@ -350,6 +350,20 @@ Clicking a file opens a **docked detail pane** to the right of the list (the lis
 
   A **full-screen** button (top-right of the preview) expands the preview to fill the window; **Escape** or its close button collapses it back to the docked pane.
 
+  **Where the description came from.** For an uploaded document Ythril writes one itself, and labels it so
+  you know whose words you are reading:
+
+  - **generated** — the model configured for documents answered *what is this file?* from the file's own
+    text. Nobody has checked it, which is what the label is for.
+  - **from the document** — the opening of the document's own text, taken verbatim. This is what an
+    instance with no document model configured produces.
+  - **no label** — a person wrote it. Editing the description on the **File meta** side removes any label,
+    because the words become yours.
+
+  The document's own opening text is kept either way and is searchable, so a phrase you remember from
+  inside a file still finds it — even when the description is a generated summary that does not contain
+  that phrase.
+
 - **File meta** *(in the Brain)* — the editable metadata record: **description**, **tags**, and links to **entities**, **memories** and **chrono** entries, plus a **Retry** action to re-queue embedding for a failed or partial file. This is where the former *File Meta* tab's editing now lives. (On the standalone Files page, outside the Brain, the pane shows preview + description only.)
 
 Press **Escape** or the close button to dismiss the pane. Use arrow keys to move to the previous or next file in the directory.

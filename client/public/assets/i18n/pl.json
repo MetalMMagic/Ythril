@@ -587,6 +587,14 @@
   "files.detail.previewTab": "Podgląd i opis",
   "files.detail.metaTab": "Metadane pliku",
   "files.detail.description": "Opis",
+
+  "files.detail.descriptionSource.generated": "wygenerowany",
+
+  "files.detail.descriptionSource.generatedHint": "Napisany przez model skonfigurowany dla dokumentów, na podstawie tekstu pliku. Nie został sprawdzony przez człowieka.",
+
+  "files.detail.descriptionSource.extracted": "z dokumentu",
+
+  "files.detail.descriptionSource.extractedHint": "Początek tekstu dokumentu, przepisany dosłownie — nie skonfigurowano modelu do pisania opisów.",
   "files.detail.metaSaved": "Zapisano metadane.",
   "files.detail.retryQueued": "Ponowne osadzanie w kolejce.",
   "files.detail.retryFailed": "Ponowna próba nie powiodła się:",

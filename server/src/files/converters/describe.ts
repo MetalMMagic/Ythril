@@ -1,0 +1,166 @@
+/**
+ * The converted document's description — generated prose, with the document's own words as the fallback.
+ *
+ * ## What was wrong
+ *
+ * `summariseMarkdown` (which this wraps) is **extractive**: it takes the head of the converted text. That
+ * was the right first move — it made the parent record findable, where before its `matchedText` was
+ * literally the filename — but on a real invoice the head of the text is a payment reference cut
+ * mid-identifier, and the release note called the field *generated*. The images the same document produced
+ * DO get generated captions, so the parent read as unfinished sitting beside its own children.
+ *
+ * ## What changed, and what deliberately did not
+ *
+ * `summariseMarkdown`'s own doc comment argues against generation, and the argument still holds: a
+ * generated description can assert something the document does not say, and search will match it while a
+ * reader believes it. So the extractive text does not go away — it is kept as the record's `excerpt`, which
+ * is what feeds the embedding. The two fields want different things:
+ *
+ *   - `description`   — one short generated paragraph answering *what is this file?*
+ *   - `excerpt`       — the document's own opening prose, never invented, always present
+ *   - `matchedText`   — built from both, so recall matches a remembered phrase AND the semantics
+ *
+ * And because "generated" is a claim about provenance, the record says which one it got:
+ * `descriptionSource: 'generated' | 'extracted'`. An instance with no model configured produces the
+ * extractive text — which beats nothing — and must not call it generated.
+ *
+ * ## Egress
+ *
+ * Text goes to the local document model, or to the operator's assist model **only when its egress host is
+ * acknowledged** — the same gate `vlm-extract` re-checks before routing a repair, re-checked here rather
+ * than trusted, so a description can never become the thing that leaks a document. Both slots already
+ * receive document text on the repair path; this adds no new egress surface.
+ */
+
+import { getDocumentProcessingConfig, getDocAssistApiKey } from '../../config/loader.js';
+import { log } from '../../util/log.js';
+import { describeDocumentText } from './vlm-client.js';
+import { resolveVlmEndpoint, vlmSlotUsable } from './vlm-endpoint.js';
+import { summariseMarkdown } from './summarise.js';
+import type { Chunk } from './types.js';
+
+/** Where a description came from. `extracted` is the document's own opening text, taken verbatim. */
+export type DescriptionSource = 'generated' | 'extracted';
+
+export interface DocumentDescription {
+  /** Absent when the document yielded nothing worth saying — better than a misleading sentence. */
+  text?: string;
+  source?: DescriptionSource;
+  /** The document's own opening prose. Present whenever the text yielded any, whatever `source` says. */
+  excerpt?: string;
+}
+
+/**
+ * How much of the document the model is shown.
+ *
+ * The head, because that is where identity lives — letterhead, title, parties, date, subject line. Sending
+ * the whole document would cost tokens on every upload to answer a question the first page answers, and on
+ * a metered assist model it would cost money per page nobody reads.
+ */
+const MAX_INPUT_CHARS = 6_000;
+
+/** Long enough for two real sentences, short enough that a rambling model cannot fill the card. */
+const MAX_DESCRIPTION_CHARS = 400;
+
+/** A tight budget: this is on the ingest path, and the extractive fallback is always available. */
+const DESCRIBE_TIMEOUT_MS = 30_000;
+
+/**
+ * Openings that mean the model answered the wrong question.
+ *
+ * A refusal or a preamble stored as a description is worse than the extractive text, because it reads as
+ * content. Matched at the START only — a document that genuinely discusses an AI assistant must not be
+ * refused its description.
+ */
+const NON_ANSWER = /^(?:i'?m sorry|i cannot|i can'?t|as an ai|here'?s|here is|certainly|of course|okay|understood|sure)(?=[\s,!.:;]|$)/i;
+
+/**
+ * Clean up what a chat model returns so it can be stored as prose.
+ *
+ * Models wrap answers in quotes, prefix them with `Description:`, or emit a Markdown heading despite being
+ * told not to. Returns undefined when nothing usable survives — the caller then keeps the extractive text.
+ */
+export function sanitiseDescription(raw: string): string | undefined {
+  let s = (raw ?? '')
+    .replace(/^\s*```[a-z]*\s*/i, '').replace(/```\s*$/, '')   // fenced block
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '')                        // heading markers
+    .replace(/^\s*(description|summary)\s*:\s*/i, '')          // label the prompt asked it not to write
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^["'“”'']+|["'“”'']+$/g, '')                     // wrapping quotes
+    .trim();
+  if (!s) return undefined;
+  if (NON_ANSWER.test(s)) return undefined;
+  // No letters means no sentence — a model that answered with punctuation or an empty list.
+  if (!/[a-zA-Z]/.test(s)) return undefined;
+  if (s.length > MAX_DESCRIPTION_CHARS) {
+    const cut = s.slice(0, MAX_DESCRIPTION_CHARS);
+    const lastStop = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf('? '));
+    // Prefer ending on a sentence; failing that a word. A description ending mid-word looks like corruption.
+    s = lastStop > MAX_DESCRIPTION_CHARS * 0.5
+      ? cut.slice(0, lastStop + 1)
+      : `${cut.slice(0, cut.lastIndexOf(' ')).trimEnd()}…`;
+  }
+  return s;
+}
+
+/**
+ * The endpoint a description may be sent to, or null when there is none.
+ *
+ * Exported because "which host, and was it acknowledged" is the whole security-relevant decision here, and
+ * it is worth testing on its own rather than only through a call that needs a live model.
+ */
+export function describeTarget(): { baseUrl: string; model: string; wire?: 'ollama' | 'openai'; external?: boolean; apiKey?: string; slot: 'docRepair' | 'assist' } | null {
+  const cfg = getDocumentProcessingConfig();
+  const assist = cfg.assistModel;
+  if (assist?.baseUrl && assist.model) {
+    // The ACK is the gate, re-checked here rather than trusted from save time — the same rule the repair
+    // path applies, for the same reason: config.json could have been hand-edited.
+    let acknowledged = false;
+    try { acknowledged = assist.acknowledgedHost === new URL(assist.baseUrl).host; } catch { acknowledged = false; }
+    if (acknowledged) {
+      return { baseUrl: assist.baseUrl, model: assist.model, wire: 'openai', external: true, apiKey: getDocAssistApiKey(), slot: 'assist' };
+    }
+    log.debug('Describe: an assist model is configured but its egress host is not acknowledged — using the local document model');
+  }
+  const local = resolveVlmEndpoint('repair');
+  if (!vlmSlotUsable(local)) return null;
+  return { ...local, slot: 'docRepair' };
+}
+
+/**
+ * Describe a converted document: generated prose when a model is available, its own opening text otherwise.
+ *
+ * Never throws. A description is a nicety on the ingest path — a model that is down, slow or babbling must
+ * degrade to the extractive text, not fail the upload.
+ */
+export async function describeDocument(
+  markdown: string | null,
+  chunks: Chunk[] = [],
+): Promise<DocumentDescription> {
+  const excerpt = summariseMarkdown(markdown, chunks);
+  const body = (markdown && markdown.trim())
+    ? markdown
+    : chunks.map(c => [c.headingText, c.content].filter(Boolean).join('. ')).join('\n\n');
+  if (!body.trim()) return {};
+
+  const target = describeTarget();
+  if (!target) {
+    // No model anywhere. The extractive head beats nothing — it just must not be called generated.
+    return excerpt ? { text: excerpt, source: 'extracted', excerpt } : {};
+  }
+
+  try {
+    const r = await describeDocumentText({
+      ...target,
+      text: body.slice(0, MAX_INPUT_CHARS),
+      timeoutMs: DESCRIBE_TIMEOUT_MS,
+    });
+    const text = sanitiseDescription(r.text);
+    if (text) return { text, source: 'generated', excerpt };
+    log.debug('Describe: the model returned nothing usable — keeping the document\'s own opening text');
+  } catch (err) {
+    log.warn(`Describe: ${err instanceof Error ? err.message : String(err)} — keeping the document's own opening text`);
+  }
+  return excerpt ? { text: excerpt, source: 'extracted', excerpt } : { excerpt };
+}

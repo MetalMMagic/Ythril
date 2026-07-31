@@ -587,6 +587,14 @@
   "files.detail.previewTab": "Vorschau & Beschreibung",
   "files.detail.metaTab": "Datei-Metadaten",
   "files.detail.description": "Beschreibung",
+
+  "files.detail.descriptionSource.generated": "generiert",
+
+  "files.detail.descriptionSource.generatedHint": "Vom konfigurierten Dokumentmodell aus dem Text der Datei geschrieben. Nicht von einer Person geprüft.",
+
+  "files.detail.descriptionSource.extracted": "aus dem Dokument",
+
+  "files.detail.descriptionSource.extractedHint": "Der Anfang des Dokumenttexts, wörtlich übernommen — es war kein Modell für Beschreibungen konfiguriert.",
   "files.detail.metaSaved": "Metadaten gespeichert.",
   "files.detail.retryQueued": "Neu-Einbettung eingereiht.",
   "files.detail.retryFailed": "Wiederholung fehlgeschlagen:",

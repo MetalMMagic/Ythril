@@ -504,7 +504,9 @@ searchRouter.post('/spaces/:spaceId/reindex', globalRateLimit, requireSpaceAuth,
                       .toArray() as Array<{ name: string }>
                   : [];
                 const entityNames = entityDocs.map(e => e.name);
-                const result = await embed(fileEmbedText(doc.path, doc.tags ?? [], doc.description, doc.properties, entityNames));
+                // `excerpt` included, or a reindex would silently re-embed every converted document
+                // without the document's own text — dropping exactly the phrases a reader searches for.
+                const result = await embed(fileEmbedText(doc.path, doc.tags ?? [], doc.description, doc.properties, entityNames, doc.excerpt));
                 await col<FileMetaDoc>(`${mid}_files`).updateOne(
                   { _id: doc._id },
                   { $set: { embedding: result.vector, embeddingModel: result.model } },

@@ -371,6 +371,10 @@ export interface FileMeta {
   spaceId: string;
   path: string;
   description?: string;
+  /** Where an instance-written `description` came from. Absent when a person wrote it. */
+  descriptionSource?: 'generated' | 'extracted';
+  /** A converted document's own opening prose — kept whatever the description says, and embedded. */
+  excerpt?: string;
   tags: string[];
   entityIds?: string[];
   chronoIds?: string[];

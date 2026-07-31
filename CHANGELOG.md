@@ -76,6 +76,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A converted document's "description" was a truncation, not the generated prose the release note
+  promised.** It was the head of the converted text — on a real invoice, a payment reference cut
+  mid-identifier — while the images extracted from the same document carried full generated captions. The
+  parent record read as unfinished beside its own children. Reported by the canary.
+  - **The description is now written by the model that already reads these files**, answering *what is this
+    file?* — kind of document, parties, date, subject. Local document model, or the assist model when its
+    egress host is acknowledged; neither receives anything it would not already get on the repair pass, and
+    the acknowledgment is re-checked at call time rather than trusted from save time.
+  - **The document's own opening text is kept as `excerpt`** and stays an embedding input. That matters more
+    than it sounds: the extractive text *was* the description, so generating one would have quietly removed
+    the document's own words from what recall matches — a phrase you remember from inside a file would stop
+    finding it.
+  - **`descriptionSource` says which one an instance produced** (`generated` / `extracted`), because that is
+    a claim about provenance and the release note had already made it wrongly once. An instance with no
+    model configured gets the extractive text, which beats nothing — it just is not called generated. A
+    description a person writes clears the label, and the Files detail pane shows it beside the heading.
+    Image captions are labelled too; they always were model output.
+  - A model answer is cleaned up and sanity-checked before it is stored: quotes, `Description:` labels and
+    Markdown scaffolding are stripped, and a refusal or a preamble is rejected in favour of the extractive
+    text rather than stored as if it were content.
+
 - **One server, three incompatible base URLs.** Five model slots each derived their own request URL, and
   they disagreed: vision appended `/chat/completions`, so its base *had* to carry `/v1`; the assist model
   appended `/v1/chat/completions` and text embedding appended `/v1/embeddings`, so theirs had to *not*

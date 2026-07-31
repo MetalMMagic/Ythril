@@ -148,13 +148,19 @@ describe('the worker wires it to the parent record', () => {
   const w = strip(WORKER);
 
   it('the document path sets derivedDescription', () => {
-    assert.match(w, /derivedDescription = summariseMarkdown\(convertedMarkdown, chunks\)/);
+    // Through `describeDocument` now, which asks a model what the file IS and keeps this extractive text
+    // as the record's excerpt and its fallback. The rest of this file still pins the extraction itself —
+    // it is the value an instance with no model configured gets, so it never stopped mattering.
+    // See document-description.test.js for the generated half.
+    assert.match(w, /const described = await describeDocument\(convertedMarkdown, chunks\)/);
+    assert.match(w, /derivedDescription = described\.text/);
   });
 
   it('through the SAME writer images use, which respects an operator-set description', () => {
     // Not a second write path: an operator-written description must outrank a generated one, and that
     // rule already lives in the existing block.
-    assert.match(w, /if \(!parentMeta\?\.description\?\.trim\(\)\)/);
-    assert.match(w, /updateFileMeta\(spaceId, filePath, \{ description: derivedDescription \}\)/);
+    assert.match(w, /const operatorWrote = !!parentMeta\?\.description\?\.trim\(\)/);
+    assert.match(w, /updateFileMeta\(spaceId, filePath, update\)/);
+    assert.match(w, /operatorWrote \|\| !derivedDescription \? \{\} : \{ description: derivedDescription/);
   });
 });

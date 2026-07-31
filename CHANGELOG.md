@@ -63,6 +63,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     their infrastructure and their licence decision, and the boundary is asserted so that adding a
     default to one of those slots reads as a change of category rather than a config tweak.
 
+- **The private-address permission is now per endpoint, not per instance.**
+  `allowPrivateModelEndpointsBySlot` (and `YTHRIL_ALLOW_PRIVATE_<SLOT>` for each of the ten model slots),
+  resolved **per-slot → instance-wide → closed**.
+  - `allowPrivateModelEndpoints` was all-or-nothing, which is the wrong shape for the deployment that
+    prompted this: every model on the operator's own infra except one that genuinely lives on the public
+    internet. Reaching the internal nine required turning the flag on — which also relaxed the guard on
+    the tenth, the single endpoint where a private-address resolution is a red flag rather than a
+    convenience. The flag made the whole estate's posture a function of its least-strict member.
+  - A per-slot value wins **in both directions**, and the second direction is the feature:
+    `{ "assist": false }` under a global `true` keeps the one external endpoint strict. A design where
+    per-slot could only widen would not have addressed the report at all.
+  - **Save time and probe time resolve the same permission the inference client will.** Previously all
+    three read one global answer; per-slot, disagreeing would mean a green Test Connection on a call that
+    is then refused, or the reverse. `probeModelEndpoint` now takes a **required** `slot` — a default
+    would have it report a verdict computed under some other endpoint's policy — and `endpointId` folds
+    the resolved permission into the grouping key, so two stages that share a base URL but not a policy
+    are probed separately instead of one answering for the other.
+  - **No setting here reaches the crown jewels.** Loopback, link-local / cloud IMDS and the unspecified
+    address stay blocked for every slot at both admission points, including via DNS rebinding. Tested
+    with every slot permission simultaneously on.
+  - **Env/config only**, like the flag it refines: an endpoint that becomes an egress target must not be
+    widenable from the admin API, and a test asserts the key never appears in the config route.
+  - Rejection messages name the exact knob for the slot that was refused — and say nothing when that slot
+    *already* permits private addresses, because then the refusal was a crown jewel and no setting lifts
+    it. Telling an operator to enable a flag that is already on is how a support round-trip starts.
+  - The security posture now reports **per endpoint**: `egress.privateModelEndpoints` (the permission is
+    actually in use), `egress.unreachableModelEndpoints` (configured privately with no permission for its
+    slot — cannot work, and fails at inference rather than at save) and `egress.perSlotOverrides` (slots
+    departing from the instance-wide flag, so the endpoint deliberately kept strict is visible rather
+    than implied). All three can appear at once; the old if/else on one boolean could only ever show one.
+  - The exposure enumeration went from **four endpoints to all ten** — the reranker, contradiction judge,
+    external face model and three document stages were admin-configurable egress targets the posture
+    never mentioned. A check that enumerates a subset reports "nothing else is exposed" by omission.
+
 ### Fixed
 
 - **A converted document had no description, while its extracted images all had captions.** Reported

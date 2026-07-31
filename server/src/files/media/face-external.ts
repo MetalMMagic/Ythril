@@ -1,6 +1,6 @@
 import { ssrfSafeFetch } from '../../util/ssrf.js';
 import { getConfig, getSecrets } from '../../config/loader.js';
-import { allowPrivateModelEndpoints } from '../../config/model-egress-policy.js';
+import { allowPrivateForSlot } from '../../config/model-egress-policy.js';
 import { log } from '../../util/log.js';
 
 /** One detected face, in exactly the shape the in-process recogniser produces. */
@@ -77,7 +77,7 @@ export async function detectFacesExternal(imageBytes: Buffer): Promise<ExternalF
       // guard stays on — DNS-resolve, IP-pin and redirect re-validation all still apply; only the
       // private-address rejection lifts. Without this the WRITE check accepts such an endpoint and every
       // call then fails, which is a configurable feature that silently does not work.
-      allowPrivate: allowPrivateModelEndpoints(),
+      allowPrivate: allowPrivateForSlot('faceExternal'),
     });
     if (!res.ok) {
       log.warn(`External face model: HTTP ${res.status} — falling back to in-process recognition`);

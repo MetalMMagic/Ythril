@@ -104,12 +104,16 @@ describe('the embedder falls back instead of dropping faces', () => {
 describe('the external face endpoint honours the egress policy', () => {
   const src = readFileSync(new URL('../../server/src/files/media/face-external.ts', import.meta.url), 'utf8');
 
-  it('passes allowPrivateModelEndpoints to the guard', () => {
+  it('passes the private-endpoint policy for its own slot to the guard', () => {
     // Without it the guard rejects a self-hosted recogniser on a cluster address at RUNTIME, even though
     // the write path accepted it — a configurable feature that silently does not work. That was the one
     // real finding of the 2026-07-29 audit, and it was in this file.
-    assert.ok(src.includes('allowPrivate: allowPrivateModelEndpoints()'),
-      'the operator private-endpoint policy must reach the fetch');
+    //
+    // Slot-scoped since the per-endpoint permission landed, and this is the slot where that matters most:
+    // the payload is face crops, i.e. biometric data. An operator widening egress for their embedding
+    // server has said nothing about where biometrics may go.
+    assert.ok(src.includes("allowPrivate: allowPrivateForSlot('faceExternal')"),
+      'the operator private-endpoint policy for the faceExternal slot must reach the fetch');
   });
 
   it('is an EXTERNAL provider, so it is guarded rather than plain-fetched', () => {

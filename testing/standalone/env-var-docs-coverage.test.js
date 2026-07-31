@@ -73,6 +73,20 @@ function collectUsage() {
     const src = readFileSync(f, 'utf8');
     for (const re of READ_PATTERNS) for (const m of src.matchAll(re)) add(m[1], f);
 
+    // Env names held in a lookup table and read as `process.env[TABLE[key]]`.
+    //
+    // Same class of miss as the helper calls above, and added for the same reason. The per-slot egress
+    // permissions are ten variables whose names live in one `Record<Slot, string>`; every one is really
+    // read, just not at a `process.env['LITERAL']` site. Without this the scan would call all ten
+    // phantoms and the honest fix — writing the names out so an operator can grep them — would be what
+    // triggered the failure.
+    //
+    // Gated on the file actually indexing `process.env` with a non-literal, so a module that merely
+    // MENTIONS a variable name in prose or an error message does not get credit for reading it.
+    if (/process\.env\[\s*[A-Za-z_$]/.test(src)) {
+      for (const m of src.matchAll(/['"]((?:YTHRIL_|MONGO_|MCP_|OIDC_)[A-Z0-9_]{2,})['"]/g)) add(m[1], f);
+    }
+
     // Compose / Dockerfile interpolation: ${VAR} and ${VAR:-default}.
     //
     // ONLY for those files. Applying it to TypeScript matches ordinary template-literal

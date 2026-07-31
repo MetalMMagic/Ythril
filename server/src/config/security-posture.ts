@@ -9,7 +9,7 @@
  */
 import { getConfig, getMongoUri, atRestEncryptionActive } from './loader.js';
 import { requireEncryptedTransport, allowInsecurePeersRaw } from './transport-security.js';
-import { allowPrivateModelEndpoints } from './model-egress-policy.js';
+import { allowPrivateModelEndpoints, egressSlotOverrides } from './model-egress-policy.js';
 import { allowPrivateOidcIssuer } from './oidc-egress-policy.js';
 import { modelEndpointExposure, formatExposure, classifyEndpoint } from './model-egress-exposure.js';
 import { publicBaseUrlIsFallback } from './public-url.js';
@@ -112,30 +112,61 @@ export function computeSecurityPosture(): SecurityPosture {
   // set; "vision → 10.1.2.3 (private)" tells them what it actually reaches, which is the thing that
   // makes this check load-bearing. A hostname is named as a hostname — only the resolution-time guard
   // knows where it points, and claiming otherwise here would be a guess.
-  if (allowPrivateModelEndpoints()) {
+  //
+  // Split PER ENDPOINT rather than by the instance-wide flag, because the two conditions below are no
+  // longer mutually exclusive. Once each slot carries its own permission, the intended deployment — every
+  // model on the operator's own infra except one that is genuinely on the public internet — has widened
+  // endpoints and strict endpoints at the same time. An if/else on one global boolean would report only
+  // whichever branch the flag happened to select and stay silent about the other half of the estate.
+  {
     const exposure = modelEndpointExposure();
-    const privateOnes = exposure.filter(e => e.klass === 'private');
-    const unresolved = exposure.filter(e => e.klass === 'hostname');
-    checks.push(exposure.length === 0
-      ? {
-          id: 'egress.privateModelEndpoints',
-          level: 'warn',
-          message: 'allowPrivateModelEndpoints is on but no external model/media endpoint is configured — nothing is using the permission.',
-        }
-      : {
-          id: 'egress.privateModelEndpoints',
-          level: 'warn',
-          message: `allowPrivateModelEndpoints is on. ${formatExposure(exposure)}. ${exposureCount(privateOnes.length, unresolved.length, exposure.length)} SSRF guarding, IP-pinning and redirect re-validation still apply; loopback, link-local/IMDS and cloud-metadata addresses stay blocked.`,
-        });
-  } else {
-    // Flag off, but an endpoint may still be pointed at a private literal — that config cannot work, and
-    // silently failing at inference is exactly what the reporter hit. Say so.
-    const stuck = modelEndpointExposure().filter(e => e.klass === 'private' || e.klass === 'invalid');
-    if (stuck.length > 0) {
+    // Endpoints the permission is actually doing something for: a private literal, or a hostname that
+    // might resolve to one. A public endpoint under a widened slot is not using the permission.
+    const widened = exposure.filter(e => e.allowsPrivate && (e.klass === 'private' || e.klass === 'hostname'));
+    // Endpoints configured privately with NO permission for their slot. These cannot work: the call is
+    // refused at request time, which surfaces as a model that is "configured" and silently never answers.
+    const stuck = exposure.filter(e => !e.allowsPrivate && (e.klass === 'private' || e.klass === 'invalid'));
+
+    if (widened.length > 0) {
+      const privateOnes = widened.filter(e => e.klass === 'private');
+      const unresolved = widened.filter(e => e.klass === 'hostname');
       checks.push({
         id: 'egress.privateModelEndpoints',
         level: 'warn',
-        message: `External model endpoint(s) point at addresses this instance will refuse to call: ${formatExposure(stuck)}. Set allowPrivateModelEndpoints (or YTHRIL_ALLOW_PRIVATE_MODEL_ENDPOINTS=true) for a self-hosted endpoint on a private address; cloud-metadata addresses stay blocked regardless.`,
+        message: `Private model endpoints are permitted for: ${formatExposure(widened)}. ${exposureCount(privateOnes.length, unresolved.length, widened.length)} SSRF guarding, IP-pinning and redirect re-validation still apply; loopback, link-local/IMDS and cloud-metadata addresses stay blocked.`,
+      });
+    } else if (allowPrivateModelEndpoints()) {
+      checks.push({
+        id: 'egress.privateModelEndpoints',
+        level: 'warn',
+        message: 'allowPrivateModelEndpoints is on but no configured model/media endpoint is using the permission — every one of them is public, or none is configured.',
+      });
+    }
+
+    if (stuck.length > 0) {
+      // Its own check id, not a fallback branch of the one above: with per-slot settings both can be true
+      // at once, and a single id would let one overwrite the other in any consumer keyed by it.
+      checks.push({
+        id: 'egress.unreachableModelEndpoints',
+        level: 'warn',
+        message: `Model endpoint(s) point at addresses this instance will refuse to call: ${formatExposure(stuck)}. Permit a self-hosted endpoint on a private address per slot (allowPrivateModelEndpointsBySlot / YTHRIL_ALLOW_PRIVATE_<SLOT>=true) or instance-wide (allowPrivateModelEndpoints); cloud-metadata addresses stay blocked regardless.`,
+      });
+    }
+  }
+
+  // Slots whose permission departs from the instance-wide flag. Reported as a `pass`, not a warning: this
+  // is the operator having been MORE precise than the global flag allows, and the whole point of naming it
+  // is that a per-slot `false` under a global `true` is otherwise invisible — nothing else in the posture
+  // would ever mention the one endpoint they deliberately kept strict.
+  {
+    const overrides = egressSlotOverrides();
+    if (overrides.length > 0) {
+      checks.push({
+        id: 'egress.perSlotOverrides',
+        level: 'pass',
+        message: `Per-endpoint egress permissions differ from the instance-wide setting for: ${
+          overrides.map(o => `${o.slot} (${o.allowPrivate ? 'private permitted' : 'strict'})`).join('; ')
+        }.`,
       });
     }
   }

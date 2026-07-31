@@ -109,9 +109,24 @@ describe('ssrfSafeFetch callers decide allowPrivate deliberately', () => {
     const at = src.indexOf('export async function probeModelEndpoint');
     assert.ok(at > 0, 'probeModelEndpoint should exist');
     const body = src.slice(at, at + 2000);
-    assert.match(body, /ssrfSafeFetch\([^;]*allowPrivate:\s*allowPrivateModelEndpoints\(\)/s,
-      'probeModelEndpoint must honour allowPrivateModelEndpoints, or it reports every private self-hosted ' +
-      'endpoint as blocked while inference against it actually works');
+    // Per SLOT, not instance-wide. The probe has to resolve the same permission the inference client will,
+    // and those two now differ per endpoint: an operator who kept one slot strict must see that slot's
+    // probe refuse, and an operator who widened another must see that one go through.
+    assert.match(body, /ssrfSafeFetch\([^;]*allowPrivate:\s*allowPrivateForSlot\(opts\.slot\)/s,
+      'probeModelEndpoint must honour the egress permission of the slot it is probing, or it reports a ' +
+      'private self-hosted endpoint as blocked while inference against it actually works (or the reverse)');
+  });
+
+  it('the probe cannot be called without naming its slot', () => {
+    // The failure this forecloses is a silent default. If `slot` were optional with a fallback, a new
+    // caller would inherit whichever slot the fallback names — and the probe would report a verdict
+    // computed under a policy belonging to a different endpoint. Making it required turns that into a
+    // compile error at the call site, where the answer is known.
+    const src = readFileSync(`${ROOT}/api/media-config.ts`, 'utf8');
+    const at = src.indexOf('export async function probeModelEndpoint');
+    const sig = src.slice(at, src.indexOf('): Promise<ProbeResult>', at));
+    assert.match(sig, /slot:\s*EgressSlot/, 'probeModelEndpoint must take a required `slot`');
+    assert.ok(!/slot\?:/.test(sig), '`slot` must not be optional — a default would probe under another endpoint\'s policy');
   });
 
   it('webhook delivery does NOT inherit the model opt-in', () => {
@@ -126,8 +141,12 @@ describe('ssrfSafeFetch callers decide allowPrivate deliberately', () => {
     const code = src.split('\n')
       .filter(l => { const t = l.trim(); return !t.startsWith('//') && !t.startsWith('*') && !t.startsWith('/*'); })
       .join('\n');
-    assert.ok(!code.includes('allowPrivateModelEndpoints'),
-      'webhook delivery must not consult allowPrivateModelEndpoints — a self-hosted model endpoint says ' +
-      'nothing about where a webhook may point');
+    // Both spellings: the per-slot resolver is the one a future change would actually reach for, and a
+    // check that names only the old function would wave it through.
+    for (const banned of ['allowPrivateModelEndpoints', 'allowPrivateForSlot']) {
+      assert.ok(!code.includes(banned),
+        `webhook delivery must not consult ${banned} — a self-hosted model endpoint says nothing about ` +
+        'where a webhook may point');
+    }
   });
 });

@@ -16,7 +16,7 @@
  * attacker-supplied endpoint cannot be used to reach cluster-internal services.
  */
 import { getMediaEmbeddingConfig } from '../config/loader.js';
-import { allowPrivateModelEndpoints, isLocalModelEndpoint as isLocalEndpoint } from '../config/model-egress-policy.js';
+import { allowPrivateForSlot, isLocalModelEndpoint as isLocalEndpoint } from '../config/model-egress-policy.js';
 import { ssrfSafeFetch } from '../util/ssrf.js';
 import { log } from '../util/log.js';
 
@@ -98,7 +98,7 @@ export async function classify(premise: string, hypothesis: string): Promise<Nli
   try {
     const res = isLocalEndpoint(nli.baseUrl)
       ? await fetch(url, init)
-      : await ssrfSafeFetch(url, init, { allowPrivate: allowPrivateModelEndpoints() });
+      : await ssrfSafeFetch(url, init, { allowPrivate: allowPrivateForSlot('nli') });
     if (!res.ok) {
       log.warn(`NLI classify: ${res.status} from the judge endpoint — treating as no verdict`);
       return null;

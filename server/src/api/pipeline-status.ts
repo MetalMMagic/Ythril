@@ -29,7 +29,9 @@ import { getConfig, getMediaEmbeddingConfig, getEmbeddingConfig, getEmbeddingApi
 import { requireAdmin } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { isSsrfSafeUrl } from '../util/ssrf.js';
-import { allowPrivateModelEndpoints, isLocalModelEndpoint } from '../config/model-egress-policy.js';
+import {
+  allowPrivateForSlot, EGRESS_SLOTS, isLocalModelEndpoint, type EgressSlot,
+} from '../config/model-egress-policy.js';
 import { probeModelEndpoint } from './media-config.js';
 import { resolveVlmEndpoint, type VlmWire } from '../files/converters/vlm-endpoint.js';
 import { getDb } from '../db/mongo.js';
@@ -232,9 +234,28 @@ export function hostOf(url: string | undefined): string | null {
   try { return new URL(url).host; } catch { return url; }
 }
 
-/** The key identifying one endpoint+credential pair. Stages sharing it share a single probe. */
+/**
+ * The egress slot a stage's calls belong to — what decides whether that endpoint may resolve privately.
+ *
+ * The document stages spell their keys `doc-vlm`/`doc-repair`/`doc-verify` (built as `doc-${slot}`), so
+ * this is the one place the kebab key and the camelCase policy slot are reconciled.
+ */
+export function slotForStage(key: string): EgressSlot {
+  const camel = key.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
+  return (EGRESS_SLOTS as readonly string[]).includes(camel) ? camel as EgressSlot : 'assist';
+}
+
+/**
+ * The key identifying one endpoint+credential pair. Stages sharing it share a single probe.
+ *
+ * The resolved egress permission is part of the identity, not an afterthought. Two stages can point at the
+ * same base URL and still disagree about whether it may resolve to a private address — that is precisely
+ * the per-slot setting doing its job — and collapsing them into one probe would report the strict stage's
+ * verdict using the permissive stage's policy (or the reverse). Identical policy, which is the normal case,
+ * still yields one probe.
+ */
 export function endpointId(s: StageSpec): string {
-  return `${s.baseUrl} ${s.external} ${s.apiKey ?? ''}`;
+  return `${s.baseUrl} ${s.external} ${s.apiKey ?? ''} ${allowPrivateForSlot(slotForStage(s.key))}`;
 }
 
 /**
@@ -319,7 +340,9 @@ async function probeModelStages(): Promise<ModelStageStatus[]> {
   const results = new Map<string, ProbeOutcome>();
   await Promise.all([...byEndpoint.entries()].map(async ([id, group]) => {
     const { baseUrl, external, apiKey } = group[0];
-    if (external && !isSsrfSafeUrl(baseUrl!, allowPrivateModelEndpoints())) {
+    // Every stage in the group resolved to the same permission — it is part of `endpointId`.
+    const slot = slotForStage(group[0].key);
+    if (external && !isSsrfSafeUrl(baseUrl!, allowPrivateForSlot(slot))) {
       results.set(id, { blocked: true });
       return;
     }
@@ -329,7 +352,7 @@ async function probeModelStages(): Promise<ModelStageStatus[]> {
     // `wire` is what makes the probe agree with inference. Without it every endpoint was tried as
     // `/v1/models` first, which is right for four targets and wrong for the one whose base already
     // carries `/v1` — producing `/v1/v1/models` and a red dot over a working vision pipeline.
-    const res = await probeModelEndpoint({ baseUrl: baseUrl!, apiKey, external, wire: group[0].wire })
+    const res = await probeModelEndpoint({ baseUrl: baseUrl!, apiKey, external, wire: group[0].wire, slot })
       .catch(err => ({ reachable: false, detail: err instanceof Error ? err.message : String(err), latencyMs: 0 }));
     results.set(id, res);
   }));

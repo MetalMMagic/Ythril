@@ -16,7 +16,9 @@ import type { MediaLevelCeilings } from '../config/types.js';
 import { requireAdmin, requireAdminMfa } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { isSsrfSafeUrl, ssrfSafeFetch } from '../util/ssrf.js';
-import { allowPrivateModelEndpoints, isLocalModelEndpoint } from '../config/model-egress-policy.js';
+import {
+  allowPrivateForSlot, isLocalModelEndpoint, privateAddressHint, type EgressSlot,
+} from '../config/model-egress-policy.js';
 import { listUrlFor, type VlmWire } from '../files/converters/vlm-endpoint.js';
 import { log } from '../util/log.js';
 import { providerSignature, getActiveProviderSignature } from '../files/media/worker.js';
@@ -231,26 +233,27 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
   // Local providers are trusted (cluster DNS — `*.svc.cluster.local`, addressed
   // via NetworkPolicy). External providers are admin-typed URLs that must
   // resolve to a public endpoint, never to private networks or cloud metadata.
-  // Instance-wide opt-in for self-hosted endpoints on private addresses (env/config only — never a
-  // field on this PATCH, so the admin API cannot widen its own egress).
-  const allowPrivate = allowPrivateModelEndpoints();
+  // Opt-in for self-hosted endpoints on private addresses (env/config only — never a field on this PATCH,
+  // so the admin API cannot widen its own egress). Resolved PER SLOT: the save-time check has to agree with
+  // what the runtime client will actually be allowed to do, or one of the two is lying. A single instance-
+  // wide answer here would accept a private URL for the one endpoint the operator deliberately kept strict.
   const effectiveVisionType = parsed.data.visionProvider ?? activeCfg.visionProvider ?? 'local';
   const effectiveSttType    = parsed.data.sttProvider    ?? activeCfg.sttProvider    ?? 'local';
   if (effectiveVisionType === 'external' && parsed.data.vision?.baseUrl
-      && !isSsrfSafeUrl(parsed.data.vision.baseUrl, allowPrivate)) {
-    res.status(400).json({ error: 'vision.baseUrl rejected: must be a public http(s) URL (no private/loopback/metadata addresses)' + (allowPrivate ? '' : ' (set allowPrivateModelEndpoints / YTHRIL_ALLOW_PRIVATE_MODEL_ENDPOINTS=true to permit a self-hosted endpoint on a private address)') });
+      && !isSsrfSafeUrl(parsed.data.vision.baseUrl, allowPrivateForSlot('vision'))) {
+    res.status(400).json({ error: 'vision.baseUrl rejected: must be a public http(s) URL (no private/loopback/metadata addresses)' + privateAddressHint('vision') });
     return;
   }
   if (effectiveSttType === 'external' && parsed.data.stt?.baseUrl
-      && !isSsrfSafeUrl(parsed.data.stt.baseUrl, allowPrivate)) {
-    res.status(400).json({ error: 'stt.baseUrl rejected: must be a public http(s) URL (no private/loopback/metadata addresses)' + (allowPrivate ? '' : ' (set allowPrivateModelEndpoints / YTHRIL_ALLOW_PRIVATE_MODEL_ENDPOINTS=true to permit a self-hosted endpoint on a private address)') });
+      && !isSsrfSafeUrl(parsed.data.stt.baseUrl, allowPrivateForSlot('stt'))) {
+    res.status(400).json({ error: 'stt.baseUrl rejected: must be a public http(s) URL (no private/loopback/metadata addresses)' + privateAddressHint('stt') });
     return;
   }
   // Text-embedding external endpoint — same SSRF rule (only when the effective provider is external).
   const effectiveEmbType = parsed.data.embedding?.provider ?? getEmbeddingConfig().provider ?? 'local';
   if (effectiveEmbType === 'external' && parsed.data.embedding?.baseUrl
-      && !isSsrfSafeUrl(parsed.data.embedding.baseUrl, allowPrivate)) {
-    res.status(400).json({ error: 'embedding.baseUrl rejected: must be a public http(s) URL (no private/loopback/metadata addresses)' + (allowPrivate ? '' : ' (set allowPrivateModelEndpoints / YTHRIL_ALLOW_PRIVATE_MODEL_ENDPOINTS=true to permit a self-hosted endpoint on a private address)') });
+      && !isSsrfSafeUrl(parsed.data.embedding.baseUrl, allowPrivateForSlot('embedding'))) {
+    res.status(400).json({ error: 'embedding.baseUrl rejected: must be a public http(s) URL (no private/loopback/metadata addresses)' + privateAddressHint('embedding') });
     return;
   }
 
@@ -265,8 +268,8 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
     return;
   }
   if (rerankPatch?.baseUrl && !isLocalModelEndpoint(rerankPatch.baseUrl)
-      && !isSsrfSafeUrl(rerankPatch.baseUrl, allowPrivate)) {
-    res.status(400).json({ error: 'rerank.baseUrl rejected: must be a public http(s) URL (no private/loopback/metadata addresses)' + (allowPrivate ? '' : ' (set allowPrivateModelEndpoints / YTHRIL_ALLOW_PRIVATE_MODEL_ENDPOINTS=true to permit a self-hosted endpoint on a private address)') });
+      && !isSsrfSafeUrl(rerankPatch.baseUrl, allowPrivateForSlot('rerank'))) {
+    res.status(400).json({ error: 'rerank.baseUrl rejected: must be a public http(s) URL (no private/loopback/metadata addresses)' + privateAddressHint('rerank') });
     return;
   }
 
@@ -278,8 +281,8 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
     return;
   }
   if (nliPatch?.baseUrl && !isLocalModelEndpoint(nliPatch.baseUrl)
-      && !isSsrfSafeUrl(nliPatch.baseUrl, allowPrivate)) {
-    res.status(400).json({ error: 'nli.baseUrl rejected: must be a public http(s) URL (no private/loopback/metadata addresses)' + (allowPrivate ? '' : ' (set allowPrivateModelEndpoints / YTHRIL_ALLOW_PRIVATE_MODEL_ENDPOINTS=true to permit a self-hosted endpoint on a private address)') });
+      && !isSsrfSafeUrl(nliPatch.baseUrl, allowPrivateForSlot('nli'))) {
+    res.status(400).json({ error: 'nli.baseUrl rejected: must be a public http(s) URL (no private/loopback/metadata addresses)' + privateAddressHint('nli') });
     return;
   }
 
@@ -303,8 +306,8 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
     const effBaseUrl = facePatch?.baseUrl ?? existingFace.baseUrl;
     const effAck = facePatch?.acknowledgedHost ?? existingFace.acknowledgedHost;
     if (effBaseUrl) {
-      if (!isSsrfSafeUrl(effBaseUrl, allowPrivate)) {
-        res.status(400).json({ error: 'faceRecognition.externalModel.baseUrl rejected: must be a public http(s) URL (no private/loopback/metadata addresses)' });
+      if (!isSsrfSafeUrl(effBaseUrl, allowPrivateForSlot('faceExternal'))) {
+        res.status(400).json({ error: 'faceRecognition.externalModel.baseUrl rejected: must be a public http(s) URL (no private/loopback/metadata addresses)' + privateAddressHint('faceExternal') });
         return;
       }
       let host: string;
@@ -343,8 +346,8 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
     const effMode = parsed.data.documentProcessing?.mode ?? activeCfg.documentProcessing?.mode ?? 'vlm';
     const repairReachable = effMode === 'repair' || effMode === 'auto';
     if (repairReachable && effBaseUrl) {
-      if (!isSsrfSafeUrl(effBaseUrl, allowPrivate)) {
-        res.status(400).json({ error: 'assistModel.baseUrl rejected: must be a public http(s) URL (no private/loopback/metadata addresses)' });
+      if (!isSsrfSafeUrl(effBaseUrl, allowPrivateForSlot('assist'))) {
+        res.status(400).json({ error: 'assistModel.baseUrl rejected: must be a public http(s) URL (no private/loopback/metadata addresses)' + privateAddressHint('assist') });
         return;
       }
       let host: string;
@@ -572,13 +575,15 @@ mediaConfigRouter.post('/test-connection', requireAdminMfa, async (req, res) => 
     res.status(400).json({ error: `No endpoint is configured for ${target}. Save one first, then test.` });
     return;
   }
-  // External endpoints must be public — refuse to probe private/loopback/metadata addresses.
-  if (external && !isSsrfSafeUrl(baseUrl, allowPrivateModelEndpoints())) {
-    res.status(400).json({ error: `The ${target} endpoint is not a public http(s) URL (SSRF-blocked).` });
+  // External endpoints must be public — refuse to probe private/loopback/metadata addresses. Resolved for
+  // THIS target: the probe must agree with what inference will actually be allowed to do, or an operator
+  // who allowed a private address for one slot gets a green test on a call that would then be refused.
+  if (external && !isSsrfSafeUrl(baseUrl, allowPrivateForSlot(target))) {
+    res.status(400).json({ error: `The ${target} endpoint is not a public http(s) URL (SSRF-blocked).${privateAddressHint(target)}` });
     return;
   }
 
-  const result = await probeModelEndpoint({ baseUrl, model, apiKey, external })
+  const result = await probeModelEndpoint({ baseUrl, model, apiKey, external, slot: target })
     .catch(err => ({ ok: false, reachable: false, detail: err instanceof Error ? err.message : String(err), latencyMs: 0 }));
   res.json({ target, external, model: model ?? null, ...result });
 });
@@ -679,7 +684,7 @@ interface ProbeResult {
  * Exported for unit testing.
  */
 export async function probeModelEndpoint(
-  opts: { baseUrl: string; model?: string; apiKey?: string; external: boolean; wire?: VlmWire },
+  opts: { baseUrl: string; model?: string; apiKey?: string; external: boolean; wire?: VlmWire; slot: EgressSlot },
 ): Promise<ProbeResult> {
   const started = Date.now();
   const base = opts.baseUrl.replace(/\/$/, '');
@@ -693,7 +698,7 @@ export async function probeModelEndpoint(
   // their endpoint works, so the bug reported the configuration as broken while inference would have run.
   const doFetch = opts.external
     ? (url: string, init: RequestInit) =>
-        ssrfSafeFetch(url, init, { allowPrivate: allowPrivateModelEndpoints() })
+        ssrfSafeFetch(url, init, { allowPrivate: allowPrivateForSlot(opts.slot) })
     : (url: string, init: RequestInit) => fetch(url, init);
 
   const parseOpenAi = (j: unknown): string[] =>

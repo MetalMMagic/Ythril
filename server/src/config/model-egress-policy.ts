@@ -31,6 +31,96 @@ export function allowPrivateModelEndpoints(): boolean {
 }
 
 /**
+ * The model slots that can become egress targets, each settable on its own.
+ *
+ * Keyed by slot rather than by URL, because the same host can legitimately hold several of them and the
+ * question "may THIS endpoint reach a private address" is per-endpoint.
+ */
+export const EGRESS_SLOTS = [
+  'vision', 'stt', 'embedding', 'rerank', 'nli',
+  'assist', 'docVlm', 'docRepair', 'docVerify', 'faceExternal',
+] as const;
+export type EgressSlot = (typeof EGRESS_SLOTS)[number];
+
+/**
+ * The env var pinning each slot. Written out rather than derived from the slot name.
+ *
+ * Deriving it (`YTHRIL_ALLOW_PRIVATE_${snake(slot)}`) is shorter and worse: the names then exist nowhere
+ * in the source, so `grep YTHRIL_ALLOW_PRIVATE_DOC_VLM` finds nothing, and the doc-coverage gate — which
+ * looks for exactly that — cannot tell a documented setting from a phantom one. Ten literals is the price
+ * of a setting an operator can actually search for.
+ */
+export const SLOT_ENV_VARS = {
+  vision: 'YTHRIL_ALLOW_PRIVATE_VISION',
+  stt: 'YTHRIL_ALLOW_PRIVATE_STT',
+  embedding: 'YTHRIL_ALLOW_PRIVATE_EMBEDDING',
+  rerank: 'YTHRIL_ALLOW_PRIVATE_RERANK',
+  nli: 'YTHRIL_ALLOW_PRIVATE_NLI',
+  assist: 'YTHRIL_ALLOW_PRIVATE_ASSIST',
+  docVlm: 'YTHRIL_ALLOW_PRIVATE_DOC_VLM',
+  docRepair: 'YTHRIL_ALLOW_PRIVATE_DOC_REPAIR',
+  docVerify: 'YTHRIL_ALLOW_PRIVATE_DOC_VERIFY',
+  faceExternal: 'YTHRIL_ALLOW_PRIVATE_FACE_EXTERNAL',
+} as const satisfies Record<EgressSlot, string>;
+
+/** The env var pinning one slot's permission. */
+export function slotEnvVar(slot: EgressSlot): string {
+  return SLOT_ENV_VARS[slot];
+}
+
+/**
+ * The "here is how to allow this" tail for a rejected private URL — empty when the slot ALREADY allows
+ * private addresses, because then the rejection is a crown-jewel one and no setting will lift it. Telling
+ * an operator to enable a flag that is already on is how a support round-trip starts.
+ *
+ * Exported next to the resolver on purpose: the message names the exact knob the resolver reads, and the
+ * two drifting apart is what turns a correct guard into an unactionable error.
+ */
+export function privateAddressHint(slot: EgressSlot): string {
+  if (allowPrivateForSlot(slot)) return '';
+  return ` (set allowPrivateModelEndpointsBySlot.${slot}, ${slotEnvVar(slot)}=true, or the instance-wide`
+    + ' allowPrivateModelEndpoints, to permit a self-hosted endpoint on a private address — loopback and'
+    + ' cloud-metadata addresses stay blocked regardless)';
+}
+
+/**
+ * May THIS endpoint resolve to a private address?
+ *
+ * Per-slot **overrides** the global flag in both directions, which is the whole point. The global
+ * `allowPrivateModelEndpoints` is all-or-nothing, so an operator running everything on their own infra
+ * except one genuinely external model had to enable it globally — loosening the guard on precisely the
+ * endpoint where a private-address resolution is a red flag rather than a convenience. Per-slot is
+ * least-privilege: `YTHRIL_ALLOW_PRIVATE_ASSIST=false` keeps that one strict while the internal ones stay
+ * reachable.
+ *
+ * Precedence: **per-slot (if set, wins) → global → closed.** A per-slot `false` beating a global `true`
+ * is not an edge case; it is the case this exists for.
+ *
+ * Env or config, never the admin API — same reason the global flag is read here rather than passed
+ * through media-config: a field that turns into an egress target must not be widenable from the admin
+ * surface. And no setting here reaches the crown-jewel ranges: loopback, link-local / cloud metadata and
+ * the unspecified address stay blocked in `ssrfSafeFetch` whatever this returns.
+ */
+export function allowPrivateForSlot(slot: EgressSlot): boolean {
+  const env = process.env[SLOT_ENV_VARS[slot]];
+  if (env === 'true') return true;
+  if (env === 'false') return false;
+  try {
+    const perSlot = getConfig().allowPrivateModelEndpointsBySlot?.[slot];
+    if (typeof perSlot === 'boolean') return perSlot;
+  } catch { /* config not loaded yet — fall through to the global, which is closed by default */ }
+  return allowPrivateModelEndpoints();
+}
+
+/** Slots whose setting differs from the global flag — what the posture must report instead of one boolean. */
+export function egressSlotOverrides(): Array<{ slot: EgressSlot; allowPrivate: boolean }> {
+  const globalAllows = allowPrivateModelEndpoints();
+  return EGRESS_SLOTS
+    .map(slot => ({ slot, allowPrivate: allowPrivateForSlot(slot) }))
+    .filter(s => s.allowPrivate !== globalAllows);
+}
+
+/**
  * True for a bundled/sidecar endpoint — loopback or a bare hostname with no dot, i.e. a compose or
  * cluster service name. Those get a plain `fetch`; anything else is egress and goes through
  * `ssrfSafeFetch`.

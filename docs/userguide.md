@@ -626,9 +626,9 @@ rather than just saying it failed. Two cases account for almost all of them:
   is on a private network address. Ythril refuses those by default, because an admin-settable URL that
   the server will call is the classic way to make a server fetch things it should not. If the endpoint is
   a model server you run yourself, that refusal is wrong for your case and an administrator can permit it
-  with `allowPrivateModelEndpoints` — see
-  [Diagnosing a Misconfiguration](integration-guide.md#diagnosing-a-misconfiguration). It cannot be
-  enabled from this page, on purpose.
+  — for that one endpoint alone, or instance-wide — see
+  [Diagnosing a Misconfiguration](integration-guide.md#diagnosing-a-misconfiguration). The message names
+  the exact setting for the endpoint you were testing. It cannot be enabled from this page, on purpose.
 - **"Blocked SSRF target … 169.254.x" or a loopback address** — these stay blocked whatever the setting.
   Point the endpoint at a real service address.
 

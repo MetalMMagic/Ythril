@@ -18,7 +18,7 @@
  * vector order. A reranker that is down must degrade search quality, never break search.
  */
 import { getMediaEmbeddingConfig } from '../config/loader.js';
-import { allowPrivateModelEndpoints, isLocalModelEndpoint } from '../config/model-egress-policy.js';
+import { allowPrivateForSlot, isLocalModelEndpoint } from '../config/model-egress-policy.js';
 import { ssrfSafeFetch } from '../util/ssrf.js';
 import { log } from '../util/log.js';
 
@@ -158,7 +158,7 @@ export async function rerank(
   try {
     const res = isLocalModelEndpoint(cfg.baseUrl)
       ? await fetch(url, init)
-      : await ssrfSafeFetch(url, init, { allowPrivate: allowPrivateModelEndpoints() });
+      : await ssrfSafeFetch(url, init, { allowPrivate: allowPrivateForSlot('rerank') });
     if (!res.ok) {
       log.warn(`Rerank: HTTP ${res.status} from the reranker — keeping the vector order`);
       return null;

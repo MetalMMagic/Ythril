@@ -12,7 +12,7 @@
  * acknowledgment (enforced at config-save time).
  */
 import { ssrfSafeFetch } from '../../util/ssrf.js';
-import { allowPrivateModelEndpoints } from '../../config/model-egress-policy.js';
+import { allowPrivateForSlot, type EgressSlot } from '../../config/model-egress-policy.js';
 import { chatUrlFor, type VlmWire } from './vlm-endpoint.js';
 
 export interface VlmTranscription {
@@ -50,7 +50,7 @@ interface ChatTurn { role: 'user'; content: string; images?: string[] }
  * deployment, whose model sits on a private cluster address.
  */
 async function postChat(
-  endpoint: { baseUrl: string; model: string; wire: VlmWire; external: boolean; apiKey?: string },
+  endpoint: { baseUrl: string; model: string; wire: VlmWire; external: boolean; apiKey?: string; slot: EgressSlot },
   turns: ChatTurn[],
   timeoutMs: number,
 ): Promise<VlmTranscription> {
@@ -94,7 +94,9 @@ async function postChat(
     res = endpoint.external
       // Guard on: DNS-resolve, IP-pin, redirect re-validation, crown-jewel ranges blocked. `allowPrivate`
       // only lifts the private-address rejection, so a self-hosted model on a cluster address still works.
-      ? await ssrfSafeFetch(url, init, { allowPrivate: allowPrivateModelEndpoints() })
+      // Resolved for THIS slot: transcription and repair can sit on different hosts, and the document VLM
+      // being on-cluster is no reason to let the assist model reach a private address.
+      ? await ssrfSafeFetch(url, init, { allowPrivate: allowPrivateForSlot(endpoint.slot) })
       : await fetch(url, init);
   } catch (err) {
     throw new Error(`VLM unreachable (${url}): ${err instanceof Error ? err.message : String(err)}`);
@@ -133,12 +135,13 @@ export interface VlmTarget {
   timeoutMs?: number;
 }
 
-const asEndpoint = (t: VlmTarget) => ({
+const asEndpoint = (t: VlmTarget, slot: EgressSlot) => ({
   baseUrl: t.baseUrl,
   model: t.model,
   wire: t.wire ?? 'ollama' as VlmWire,
   external: t.external ?? false,
   apiKey: t.apiKey,
+  slot,
 });
 
 /** Transcribe one page image to Markdown. Throws on unreachable/HTTP error so the caller falls back. */
@@ -148,7 +151,7 @@ export async function transcribePageImage(
 ): Promise<VlmTranscription> {
   const b64 = imageBytes.toString('base64');
   return postChat(
-    asEndpoint(opts),
+    asEndpoint(opts, 'docVlm'),
     [{ role: 'user', content: opts.prompt, images: [b64] }],
     opts.timeoutMs ?? 60_000,
   );
@@ -167,7 +170,7 @@ export async function repairMarkdown(
   opts: VlmTarget & { draft: string; evidence: string; issues?: string[] },
 ): Promise<VlmTranscription> {
   return postChat(
-    asEndpoint(opts),
+    asEndpoint(opts, 'docRepair'),
     [{ role: 'user', content: repairContent(opts.draft, opts.evidence, opts.issues) }], // text-only — no page image
     opts.timeoutMs ?? 60_000,
   );
@@ -189,7 +192,8 @@ export async function reconcileConsensus(
   const content =
     `${CONSENSUS_PROMPT}\n\n--- DRAFT A ---\n${opts.draftA}\n\n--- DRAFT B ---\n${opts.draftB}\n\n--- OCR TEXT ---\n${opts.evidence}`;
   return postChat(
-    asEndpoint(opts),
+    // Consensus runs on the same VLM endpoint as transcription — same slot, same policy.
+    asEndpoint(opts, 'docVlm'),
     [{ role: 'user', content }], // text-only — no page image
     opts.timeoutMs ?? 60_000,
   );
@@ -230,7 +234,7 @@ export async function repairMarkdownExternal(
       // Lets a self-hosted OpenAI-compatible assist model live on a private cluster address. The guard
       // itself stays on: DNS-resolve, IP-pin and redirect re-validation all still apply — only the
       // private-address rejection lifts, and crown-jewel ranges remain blocked.
-      allowPrivate: allowPrivateModelEndpoints(),
+      allowPrivate: allowPrivateForSlot('assist'),
     });
   } catch (err) {
     throw new Error(`assist model unreachable (${url}): ${err instanceof Error ? err.message : String(err)}`);

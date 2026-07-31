@@ -1203,6 +1203,28 @@ export interface Config {
    * Overridable via YTHRIL_ALLOW_PRIVATE_MODEL_ENDPOINTS.
    */
   allowPrivateModelEndpoints?: boolean;
+  /**
+   * Per-endpoint override of {@link allowPrivateModelEndpoints}, keyed by model slot
+   * (`vision`, `stt`, `embedding`, `rerank`, `nli`, `assist`, `docVlm`, `docRepair`, `docVerify`,
+   * `faceExternal`).
+   *
+   * The global flag is all-or-nothing, which is wrong for the common deployment: everything on the
+   * operator's own infra except one model that genuinely lives on the public internet. Turning the global
+   * flag on to reach the internal ones also relaxes the guard on that one external endpoint — the single
+   * place where a private-address resolution means "something is wrong", not "this is my cluster".
+   *
+   * A value here **wins over the global in both directions**, so `{ "assist": false }` alongside
+   * `allowPrivateModelEndpoints: true` keeps the external slot strict. Slots left out inherit the global.
+   * Env override per slot: `YTHRIL_ALLOW_PRIVATE_<SLOT>` (`YTHRIL_ALLOW_PRIVATE_DOC_VLM`, …), accepting
+   * `true` **or** `false` — a `false` is meaningful here, unlike on the global flag.
+   *
+   * Same admin-surface exclusion as the global flag, and the crown-jewel ranges stay blocked regardless.
+   */
+  allowPrivateModelEndpointsBySlot?: Partial<Record<
+    'vision' | 'stt' | 'embedding' | 'rerank' | 'nli'
+    | 'assist' | 'docVlm' | 'docRepair' | 'docVerify' | 'faceExternal',
+    boolean
+  >>;
   /** Dynamically-registered OAuth clients (RFC 7591) for the MCP browser
    *  authorization flow. Populated automatically when a client registers; not
    *  meant to be hand-edited. See mcp/oauth.ts. */

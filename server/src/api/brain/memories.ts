@@ -18,7 +18,7 @@ import { resolveMemberSpaces, resolveWriteTarget, isProxySpace, isStrictLinkage,
 import { validateMemory } from '../../spaces/schema-validation.js';
 import type { MemoryDoc } from '../../config/types.js';
 import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, buildMemoryFilter, ttlDaysFromBody, ttlDaysError } from './_shared.js';
-import { classifyUpdateViolations } from './update-validation.js';
+import { classifyUpdateViolations } from '../../brain/write-validation.js';
 import { resolveEntityIdsByName } from '../../brain/entities.js';
 
 export const memoriesRouter = Router();

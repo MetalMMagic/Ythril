@@ -49,6 +49,38 @@ export async function resolveEdgeEntityNames(spaceId: string, fromId: string, to
  * Upsert a directed edge (from → to with label).
  * One edge per (from, to, label) triplet.
  */
+/**
+ * The edge an upsert would land on, by its identity triplet.
+ *
+ * An edge has no user-supplied id: `(from, to, label)` IS the identity, and three separate places
+ * re-derived that filter — the upsert itself, the bulk importer's inserted-vs-updated counter, and now
+ * validation. One of them getting it wrong would silently validate against the wrong record.
+ */
+export async function findEdgeByTriplet(
+  spaceId: string, from: string, to: string, label: string,
+): Promise<EdgeDoc | null> {
+  return await col<EdgeDoc>(`${spaceId}_edges`).findOne(asFilter<EdgeDoc>({ spaceId, from, to, label })) as EdgeDoc | null;
+}
+
+/**
+ * The properties an upsert will actually store: the stored ones with the incoming ones laid over.
+ *
+ * Exported because schema validation has to run against the record that will EXIST, and until this was
+ * shared it re-derived the rule from the outside — badly. An edge's identity is `(from, to, label)`, so
+ * every repeat upsert of an existing edge merges, with no id involved and nothing in the caller's payload
+ * to hint at it. Validating the payload alone refused patches whose merged result was perfectly valid.
+ *
+ * `undefined` properties mean "do not touch", which is why that case returns the stored value rather than
+ * an empty object — the difference between "no properties supplied" and "properties cleared".
+ */
+export function mergedEdgeProperties(
+  existing: { properties?: Record<string, string | number | boolean> } | null | undefined,
+  incoming: Record<string, string | number | boolean> | undefined,
+): Record<string, string | number | boolean> | undefined {
+  if (incoming === undefined) return existing?.properties;
+  return { ...(existing?.properties ?? {}), ...incoming };
+}
+
 export async function upsertEdge(
   spaceId: string,
   from: string,
@@ -63,7 +95,7 @@ export async function upsertEdge(
   ttlDays?: number | null,
 ): Promise<EdgeDoc> {
   const collection = col<EdgeDoc>(`${spaceId}_edges`);
-  const existing = await collection.findOne(asFilter<EdgeDoc>({ spaceId, from, to, label }));
+  const existing = await findEdgeByTriplet(spaceId, from, to, label);
 
   const seq = await nextSeq(spaceId);
   const now = new Date().toISOString();
@@ -73,9 +105,7 @@ export async function upsertEdge(
   const effectiveTags = tags !== undefined
     ? Array.from(new Set([...((existing as EdgeDoc | null)?.tags ?? []), ...tags]))
     : ((existing as EdgeDoc | null)?.tags ?? []);
-  const effectiveProps = properties !== undefined
-    ? { ...((existing as EdgeDoc | null)?.properties ?? {}), ...properties }
-    : (existing as EdgeDoc | null)?.properties;
+  const effectiveProps = mergedEdgeProperties(existing as EdgeDoc | null, properties);
 
   // Embed the edge text (best-effort) — resolve entity names so the vector captures semantics
   let embeddingFields: { embedding?: number[]; embeddingModel?: string; matchedText?: string } = {};
@@ -93,10 +123,7 @@ export async function upsertEdge(
     if (description !== undefined) $set['description'] = description;
     // When tags are provided, persist the merged result; otherwise leave existing tags unchanged
     if (tags !== undefined) $set['tags'] = effectiveTags;
-    if (properties !== undefined) {
-      const mergedProps = { ...((existing as EdgeDoc).properties ?? {}), ...properties };
-      $set['properties'] = mergedProps;
-    }
+    if (properties !== undefined) $set['properties'] = mergedEdgeProperties(existing as EdgeDoc, properties);
     const $unset: Record<string, unknown> = {};
     applyExpiryToUpdate(spaceId, ttlDays, (existing as EdgeDoc)._expireAt != null, $set, $unset); // F10
     const updateOp: Record<string, unknown> = { $set };

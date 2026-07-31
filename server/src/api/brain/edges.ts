@@ -15,8 +15,8 @@ import { parseLimit, parseSkip, capPage } from '../../util/pagination.js';
 import { parseSortParam, SORTABLE_FIELDS } from '../../brain/list-sort.js';
 import { resolveMemberSpaces, resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { validateEdge } from '../../spaces/schema-validation.js';
-import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, ttlDaysFromBody, ttlDaysError } from './_shared.js';
-import { classifyUpdateViolations } from './update-validation.js';
+import { UUID_V4_RE, webhookToken, getSpaceMeta, ttlDaysFromBody, ttlDaysError } from './_shared.js';
+import { classifyEdgeUpsert, classifyUpdateViolations } from '../../brain/write-validation.js';
 import { resolveEntityIdsByName } from '../../brain/entities.js';
 
 export const edgesRouter = Router();
@@ -78,12 +78,11 @@ edgesRouter.post('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, de
       : undefined;
   const safeTags: string[] | undefined = Array.isArray(tags) ? tags : undefined;
 
-  // Schema validation
-  const meta = getSpaceMeta(wt.target);
-  const violations = validateEdge(meta ?? {}, { label: label.trim(), properties: safeProps });
-  const validation = applyValidation(meta, violations);
-  if (validation.blocked) {
-    res.status(400).json({ error: 'schema_violation', violations: validation.warnings });
+  // Schema validation of the record this upsert will PRODUCE. (from, to, label) IS an edge's identity,
+  // so a repeat POST merges into the stored edge — there is no id in the request to signal it.
+  const check = await classifyEdgeUpsert(wt.target, { from: from.trim(), to: to.trim(), label: label.trim(), properties: safeProps });
+  if (check.blocked) {
+    res.status(400).json({ error: 'schema_violation', message: check.message, violations: check.all, introduced: check.introduced, preExisting: check.preExisting });
     return;
   }
   const ttlErr = ttlDaysError(req.body);
@@ -95,7 +94,7 @@ edgesRouter.post('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, de
     webhookToken(req), ttlDaysFromBody(req.body),
   );
   const result: Record<string, unknown> = { ...edge };
-  if (validation.warnings.length > 0) result['warnings'] = validation.warnings;
+  if (check.warnings.length > 0) result['warnings'] = check.warnings;
   res.status(201).json(result);
 });
 

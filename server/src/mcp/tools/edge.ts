@@ -2,8 +2,8 @@ import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.
 import { UUID_V4_RE, TTL_DAYS_SCHEMA, ttlDaysFromArgs, unitScoreSchema } from './shared.js';
 import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } from '../../brain/delete-fields.js';
 import { getEdgeById, traverseGraph, updateEdgeById, upsertEdge } from '../../brain/edges.js';
-// The API layer's write gate, imported rather than reimplemented — see the note in memory.ts.
-import { assertUpdateAllowed, classifyUpdateViolations, locateForUpdate } from '../../api/brain/update-validation.js';
+// The shared write gate, imported rather than reimplemented — see the note in memory.ts.
+import { assertUpdateAllowed, classifyEdgeUpsert, classifyUpdateViolations, locateForUpdate } from '../../brain/write-validation.js';
 import { getConfig } from '../../config/loader.js';
 import { isStrictLinkage, resolveMemberSpaces, resolveWriteTarget, findFirstAcrossMembers } from '../../spaces/proxy.js';
 import { resolveMetaRefs, validateEdge } from '../../spaces/schema-validation.js';
@@ -57,12 +57,15 @@ export const upsert_edgeTool: ToolHandler = {
       if (!UUID_V4_RE.test(to)) throw new Error('to must be a valid UUID v4 (entity ID), not a name');
     }
 
-    // Schema validation (single pass)
+    // Schema validation of the record this upsert will PRODUCE. An edge's identity is (from, to, label)
+    // with no id in the call at all, so EVERY repeat upsert merges into the stored edge — and nothing in
+    // the payload hints at it. Validating the payload alone made a one-property patch look incomplete.
     const edgeMetaRaw = getConfig().spaces.find(s => s.id === wt.target)?.meta;
     const edgeMeta = edgeMetaRaw ? resolveMetaRefs(edgeMetaRaw) : undefined;
-    const edgeSchemaViolations = edgeMeta ? validateEdge(edgeMeta, { label: label.trim(), properties: edgeProps }) : [];
-    if (edgeSchemaViolations.length > 0 && edgeMeta?.validationMode === 'strict') {
-      return { content: [{ type: 'text' as const, text: `Error: schema_violation\n${JSON.stringify(edgeSchemaViolations)}` }], isError: true };
+    const edgeCheck = await classifyEdgeUpsert(wt.target, { from, to, label: label.trim(), properties: edgeProps });
+    const edgeSchemaViolations = edgeCheck.all;
+    if (edgeCheck.blocked) {
+      return { content: [{ type: 'text' as const, text: `Error: schema_violation: ${edgeCheck.message}\n${JSON.stringify(edgeSchemaViolations)}` }], isError: true };
     }
 
     const edgeTtlDays = ttlDaysFromArgs(a);

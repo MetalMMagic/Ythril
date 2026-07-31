@@ -14,7 +14,7 @@ import { resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembe
 import { validateChrono, getAllowedChronoTypes } from '../../spaces/schema-validation.js';
 import type { ChronoStatus } from '../../config/types.js';
 import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, ttlDaysFromBody, ttlDaysError } from './_shared.js';
-import { classifyUpdateViolations } from './update-validation.js';
+import { classifyUpdateViolations } from '../../brain/write-validation.js';
 import { resolveEntityIdsByName } from '../../brain/entities.js';
 
 export const chronoRouter = Router();

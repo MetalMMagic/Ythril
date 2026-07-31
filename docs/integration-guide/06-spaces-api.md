@@ -583,10 +583,10 @@ Each space can define a schema in its `meta` block that governs what data is acc
 > defined yet, `strict` still accepts every type and label, so it never blocks a brand-new empty space;
 > it starts mattering the moment you define a schema.
 
-**Updates validate the record as it will be.** A `PATCH` (and the matching `update_*` MCP tool) validates
-the **merged** result — the stored record with your patch applied — not the patch on its own. Validating
-the fragment would fail every partial update that does not restate every required property, so the answer
-would be meaningless. In `strict` mode a violating update is refused with `422`:
+**Every write validates the record as it will be.** A `PATCH` (and the matching `update_*` MCP tool)
+validates the **merged** result — the stored record with your patch applied — not the patch on its own.
+Validating the fragment would fail every partial update that does not restate every required property, so
+the answer would be meaningless. In `strict` mode a violating update is refused with `422`:
 
 ```json
 {
@@ -614,8 +614,16 @@ sent after a field you did not touch.
 
 In `warn` mode the write proceeds and the same three lists are reported.
 
+**An upsert onto an existing record is an update, and is validated the same way.** `POST .../entities`
+with an `id` that already exists merges into the stored record, so it is the merged form that is checked —
+you can set one property without restating the rest. For edges the identity is `(from, to, label)` with no
+id involved at all, so **every** repeat `POST .../edges` merges. An upsert that lands on nothing is an
+insert, and there the payload *is* the record: required properties must be present.
+
 *New in 2.2.* Previously an update was validated only when the request used `deleteFields`; every other
-patch could write a value the same space rejects at create time.
+patch could write a value the same space rejects at create time. *New in 2.3.* An upsert was validated
+against the incoming payload rather than the merged record, so a partial upsert onto a complete record was
+refused for properties that record already had.
 
 **Schema structure — `typeSchemas`:**
 

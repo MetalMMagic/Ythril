@@ -1,5 +1,5 @@
 /**
- * Schema validation on UPDATE — of the record as it will be, and honest about whose fault a violation is.
+ * Schema validation on WRITE — of the record as it will be, and honest about whose fault a violation is.
  *
  * ## The hole
  *
@@ -32,10 +32,12 @@
  * permanently out of conformance. And the record is not trapped — validation is of the *merged* result, so
  * a patch that repairs the pre-existing violation passes. The error names exactly what to include.
  */
-import type { SchemaViolation } from '../../spaces/schema-validation.js';
-import type { SpaceMeta } from '../../config/types.js';
-import { resolveMemberSpaces } from '../../spaces/proxy.js';
-import { applyValidation, getSpaceMeta } from './_shared.js';
+import { validateEntity, validateEdge, type SchemaViolation } from '../spaces/schema-validation.js';
+import type { SpaceMeta } from '../config/types.js';
+import { resolveMemberSpaces } from '../spaces/proxy.js';
+import { applyValidation, getSpaceMeta } from '../spaces/schema-validation.js';
+import { getEntityById, mergedEntityWrite } from './entities.js';
+import { findEdgeByTriplet, mergedEdgeProperties } from './edges.js';
 
 /**
  * Identity of a violation for before/after comparison.
@@ -58,6 +60,13 @@ export interface UpdateValidation {
   preExisting: SchemaViolation[];
   /** Everything, for the `violations` field of the response — warn mode reports without blocking. */
   all: SchemaViolation[];
+  /**
+   * The violations to SURFACE, per the space's validation mode: the full list under `warn` or `strict`,
+   * empty when validation is `off`. `all` is what the validator found; this is what the mode says to
+   * tell the caller about. Keeping the two apart is what let the create routes adopt this classifier
+   * without starting to emit warnings in spaces that had deliberately switched validation off.
+   */
+  warnings: SchemaViolation[];
   /** Ready-to-send message naming which of the two situations applies. */
   message: string;
 }
@@ -83,6 +92,7 @@ export function classifyUpdateViolations(
 
   return {
     blocked: verdict.blocked,
+    warnings: verdict.warnings,
     introduced,
     preExisting,
     all: afterViolations,
@@ -149,4 +159,96 @@ export function describeUpdateViolations(
       + 'include those field(s) in the same request to repair them.';
   }
   return 'The merged record satisfies this space\'s schema.';
+}
+
+/**
+ * ## The same hole, on the other write path
+ *
+ * Everything above fixes UPDATE. An upsert has exactly the same shape and was missed: `upsertEntity`
+ * merges `{ ...stored.properties, ...incoming }`, and `upsertEdge` does too — but the six call sites
+ * validated the INCOMING payload. A partial upsert against a complete record was refused for required
+ * properties the record already had and would keep.
+ *
+ * Reported by an operator whose agent could not patch one field of a conformant record in a strict
+ * space. It is worse for edges than for entities: an edge is identified by `(from, to, label)` with no
+ * id anywhere in the call, so EVERY repeat upsert merges and there is nothing in the payload to suggest
+ * it might.
+ *
+ * The classification is the update one, unchanged — an upsert onto an existing record IS an update, and
+ * a record that was already non-compliant should not blame the caller for it either.
+ */
+
+/** An upsert onto nothing is an insert: no prior record, so nothing can be pre-existing. */
+const INSERT_HAS_NO_PRIOR: SchemaViolation[] = [];
+
+/**
+ * The whole decision, given the record the upsert lands on — no database.
+ *
+ * Split from the loading wrapper below so the rule can be tested for what it IS: which record gets
+ * validated. A test that has to stand up MongoDB to ask "did you validate the merged form?" is a test
+ * that will be written once and never extended, and this defect survived precisely because the merge
+ * was invisible from where validation ran.
+ *
+ * `existing` null means insert: nothing to merge, and nothing that could be pre-existing.
+ */
+export function classifyEntityUpsertAgainst(
+  meta: SpaceMeta | undefined,
+  existing: { name: string; type: string; properties?: Record<string, string | number | boolean>; tags?: string[] } | null,
+  incoming: { name: string; type: string; properties?: Record<string, string | number | boolean>; tags?: string[] },
+): UpdateValidation {
+  const merged = mergedEntityWrite(existing, incoming);
+  const after = validateEntity(meta ?? {}, {
+    name: incoming.name, type: incoming.type, properties: merged.properties, tags: merged.tags,
+  });
+  const before = existing
+    ? validateEntity(meta ?? {}, {
+      name: existing.name, type: existing.type, properties: existing.properties ?? {}, tags: existing.tags ?? [],
+    })
+    : INSERT_HAS_NO_PRIOR;
+  return classifyUpdateViolations(meta, before, after);
+}
+
+/** As above, for an edge. Its identity is `(from, to, label)`, so only the properties can merge. */
+export function classifyEdgeUpsertAgainst(
+  meta: SpaceMeta | undefined,
+  existing: { label: string; properties?: Record<string, string | number | boolean> } | null,
+  incoming: { label: string; properties?: Record<string, string | number | boolean> },
+): UpdateValidation {
+  const after = validateEdge(meta ?? {}, {
+    label: incoming.label, properties: mergedEdgeProperties(existing, incoming.properties) ?? {},
+  });
+  const before = existing
+    ? validateEdge(meta ?? {}, { label: existing.label, properties: existing.properties ?? {} })
+    : INSERT_HAS_NO_PRIOR;
+  return classifyUpdateViolations(meta, before, after);
+}
+
+/**
+ * Validate an entity upsert against the record it will produce.
+ *
+ * `id` is what makes an upsert an update — omitted, or unknown, and this is a plain insert whose merged
+ * form is the payload itself. Callers pass the space they resolved to write to, so a proxy validates
+ * against the member that will hold the record rather than against the proxy's own meta.
+ */
+export async function classifyEntityUpsert(
+  spaceId: string,
+  incoming: { name: string; type: string; properties?: Record<string, string | number | boolean>; tags?: string[] },
+  id: string | undefined,
+): Promise<UpdateValidation> {
+  const existing = id ? await getEntityById(spaceId, id) : null;
+  return classifyEntityUpsertAgainst(getSpaceMeta(spaceId), existing, incoming);
+}
+
+/**
+ * Validate an edge upsert against the record it will produce.
+ *
+ * No id parameter: `(from, to, label)` IS the identity, so the lookup is the identity itself — which is
+ * why every repeat upsert of an existing edge merges, with nothing in the call to suggest it.
+ */
+export async function classifyEdgeUpsert(
+  spaceId: string,
+  incoming: { from: string; to: string; label: string; properties?: Record<string, string | number | boolean> },
+): Promise<UpdateValidation> {
+  const existing = await findEdgeByTriplet(spaceId, incoming.from, incoming.to, incoming.label);
+  return classifyEdgeUpsertAgainst(getSpaceMeta(spaceId), existing, incoming);
 }

@@ -157,7 +157,7 @@ import { TestTarget } from './media-processing.types';
           </button>
           @if (s.testOf('embedding')?.res; as r) {
             <app-status-pill [variant]="s.testPillVariant(r)" [dot]="true">{{ s.testPillLabelKey(r) | transloco }}</app-status-pill>
-            <span class="hint" [attr.title]="r.reachable ? null : (r.detail || null)">{{ r.reachable ? (r.latencyMs + ' ms') : (r.detail || '') }}</span>
+            <span class="hint" [attr.title]="r.detail || null">{{ r.detail || (r.latencyMs + ' ms') }}</span>
           }
           @if (s.verifyOf('embedding')?.res; as v) {
             <app-status-pill [variant]="s.verifyPillVariant(v)" [dot]="true">{{ s.verifyPillLabelKey(v) | transloco }}</app-status-pill>
@@ -224,7 +224,7 @@ import { TestTarget } from './media-processing.types';
           </button>
           @if (s.testOf('rerank')?.res; as r) {
             <app-status-pill [variant]="s.testPillVariant(r)" [dot]="true">{{ s.testPillLabelKey(r) | transloco }}</app-status-pill>
-            <span class="hint" [attr.title]="r.reachable ? null : (r.detail || null)">{{ r.reachable ? (r.latencyMs + ' ms') : (r.detail || '') }}</span>
+            <span class="hint" [attr.title]="r.detail || null">{{ r.detail || (r.latencyMs + ' ms') }}</span>
           }
           @if (s.cardDirty('rerank')) {
             <button class="btn btn-sm btn-primary card-save" type="button"
@@ -278,7 +278,7 @@ import { TestTarget } from './media-processing.types';
           </button>
           @if (s.testOf('nli')?.res; as r) {
             <app-status-pill [variant]="s.testPillVariant(r)" [dot]="true">{{ s.testPillLabelKey(r) | transloco }}</app-status-pill>
-            <span class="hint" [attr.title]="r.reachable ? null : (r.detail || null)">{{ r.reachable ? (r.latencyMs + ' ms') : (r.detail || '') }}</span>
+            <span class="hint" [attr.title]="r.detail || null">{{ r.detail || (r.latencyMs + ' ms') }}</span>
           }
           @if (s.cardDirty('nli')) {
             <button class="btn btn-sm btn-primary card-save" type="button"
@@ -326,7 +326,7 @@ import { TestTarget } from './media-processing.types';
           </button>
           @if (s.testOf('vision')?.res; as r) {
             <app-status-pill [variant]="s.testPillVariant(r)" [dot]="true">{{ s.testPillLabelKey(r) | transloco }}</app-status-pill>
-            <span class="hint" [attr.title]="r.reachable ? null : (r.detail || null)">{{ r.reachable ? (r.latencyMs + ' ms') : (r.detail || '') }}</span>
+            <span class="hint" [attr.title]="r.detail || null">{{ r.detail || (r.latencyMs + ' ms') }}</span>
           }
           @if (s.verifyOf('vision')?.res; as v) {
             <app-status-pill [variant]="s.verifyPillVariant(v)" [dot]="true">{{ s.verifyPillLabelKey(v) | transloco }}</app-status-pill>
@@ -384,7 +384,7 @@ import { TestTarget } from './media-processing.types';
           </button>
           @if (s.testOf('stt')?.res; as r) {
             <app-status-pill [variant]="s.testPillVariant(r)" [dot]="true">{{ s.testPillLabelKey(r) | transloco }}</app-status-pill>
-            <span class="hint" [attr.title]="r.reachable ? null : (r.detail || null)">{{ r.reachable ? (r.latencyMs + ' ms') : (r.detail || '') }}</span>
+            <span class="hint" [attr.title]="r.detail || null">{{ r.detail || (r.latencyMs + ' ms') }}</span>
           }
           @if (s.verifyOf('stt')?.res; as v) {
             <app-status-pill [variant]="s.verifyPillVariant(v)" [dot]="true">{{ s.verifyPillLabelKey(v) | transloco }}</app-status-pill>
@@ -451,7 +451,7 @@ import { TestTarget } from './media-processing.types';
           </button>
           @if (s.testOf('assist')?.res; as r) {
             <app-status-pill [variant]="s.testPillVariant(r)" [dot]="true">{{ s.testPillLabelKey(r) | transloco }}</app-status-pill>
-            <span class="hint" [attr.title]="r.reachable ? null : (r.detail || null)">{{ r.reachable ? (r.latencyMs + ' ms') : (r.detail || '') }}</span>
+            <span class="hint" [attr.title]="r.detail || null">{{ r.detail || (r.latencyMs + ' ms') }}</span>
           }
           @if (s.verifyOf('assist')?.res; as v) {
             <app-status-pill [variant]="s.verifyPillVariant(v)" [dot]="true">{{ s.verifyPillLabelKey(v) | transloco }}</app-status-pill>

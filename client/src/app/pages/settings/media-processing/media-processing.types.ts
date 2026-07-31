@@ -11,6 +11,12 @@ export interface ProviderCfg { label?: string; baseUrl?: string; model?: string;
 /** Result of probing a model endpoint (reachability + whether the model is present). F11-PR5b. */
 export interface TestResult {
   ok: boolean; reachable: boolean; status?: number; models?: string[];
+  /**
+   * What the probe ESTABLISHED — the field to render from. `reachable` cannot separate "answered with a
+   * 404 on the list path" from "did not answer", and treating those alike is what showed a working
+   * speech-to-text endpoint as unreachable. Optional only because an older server may not send it.
+   */
+  verdict?: 'listed' | 'not-enumerable' | 'auth-rejected' | 'erroring' | 'unreachable';
   /** Whether the endpoint LISTED the model — not whether it serves it. See `classifyStage` on the server. */
   modelEnumerated?: boolean; detail?: string; latencyMs: number;
 }

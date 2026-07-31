@@ -584,7 +584,7 @@ mediaConfigRouter.post('/test-connection', requireAdminMfa, async (req, res) => 
   }
 
   const result = await probeModelEndpoint({ baseUrl, model, apiKey, external, slot: target })
-    .catch(err => ({ ok: false, reachable: false, detail: err instanceof Error ? err.message : String(err), latencyMs: 0 }));
+    .catch(err => ({ ok: false, reachable: false, verdict: 'unreachable' as const, detail: err instanceof Error ? err.message : String(err), latencyMs: 0 }));
   res.json({ target, external, model: model ?? null, ...result });
 });
 
@@ -638,9 +638,34 @@ export function mergeLevelCeilings(
   return out as MediaLevelCeilings;
 }
 
+/**
+ * What a probe ESTABLISHED, as opposed to what it hoped for. One value per distinguishable finding.
+ *
+ * `reachable` alone could not carry this. A 404 on the model-list path and a refused connection were both
+ * `reachable: false`, and they are not the same discovery at all: one endpoint answered and has no listing
+ * route, the other is not there. Collapsing them put a red dot on a speech-to-text service that was
+ * transcribing correctly — its only route is `POST /v1/audio/transcriptions`, and a 404 on a path the slot
+ * never calls is not information about the slot.
+ *
+ *   - `listed`         — the endpoint served a model list. The strongest evidence a probe can get.
+ *   - `not-enumerable` — it answered with a 4xx on the list path: present, speaking HTTP, no listing
+ *                        surface. *Absence of evidence*, which is not evidence of absence.
+ *   - `auth-rejected`  — 401/403. Real, and red: inference presents the same credential.
+ *   - `erroring`       — 5xx. The server is there and broken, which is about the endpoint, not the path.
+ *   - `unreachable`    — nothing answered: refused, DNS, TLS, timeout.
+ */
+export type ProbeVerdict = 'listed' | 'not-enumerable' | 'auth-rejected' | 'erroring' | 'unreachable';
+
 interface ProbeResult {
   ok: boolean;
+  /**
+   * True when the endpoint answered at all — NOT when the probe learned what it wanted.
+   *
+   * Kept because it is published in the test-connection response, but `verdict` is what callers should
+   * branch on: `not-enumerable` and `auth-rejected` are both "it answered" and only one of them is fine.
+   */
   reachable: boolean;
+  verdict: ProbeVerdict;
   status?: number;
   endpoint?: string;
   models?: string[];
@@ -681,6 +706,18 @@ interface ProbeResult {
  * mis-selected provider type reports *"this endpoint answers Ollama's API; set the provider to local"*
  * instead of an unexplained red dot.
  *
+ * ## Why a non-200 is not one outcome
+ *
+ * It used to be: every status that was not `ok` became `reachable: false`, so a 404 on the list path read
+ * exactly like a refused connection. Those are different discoveries, and the difference is the whole
+ * report — a speech-to-text service whose only route is `POST /v1/audio/transcriptions` cannot answer a
+ * list probe, and was shown as **down** while it transcribed correctly and Verify was green.
+ *
+ * So the statuses are ranked by what they prove (see `ProbeVerdict`): a rejected credential is red because
+ * inference presents the same one, a 5xx is red because the server is broken, and a plain 4xx is neither —
+ * the endpoint answered and has no listing surface. The last one is reported as reachable with the reason
+ * attached, not as a failure, for the same reason a model missing from a list is not a failure.
+ *
  * Exported for unit testing.
  */
 export async function probeModelEndpoint(
@@ -716,6 +753,8 @@ export async function probeModelEndpoint(
   attempts.push({ url: listUrlFor(otherWire, base), wire: otherWire, parse: otherWire === 'ollama' ? parseOllama : parseOpenAi });
 
   let lastErr = '';
+  /** Every HTTP status the attempts came back with. The ladder below reads these, not just the last one. */
+  const answered: Array<{ status: number; url: string }> = [];
   for (const a of attempts) {
     try {
       const res = await doFetch(a.url, { method: 'GET', headers, signal: AbortSignal.timeout(5_000) });
@@ -735,19 +774,65 @@ export async function probeModelEndpoint(
             + 'inference will use the other protocol and fail. Switch the provider type.'
           : undefined;
         return {
-          ok: !mismatch, reachable: true, status: res.status, endpoint: a.url,
+          ok: !mismatch, reachable: true, verdict: 'listed', status: res.status, endpoint: a.url,
           models: models.slice(0, 50), modelEnumerated, detail: mismatch,
           latencyMs: Date.now() - started,
         };
       }
+      answered.push({ status: res.status, url: a.url });
       lastErr = `HTTP ${res.status} at ${a.url}`;
     } catch (err) {
       lastErr = `${err instanceof Error ? err.message : String(err)} (at ${a.url})`;
     }
   }
-  // Name the URL that was tried. A bare "unreachable" leaves an operator unable to tell a wrong base
-  // path from a genuinely dead endpoint — the two look identical from the dot and need opposite fixes.
-  return { ok: false, reachable: false, detail: lastErr || `no model list at ${listUrlFor(wire, base)}`, latencyMs: Date.now() - started };
+
+  const latencyMs = Date.now() - started;
+
+  // Nothing listed. What follows ranks the evidence rather than treating every non-200 as a failure — the
+  // ladder is ordered by what each status actually proves, strongest first.
+
+  // A rejected credential is a real fault, and specifically one that will hit inference too: this is the
+  // same key on the same host. Red, and say which, because "unreachable" sends the operator to the
+  // network when the fix is the API key field two rows above.
+  const auth = answered.find(a => a.status === 401 || a.status === 403);
+  if (auth) {
+    return {
+      ok: false, reachable: true, verdict: 'auth-rejected', status: auth.status, endpoint: auth.url,
+      detail: `HTTP ${auth.status} at ${auth.url} — the endpoint answered but rejected the credential. Inference uses the same one.`,
+      latencyMs,
+    };
+  }
+
+  // Any other 4xx: the endpoint is there, speaking HTTP, and has no model-list route. That is the whole
+  // finding. It is not evidence about the route the slot actually calls, and reporting it as `down`
+  // painted a working transcription service red — the reported bug. A single-route inference server (a
+  // Whisper webservice serves only `POST /v1/audio/transcriptions`) can never satisfy a list probe.
+  const noListRoute = answered.find(a => a.status >= 400 && a.status < 500);
+  if (noListRoute) {
+    return {
+      ok: true, reachable: true, verdict: 'not-enumerable', status: noListRoute.status, endpoint: noListRoute.url,
+      detail: `endpoint answered HTTP ${noListRoute.status} at ${noListRoute.url} — it serves no model list, which is normal for single-route inference servers and says nothing about the route this slot calls. Use Verify to exercise the real path.`,
+      latencyMs,
+    };
+  }
+
+  // 5xx: also an answer, but an answer that the server is broken — and unlike a missing route, that is
+  // about the endpoint rather than about the path. Stays red.
+  const erroring = answered[0];
+  if (erroring) {
+    return {
+      ok: false, reachable: false, verdict: 'erroring', status: erroring.status, endpoint: erroring.url,
+      detail: `HTTP ${erroring.status} at ${erroring.url} — the endpoint is answering but erroring`,
+      latencyMs,
+    };
+  }
+
+  // Nothing answered at all. Name the URL that was tried: a bare "unreachable" leaves an operator unable
+  // to tell a wrong base path from a dead endpoint, and the two need opposite fixes.
+  return {
+    ok: false, reachable: false, verdict: 'unreachable',
+    detail: lastErr || `no model list at ${listUrlFor(wire, base)}`, latencyMs,
+  };
 }
 
 function maskSecrets(cfg: ReturnType<typeof getMediaEmbeddingConfig>): unknown {

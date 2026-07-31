@@ -17,6 +17,7 @@ import { log } from '../../util/log.js';
 import { ssrfSafeFetch } from '../../util/ssrf.js';
 import { allowPrivateForSlot, type EgressSlot } from '../../config/model-egress-policy.js';
 import { extForMimeType, isInformativeMimeType, sniffImageMimeType } from '../mime.js';
+import { normalizeOpenAiBase } from '../converters/vlm-endpoint.js';
 
 /**
  * Runtime egress guard. **External** (operator-supplied, public) provider endpoints go through
@@ -241,7 +242,13 @@ export class WhisperProvider implements SttProvider {
   async transcribe(audioBytes: Buffer, mimeType: string): Promise<SttResult> {
     const base = (this.cfg.baseUrl ?? 'http://whisper.ythril.svc.cluster.local:8000').replace(/\/$/, '');
     const model = this.cfg.model ?? 'base';
-    const url = `${base}/v1/audio/transcriptions`;
+    // Normalised, not concatenated. `${base}/v1/audio/transcriptions` is correct for a bare host and wrong
+    // for the documented OpenAI base — `https://api.openai.com/v1` became `/v1/v1/audio/transcriptions`
+    // and 404'd, while the list probe normalises and reported the endpoint fine. That is #562's
+    // probe-disagrees-with-inference defect, still live in this slot: every other OpenAI-compatible caller
+    // was moved onto `normalizeOpenAiBase` and the transcription URL was not. One base URL now works for
+    // the vision, assist and speech slots at once, which is what an operator configuring one server expects.
+    const url = `${normalizeOpenAiBase(base)}/audio/transcriptions`;
 
     // Build multipart/form-data using FormData.
     //

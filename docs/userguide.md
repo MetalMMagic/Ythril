@@ -649,6 +649,16 @@ rather than just saying it failed. Two cases account for almost all of them:
 - **"Blocked SSRF target … 169.254.x" or a loopback address** — these stay blocked whatever the setting.
   Point the endpoint at a real service address.
 
+And one result that looks like a problem and is not:
+
+- **"Reachable · no model list"** — the endpoint answered, and it has no page listing its models. That is
+  the normal shape of a single-purpose inference server: a Whisper service serves only its transcription
+  route, so asking it for a model list can only ever come back "not found". Test connection says what it
+  found and leaves the card green, because a missing *list* is not a missing *service*. Use **Verify** to
+  confirm the model itself answers — it sends a real request down the real path. If Verify fails too,
+  hover the result: the detail names the exact URL that was tried, which is usually a base URL with a
+  wrong path.
+
 Every refusal is also written to the server log with the same detail, so an administrator can find it
 without you having to reproduce the click.
 

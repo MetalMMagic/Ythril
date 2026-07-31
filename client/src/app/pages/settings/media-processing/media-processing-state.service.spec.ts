@@ -449,6 +449,33 @@ describe('MediaProcessingStateService — test connection', () => {
     expect(c.testPillVariant({ reachable: true, modelEnumerated: true } as never)).toBe('ok');
   });
 
+  // ── B.2: the pill says what the probe established, not what it hoped for ──
+
+  it('an endpoint with no model list is ok, and labelled for it', () => {
+    // Their speech-to-text service serves one route. The probe asked for an enumeration surface, got a
+    // 404, and the pill read "Unreachable" over a pipeline whose Verify was green.
+    const { c } = make();
+    const noList = { ok: true, reachable: true, verdict: 'not-enumerable', status: 404, latencyMs: 9 } as never;
+    expect(c.testPillVariant(noList)).toBe('ok');
+    expect(c.testPillLabelKey(noList)).toBe('mediaProcessing.test.noModelList');
+  });
+
+  it('a rejected credential is an error, and named as one', () => {
+    // Reachable and genuinely broken: inference presents the same key. "Unreachable" would send the
+    // operator to the network when the fix is the API key field two rows above.
+    const { c } = make();
+    const rejected = { ok: false, reachable: true, verdict: 'auth-rejected', status: 401, latencyMs: 4 } as never;
+    expect(c.testPillVariant(rejected)).toBe('error');
+    expect(c.testPillLabelKey(rejected)).toBe('mediaProcessing.test.authRejected');
+  });
+
+  it('a provider-type mismatch is a warning, not a green success badge', () => {
+    // `ok: false` with `reachable: true` is the probe saying "it answered on the protocol inference will
+    // not use". That was rendered as a plain success pill with the explanation left in `detail`.
+    const { c } = make();
+    expect(c.testPillVariant({ ok: false, reachable: true, verdict: 'listed', latencyMs: 6 } as never)).toBe('warn');
+  });
+
   it('records the result against the target that was tested', () => {
     const { c, post } = make();
     c.testConnection('vision');

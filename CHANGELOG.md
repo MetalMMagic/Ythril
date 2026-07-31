@@ -76,6 +76,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A red dot over a provably working speech-to-text pipeline.** The card asked the endpoint for a list of
+  its models, got a `404`, and reported **unreachable** — while Verify, which sends generated silence down
+  the real path, was green. Their service serves exactly one route, `POST /v1/audio/transcriptions`: a list
+  probe against it can only ever 404, and **a 404 on a path the slot never calls is no information about
+  the slot**. Reported by the canary.
+  - Every status that was not `200` had collapsed into `reachable: false`, so "answered, has no listing
+    surface" was indistinguishable from "nothing is there". The probe now reports what it **established**
+    (`verdict`): a missing list route is reachable-with-a-reason, while a rejected credential, a `5xx` and
+    a refused connection stay faults — and each says which, because they need opposite fixes.
+  - **The same ranking failure ran in the other direction too.** When an endpoint answered on the *other*
+    protocol, the probe already knew inference would fail and said so — and the health dot dropped that
+    verdict, showing plain green over a pipeline that could not work. It reads `degraded` now and carries
+    the reason. Test connection likewise showed a success pill for it.
+  - **And the speech slot's probe and its inference call disagreed about `/v1`.** The transcription URL was
+    concatenated (`${base}/v1/audio/transcriptions`) while the probe normalises, so the documented OpenAI
+    base — `https://api.openai.com/v1`, which the vision and assist slots require — became
+    `/v1/v1/audio/transcriptions` and 404'd beneath a green dot. One base URL now serves all three slots.
+    This is the defect 2.2's probe fix was about, still live in the one slot it had not reached.
+
 - **Saving a networked space's settings did nothing, silently.** A meta change to a space that belongs to
   a network opens a vote round and answers `202 { status: 'vote_pending' }` — with no `space`. The dialog
   had it typed as `{ space: Space }` unconditionally, so it destructured `undefined` and threw inside its

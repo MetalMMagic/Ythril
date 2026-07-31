@@ -99,8 +99,19 @@ function expand(path) {
 
 function documentedEndpoints() {
   const out = new Map();
-  for (const f of readdirSync(join(ROOT, 'docs')).filter(n => n.endsWith('.md'))) {
-    const src = readFileSync(join(ROOT, 'docs', f), 'utf8');
+  // Recursive: the integration guide is 17 files under `docs/integration-guide/` now, and a one-level
+  // listing would have quietly stopped scanning almost every documented endpoint in the product.
+  const mdFiles = (dir, out = []) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, e.name);
+      if (e.isDirectory()) mdFiles(full, out);
+      else if (e.name.endsWith('.md')) out.push(full);
+    }
+    return out;
+  };
+  for (const full of mdFiles(join(ROOT, 'docs'))) {
+    const f = full.split(/[\\/]docs[\\/]/)[1];
+    const src = readFileSync(full, 'utf8');
     for (const m of src.matchAll(new RegExp(`\\b(GET|POST|PUT|PATCH|DELETE)\\s+(/api/[A-Za-z0-9_\\-/:{},.]*)`, 'g'))) {
       for (const path of expand(m[2])) {
         const key = `${m[1]} ${norm(path)}`;

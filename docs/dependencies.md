@@ -197,7 +197,7 @@ The key difference is that **no proprietary `mongot` binary is involved**, makin
 this the only fully SSPL-only (no proprietary) deployment option with full
 `$vectorSearch` support.
 
-See [integration-guide.md](integration-guide.md#mongodb-flexibility) for
+See [integration-guide.md](integration-guide/02-hosting.md#mongodb-flexibility) for
 connection configuration.
 
 ---

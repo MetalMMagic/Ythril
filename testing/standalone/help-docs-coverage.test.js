@@ -24,8 +24,18 @@ import { execFileSync } from 'node:child_process';
 const HELP_COMPONENT = 'client/src/app/pages/settings/help.component.ts';
 const src = readFileSync(HELP_COMPONENT, 'utf8');
 
-/** The `file:` values listed in HELP_DOCS. */
-const listed = [...src.matchAll(/file:\s*'([^']+)'/g)].map(m => m[1]);
+/**
+ * Every markdown path HELP_DOCS references — the `file:` of each entry, plus the `parts:` of a guide
+ * that is split across files.
+ *
+ * The parts matter here for the same reason the whole check exists: `git ls-files 'docs/*.md'` does not
+ * descend, so before this the seventeen files of the split integration guide were invisible to BOTH
+ * sides of the comparison and the gate would have gone on passing while shipping nothing.
+ */
+const listed = [
+  ...[...src.matchAll(/file:\s*'([^']+)'/g)].map(m => m[1]),
+  ...[...src.matchAll(/'(integration-guide\/[^']+\.md)'/g)].map(m => m[1]),
+];
 /** The `id:` values, needed for the i18n check. */
 const ids = [...src.matchAll(/id:\s*'([^']+)',\s*file:/g)].map(m => m[1]);
 
@@ -37,7 +47,10 @@ const ids = [...src.matchAll(/id:\s*'([^']+)',\s*file:/g)].map(m => m[1]);
  * gate demand a Help entry for it, and that entry would have 404'd for every user. A local-only file is
  * invisible to the build, so it must be invisible to the check that guards the build.
  */
-const shipped = execFileSync('git', ['ls-files', 'docs/*.md'], { encoding: 'utf8' })
+// `docs/*.md` does not descend; `docs/**/*.md` in git's pathspec does not mean what a shell glob means
+// either. Two explicit patterns, so a nested guide cannot hide from this the way the split parts would
+// have. (The repo has one level of nesting; a third pattern is cheaper than a wrong assumption.)
+const shipped = execFileSync('git', ['ls-files', 'docs/*.md', 'docs/*/*.md'], { encoding: 'utf8' })
   .split('\n').filter(Boolean).map(p => p.replace(/^docs\//, ''));
 
 describe('Help page — the offered guides and the shipped ones are the same set', () => {

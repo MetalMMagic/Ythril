@@ -13,6 +13,7 @@
  */
 import { ChangeDetectionStrategy, ChangeDetectorRef, Component, ElementRef, OnInit, computed, inject, signal, viewChild } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
+import { from, firstValueFrom } from 'rxjs';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ActivatedRoute, Router } from '@angular/router';
 import { TranslocoPipe } from '@jsverse/transloco';
@@ -31,7 +32,22 @@ import { httpErrorReason } from '../../core/http-error';
  */
 export const HELP_DOCS = [
   { id: 'userguide', file: 'userguide.md' },
-  { id: 'integration-guide', file: 'integration-guide.md' },
+  // Split by topic on disk, rendered here as one document — see `joinParts`. The `file` is kept as the
+  // id-bearing name so cross-doc links written as `integration-guide.md#x` still resolve to this entry.
+  {
+    id: 'integration-guide', file: 'integration-guide.md',
+    parts: [
+      'integration-guide/01-getting-ythril.md', 'integration-guide/02-hosting.md',
+      'integration-guide/03-auth-and-limits.md', 'integration-guide/04-brain-api.md',
+      'integration-guide/05-files-api.md', 'integration-guide/06-spaces-api.md',
+      'integration-guide/07-tokens-api.md', 'integration-guide/08-networks-api.md',
+      'integration-guide/09-sync-api.md', 'integration-guide/10-mfa-and-conflicts.md',
+      'integration-guide/11-setup-api.md', 'integration-guide/12-admin-api.md',
+      'integration-guide/13-audit-log-api.md', 'integration-guide/14-duplicates-and-webhooks.md',
+      'integration-guide/15-about-and-embedding.md', 'integration-guide/16-mcp.md',
+      'integration-guide/17-quotas-pagination-oidc.md',
+    ],
+  },
   { id: 'usecase-examples', file: 'usecase-examples.md' },
   { id: 'workstation-mode-guide', file: 'workstation-mode-guide.md' },
   { id: 'network-types', file: 'network-types.md' },
@@ -39,7 +55,7 @@ export const HELP_DOCS = [
   { id: 'ui-primitives', file: 'ui-primitives.md' },
   { id: 'dependencies', file: 'dependencies.md' },
   { id: 'contribution-guide', file: 'contribution-guide.md' },
-] as const;
+] as const satisfies ReadonlyArray<{ id: string; file: string; parts?: readonly string[] }>;
 
 export type HelpDocId = typeof HELP_DOCS[number]['id'];
 
@@ -237,12 +253,47 @@ export class HelpComponent implements OnInit {
 
   reload(): void { this.load(this.active()); }
 
+  /**
+   * Join a split guide's parts into one document.
+   *
+   * Two fixups, both because the files on disk are written for GitHub and this view is not GitHub:
+   *
+   *  - **Part headers are dropped.** Each file opens with `# Title` and a "Part of the …" backlink so it
+   *    stands alone in a repo browser. Concatenated, seventeen H1s and seventeen backlinks would be
+   *    noise, and the backlink would point at an index this page does not render.
+   *  - **Cross-part links become plain anchors.** On disk a link reads `04-brain-api.md#schema-validation`
+   *    because that is what resolves on GitHub. Here every part is in one document, so the file prefix
+   *    has to come off or the link leaves the page.
+   */
+  private joinParts(chunks: string[], files: readonly string[]): string {
+    if (chunks.length === 1) return chunks[0]!;
+    const names = files.map(f => f.split('/').pop()!);
+    const stripPrefix = new RegExp(`\\]\\((?:${names.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})(#[^)]+)\\)`, 'g');
+    return chunks
+      .map(c => c
+        .replace(/^#\s.*(\r?\n)+/, '')                                  // the part's own H1
+        .replace(/^>\s*Part of the \[[^\]]*\]\([^)]*\)\.\s*(\r?\n)+/m, '')) // and its backlink
+      .join('\n\n')
+      .replace(stripPrefix, ']($1)');
+  }
+
   private load(id: HelpDocId, fragment?: string): void {
     this.active.set(id);
     this.loading.set(true);
     this.error.set('');
-    const file = HELP_DOCS.find(d => d.id === id)!.file;
-    this.http.get(`assets/docs/${file}`, { responseType: 'text' }).subscribe({
+    const entry = HELP_DOCS.find(d => d.id === id)!;
+    // A guide split across files is fetched whole and joined, so it renders as ONE document.
+    //
+    // That is what keeps every existing `#anchor` working — the guide's own cross-references, the user
+    // guide's deep links, the README's. Offering seventeen nav entries instead would have broken all of
+    // them and turned a nine-item sidebar into a wall.
+    // `in` rather than `?.` because the array is `as const`: the union member for a single-file guide has
+    // no `parts` property at all, so a direct access does not type-check.
+    const files: readonly string[] = 'parts' in entry ? entry.parts : [entry.file];
+    const fetches = files.map(f =>
+      firstValueFrom(this.http.get(`assets/docs/${f}`, { responseType: 'text' })));
+
+    from(Promise.all(fetches).then(chunks => this.joinParts(chunks, files))).subscribe({
       next: async text => {
         if (this.active() !== id) return;              // a faster click won the race
         const html = await this.markdown.render(text);

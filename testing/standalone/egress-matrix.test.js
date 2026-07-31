@@ -26,8 +26,10 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { readGuide } from './_docs.mjs';
 
-const GUIDE = 'docs/integration-guide.md';
+// The guide is 17 files now; `readGuide()` joins them so this check keeps asking about the guide
+// rather than about how it happens to be stored.
 
 let EGRESS_SLOTS;
 let rows;
@@ -66,7 +68,7 @@ function parseMatrix(md) {
 describe('egress matrix ↔ code', () => {
   before(async () => {
     ({ EGRESS_SLOTS } = await import('../../server/dist/config/model-egress-policy.js'));
-    rows = parseMatrix(readFileSync(GUIDE, 'utf8'));
+    rows = parseMatrix(readGuide());
   });
 
   it('the parser found the table', () => {
@@ -104,7 +106,7 @@ describe('egress matrix ↔ code', () => {
     // It used to list seven slots by name — and the one it omitted was the unguarded one. A prose list
     // that has to be kept in sync with a table two lines below it will not be; it now points at the
     // matrix instead, which is the thing this test checks.
-    const md = readFileSync(GUIDE, 'utf8');
+    const md = readGuide();
     const bullet = md.slice(md.indexOf('- **Model provider endpoints**'), md.indexOf('#### Egress matrix'));
     assert.ok(bullet.length > 0 && bullet.length < 400, 'expected the short bullet above the matrix');
     assert.match(bullet, /egress matrix/i, 'the bullet should defer to the matrix rather than re-list slots');

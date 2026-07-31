@@ -49,6 +49,15 @@ function clickLink(f: { nativeElement: unknown }, selector = 'a'): MouseEvent {
   return ev;
 }
 
+/**
+ * Let the load settle.
+ *
+ * A guide can be split across files, so loading is `Promise.all(...).then(join)` rather than a
+ * single `http.get`. One `await Promise.resolve()` used to be enough and now lands mid-chain, which
+ * showed up as every render assertion failing at once rather than as anything about splitting.
+ */
+const flush = async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); };
+
 describe('HelpComponent', () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -78,12 +87,17 @@ describe('HelpComponent', () => {
   it('every offered guide resolves to a path inside assets/docs', () => {
     for (const d of HELP_DOCS) {
       expect(d.file).toMatch(/^[a-z0-9-]+\.md$/);
+      // A split guide's parts are built into the same path, so they need the same guarantee: no `..`,
+      // no absolute path, nothing that could escape `assets/docs`.
+      for (const part of ('parts' in d ? d.parts : [])) {
+        expect(part).toMatch(/^[a-z0-9-]+\/\d\d-[a-z0-9-]+\.md$/);
+      }
     }
   });
 
   it('renders the fetched markdown through the shared renderer', async () => {
     const { f, c } = setup();
-    await Promise.resolve();
+    await flush();
     f.detectChanges();
     expect(c.loading()).toBe(false);
     expect((f.nativeElement as HTMLElement).querySelector('.doc article')?.innerHTML).toContain('# Title');
@@ -91,7 +105,7 @@ describe('HelpComponent', () => {
 
   it('a failed load surfaces the reason rather than rendering an empty guide', async () => {
     const { f, c } = setup({ get: vi.fn(() => throwError(() => new Error('gone'))) });
-    await Promise.resolve();
+    await flush();
     f.detectChanges();
     expect(c.error()).toBeTruthy();
     expect(c.loading()).toBe(false);
@@ -105,7 +119,7 @@ describe('HelpComponent', () => {
 
     it('an intra-document anchor scrolls instead of navigating away', async () => {
       const s = withHtml('<a href="#settings--tokens">go</a><h2 id="settings--tokens">Tokens</h2>');
-      await Promise.resolve();
+      await flush();
       s.f.detectChanges();
       const heading = (s.f.nativeElement as HTMLElement).querySelector('#settings--tokens')!;
       const scroll = vi.fn();
@@ -118,33 +132,37 @@ describe('HelpComponent', () => {
 
     it('a cross-document link opens that guide instead of leaving the app', async () => {
       const s = withHtml('<a href="integration-guide.md#recall">see</a>');
-      await Promise.resolve();
+      await flush();
       s.f.detectChanges();
       const ev = clickLink(s.f);
       expect(ev.defaultPrevented).toBe(true);
       expect(s.c.active()).toBe('integration-guide');
-      expect(s.get).toHaveBeenLastCalledWith('assets/docs/integration-guide.md', { responseType: 'text' });
+      // That guide is split across files, so it fetches its PARTS rather than the index — the index is a
+      // link list and rendering it here would show a contents page where the guide should be.
+      const fetched = s.get.mock.calls.map(c => c[0] as string);
+      expect(fetched.some(u => u.startsWith('assets/docs/integration-guide/'))).toBe(true);
+      expect(fetched).not.toContain('assets/docs/integration-guide.md');
     });
 
     it('a link to a document the page does not offer keeps its default behaviour', async () => {
       // Swallowing it would make a dead link silently do nothing, which is harder to report than a
       // visible failure.
       const s = withHtml('<a href="secret-notes.md">see</a>');
-      await Promise.resolve();
+      await flush();
       s.f.detectChanges();
       expect(clickLink(s.f).defaultPrevented).toBe(false);
     });
 
     it('an external link is left entirely alone', async () => {
       const s = withHtml('<a href="https://example.com/x">out</a>');
-      await Promise.resolve();
+      await flush();
       s.f.detectChanges();
       expect(clickLink(s.f).defaultPrevented).toBe(false);
     });
 
     it('a ctrl/cmd-click is never swallowed — open-in-new-tab still works', async () => {
       const s = withHtml('<a href="#top">go</a><h2 id="top">Top</h2>');
-      await Promise.resolve();
+      await flush();
       s.f.detectChanges();
       const a = (s.f.nativeElement as HTMLElement).querySelector('.doc article a')!;
       const ev = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0, ctrlKey: true });
@@ -157,14 +175,14 @@ describe('HelpComponent', () => {
       const s = withHtml('<h2 id="settings--tokens">Tokens</h2>', { fragment: 'settings--tokens' });
       const heading = () => (s.f.nativeElement as HTMLElement).querySelector('#settings--tokens');
       // The element only exists after the render resolves; assert we got there and it is addressable.
-      await Promise.resolve();
+      await flush();
       s.f.detectChanges();
       expect(heading()).toBeTruthy();
     });
 
     it('a fragment matching no heading leaves the reader at the top rather than throwing', async () => {
       const s = withHtml('<h2 id="real">Real</h2>', { fragment: 'not-a-heading' });
-      await Promise.resolve();
+      await flush();
       s.f.detectChanges();
       expect(s.c.error()).toBe('');
     });
@@ -179,11 +197,13 @@ describe('HelpComponent', () => {
     });
     const { c } = setup({ get });
 
-    const second = HELP_DOCS[1];
+    // A SINGLE-FILE guide, so `calls[1]` is unambiguously the second selection's fetch. A split guide
+    // would issue one call per part and this test is about the race, not about splitting.
+    const second = HELP_DOCS.slice(1).find(d => !('parts' in d))!;
     c.open(second.id);                 // switch while the first is still in flight
     slow.next('# First');              // …and let the stale one answer
     slow.complete();
-    await Promise.resolve();
+    await flush();
 
     expect(c.active()).toBe(second.id);
     expect(calls[1]).toBe(`assets/docs/${second.file}`);

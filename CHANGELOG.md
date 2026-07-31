@@ -55,6 +55,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A converted document had no description, while its extracted images all had captions.** Reported
+  against 2.1.1: after a PDF converts, the original's file-meta carries `convertedFileId`, `chunkCount`
+  and `embeddingStatus` — and no description, with `matchedText` being literally the filename. Every
+  `_extracted/<id>/image-N.jpg` the same document produced got a full generated caption. So the record a
+  human actually browses was findable only by its filename, while its derived children carried summaries.
+  - The mechanism already existed and simply was not applied: `derivedDescription` is written to the
+    parent only when the operator has not written one, and re-embedded so it becomes searchable. Images
+    set it; documents never did — the same "the rule lives one branch over" shape as the audio `partial`
+    status.
+  - The summary is **extractive, not generated**. Partly cost (this would put a model call on every
+    upload, on instances with no VLM configured), but mainly honesty: a generated summary can assert
+    something the document does not say, and a description that misrepresents a record is worse than
+    none, because search matches it and a reader believes it. Taking the document's own opening prose
+    cannot invent anything — at worst it is unhelpful.
+  - Nothing is produced for an empty or scaffolding-only document; a misleading description is worse
+    than a missing one.
+
+- **`_converted/` and `_extracted/` were visible in the file manager tree**, though the guide said
+  derived artifacts are hidden "from the file manager UI and listing endpoints by default". That was only
+  half true: the file-meta listing excludes derived *records*, but the file-store directory listing had
+  no such filter, so the folders sat in the tree. Reported against 2.1.1.
+  - The doc described the intent, so the code now matches it. `?includeDerived=true` restores the old
+    view for anyone inspecting conversions — the same escape hatch `?includeChunks=true` gives on the
+    metadata side, rather than removing the ability outright.
+  - Applied only at the space root, where the pipeline writes them. A directory of your own with the
+    same name deeper in the tree is left alone.
+
 - **The Models screen listed nine of the pipeline's ten model endpoints — third occurrence.** A customer's
   ticket enumerated their endpoints from that page and missed `vlmModel`, because it had no card at all
   (env-only, `DOC_VLM_MODEL`) *and* the Pipelines tab deep-linked its step to the **vision** card, which

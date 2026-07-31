@@ -45,6 +45,7 @@ import { col, asFilter } from '../../db/mongo.js';
 import type { FileMetaDoc } from '../../config/types.js';
 import { updateFileMeta, markFileMetaDeleted } from '../file-meta.js';
 import { mimeTypeForPath } from '../mime.js';
+import { summariseMarkdown } from '../converters/summarise.js';
 import {
   runConversionPipeline,
   storeConversionResults,
@@ -371,6 +372,19 @@ async function processJob(
           );
           const metaUpdate: Record<string, unknown> = { chunkCount };
           if (convertedFileId) metaUpdate['convertedFileId'] = convertedFileId;
+          // Give the PARENT record a summary, through the SAME path images already use.
+          //
+          // Reported: after a PDF converts, its filemeta carries `convertedFileId`, `chunkCount` and
+          // `embeddingStatus` — and no description, with `matchedText` being literally the filename.
+          // Meanwhile every `_extracted/.../image-N.jpg` child gets a full generated caption. So the
+          // record a human actually browses was findable only by its filename while its derived
+          // children carried summaries.
+          //
+          // The mechanism was already here: `derivedDescription` is written to the parent below, only
+          // when the operator has not written one, and re-embedded so it is searchable. Images set it;
+          // documents never did. This is the same "the rule exists one branch over" shape as the audio
+          // `partial` status.
+          derivedDescription = summariseMarkdown(convertedMarkdown, chunks);
           await col<FileMetaDoc>(`${spaceId}_files`).updateOne(
             asFilter<FileMetaDoc>({ _id: fileId }),
             { $set: metaUpdate },

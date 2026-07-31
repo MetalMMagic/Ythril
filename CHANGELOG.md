@@ -90,6 +90,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The security posture is countable, so a fleet can alert on it.** `ythril_security_posture_checks{level}`
+  reports the same PASS/WARN/FAIL findings the boot log prints and `GET /api/about/security` serves —
+  computed per scrape from the same function, so the metric and the endpoint cannot disagree. **Alert on
+  `level="fail"` > 0.**
+  - Found by the observability audit: both existing surfaces are pull-only and human-shaped, so the way a
+    five-instance fleet learned that an instance came up misconfigured was somebody reading its boot log.
+    And the checks that matter most produce no runtime symptom — `requireEncryptedTransport` on *without*
+    `trustProxy` rejects every request with a 403 that looks like a client problem.
+  - All three levels report `0` from process start: absent and zero look identical in a graph and mean
+    opposite things.
+
+- **A failure in the UI now carries the request id you can grep for.** Every response already had an
+  `X-Request-Id` header and the server already logged that id with each unhandled error — and the UI showed
+  *"Internal server error"* with nothing to quote, so the link between a visible failure and its log line
+  existed in the protocol and stopped at the only place a person meets it.
+  - Appended for **server-side** failures only (5xx, or a request that got no answer). A 4xx explains
+    itself, and an id on every validation message trains people to ignore the id when it matters.
+  - It goes through the single function every error surface in the app already used, which is why it lands
+    everywhere at once — and which is why that function now has a test file of its own.
+
 - **An Extract tab on the file detail pane — what retrieval actually sees.** Hiding `_converted/` and
   `_extracted/` matched the documentation and was asked for, and it removed the only way to answer *"what
   did the pipeline actually extract from this file?"* — the first question anyone asks when a document is

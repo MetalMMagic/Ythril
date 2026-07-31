@@ -62,6 +62,14 @@ async function main(): Promise<void> {
     // (S2), and MongoDB auth. Advisory by default; `security.strict` aborts boot on any FAIL.
     {
       const { computeSecurityPosture, formatPostureLines, securityStrict } = await import('./config/security-posture.js');
+      // The same findings, countable on /metrics, so a fleet does not learn about a misconfigured instance
+      // by someone reading its boot log. Registered here rather than imported inside `registry.ts`, which
+      // nearly every module pulls in — see `setPostureProvider`. Re-computed per scrape, never cached: the
+      // posture depends on config that a running instance can change.
+      {
+        const { setPostureProvider } = await import('./metrics/registry.js');
+        setPostureProvider(() => computeSecurityPosture().checks);
+      }
       const posture = computeSecurityPosture();
       const issues = posture.checks.filter(c => c.level !== 'pass');
       if (issues.length === 0) {

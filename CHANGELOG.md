@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Development
+
+- **`npm run docker:compact` returns the Docker disk's empty space to the host drive.** `docker:reclaim`
+  frees space *inside* the VM and then printed four `diskpart` commands for a human to run in an elevated
+  shell — which is why 33 GB of reclaimable space sat inside a 76 GiB `docker_data.vhdx` while the drive it
+  lives on had **918 MB free**. The script now runs the whole sequence and elevates only the step that
+  needs it (a UAC prompt), then restarts Docker. `-WhatIf` reports the disk and the sizes without touching
+  anything.
+  - It stops Docker Desktop and runs `wsl --shutdown`, so every container and **every** WSL distro goes
+    down and comes back; that is stated at the top of the script rather than discovered.
+  - The disk is attached **readonly** while compacting, which is what makes "only removes empty space" a
+    guarantee rather than a claim. It prunes nothing itself: deleting images is a different decision from
+    returning space that is already free.
+
 ### Documentation
 
 - **The integration guide is split by topic.** 7,830 lines in one file — the largest single obstacle to

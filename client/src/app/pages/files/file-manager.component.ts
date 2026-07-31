@@ -346,18 +346,18 @@ function xlsxCellText(v: unknown): string {
     .preview-fs-btn:hover { opacity: 1; }
     /* Formatted markdown */
     .md-rendered { line-height: 1.6; word-break: break-word; }
-    .md-rendered h1, .md-rendered h2, .md-rendered h3 { margin: 0.8em 0 0.4em; line-height: 1.25; }
-    .md-rendered h1 { font-size: 1.5em; } .md-rendered h2 { font-size: 1.3em; } .md-rendered h3 { font-size: 1.12em; }
-    .md-rendered p { margin: 0.5em 0; }
-    .md-rendered ul, .md-rendered ol { margin: 0.5em 0; padding-left: 1.5em; }
-    .md-rendered code { background: var(--bg-muted); padding: 0.1em 0.35em; border-radius: 4px; font-family: var(--font-mono, monospace); font-size: 0.9em; }
-    .md-rendered pre { background: var(--bg-muted); padding: 12px; border-radius: 6px; overflow: auto; margin: 0.6em 0; }
-    .md-rendered pre code { background: none; padding: 0; }
-    .md-rendered a { color: var(--accent, #6ea8fe); }
-    .md-rendered blockquote { margin: 0.5em 0; padding-left: 12px; border-left: 3px solid var(--border); color: var(--text-muted); }
-    .md-rendered table { border-collapse: collapse; margin: 0.5em 0; }
-    .md-rendered th, .md-rendered td { border: 1px solid var(--border); padding: 4px 8px; }
-    .md-rendered img { max-width: 100%; }
+    .md-rendered ::ng-deep h1, .md-rendered ::ng-deep h2, .md-rendered ::ng-deep h3 { margin: 0.8em 0 0.4em; line-height: 1.25; }
+    .md-rendered ::ng-deep h1 { font-size: 1.5em; } .md-rendered ::ng-deep h2 { font-size: 1.3em; } .md-rendered ::ng-deep h3 { font-size: 1.12em; }
+    .md-rendered ::ng-deep p { margin: 0.5em 0; }
+    .md-rendered ::ng-deep ul, .md-rendered ::ng-deep ol { margin: 0.5em 0; padding-left: 1.5em; }
+    .md-rendered ::ng-deep code { background: var(--bg-muted); padding: 0.1em 0.35em; border-radius: 4px; font-family: var(--font-mono, monospace); font-size: 0.9em; }
+    .md-rendered ::ng-deep pre { background: var(--bg-muted); padding: 12px; border-radius: 6px; overflow: auto; margin: 0.6em 0; }
+    .md-rendered ::ng-deep pre code { background: none; padding: 0; }
+    .md-rendered ::ng-deep a { color: var(--accent, #6ea8fe); }
+    .md-rendered ::ng-deep blockquote { margin: 0.5em 0; padding-left: 12px; border-left: 3px solid var(--border); color: var(--text-muted); }
+    .md-rendered ::ng-deep table { border-collapse: collapse; margin: 0.5em 0; }
+    .md-rendered ::ng-deep th, .md-rendered ::ng-deep td { border: 1px solid var(--border); padding: 4px 8px; }
+    .md-rendered ::ng-deep img { max-width: 100%; }
     .mermaid-diagram { display: flex; justify-content: center; margin: 0.8em 0; }
     .mermaid-diagram svg { max-width: 100%; height: auto; }
     /* xlsx grid preview */

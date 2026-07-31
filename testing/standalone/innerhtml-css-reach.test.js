@@ -1,0 +1,108 @@
+/**
+ * CSS written for `[innerHTML]` content must actually be able to reach it.
+ *
+ * ## The defect this exists for
+ *
+ * Angular's emulated encapsulation stamps `_ngcontent-*` on elements the TEMPLATE creates, and compiles
+ * `.doc p` into `.doc p[_ngcontent-xyz]`. Nodes inserted through `[innerHTML]` never carry that attribute
+ * — so **every descendant rule silently matches nothing**. No error, no warning, no console message. The
+ * styles sit right there in the file, they look applied, and they are dead.
+ *
+ * Two surfaces had been that way since each shipped:
+ *
+ *   - `help.component.ts` — the in-product guides, 19 rules
+ *   - `file-manager.component.ts` — the Markdown file preview, 13 rules
+ *
+ * Nobody had ever seen the shipped documentation rendered with its own styling. Measured on a booted
+ * instance, before → after: `pre` background `transparent` → `rgb(28,33,40)`, `blockquote` border-left
+ * `0px` → `3px`, paragraph `max-width` `none` → `689px`.
+ *
+ * ## Why a declared map rather than a heuristic
+ *
+ * The first version guessed: it flagged any descendant rule ending in a markdown-ish tag inside a
+ * component that renders `[innerHTML]`. That reported `.xlsx-grid th` and `.detail-desc h4` — both
+ * template-built, properly encapsulated, entirely fine. A gate whose findings need triage is a gate
+ * people learn to skip.
+ *
+ * So the container class of each rendered surface is **declared** here, and a separate check asserts the
+ * map names every component that uses `[innerHTML]`. Adding a third surface fails the build until it is
+ * classified, which is the opposite of how the original defect survived — there, the absence of any
+ * declaration was the default.
+ *
+ * Run: node --test testing/standalone/innerhtml-css-reach.test.js
+ */
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+
+const ROOT = 'client/src/app';
+
+/**
+ * Where `[innerHTML]` output lands, per component: the CSS class its rules are rooted at, or `null` when
+ * the component renders innerHTML but styles none of its content.
+ */
+const RENDERED_SURFACES = new Map([
+  ['client/src/app/pages/settings/help.component.ts', '.doc'],
+  ['client/src/app/pages/files/file-manager.component.ts', '.md-rendered'],
+  // Inline SVG built from a path string; the component styles the host, never the injected markup.
+  ['client/src/app/shared/ph-icon.component.ts', null],
+  // Short highlighted fragments injected into a label; no descendant rules target them.
+  ['client/src/app/pages/settings/media-processing/media-processing-page.component.ts', null],
+  ['client/src/app/pages/settings/media-processing/models-tab.component.ts', null],
+  ['client/src/app/pages/settings/space-schema-tab.component.ts', null],
+]);
+
+function sources(dir = ROOT, out = []) {
+  for (const name of readdirSync(dir)) {
+    const p = `${dir}/${name}`;
+    if (statSync(p).isDirectory()) { sources(p, out); continue; }
+    if (p.endsWith('.ts') && !p.endsWith('.spec.ts')) out.push(p.replace(/\\/g, '/'));
+  }
+  return out;
+}
+
+/** The `styles: [\`…\`]` block of a component, comments stripped — prose about a selector is not a rule. */
+function stylesBlock(src) {
+  const i = src.indexOf('styles: [`');
+  if (i < 0) return '';
+  const j = src.indexOf('`],', i);
+  const raw = j < 0 ? '' : src.slice(i + 'styles: [`'.length, j);
+  return raw.replace(/\/\*[\s\S]*?\*\//g, '');
+}
+
+describe('CSS for [innerHTML] content can reach it', () => {
+  const usesInnerHtml = sources().filter(f => readFileSync(f, 'utf8').includes('[innerHTML]'));
+
+  it('finds the components that render innerHTML (the check itself works)', () => {
+    // A refactor that reduced this to zero would make every assertion below pass by examining nothing.
+    assert.ok(usesInnerHtml.length >= 2, `expected components rendering [innerHTML], found ${usesInnerHtml.length}`);
+  });
+
+  it('classifies every component that renders innerHTML — no more, no fewer', () => {
+    assert.deepEqual([...RENDERED_SURFACES.keys()].sort(), usesInnerHtml.sort(),
+      'Every component using [innerHTML] must be declared here — with the CSS class its rules are rooted\n' +
+      'at, or `null` when it styles none of the injected content. A component missing from the map is a\n' +
+      'surface nobody checked, which is exactly how the guides came to render unstyled.');
+  });
+
+  it('every rule rooted at a rendered surface is ::ng-deep', () => {
+    const dead = [];
+    for (const [file, root] of RENDERED_SURFACES) {
+      if (!root) continue;
+      const css = stylesBlock(readFileSync(file, 'utf8'));
+      for (const line of css.split('\n')) {
+        const selector = line.split('{')[0];
+        if (!selector.includes(root) || selector.includes('::ng-deep')) continue;
+        // `.doc { … }` styles the container itself and is correctly encapsulated; only DESCENDANTS break.
+        if (new RegExp(`\\${root}\\s+\\S`).test(selector)) dead.push(`  ${file}\n    ${selector.trim()}`);
+      }
+    }
+
+    assert.deepEqual(dead, [],
+      'These rules target content inserted through [innerHTML] from a component using emulated\n' +
+      'encapsulation — they compile to `sel[_ngcontent-x]` and match NOTHING. The styles look present\n' +
+      'and are dead, with no error anywhere:\n' + dead.join('\n') +
+      '\nAdd `::ng-deep` after the container (`.doc ::ng-deep blockquote`), which keeps the rule scoped to\n' +
+      'this component\'s subtree while letting it reach content the template did not create.');
+  });
+});

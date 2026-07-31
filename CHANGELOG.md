@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The shipped guides have never been styled.** Not badly styled — **unstyled**. The Help page and the
+  Markdown file preview both render through `[innerHTML]`, and Angular's emulated encapsulation stamps
+  `_ngcontent-*` only on elements the TEMPLATE creates. So `.doc p` compiled to `.doc p[_ngcontent-xyz]`
+  and matched nothing. No error, no warning: the styles sat in the file looking applied.
+  - 19 dead rules in `help.component.ts`, 13 in `file-manager.component.ts` — every guide and every
+    Markdown preview has rendered at browser defaults since each shipped.
+  - Measured on a booted instance, before → after: `pre` background `transparent` → `rgb(28,33,40)`,
+    `pre` radius `0px` → `8px`, `blockquote` border-left `0px` → `3px`, paragraph `max-width` `none`
+    → `689px`.
+  - New gate `innerhtml-css-reach.test.js`. The first version guessed — it flagged `.xlsx-grid th` and
+    `.detail-desc h4`, both template-built and fine — so it was replaced with a **declared map** of
+    every `[innerHTML]` surface. A component missing from it fails the build, which is the opposite of
+    how this survived: there, having no declaration was the default.
+
+- **And now that rules can land, the guides read like documentation.** A **78ch measure on prose only**
+  (tables and code keep the full width, so nothing scrolls that need not); table headers get a
+  background and 600 weight with tinted even rows — the guides have 25 table cells over 320 characters,
+  so row tracking is not cosmetic; body text 14px/1.65. Screenshot-verified at 1680px, the width the
+  problem only appears at.
+
 ### Documentation
 
 - **The changelog is split by major.** 7,234 lines and 620 KB across 34 releases going back to

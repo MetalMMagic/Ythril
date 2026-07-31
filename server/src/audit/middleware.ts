@@ -106,6 +106,14 @@ const ROUTE_RULES: RouteRule[] = [
 
   { method: 'POST',   pattern: /^\/api\/tokens\/([^/]+)\/regenerate$/,             operation: 'token.regenerate' },
 
+  // ── Sync trigger ─────────────────────────────────────────────────────────
+  // `/api/notify` as a whole is exempt in `audit-route-coverage` as "peer notifications + the admin
+  // sync trigger — not a data mutation". The peer half is right; the trigger half is not. A sync cycle
+  // pulls records from peers and writes them locally, so "who started the run that brought in these
+  // records" is a question the log should answer. Only the specific admin route is matched — peer
+  // notifications stay out.
+  { method: 'POST',   pattern: /^\/api\/notify\/trigger$/,                        operation: 'sync.trigger' },
+
   // ── MFA ──────────────────────────────────────────────────────────────────
   // Both of these were unaudited, exempted by an entry in `audit-route-coverage` reading "covered by its
   // own auth events". There is exactly one auth event in the whole map — `auth.failed` — so nothing was
@@ -248,7 +256,7 @@ export function resolveOperation(method: string, path: string): { operation: str
   return null;
 }
 
-function isOidc(token: unknown): token is OidcTokenRecord {
+export function isOidc(token: unknown): token is OidcTokenRecord {
   return !!token && typeof token === 'object' && 'source' in token && (token as OidcTokenRecord).source === 'oidc';
 }
 
@@ -327,4 +335,19 @@ export function logAuthFailure(req: Request): void {
     entryId: null,
     durationMs: 0,
   });
+}
+
+/**
+ * How a caller authenticated, for an audit entry. Exported so the MCP dispatcher derives it the same way
+ * this middleware does — MCP writes its own entries (it is not an HTTP route the rules can match), and a
+ * second copy of this two-line derivation is how the two surfaces would come to disagree about identity.
+ */
+export function auditAuthMethod(token: unknown): 'pat' | 'oidc' | null {
+  if (!token) return null;
+  return isOidc(token) ? 'oidc' : 'pat';
+}
+
+/** The OIDC subject behind a token, or null for a PAT. */
+export function auditOidcSubject(token: unknown): string | null {
+  return isOidc(token) ? token.id.replace(/^oidc:/, '') : null;
 }

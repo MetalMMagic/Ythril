@@ -29,7 +29,22 @@ import path from 'node:path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const API_DIR = path.join(__dirname, '..', '..', 'server', 'src', 'api');
+/**
+ * Every directory that declares an Express router — not just `api/`.
+ *
+ * It was `api/` alone, so `mcpRouter` (server/src/mcp/router.ts) and `setupRouter`
+ * (server/src/setup/routes.ts) had NEVER been scanned. Both carried an EXEMPT entry, which made the
+ * omission read as deliberate and covered — the gate was not exempting them, it could not see them.
+ *
+ * Proven by mutation before it was fixed: deleting `mcpRouter.use(requireMcpAuth)` — the guard on the
+ * entire agent-facing API — left this suite green.
+ */
+const ROUTER_DIRS = [
+  path.join(__dirname, '..', '..', 'server', 'src', 'api'),
+  path.join(__dirname, '..', '..', 'server', 'src', 'mcp'),
+  path.join(__dirname, '..', '..', 'server', 'src', 'setup'),
+];
+const API_DIR = ROUTER_DIRS[0];
 const APP_TS = path.join(__dirname, '..', '..', 'server', 'src', 'app.ts');
 
 const MUTATING = new Set(['post', 'put', 'patch', 'delete']);
@@ -41,6 +56,11 @@ const AUTH_GUARDS = [
   'requireAdminMfaScoped',
   'requireAdminMfa',
   'requireAdmin',
+  // `mcpRouter.use(requireMcpAuth)` guards every MCP route, but this list did not know the name — so the
+  // router was EXEMPTED instead, under a reason ("authorises at the tool dispatcher") that described its
+  // read-only enforcement rather than its authentication. Between that and the scan never reaching
+  // `server/src/mcp`, the entire agent-facing API sat outside this gate.
+  'requireMcpAuth',
 ];
 
 /** Guards that block a READ-ONLY token from writing. Admin guards imply a non-read-only admin. */
@@ -73,8 +93,26 @@ const EXEMPT = new Map([
   ['oidcRouter', 'OIDC login/callback — this is how you GET a token'],
   ['themeRouter', 'public unauthenticated theme endpoint (read-only, no user data)'],
   ['notifyRouter', 'peer notifications + admin sync trigger — peer-authenticated'],
-  ['mcpRouter', 'MCP authorises at the tool dispatcher, not per-route'],
+  // mcpRouter is deliberately NOT here any more. `requireMcpAuth` is in AUTH_GUARDS above, so the gate
+  // can now see that the router is guarded instead of being told to look away. It remains exempt from the
+  // READ-ONLY check below, where the original reason was true: a read-only token does reach the
+  // dispatcher, which refuses every mutating tool.
   ['metricsRouter', 'Prometheus scrape — guarded by METRICS_TOKEN inside the router'],
+]);
+
+/**
+ * Exempt from the READ-ONLY check only — still required to authenticate.
+ *
+ * The two dimensions used to share one map, which forced an all-or-nothing choice: a router that
+ * authenticates properly but enforces write-blocking somewhere the scanner cannot see had to be exempted
+ * from **both**. That is how `mcpRouter` ended up excused from an auth check it actually passes, under a
+ * reason that was only ever about the other dimension.
+ */
+const WRITE_EXEMPT = new Map([
+  // True, and checkable: `mcp/router.ts` opens its `CallToolRequestSchema` handler with
+  // `if (readOnly && tool?.mutating) return { ...'this token has read-only access', isError: true }`.
+  // The enforcement is per TOOL, which a per-route scanner cannot see — every tool arrives as `POST /`.
+  ['mcpRouter', 'read-only is enforced per tool in the dispatcher, not per route'],
 ]);
 
 /**
@@ -101,7 +139,11 @@ let routes = [];
 let routerLevelGuards = new Map();
 
 /** Every .ts file under the api dir, recursively — routes live in `api/` AND `api/brain/` (A17.3). */
-function apiFiles(dir = API_DIR, out = []) {
+function apiFiles(dir = null, out = []) {
+  if (dir === null) {
+    for (const d of ROUTER_DIRS) apiFiles(d, out);
+    return out;
+  }
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, e.name);
     if (e.isDirectory()) apiFiles(p, out);
@@ -235,7 +277,7 @@ describe('Route guards — every mutating route must be protected', () => {
     const writable = [];
     for (const r of routes) {
       if (!MUTATING.has(r.method)) continue;
-      if (EXEMPT.has(r.router)) continue;
+      if (EXEMPT.has(r.router) || WRITE_EXEMPT.has(r.router)) continue;
       if (r.method === 'post' && READ_SHAPED_POSTS.includes(r.routePath)) continue;
       if (!WRITE_GUARDS.some(g => effectiveChain(r).includes(g))) {
         writable.push(`${r.method.toUpperCase()} ${r.routePath}  (${r.file}: ${r.router})`);

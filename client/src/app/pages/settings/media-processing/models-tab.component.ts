@@ -72,11 +72,15 @@ import { TestTarget } from './media-processing.types';
     .ptype-rm:hover { color: var(--error); }
     .switchrow { margin-bottom: 13px; }
     .switchrow .hint { margin-left: 22px; }   /* line up under the label, not the checkbox */
-    /* Keep the test row a single fixed-height line so pressing Test (which reveals the status pill +
-       latency/detail) never wraps to a second line and jolts the whole equal-height card row. The
-       button and pill stay their natural size; the detail truncates with an ellipsis (full text on
-       hover) rather than pushing the layout. */
-    .testrow { display: flex; gap: 10px; align-items: center; flex-wrap: nowrap; min-height: 34px; }
+    /* The row WRAPS, and that is a deliberate reversal (B.3).
+       It was nowrap to keep pressing Test from jolting the equal-height card row by a line. But nothing
+       in the row could shrink except the hint, so once a status pill appeared beside a second one the
+       fixed widths outgrew the card and pushed the **Verify button out of it, unclickable** — making the
+       feature one-shot per page load, and it is the feature the reporter most wanted. A row one line
+       taller after you click something is a far smaller cost than an action you cannot reach.
+       The detail still truncates with an ellipsis (full text on hover), so the common case stays on one
+       line; the pill labels were shortened to keep it that way, with the reason living in the hint. */
+    .testrow { display: flex; gap: 10px; row-gap: 8px; align-items: center; flex-wrap: wrap; min-height: 34px; }
     .testrow > :not(.hint) { flex: none; }
     .testrow .hint { margin: 0; min-width: 0; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     /* Save belongs to the card it sits in and appears only when that card has an unsaved change, so it
@@ -135,7 +139,11 @@ import { TestTarget } from './media-processing.types';
             <option value="nomic">{{ 'mediaProcessing.embedding.prefixNomic' | transloco }}</option>
             <option value="qwen">{{ 'mediaProcessing.embedding.prefixQwen' | transloco }}</option>
           </select>
-          <div class="hint">{{ 'mediaProcessing.embedding.prefixSchemeHint' | transloco }}</div>
+          <!-- innerHTML, because all three translations of this string carry a <b> around the mode name.
+               Interpolated, the reader saw the literal tags: "<b>Auto</b> reproduces what this instance
+               did…". Found by looking at a screenshot of this card, not by any test. The reindex warning
+               below already renders the same way. -->
+          <div class="hint" [innerHTML]="'mediaProcessing.embedding.prefixSchemeHint' | transloco"></div>
         </div>
         @if (s.embeddingLocked('prefixScheme')) { <app-status-pill pill variant="env">{{ 'mediaProcessing.pill.env' | transloco }}</app-status-pill> }
         <div class="field">
@@ -155,6 +163,16 @@ import { TestTarget } from './media-processing.types';
             [disabled]="s.testOf('embedding')?.loading || !s.embedding.baseUrl">
             {{ (s.testOf('embedding')?.loading ? 'mediaProcessing.action.testing' : 'mediaProcessing.action.test') | transloco }}
           </button>
+          <!-- B.4: a dead button and a broken button look identical. With no endpoint the embedder IS the
+               bundled in-process model, so there is nothing to probe — a fact about the configuration,
+               not a fault, and the same thing classifyStage reports as in-process on the health dot.
+               Verify still works: it embeds the word ping locally. -->
+          @if (!s.embedding.baseUrl) {
+            <!-- Titled, because the row truncates it: the card is narrow enough that the reason reads
+                 "In-process mod…", and an explanation you cannot finish reading is the same failure this
+                 line exists to fix. -->
+            <span class="hint" [attr.title]="'mediaProcessing.test.inProcess' | transloco">{{ 'mediaProcessing.test.inProcess' | transloco }}</span>
+          }
           @if (s.testOf('embedding')?.res; as r) {
             <app-status-pill [variant]="s.testPillVariant(r)" [dot]="true">{{ s.testPillLabelKey(r) | transloco }}</app-status-pill>
             <span class="hint" [attr.title]="r.detail || null">{{ r.detail || (r.latencyMs + ' ms') }}</span>
@@ -192,7 +210,10 @@ import { TestTarget } from './media-processing.types';
           <label for="rr-endpoint">{{ 'mediaProcessing.field.endpoint' | transloco }}</label>
           <input id="rr-endpoint" data-mono type="url" [(ngModel)]="s.rerank.baseUrl"
             [disabled]="s.rerankLocked('baseUrl')" [placeholder]="'mediaProcessing.rerank.endpointPlaceholder' | transloco" />
-          <div class="hint">{{ 'mediaProcessing.rerank.endpointHint' | transloco }}</div>
+          <!-- Second instance of the same defect as the task-prefix hint above: this translation marks the
+               two URL shapes with <b>, and interpolated they printed as literal tags. Enumerated by
+               i18n-markup-rendering.test.js rather than found by eye a second time. -->
+          <div class="hint" [innerHTML]="'mediaProcessing.rerank.endpointHint' | transloco"></div>
         </div>
         <div class="field">
           <label for="rr-model">{{ 'mediaProcessing.field.model' | transloco }}</label>

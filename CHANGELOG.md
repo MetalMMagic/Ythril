@@ -76,6 +76,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A status pill could push the Verify button out of its card, where it could not be clicked.** The card
+  footer was a single non-wrapping line in which nothing but the detail text could shrink, so once a second
+  pill appeared beside the first the fixed widths outgrew the card and carried the action out with them —
+  making Verify effectively one-shot per page load, on the feature the reporter most wanted. The row wraps
+  now: a line taller after you click something is a far smaller cost than an action you cannot reach. The
+  pill labels were shortened to keep the common case on one line, with the reason where it already was — in
+  the hint, in full on hover. Reported by the canary.
+
+- **Two hints on the Models page printed their own HTML tags.** The task-prefix hint read *"…are marked
+  differently. `<b>Auto</b>` reproduces what this instance did…"*, and the reranker's endpoint hint did the
+  same with the two URL shapes it explains. Both translations carry markup in all three languages and both
+  were interpolated instead of bound with `[innerHTML]`.
+  - Found by **looking at a screenshot** while verifying the two fixes above — no test could see it, because
+    specs render translation keys rather than English, so the tags are not there to find. A gate now
+    enumerates every key whose value carries markup out of the translation files and requires `[innerHTML]`
+    at each use; it also checks that all three languages agree about carrying it, since a translator
+    dropping a tag would surface in one language only. The first instance was found by eye, the second by
+    the sweep.
+
+- **The Embedding card's Test connection was disabled with no reason given.** *"A dead button and a broken
+  button look identical."* With no endpoint set, the embedder **is** the bundled in-process model, so there
+  is nothing to probe — a fact about the configuration, not a fault. The card says so now, the same way the
+  health dot already reported it (`in-process`). Verify still works: it embeds the word `ping` locally.
+  Reported by the canary.
+
 - **The processing stage bar never advanced without a reload.** A document being converted showed "page 12
   of 40" for the whole conversion: the bar is built from the directory listing, and nothing re-fetched it.
   Nothing errored, which is why it read as a wedged pipeline rather than a stale view. Reported by the

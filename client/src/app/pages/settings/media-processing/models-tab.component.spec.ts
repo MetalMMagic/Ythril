@@ -38,6 +38,95 @@ function setup(libEntries: { knowledgeType: string; typeName: string }[] = [], i
   return { c, state, touched };
 }
 
+/**
+ * The card footer, RENDERED (B.3 / B.4).
+ *
+ * Both findings are about what the row looks like, so both are asserted against a real DOM rather than
+ * the source: a CSS rule that never applies to anything still greps fine, and a disabled button with no
+ * explanation is indistinguishable from a broken one only when you look at it.
+ */
+function renderTab(cfg: Record<string, unknown>) {
+  TestBed.resetTestingModule();
+  const http = {
+    get: vi.fn().mockReturnValue(of(cfg)),
+    patch: vi.fn().mockReturnValue(of({ ok: true, config: cfg })),
+    post: vi.fn().mockReturnValue(of({ ok: true, reachable: true })),
+  } as unknown as HttpClient;
+  TestBed.configureTestingModule({
+    imports: [ModelsTabComponent, getTranslocoModule()],
+    providers: [
+      MediaProcessingStateService,
+      { provide: HttpClient, useValue: http },
+      { provide: ConfirmDialogService, useValue: { confirm: vi.fn().mockResolvedValue(true) } },
+      { provide: PipelineStatusService, useValue: {
+        status: () => null, bySidecarKey: () => new Map(),
+        modelState: () => 'unconfigured', sidecarState: () => 'unconfigured',
+      } },
+      { provide: SchemaApi, useValue: { listSchemaLibrary: () => of({ entries: [] }) } },
+    ],
+  });
+  const state = TestBed.inject(MediaProcessingStateService);
+  state.load();
+  const fixture = TestBed.createComponent(ModelsTabComponent);
+  fixture.detectChanges();
+  return { fixture, state, el: fixture.nativeElement as HTMLElement };
+}
+
+/** Minimal media-config shape: only what the Models tab reads. */
+const CFG = (over: Record<string, unknown> = {}) => ({
+  visionProvider: 'local', sttProvider: 'local',
+  vision: { baseUrl: 'http://ollama:11434', model: 'llava' },
+  stt: { baseUrl: 'http://whisper:9000', model: 'base' },
+  embedding: { provider: 'local', model: 'nomic-embed-text-v1.5', dimensions: 768, similarity: 'cosine' },
+  documentProcessing: { mode: 'ocr', assistModel: { baseUrl: '', model: '' } },
+  lockedByInfra: [],
+  ...over,
+});
+
+describe('ModelsTabComponent — the card footer', () => {
+  // Transloco echoes keys in specs (see transloco-testing.ts), so the assertions are on keys — stable,
+  // and they do not go stale when the English wording is edited.
+  const embeddingCard = (el: HTMLElement) => el.querySelector('#model-card-embedding') as HTMLElement;
+
+  it('B.4: the in-process embedder says why Test is disabled, instead of just being dead', () => {
+    // "A dead button and a broken button look identical." With no endpoint the embedder IS the bundled
+    // in-process model — a fact about the configuration, not a fault.
+    const { el } = renderTab(CFG());
+    const card = embeddingCard(el);
+    expect(card, 'the embedding card renders').toBeTruthy();
+    const test = [...card.querySelectorAll('button')]
+      .find(b => (b.textContent ?? '').includes('mediaProcessing.action.test'));
+    expect(test, 'it has a Test button').toBeTruthy();
+    expect((test as HTMLButtonElement).disabled).toBe(true);
+    expect(card.textContent).toContain('mediaProcessing.test.inProcess');
+  });
+
+  it('B.4: and says nothing of the kind once an endpoint IS configured', () => {
+    const { el } = renderTab(CFG({ embedding: { provider: 'external', baseUrl: 'http://emb:8080', model: 'nomic' } }));
+    const card = embeddingCard(el);
+    expect(card.textContent).not.toContain('mediaProcessing.test.inProcess');
+    const test = [...card.querySelectorAll('button')]
+      .find(b => (b.textContent ?? '').includes('mediaProcessing.action.test'));
+    expect((test as HTMLButtonElement).disabled, 'and Test is live again').toBe(false);
+  });
+
+  // NOT tested here: that a markup-bearing translation renders as markup rather than printing its tags.
+  // Specs echo translation KEYS (see transloco-testing.ts), so there are no tags in a unit render and any
+  // such assertion passes against broken code — the first attempt at one did exactly that. It lives in
+  // `testing/standalone/i18n-markup-rendering.test.js`, which reads the real translations and enumerates
+  // every key that carries markup.
+
+  it('B.3: the test row wraps, so a status pill can never push an action out of the card', () => {
+    // It was `nowrap` with nothing shrinkable but the hint, so a second pill pushed the Verify button
+    // outside the card and out of reach — one Verify per page load, on the feature they most wanted.
+    // Read from the applied style rather than the source: the rule has to actually reach the element.
+    const { el } = renderTab(CFG());
+    const row = el.querySelector('.testrow');
+    expect(row, 'the footer row exists').toBeTruthy();
+    expect(getComputedStyle(row as Element).flexWrap).toBe('wrap');
+  });
+});
+
 describe('ModelsTabComponent — person-types picker', () => {
   it('loads entity types from the library (entities only, deduped, sorted)', () => {
     const { c } = setup([

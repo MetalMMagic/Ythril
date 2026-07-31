@@ -1,0 +1,135 @@
+/**
+ * Every dependency Ythril redistributes is attributed in NOTICE.
+ *
+ * ## Why this exists
+ *
+ * NOTICE was last touched on 2026-07-20. Six packages had been added since and **none of them was in
+ * it** — `ajv`, `marked`, `mermaid`, `exceljs`, `uqr`, and `dompurify`. Nothing anywhere reported that.
+ *
+ * The last of those is the one that made this a licence question rather than a courtesy: `dompurify` is
+ * `MPL-2.0 OR Apache-2.0`, the **only** copyleft-carrying package in the redistributed tree, and it was
+ * the unattributed one. Meanwhile `docs/dependencies.md` stated that every npm package is "MIT, Apache
+ * 2.0, 0BSD, BSD-3-Clause, or ISC" with "no copyleft restrictions" — a claim that was reached before that
+ * package existed and was never rechecked.
+ *
+ * Attribution is the obligation that survives every permissive licence. A NOTICE that is merely *stale*
+ * is a NOTICE that is wrong, and it goes wrong silently: adding a dependency is a one-line change that
+ * nothing connects to a legal file.
+ *
+ * ## Scope, and why it stops where it does
+ *
+ * `dependencies` of `server/` ship inside the image. `dependencies` of `client/` are compiled into the
+ * browser bundle a user downloads. Both are redistribution.
+ *
+ * `devDependencies` are **not** in scope. They are build-time only and reach no user, and listing them
+ * would make NOTICE *less* accurate — it would claim to distribute things it does not. The audit lens
+ * names that failure explicitly: "whether we accidentally ship something we only use at build time".
+ *
+ * Transitive dependencies are also out of scope here. That is a deliberate limit, not an oversight: the
+ * full transitive set is thousands of packages, and a gate nobody can satisfy is a gate that gets
+ * deleted. Direct dependencies are the set a human chose, and the set a human can keep honest.
+ *
+ * Run: node --test testing/standalone/notice-coverage.test.js
+ */
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync, existsSync } from 'node:fs';
+
+const NOTICE = readFileSync('NOTICE', 'utf8');
+const NOTICE_LC = NOTICE.toLowerCase();
+
+const MANIFESTS = [
+  ['server', 'server/package.json'],
+  ['client', 'client/package.json'],
+];
+
+/** Direct, redistributed dependencies of both workspaces. */
+function redistributed() {
+  const out = [];
+  for (const [where, file] of MANIFESTS) {
+    const pkg = JSON.parse(readFileSync(file, 'utf8'));
+    for (const name of Object.keys(pkg.dependencies ?? {})) out.push({ where, name });
+  }
+  return out;
+}
+
+/** The declared licence of an installed package, from wherever npm put it. */
+function licenseOf(name, where) {
+  for (const base of [`${where}/node_modules`, 'node_modules']) {
+    const p = `${base}/${name}/package.json`;
+    if (!existsSync(p)) continue;
+    const m = JSON.parse(readFileSync(p, 'utf8'));
+    if (m.license) return String(m.license);
+    if (Array.isArray(m.licenses)) return m.licenses.map(l => l.type).join(' OR ');
+    return '';
+  }
+  return null;   // not installed — see the note in the test below
+}
+
+describe('NOTICE covers everything we redistribute', () => {
+  const deps = redistributed();
+
+  it('finds the dependency set (the check itself works)', () => {
+    // Without this, a manifest rename would reduce the sweep to zero and the assertion below would pass
+    // by examining nothing — the failure mode every coverage gate in this repo has had at least once.
+    assert.ok(deps.length >= 25, `expected the workspaces' dependencies, found ${deps.length}`);
+    assert.ok(NOTICE.includes('## Bundled Components'), 'NOTICE should have a Bundled Components section');
+  });
+
+  it('attributes every redistributed dependency', () => {
+    const missing = deps
+      .filter(d => !NOTICE_LC.includes(d.name.toLowerCase()))
+      .map(d => `  ${d.where}/${d.name}`);
+
+    assert.deepEqual(missing, [],
+      'These packages ship to users but are not attributed in NOTICE. Attribution is the obligation that\n' +
+      'survives every permissive licence, and adding a dependency is a one-line change that nothing else\n' +
+      'connects to a legal file:\n' + missing.join('\n') +
+      '\nAdd an entry under Bundled Components with the package\'s licence and its copyright line(s).');
+  });
+
+  it('names the licence arm we elected for anything dual-licensed', () => {
+    // A dual grant is a choice the DISTRIBUTOR makes. Leaving it unstated means a reader cannot tell
+    // which set of obligations applies, and `docs/dependencies.md` cannot honestly conclude anything
+    // about copyleft. This caught `dompurify` (`MPL-2.0 OR Apache-2.0`) being attributed with no
+    // election recorded.
+    const resolved = deps.map(d => ({ ...d, license: licenseOf(d.name, d.where) }));
+
+    // Guard against the vacuous pass. `licenseOf` reads from `node_modules`, and npm's hoisting differs
+    // between a local install and CI — if it resolved nothing, `dual` would be empty and this test would
+    // report success having checked nothing. That is the exact failure mode this whole file was written
+    // in response to, so it must not be reintroduced by the file itself.
+    const unresolved = resolved.filter(d => d.license === null).length;
+    assert.ok(unresolved < deps.length / 2,
+      `could not resolve licences for ${unresolved} of ${deps.length} dependencies — run \`npm ci\`; ` +
+      'this check is meaningless without them and must fail rather than pass quietly');
+
+    const dual = resolved.filter(d => d.license && /\bOR\b/i.test(d.license));
+
+    const unelected = dual
+      .filter(d => {
+        const at = NOTICE_LC.indexOf(`### ${d.name.toLowerCase()}`);
+        if (at < 0) return true;                       // no entry at all — the check above reports it
+        // The verb AND the licence it selects. A bare `/elect/i` was too loose to be worth having: it
+        // matched the surrounding prose explaining *why* an election is recorded, so deleting the actual
+        // election statement left the test green. Caught by mutating the entry.
+        return !/elects?\s+[^.\n]{0,40}(Apache|MIT|MPL|BSD|ISC|GPL)/i.test(NOTICE.slice(at, at + 700));
+      })
+      .map(d => `  ${d.name} (${d.license})`);
+
+    assert.deepEqual(unelected, [],
+      'These are offered under a choice of licences, and NOTICE does not say which one we took:\n' +
+      unelected.join('\n') +
+      '\nState the election in the entry — a reader should not have to infer which arm applies.');
+  });
+
+  it('does not claim to distribute build-time-only packages', () => {
+    // The opposite error, and it makes NOTICE dishonest in the other direction. Checked against a small
+    // set of unmistakable build tooling rather than all devDependencies, because some packages appear in
+    // both lists legitimately (a type package that is also shipped, say) and a blanket rule would be wrong.
+    const BUILD_ONLY = ['typescript', 'eslint', 'markdownlint-cli2', 'playwright', '@angular/cli'];
+    const overclaimed = BUILD_ONLY.filter(n => NOTICE_LC.includes(`### ${n.toLowerCase()}\n`));
+    assert.deepEqual(overclaimed, [],
+      'NOTICE lists build tooling that is never redistributed — that overstates what ships');
+  });
+});

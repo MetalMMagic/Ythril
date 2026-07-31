@@ -11,7 +11,18 @@ Ythril is an npm-workspaces monorepo: the **root** `package.json` declares no ru
 dependencies of its own — they live in [`server/package.json`](../server/package.json)
 and [`client/package.json`](../client/package.json). The attribution-requiring packages
 across both workspaces are reproduced in [NOTICE](../NOTICE). They are MIT, Apache 2.0,
-0BSD, BSD-3-Clause, or ISC licensed. No copyleft restrictions apply.
+0BSD, BSD-3-Clause, or ISC licensed.
+
+**One package is dual-licensed with a copyleft arm:** `dompurify` is offered as `MPL-2.0 OR Apache-2.0`.
+Ythril **elects Apache 2.0**, which is recorded in its NOTICE entry rather than left to be inferred — a
+dual grant is a choice the distributor makes, and "no copyleft applies" is a conclusion a reader should be
+able to check rather than take on trust. With that election, no copyleft restrictions apply to any
+redistributed npm package.
+
+`testing/standalone/notice-coverage.test.js` asserts that every dependency shipped to a user — the
+`dependencies` of both workspaces, which land in the image and in the browser bundle — is attributed in
+NOTICE. `devDependencies` are deliberately out of scope: they are build-time only and are not
+redistributed, so listing them would make NOTICE less accurate, not more.
 
 ---
 

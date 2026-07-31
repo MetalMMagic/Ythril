@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Uploading over an existing file now asks first.** Reported against 2.1.1: re-uploading to the same
+  path silently replaced the file and hard-removed everything derived from it, with no warning.
+  - The behaviour is right — stale chunks for a document that no longer exists would be worse — but it
+    happened silently, and a drag-and-drop onto the wrong folder is an easy accident with no undo. The
+    dialog names what goes with it: conversion chunks, extracted images, and any generated description,
+    all rebuilt from the new file.
+  - Asked **once for the whole batch**, not once per file: a drop of twenty files where three collide
+    should be one question.
+  - Cancel is the default action and Replace is styled as destructive, matching the delete flow.
+
 - **Verify — one real request against a configured model.** `POST /api/admin/media-config/verify`, plus a
   button on the vision, speech-to-text, embedding and assist cards.
   - Listing models answers "is something there". It cannot answer *does my model work*, and two field

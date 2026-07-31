@@ -13,7 +13,7 @@ import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { of, Observable, Subject } from 'rxjs';
 import { ActivatedRoute } from '@angular/router';
-import { type FileEntry, type UploadProgress } from '../../core/api.types';
+import { type FileEntry, type FileMeta, type UploadProgress } from '../../core/api.types';
 import { FilesApi } from '../../core/files-api.service';
 import { SpacesApi } from '../../core/spaces-api.service';
 import { AuthService } from '../../core/auth.service';
@@ -39,6 +39,119 @@ function makeApi(entries: FileEntry[]) {
     getFileMeta: () => of(null), // opening a file fetches its meta record; no record in these fixtures
   } as any;
 }
+
+/**
+ * B.6 — the Extract tab: what retrieval actually sees.
+ *
+ * Hiding `_converted/` and `_extracted/` was right and took away the only way to answer "what did the
+ * pipeline get out of this file?". These pin the two things that decide whether the tab is trustworthy: it
+ * is only offered for a file that HAS an extract, and it fetches once, when opened — not on every file open.
+ */
+describe('FileManagerComponent — the Extract tab', () => {
+  const EXTRACT = {
+    path: 'a/report.pdf', chunkTotal: 3, limit: 100, skip: 0,
+    converted: { path: '_converted/a/report.pdf.md', markdown: '# Report', truncated: false, sizeBytes: 8 },
+    chunks: [
+      { id: 'a/report.pdf#chunk0', index: 0, headingText: 'Overview', content: 'first chunk', chunkOffsetMs: null, chunkDurationMs: null },
+      { id: 'a/report.pdf#chunk1', index: 1, headingText: null, content: 'second chunk', chunkOffsetMs: 65_000, chunkDurationMs: 30_000 },
+    ],
+    images: [{ path: '_extracted/a/report.pdf/image-0.png', description: 'A signature block.', descriptionSource: 'generated', sizeBytes: 10 }],
+  };
+
+  function open(meta: Partial<FileMeta> | null, extract: unknown = EXTRACT) {
+    const entries = [{ name: 'report.pdf', isFile: true, isDirectory: false, size: 10, modified: '2026-01-01' } as FileEntry];
+    const getFileExtract = vi.fn().mockReturnValue(of(extract));
+    const api = {
+      listSpaces: () => of({ spaces: [] }),
+      listFiles: () => of({ entries }),
+      getFileDownloadUrl: () => '/x',
+      getFileMeta: () => of(meta),
+      getFileExtract,
+    } as any;
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [FileManagerComponent, getTranslocoModule()],
+      providers: [
+        { provide: FilesApi, useValue: api },
+        { provide: SpacesApi, useValue: api },
+        { provide: AuthService, useValue: { token: () => '' } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => '' } } } },
+        { provide: BrainStore, useValue: new BrainStore() },
+      ],
+    });
+    const fixture = TestBed.createComponent(FileManagerComponent);
+    fixture.componentRef.setInput('embeddedSpaceId', 'work');
+    fixture.detectChanges();
+    const c = fixture.componentInstance;
+    c.openPreview(entries[0]!);
+    fixture.detectChanges();
+    return { fixture, c, getFileExtract };
+  }
+
+  it('is offered for a file that went through the pipeline', () => {
+    expect(open({ chunkCount: 3 } as FileMeta).c.hasExtract()).toBe(true);
+    expect(open({ convertedFileId: '_converted/x.md' } as FileMeta).c.hasExtract()).toBe(true);
+    expect(open({ mediaType: 'audio' } as FileMeta).c.hasExtract()).toBe(true);
+  });
+
+  it('is NOT offered for a file that has none', () => {
+    // A tab that is always there and always says "nothing here" teaches people to ignore it.
+    expect(open({ chunkCount: 0 } as FileMeta).c.hasExtract()).toBe(false);
+    expect(open(null).c.hasExtract()).toBe(false);
+  });
+
+  it('fetches only when opened, and only once', () => {
+    const { c, getFileExtract, fixture } = open({ chunkCount: 3 } as FileMeta);
+    expect(getFileExtract, 'opening a file must not fetch the extract').not.toHaveBeenCalled();
+    c.showExtractMode();
+    fixture.detectChanges();
+    expect(getFileExtract).toHaveBeenCalledTimes(1);
+    c.detailMode.set('preview');
+    c.showExtractMode();
+    expect(getFileExtract, 'switching back must not refetch').toHaveBeenCalledTimes(1);
+  });
+
+  it('renders the chunks, their provenance, and the caption', () => {
+    const { c, fixture } = open({ chunkCount: 3 } as FileMeta);
+    c.showExtractMode();
+    fixture.detectChanges();
+    const t = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(t).toContain('first chunk');
+    expect(t).toContain('Overview');          // document provenance: the heading it opened
+    expect(t).toContain('1:05-1:35');         // audio provenance: its position in the recording
+    expect(t).toContain('A signature block.');
+  });
+
+  it('does not carry one file\'s extract onto another', () => {
+    // It is fetched lazily, so a stale value would show one file's chunks under another file's name.
+    const { c, fixture } = open({ chunkCount: 3 } as FileMeta);
+    c.showExtractMode();
+    fixture.detectChanges();
+    expect(c.extract()).not.toBeNull();
+    c.openPreview({ name: 'other.pdf', isFile: true, isDirectory: false, size: 1, modified: '2026-01-01' } as FileEntry);
+    expect(c.extract()).toBeNull();
+  });
+
+  it('formats a chunk offset as a clock, and a document chunk as nothing', () => {
+    const { c } = open({ chunkCount: 1 } as FileMeta);
+    expect(c.msRange(0, null)).toBe('0:00');
+    expect(c.msRange(65_000, 30_000)).toBe('1:05-1:35');
+    expect(c.msRange(null, null)).toBe('');
+  });
+
+  it('appends the next page instead of replacing what is on screen', () => {
+    const { c, fixture, getFileExtract } = open({ chunkCount: 3 } as FileMeta);
+    c.showExtractMode();
+    fixture.detectChanges();
+    getFileExtract.mockReturnValue(of({
+      ...EXTRACT, skip: 2,
+      chunks: [{ id: 'a/report.pdf#chunk2', index: 2, headingText: null, content: 'third chunk', chunkOffsetMs: null, chunkDurationMs: null }],
+    }));
+    c.moreChunks({ name: 'report.pdf', isFile: true, isDirectory: false, size: 10, modified: '2026-01-01' } as FileEntry);
+    fixture.detectChanges();
+    expect(c.extract()!.chunks.map(x => x.content)).toEqual(['first chunk', 'second chunk', 'third chunk']);
+  });
+});
 
 describe('FileManagerComponent (OnPush)', () => {
   const text = (f: { nativeElement: HTMLElement }) => f.nativeElement.textContent ?? '';
@@ -560,6 +673,16 @@ describe('FileManagerComponent — live refresh on the shell tick', () => {
       const before = listFiles.mock.calls.length;
       vi.advanceTimersByTime(4_000);
       expect(listFiles.mock.calls.length - before).toBe(1);
+    });
+
+    it('does not poll while the Extract tab is open either — same in-flight rule', () => {
+      // The poll follows what is on screen, not which face of the pane is showing: a file still being
+      // converted is the case where the Extract tab is most worth refreshing.
+      const { fixture, listFiles } = create(PROCESSING);
+      fixture.componentInstance.detailMode.set('extract');
+      const before = listFiles.mock.calls.length;
+      vi.advanceTimersByTime(4_000);
+      expect(listFiles.mock.calls.length).toBeGreaterThan(before);
     });
 
     it('is cleared on destroy, so it cannot outlive the view', () => {

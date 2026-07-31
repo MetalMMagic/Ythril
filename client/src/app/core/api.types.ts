@@ -366,6 +366,45 @@ export interface FileEntry {
   progressAt?: string | null;
 }
 
+/**
+ * What retrieval actually sees for one converted file (the Extract tab).
+ *
+ * Not new data: every field is a record conversion already wrote. It exists as one shape because the three
+ * parts are only meaningful together, and because deciding that "a chunk is a record with a chunkIndex" is
+ * server knowledge, not something a UI should carry.
+ */
+export interface FileExtract {
+  path: string;
+  embeddingStatus?: string | null;
+  conversionError?: string | null;
+  description?: string | null;
+  descriptionSource?: 'generated' | 'extracted' | null;
+  excerpt?: string | null;
+  /** The `_converted/<id>.md` sidecar. Absent for formats that need no conversion (.md/.txt). */
+  converted?: { path: string; markdown: string; truncated: boolean; sizeBytes: number } | null;
+  chunks: Array<{
+    id: string;
+    index: number | null;
+    headingText: string | null;
+    content: string;
+    /** Audio/video chunks carry their position in the recording; documents carry heading provenance. */
+    chunkOffsetMs: number | null;
+    chunkDurationMs: number | null;
+    embeddingStatus?: string | null;
+  }>;
+  /** Total across all pages — `chunks` is one page of `limit`/`skip`. */
+  chunkTotal: number;
+  limit: number;
+  skip: number;
+  images: Array<{
+    path: string;
+    description: string | null;
+    descriptionSource: 'generated' | 'extracted' | null;
+    sizeBytes: number;
+    embeddingStatus?: string | null;
+  }>;
+}
+
 export interface FileMeta {
   _id: string;
   spaceId: string;
@@ -396,6 +435,11 @@ export interface FileMeta {
   /** Error message when embeddingStatus is "failed". */
   mediaJobError?: string;
   chunkCount?: number;
+  /** For a converted binary document: the id of its `_converted/<id>.md` record. Its presence is one of
+   *  the three signals that this file has an extract worth showing. */
+  convertedFileId?: string;
+  /** Detected media class for the original file — set on image/audio/video uploads. */
+  mediaType?: 'image' | 'audio' | 'video';
   /** Set when the file was deleted but its metadata was retained (softDeleteFileMeta):
    *  ISO8601 deletion timestamp. Such records show a "deleted" badge and can be purged. */
   deletedAt?: string;

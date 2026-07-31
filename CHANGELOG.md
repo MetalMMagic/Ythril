@@ -88,6 +88,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     them can see that a user-facing UI feature never got written up** — the same blind spot in a
     different dimension.
 
+### Added
+
+- **An Extract tab on the file detail pane — what retrieval actually sees.** Hiding `_converted/` and
+  `_extracted/` matched the documentation and was asked for, and it removed the only way to answer *"what
+  did the pipeline actually extract from this file?"* — the first question anyone asks when a document is
+  indexed and still answers queries badly. Hidden from browsing, not from inspection. **The reporter's own
+  design**, down to which three things it shows.
+  - **Chunks**, in order, each with the provenance it actually has: the heading it opened for a document,
+    its position in the recording (`1:05-1:35`) for audio and video. These are what search matches on, so
+    they come first.
+  - **Extracted images** with their captions, and whether each caption was generated or written by a person.
+  - **The converted Markdown** — the input everything else is derived from, shown up to 256 KB.
+  - **Nothing here is new data.** One new read-only endpoint,
+    `GET /api/brain/spaces/:spaceId/files/extract?path=…`, assembles records conversion already wrote. It is
+    one request because the three parts are only meaningful together, and because "a chunk is a record
+    carrying a `chunkIndex`" is server knowledge — text chunks are `#chunk<n>` and audio chunks are
+    `#media-chunk<n>`, so a client matching on the path shape would have covered one pipeline and silently
+    missed the other.
+  - Bounded, because it is a diagnostic over documents that can have thousands of chunks: chunks paginate,
+    the Markdown is capped and says when it was cut, and the tab fetches once, when it is opened. It is
+    offered only for files that have been through the pipeline — a tab that is always present and always
+    says "nothing here" teaches people to ignore it.
+  - A file with **no chunks** is a finding in itself: nothing from it is searchable yet.
+  - The gate policing which tests need a running instance was itself deciding "declares the marker" with a
+    bare substring while preflight anchors to a header line. Two spellings of one rule, so they could
+    disagree — and they did, on the first file whose comment *mentioned* the marker while explaining which
+    suite carries it. The gate now lifts the pattern out of `preflight.mjs`, so the answer cannot drift.
+
 ### Fixed
 
 - **A status pill could push the Verify button out of its card, where it could not be clicked.** The card

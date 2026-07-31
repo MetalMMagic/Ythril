@@ -16,7 +16,8 @@ import { listTokens } from '../../auth/tokens.js';
 import { globalRateLimit } from '../../rate-limit/middleware.js';
 import { updateFileMeta, deleteFileMeta, getFileMeta } from '../../files/file-meta.js';
 import { assertRefsResolve } from '../../brain/entity-refs.js';
-import { fileExists } from '../../files/files.js';
+import { fileExists, readFile } from '../../files/files.js';
+import { log } from '../../util/log.js';
 import { getConfig } from '../../config/loader.js';
 import { col, asFilter } from '../../db/mongo.js';
 import { parseLimit, parseSkip, capPage } from '../../util/pagination.js';
@@ -103,6 +104,149 @@ fileMetaRouter.get('/spaces/:spaceId/files', globalRateLimit, requireSpaceAuth, 
   const files = capPage(all, limit, sortParse.sort);
 
   res.json({ files, limit, skip });
+});
+
+/**
+ * GET /api/brain/spaces/:spaceId/files/extract?path=… — what retrieval actually sees for one file.
+ *
+ * ## Why this exists
+ *
+ * `_converted/` and `_extracted/` are hidden from browsing, which the docs promised and a reporter asked
+ * for. But that hidden folder was the only place to SEE what conversion produced, so the fix removed the
+ * only answer to *"what did the pipeline actually extract from this file?"* — the first question anyone asks
+ * when a document answers queries badly. Their words: hide them from browsing, not from inspection.
+ *
+ * ## Why it is one endpoint rather than three
+ *
+ * The three things an operator needs are the converted Markdown, the chunks in order, and the extracted
+ * images with their captions. They are all derived from ONE parent, they are only meaningful together, and
+ * the ordering and the partitioning are server-side facts — a client assembling this from the generic list
+ * endpoint would have to know that a chunk is "a record with a chunkIndex" and an extracted image is "a
+ * record whose path starts with `_extracted/`". That is not knowledge a UI should carry.
+ *
+ * Nothing here is new data: every part is an addressable record that conversion already wrote.
+ *
+ * ## Bounds
+ *
+ * A 500-page document has thousands of chunks and a Markdown file measured in megabytes, and this is a
+ * diagnostic — so chunks paginate (`limit`/`skip`, newest-agnostic: always by `chunkIndex`), and the
+ * Markdown is capped with `truncated` telling the truth about it. The full file is downloadable through the
+ * file store, which is where an unbounded read belongs.
+ */
+const MAX_CONVERTED_BYTES = 256 * 1024;
+/** Extracted images are capped at 50 by the pipeline; 200 leaves room without becoming unbounded. */
+const MAX_DERIVED_RECORDS = 200;
+
+fileMetaRouter.get('/spaces/:spaceId/files/extract', globalRateLimit, requireSpaceAuth, async (req, res) => {
+  const spaceId = req.params['spaceId'] as string;
+  const cfg = getConfig();
+  if (!cfg.spaces.some(s => s.id === spaceId)) {
+    res.status(404).json({ error: `Space '${spaceId}' not found` });
+    return;
+  }
+  const rawPath = req.query['path'];
+  if (typeof rawPath !== 'string' || !rawPath.trim()) {
+    res.status(400).json({ error: '`path` query parameter required' });
+    return;
+  }
+  const parentId = toDocId(rawPath);
+  const limit = parseLimit(req.query['limit'], 100, 500);
+  const skip = parseSkip(req.query['skip']);
+
+  // Resolved per MEMBER, and the member is kept: on a proxy space the derived records live in the same
+  // member collection as their parent, and querying another member's would silently return nothing.
+  let member: string | null = null;
+  let parent: FileMetaDoc | null = null;
+  for (const mid of resolveMemberSpaces(spaceId)) {
+    const found = await getFileMeta(mid, parentId);
+    if (found) { member = mid; parent = found; break; }
+  }
+  if (!member || !parent) {
+    res.status(404).json({ error: 'File metadata record not found' });
+    return;
+  }
+
+  const files = col<FileMetaDoc>(`${member}_files`);
+
+  // Chunks: everything carrying a chunkIndex, in document order. `chunkIndex` is the discriminator
+  // rather than the path shape, because a chunk's id is `<parent>#chunk<n>` for text and
+  // `#media-chunk<n>` for audio — two spellings of one thing.
+  const chunkFilter = { parentFileId: parentId, chunkIndex: { $exists: true } };
+  const [chunkDocs, chunkTotal] = await Promise.all([
+    files.find(asFilter<FileMetaDoc>(chunkFilter)).sort({ chunkIndex: 1 }).skip(skip).limit(limit).toArray(),
+    files.countDocuments(asFilter<FileMetaDoc>(chunkFilter)),
+  ]);
+
+  // Everything else derived from this parent: the `_converted/` record and the `_extracted/` images.
+  // One query, partitioned by path, because both are bounded and neither is worth a round trip.
+  const derived = await files
+    .find(asFilter<FileMetaDoc>({ parentFileId: parentId, chunkIndex: { $exists: false } }))
+    .limit(MAX_DERIVED_RECORDS)
+    .toArray() as FileMetaDoc[];
+
+  const images = derived
+    .filter(d => d.path.startsWith('_extracted/'))
+    .sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true }))
+    .map(d => ({
+      path: d.path,
+      description: d.description ?? null,
+      // Says whether a caption was written by a model or is the operator's own text — the same
+      // provenance the file detail pane shows, because "generated" is a claim.
+      descriptionSource: d.descriptionSource ?? null,
+      sizeBytes: d.sizeBytes,
+      embeddingStatus: d.embeddingStatus ?? null,
+    }));
+
+  // The converted Markdown, read from the file store rather than from the record — the record carries
+  // metadata, the bytes are the thing being inspected. Absent for formats that need no conversion
+  // (`.md`/`.txt` are already Markdown and produce no `_converted/` copy).
+  const convertedRecord = derived.find(d => d.path.startsWith('_converted/'))
+    ?? (parent.convertedFileId ? await getFileMeta(member, parent.convertedFileId) : null);
+  let converted: { path: string; markdown: string; truncated: boolean; sizeBytes: number } | null = null;
+  if (convertedRecord) {
+    try {
+      const text = await readFile(member, convertedRecord.path);
+      converted = {
+        path: convertedRecord.path,
+        markdown: text.slice(0, MAX_CONVERTED_BYTES),
+        truncated: text.length > MAX_CONVERTED_BYTES,
+        sizeBytes: convertedRecord.sizeBytes,
+      };
+    } catch (err) {
+      // The record exists and the bytes do not. Worth reporting as its own state rather than as an
+      // empty document: it means the sidecar was removed out from under the record, which is exactly
+      // the kind of drift this view exists to make visible.
+      log.warn(`extract: could not read ${member}/${convertedRecord.path}: ${err instanceof Error ? err.message : String(err)}`);
+      converted = { path: convertedRecord.path, markdown: '', truncated: false, sizeBytes: convertedRecord.sizeBytes };
+    }
+  }
+
+  res.json({
+    path: parentId,
+    embeddingStatus: parent.embeddingStatus ?? null,
+    conversionError: parent.conversionError ?? null,
+    // The parent's own derived prose and the document's opening text, so the tab answers "what does
+    // retrieval see" completely rather than sending the reader back to another tab for two fields.
+    description: parent.description ?? null,
+    descriptionSource: parent.descriptionSource ?? null,
+    excerpt: parent.excerpt ?? null,
+    converted,
+    chunks: chunkDocs.map(c => ({
+      id: c._id,
+      index: c.chunkIndex ?? null,
+      headingText: c.headingText ?? null,
+      content: c.content ?? '',
+      // Audio/video chunks carry their position in the recording; documents carry heading provenance.
+      // Both spellings are returned as they are, so the client formats rather than guesses.
+      chunkOffsetMs: (c as { chunkOffsetMs?: number }).chunkOffsetMs ?? null,
+      chunkDurationMs: (c as { chunkDurationMs?: number }).chunkDurationMs ?? null,
+      embeddingStatus: c.embeddingStatus ?? null,
+    })),
+    chunkTotal,
+    limit,
+    skip,
+    images,
+  });
 });
 
 // GET /api/brain/spaces/:spaceId/embedding-queue — this space's embedding-job backlog by status (F9 Overview).

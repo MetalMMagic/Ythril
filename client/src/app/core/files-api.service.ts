@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams, HttpHeaders } from '@angular/common/http';
 import { Observable, Subscription } from 'rxjs';
 import { map } from 'rxjs/operators';
-import type { FileEntry, FileMeta, UploadProgress, ConflictRecord } from './api.types';
+import type { FileEntry, FileMeta, FileExtract, UploadProgress, ConflictRecord } from './api.types';
 import type { ListSort } from './brain-api.service';
 
 /** File store (listing, upload, download), brain file-metadata, and sync file conflicts. */
@@ -184,6 +184,17 @@ export class FilesApi {
     return this.http.get<{ files: FileMeta[] }>(`/api/brain/spaces/${spaceId}/files`, { params }).pipe(
       map(r => r.files[0] ?? null),
     );
+  }
+
+  /**
+   * What retrieval sees for one file: the converted Markdown, the chunks in order, the extracted images.
+   *
+   * One request, because the three are only meaningful together and the partitioning is a server-side fact.
+   * `limit`/`skip` page the chunks — a 500-page document has thousands, and this is a diagnostic view.
+   */
+  getFileExtract(spaceId: string, path: string, limit = 100, skip = 0): Observable<FileExtract> {
+    const params = new HttpParams().set('path', path).set('limit', limit).set('skip', skip);
+    return this.http.get<FileExtract>(`/api/brain/spaces/${spaceId}/files/extract`, { params });
   }
 
   updateFileMeta(spaceId: string, path: string, body: Partial<{ description: string; tags: string[]; entityIds: string[]; chronoIds: string[]; memoryIds: string[]; properties: Record<string, string | number | boolean> }>): Observable<FileMeta> {

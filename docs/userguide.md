@@ -366,6 +366,21 @@ Clicking a file opens a **docked detail pane** to the right of the list (the lis
 
 - **File meta** *(in the Brain)* — the editable metadata record: **description**, **tags**, and links to **entities**, **memories** and **chrono** entries, plus a **Retry** action to re-queue embedding for a failed or partial file. This is where the former *File Meta* tab's editing now lives. (On the standalone Files page, outside the Brain, the pane shows preview + description only.)
 
+- **Extract** *(in the Brain, and only for files that have been processed)* — **what retrieval actually
+  sees.** This is the tab to open when a document is in the system and still answers questions badly:
+
+  | Section | What it tells you |
+  |---|---|
+  | **Chunks** | The pieces search actually matches on, in order. Each shows where it came from — the **heading** it opened for a document, or its **position in the recording** (`1:05-1:35`) for audio and video. If a chunk is missing text you expected, the conversion is where to look, not the search. |
+  | **Extracted images** | The images pulled out of the document, each with its caption and whether that caption was **generated** or written by a person. |
+  | **Converted markdown** | Exactly what the converter produced from the file — the input everything else is derived from. Long documents are shown up to 256 KB. |
+
+  Nothing here is new: these are the records the pipeline already wrote. They were only visible before by
+  browsing the internal `_converted/` and `_extracted/` folders, which are now hidden — hidden from
+  browsing, not from inspection.
+
+  A file with no chunks is worth noticing on its own: it means **nothing from that file is searchable yet**.
+
 Press **Escape** or the close button to dismiss the pane. Use arrow keys to move to the previous or next file in the directory.
 
 ---

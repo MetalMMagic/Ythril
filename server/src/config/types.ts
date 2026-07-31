@@ -775,6 +775,23 @@ export interface VoteRound {
   pendingMember?: NetworkMember;  // stored on join rounds; added to members when vote passes
   spaceId?: string;              // populated for space_deletion and meta_change rounds
   pendingMeta?: SpaceMeta;       // stored on meta_change rounds; applied when vote passes
+  /**
+   * Top-level `meta` fields the proposer changed (meta_change rounds).
+   *
+   * Conclusion applies only these, re-merged into whatever the meta says at that moment, so two rounds
+   * that touch different fields no longer overwrite each other — `pendingMeta` is a full snapshot of the
+   * meta as it stood when the round opened, and applying it wholesale silently reverts anything that
+   * concluded in between. See `sync/meta-round-merge.ts`.
+   */
+  metaChangedFields?: string[];
+  /**
+   * The space's `meta.version` the proposal was computed against (meta_change rounds).
+   *
+   * Rounds gossip, so this is absent on any round proposed by a peer predating field-merge — and that
+   * absence is the compatibility switch: such a round applies wholesale, exactly as before. It cannot
+   * field-merge, because the changed-field list it never recorded would merge nothing at all.
+   */
+  baseMetaVersion?: number;
   requiredVoters?: string[];     // braintree only: instanceIds that must ALL vote yes
 }
 

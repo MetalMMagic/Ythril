@@ -3357,6 +3357,22 @@ If the space participates in a network and `meta` is included, the update trigge
 { "status": "vote_pending", "rounds": [...], "message": "Meta change requires network vote" }
 ```
 
+**Two meta votes can be open at once, and they no longer overwrite each other.** A round records the
+fields it proposes and the `meta.version` it was computed against; when it passes, only those fields are
+applied, re-merged into whatever the meta says at that moment. Rounds stay open for
+`votingDeadlineHours`, so a second proposal landing before the first concludes is ordinary — previously
+the later round wrote back a full snapshot taken when it opened, silently reverting the earlier one's
+edit with a correctly-recorded carried vote to hide it.
+
+When two rounds change the **same** field the later one to conclude wins: the network voted for that
+value, and refusing to apply a carried motion would relocate the silent loss rather than remove it. The
+overwrite is written to the server log naming the field, the round's base version and the current one, so
+the superseded operator can find out.
+
+A round proposed by a peer running an older build carries neither field and is applied wholesale, exactly
+as before — its proposer computed the snapshot as the complete intended result, so field-merging an
+unknown changed-set would apply nothing at all.
+
 > **MCP tool:** `update_space` — accepts `label` and `description`. Requires `admin: true`.
 
 ---

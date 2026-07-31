@@ -14,6 +14,8 @@ import { log } from '../util/log.js';
 import { updateSpace } from '../spaces/spaces.js';
 import { peerSafeFetch } from './peer-fetch.js';
 import { buildBraintreeAncestors } from '../util/braintree.js';
+import { applyMetaRound, type MetaRoundProposal } from './meta-round-merge.js';
+import type { SpaceMeta } from '../config/types.js';
 
 /**
  * Recompute the braintree ancestor voter set for a round from this instance's
@@ -144,9 +146,24 @@ export function concludeRoundIfReady(
         });
       }
     }
-    // On meta_change round pass: apply the pending meta to the space
+    // On meta_change round pass: apply the fields this round proposed to the space's CURRENT meta.
+    //
+    // Not `{ meta: round.pendingMeta }`. That snapshot was computed when the round opened, and rounds stay
+    // open for `votingDeadlineHours` — so writing it wholesale reverts every field another round changed
+    // in the meantime, with no error and a correctly-recorded carried vote to hide it.
     if (round.type === 'meta_change' && round.spaceId && round.pendingMeta) {
-      updateSpace(round.spaceId, { meta: round.pendingMeta });
+      const currentMeta = getConfig().spaces.find(s => s.id === round.spaceId)?.meta;
+      const applied = applyMetaRound(currentMeta, round as MetaRoundProposal);
+      updateSpace(round.spaceId, { meta: applied.meta as SpaceMeta });
+      if (applied.conflicts.length > 0) {
+        // The vote wins — the network decided this value — but the operator whose edit it superseded has
+        // to be able to find out, and the only place that can say so is here.
+        log.warn(
+          `meta_change round ${round.roundId} overwrote field(s) changed since it was proposed ` +
+          `(space ${round.spaceId}, based on meta v${round.baseMetaVersion}, now v${currentMeta?.version ?? 0}): ` +
+          `${applied.conflicts.join(', ')} — the passed vote wins`,
+        );
+      }
     }
     return true;
   }

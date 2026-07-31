@@ -99,6 +99,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Updates are validated against the schema. All of them.** Creates were validated; updates were
+  validated **only when the patch used `deleteFields`**.
+  - Every other patch skipped validation entirely, so `PATCH { properties: { status: "nonsense" } }`
+    wrote a value the same space rejects at create time, in a space explicitly set to `strict`. The
+    stricter a space's schema, the wider the gap — the write path an operator relies on to keep records
+    conformant was the one path that did not check. All eight surfaces are covered: the four REST
+    `PATCH` routes and the four `update_*` MCP tools, which had no schema validation at all.
+  - The **merged** record is validated, not the patch. A patch is a fragment, and "does this fragment
+    satisfy the schema" has no useful answer: a required property the patch does not mention is present
+    in the record and absent from the patch, so the fragment check would fail every partial update.
+  - **The error says whose fault it is.** Validating the merged record means a record that was *already*
+    non-compliant — written before the schema tightened, imported, or synced from a peer with different
+    meta — now fails on any edit, including one unrelated to the offending field. Reporting that as
+    "your change is invalid" is false in the way that costs an afternoon. Violations are classified
+    against the record's prior state into `introduced` (this patch caused it) and `preExisting` (it
+    didn't), and the message names which situation applies. Identity is field **and** reason, so a new
+    failure on an already-failing field is not waved through as pre-existing; the value is excluded, so
+    an unchanged violation whose value the patch altered is not blamed on the patch.
+  - Both kinds block in `strict`: the merged record is what gets stored, and storing a known-invalid
+    record because it was already invalid is how a space drifts permanently out of conformance. The
+    record is not trapped — validation is of the merged result, so a patch that includes the offending
+    field repairs it, and the error says exactly that.
+  - The MCP tools import the API layer's gate rather than reimplementing it. `update_chrono` shipped
+    once without the type allowlist `create_chrono` enforced; two copies of a validation rule is how
+    that happens.
+
 - **Two concurrent space-meta votes no longer overwrite each other.** A `meta_change` round stored the
   whole merged meta and applied it wholesale on conclusion, so the later of two overlapping rounds
   reverted the earlier one's edit.

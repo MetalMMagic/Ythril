@@ -1,6 +1,8 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
 import { UUID_V4_RE, TTL_DAYS_SCHEMA, ttlDaysFromArgs, unitScoreSchema } from './shared.js';
-import { ChronoFilter, createChrono, listChrono, updateChrono, parseRecurrence } from '../../brain/chrono.js';
+import { ChronoFilter, createChrono, getChronoById, listChrono, updateChrono, parseRecurrence } from '../../brain/chrono.js';
+// The API layer's write gate, imported rather than reimplemented — see the note in memory.ts.
+import { assertUpdateAllowed, classifyUpdateViolations, locateForUpdate } from '../../api/brain/update-validation.js';
 import { getConfig } from '../../config/loader.js';
 import { checkQuota } from '../../quota/quota.js';
 import { isStrictLinkage, resolveMemberSpaces, resolveWriteTarget } from '../../spaces/proxy.js';
@@ -239,6 +241,23 @@ export const update_chronoTool: ToolHandler = {
       const rec = parseRecurrence(a['recurrence']);
       if (!rec.ok) throw new Error(rec.error);
       updates['recurrence'] = rec.value;
+    }
+
+    // Validate the entry AS IT WILL BE, against the meta of the member space it actually lives in. The
+    // type allowlist above is not the whole schema: property constraints applied at `create_chrono` and
+    // nowhere on this path, so an agent could write a value the same space refuses on creation.
+    const found = await locateForUpdate(wt.target, mid => getChronoById(mid, id));
+    if (found) {
+      const prior = found.record;
+      const priorProps = (prior.properties ?? {}) as Record<string, unknown>;
+      assertUpdateAllowed(classifyUpdateViolations(
+        found.meta,
+        validateChrono(found.meta ?? {}, { type: prior.type, properties: priorProps }),
+        validateChrono(found.meta ?? {}, {
+          type: (updates['type'] as string | undefined) ?? prior.type,
+          properties: (updates['properties'] as Record<string, unknown> | undefined) ?? priorProps,
+        }),
+      ));
     }
 
     const entry = await updateChrono(wt.target, id, updates as Parameters<typeof updateChrono>[2], ctx.actor, ttlDaysFromArgs(a));

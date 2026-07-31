@@ -3691,6 +3691,40 @@ Each space can define a schema in its `meta` block that governs what data is acc
 > defined yet, `strict` still accepts every type and label, so it never blocks a brand-new empty space;
 > it starts mattering the moment you define a schema.
 
+**Updates validate the record as it will be.** A `PATCH` (and the matching `update_*` MCP tool) validates
+the **merged** result — the stored record with your patch applied — not the patch on its own. Validating
+the fragment would fail every partial update that does not restate every required property, so the answer
+would be meaningless. In `strict` mode a violating update is refused with `422`:
+
+```json
+{
+  "error": "schema_violation",
+  "message": "The change violates this space's schema: status.",
+  "violations": [ { "field": "status", "value": "nonsense", "reason": "not in enum: open, closed" } ],
+  "introduced": [ { "field": "status", "…": "…" } ],
+  "preExisting": []
+}
+```
+
+`introduced` and `preExisting` are the same violations, split by **whose fault they are**:
+
+| Field | Meaning |
+|-------|---------|
+| `introduced` | Not present before this patch. Your change caused it. |
+| `preExisting` | Present before and still present. Your change neither caused nor fixed it. |
+
+A record can be non-compliant before you touch it — written before the schema tightened, imported, or
+synced from a peer with different meta. Both kinds block, because the merged record is what gets stored
+and storing a known-invalid record is how a space drifts permanently out of conformance. The record is
+**not** trapped: validation is of the merged result, so including the offending field in the same request
+repairs it and the write succeeds. The `message` says which of the two situations applies, so you are not
+sent after a field you did not touch.
+
+In `warn` mode the write proceeds and the same three lists are reported.
+
+*New in 2.2.* Previously an update was validated only when the request used `deleteFields`; every other
+patch could write a value the same space rejects at create time.
+
 **Schema structure — `typeSchemas`:**
 
 The schema is expressed as a single `typeSchemas` object on the space `meta`. It groups configuration by knowledge type (`entity`, `edge`, `memory`, `chrono`) and then by type name (e.g. `"service"`, `"depends_on"`). Each entry is a `TypeSchema` object:

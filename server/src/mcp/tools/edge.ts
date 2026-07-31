@@ -1,7 +1,9 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
 import { UUID_V4_RE, TTL_DAYS_SCHEMA, ttlDaysFromArgs, unitScoreSchema } from './shared.js';
-import { validateDeleteFields } from '../../brain/delete-fields.js';
-import { traverseGraph, updateEdgeById, upsertEdge } from '../../brain/edges.js';
+import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } from '../../brain/delete-fields.js';
+import { getEdgeById, traverseGraph, updateEdgeById, upsertEdge } from '../../brain/edges.js';
+// The API layer's write gate, imported rather than reimplemented — see the note in memory.ts.
+import { assertUpdateAllowed, classifyUpdateViolations, locateForUpdate } from '../../api/brain/update-validation.js';
 import { getConfig } from '../../config/loader.js';
 import { isStrictLinkage, resolveMemberSpaces, resolveWriteTarget, findFirstAcrossMembers } from '../../spaces/proxy.js';
 import { resolveMetaRefs, validateEdge } from '../../spaces/schema-validation.js';
@@ -123,6 +125,29 @@ export const update_edgeTool: ToolHandler = {
     if (typeof a['type'] === 'string') updates.type = (a['type'] as string).trim();
     const ttlDays = ttlDaysFromArgs(a);
     if (Object.keys(updates).length === 0 && !dfPaths && ttlDays === undefined) throw new Error('At least one of label, description, tags, properties, weight, type, deleteFields, or ttlDays must be provided');
+
+    // Validate the edge AS IT WILL BE, against the meta of the member space it actually lives in. This
+    // path had no schema validation at all, so `label` could be moved outside the allowlist that
+    // `upsert_edge` enforces on the very same record.
+    const found = await locateForUpdate(wt.target, mid => getEdgeById(mid, id));
+    if (found) {
+      const prior = found.record;
+      const sim: Record<string, unknown> = {
+        properties: updates.properties !== undefined
+          ? { ...(prior.properties ?? {}), ...updates.properties }
+          : { ...(prior.properties ?? {}) },
+      };
+      if (dfPaths) applyDeleteFieldsPaths(sim, dfPaths);
+      assertUpdateAllowed(classifyUpdateViolations(
+        found.meta,
+        validateEdge(found.meta ?? {}, { label: prior.label, properties: prior.properties ?? {} }),
+        validateEdge(found.meta ?? {}, {
+          label: updates.label ?? prior.label,
+          properties: (sim['properties'] ?? {}) as Record<string, unknown>,
+        }),
+      ));
+    }
+
     const updatedEdge = await findFirstAcrossMembers(wt.target, mid => updateEdgeById(mid, id, updates, dfPaths, ctx.actor, ttlDays));
     if (!updatedEdge) throw new Error(`Edge '${id}' not found`);
     return {

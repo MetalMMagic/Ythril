@@ -16,6 +16,7 @@ import { parseSortParam, SORTABLE_FIELDS } from '../../brain/list-sort.js';
 import { resolveMemberSpaces, resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { validateEdge } from '../../spaces/schema-validation.js';
 import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, ttlDaysFromBody, ttlDaysError } from './_shared.js';
+import { classifyUpdateViolations } from './update-validation.js';
 import { resolveEntityIdsByName } from '../../brain/entities.js';
 
 export const edgesRouter = Router();
@@ -215,29 +216,40 @@ edgesRouter.patch('/spaces/:spaceId/edges/:id', globalRateLimit, requireSpaceAut
   if (Object.keys(updates).length === 0 && !dfPaths && !ttlDaysProvided) { res.status(400).json({ error: 'At least one field must be provided' }); return; }
   const memberIds = resolveMemberSpaces(wt.target);
   for (const mid of memberIds) {
-    // Schema validation after deleteFields + merge
-    if (dfPaths) {
-      const existing = await getEdgeById(mid, id);
-      if (!existing) continue;
+    // Validate the edge AS IT WILL BE, on every patch — not only when `deleteFields` is present. That
+    // branch used to be the whole of update validation, so a patch that moved `label` outside the
+    // allowlist wrote a value the same space rejects at create time. One read, shared with the audit
+    // snapshot below.
+    const existing = await getEdgeById(mid, id);
+    if (!existing) continue;
+    {
       const resultProps = updates.properties !== undefined
         ? { ...(existing.properties ?? {}), ...updates.properties }
         : { ...(existing.properties ?? {}) };
       const sim: Record<string, unknown> = { properties: resultProps };
-      applyDeleteFieldsPaths(sim, dfPaths);
+      if (dfPaths) applyDeleteFieldsPaths(sim, dfPaths);
       const simProps = (sim['properties'] ?? {}) as Record<string, unknown>;
       const meta = getSpaceMeta(mid);
-      const violations = validateEdge(meta ?? {}, { label: updates.label ?? existing.label, properties: simProps });
-      const validation = applyValidation(meta, violations);
-      if (validation.blocked) {
-        res.status(422).json({ error: 'schema_violation', message: 'deleteFields + merge result violates required properties', violations: validation.warnings });
+      const check = classifyUpdateViolations(
+        meta,
+        validateEdge(meta ?? {}, { label: existing.label, properties: existing.properties ?? {} }),
+        validateEdge(meta ?? {}, { label: updates.label ?? existing.label, properties: simProps }),
+      );
+      if (check.blocked) {
+        res.status(422).json({
+          error: 'schema_violation',
+          message: check.message,
+          violations: check.all,
+          introduced: check.introduced,
+          preExisting: check.preExisting,
+        });
         return;
       }
     }
-    // Snapshot for the audit change list — see the note in memories.ts.
-    const prior = await getEdgeById(mid, id);
+    // Snapshot for the audit change list, from the read above — see the note in memories.ts.
     const updated = await updateEdgeById(mid, id, updates, dfPaths, webhookToken(req), ttlDaysFromBody(req.body));
     if (updated) {
-      req.auditSnapshots = { before: prior ?? {}, after: updated };
+      req.auditSnapshots = { before: existing ?? {}, after: updated };
       res.json(updated);
       return;
     }

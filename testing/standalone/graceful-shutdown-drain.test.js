@@ -61,8 +61,18 @@ describe('shutdown drains in-flight work', () => {
     const server = createServer((_req, res) => res.end('ok'));
     const port = await listen(server);
 
+    // Wait for the SERVER to register the socket, not just for the client to finish connecting.
+    //
+    // `sock.once('connect')` resolves on the client side; the server may not have accepted the
+    // connection yet. If `close()` is called in that gap it finds nothing to wait for and resolves
+    // 'drained' immediately, so the assertion below flips — intermittently, and only under the load of a
+    // full sequential batch, which is the worst way for a gate to fail. Waiting on the server's own
+    // `connection` event removes the race instead of widening a timeout around it.
     const sock = net.connect(port, '127.0.0.1');
-    await new Promise(r => sock.once('connect', r));
+    await Promise.all([
+      new Promise(r => sock.once('connect', r)),
+      new Promise(r => server.once('connection', r)),
+    ]);
 
     const started = Date.now();
     const how = await drain(server, 300);

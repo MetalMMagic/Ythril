@@ -101,7 +101,23 @@ export function computeSecurityPosture(): SecurityPosture {
     : { id: 'transport.peers', level: 'pass', message: 'Sync peers must use HTTPS.' });
 
   if (cfg?.allowInsecurePlaintext) {
-    checks.push({ id: 'transport.plaintext', level: 'warn', message: 'allowInsecurePlaintext is on — the plaintext-exposure guard is disabled.' });
+    // RETIRED, and the line has to say so — it used to claim "the plaintext-exposure guard is disabled",
+    // which described a guard that does not exist. The flag's original meaning in the first prototype was
+    // nearly the opposite: it opted the operator IN to a boot warning when the host had a non-loopback
+    // interface. That warning was replaced by this posture block; the flag was left behind, read by
+    // nothing, and the message written for it inverted what it had meant.
+    //
+    // Reported rather than ignored, because an operator who set it believes it is doing something. The
+    // control that actually rejects plaintext is `requireEncryptedTransport`, one check up.
+    checks.push({
+      id: 'transport.plaintext',
+      level: 'warn',
+      message: 'allowInsecurePlaintext is set but does nothing — it is retired and read by no code path. '
+        + (tlsOn
+          ? 'Plaintext requests are already rejected by requireEncryptedTransport; remove the key.'
+          : 'Plaintext requests are NOT rejected — that is requireEncryptedTransport, which is off. '
+            + 'Setting this key does not change it.'),
+    });
   }
 
   // Widening where model/media egress may point is a deliberate operator decision, so it is reported

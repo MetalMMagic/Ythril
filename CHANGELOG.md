@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A security setting that was read by nothing, and a posture line that described a guard which
+  never existed.** `allowInsecurePlaintext` appeared in `config.json`, in the type, and in the startup
+  security posture — where it reported *"the plaintext-exposure guard is disabled"*. No such guard
+  exists, and no code path reads the flag.
+  - In the first prototype it meant nearly the opposite: it opted the instance **in** to a boot warning
+    when the host had a non-loopback interface. That warning was superseded by the posture block in
+    #276; the flag was left behind with no reader, and the message written for it inverted its meaning.
+  - The key is **retired, not deleted** — a config that sets it still loads, on the same reasoning as
+    `SpaceMeta.tagSuggestions`: silently dropping a key an operator has is a worse trade than a
+    documented retirement. The posture now says it does nothing and names the control that actually
+    rejects plaintext requests (`requireEncryptedTransport`), and says whether *that* is on.
+  - Found by the check below, which is the point of adding it: "nothing documents this" and "nothing
+    uses this" turned out to be the same question asked from two sides.
+
+- **`config-key-docs-coverage` checked one direction only.** It asserted every key in a documented
+  `config.json` example is a real field, and said nothing about the reverse — so a config field could be
+  added and never documented with nothing to report it. The same asymmetry `env-var-docs-coverage` grew
+  a second check to close. Scoped to top-level fields, where a setting with no mention is genuinely
+  lost; machine-managed state (`oauthClients`, `pendingSpaceOp`) is exempt, and a test asserts each
+  exemption's own declaration says it is not hand-edited, so the list cannot quietly absorb a setting.
+
 - **The env-var documentation gate covered a quarter of the settings.** It scoped itself to the
   `YTHRIL_`/`MONGO_`/`MCP_`/`OIDC_` namespaces, so **no model-endpoint variable was ever in scope** —
   not `EMBEDDING_URL`, not `DOC_VLM_URL`, not one of the ten egress slots. That is how three names that

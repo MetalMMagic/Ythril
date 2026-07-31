@@ -76,6 +76,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **One server, three incompatible base URLs.** Five model slots each derived their own request URL, and
+  they disagreed: vision appended `/chat/completions`, so its base *had* to carry `/v1`; the assist model
+  appended `/v1/chat/completions` and text embedding appended `/v1/embeddings`, so theirs had to *not*
+  carry it. An operator pointing several slots at one OpenAI-compatible server therefore had no spelling
+  that satisfied them all — a reporter had already worked around it by configuring two base URLs for one
+  host.
+  - **The probe normalises**, which is what made this dangerous rather than merely annoying: the Models
+    card goes green off `/v1/models` while inference 404s on `/v1/v1/embeddings`. A failing embedder does
+    not announce itself — it surfaces as recall that quietly returns nothing.
+  - **`…:8080` and `…:8080/v1` now both work, in every slot.** Route paths are spelled in one module and
+    every builder normalises; a gate enumerates the routes out of that module and fails if any other file
+    re-derives one. The same fix had already been applied slot-by-slot twice (2.2 for vision, earlier in
+    this release for speech-to-text) — each time a caller that concatenated its own path was missed.
+  - The reranker is deliberately exempt: two incompatible rerank dialects are in wide use and there the
+    operator's URL *declares* which one (`…/rerank` = TEI, `…/v1/rerank` = Cohere), so normalising it
+    would erase the signal.
+
 - **A red dot over a provably working speech-to-text pipeline.** The card asked the endpoint for a list of
   its models, got a `404`, and reported **unreachable** — while Verify, which sends generated silence down
   the real path, was green. Their service serves exactly one route, `POST /v1/audio/transcriptions`: a list

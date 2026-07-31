@@ -17,7 +17,7 @@ import { log } from '../../util/log.js';
 import { ssrfSafeFetch } from '../../util/ssrf.js';
 import { allowPrivateForSlot, type EgressSlot } from '../../config/model-egress-policy.js';
 import { extForMimeType, isInformativeMimeType, sniffImageMimeType } from '../mime.js';
-import { normalizeOpenAiBase } from '../converters/vlm-endpoint.js';
+import { chatUrlFor, transcriptionsUrlFor } from '../converters/vlm-endpoint.js';
 
 /**
  * Runtime egress guard. **External** (operator-supplied, public) provider endpoints go through
@@ -121,7 +121,9 @@ export class OllamaVisionProvider implements VisionProvider {
   async caption(imageBytes: Buffer, _mimeType: string): Promise<string> {
     const base = (this.cfg.baseUrl ?? 'http://ollama.ythril.svc.cluster.local:11434').replace(/\/$/, '');
     const model = this.cfg.model ?? 'moondream';  // `moondream2` is not a valid Ollama registry name
-    const url = `${base}/api/chat`;
+    // Same builder as every other slot, on the Ollama wire. Nothing was wrong with this one — it is here
+    // so the rule has no exceptions to remember: a slot names its wire, not its route.
+    const url = chatUrlFor('ollama', base);
     const b64 = imageBytes.toString('base64');
 
     let res: Response;
@@ -172,7 +174,10 @@ export class ExternalVisionProvider implements VisionProvider {
   async caption(imageBytes: Buffer, mimeType: string): Promise<string> {
     const base = (this.cfg.baseUrl ?? 'https://api.openai.com/v1').replace(/\/$/, '');
     const model = this.cfg.model ?? 'gpt-4o-mini';
-    const url = `${base}/chat/completions`;
+    // Normalised: this appended `/chat/completions` bare, so vision was the one slot whose base HAD to
+    // carry `/v1` — while the assist model and text embedding appended it themselves and so required the
+    // opposite. One server, two base URLs, and a reporter configuring exactly that to keep both working.
+    const url = chatUrlFor('openai', base);
     const b64 = imageBytes.toString('base64');
     // A data URI must carry a real media type. `data:application/octet-stream;base64,…` is what a
     // strict OpenAI-compatible server (llama.cpp's llama-server among them) rejects outright:
@@ -245,10 +250,8 @@ export class WhisperProvider implements SttProvider {
     // Normalised, not concatenated. `${base}/v1/audio/transcriptions` is correct for a bare host and wrong
     // for the documented OpenAI base — `https://api.openai.com/v1` became `/v1/v1/audio/transcriptions`
     // and 404'd, while the list probe normalises and reported the endpoint fine. That is #562's
-    // probe-disagrees-with-inference defect, still live in this slot: every other OpenAI-compatible caller
-    // was moved onto `normalizeOpenAiBase` and the transcription URL was not. One base URL now works for
-    // the vision, assist and speech slots at once, which is what an operator configuring one server expects.
-    const url = `${normalizeOpenAiBase(base)}/audio/transcriptions`;
+    // probe-disagrees-with-inference defect; the route now comes from the one module that spells it.
+    const url = transcriptionsUrlFor(base);
 
     // Build multipart/form-data using FormData.
     //

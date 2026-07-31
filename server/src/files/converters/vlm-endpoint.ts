@@ -70,6 +70,25 @@ export function normalizeOpenAiBase(baseUrl: string): string {
   return /\/v1$/.test(trimmed) ? trimmed : `${trimmed}/v1`;
 }
 
+/**
+ * ## Every OpenAI route is spelled HERE, once
+ *
+ * The four builders below are the only places an OpenAI-compatible route path appears in the server, and
+ * a test enumerates the route literals to keep it that way. That is not tidiness — five slots had been
+ * deriving their URLs independently and had arrived at three incompatible rules for the same server:
+ *
+ *   - vision appended `/chat/completions`, so its base HAD to carry `/v1`;
+ *   - the assist model appended `/v1/chat/completions` and text embedding appended `/v1/embeddings`, so
+ *     theirs had to NOT carry it;
+ *   - the probe normalised, so it agreed with whichever half happened to match.
+ *
+ * An operator running one server for several slots therefore had no spelling that satisfied them all —
+ * exactly the configuration a reporter had to invent, with two base URLs for one host. Worse, the probe's
+ * agreement is what makes it dangerous rather than merely annoying: the dot goes green off a normalised
+ * `/v1/models` while inference 404s on `/v1/v1/embeddings`, and the failure surfaces as recall that
+ * silently returns nothing.
+ */
+
 /** The path a chat completion is POSTed to, for each wire. */
 export function chatUrlFor(wire: VlmWire, baseUrl: string): string {
   return wire === 'ollama'
@@ -83,6 +102,16 @@ export function listUrlFor(wire: VlmWire, baseUrl: string): string {
   return wire === 'ollama'
     ? `${baseUrl.replace(/\/+$/, '')}/api/tags`
     : `${normalizeOpenAiBase(baseUrl)}/models`;
+}
+
+/** Where text embeddings are POSTed. OpenAI-compatible only — the bundled model is in-process. */
+export function embeddingsUrlFor(baseUrl: string): string {
+  return `${normalizeOpenAiBase(baseUrl)}/embeddings`;
+}
+
+/** Where audio is POSTed for transcription. Whisper webservices and the OpenAI API share this route. */
+export function transcriptionsUrlFor(baseUrl: string): string {
+  return `${normalizeOpenAiBase(baseUrl)}/audio/transcriptions`;
 }
 
 /**

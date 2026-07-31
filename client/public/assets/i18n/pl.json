@@ -586,6 +586,26 @@
   "files.detail.tabsAriaLabel": "Widok szczegółów",
   "files.detail.previewTab": "Podgląd i opis",
   "files.detail.metaTab": "Metadane pliku",
+
+  "files.detail.extractTab": "Ekstrakt",
+
+  "files.extract.loading": "Czytanie tego, co wytworzył potok...",
+
+  "files.extract.error": "Nie udało się wczytać ekstrakcji.",
+
+  "files.extract.chunks": "Fragmenty ({{shown}} z {{total}})",
+
+  "files.extract.noChunks": "Brak fragmentów. Nic z tego pliku nie jest jeszcze wyszukiwalne.",
+
+  "files.extract.images": "Wyodrębnione obrazy ({{count}})",
+
+  "files.extract.noCaption": "Brak opisu obrazu.",
+
+  "files.extract.converted": "Przekonwertowany markdown",
+
+  "files.extract.truncated": "Pokazano do 256 KB. Pobierz przekonwertowany plik, aby zobaczyć resztę.",
+
+  "files.extract.more": "Pokaż więcej fragmentów",
   "files.detail.description": "Opis",
 
   "files.detail.descriptionSource.generated": "wygenerowany",

@@ -263,6 +263,25 @@ than its name:
 > acknowledged** — the same gate the repair pass applies, re-checked at call time. Neither slot receives
 > anything it would not already receive on the repair path.
 
+**`GET /api/brain/spaces/:spaceId/files/extract?path=<path>`** answers *what did the pipeline actually
+extract from this file?* in one read — the question that has no answer once `_converted/` and `_extracted/`
+are hidden from browsing. Nothing in it is new data; every part is a record conversion already wrote.
+
+| field | what it is |
+|---|---|
+| `converted` | `{ path, markdown, truncated, sizeBytes }` for the `_converted/<id>.md` sidecar, or `null` when the format needed no conversion (`.md`/`.txt`). Capped at 256 KB — `truncated` says so, and the full file downloads through the file store |
+| `chunks[]` | one page, always ordered by `chunkIndex`: `{ id, index, headingText, content, chunkOffsetMs, chunkDurationMs, embeddingStatus }`. Audio and video chunks carry the offset/duration; documents carry the heading they opened |
+| `chunkTotal` | total across all pages — page with `limit` (default 100, max 500) and `skip` |
+| `images[]` | the `_extracted/` images with `{ path, description, descriptionSource, sizeBytes, embeddingStatus }` |
+| `description` · `descriptionSource` · `excerpt` | the parent's own, so one request answers the whole question |
+
+A chunk is identified by **carrying a `chunkIndex`**, not by the shape of its id — text chunks are
+`<path>#chunk<n>` and audio chunks are `<path>#media-chunk<n>`, two spellings of one thing. Read-only: it
+mutates nothing and sends no content anywhere.
+
+**Settings → Files** surfaces this as an **Extract** tab on the file detail pane, shown only for files that
+have been through the pipeline.
+
 **While a file is in flight the record also carries step progress**, so a caller can report *which
 stage* is running rather than just that something is:
 

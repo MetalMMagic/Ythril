@@ -38,9 +38,35 @@ const NUL = String.fromCharCode(0);
 const files = execFileSync('git', ['ls-files', '-z', 'testing/standalone'], { encoding: 'utf8' })
   .split(NUL).filter(f => f.endsWith('.test.js')).sort();
 
-const marked = files.filter(f => readFileSync(f, 'utf8').includes('@needs-instance'));
+/**
+ * "Declares the marker" is decided by PREFLIGHT'S OWN pattern, lifted out of the script.
+ *
+ * This was `.includes('@needs-instance')` — a bare substring, where preflight anchors to a header line.
+ * Two spellings of one rule, so they could disagree, and they did: a pure test whose doc comment *mentioned*
+ * the marker while explaining which suite carries it was "marked" here and correctly "unmarked" there. The
+ * gate policing the split failed while the split itself was right, which is the worst way for a gate to be
+ * wrong — it accuses the innocent file and teaches you to reword prose to appease it.
+ *
+ * Deriving the regex from `scripts/preflight.mjs` means the answer cannot drift again. If the declaration
+ * ever stops being parseable, that is a hard failure below rather than a silent fallback to a looser rule.
+ */
+const NEEDS_INSTANCE = (() => {
+  const m = PREFLIGHT.match(/const NEEDS_INSTANCE = \/(.+?)\/([gimsuy]*);/);
+  return m ? new RegExp(m[1], m[2]) : null;
+})();
+
+const marked = files.filter(f => NEEDS_INSTANCE?.test(readFileSync(f, 'utf8')));
 
 describe('the exclusion is declared, not guessed', () => {
+  it('this gate reads preflight\'s own marker pattern, not a second copy of it', () => {
+    // Everything below counts "marked" files with it. If the declaration stops being parseable, that has
+    // to fail here rather than quietly leave `marked` empty and pass every assertion vacuously.
+    assert.ok(NEEDS_INSTANCE, 'could not lift NEEDS_INSTANCE out of scripts/preflight.mjs');
+    assert.ok(NEEDS_INSTANCE.test(' * @needs-instance drives a live server\n'), 'the lifted pattern must match a real header');
+    assert.ok(!NEEDS_INSTANCE.test(' * see the integration suite (`@needs-instance`) for those\n'),
+      'a doc comment MENTIONING the marker is not a file declaring it');
+  });
+
   it('preflight selects on the marker', () => {
     // Asserts the SELECTOR, not its exact spelling — the pattern is anchored to a header line
     // (` * @needs-instance …`) and that detail is free to change.

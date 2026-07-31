@@ -586,6 +586,26 @@
   "files.detail.tabsAriaLabel": "Detailansicht",
   "files.detail.previewTab": "Vorschau & Beschreibung",
   "files.detail.metaTab": "Datei-Metadaten",
+
+  "files.detail.extractTab": "Extrakt",
+
+  "files.extract.loading": "Lese, was die Pipeline erzeugt hat...",
+
+  "files.extract.error": "Extraktion konnte nicht geladen werden.",
+
+  "files.extract.chunks": "Chunks ({{shown}} von {{total}})",
+
+  "files.extract.noChunks": "Keine Chunks. Aus dieser Datei ist noch nichts durchsuchbar.",
+
+  "files.extract.images": "Extrahierte Bilder ({{count}})",
+
+  "files.extract.noCaption": "Noch keine Bildbeschreibung.",
+
+  "files.extract.converted": "Konvertiertes Markdown",
+
+  "files.extract.truncated": "Bis 256 KB angezeigt. Den Rest über die konvertierte Datei herunterladen.",
+
+  "files.extract.more": "Mehr Chunks anzeigen",
   "files.detail.description": "Beschreibung",
 
   "files.detail.descriptionSource.generated": "generiert",

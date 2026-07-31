@@ -4,7 +4,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import { DomSanitizer, SafeResourceUrl, SafeHtml } from '@angular/platform-browser';
-import { Space, FileEntry, FileMeta, UploadProgress } from '../../core/api.types';
+import { Space, FileEntry, FileMeta, FileExtract, UploadProgress } from '../../core/api.types';
 import { FilesApi } from '../../core/files-api.service';
 import { SpacesApi } from '../../core/spaces-api.service';
 import { AuthService } from '../../core/auth.service';
@@ -340,6 +340,27 @@ function xlsxCellText(v: unknown): string {
        announcing itself. Lower-case against the upper-case heading so it reads as an aside. */
     .detail-desc .desc-src { margin-left: 8px; padding: 1px 6px; border: 1px solid var(--border); border-radius: 10px;
       font-size: 0.92em; text-transform: none; letter-spacing: 0; color: var(--text-muted); cursor: help; }
+    /* Extract face. A diagnostic, so it is dense and legible rather than pretty: the chunk bodies are the
+       thing being read, and everything else is a label on them. */
+    .detail-extract section { margin-bottom: 18px; }
+    .detail-extract h4 { margin: 0 0 8px; font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted); }
+    .detail-extract .muted { color: var(--text-muted); font-size: 0.9em; }
+    .chunk { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; background: var(--bg-primary); }
+    .chunk-head { display: flex; gap: 8px; align-items: baseline; margin-bottom: 5px; font-size: 0.82em; }
+    .chunk-ix { font-family: var(--font-mono, monospace); color: var(--text-muted); flex: none; }
+    /* Provenance can be a long heading; it truncates rather than pushing the row. */
+    .chunk-prov { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chunk-warn { color: var(--warning); flex: none; }
+    /* pre-wrap, because a chunk's own line breaks are part of what retrieval sees. */
+    .chunk-body { margin: 0; white-space: pre-wrap; word-break: break-word; line-height: 1.45; font-size: 0.92em; }
+    .xtr-image { border-top: 1px solid var(--border); padding: 8px 0; }
+    .xtr-image p { margin: 4px 0 0; line-height: 1.45; font-size: 0.92em; }
+    .xtr-path { font-family: var(--font-mono, monospace); font-size: 0.82em; color: var(--text-muted); word-break: break-all; }
+    .xtr-md { margin: 6px 0 0; padding: 10px; border: 1px solid var(--border); border-radius: 8px;
+      background: var(--bg-primary); max-height: 40vh; overflow: auto; white-space: pre-wrap;
+      word-break: break-word; font-size: 0.85em; line-height: 1.45; }
+    .detail-extract .desc-src { margin-left: 6px; padding: 1px 6px; border: 1px solid var(--border);
+      border-radius: 10px; font-size: 0.86em; color: var(--text-muted); cursor: help; }
     .detail-meta-form .field { margin-bottom: 12px; }
     .detail-meta-form label { display: block; margin-bottom: 4px; font-size: 0.8em; color: var(--text-muted); }
     .detail-meta-form textarea { width: 100%; resize: vertical; }
@@ -683,6 +704,12 @@ function xlsxCellText(v: unknown): string {
                   <div class="seg-toggle" role="tablist" [attr.aria-label]="'files.detail.tabsAriaLabel' | transloco">
                     <button type="button" role="tab" [class.active]="detailMode() === 'preview'" [attr.aria-selected]="detailMode() === 'preview'" (click)="detailMode.set('preview')">{{ 'files.detail.previewTab' | transloco }}</button>
                     <button type="button" role="tab" [class.active]="detailMode() === 'meta'" [attr.aria-selected]="detailMode() === 'meta'" (click)="showMetaMode()">{{ 'files.detail.metaTab' | transloco }}</button>
+                    <!-- Extract: what retrieval actually sees. Only for files that HAVE been through the
+                         pipeline — offering it on a file with no chunks and no conversion would be a tab
+                         that always says "nothing here". -->
+                    @if (hasExtract()) {
+                      <button type="button" role="tab" [class.active]="detailMode() === 'extract'" [attr.aria-selected]="detailMode() === 'extract'" (click)="showExtractMode()">{{ 'files.detail.extractTab' | transloco }}</button>
+                    }
                   </div>
                 } @else {
                   <span class="file-title" [title]="pf.name">{{ pf.name }}</span>
@@ -713,6 +740,85 @@ function xlsxCellText(v: unknown): string {
                       <p>{{ selectedMeta()!.description }}</p>
                     </div>
                   }
+                } @else if (detailMode() === 'extract') {
+                  <!-- Extract: what retrieval actually sees.
+                       The _converted/ and _extracted/ folders are hidden from browsing, which is right and
+                       which removed the only way to answer "what did the pipeline get out of this file?" —
+                       the first question when a document answers queries badly. Hidden from browsing, not
+                       from inspection. Nothing here is new data; these are records conversion already wrote. -->
+                  <div class="detail-extract">
+                    @if (extractLoading()) {
+                      <div class="muted">{{ 'files.extract.loading' | transloco }}</div>
+                    } @else if (extractError()) {
+                      <app-error-state [message]="'files.extract.error' | transloco" [reason]="extractError() ?? ''" (retry)="loadExtract(pf)" />
+                    } @else if (extract(); as x) {
+                      @if (x.conversionError) {
+                        <div class="alert alert-error" role="alert">{{ x.conversionError }}</div>
+                      }
+
+                      <!-- Chunks first, deliberately: they ARE what retrieval matches on. The converted
+                           Markdown is the input to chunking, and the images are a side product. -->
+                      <section>
+                        <h4>{{ 'files.extract.chunks' | transloco: { shown: x.chunks.length, total: x.chunkTotal } }}</h4>
+                        @if (x.chunks.length === 0) {
+                          <p class="muted">{{ 'files.extract.noChunks' | transloco }}</p>
+                        }
+                        @for (c of x.chunks; track c.id) {
+                          <div class="chunk">
+                            <div class="chunk-head">
+                              <span class="chunk-ix">#{{ c.index }}</span>
+                              <!-- One provenance line, whichever kind of provenance this chunk has: a
+                                   timestamp for audio, the heading it opened for a document. -->
+                              @if (c.chunkOffsetMs !== null) {
+                                <span class="chunk-prov">{{ msRange(c.chunkOffsetMs, c.chunkDurationMs) }}</span>
+                              } @else if (c.headingText) {
+                                <span class="chunk-prov">{{ c.headingText }}</span>
+                              }
+                              @if (c.embeddingStatus && c.embeddingStatus !== 'complete') {
+                                <span class="chunk-warn">{{ c.embeddingStatus }}</span>
+                              }
+                            </div>
+                            <p class="chunk-body">{{ c.content }}</p>
+                          </div>
+                        }
+                        @if (x.chunkTotal > x.chunks.length + x.skip) {
+                          <button class="btn btn-sm btn-secondary" type="button" (click)="moreChunks(pf)">{{ 'files.extract.more' | transloco }}</button>
+                        }
+                      </section>
+
+                      @if (x.images.length > 0) {
+                        <section>
+                          <h4>{{ 'files.extract.images' | transloco: { count: x.images.length } }}</h4>
+                          @for (img of x.images; track img.path) {
+                            <div class="xtr-image">
+                              <span class="xtr-path">{{ img.path }}</span>
+                              @if (img.description) {
+                                <p>
+                                  {{ img.description }}
+                                  @if (img.descriptionSource) {
+                                    <span class="desc-src" [attr.title]="'files.detail.descriptionSource.' + img.descriptionSource + 'Hint' | transloco">{{ 'files.detail.descriptionSource.' + img.descriptionSource | transloco }}</span>
+                                  }
+                                </p>
+                              } @else {
+                                <p class="muted">{{ 'files.extract.noCaption' | transloco }}</p>
+                              }
+                            </div>
+                          }
+                        </section>
+                      }
+
+                      @if (x.converted; as conv) {
+                        <section>
+                          <h4>{{ 'files.extract.converted' | transloco }}</h4>
+                          <div class="muted xtr-path">{{ conv.path }}</div>
+                          @if (conv.truncated) {
+                            <div class="muted">{{ 'files.extract.truncated' | transloco }}</div>
+                          }
+                          <pre class="xtr-md">{{ conv.markdown }}</pre>
+                        </section>
+                      }
+                    }
+                  </div>
                 } @else {
                   <!-- File-meta edit form (embedded only — reuses the Brain ref-field widgets). -->
                   <form class="detail-meta-form" (ngSubmit)="saveMeta(pf)" #metaForm="ngForm">
@@ -965,9 +1071,71 @@ export class FileManagerComponent implements OnInit, OnDestroy {
 
   // ── Docked detail-pane state (preview+description ⇄ file-meta record) ──────
   /** Which face of the detail pane is showing. Meta editing is only reachable when embedded. */
-  detailMode = signal<'preview' | 'meta'>('preview');
+  detailMode = signal<'preview' | 'meta' | 'extract'>('preview');
   /** The FileMeta record for the open file (its description + links); null until the fetch lands. */
   selectedMeta = signal<FileMeta | null>(null);
+
+  // ── Extract face: what retrieval actually sees ─────────────────────────────
+  extract = signal<FileExtract | null>(null);
+  extractLoading = signal(false);
+  extractError = signal<string | null>(null);
+
+  /**
+   * Whether this file HAS an extract to show.
+   *
+   * Offered only for a file that went through the pipeline: chunks, a converted sidecar, or a media type
+   * that produces either. A tab that is always present and always says "nothing here" teaches people to
+   * ignore it, which is the same lesson as a health dot that is always red.
+   */
+  hasExtract(): boolean {
+    const m = this.selectedMeta();
+    if (!m) return false;
+    return (m.chunkCount ?? 0) > 0 || !!m.convertedFileId || !!m.mediaType;
+  }
+
+  /** Switch to the Extract face, fetching the first time it is opened rather than on every file open. */
+  showExtractMode(): void {
+    this.detailMode.set('extract');
+    const pf = this.previewFile();
+    if (pf && !this.extract() && !this.extractLoading()) this.loadExtract(pf);
+  }
+
+  loadExtract(entry: FileEntry, skip = 0): void {
+    this.extractLoading.set(true);
+    this.extractError.set(null);
+    this.filesApi.getFileExtract(this.activeSpaceId(), this.relPath(entry), 100, skip).subscribe({
+      next: (x) => {
+        // Appended, not replaced, when paging: "show more" on a diagnostic must not throw away what the
+        // reader has already scrolled through.
+        const prev = skip > 0 ? this.extract() : null;
+        this.extract.set(prev ? { ...x, chunks: [...prev.chunks, ...x.chunks], skip: prev.skip } : x);
+        this.extractLoading.set(false);
+      },
+      error: (e) => { this.extractError.set(httpErrorReason(e)); this.extractLoading.set(false); },
+    });
+  }
+
+  /** Next page of chunks. `skip` counts what is already on screen, not the last response's own skip. */
+  moreChunks(entry: FileEntry): void {
+    const shown = this.extract()?.chunks.length ?? 0;
+    this.loadExtract(entry, shown);
+  }
+
+  /**
+   * A chunk's position in a recording, as mm:ss or mm:ss-mm:ss.
+   *
+   * Audio and video chunks carry `chunkOffsetMs`; documents do not, and get their heading instead. Rendered
+   * here rather than server-side because it is a display choice, and the raw milliseconds are what an API
+   * consumer wants.
+   */
+  msRange(offsetMs: number | null, durationMs: number | null): string {
+    if (offsetMs === null) return '';
+    const clock = (ms: number) => {
+      const total = Math.max(0, Math.round(ms / 1000));
+      return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+    };
+    return durationMs ? `${clock(offsetMs)}-${clock(offsetMs + durationMs)}` : clock(offsetMs);
+  }
 
   /** Edit model for the meta form — same shape the Brain File Meta tab uses (entityIds is comma-joined
    *  for app-entity-ref-field; memory/chrono are id arrays). Mutated in place by the ref-field widgets. */
@@ -1432,6 +1600,10 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     // description shows here and the (embedded-only) edit form is ready when the toggle is used.
     this.detailMode.set('preview');
     this.previewFullscreen.set(false);
+    // The previous file's extract must not survive into this one — it is fetched lazily, so a stale value
+    // here would show one file's chunks under another file's name until the tab was opened again.
+    this.extract.set(null);
+    this.extractError.set(null);
     this.loadSelectedMeta(entry);
 
     // Every preview fetch must carry the auth header — the file endpoint requires it,

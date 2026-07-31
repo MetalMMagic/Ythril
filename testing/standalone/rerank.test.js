@@ -127,7 +127,9 @@ describe('the source keeps its contracts', () => {
   it('guards a non-local endpoint with ssrfSafeFetch', () => {
     // The URL is admin-settable; a plain fetch would follow a redirect into link-local metadata.
     assert.ok(src.includes('ssrfSafeFetch('), 'must call ssrfSafeFetch');
-    assert.ok(src.includes('allowPrivate: allowPrivateModelEndpoints()'),
+    // Scoped to the reranker's own slot: a widened embedding endpoint says nothing about where the
+    // reranker may point, and vice versa.
+    assert.ok(src.includes("allowPrivate: allowPrivateForSlot('rerank')"),
       'the operator private-endpoint policy must reach the fetch, or a self-hosted reranker on a cluster address silently never works');
     assert.ok(src.includes('isLocalModelEndpoint('), 'the local/remote split must use the shared predicate');
   });

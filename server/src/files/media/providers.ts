@@ -15,7 +15,7 @@
 import type { MediaProviderConfig } from '../../config/types.js';
 import { log } from '../../util/log.js';
 import { ssrfSafeFetch } from '../../util/ssrf.js';
-import { allowPrivateModelEndpoints } from '../../config/model-egress-policy.js';
+import { allowPrivateForSlot, type EgressSlot } from '../../config/model-egress-policy.js';
 import { extForMimeType, isInformativeMimeType, sniffImageMimeType } from '../mime.js';
 
 /**
@@ -25,14 +25,18 @@ import { extForMimeType, isInformativeMimeType, sniffImageMimeType } from '../mi
  * internal network) keep a plain `fetch`: their addresses are private, which `ssrfSafeFetch` would (rightly)
  * reject. The provider CLASS already encodes which is which (Ollama/Whisper = local; External* = external).
  */
-const egressFetch = (external: boolean): typeof fetch => {
+const egressFetch = (external: boolean, slot: EgressSlot): typeof fetch => {
   if (!external) return fetch;
   // An operator running a self-hosted OpenAI-compatible server on a cluster address needs the EXTERNAL
   // protocol at a PRIVATE address. Note what this relaxes and what it does not: ssrfSafeFetch still
   // resolves DNS, pins the resolved IP for the connection and re-validates redirects — only the
   // private-address rejection lifts, and crown-jewel ranges (loopback, link-local/IMDS) stay blocked
   // either way. This path therefore stays better guarded than a `local` provider, which uses plain fetch.
-  const allowPrivate = allowPrivateModelEndpoints();
+  //
+  // Resolved per SLOT, not globally: vision on the cluster and STT at a vendor is a normal split, and the
+  // global flag would have to be on for the first — relaxing the guard on the second, where a private
+  // resolution is exactly the anomaly worth refusing.
+  const allowPrivate = allowPrivateForSlot(slot);
   return ((url: string, init?: RequestInit) =>
     ssrfSafeFetch(url, init ?? {}, { allowPrivate })) as unknown as typeof fetch;
 };
@@ -184,7 +188,7 @@ export class ExternalVisionProvider implements VisionProvider {
     let res: Response;
     try {
       // External endpoint → SSRF-guarded egress.
-      res = await egressFetch(true)(url, {
+      res = await egressFetch(true, 'vision')(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -261,7 +265,7 @@ export class WhisperProvider implements SttProvider {
     let res: Response;
     try {
       // Local Whisper → plain fetch (private address); external → SSRF-guarded egress.
-      res = await egressFetch(this.external)(url, {
+      res = await egressFetch(this.external, 'stt')(url, {
         method: 'POST',
         headers: this.cfg.apiKey ? { Authorization: `Bearer ${this.cfg.apiKey}` } : {},
         body: form,

@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { getDataRoot, getEmbeddingConfig } from '../config/loader.js';
 import { ssrfSafeFetch } from '../util/ssrf.js';
-import { allowPrivateModelEndpoints } from '../config/model-egress-policy.js';
+import { allowPrivateForSlot } from '../config/model-egress-policy.js';
 import { log } from '../util/log.js';
 import { embeddingDurationSeconds, embeddingQueueDepth } from '../metrics/registry.js';
 
@@ -97,12 +97,13 @@ async function embedViaHttp(
   // External endpoints go through the SSRF-guarded fetch (DNS-resolve + IP-pin + redirect re-validation);
   // a local/trusted endpoint (e.g. on-cluster Ollama, private address) uses a plain fetch, which the guard
   // would rightly reject. Mirrors the vision/STT provider split (SSRF follow-up part 2).
-  // External → SSRF-guarded. `allowPrivateModelEndpoints` lets a self-hosted OpenAI-compatible
+  // External → SSRF-guarded. `allowPrivateForSlot('embedding')` lets a self-hosted OpenAI-compatible
   // embedding server live on a cluster address without dropping the guard: DNS-pinning and redirect
-  // re-validation still apply, only the private-address rejection lifts.
+  // re-validation still apply, only the private-address rejection lifts. Per-slot, so an operator whose
+  // embedder is on-cluster but whose assist model is a public vendor does not have to relax both.
   const doFetch = cfg.provider === 'external'
     ? (((url: string, init?: RequestInit) =>
-        ssrfSafeFetch(url, init ?? {}, { allowPrivate: allowPrivateModelEndpoints() })) as unknown as typeof fetch)
+        ssrfSafeFetch(url, init ?? {}, { allowPrivate: allowPrivateForSlot('embedding') })) as unknown as typeof fetch)
     : fetch;
   let response: Response;
   try {

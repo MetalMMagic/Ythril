@@ -120,7 +120,24 @@ describe('egress is guarded whenever the endpoint is not the bundled model', () 
   });
 
   it('and passes the private-address opt-in, so a self-hosted model still works', () => {
-    assert.match(client, /allowPrivate: allowPrivateModelEndpoints\(\)/);
+    // Resolved for the endpoint's own slot. Transcription, repair and the external assist model are three
+    // separate egress decisions — the document VLM sitting on the cluster is not a reason to let the assist
+    // model, the one path that sends content off-instance, reach a private address.
+    assert.match(client, /allowPrivate: allowPrivateForSlot\(endpoint\.slot\)/);
+    assert.match(client, /allowPrivate: allowPrivateForSlot\('assist'\)/);
+  });
+
+  it('each entry point names its own slot', () => {
+    for (const [fn, slot] of [
+      ['transcribePageImage', 'docVlm'],
+      ['repairMarkdown', 'docRepair'],
+      ['reconcileConsensus', 'docVlm'],
+    ]) {
+      const at = client.indexOf(`export async function ${fn}`);
+      assert.ok(at > 0, `${fn} should exist`);
+      assert.match(client.slice(at, at + 600), new RegExp(`asEndpoint\\(opts, '${slot}'\\)`),
+        `${fn} must resolve egress under the ${slot} slot`);
+    }
   });
 
   it('the bundled local path keeps its plain fetch', () => {

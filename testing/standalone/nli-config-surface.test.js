@@ -47,7 +47,10 @@ describe('NLI is a first-class model surface', () => {
       // The same rule as every other model endpoint: a non-local URL is egress and must pass the guard.
       assert.match(MEDIA_CONFIG, /nliPatch\?\.baseUrl && !isLocalModelEndpoint\(nliPatch\.baseUrl\)/);
       assert.match(MEDIA_CONFIG, /nli\.baseUrl rejected/);
-      assert.match(MEDIA_CONFIG, /nli\.baseUrl rejected[^\n]*allowPrivateModelEndpoints/);
+      // The hint is built by `privateAddressHint('nli')`, which names both the per-slot knob and the
+      // instance-wide flag — and stays empty when the slot already permits private addresses, since then
+      // the refusal was a crown jewel that no setting lifts.
+      assert.match(MEDIA_CONFIG, /nli\.baseUrl rejected[^\n]*privateAddressHint\('nli'\)/);
     });
 
     it('routes the key to secrets.json and never lets it reach config.json', () => {

@@ -13,6 +13,8 @@
  */
 import { getConfig, getMediaEmbeddingConfig, getEmbeddingConfig } from './loader.js';
 import { isSsrfSafeUrl } from '../util/ssrf.js';
+import { allowPrivateForSlot, isLocalModelEndpoint, type EgressSlot } from './model-egress-policy.js';
+import { resolveVlmEndpoint } from '../files/converters/vlm-endpoint.js';
 
 export type EndpointClass = 'public' | 'private' | 'hostname' | 'invalid';
 
@@ -22,6 +24,10 @@ export interface EndpointExposure {
   /** Host as configured (never the full URL — a query string could carry a key). */
   host: string;
   klass: EndpointClass;
+  /** The policy slot deciding whether THIS endpoint may resolve privately. */
+  slot: EgressSlot;
+  /** What that slot resolved to — per-slot setting if present, else the instance-wide flag. */
+  allowsPrivate: boolean;
 }
 
 /**
@@ -52,28 +58,56 @@ export function classifyEndpoint(raw: string): { host: string; klass: EndpointCl
   return { host, klass: 'invalid' };                               // blocked either way — crown jewel
 }
 
-/** Every EXTERNAL provider endpoint currently configured, with its classification. */
+/**
+ * Every EXTERNAL provider endpoint currently configured, with its classification and its own permission.
+ *
+ * Covers **all ten** egress slots, not the four this once listed. The omissions were not cosmetic: the
+ * reranker, the contradiction judge, the external face model and the three document stages are all
+ * admin-configurable egress targets, and one of them (the document VLM) turned out to be egressing with no
+ * guard at all. A posture check that enumerates a subset reports "nothing else is exposed" by omission —
+ * the same absence-as-evidence mistake the classifier below refuses to make about hostnames.
+ */
 export function modelEndpointExposure(): EndpointExposure[] {
   const out: EndpointExposure[] = [];
-  const add = (provider: string, url: string | undefined | null) => {
+  const add = (provider: string, slot: EgressSlot, url: string | undefined | null) => {
     if (!url) return;
-    out.push({ provider, ...classifyEndpoint(url) });
+    out.push({ provider, slot, allowsPrivate: allowPrivateForSlot(slot), ...classifyEndpoint(url) });
   };
 
   try {
     const media = getMediaEmbeddingConfig();
-    if (media.visionProvider === 'external') add('vision', media.vision?.baseUrl);
-    if (media.sttProvider === 'external') add('stt', media.stt?.baseUrl);
+    if (media.visionProvider === 'external') add('vision', 'vision', media.vision?.baseUrl);
+    if (media.sttProvider === 'external') add('stt', 'stt', media.stt?.baseUrl);
+    // No provider switch for these two — a reranker or judge is either the bundled sidecar or it is egress,
+    // and the LOCAL-endpoint predicate is what the clients themselves branch on.
+    if (media.rerank?.baseUrl && !isLocalModelEndpoint(media.rerank.baseUrl)) add('rerank', 'rerank', media.rerank.baseUrl);
+    if (media.nli?.baseUrl && !isLocalModelEndpoint(media.nli.baseUrl)) add('contradictionJudge', 'nli', media.nli.baseUrl);
+    // Biometric egress: face crops. External whenever configured at all.
+    add('faceModel', 'faceExternal', media.faceRecognition?.externalModel?.baseUrl);
   } catch { /* pre-setup */ }
 
   try {
     const emb = getEmbeddingConfig();
-    if (emb.provider === 'external') add('embedding', emb.baseUrl);
+    if (emb.provider === 'external') add('embedding', 'embedding', emb.baseUrl);
+  } catch { /* pre-setup */ }
+
+  try {
+    // The document stages resolve exactly as the extractor does, including the fall back to the vision
+    // endpoint when no document base URL is set — which is how page images reached an off-instance host
+    // that nothing on this list mentioned.
+    for (const [docSlot, provider, slot] of [
+      ['vlm', 'documentVlm', 'docVlm'],
+      ['repair', 'documentRepair', 'docRepair'],
+      ['verify', 'documentVerify', 'docVerify'],
+    ] as const) {
+      const e = resolveVlmEndpoint(docSlot);
+      if (e.external) add(provider, slot, e.baseUrl);
+    }
   } catch { /* pre-setup */ }
 
   try {
     // The assist model is external by definition (F11-b) — no provider switch to check.
-    add('documentAssist', getConfig().mediaEmbedding?.documentProcessing?.assistModel?.baseUrl);
+    add('documentAssist', 'assist', getConfig().mediaEmbedding?.documentProcessing?.assistModel?.baseUrl);
   } catch { /* pre-setup */ }
 
   return out;

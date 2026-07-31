@@ -2740,8 +2740,52 @@ see the egress table above. You can optionally point a **bigger, external model*
 > one, which is the DNS-rebinding case. A declared-private `external` endpoint is therefore more tightly
 > guarded than a `local` provider, which uses a plain `fetch`.
 >
-> The instance reports this in its startup security posture and at `GET /api/about/security`
-> (`egress.privateModelEndpoints`).
+> **Per endpoint, when one model is genuinely external.** The instance-wide flag is all-or-nothing, which
+> is the wrong shape for the common deployment: every model on your own infra except one that really does
+> live on the public internet. Turning the flag on to reach the internal ones also relaxes the guard on
+> that one external endpoint — the single place where a private-address resolution means something is
+> wrong rather than "this is my cluster". So each endpoint carries its own setting:
+>
+> ```json
+> {
+>   "allowPrivateModelEndpoints": true,
+>   "allowPrivateModelEndpointsBySlot": { "assist": false }
+> }
+> ```
+>
+> **Precedence is per-slot → instance-wide → closed**, and a per-slot value wins **in both directions**.
+> The `false` above is the point of the example: nine endpoints reach the cluster, and the assist model —
+> the one path that sends document content off the instance — stays strict. Slots you leave out inherit
+> the instance-wide flag; with neither set, private addresses are refused.
+>
+> | Slot | What it governs | Env var |
+> | --- | --- | --- |
+> | `vision` | Image captioning provider | `YTHRIL_ALLOW_PRIVATE_VISION` |
+> | `stt` | Speech-to-text provider | `YTHRIL_ALLOW_PRIVATE_STT` |
+> | `embedding` | Text embedding endpoint | `YTHRIL_ALLOW_PRIVATE_EMBEDDING` |
+> | `rerank` | Cross-encoder reranker | `YTHRIL_ALLOW_PRIVATE_RERANK` |
+> | `nli` | Contradiction judge | `YTHRIL_ALLOW_PRIVATE_NLI` |
+> | `docVlm` | Document page transcription | `YTHRIL_ALLOW_PRIVATE_DOC_VLM` |
+> | `docRepair` | Document repair pass (local model) | `YTHRIL_ALLOW_PRIVATE_DOC_REPAIR` |
+> | `docVerify` | Document verify pass | `YTHRIL_ALLOW_PRIVATE_DOC_VERIFY` |
+> | `assist` | External assist model (F11-b) | `YTHRIL_ALLOW_PRIVATE_ASSIST` |
+> | `faceExternal` | External face recogniser | `YTHRIL_ALLOW_PRIVATE_FACE_EXTERNAL` |
+>
+> The env vars accept `true` **or** `false` — unlike the instance-wide one, a `false` here is meaningful,
+> because it is how you pin one endpoint strict from the Deployment. Anything other than those two exact
+> strings is not a setting and defers to the instance-wide flag. Like the instance-wide flag, none of these
+> is settable through the admin API.
+>
+> No per-slot setting reaches the crown jewels: loopback, link-local / cloud metadata and the unspecified
+> address stay blocked for every slot, at both save time and resolution time.
+>
+> The instance reports this in its startup security posture and at `GET /api/about/security`:
+> `egress.privateModelEndpoints` (endpoints the permission is actually being used for),
+> `egress.unreachableModelEndpoints` (endpoints configured privately with **no** permission for their slot
+> — these cannot work, and fail silently at inference rather than at save), and
+> `egress.perSlotOverrides` (slots whose setting departs from the instance-wide flag, so the one endpoint
+> you deliberately kept strict is visible rather than implied). All three can appear at once, which is
+> exactly what a mixed estate looks like.
 >
 > **Reading that posture line when your endpoints are DNS names.** The check is synchronous and does
 > **not** resolve DNS — resolving at boot would make the posture block hang on a slow resolver. An

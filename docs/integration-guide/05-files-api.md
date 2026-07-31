@@ -590,7 +590,7 @@ see the egress table above. You can optionally point a **bigger, external model*
 
 | Field | Description |
 |---|---|
-| `baseUrl` | External **OpenAI-compatible** endpoint (`POST {baseUrl}/v1/chat/completions`). Validated against SSRF on save (must be a public http(s) URL — no private/loopback/metadata addresses) and reached only through the SSRF-guarded fetch. Env: `DOC_ASSIST_URL`. |
+| `baseUrl` | External **OpenAI-compatible** endpoint (`POST {baseUrl}/chat/completions`, with `/v1` inserted if the base does not already carry it — `…:8080` and `…:8080/v1` both work). Validated against SSRF on save (must be a public http(s) URL — no private/loopback/metadata addresses) and reached only through the SSRF-guarded fetch. Env: `DOC_ASSIST_URL`. |
 
 > **Self-hosting inference on a private address?** The `local` / `external` choice selects a **wire
 > protocol**, not a trust level: `local` speaks Ollama's (`/api/chat`), `external` speaks OpenAI's
@@ -821,7 +821,7 @@ The worker-tuning fields — `workerConcurrency`, `workerPollIntervalMs`, `worke
 | `levels.{images,audio,video,text}` | — | `auto` | Per-class instance ceiling; set a class to `off` to take it offline. **This is the media on/off control** (the `enabled` / `MEDIA_EMBEDDING_ENABLED` master switch was removed). |
 | `visionProvider` | `VISION_PROVIDER` | `local` | Wire protocol, not trust level: `local` (Ollama `/api/chat`) or `external` (OpenAI `/chat/completions`). A self-hosted OpenAI-compatible server needs `external` — see `allowPrivateModelEndpoints` for one on a private address. |
 | `sttProvider` | `STT_PROVIDER` | `local` | Wire protocol, not trust level: `local` (bundled Whisper) or `external` (OpenAI-compatible). Both speak `/v1/audio/transcriptions`. |
-| `vision.baseUrl` | `VISION_BASE_URL` | `http://ollama:11434` | Vision service endpoint, **whatever the provider** (short name resolves in both Docker Compose and the K8s `ythril` namespace). Legacy alias: `OLLAMA_URL`. |
+| `vision.baseUrl` | `VISION_BASE_URL` | `http://ollama:11434` | Vision service endpoint, **whatever the provider** (short name resolves in both Docker Compose and the K8s `ythril` namespace). On an OpenAI-compatible provider, `…:8080` and `…:8080/v1` both work. Legacy alias: `OLLAMA_URL`. |
 | `vision.model` | `VISION_MODEL` | `moondream` | Vision model name |
 | `vision.apiKey` | `VISION_API_KEY` | — | API key for external vision provider (stored in `secrets.json`, never in `config.json`) |
 | `stt.baseUrl` | `STT_BASE_URL` | `http://whisper:8000` | STT service endpoint, **whatever the backend**. `…:8000` and `…:8000/v1` both work — the transcription URL is normalised the same way the vision and assist endpoints are, so one base URL serves all three. Legacy alias: `WHISPER_URL`. |
@@ -845,7 +845,7 @@ The worker-tuning fields — `workerConcurrency`, `workerPollIntervalMs`, `worke
 > `lockedByInfra` tracks whichever spelling you used, so the Settings UI renders the field read-only
 > either way.
 | `embedding.provider` | `EMBEDDING_PROVIDER` | `local` | Text-embedding endpoint trust: `local` (bundled ONNX or an internal HTTP endpoint, plain fetch) or `external` (public endpoint, reached through the SSRF-guarded fetch). Config lives at top-level `config.embedding` but is edited on **Settings → Media Processing**. |
-| `embedding.baseUrl` | `EMBEDDING_URL` | — | Embedding HTTP endpoint (OpenAI-compatible `/v1/embeddings`). Blank = the bundled in-process ONNX model. |
+| `embedding.baseUrl` | `EMBEDDING_URL` | — | Embedding HTTP endpoint (OpenAI-compatible `/v1/embeddings`). `…:8080` and `…:8080/v1` both work. Blank = the bundled in-process ONNX model. |
 | `embedding.model` | `EMBEDDING_MODEL` | `nomic-ai/nomic-embed-text-v1.5` | Embedding model. **Changing the model / `dimensions` / `similarity` / `prefixScheme` re-indexes every vector** (the UI requires an explicit confirmation; `POST /api/brain/spaces/:id/reindex` runs it). |
 | `embedding.prefixScheme` | `EMBEDDING_PREFIX_SCHEME` | `auto` | Task-prefix convention the model expects: `nomic` (`search_document:` / `search_query:` prefixes, trailing space included), `qwen` (instruction on the query only, passages bare), `none` (symmetric models — OpenAI `text-embedding-3-*`, bge-m3), or `auto`. **`auto` reproduces the behaviour this instance had before the field existed: `nomic` for the bundled model, `none` over HTTP — so upgrading changes no vector.** If you run nomic or Qwen behind an endpoint, set this explicitly and reindex — asymmetric models retrieve measurably worse without the prefix, and nothing errors when it is missing. |
 | `embedding.dimensions` | `EMBEDDING_DIMENSIONS` | `768` | Vector width the model emits. Must match the model — a mismatch is not detected at write time, it surfaces as recall that returns nothing. Listed with `model` above as a re-index trigger. |

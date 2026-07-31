@@ -2,6 +2,7 @@ import path from 'node:path';
 import { getDataRoot, getEmbeddingConfig } from '../config/loader.js';
 import { ssrfSafeFetch } from '../util/ssrf.js';
 import { allowPrivateForSlot } from '../config/model-egress-policy.js';
+import { embeddingsUrlFor } from '../files/converters/vlm-endpoint.js';
 import { log } from '../util/log.js';
 import { embeddingDurationSeconds, embeddingQueueDepth } from '../metrics/registry.js';
 
@@ -93,7 +94,11 @@ async function embedViaHttp(
   input: string,
   cfg: ReturnType<typeof getEmbeddingConfig>,
 ): Promise<EmbeddingResult> {
-  const url = `${cfg.baseUrl!.replace(/\/$/, '')}/v1/embeddings`;
+  // Normalised rather than concatenated: appending `/v1/embeddings` meant this slot required a base
+  // WITHOUT `/v1` while vision required one WITH it, for the same server. The probe normalises, so the
+  // Models card went green off `/v1/models` while every embed 404'd on `/v1/v1/embeddings` — and a failing
+  // embedder does not announce itself, it shows up as recall that returns nothing.
+  const url = embeddingsUrlFor(cfg.baseUrl!);
   // External endpoints go through the SSRF-guarded fetch (DNS-resolve + IP-pin + redirect re-validation);
   // a local/trusted endpoint (e.g. on-cluster Ollama, private address) uses a plain fetch, which the guard
   // would rightly reject. Mirrors the vision/STT provider split (SSRF follow-up part 2).

@@ -214,7 +214,10 @@ function repairContent(draft: string, evidence: string, issues?: string[]): stri
 export async function repairMarkdownExternal(
   opts: { baseUrl: string; model: string; apiKey?: string; draft: string; evidence: string; issues?: string[]; timeoutMs?: number },
 ): Promise<VlmTranscription> {
-  const url = `${opts.baseUrl.replace(/\/$/, '')}/v1/chat/completions`;
+  // The same builder the local path uses. This function is the one `normalizeOpenAiBase` was written for —
+  // its comment names it — and it went on appending `/v1/chat/completions` itself, so the assist slot
+  // required a base WITHOUT `/v1` while vision required one WITH it. Both accept either now.
+  const url = chatUrlFor('openai', opts.baseUrl);
   let res: Response;
   try {
     res = await ssrfSafeFetch(url, {

@@ -97,4 +97,58 @@ describe('search-index listing is never name-filtered', () => {
     assert.match(src, /byCollection/);
     assert.match(src, /all\.find\(i => i\.name === e\.indexName\)/);
   });
+
+  it('a backend that reports NO lifecycle fields is probed, not failed', () => {
+    // The 2.2.1 report. On a self-hosted replica set the index document is found by name and carries
+    // neither `status` nor `queryable` — their log said `status=undefined queryable=undefined`, which
+    // is only reachable AFTER the name match. The exit condition was `status === 'READY' || queryable
+    // === true`, so that backend could never satisfy it: 600 s per index, then every space on a
+    // five-instance fleet marked failed while recall returned genuine scores and /ready passed.
+    //
+    // Absence of a status field is not evidence of an unready index. It is the same mistake the
+    // model-enumeration check used to make one layer up, where "not listed" was read as "not present".
+    const src = readFileSync(`${ROOT}/spaces/vector-index.ts`, 'utf8');
+    assert.match(src, /current\.status === undefined && current\.queryable === undefined/,
+      'the poll must recognise a backend that reports neither field');
+    assert.match(src, /await indexServes\(/,
+      'and answer the question directly instead of waiting for a field that will never arrive');
+  });
+
+  it('the probe asks the question recall asks', () => {
+    // Not a metadata read dressed up as a probe: it runs `$vectorSearch` against the index by name. That
+    // is what recall depends on, and it is Verify's philosophy applied one layer down — send one real
+    // request rather than infer from a status field.
+    const src = readFileSync(`${ROOT}/spaces/vector-index.ts`, 'utf8');
+    const fn = src.slice(src.indexOf('async function indexServes'), src.indexOf('async function indexServes') + 900);
+    assert.match(fn, /\$vectorSearch/, 'the probe must be a real vector query');
+    assert.match(fn, /index: indexName/, 'against the index being polled, by name');
+    assert.match(fn, /limit: 1/, 'and cheap — this is a liveness question, not a search');
+  });
+
+  it('the probe runs ONLY when both fields are absent', () => {
+    // A backend that does report them must pay nothing. The reporter's platform instance has 65 indexes;
+    // a probe each at boot is not free, and the cheap path is still correct where it works.
+    const src = readFileSync(`${ROOT}/spaces/vector-index.ts`, 'utf8');
+    const readyExit = src.indexOf("current.status === 'READY' || current.queryable === true");
+    const probeGuard = src.indexOf('current.status === undefined && current.queryable === undefined');
+    assert.ok(readyExit > 0 && probeGuard > readyExit,
+      'the fast path must be tried first, and the probe reached only when neither field is present');
+  });
+
+  it('the boot summary cannot claim success while a space failed', () => {
+    // `Vector index readiness confirmed for all spaces.` printed unconditionally — on their deployment,
+    // immediately after two lines saying the opposite. A log that contradicts itself two lines apart
+    // does not merely fail to inform; it teaches the operator that this log is not worth reading.
+    // Comments stripped first: the prose ABOVE the fix quotes the old wording, so a naive search
+    // finds the explanation rather than the code and reports the fix as missing.
+    const src = readFileSync(`${ROOT}/spaces/lifecycle.ts`, 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    const at = src.indexOf('readiness confirmed for all');
+    assert.ok(at > 0, 'the summary line should still exist for the all-good case');
+    const before = src.slice(Math.max(0, at - 400), at);
+    assert.match(before, /failed\.length === 0/,
+      'the success wording must be conditional on nothing having failed');
+    assert.match(src, /did not reach ready for \$\{failed\.length\}/,
+      'and the failure case must name how many, and which');
+  });
 });

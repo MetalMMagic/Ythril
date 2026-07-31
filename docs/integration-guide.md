@@ -6210,6 +6210,12 @@ Base path: `/api/admin/audit-log` — **requires admin token** on all endpoints.
 
 Ythril maintains an append-only, immutable audit log of every authenticated API operation. The log captures who performed what action, when, on which space, and the resulting HTTP status — providing a full access trail for compliance and security review.
 
+**Second-factor changes are in it.** `mfa.enable` records enrolment *and* a rotation of the secret;
+`mfa.disable` records the second factor being removed from every admin mutation. Checking a code
+(`POST /api/mfa/verify`) changes nothing and is deliberately not logged — it is also what a health check
+calls repeatedly. Both mutations were unaudited before 2.2.1; if you are reconstructing a history that
+crosses that boundary, their absence from earlier entries is not evidence they did not happen.
+
 ### What changed (`changes`)
 
 Some operations additionally record the field values they altered:

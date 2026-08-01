@@ -399,6 +399,20 @@ export async function dropSpaceData(spaceId: string): Promise<string[]> {
     }
   }
 
+  // 2b. Forget its usage rows.
+  //
+  // The prefix drop above cannot reach them: `space_activity` is instance-wide, keyed `<space>:<hour>`.
+  // Left behind, they outlive the space for up to the retention window — and a space recreated with the
+  // same id would inherit usage it never served.
+  try {
+    const { purgeSpaceActivity } = await import('../metrics/space-activity-store.js');
+    const purged = await purgeSpaceActivity(spaceId);
+    if (purged > 0) log.debug(`Purged ${purged} activity bucket(s) for space '${spaceId}'`);
+  } catch (err) {
+    const msg = `Could not purge activity for '${spaceId}': ${err}`;
+    log.warn(msg);
+    errors.push(msg);
+  }
   // 3. Delete the space files directory
   const filesDir = path.resolve(getDataRoot(), 'files', spaceId);
   try {

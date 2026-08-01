@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A space recreated with the same id inherited usage it never served, and a renamed space lost its history.**
+  `dropSpaceData` removes every collection whose name starts with `<spaceId>_`; `space_activity` is
+  **instance-wide**, keyed `<space>:<hour>`, so the prefix drop could not reach it. Found by running the
+  Data-Integrity lens over code written the same day — the collection is new, and every existing cascade was
+  written before it existed.
+  - **On delete**, the rows outlived the space for up to the 90-day retention, and a space recreated under the
+    same id picked them up: a brand-new empty space whose Usage panel claimed hundreds of recalls. Worse than
+    blank, because it is confidently wrong. `purgeSpaceActivity` now runs inside `dropSpaceData`.
+  - **On rename**, the collections moved and the activity rows did not, so the renamed space started blank
+    while orphans lingered under an id that no longer existed. A rename preserves the space and its data, so
+    its history follows: the buckets are re-keyed in one `bulkWrite` (the `_id` embeds the space id, so they
+    cannot be updated in place). Non-fatal — a rename that otherwise succeeded must not fail over its usage log.
+  - `space-activity-lifecycle-db.test.js` pins both against a real MongoDB, including that **a recreated id sees
+    nothing** and that a renamed space reads its own history back. It also asserts the two lifecycle paths call
+    them, because the operations working proves nothing if nothing invokes them — mutation-verified by stubbing
+    the purge out.
+
 - **A raised step budget could put a job in a re-queue loop that never finishes.** `stalledJobTimeoutMs` recovers
   a job that has reported no progress for that long — and progress is reported *between* steps, never inside
   one. So a budget allowing a single call to run longer than the stall timeout meant the job was re-queued

@@ -147,6 +147,45 @@ export async function stopSpaceActivityFlush(): Promise<void> {
   await flushSpaceActivity();
 }
 
+/**
+ * Forget a space's usage. Called when the space is deleted or wiped.
+ *
+ * `space_activity` is instance-wide, so the prefix drop in `dropSpaceData` — which removes every
+ * `<spaceId>_*` collection — cannot reach it. Without this the rows outlive the space for up to the
+ * retention window, and a space recreated with the same id inherits usage it never served: a fresh space
+ * whose Usage panel claims hundreds of recalls, which is worse than showing nothing.
+ */
+export async function purgeSpaceActivity(spaceId: string): Promise<number> {
+  const res = await col<ActivityDoc>(ACTIVITY_COLLECTION).deleteMany(
+    asFilter<ActivityDoc>({ space: spaceId }),
+  );
+  return res.deletedCount ?? 0;
+}
+
+/**
+ * Carry a space's usage across a rename.
+ *
+ * A rename preserves the space and its data, so its history should follow — losing it would make every
+ * rename look like a space that had never been used. The bucket `_id` embeds the space id, so the rows
+ * cannot be updated in place: each is re-inserted under the new key and the old one removed, in one
+ * `bulkWrite`. Bounded by the retention window (at most 24 x retention days of rows for one space).
+ *
+ * `ordered: false` so one collision — a target row that somehow already exists — does not abandon the rest.
+ */
+export async function renameSpaceActivity(fromId: string, toId: string): Promise<number> {
+  if (fromId === toId) return 0;
+  const c = col<ActivityDoc>(ACTIVITY_COLLECTION);
+  const rows = await c.find(asFilter<ActivityDoc>({ space: fromId })).toArray() as ActivityDoc[];
+  if (rows.length === 0) return 0;
+
+  const ops = rows.flatMap(row => [
+    { insertOne: { document: { ...row, _id: activityDocId(toId, row.bucket), space: toId } } },
+    { deleteOne: { filter: { _id: row._id } } },
+  ]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await c.bulkWrite(ops as any, { ordered: false });
+  return rows.length;
+}
 export interface SpaceActivitySummary {
   space: string;
   calls: number;

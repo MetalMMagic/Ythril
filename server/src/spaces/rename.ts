@@ -140,7 +140,18 @@ export async function moveSpaceData(oldId: string, newId: string): Promise<strin
     await fs.rename(oldChunks, newChunks);
   } catch { /* ignore — chunks dir may not exist / already moved */ }
 
-  return errors;
+  return errors;
+  // Usage history follows the space. `space_activity` is instance-wide and its bucket `_id` embeds the
+  // space id, so the collection renames above cannot carry it: without this a renamed space starts with a
+  // blank Usage panel while its old rows linger under an id that no longer exists.
+  try {
+    const { renameSpaceActivity } = await import('../metrics/space-activity-store.js');
+    const moved = await renameSpaceActivity(oldId, newId);
+    if (moved > 0) log.debug(`Moved ${moved} activity bucket(s) from '${oldId}' to '${newId}'`);
+  } catch (err) {
+    // Non-fatal: a rename that otherwise succeeded must not fail over its usage history.
+    log.warn(`Could not move activity buckets for the rename ${oldId} -> ${newId}: ${err}`);
+  }
 }
 
 /** Apply the logical config changes of a rename: point the space entry at `newId`

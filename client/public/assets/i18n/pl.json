@@ -831,6 +831,10 @@
   "spaces.create.strictLinkage": "Ścisłe powiązanie",
   "spaces.create.submitButton": "Tworzyć",
   "spaces.popup.tab.settings": "Ustawienia",
+
+  "spaces.popup.governed": "Zarządzany",
+
+  "spaces.popup.governedHint": "Ta przestrzeń należy do {{networks}}. Zapisanie zmiany celu, wskazówek lub schematu otwiera głosowanie w każdej sieci, zamiast zastosować ją od razu — zmiana zostaje zgłoszona, nie zastosowana.",
   "spaces.popup.tab.schema": "Schemat",
   "spaces.popup.tab.dangerZone": "Strefa zagrożenia",
   "spaces.popup.footer.saveChanges": "Zapisz zmiany",

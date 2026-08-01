@@ -473,6 +473,13 @@ Click **Create New Space**. Fill in:
 
 Click the gear icon on any space row to open its settings panel. Changes save and close automatically. An accidental click **outside** the panel won't close it (so you can't lose half-typed edits that way) — close it deliberately with **✕**, **Cancel**, or **Escape**; if you have unsaved changes you'll be asked to confirm.
 
+> **A `Governed` badge in the panel header means Save opens a vote.** The space belongs to one or more
+> networks (hover the badge to see which), so a change to its purpose, usage notes or schema is **submitted
+> for a vote** in each network rather than applied immediately — you'll see *"saved as a proposal"* and the
+> change takes effect when the vote passes. Local, operational settings (storage quota, auto-delete window,
+> extraction and media-analysis overrides, duplicate rules) are never voted and apply at once. No badge
+> means the space is in no network and everything applies immediately.
+
 **Settings tab:** Update the display name, purpose, usage notes for AI assistants, storage quota, auto-delete window, document-extraction mode, and per-space **media-analysis** levels — grouped into **Identity**, **Purpose**, **Limits**, **Document extraction**, and **Media analysis** cards. The Media analysis card lets you override, per space, how **images**, **audio**, **video**, and **text** are analysed on upload (each defaulting to **Inherit instance default**). As with extraction, each picker only offers the levels **the instance ceiling allows** (set per class under **Settings → Media Processing**) — a space can never analyse more than the instance permits, so higher levels are hidden and a note names the ceiling. When a storage quota, auto-delete window, or extraction override is left blank, the field's own placeholder (**Unlimited** / **No expiry**) or the **Use instance default** / **Inherit** option shows what the default will be.
 
 - **Auto-delete records after (days)** — an optional space-wide expiry. Every record (memory, entity, edge, chrono entry) created or updated in the space is deleted automatically this many days later. Leave it blank or `0` to keep records forever. Individual writes can override the default (or opt out) with their own per-record TTL via the API. Deletion propagates over sync, so an expired record won't come back from a connected peer.

@@ -27,13 +27,14 @@ import { SpaceSchemaTabComponent } from './space-schema-tab.component';
 import { ModalDirective } from '../../shared/modal.directive';
 import { SpaceCreateDialogComponent } from './space-create-dialog.component';
 import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
+import { StatusPillComponent } from '../../shared/status-pill.component';
 
 @Component({
   selector: 'app-spaces',
   standalone: true,
   imports: [CommonModule, FormsModule, TranslocoPipe, DragDropModule, PhIconComponent, SummaryStripComponent,
     SpaceSettingsTabComponent, SpaceDuplicatesTabComponent, SpaceDangerTabComponent, SpaceSchemaTabComponent,
-    SpaceCreateDialogComponent, ModalDirective, HscrollTopDirective],
+    SpaceCreateDialogComponent, ModalDirective, HscrollTopDirective, StatusPillComponent],
   // Provided here (not root) so each mount gets its own settings state, with a lifetime tied to
   // this component rather than the app.
   providers: [SpacesStore, SpaceSettingsState],
@@ -54,6 +55,20 @@ import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
               <div style="font-weight:600;font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ state.settingsSpace()!.label }}</div>
               <div style="font-size:12px;color:var(--text-muted);font-family:var(--font-mono);">{{ state.settingsSpace()!.id }}</div>
             </div>
+            <!-- Governed BEFORE you type, not after you press Save.
+                 Saving a networked space answers 202 vote_pending: the change is submitted for a vote
+                 rather than applied. That used to be discovered by pressing the button — the notice
+                 explains it afterwards, which is the wrong end of the interaction to learn it. The
+                 membership is already on the space record (its networks array), so this costs no request. -->
+            @if (governedBy(); as nets) {
+              <!-- The link icon, because that is what the sidebar already uses for Networks; the pill has
+                   to read as the same concept, not a new one. (No users/gavel icon is registered, and an
+                   unregistered name renders BLANK with no error.) -->
+              <app-status-pill variant="pending" icon="link"
+                [attr.title]="'spaces.popup.governedHint' | transloco: { networks: nets }">
+                {{ 'spaces.popup.governed' | transloco }}
+              </app-status-pill>
+            }
             <button class="icon-btn" [attr.aria-label]="'common.close' | transloco" (click)="attemptClose()"><ph-icon name="x" [size]="14"/></button>
           </div>
           <div class="sp-tabs">
@@ -219,6 +234,21 @@ export class SpacesComponent implements OnInit {
       { label: this.transloco.translate('spaces.summary.storage'), value: `${totalUsed.toFixed(totalUsed < 10 ? 2 : 1)} GiB` },
       { label: this.transloco.translate('spaces.summary.indexing'), value: String(attention), variant: attention ? 'warn' : 'ok' },
     ];
+  });
+
+  /**
+   * The networks governing the open space, as a readable list — or null when it is governed by none.
+   *
+   * Read from the space record the list endpoint already returns (`networks`), so the badge costs no
+   * request and cannot disagree with the chip the Brain shows for the same space.
+   *
+   * Deliberately not keyed on `networkStatus`: that reports whether something is *happening* (a vote, a
+   * sync, a degraded peer), and a quiet network still means Save opens a round. The question the badge
+   * answers is "is this space governed", which is membership.
+   */
+  governedBy = computed(() => {
+    const nets = this.state.settingsSpace()?.networks ?? [];
+    return nets.length > 0 ? nets.map(n => n.label).join(', ') : null;
   });
 
   spaceSearch = signal('');

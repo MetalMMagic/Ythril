@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **A space's settings dialog now says it is governed before you type in it.** Saving a change to a
+  networked space submits it for a vote rather than applying it — 2.2.2 made that *legible* (it used to
+  throw silently), but only after the fact: you pressed Save and read a notice. The dialog header now
+  carries a **Governed** badge naming the networks, with the consequence on hover, so the rule is known
+  before the editing starts rather than discovered by finishing it.
+  - Keyed on **membership**, not on `networkStatus`. A quiet network still means Save opens a round; keying
+    it on activity would hide the badge exactly when nothing is happening, which is most of the time.
+  - Read from the space record the list endpoint already returns, so it costs no request and cannot
+    disagree with the network chip the Brain shows for the same space.
+  - Completes the finding behind #587: the crash was the symptom, and *"a governed space says nothing until
+    you press Save"* was the cause.
+
 ### Fixed
 
 - **A space's directive had two maximum lengths, depending on which transport wrote it.** REST accepted 4000

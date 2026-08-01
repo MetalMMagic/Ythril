@@ -831,6 +831,10 @@
   "spaces.create.strictLinkage": "Strict linkage",
   "spaces.create.submitButton": "Create",
   "spaces.popup.tab.settings": "Settings",
+
+  "spaces.popup.governed": "Governed",
+
+  "spaces.popup.governedHint": "This space belongs to {{networks}}. Saving a change to its purpose, usage notes or schema opens a vote in each network instead of applying at once — the change is submitted, not applied.",
   "spaces.popup.tab.schema": "Schema",
   "spaces.popup.tab.dangerZone": "Danger Zone",
   "spaces.popup.footer.saveChanges": "Save changes",

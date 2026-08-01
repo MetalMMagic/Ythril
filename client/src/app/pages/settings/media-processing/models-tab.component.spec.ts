@@ -5,6 +5,7 @@
  * selectable/removable. These tests exercise the component logic directly (no template render), so the
  * services are light mocks.
  */
+import { readFileSync } from 'node:fs';
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, vi } from 'vitest';
 import { of } from 'rxjs';
@@ -259,5 +260,44 @@ describe('ModelsTabComponent — per-card Save button', () => {
     (saveIn(fixture, 'vision') as HTMLButtonElement).click();
 
     expect(spy).toHaveBeenCalledWith('vision');
+  });
+});
+
+/**
+ * R.6 — a result arriving must not move the buttons.
+ *
+ * A test result is rendered next to the button that produced it, which is right for what a screen reader
+ * hears and wrong for layout: the pill and detail line sit BETWEEN Test and Verify in the DOM, so pressing
+ * Test pushed Verify out from under the pointer that had just been over it, and the next click landed on
+ * whatever had slid into that spot. The fix lays the actions out first with `order`, leaving DOM order alone.
+ *
+ * jsdom has no layout engine, so this cannot be measured here. It WAS measured, in Edge against the built
+ * bundle, on the vision card with a failing Test:
+ *
+ *     with the order rules:     Test left=295  Verify left=419   (result wrapped to a second line)
+ *     order rules removed:      Test left=295  Verify left=295, top +33px  (Verify fell to line 2)
+ *
+ * What this test can do is fail if the rules are deleted or reordered — the measurement lives in the PR,
+ * the rule lives here.
+ */
+describe('ModelsTabComponent — the footer row does not reflow under the cursor', () => {
+  // Read from the project root: under vitest, `import.meta.url` is not a file: URL, so `new URL(...)` throws
+  // before a single assertion runs. Vitest's cwd is `client/`.
+  const source = readFileSync('src/app/pages/settings/media-processing/models-tab.component.ts', 'utf8');
+
+  it('lays out the action buttons before any result', () => {
+    expect(source).toMatch(/\.testrow > button\s*\{[^}]*order:\s*0/);
+    expect(source).toMatch(/\.testrow > app-status-pill,\s*\.testrow > \.hint\s*\{[^}]*order:\s*1/);
+  });
+
+  it('keeps Save at the far end, after the results', () => {
+    // Save is the card's own action and belongs at the end of the row, not beside Test as a peer.
+    expect(source).toMatch(/\.testrow \.card-save\s*\{[^}]*order:\s*2[^}]*margin-left:\s*auto/);
+  });
+
+  it('still wraps rather than overflowing the card', () => {
+    // B.3: nowrap is what pushed Verify outside the card entirely. The order rules must not reintroduce it.
+    expect(source).toMatch(/\.testrow\s*\{[^}]*flex-wrap:\s*wrap/);
+    expect(source).not.toMatch(/\.testrow\s*\{[^}]*flex-wrap:\s*nowrap/);
   });
 });

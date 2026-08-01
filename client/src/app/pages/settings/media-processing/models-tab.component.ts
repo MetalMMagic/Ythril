@@ -83,9 +83,18 @@ import { TestTarget } from './media-processing.types';
     .testrow { display: flex; gap: 10px; row-gap: 8px; align-items: center; flex-wrap: wrap; min-height: 34px; }
     .testrow > :not(.hint) { flex: none; }
     .testrow .hint { margin: 0; min-width: 0; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* THE BUTTONS DO NOT MOVE WHEN A RESULT ARRIVES.
+       A test result is rendered where it belongs in the DOM — next to the button that produced it, which is
+       what a screen reader should hear — and that put a pill and a detail line BETWEEN Test and Verify. So
+       clicking Test pushed Verify sideways, out from under the pointer that had just been over it: the next
+       click landed on whatever had slid into that spot. Visual order is a layout concern, so it is fixed
+       here rather than by reordering the markup: actions are laid out first, results after them. Wrapping the
+       results in a div instead would also change what assistive tech reads, which is not the bug. */
+    .testrow > button { order: 0; }
+    .testrow > app-status-pill, .testrow > .hint { order: 1; }
     /* Save belongs to the card it sits in and appears only when that card has an unsaved change, so it
        is pushed to the far end of the row rather than sitting beside Test as a peer action. */
-    .testrow .card-save { margin-left: auto; }
+    .testrow .card-save { order: 2; margin-left: auto; }
   `],
   template: `
     <div class="cards">

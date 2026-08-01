@@ -570,6 +570,7 @@
   "files.download": "Herunterladen",
   "files.downloadFailed": "Download fehlgeschlagen.",
   "files.renameEntryAriaLabel": "Eintrag umbenennen",
+  "files.reembedAriaLabel": "Datei neu einbetten",
   "files.deleteEntryAriaLabel": "Eintrag löschen",
   "files.closePreviewAriaLabel": "Vorschau schließen",
   "files.emptyFolder.title": "Leerer Ordner",

@@ -694,3 +694,128 @@ describe('FileManagerComponent — live refresh on the shell tick', () => {
     });
   });
 });
+
+/**
+ * R.7 — the row's own actions.
+ *
+ * Re-embedding lived only in the detail pane, so repairing a file whose embedding had failed meant opening
+ * it first — while the row was already showing the failure. These pin the two decisions that make the row
+ * button safe to offer: WHICH rows get it (a pending or processing job answers a retry with a 409, and an
+ * action whose only outcome is a refusal is worse than an absent one), and that a re-queue in flight greys
+ * out THAT row rather than every row.
+ */
+describe('FileManagerComponent — row actions', () => {
+  const FAILED = { ...fileEntry('broken.pdf'), embeddingStatus: 'failed' } as FileEntry;
+  const DONE = { ...fileEntry('good.pdf'), embeddingStatus: 'complete' } as FileEntry;
+  const RUNNING = { ...fileEntry('busy.pdf'), embeddingStatus: 'processing' } as FileEntry;
+  const QUEUED = { ...fileEntry('waiting.pdf'), embeddingStatus: 'pending' } as FileEntry;
+  const PLAIN = fileEntry('notes.txt');
+  const DIR = fileEntry('folder', true);
+
+  function create(entries: FileEntry[]) {
+    const retryEmbedding = vi.fn(() => of({ ok: true }));
+    const api = { ...makeApi(entries), retryEmbedding } as any;
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [FileManagerComponent, getTranslocoModule()],
+      providers: [
+        { provide: FilesApi, useValue: api },
+        { provide: SpacesApi, useValue: api },
+        { provide: AuthService, useValue: { token: () => '' } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => '' } } } },
+        { provide: BrainStore, useValue: new BrainStore() },
+      ],
+    });
+    const fixture = TestBed.createComponent(FileManagerComponent);
+    fixture.componentRef.setInput('embeddedSpaceId', 'work');
+    fixture.detectChanges();
+    return { fixture, c: fixture.componentInstance, retryEmbedding };
+  }
+
+  it('offers re-embed for a file whose job has settled', () => {
+    const { c } = create([FAILED, DONE]);
+    expect(c.canRequeue(FAILED)).toBe(true);
+    expect(c.canRequeue(DONE)).toBe(true);
+  });
+
+  it('does NOT offer it while a job is pending or processing — the server answers those with a 409', () => {
+    const { c } = create([RUNNING, QUEUED]);
+    expect(c.canRequeue(RUNNING)).toBe(false);
+    expect(c.canRequeue(QUEUED)).toBe(false);
+  });
+
+  it('does not offer it for a directory, or for a file with no job at all', () => {
+    const { c } = create([DIR, PLAIN]);
+    expect(c.canRequeue(DIR)).toBe(false);
+    expect(c.canRequeue(PLAIN)).toBe(false);
+  });
+
+  it('re-queues the row it was clicked on, by path', () => {
+    const { c, retryEmbedding } = create([FAILED, DONE]);
+    c.requeueEmbedding(FAILED);
+    expect(retryEmbedding).toHaveBeenCalledWith('work', 'broken.pdf');
+  });
+
+  it('marks only THAT path as in flight, so one retry does not grey out the list', () => {
+    // A shared boolean was the obvious version of this, and it reads as "the whole list is busy".
+    const pending = new Subject<unknown>();
+    const retryEmbedding = vi.fn(() => pending as unknown as Observable<unknown>);
+    const api = { ...makeApi([FAILED, DONE]), retryEmbedding } as any;
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [FileManagerComponent, getTranslocoModule()],
+      providers: [
+        { provide: FilesApi, useValue: api },
+        { provide: SpacesApi, useValue: api },
+        { provide: AuthService, useValue: { token: () => '' } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => '' } } } },
+        { provide: BrainStore, useValue: new BrainStore() },
+      ],
+    });
+    const fixture = TestBed.createComponent(FileManagerComponent);
+    fixture.componentRef.setInput('embeddedSpaceId', 'work');
+    fixture.detectChanges();
+    const c = fixture.componentInstance;
+
+    c.requeueEmbedding(FAILED);
+    expect(c.requeueingPath()).toBe('broken.pdf');
+    expect(c.requeueingPath()).not.toBe(c.relPath(DONE));
+
+    pending.next({ ok: true });
+    pending.complete();
+    expect(c.requeueingPath()).toBe('');
+  });
+
+  it('clears the in-flight path when the request fails, so the button comes back', () => {
+    const failing = { ...makeApi([FAILED]), retryEmbedding: vi.fn(() => new Observable(s => s.error({ status: 409 }))) } as any;
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [FileManagerComponent, getTranslocoModule()],
+      providers: [
+        { provide: FilesApi, useValue: failing },
+        { provide: SpacesApi, useValue: failing },
+        { provide: AuthService, useValue: { token: () => '' } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => '' } } } },
+        { provide: BrainStore, useValue: new BrainStore() },
+      ],
+    });
+    const fixture = TestBed.createComponent(FileManagerComponent);
+    fixture.componentRef.setInput('embeddedSpaceId', 'work');
+    fixture.detectChanges();
+    const c = fixture.componentInstance;
+    c.requeueEmbedding(FAILED);
+    expect(c.requeueingPath()).toBe('');
+  });
+
+  it('renders rename as an icon with its label kept for hover and assistive tech', () => {
+    // The word "Rename" was the one text button among icons, so it set the actions column width on every
+    // row. The label has to survive the change or the button becomes unlabelled.
+    const { fixture } = create([FAILED]);
+    const html = fixture.nativeElement.innerHTML as string;
+    expect(html).toContain('files.renameEntryAriaLabel');
+    const buttons = Array.from(fixture.nativeElement.querySelectorAll('tbody button')) as HTMLElement[];
+    const renameBtn = buttons.find(b => (b.getAttribute('aria-label') ?? '').includes('renameEntryAriaLabel'));
+    expect(renameBtn).toBeTruthy();
+    expect(renameBtn!.querySelector('ph-icon, svg')).toBeTruthy();
+  });
+});

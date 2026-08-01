@@ -49,6 +49,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Head-room rather than an exact match, because a threshold equal to the step budget makes "the step gave up"
     and "the detector fired" indistinguishable, at the same instant, on every occurrence. Mutation-verified.
 
+### Development
+
+- **The database twin of the #604 join defect is now checked, and the codebase is clean of it.** #604 was a
+  reference taken into `config.networks`, a bcrypt hash awaited, and the push landing on an object the config
+  reload had already replaced — a join answering success with the peer never recorded. The same shape exists for
+  MongoDB: read a document, await something, write it back from what was read, and a concurrent writer's change
+  disappears inside the window with no error.
+  - **Zero sites.** Every write in the data layer either uses an atomic operator (`$set` of fresh values,
+    `$inc`, `$max`), replaces a document built from scratch, or re-reads inside `findOneAndUpdate` /
+    `mutateConfig`. So this is a gate over code that already passes — a clean sweep is a fact about today, and a
+    gate is a fact about tomorrow.
+  - `no-read-modify-write.test.js` is scope-aware by brace depth, so a write in a sibling block is not
+    attributed to an earlier read, and it blanks comments **in place** rather than stripping them — an earlier
+    scanner in this repo reported line numbers that pointed at the wrong code and made two innocent sites look
+    guilty.
+  - It carries five self-tests, because a check that has never failed is indistinguishable from one that cannot:
+    it must detect a planted defect, and must NOT flag an immediate write, a write that ignores what was read,
+    a sibling-block write, or the shape appearing inside a comment (this repo's comments describe these defects
+    at length — a naive scanner finds itself). Verified additionally by planting a real defect in `server/src`
+    and watching the gate fail.
+
 ## [2.2.4] — 2026-08-01
 
 ### Added

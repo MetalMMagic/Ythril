@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **You can now tell which spaces are earning their keep, not just which are busy.** `GET /api/brain/spaces/:id/activity`
+  answers "is anyone getting anything out of this space" — asked for by the owner, whose stated intent was to
+  tell spaces apart by usefulness rather than to count calls.
+  - **Demand and payoff are recorded together, because either alone misleads.** A space queried 380 times that
+    answered 41 is not popular; it is a space people keep failing to get an answer out of, and in a call count
+    the two are identical. So each hour carries `recall`, `answered`, mean best-hit score, writes, file traffic,
+    mean/max duration, calls over a second, and last-used.
+  - **`meanTopScore` averages over answered recalls only.** Accumulating a score from a call that found nothing
+    produced means above 1.0 — outside the range a similarity score can take. Caught by a test whose fixture
+    passed a score on every call, which is exactly what a real caller with a score to hand does.
+  - **No percentiles**, deliberately: a mean stored per hour cannot be recombined into a p95, so a p95 here
+    would be either a fabrication or a reason to keep every sample. `sumMs`, `maxMs` and a count over one
+    second all survive being summed across buckets, which is what an arbitrary window needs.
+  - **Cost, measured before it was built:** the counter path is a `Map` lookup plus a few integer operations —
+    **18.6 ns** per request, 0.000046% of a 40 ms recall. Counters accumulate in memory and are written once a
+    minute as one `bulkWrite` of `$inc`s, so **the write cost is independent of traffic**: one upsert per space
+    that was actually used, whether it served ten calls or a hundred thousand. The obvious alternative —
+    enabling `audit.logReads` — writes one document per read.
+  - It rides on the audit middleware, which already computes the operation, the space and the duration for
+    every request, so there is no second path-matcher and a count cannot disagree with the audit trail about
+    which space a call touched. Operator work is excluded: `space.create` and `network.vote` carry a space id,
+    and counting them would credit a brand-new empty space with activity it never had.
+  - Hourly UTC buckets in a `space_activity` collection with a **90-day TTL index** — an activity log without
+    one is how a metrics table becomes the largest thing in the database. `bucketAt` is set on insert only, so a
+    continuously-used space cannot keep its oldest bucket alive forever.
+  - Scoped in the aggregation, not in the caller: a space-scoped token asking for its own numbers never reads
+    another space's buckets.
+
 ## [2.2.3] — 2026-08-01
 
 ### Changed

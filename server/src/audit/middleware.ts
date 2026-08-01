@@ -11,6 +11,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { logAuditEntry } from './audit.js';
 import { auditChanges } from './audit-changes.js';
 import { getConfig } from '../config/loader.js';
+import { classifyOperation, recordSpaceCall } from '../metrics/space-activity.js';
 import type { OidcTokenRecord } from '../auth/oidc.js';
 
 // ── Operation mapping ──────────────────────────────────────────────────────
@@ -281,6 +282,32 @@ export function auditMiddleware(req: Request, res: Response, next: NextFunction)
 
     const matched = resolveOperation(req.method, fullPath);
     if (!matched) return; // not an operation we track
+
+    const durationMsForActivity = Number(process.hrtime.bigint() - start) / 1e6;
+
+    // ── Per-space usefulness counters ────────────────────────────────────────
+    //
+    // Counted here, BEFORE the `logReads` gate, because the counters must see reads: recall is the demand
+    // signal that says whether a space is worth keeping, and it is a read. Doing it by turning `logReads` on
+    // instead would write one audit document per recall — the per-request cost this deliberately avoids.
+    //
+    // Riding on this middleware rather than adding another means one path-matcher decides which space a call
+    // touched, so a count and its audit trail can never describe different things. The whole hook is a Map
+    // lookup plus a few integer adds: ~19 ns, measured.
+    //
+    // `recallOutcome` is stashed on the request by the recall handler, which is the only code that knows
+    // whether the answer contained anything — and "did it answer" is what separates a useful space from one
+    // that is merely asked a lot.
+    if (matched.spaceId) {
+      const cls = classifyOperation(matched.operation);
+      if (cls) {
+        recordSpaceCall(matched.spaceId, cls, {
+          ms: durationMsForActivity,
+          answered: req.recallOutcome?.answered,
+          topScore: req.recallOutcome?.topScore,
+        });
+      }
+    }
 
     // Check logReads config
     let cfg;

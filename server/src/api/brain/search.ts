@@ -5,6 +5,7 @@
  */
 import { Router } from 'express';
 import { requireSpaceAuth, denyReadOnly } from '../../auth/middleware.js';
+import { summariseActivity } from '../../metrics/space-activity-store.js';
 import { globalRateLimit } from '../../rate-limit/middleware.js';
 import { NotFoundError } from '../../util/errors.js';
 import { countMemories } from '../../brain/memory.js';
@@ -52,6 +53,36 @@ searchRouter.get('/spaces/:spaceId/stats', globalRateLimit, requireSpaceAuth, as
   const chrono = counts.reduce((s, c) => s + c.chrono, 0);
   const files = counts.reduce((s, c) => s + c.files, 0);
   res.json({ spaceId, memories, entities, edges, chrono, files });
+});
+
+
+/**
+ * GET /api/brain/spaces/:spaceId/activity — is this space earning its keep?
+ *
+ * Demand and payoff together, because either alone misleads: a space asked five hundred times that answers
+ * nothing is not popular, and a space with a perfect answer rate that nobody queries is not useful either.
+ *
+ * Scoped to the requested space in the aggregation itself — a space-scoped token must not learn how heavily
+ * every other space is used. The cross-space comparison lives on the admin route, behind admin auth.
+ *
+ * A proxy space reports its MEMBERS' activity summed, matching `stats` above: the calls arrive addressed to the
+ * proxy, but the useful answer is what its members are doing.
+ */
+searchRouter.get('/spaces/:spaceId/activity', globalRateLimit, requireSpaceAuth, async (req, res) => {
+  const spaceId = req.params['spaceId'] as string;
+  const cfg = getConfig();
+  if (!cfg.spaces.some(s => s.id === spaceId)) {
+    res.status(404).json({ error: `Space '${spaceId}' not found` });
+    return;
+  }
+  // Clamped rather than rejected: this is a dashboard window, and an out-of-range value has an obviously
+  // correct interpretation. 90 days is the bucket retention — asking for more would silently return less.
+  const raw = Number(req.query['hours'] ?? 24);
+  const hours = Number.isFinite(raw) ? Math.max(1, Math.min(90 * 24, Math.floor(raw))) : 24;
+
+  const memberIds = resolveMemberSpaces(spaceId);
+  const rows = (await Promise.all(memberIds.map(mid => summariseActivity(hours, Date.now(), mid)))).flat();
+  res.json({ spaceId, hours, spaces: rows });
 });
 
 
@@ -236,6 +267,20 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
     // merge with one member.
     all.sort((x, y) => rankOf(y) - rankOf(x));
     const seeds = all.slice(0, safeTopK);
+
+    // Tell the per-space counters whether this recall actually answered, and how good the best hit was.
+    //
+    // This is the difference between "this space is asked a lot" and "this space is useful": a space queried
+    // five hundred times that returns nothing is not popular, and in a call count the two are identical. Only
+    // this handler knows what came back, so it hands the outcome to the audit middleware, which owns the
+    // duration and the space attribution.
+    //
+    // `rankOf` rather than `.score` for the same reason the sort above uses it — it is the best signal
+    // available for the result, after reranking and fusion.
+    req.recallOutcome = {
+      answered: seeds.length > 0,
+      ...(seeds.length > 0 ? { topScore: rankOf(seeds[0]!) } : {}),
+    };
 
     if (safeTraverse === 0) {
       res.json({ results: seeds, count: seeds.length });

@@ -41,6 +41,11 @@ export async function startConfiguredInstanceServices(): Promise<void> {
 
     const { resetStaleWatermarksIfNeeded } = await import('./util/seq.js');
     await resetStaleWatermarksIfNeeded();
+
+    // Per-space usefulness counters: the TTL index above all. An activity log without one becomes the largest
+    // collection in the instance, which is the standard way a metrics table stops being worth having.
+    const { ensureActivityIndexes } = await import('./metrics/space-activity-store.js');
+    await ensureActivityIndexes();
   } catch (err) {
     log.error(`Instance DB initialisation failed (background services will still start): ${err}`);
   }
@@ -65,6 +70,11 @@ export async function startConfiguredInstanceServices(): Promise<void> {
   startContradictionScanner();
   const { startTtlSweep } = await import('./brain/ttl-sweep.js');
   startTtlSweep();
+  // The per-space usefulness counters accumulate in memory at ~19 ns per request and are written down once a
+  // minute — one upsert per space that was actually used, so the write cost does not scale with traffic. The
+  // timer is unref'd, and `stopSpaceActivityFlush` on the shutdown path writes the last partial minute.
+  const { startSpaceActivityFlush } = await import('./metrics/space-activity-store.js');
+  startSpaceActivityFlush();
   // Housekeeping for review findings whose records are gone. Deliberately NOT hung off the duplicate or
   // contradiction scanner: both are off by default, so orphans would accumulate on exactly the instances
   // that never enabled them.

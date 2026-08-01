@@ -32,6 +32,17 @@ declare global {
        * its secrets.
        */
       auditSnapshots?: { before?: unknown; after?: unknown };
+      /**
+       * Whether a recall actually came back with something, and how good the best hit was.
+       *
+       * Set by the recall handler, read by the audit middleware on `res.finish` for the per-space usefulness
+       * counters. It has to travel this way: only the handler knows what the answer contained, and only the
+       * middleware knows how long the whole request took and which space it was attributed to.
+       *
+       * This is the field that separates a useful space from one that is merely asked a lot — a space queried
+       * five hundred times that answers nothing looks identical to a popular one in a call count.
+       */
+      recallOutcome?: { answered: boolean; topScore?: number };
     }
   }
 }

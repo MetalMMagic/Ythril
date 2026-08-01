@@ -30,7 +30,7 @@
  * provider set (no mid-job swap).
  */
 
-import { getConfig, getMediaEmbeddingConfig } from '../../config/loader.js';
+import { getConfig, getMediaEmbeddingConfig , getDocumentProcessingConfig } from '../../config/loader.js';
 import { toSafeRelPath } from '../../util/paths.js';
 import { isProxySpace } from '../../spaces/proxy.js';
 import type { MediaJobDoc } from '../../config/types.js';
@@ -66,6 +66,7 @@ import {
   mediaJobsRetriedTotal,
   mediaJobDurationSeconds,
 } from '../../metrics/registry.js';
+import { stallTimeoutWithWarning } from './stall-floor.js';
 
 let running = false;
 let stalledSweepTimer: NodeJS.Timeout | null = null;
@@ -75,6 +76,22 @@ let providerRefreshTimer: NodeJS.Timeout | null = null;
 const PROVIDER_REFRESH_MS = 2_000;
 
 /** Start the media embedding worker loop. Idempotent — safe to call multiple times. */
+/**
+ * The budgets that bound ONE step of a job — the things the stall detector must not fire inside.
+ *
+ * Named individually rather than "every number in the config": `maxPages` and `concurrency` are not durations,
+ * and `workerPollIntervalMs` bounds the loop rather than a step. A wrong entry here would raise the stall
+ * floor for no reason and make recovery slower than it needs to be.
+ */
+function hopBudgets(): Record<string, number | undefined> {
+  const doc = getDocumentProcessingConfig();
+  return {
+    pageTimeoutMs: doc.pageTimeoutMs,
+    ocrTimeoutMs: doc.ocrTimeoutMs,
+    describeTimeoutMs: doc.describeTimeoutMs,
+  };
+}
+
 export function startMediaEmbeddingWorker(): void {
   if (running) return;
   running = true;
@@ -182,7 +199,14 @@ export function getActiveProviderSignature(): string {
 
 async function workerLoop(): Promise<void> {
   const startupCfg = getMediaEmbeddingConfig();
-  const startupStalledTimeoutMs = startupCfg.stalledJobTimeoutMs ?? 300_000;
+  // Floored by the longest single hop a job may take: a step longer than the stall timeout reports no
+  // progress while it runs, so the job would be re-queued mid-step and reach the same step again forever.
+  // Measured at the defaults it never binds (the worst hop is OCR at 0.40x the timeout); it binds when an
+  // operator raises a hop, which the ceilings invite — ocrTimeoutMs alone goes to thirty minutes.
+  const startupStalledTimeoutMs = stallTimeoutWithWarning(
+    startupCfg.stalledJobTimeoutMs ?? 300_000,
+    hopBudgets(),
+  );
 
   let currentPollMs = startupCfg.workerPollIntervalMs ?? 1_000;
 
@@ -204,7 +228,12 @@ async function workerLoop(): Promise<void> {
     if (!running) return;
     const ids = getLocalSpaceIds();
     if (ids.length === 0) return;
-    const stalledTimeoutMs = getMediaEmbeddingConfig().stalledJobTimeoutMs ?? 300_000;
+    // Re-read AND re-floored on every fire: the hop budgets are hot-reloadable too, so a raised OCR timeout
+    // must move the stall floor without a restart.
+    const stalledTimeoutMs = stallTimeoutWithWarning(
+      getMediaEmbeddingConfig().stalledJobTimeoutMs ?? 300_000,
+      hopBudgets(),
+    );
     void resetStalledJobs(ids, stalledTimeoutMs).catch(err =>
       log.warn(`Media worker: periodic stalled reset error: ${err instanceof Error ? err.message : String(err)}`),
     );

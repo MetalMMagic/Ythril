@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A raised step budget could put a job in a re-queue loop that never finishes.** `stalledJobTimeoutMs` recovers
+  a job that has reported no progress for that long — and progress is reported *between* steps, never inside
+  one. So a budget allowing a single call to run longer than the stall timeout meant the job was re-queued
+  **while that call was still working**: since the claim lease shipped, the original run then abandons, the
+  replacement starts the same document, reaches the same step, and is re-queued at the same point. Exactly the
+  "slow job killed and killed again at the same page" failure the per-page heartbeat was written to end,
+  reachable again through configuration.
+  - **Measured before it was changed.** At the defaults nothing comes close: the longest step is `ocrTimeoutMs`
+    at **0.40×** the stall timeout (`pageTimeoutMs` 0.20×, `describeTimeoutMs` 0.10×). The trap is what the admin
+    API accepts — `ocrTimeoutMs` up to **30 minutes** and the two model budgets up to **10** each, against a
+    5-minute stall default. And it is reachable by following our own documentation one step too far: the docs
+    tell a swap-based host to raise the describe budget and large-scan operators to raise the OCR one.
+  - **Stall detection now raises its own threshold** to 1.5× the longest configured step, at both points the
+    worker resolves it (startup sweep and periodic sweep — a config change between boot and the first sweep
+    would otherwise leave one of them wrong), and logs one line naming the step and the figure that would
+    silence it.
+  - **The derived value moves, not the setting.** Rejecting the PATCH would block a legitimate two-step change
+    and would not help a hand-edited `config.json`; clamping the step would override a deliberate decision about
+    how long a model may take. Nothing an operator set is contradicted — the detector stops firing inside a step
+    they authorised.
+  - Head-room rather than an exact match, because a threshold equal to the step budget makes "the step gave up"
+    and "the detector fired" indistinguishable, at the same instant, on every occurrence. Mutation-verified.
+
 ## [2.2.4] — 2026-08-01
 
 ### Added

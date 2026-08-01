@@ -569,6 +569,43 @@ export async function touchJobProgress(
   }
 }
 
+/**
+ * Hand a claim back, because this process is going away — the opposite of a crash.
+ *
+ * Stall recovery exists for the case where nobody can say what happened. A planned shutdown CAN say, and
+ * saying so is worth a write: without this the job sits `processing` with a live token until
+ * `stalledJobTimeoutMs` elapses on the next boot, so a rolling restart costs up to five minutes of dead time
+ * per in-flight job for no reason.
+ *
+ * Guarded on the token so a job that has meanwhile been recovered and re-claimed by another run is left alone:
+ * releasing it then would yank the claim out from under a worker that is making progress.
+ */
+export async function releaseClaimedJob(spaceId: string, jobId: string, claimToken?: string | null): Promise<boolean> {
+  const now = new Date().toISOString();
+  try {
+    const res = await jobCollection(spaceId).updateOne(
+      asFilter<MediaJobDoc>({
+        _id: jobId,
+        status: 'processing',
+        ...(claimToken ? { claimToken } : {}),
+      }),
+      // `claimableAfter: null` so the next boot can pick it up immediately: this was not a failure, so there
+      // is nothing to back off from. `attempts` is deliberately NOT incremented — the attempt did not fail,
+      // it was interrupted, and charging it would spend the retry budget on our own deploys.
+      asUpdate<MediaJobDoc>({
+        $set: { status: 'pending', claimedAt: null, claimToken: null, claimableAfter: null, updatedAt: now },
+      }),
+    );
+    if (res.matchedCount > 0) markSpaceMayHaveWork(spaceId);
+    return res.matchedCount > 0;
+  } catch (err) {
+    // Best-effort by design: this runs during shutdown, where the database connection may already be going.
+    // Failing to release is exactly the old behaviour — stall recovery still catches it.
+    log.debug(`Could not release claim on ${spaceId}/${jobId}: ${err instanceof Error ? err.message : String(err)}`);
+    return false;
+  }
+}
+
 export async function resetStalledJobs(
   spaceIds: string[],
   stalledJobTimeoutMs: number,

@@ -37,7 +37,7 @@ import type { MediaJobDoc } from '../../config/types.js';
 import { log } from '../../util/log.js';
 import { createMediaProviders } from './providers.js';
 import type { MediaProviderBundle } from './providers.js';
-import { claimNextJob, completeJob, failJob, resetStalledJobs, cancelMediaJob, currentWorkEpoch, waitForWork, wakeWorkers, touchJobProgress } from './job-queue.js';
+import { claimNextJob, completeJob, failJob, resetStalledJobs, cancelMediaJob, currentWorkEpoch, waitForWork, wakeWorkers, touchJobProgress , releaseClaimedJob } from './job-queue.js';
 import { embedImage } from './image-embedder.js';
 import { embedAudio } from './audio-embedder.js';
 import { embedVideo } from './video-embedder.js';
@@ -83,6 +83,29 @@ export function startMediaEmbeddingWorker(): void {
 }
 
 /** Stop the worker loop gracefully (completes the in-flight batch). */
+/** Claims this process currently holds. Small by construction: bounded by `workerConcurrency`. */
+const _heldJobs = new Set<{ spaceId: string; jobId: string; claimToken?: string | null }>();
+
+/**
+ * Hand back every claim this process holds, for a PLANNED shutdown.
+ *
+ * Awaited by the shutdown path before the database connection closes. Each release is guarded on the claim
+ * token, so a job that has already been recovered and re-claimed elsewhere is left alone.
+ */
+export async function releaseHeldJobs(): Promise<number> {
+  const held = [..._heldJobs];
+  if (held.length === 0) return 0;
+  const results = await Promise.all(
+    held.map(h => releaseClaimedJob(h.spaceId, h.jobId, h.claimToken)),
+  );
+  const released = results.filter(Boolean).length;
+  if (released > 0) {
+    log.info(`Media embedding worker: handed back ${released} claim(s) on shutdown — they are pending again, `
+      + `so the next boot starts them immediately instead of waiting out stalledJobTimeoutMs.`);
+  }
+  return released;
+}
+
 export function stopMediaEmbeddingWorker(): void {
   running = false;
   if (stalledSweepTimer) {
@@ -266,7 +289,14 @@ async function workerLoop(): Promise<void> {
     currentPollMs = workerPollIntervalMs;
 
     // Process jobs concurrently
-    await Promise.allSettled(claimed.map(job => processJob(job, jobProviders)));
+    // Track what this process holds, so a planned shutdown can hand the claims back instead of leaving
+    // them to time out. Removed in a `finally` per job — a leaked entry would make shutdown try to release a
+    // job that has already completed, which the token guard would refuse anyway, but noisily.
+    await Promise.allSettled(claimed.map(job => {
+      const held = { spaceId: job.spaceId, jobId: String(job._id), claimToken: job.claimToken };
+      _heldJobs.add(held);
+      return processJob(job, jobProviders).finally(() => { _heldJobs.delete(held); });
+    }));
 
     // Brief pause to prevent tight loop when constantly finding work
     await sleep(currentPollMs);

@@ -81,6 +81,9 @@ const DocumentProcessingPatchSchema = z.object({
   pageTimeoutMs: z.number().int().min(1_000).max(600_000).optional(),
   concurrency: z.number().int().min(1).max(8).optional(),
   ocrTimeoutMs: z.number().int().min(10_000).max(1_800_000).optional(),
+  // The describe call's budget. The floor is low because failing it costs only the generated description;
+  // the ceiling is generous because a single-GPU host may have to load a model before it can answer.
+  describeTimeoutMs: z.number().int().min(1_000).max(600_000).optional(),
   assistModel: AssistModelPatchSchema.optional(),
 }).strict();
 

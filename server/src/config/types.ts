@@ -528,6 +528,20 @@ export interface DocumentProcessingConfig {
    */
   ocrTimeoutMs?: number;
   /**
+   * Timeout (ms) for the one call that describes a converted document. Default 30000.
+   *
+   * Separate from `pageTimeoutMs` because the constraint is different: this is a single call at the end of a
+   * job, and its failure costs only the generated description — the document's own opening text is kept
+   * instead. 30 s suits a model that is already resident.
+   *
+   * It does not suit a **single-GPU host that swaps models per request**: the describe call arrives right
+   * after the transcription pass, so the backend unloads the vision model and loads the chat model first,
+   * and the load alone can exceed the budget. Every document then falls back to extractive text with one
+   * `warn` about a timeout — the capability looks broken while working correctly on the next host along.
+   * Env: `DOC_DESCRIBE_TIMEOUT_MS`.
+   */
+  describeTimeoutMs?: number;
+  /**
    * F11 — the document-transcription VLM model tag (e.g. a small Qwen2-VL / MiniCPM-V on the bundled
    * Ollama). Empty (default) means no VLM is configured, so `vlm`/`auto`/`max` modes fall back to OCR.
    * Env: `DOC_VLM_MODEL`.

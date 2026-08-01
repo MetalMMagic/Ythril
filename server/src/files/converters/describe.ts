@@ -62,8 +62,22 @@ const MAX_INPUT_CHARS = 6_000;
 /** Long enough for two real sentences, short enough that a rambling model cannot fill the card. */
 const MAX_DESCRIPTION_CHARS = 400;
 
-/** A tight budget: this is on the ingest path, and the extractive fallback is always available. */
-const DESCRIBE_TIMEOUT_MS = 30_000;
+/**
+ * A tight budget by default: this is on the ingest path, and the extractive fallback is always available.
+ *
+ * Configurable because "tight" depends on the backend, not on us. A single-GPU host that swaps models per
+ * request has to UNLOAD the vision model this job was just using and load a chat model before it can answer,
+ * and that load can be most of a minute — so at 30 s every document times out, keeps extractive text, and
+ * logs one warning that reads like a broken model rather than a budget that is too small for this host.
+ */
+const DESCRIBE_TIMEOUT_DEFAULT_MS = 30_000;
+
+/** The configured describe budget, clamped to the range the admin API accepts. */
+export function describeTimeoutMs(cfg: { describeTimeoutMs?: number } = {}): number {
+  const v = cfg.describeTimeoutMs;
+  if (typeof v !== 'number' || !Number.isFinite(v)) return DESCRIBE_TIMEOUT_DEFAULT_MS;
+  return Math.max(1_000, Math.min(600_000, Math.floor(v)));
+}
 
 /**
  * Openings that mean the model answered the wrong question.
@@ -154,13 +168,23 @@ export async function describeDocument(
     const r = await describeDocumentText({
       ...target,
       text: body.slice(0, MAX_INPUT_CHARS),
-      timeoutMs: DESCRIBE_TIMEOUT_MS,
+      timeoutMs: describeTimeoutMs(getDocumentProcessingConfig()),
     });
     const text = sanitiseDescription(r.text);
     if (text) return { text, source: 'generated', excerpt };
     log.debug('Describe: the model returned nothing usable — keeping the document\'s own opening text');
   } catch (err) {
-    log.warn(`Describe: ${err instanceof Error ? err.message : String(err)} — keeping the document's own opening text`);
+    const message = err instanceof Error ? err.message : String(err);
+    // A timeout here is far more often a budget that does not fit this host than a broken model, and the two
+    // read identically in a log. Name the setting on the line, so the next person does not have to guess
+    // whether their model is wrong or their deadline is.
+    const timedOut = /abort|timeout|timed out|deadline/i.test(message);
+    log.warn(`Describe: ${message} — keeping the document's own opening text.`
+      + (timedOut
+        ? ` The budget was ${describeTimeoutMs(getDocumentProcessingConfig())} ms`
+          + ` (documentProcessing.describeTimeoutMs / DOC_DESCRIBE_TIMEOUT_MS). A backend that swaps models`
+          + ` per request spends part of it loading one — raise it if every document reports this.`
+        : ''));
   }
   return excerpt ? { text: excerpt, source: 'extracted', excerpt } : { excerpt };
 }

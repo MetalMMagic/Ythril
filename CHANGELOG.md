@@ -23,6 +23,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A single-GPU host that swaps models per request could never generate a document description, and nothing
+  said so.** The describe call's timeout was hardcoded at 30 s, on the reasoning that a description is a
+  nicety on the ingest path and the extractive fallback is always there. That reasoning holds for a resident
+  model. It does not hold for the common self-hosted shape: the call arrives right after the transcription
+  pass, so the backend unloads the vision model this job was using and loads a chat model first — and the
+  load alone can eat the whole budget. Every document then keeps its opening text, `descriptionSource` says
+  `extracted`, and one `warn` per file says "timeout", which reads as a broken model rather than a deadline
+  that does not fit this host. The feature looks unimplemented while working correctly on the next host along.
+  - `documentProcessing.describeTimeoutMs` / `DOC_DESCRIBE_TIMEOUT_MS`, default 30 s (unchanged behaviour for
+    an instance that configures nothing), clamped to 1 s–10 min and settable through the admin API.
+  - **The timeout warning now names the budget and the setting**, and says that a swapping backend spends
+    part of it loading — so the log answers "is my model wrong or my deadline too small?" on the line itself.
+  - Documented with the host shape that needs it, plus the alternative that avoids swapping altogether
+    (give the chat model its own `repairBaseUrl`).
+  - `describe-timeout.test.js` pins the resolution and the clamp — a `0` would abort every call instantly and
+    stop descriptions permanently with no error anywhere — and that the call site reads the setting rather
+    than a second constant.
+
 - **A document that took longer than `stalledJobTimeoutMs` to embed was re-queued while it was still
   running — and then ran twice.** Stall recovery measures from the last progress report, and the chunk-embed
   phase reported nothing at all: conversion heartbeat per page, then silence for however long hundreds of

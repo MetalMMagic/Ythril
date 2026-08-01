@@ -1127,6 +1127,7 @@ const DOCUMENT_PROCESSING_DEFAULTS: Required<DocumentProcessingConfig> = {
   pageTimeoutMs: 60_000,
   concurrency: 2,
   ocrTimeoutMs: 120_000, // 2 min — the historical hardcoded OCR-sidecar ceiling, now tunable
+  describeTimeoutMs: 30_000, // one call, and its only cost on failure is the generated description
   vlmModel: '',    // empty = no VLM configured → vlm/auto/max fall back to OCR
   vlmBaseUrl: '',  // empty = reuse the media vision provider's (Ollama) URL
   repairModel: '',   // empty = reuse vlmModel for the max-mode repair pass
@@ -1160,6 +1161,10 @@ export function getDocumentProcessingConfig(): Required<DocumentProcessingConfig
     pageTimeoutMs: base.pageTimeoutMs ?? d.pageTimeoutMs,
     concurrency: base.concurrency ?? d.concurrency,
     ocrTimeoutMs: process.env['DOC_OCR_TIMEOUT_MS'] ? Number(process.env['DOC_OCR_TIMEOUT_MS']) : (base.ocrTimeoutMs ?? d.ocrTimeoutMs),
+    // A single-GPU backend that swaps models per request spends the first part of this call LOADING one,
+    // which is why it is tunable at all: at 30 s such a host times out on every document and silently keeps
+    // extractive text instead.
+    describeTimeoutMs: process.env['DOC_DESCRIBE_TIMEOUT_MS'] ? Number(process.env['DOC_DESCRIBE_TIMEOUT_MS']) : (base.describeTimeoutMs ?? d.describeTimeoutMs),
     vlmModel: process.env['DOC_VLM_MODEL'] ?? base.vlmModel ?? d.vlmModel,
     vlmBaseUrl: process.env['DOC_VLM_URL'] ?? base.vlmBaseUrl ?? d.vlmBaseUrl,
     repairModel: process.env['DOC_REPAIR_MODEL'] ?? base.repairModel ?? d.repairModel,

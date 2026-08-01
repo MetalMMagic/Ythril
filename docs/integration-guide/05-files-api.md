@@ -580,6 +580,7 @@ They are never queued, so they do not sit at `pending` waiting for work that wil
 | `pageTimeoutMs` | `60000` | Per-page VLM transcription timeout (VLM modes only). |
 | `concurrency` | `2` | How many pages are transcribed in parallel (VLM modes only). |
 | `ocrTimeoutMs` | `120000` | Timeout (ms) for a single OCR-sidecar call. Applies to **all** modes — OCR is the engine in `ocr` mode and the grounding evidence + fallback floor in the VLM modes — so raise it when large/complex scanned documents need longer than the 2-min default (especially under `repair`). Env override: `DOC_OCR_TIMEOUT_MS`. |
+| `describeTimeoutMs` | `30000` | Timeout (ms) for the single call that writes a converted document's **description**. Failing it costs only the generated prose — the document's own opening text is kept and `descriptionSource` reports `extracted` — so the default is deliberately tight. **Raise it on a single-GPU host that swaps models per request** (see the note below). Env override: `DOC_DESCRIBE_TIMEOUT_MS`. |
 
 > **Why two numbers.** They bound different things. `maxPages` is one round trip; `maxTotalPages` is the
 > job's cost ceiling — every page is a VLM call, so an unbounded walk over a 600-page scan means 600 model
@@ -589,6 +590,19 @@ They are never queued, so they do not sit at `pending` waiting for work that wil
 
 The VLM modes require both a running `doc-render` sidecar and a configured `vlmModel`. If either is missing,
 Ythril transparently uses OCR — no upload fails because a model isn't wired in yet.
+
+> **One host shape the 30 s default cannot serve.** The describe call arrives immediately after the
+> transcription pass. On a backend that keeps both models resident it answers in a second or two; on a
+> **single GPU that swaps models per request** it first has to unload the vision model this job was using
+> and load a chat model, and that load alone can exceed the whole budget.
+>
+> Nothing errors when it does. Every document keeps its extractive opening text, `descriptionSource` says
+> `extracted`, and the log carries one timeout warning per file — which reads as a broken model rather than
+> a deadline that does not fit this host, so the feature looks unimplemented while working correctly on the
+> next host along. The warning now names the budget and this setting for that reason.
+>
+> If every document reports it, raise `describeTimeoutMs` to cover a model load (60–180 s is typical) —
+> or give the chat model its own endpoint via `repairBaseUrl`, so nothing has to be swapped at all.
 
 **Repair pass (`repair` level).** When a document's VLM transcription fails the OCR-evidence coverage check,
 the `repair` level runs one bounded repair pass before falling back to OCR: it sends the draft transcription and the

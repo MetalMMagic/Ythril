@@ -60,16 +60,28 @@ export const httpResponseSizeBytes = new Histogram({
 
 // ── Brain data (gauges collected at scrape time) ────────────────────────────
 
+/**
+ * The four brain totals, counted the way a gauge can afford.
+ *
+ * These used `countDocuments({})`, which is an aggregation: an index scan of every entry per space, on
+ * every scrape, forever. `estimatedDocumentCount()` reads the collection's own metadata in O(1).
+ *
+ * The exactness that buys does not survive contact with what a gauge IS. The value is sampled at scrape
+ * time and stored as a point in a series — it is already stale when Prometheus writes it, and stale again
+ * before it is graphed. So the scan was paying for a precision the metric cannot express. (The estimate can
+ * drift from the true count after an unclean shutdown, until the next validate; the help text says so, which
+ * is cheaper than an O(n) scan every fifteen seconds to avoid saying it.)
+ */
 export const memoriesTotal = new Gauge({
   name: 'ythril_memories_total',
-  help: 'Total number of memories by space',
+  help: 'Approximate number of memories by space (collection metadata, not a scan)',
   labelNames: ['space'] as const,
   registers: [register],
   async collect() {
     try {
       const cfg = getConfig();
       for (const space of cfg.spaces.filter(s => !s.proxyFor)) {
-        const count = await col(`${space.id}_memories`).countDocuments({});
+        const count = await col(`${space.id}_memories`).estimatedDocumentCount();
         this.set({ space: space.id }, count);
       }
     } catch { /* MongoDB may not be ready at startup */ }
@@ -78,14 +90,14 @@ export const memoriesTotal = new Gauge({
 
 export const entitiesTotal = new Gauge({
   name: 'ythril_entities_total',
-  help: 'Total number of entities by space',
+  help: 'Approximate number of entities by space (collection metadata, not a scan)',
   labelNames: ['space'] as const,
   registers: [register],
   async collect() {
     try {
       const cfg = getConfig();
       for (const space of cfg.spaces.filter(s => !s.proxyFor)) {
-        const count = await col(`${space.id}_entities`).countDocuments({});
+        const count = await col(`${space.id}_entities`).estimatedDocumentCount();
         this.set({ space: space.id }, count);
       }
     } catch { /* ignore */ }
@@ -94,14 +106,14 @@ export const entitiesTotal = new Gauge({
 
 export const edgesTotal = new Gauge({
   name: 'ythril_edges_total',
-  help: 'Total number of edges by space',
+  help: 'Approximate number of edges by space (collection metadata, not a scan)',
   labelNames: ['space'] as const,
   registers: [register],
   async collect() {
     try {
       const cfg = getConfig();
       for (const space of cfg.spaces.filter(s => !s.proxyFor)) {
-        const count = await col(`${space.id}_edges`).countDocuments({});
+        const count = await col(`${space.id}_edges`).estimatedDocumentCount();
         this.set({ space: space.id }, count);
       }
     } catch { /* ignore */ }
@@ -110,14 +122,14 @@ export const edgesTotal = new Gauge({
 
 export const chronoEntriesTotal = new Gauge({
   name: 'ythril_chrono_entries_total',
-  help: 'Total number of chrono entries by space',
+  help: 'Approximate number of chrono entries by space (collection metadata, not a scan)',
   labelNames: ['space'] as const,
   registers: [register],
   async collect() {
     try {
       const cfg = getConfig();
       for (const space of cfg.spaces.filter(s => !s.proxyFor)) {
-        const count = await col(`${space.id}_chrono`).countDocuments({});
+        const count = await col(`${space.id}_chrono`).estimatedDocumentCount();
         this.set({ space: space.id }, count);
       }
     } catch { /* ignore */ }

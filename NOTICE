@@ -130,6 +130,12 @@ Copyright (c) 2009-2014 TJ Holowaychuk <tj@vision-media.ca>
 Copyright (c) 2013-2014 Roman Shtylman <shtylman+expressjs@gmail.com>
 Copyright (c) 2014-2015 Douglas Christopher Wilson <doug@somethingdoug.com>
 
+### compression
+
+License: MIT
+Copyright (c) 2014 Jonathan Ong <me@jongleberry.com>
+Copyright (c) 2014-2015 Douglas Christopher Wilson <doug@somethingdoug.com>
+
 ### express-rate-limit
 
 License: MIT

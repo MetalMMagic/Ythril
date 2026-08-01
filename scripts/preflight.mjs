@@ -108,7 +108,34 @@ const allStandalone = readdirSync('testing/standalone').filter(f => f.endsWith('
 const pure = allStandalone.filter(f => !NEEDS_INSTANCE.test(readFileSync(`testing/standalone/${f}`, 'utf8')));
 console.log(`\n── standalone tests that need no running instance (${pure.length} of ${allStandalone.length}; ` +
   `${allStandalone.length - pure.length} declare @needs-instance and run in CI) ──`);
-try { run(`node --test --test-concurrency=1 ${pure.map(f => `testing/standalone/${f}`).join(' ')}`); } catch {
+// Run in batches, because Windows caps a command line at 32 767 characters and this list crossed it.
+//
+// The failure that taught this: `The command line is too long.` — printed by cmd, not by node, so the gate
+// went RED with no test output and nothing named. One more test file was all it took, and the next person to
+// add one would have hit the same wall with the same unhelpful message.
+//
+// Batching by measured length rather than a file count: the paths differ in length, so a fixed count would
+// drift back over the limit as names grow. 8 000 characters is a quarter of the ceiling, which leaves room
+// for the interpreter prefix and any future flag.
+const CMD_BUDGET = 8_000;
+const batches = [[]];
+let batchLen = 0;
+for (const f of pure) {
+  const arg = ` testing/standalone/${f}`;
+  if (batchLen + arg.length > CMD_BUDGET && batches.at(-1).length > 0) { batches.push([]); batchLen = 0; }
+  batches.at(-1).push(f);
+  batchLen += arg.length;
+}
+let standaloneFailed = false;
+for (const [i, batch] of batches.entries()) {
+  if (batches.length > 1) console.log(`  batch ${i + 1}/${batches.length} — ${batch.length} file(s)`);
+  try { run(`node --test --test-concurrency=1 ${batch.map(f => `testing/standalone/${f}`).join(' ')}`); } catch {
+    // Keep going: one batch failing must not hide a second failure in a later batch, which is exactly the
+    // information a single all-or-nothing invocation used to give.
+    standaloneFailed = true;
+  }
+}
+if (standaloneFailed) {
   failures.push({ name: 'test:standalone (offline subset)', why: 'server contracts and pure logic — no Docker needed, so no reason to learn this from CI' });
 }
 

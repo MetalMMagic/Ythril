@@ -69,10 +69,10 @@ ythril_http_requests_total{method="GET",route="/health",status_code="200"} 42
 | `ythril_http_request_duration_seconds` | histogram | Request latency by method and route |
 | `ythril_http_request_size_bytes` | histogram | Request body size |
 | `ythril_http_response_size_bytes` | histogram | Response body size |
-| `ythril_memories_total` | gauge | Total memories by space |
-| `ythril_entities_total` | gauge | Total entities by space |
-| `ythril_edges_total` | gauge | Total edges by space |
-| `ythril_chrono_entries_total` | gauge | Total chrono entries by space |
+| `ythril_memories_total` | gauge | Approximate memories by space — read from collection metadata, not counted per scrape |
+| `ythril_entities_total` | gauge | Approximate entities by space (same estimate as above) |
+| `ythril_edges_total` | gauge | Approximate edges by space (same estimate as above) |
+| `ythril_chrono_entries_total` | gauge | Approximate chrono entries by space (same estimate as above) |
 | `ythril_spaces_total` | gauge | Number of configured spaces |
 | `ythril_embedding_duration_seconds` | histogram | Time to compute a single embedding |
 | `ythril_embedding_queue_depth` | gauge | Pending embedding operations |

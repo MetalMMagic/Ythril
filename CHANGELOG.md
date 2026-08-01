@@ -23,6 +23,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Preflight went red with no output once the offline test list crossed a Windows command-line limit.** The
+  subset is enumerated file by file, and at 179 files the invocation exceeded 32 767 characters — so cmd
+  answered `The command line is too long.` and the gate failed having run nothing and named nothing. One added
+  test file was all it took.
+  - Batched by measured length rather than a file count (paths differ in length, so a count drifts back over
+    the limit as names grow), and a failing batch no longer stops the remaining ones — an all-or-nothing
+    invocation reported the first failure and never ran the rest.
+  - `preflight-coverage.test.js` fails if the batching is removed or reverted to a fixed count, because the
+    failure it prevents is a gate that reports nothing at all.
+
+- **The media job queue had no indexes at all, and it is the collection this product polls hardest.**
+  `initSpace` builds indexes for nine per-space collections — memories, entities, edges, chrono, tombstones,
+  conflicts, dupe candidates, contradiction candidates, files — and not for `<space>_media_jobs`, which the
+  worker questions **every second**: `claimNextJob` (filter on `status` + the backoff gate, sorted by
+  `createdAt`), `resetStalledJobs` (`status` + a `progressAt` range), and four reads per `/metrics` scrape.
+  Every one was a collection scan followed by an in-memory sort.
+  - **And the collection is not transient.** `completeJob` sets `status: 'complete'` and nothing prunes it —
+    only deleting a file removes its row — so it holds one document per file ever uploaded. The scan cost
+    therefore grew with the **age** of the instance rather than its backlog: an idle queue became more
+    expensive to poll every month the instance stayed up.
+  - Two indexes now, declared next to the queries they serve (`MEDIA_JOB_INDEXES`) and created by
+    `ensureMediaJobIndexes`, which `initSpace` calls — so existing spaces get them on the next boot, with no
+    migration to run. `createIndex` is idempotent, and job records are local state that does not replicate.
+  - `job-queue-indexes-db.test.js` asserts the **winning plan** for the real queries against a real MongoDB —
+    an index the planner does not choose is decoration — and includes the control: with the indexes dropped,
+    the same claim query is a `COLLSCAN` again.
+- **Nothing was compressed. Measured: `main-*.js` 18 169 → 6 504 bytes, `/metrics` 18 491 → 3 132 bytes.**
+  The whole built bundle is 5.83 MiB and 1.64 MiB gzipped — 72%, or 4.19 MiB per cold load — and there was no
+  `compression` middleware anywhere. This is a product where the Node process *is* the web server, so there
+  was no reverse proxy that could be assumed to be doing it.
+  - **Server-Sent Events are excluded**, deliberately: `compressible` treats `text/event-stream` as
+    compressible and technically it is, but a compressor holds bytes back until it can emit a block, so a
+    live stream silently becomes a batched one. Every test that asks "did the event arrive" still passes,
+    eventually — which is why the filter is a function with its own tests rather than a middleware option.
+- **Content-hashed build assets carried no `Cache-Control`, so 163 files revalidated on every navigation.**
+  `express.static` was called with no options. Hashed chunks are now `public, max-age=31536000, immutable`;
+  `index.html` and the unhashed `assets/i18n/*.json` are `no-cache` — which still permits a `304` but never a
+  stale read. Getting that pair backwards is how a browser ends up pinned to chunk hashes the next release
+  deletes, then asks for JavaScript and receives HTML.
+- **The four brain-total gauges scanned every collection on every scrape for a precision a gauge cannot
+  hold.** `ythril_memories_total`, `_entities_total`, `_edges_total` and `_chrono_entries_total` used
+  `countDocuments({})` — an aggregation, so an index scan of every entry, per space, per scrape.
+  `estimatedDocumentCount()` answers from collection metadata in O(1). A gauge is sampled at scrape time and
+  stored as a point in a series: it is already stale when Prometheus writes it, so the scan was buying
+  precision the graph cannot express. The values are now labelled approximate in both the metric help text
+  and the documented table (the estimate can drift after an unclean shutdown, which is worth saying rather
+  than worth an O(n) scan every fifteen seconds).
+
 - **Pressing Test on a Models card moved the Verify button out from under the pointer.** 2.2.2 stopped the
   row overflowing its card, and left the reflow: a test result renders next to the button that produced it —
   correct for what a screen reader hears — which puts a pill and a detail line *between* Test and Verify, so

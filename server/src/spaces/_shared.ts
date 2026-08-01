@@ -185,6 +185,20 @@ export async function dropLegacyPrefixedIndexes(coll: Collection): Promise<void>
 /** Maximum number of previous meta versions kept for history. */
 export const META_VERSION_CAP = 20;
 
+/**
+ * Maximum length of a space's directive (`meta.purpose`, and its deprecated `description` alias).
+ *
+ * One constant because there were six literals for one field, and two of them disagreed: REST accepted
+ * **4000** while the MCP `update_space` tool refused anything over **2000**. So a purpose written through
+ * one transport could not be edited through the other — and the migration that moved legacy `description`
+ * text into `meta.purpose` used the 4000 bound, meaning an MCP client could be handed a purpose it was
+ * forbidden to change.
+ *
+ * Unified UP rather than down: 4000 is what the writer actually stores (`updateSpace` truncates there), so
+ * lowering it would have made the API advertise a limit smaller than the data it already holds.
+ */
+export const SPACE_PURPOSE_MAX = 4000;
+
 /** Generate a URL-safe space ID from a label */
 export function slugify(label: string): string {
   return label

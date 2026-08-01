@@ -4,6 +4,7 @@ import { col } from '../../db/mongo.js';
 import { resolveMemberSpaces } from '../../spaces/proxy.js';
 import { WIPE_COLLECTION_TYPES, type WipeCollectionType, wipeSpace } from '../../spaces/lifecycle.js';
 import { updateSpace, spacePurpose } from '../../spaces/spaces.js';
+import { SPACE_PURPOSE_MAX } from '../../spaces/_shared.js';
 
 export const list_spacesTool: ToolHandler = {
   name: 'list_spaces',
@@ -152,8 +153,8 @@ export const update_spaceTool: ToolHandler = {
           properties: {
             space: s.requiredSpace,
             label: { type: 'string', minLength: 1, maxLength: 200, description: 'New display label for the space (1–200 chars).' },
-            purpose: { type: 'string', maxLength: 2000, description: 'New purpose for the space (max 2000 chars) — the space-level directive injected into MCP instructions at handshake.' },
-            description: { type: 'string', maxLength: 2000, description: 'DEPRECATED alias of `purpose`; writes the same field. Removal in 3.0.' },
+            purpose: { type: 'string', maxLength: SPACE_PURPOSE_MAX, description: `New purpose for the space (max ${SPACE_PURPOSE_MAX} chars) — the space-level directive injected into MCP instructions at handshake.` },
+            description: { type: 'string', maxLength: SPACE_PURPOSE_MAX, description: 'DEPRECATED alias of `purpose`; writes the same field. Removal in 3.0.' },
           },
           required: ['space'],
           additionalProperties: false,
@@ -174,7 +175,7 @@ export const update_spaceTool: ToolHandler = {
       throw new Error('At least one of label or purpose must be provided');
     }
     if (newLabel !== undefined && newLabel.length === 0) throw new Error('label must not be empty');
-    if (newDesc !== undefined && newDesc.length > 2000) throw new Error('purpose must not exceed 2000 characters');
+    if (newDesc !== undefined && newDesc.length > SPACE_PURPOSE_MAX) throw new Error(`purpose must not exceed ${SPACE_PURPOSE_MAX} characters`);
     if (newLabel !== undefined && newLabel.length > 200) throw new Error('label must not exceed 200 characters');
     const updates: { label?: string; description?: string } = {};
     if (newLabel !== undefined) updates.label = newLabel;

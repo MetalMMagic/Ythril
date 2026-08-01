@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A space's directive had two maximum lengths, depending on which transport wrote it.** REST accepted 4000
+  characters; the MCP `update_space` tool refused anything over 2000. So a purpose written through one door
+  could not be edited through the other — and because the 2.2.2 migration moved legacy `description` text
+  into `meta.purpose` under the 4000 bound, an MCP client could be handed a purpose it was then forbidden to
+  change: a validation error on a field the caller never touched.
+  - One exported constant now (`SPACE_PURPOSE_MAX`), replacing six literals. Unified **up**, because 4000 is
+    what the writer actually stores — advertising less would claim a bound smaller than the data already in
+    the database.
+  - The tool's own description text interpolates the number instead of restating it, since it said "max 2000
+    chars" beside a schema that said 2000 and an API that said 4000, and an agent reads the prose.
+  - Found while writing the release message to the deployment that reads these limits, not by a test. A gate
+    now enumerates every numeric bound on this field out of the tree.
+
 ## [2.2.2] — 2026-08-01
 
 ### Added

@@ -248,6 +248,13 @@ export interface EmbeddingConfig {
   /** If set, route embedding requests to this OpenAI-compatible HTTP endpoint.
    *  If absent, the bundled local ONNX model is used (default, works out of the box). */
   baseUrl?: string;
+  /**
+   * How many chunk embeds may run at once while converting one document. Absent = per-embedder default:
+   * low for the bundled in-process model (CPU-bound, and it shares the event loop that answers `/health`),
+   * higher for an HTTP endpoint (network-bound, the work is elsewhere). See `embed-concurrency.ts` for the
+   * measurements. Raise it only with CPU headroom to spare; clamped to 1…32.
+   */
+  embedConcurrency?: number;
   model: string;
   dimensions: number;
   similarity: 'cosine' | 'dotProduct' | 'euclidean';

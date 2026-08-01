@@ -928,7 +928,7 @@ The worker-tuning fields — `workerConcurrency`, `workerPollIntervalMs`, `worke
 | `workerMaxPollIntervalMs` | `WORKER_MAX_POLL_INTERVAL_MS` | `30000` | Max poll interval when idle (ms) |
 | `fallbackToExternal` | `MEDIA_EMBEDDING_FALLBACK_TO_EXTERNAL` | `false` | Use external provider if local fails |
 | `maxFileSizeBytes` | `MAX_FILE_SIZE_BYTES` | `524288000` | Skip embedding for files above this size (500 MiB) |
-| `stalledJobTimeoutMs` | `STALLED_JOB_TIMEOUT_MS` | `300000` | Re-queue a job that has reported no progress for > N ms. Measured from the last heartbeat, not from the claim, and re-queuing now withdraws the running claim so the previous holder stops rather than racing its replacement. Each re-queue logs one `warn` with the file, the silence, the size and the step. |
+| `stalledJobTimeoutMs` | `STALLED_JOB_TIMEOUT_MS` | `300000` | Re-queue a job that has reported no progress for > N ms. **Raised automatically when a single step allows longer than this** — see the note under the document-processing table: a step longer than the stall timeout would be re-queued while it is still running. Measured from the last heartbeat, not from the claim, and re-queuing now withdraws the running claim so the previous holder stops rather than racing its replacement. Each re-queue logs one `warn` with the file, the silence, the size and the step. |
 
 > **Large documents, CPU limits and liveness probes.** With the **bundled in-process** embedder, one ~2 KB
 > chunk costs roughly 200 ms of CPU and blocks the event loop for most of it. A 350 KB document is hundreds
@@ -946,6 +946,23 @@ The worker-tuning fields — `workerConcurrency`, `workerPollIntervalMs`, `worke
 > `embedConcurrency`, raise the CPU allocation with it, and give the probes room:
 > `timeoutSeconds: 10` with `failureThreshold: 6` tolerates a slow answer far better than the defaults do.
 > An **external** embedding endpoint sidesteps the whole question — the CPU work happens on another host.
+
+#### Step budgets and the stall detector
+
+> **A single step may not outlast the stall detector, and it no longer can.** `stalledJobTimeoutMs` re-queues
+> a job that has reported no progress for that long, and progress is reported *between* steps — never inside
+> one. So a budget that allows one call to run longer than the stall timeout would have the job re-queued
+> **while that call was still working**: the original run then discovers its claim is gone and abandons, the
+> replacement starts the same document, reaches the same step, and is re-queued at the same point. A loop that
+> never finishes.
+>
+> Measured at the defaults, nothing comes close — the longest step is `ocrTimeoutMs` at 0.4× the stall
+> timeout. It is reachable by configuration: `ocrTimeoutMs` accepts up to **30 minutes** and the two model
+> budgets up to **10** each, against a 5-minute stall default.
+>
+> Rather than refuse the setting, **stall detection raises its own threshold** to 1.5× the longest configured
+> step and logs one line saying so. Nothing you set is contradicted; the detector simply stops firing inside a
+> step you authorised. Raise `stalledJobTimeoutMs` past that figure yourself and the line goes away.
 
 #### ISO 27001 / Data Egress Note
 

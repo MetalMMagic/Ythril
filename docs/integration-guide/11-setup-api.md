@@ -88,6 +88,15 @@ ythril_http_requests_total{method="GET",route="/health",status_code="200"} 42
 | `ythril_sync_items_pushed_total` | counter | Items sent by type |
 | `ythril_sync_duration_seconds` | histogram | Time per sync cycle |
 | `ythril_recall_degraded_total` | counter | Recalls answered with a **weaker pipeline than configured**, by `reason`. `rerank_unavailable` = the cross-encoder is configured but did not answer; `rerank_skipped_budget` = it was not attempted because the end-to-end `RECALL_BUDGET_MS` was already spent upstream. **This is the one to alert on**: these paths return HTTP 200 with a worse ranking, so they raise no error rate and barely move latency — a reranker down for a week is otherwise invisible. Both series report `0` from process start, so absent-vs-zero is never ambiguous. |
+| `ythril_media_jobs_pending` | gauge | Queued media/document embedding jobs by space |
+| `ythril_media_jobs_processing` | gauge | Jobs a worker is currently running, by space. **One long document shows as `1` here for its whole duration** — pair it with `ythril_embed_chunks_total` to tell slow from stuck |
+| `ythril_media_job_phase` | gauge | In-flight jobs by the pipeline step they are in (`render`, `vlm`, `embed`, `describe`, …, or `unknown` for a job that has not reported one). Steps report `0` once seen rather than disappearing |
+| `ythril_embed_chunks_total` | counter | Chunks put through the embedder, by space. Motion, not success: `rate(...[5m]) == 0` while `ythril_media_jobs_processing > 0` is a stuck job, a non-zero rate is a slow one |
+| `ythril_media_jobs_completed_total` | counter | Jobs that finished, by space and media type |
+| `ythril_media_jobs_failed_total` | counter | Jobs that exhausted their retries, by space and media type |
+| `ythril_media_jobs_retried_total` | counter | Attempts that failed and were re-queued, by space and media type — including a job whose claim was recovered while it was still running |
+| `ythril_media_jobs_failed` | gauge | Jobs sitting in the terminal `failed` state by space (a backlog, not a rate) |
+| `ythril_media_job_duration_seconds` | histogram | End-to-end time per job by media type |
 | `ythril_security_posture_checks` | gauge | This instance's own PASS/WARN/FAIL posture, by `level` — the same findings the boot log prints and `GET /api/about/security` serves, computed per scrape from the same function. **Alert on `level="fail"` > 0**: the checks that matter most produce no runtime symptom at all (`requireEncryptedTransport` on *without* `trustProxy` rejects every request with a 403 that looks like a client problem), and the only other way to notice was somebody reading the boot log of each instance. All three levels report `0` from process start. |
 
 Default Node.js process metrics (`nodejs_*`, `process_*`) are also included via [prom-client](https://github.com/siimon/prom-client)'s `collectDefaultMetrics()`.

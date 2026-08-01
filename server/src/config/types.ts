@@ -1712,6 +1712,15 @@ export interface MediaJobDoc {
    */
   progress?: { step: string; steps: string[]; done?: number; total?: number };
   /**
+   * Identifies the RUN that holds this job, not the job. Set on claim, cleared by stall recovery.
+   *
+   * Every heartbeat matches on it, so a run whose job was recovered while it was still working discovers
+   * that on its next tick and abandons — instead of embedding the same file alongside the new claimant,
+   * writing the same chunk ids, and possibly reporting `complete` on a job the queue has re-queued.
+   * Absent on jobs claimed by a build that predates the field; the heartbeat then behaves as it used to.
+   */
+  claimToken?: string | null;
+  /**
    * ISO8601 — when set on a `pending` job, the worker MUST NOT claim it
    * until this timestamp has passed. Used for exponential retry backoff so
    * a fast-failing "poison pill" job can’t monopolise the queue and starve

@@ -12,6 +12,7 @@ import type { StepProgress } from '../converters/types.js';
 import type { MediaJobDoc, FileMetaDoc } from '../../config/types.js';
 import { log } from '../../util/log.js';
 import { withJitter } from '../../util/backoff.js';
+import { newClaimToken, stalledJobWarning } from './lease.js';
 
 const MAX_ATTEMPTS = 3;
 
@@ -333,7 +334,12 @@ export async function claimNextJob(
         ],
       }),
       asUpdate<MediaJobDoc>({
-        $set: { status: 'processing', claimedAt: now, progressAt: now, claimableAfter: null, updatedAt: now },
+        // `claimToken` identifies THIS run of THIS job. Stall recovery clears it, so a heartbeat from a
+        // holder whose job was recovered matches nothing and the old run learns it has been replaced.
+        $set: {
+          status: 'processing', claimedAt: now, progressAt: now, claimableAfter: null, updatedAt: now,
+          claimToken: newClaimToken(),
+        },
         $inc: { attempts: 1 },
       }),
       { returnDocument: 'after', sort: { createdAt: 1 } },
@@ -505,16 +511,28 @@ export async function touchJobProgress(
   spaceId: string,
   jobId: string,
   progress?: StepProgress,
-): Promise<void> {
+  claimToken?: string | null,
+): Promise<boolean> {
   const now = new Date().toISOString();
   try {
-    await jobCollection(spaceId).updateOne(
-      asFilter<MediaJobDoc>({ _id: jobId, status: 'processing' }),
+    const res = await jobCollection(spaceId).updateOne(
+      // With a token, the heartbeat is also a lease check: it matches only while this run still holds the
+      // claim. Without one (an older caller), it degrades to the previous behaviour rather than failing.
+      asFilter<MediaJobDoc>({
+        _id: jobId,
+        status: 'processing',
+        ...(claimToken ? { claimToken } : {}),
+      }),
       // The step report rides along in the write the heartbeat already performs — reporting which
       // step is running costs nothing extra on top of saying that something happened.
       asUpdate<MediaJobDoc>({ $set: { progressAt: now, ...(progress ? { progress } : {}) } }),
     );
-  } catch { /* best-effort — see above */ }
+    return res.matchedCount > 0;
+  } catch {
+    // A failed heartbeat is not evidence the lease is gone — a dropped connection would otherwise abort a
+    // healthy job. Report "still ours" and let stall detection do its job on the next tick.
+    return true;
+  }
 }
 
 export async function resetStalledJobs(
@@ -538,12 +556,26 @@ export async function resetStalledJobs(
           // immediately re-claimable. Without this, a job that crashed mid-
           // execution would carry a stale future `claimableAfter` from a prior
           // failure and remain invisible to the worker until that timestamp.
-          $set: { status: 'pending', claimedAt: null, claimableAfter: null, updatedAt: now },
+          //
+          // `claimToken: null` is how the PREVIOUS holder finds out. If it is still alive — a slow job, not
+          // a dead one — its next heartbeat matches nothing and it abandons instead of racing the new run.
+          $set: { status: 'pending', claimedAt: null, claimableAfter: null, claimToken: null, updatedAt: now },
           $inc: { attempts: 1 },
         },
-        { returnDocument: 'after', sort: { claimedAt: 1 } },
+        { returnDocument: 'before', sort: { claimedAt: 1 } },
       ) as MediaJobDoc | null;
       if (!claimed) break;
+      // One WARN per job, naming the file, the silence, the size and the step. `returnDocument: 'before'`
+      // above is what makes that possible: the pre-reset document still carries the progress the job had
+      // reached, which is the whole diagnostic — the reset itself is not news, what it interrupted is.
+      let sizeBytes: number | undefined;
+      try {
+        const meta = await fileCollection(spaceId).findOne(
+          asFilter<FileMetaDoc>({ _id: claimed._id }), { projection: { sizeBytes: 1 } },
+        ) as { sizeBytes?: number } | null;
+        sizeBytes = meta?.sizeBytes;
+      } catch { /* the warning is worth more without the size than not at all */ }
+      log.warn(stalledJobWarning({ ...claimed, spaceId }, Date.now(), sizeBytes));
       // Crash-recovered jobs are immediately claimable again — re-arm the hint, otherwise the
       // claim walk would skip this space until the next full scan.
       markSpaceMayHaveWork(spaceId);
@@ -551,8 +583,10 @@ export async function resetStalledJobs(
     }
   }
 
-  if (reset > 0) {
-    log.info(`Media worker: reset ${reset} stalled job(s) to pending`);
+  if (reset > 1) {
+    // Each job already logged its own WARN above; this only adds the shape of a batch — several at once is
+    // a pod that died, one at a time is a job being outrun by the timeout.
+    log.info(`Media worker: reset ${reset} stalled job(s) to pending in one sweep`);
   }
 }
 

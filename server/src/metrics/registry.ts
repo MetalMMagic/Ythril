@@ -354,6 +354,65 @@ export const mediaJobsFailed = new Gauge({
   },
 });
 
+/**
+ * Which phase the in-flight jobs are in, counted by step.
+ *
+ * `ythril_media_jobs_processing` already says a job is running, and that is where the diagnosis stopped: a
+ * fleet with one 358 KB document saw `processing 1` for twenty minutes and could not tell reading from
+ * embedding from wedged. The jobs themselves have carried a step report for a while — the worker writes it
+ * with every heartbeat — so this is that field, aggregated. Nothing new is measured; something already
+ * measured is finally reachable from a dashboard.
+ *
+ * `step` comes from the route the document is actually taking (`render`, `vlm`, `embed`, `describe`, …), so
+ * it is not a fixed list here. Steps are remembered once seen and reported as `0` when no job is in them:
+ * a series that disappears cannot be alerted on, because absent and zero look the same in a query.
+ */
+const _seenJobSteps = new Set<string>();
+export const mediaJobPhase = new Gauge({
+  name: 'ythril_media_job_phase',
+  help: 'In-flight media jobs by the pipeline step they are currently in (collected at scrape time)',
+  labelNames: ['space', 'step'] as const,
+  registers: [register],
+  async collect() {
+    try {
+      const cfg = getConfig();
+      for (const space of cfg.spaces.filter(s => !s.proxyFor)) {
+        const rows = await col(`${space.id}_media_jobs`)
+          .find({ status: 'processing' }, { projection: { progress: 1 } })
+          .toArray() as Array<{ progress?: { step?: string } }>;
+        const counts = new Map<string, number>();
+        for (const r of rows) {
+          // A processing job with no step report is not "no jobs": it is a job whose phase predates the
+          // heartbeat, or one that has not reached its first step yet. Both are visible as `unknown`.
+          const step = r.progress?.step ?? 'unknown';
+          counts.set(step, (counts.get(step) ?? 0) + 1);
+        }
+        for (const step of counts.keys()) _seenJobSteps.add(step);
+        for (const step of _seenJobSteps) this.set({ space: space.id, step }, counts.get(step) ?? 0);
+      }
+    } catch { /* MongoDB may not be ready */ }
+  },
+});
+
+/**
+ * Chunks embedded, as they are embedded.
+ *
+ * The signal a fleet actually needs is not "how many jobs are running" but "is this one moving". A gauge
+ * cannot answer that; a counter can — `rate(ythril_embed_chunks_total[5m]) == 0` while
+ * `ythril_media_jobs_processing > 0` is the difference between a slow document and a stuck one, and it was
+ * exactly the question nobody could answer during a liveness crash loop.
+ *
+ * Counted per chunk regardless of whether the vector came out: a chunk that failed to embed still moved
+ * the job forward, and `ythril_media_jobs_*` already carry the failure story.
+ */
+export const embedChunksTotal = new Counter({
+  name: 'ythril_embed_chunks_total',
+  help: 'Document chunks put through the embedder, by space (motion, not success)',
+  labelNames: ['space'] as const,
+  registers: [register],
+});
+embedChunksTotal.labels({ space: '' }).inc(0);
+
 // ── Silent degradation ───────────────────────────────────────────────────────
 /**
  * Recall answered, but with a weaker pipeline than the instance is configured for.

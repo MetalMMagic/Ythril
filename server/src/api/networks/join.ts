@@ -207,6 +207,22 @@ joinRouter.post('/join-remote', globalRateLimit, requireAdmin, async (req, res) 
     secrets.peerTokens[applyData.instanceId] = tokenForB;
     saveSecrets(secrets);
 
+    // Hashed BEFORE the network is looked up, and that order is the point.
+    //
+    // It used to happen inside the `if` below, between binding `net` out of `freshCfg.networks` and pushing
+    // the member onto it. `getConfig()` survives a reload — the loader mutates the top-level object in
+    // place — but a NESTED reference does not: the arrays are replaced wholesale, so `net` would be left
+    // pointing at the previous array's object. The push would land on that detached object and
+    // `saveConfig(freshCfg)` would write the CURRENT config, which does not contain it.
+    //
+    // The result was a join that answered success while the peer was never recorded as a member. The window
+    // is a bcrypt hash, and two sync routes a peer can call (`/sync/members`, `/sync/votes`) reload the
+    // config on every request — so a peer casting a vote during another peer's join could erase it.
+    //
+    // No mutateConfig here on purpose: the branch below may CREATE the network and push it onto `freshCfg`,
+    // and a re-read would discard that. Removing the await from the window is the smaller, safer fix.
+    const tokenForAHash = await bcrypt.hash(tokenForAPlaintext, BCRYPT_ROUNDS);
+
     // Reload config to get fresh state (apply may have taken a few seconds)
     const freshCfg = getConfig();
     let net = freshCfg.networks.find(n => n.id === networkId);
@@ -227,7 +243,6 @@ joinRouter.post('/join-remote', globalRateLimit, requireAdmin, async (req, res) 
     }
 
     if (!net.members.some(m => m.instanceId === applyData.instanceId)) {
-      const tokenForAHash = await bcrypt.hash(tokenForAPlaintext, BCRYPT_ROUNDS);
       net.members.push({
         instanceId: applyData.instanceId,
         label: applyData.instanceLabel ?? 'remote',

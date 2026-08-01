@@ -33,6 +33,8 @@ import type { StepProgress } from './types.js';
 import { log } from '../../util/log.js';
 import { enqueueMediaJob } from '../media/job-queue.js';
 import { embedConcurrency } from './embed-concurrency.js';
+import { JobLeaseLostError, shouldHeartbeat } from '../media/lease.js';
+import { embedChunksTotal } from '../../metrics/registry.js';
 
 export type InputFormat = 'pdf' | 'docx' | 'epub' | 'html' | 'md' | 'txt' | 'text' | 'auto';
 
@@ -299,6 +301,19 @@ export async function storeConversionResults(
   chunks: Chunk[],
   convertedMarkdown: string | null,
   extractedImages: ExtractedImage[] = [],
+  /**
+   * Progress + lease, for the phase that takes the longest and reported neither.
+   *
+   * Conversion heartbeats per page; embedding did not heartbeat at all, so on a document with more than
+   * `stalledJobTimeoutMs` worth of chunks the queue concluded the job was wedged and re-queued it while it
+   * was still running. `onProgress` is what stops that, and `shouldStop` is what makes the *loser* of a
+   * recovery stop instead of racing the new claimant.
+   */
+  opts: {
+    onProgress?: (p: StepProgress) => void;
+    /** Checked between chunks; true means the claim is gone and this run throws `JobLeaseLostError`. */
+    shouldStop?: () => boolean;
+  } = {},
 ): Promise<{ chunkCount: number; convertedFileId: string | null; embedFailures: number }> {
   const originalId = toDocId(originalFilePath);
   const now = new Date().toISOString();
@@ -398,6 +413,22 @@ export async function storeConversionResults(
 
   const chunkDocs: FileMetaDoc[] = new Array(chunks.length);
 
+  // Heartbeat bookkeeping for this phase. `embedded` counts finished chunks across all workers, so the
+  // report is the document's progress rather than one worker's.
+  const EMBED_STEPS = ['embed'];
+  let embedded = 0;
+  let lastBeatAt = Date.now();
+  function reportChunk(): void {
+    embedded++;
+    // Motion, in a form a dashboard can rate(). Unthrottled on purpose: the heartbeat below is a database
+    // write and this is an in-process increment, and it is the counter that distinguishes slow from stuck.
+    embedChunksTotal.labels({ space: spaceId }).inc();
+    const isLast = embedded === chunks.length;
+    if (!opts.onProgress || !shouldHeartbeat(lastBeatAt, Date.now(), isLast)) return;
+    lastBeatAt = Date.now();
+    opts.onProgress({ step: 'embed', steps: EMBED_STEPS, done: embedded, total: chunks.length });
+  }
+
   let cursor = 0;
   async function embedWorker(): Promise<void> {
     for (;;) {
@@ -430,6 +461,13 @@ export async function storeConversionResults(
       // that answer /health) can sit behind the whole run. `setImmediate` puts this worker behind them
       // instead. Cheap: one macrotask per chunk against ~200 ms of work.
       await new Promise<void>(resolve => setImmediate(resolve));
+
+      // Say so, and check we are still the run that is allowed to. Both ride on the same tick: the
+      // heartbeat is throttled to one write per 2 s, and the lease answer it returns is what `shouldStop`
+      // reports here. A recovered job's old holder stops within a beat instead of embedding the same file
+      // alongside its replacement.
+      reportChunk();
+      if (opts.shouldStop?.()) throw new JobLeaseLostError(spaceId, originalId);
 
       chunkDocs[i] = {
         _id: chunkId,

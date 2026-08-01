@@ -53,6 +53,8 @@ import {
 } from '../converters/pipeline.js';
 import type { ResolvedFormat } from '../converters/pipeline.js';
 import { ConversionUnavailableError } from '../converters/types.js';
+import type { StepProgress } from '../converters/types.js';
+import { isLeaseLost } from './lease.js';
 import { effectiveDocExtractionMode } from '../converters/extraction-level.js';
 import { effectiveTextLevel, effectiveVideoLevel, videoDoesKeyframes } from '../converters/media-level.js';
 import fs from 'fs/promises';
@@ -284,6 +286,17 @@ async function processJob(
   const mimeType = mimeTypeForPath(filePath, job.mimeType);
   const endTimer = mediaJobDurationSeconds.startTimer({ media_type: mediaType });
 
+  // The claim this run holds. Every heartbeat carries it, and the answer says whether the claim is still
+  // ours: stall recovery clears the token, so a job recovered while this run was still working reports
+  // `false` on the next beat. `leaseLost` is what the long phases poll to stop early — without it a
+  // recovered job runs twice, both runs writing the same chunk ids and competing for the same CPU.
+  let leaseLost = false;
+  const heartbeat = (p?: StepProgress): void => {
+    void touchJobProgress(spaceId, String(fileId), p, job.claimToken).then(stillOurs => {
+      if (!stillOurs) leaseLost = true;
+    });
+  };
+
   try {
     // Load file bytes from disk
     const absolutePath = resolveFilePath(spaceId, filePath);
@@ -372,12 +385,15 @@ async function processJob(
           {
             mode: spaceMode,
             textLevel: spaceTextLevel,
-            onProgress: (p) => { void touchJobProgress(spaceId, String(fileId), p); },
+            onProgress: heartbeat,
           },
         );
         if (chunks.length > 0 || extractedImages.length > 0) {
           const { chunkCount, convertedFileId, embedFailures } = await storeConversionResults(
             spaceId, filePath, chunks, convertedMarkdown, extractedImages,
+            // Embedding is the longest phase and reported nothing, so a document with more than
+            // `stalledJobTimeoutMs` of chunks in it was recovered mid-flight every time.
+            { onProgress: heartbeat, shouldStop: () => leaseLost },
           );
           const metaUpdate: Record<string, unknown> = { chunkCount };
           if (convertedFileId) metaUpdate['convertedFileId'] = convertedFileId;
@@ -398,6 +414,9 @@ async function processJob(
           // generated, and on an invoice the head of the text is a payment reference cut mid-identifier.
           // `describeDocument` asks the model that already reads these files what the file IS, keeps the
           // document's own opening prose as the excerpt either way, and reports which one it produced.
+          // One beat before the describe pass: it is a single model call with its own timeout, so the stall
+          // clock should start when the phase does rather than partway through the one before it.
+          heartbeat({ step: 'describe', steps: ['describe'] });
           const described = await describeDocument(convertedMarkdown, chunks);
           derivedDescription = described.text;
           derivedSource = described.source;
@@ -452,6 +471,17 @@ async function processJob(
     log.info(`Media worker: completed ${mediaType} job ${spaceId}/${fileId} (${fileEmbeddingStatus})`);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    // A lost lease is not a failed job. Stall recovery has already put this file back in the queue with an
+    // attempt spent, and another claimant is on it: calling failJob here would spend a SECOND attempt and
+    // write a `lastError` describing nothing that went wrong, and calling completeJob would report a
+    // re-queued job as done. So this run simply stops, and says why at WARN so the pair is visible.
+    if (isLeaseLost(err)) {
+      log.warn(`Media worker: abandoning ${spaceId}/${fileId} — its claim was recovered while it was still`
+        + ` running, and another attempt now owns it. This means the job was slower than`
+        + ` stalledJobTimeoutMs, not stuck: see the re-queue warning above for how long it was silent.`);
+      mediaJobsRetriedTotal.labels({ space: spaceId, media_type: mediaType }).inc();
+      return;
+    }
     log.warn(`Media worker: job ${spaceId}/${fileId} failed: ${message}`);
     // An oversized document will never shrink — fail permanently instead of
     // burning the retry budget re-reading a file the pipeline refuses to convert.

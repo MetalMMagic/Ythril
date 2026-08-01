@@ -300,6 +300,13 @@ fabricated progress. `progressAt` is the last report, which is what distinguishe
 wedged one — compare it against `stalledJobTimeoutMs`. Both fields are absent once the job finishes,
 and while a claimed job has not yet reported its first step.
 
+The `embed` step reports too, throttled to one write every 2 s. Until 2.2.3 it did not, so a document with
+more than `stalledJobTimeoutMs` of chunk-embedding in it looked wedged from the moment conversion finished:
+recovery re-queued it mid-flight, a second worker started the same file over, and both ran at once. Recovery
+now also **withdraws the claim** it re-queues, so the previous holder stops at its next heartbeat instead of
+racing its replacement — the abandoned run logs `abandoning …, its claim was recovered`, and the re-queue
+itself logs one `warn` naming the file, how long it was silent, its size and the step it had reached.
+
 Media files (image/audio/video) are likewise queued and report `embeddingStatus` of `pending`,
 `disabled` (media embedding turned off) or `skipped` (over `maxFileSizeBytes`). Only the `"text"`
 bypass is fully synchronous: it stores a single flat embedding with no chunking and no job.
@@ -907,7 +914,7 @@ The worker-tuning fields — `workerConcurrency`, `workerPollIntervalMs`, `worke
 | `workerMaxPollIntervalMs` | `WORKER_MAX_POLL_INTERVAL_MS` | `30000` | Max poll interval when idle (ms) |
 | `fallbackToExternal` | `MEDIA_EMBEDDING_FALLBACK_TO_EXTERNAL` | `false` | Use external provider if local fails |
 | `maxFileSizeBytes` | `MAX_FILE_SIZE_BYTES` | `524288000` | Skip embedding for files above this size (500 MiB) |
-| `stalledJobTimeoutMs` | `STALLED_JOB_TIMEOUT_MS` | `300000` | Re-queue jobs stuck in processing for > N ms |
+| `stalledJobTimeoutMs` | `STALLED_JOB_TIMEOUT_MS` | `300000` | Re-queue a job that has reported no progress for > N ms. Measured from the last heartbeat, not from the claim, and re-queuing now withdraws the running claim so the previous holder stops rather than racing its replacement. Each re-queue logs one `warn` with the file, the silence, the size and the step. |
 
 > **Large documents, CPU limits and liveness probes.** With the **bundled in-process** embedder, one ~2 KB
 > chunk costs roughly 200 ms of CPU and blocks the event loop for most of it. A 350 KB document is hundreds

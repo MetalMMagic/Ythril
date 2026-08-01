@@ -23,6 +23,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A document that took longer than `stalledJobTimeoutMs` to embed was re-queued while it was still
+  running — and then ran twice.** Stall recovery measures from the last progress report, and the chunk-embed
+  phase reported nothing at all: conversion heartbeat per page, then silence for however long hundreds of
+  chunks take. So the phase that takes the longest was the one that looked wedged, and recovery did what it
+  is for — except the previous holder was alive. Two runs then embedded the same file concurrently, writing
+  the same chunk `_id`s and competing for the CPU the first one was already too slow on, with `attempts`
+  climbing until the job failed for "exhausted retries" having never actually failed.
+  - **The embed phase heartbeats**, throttled to one write every 2 s, and its `progress` reports
+    `embed done/total` — so the phase is visible in the Files view as well as to the stall detector.
+  - **A claim can now be withdrawn.** Recovery clears the job's `claimToken`; the next heartbeat from the old
+    holder matches nothing, and that run abandons instead of racing its replacement. It does not `failJob`
+    (which would spend a second attempt on a job that did nothing wrong) and cannot `completeJob` (which
+    would report a re-queued job as done).
+  - **The re-queue log is a `warn` that names the file, how long it was silent, its size, the step it had
+    reached and which attempt it was** — and says which of the two things it is: "if the file is large and
+    the instance is CPU-bound this is a slow job being killed, not a stuck one". It used to be
+    `reset 1 stalled job(s) to pending` at `info`.
+  - Pinned by `job-lease-db.test.js` against a real MongoDB — the question is whether an update *matched*,
+    which only a database can answer — plus `job-lease.test.js` for the throttle, the abandonment signal and
+    the warning text. Both mutations (recovery not clearing the token, heartbeat ignoring it) fail the suite.
+- **Every media-pipeline metric was exposed and undocumented — including the one that was asked for.** A
+  fleet debugging a document that would not finish asked for a gauge showing one long job in flight;
+  `ythril_media_jobs_processing` had been shipping since 1.x. It, `ythril_media_jobs_pending`,
+  `_completed_total`, `_failed_total`, `_retried_total`, `_failed` and `ythril_media_job_duration_seconds`
+  were absent from the metrics table while every other family was listed. An undocumented metric is one an
+  operator cannot find.
+  - All seven are documented now, and `metric-docs-coverage.test.js` enumerates `metrics/registry.ts` in both
+    directions, so a metric added without a row fails the build rather than being found by a customer.
+  - Two genuinely missing signals added, because "a job is running" was never the question:
+    **`ythril_media_job_phase{space,step}`** — in-flight jobs by the pipeline step they are in, aggregated
+    from the step report the worker already writes; and **`ythril_embed_chunks_total{space}`** — chunks put
+    through the embedder. `rate(ythril_embed_chunks_total[5m]) == 0` while `ythril_media_jobs_processing > 0`
+    is a stuck job; a non-zero rate is a slow one. That distinction is what the crash loop lacked.
+  - A step reports `0` once it has been seen rather than dropping out of the scrape: an absent series and a
+    zero one are the same query result, so a disappearing label silently stops an alert from evaluating.
+
 - **Clearing the embedding endpoint from the UI kept the old one, with a `200` and no log line.** The admin
   PATCH handler deleted the cleared key from the *patch* and then spread the patch over the stored block — so
   the `null` was gone before it could meet the value it was meant to clear. The configured URL survived, and

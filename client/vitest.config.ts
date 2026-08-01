@@ -30,6 +30,19 @@ export default defineConfig({
     // The cost is that a genuinely hung test now takes 20s to report instead of 5s. The suite
     // completes in ~9s when healthy, so that is a rare price for a stable signal.
     testTimeout: 20_000,
+    // Same argument, one stage later: the POOL's shutdown deadline, not a test's.
+    //
+    // Twice on 2026-08-01 the suite reported `844 passed (844)` and then failed the run with
+    // `Error: Failed to terminate worker` out of tinypool — a fork that had finished its file and had not
+    // exited before the pool's destroy deadline. Both times it was under `npm run preflight`, which builds
+    // the server and the client bundle first and leaves the machine loaded; two bare `vitest run` invocations
+    // straight afterwards were clean. So this is the shutdown ceiling being wrong on a busy machine, exactly
+    // as `testTimeout`'s 5 s ceiling was.
+    //
+    // The cost of raising it is that a genuinely wedged worker takes 30 s to report instead of 10 s, once,
+    // at the very end of a run. The cost of leaving it is a gate that goes red at random with every single
+    // test passing — and a gate people stop trusting is a gate they stop running.
+    teardownTimeout: 30_000,
     // Default per-file isolation (each spec file in its own fork) — so each file gets a fresh
     // Angular test platform and TestBed. A shared/single fork instead leaked TestBed state
     // between files (a component created by one file broke the next) and double-created the

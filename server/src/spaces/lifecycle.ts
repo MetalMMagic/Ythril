@@ -16,6 +16,7 @@ import type { SpaceConfig, SpaceMeta, MemoryDoc } from '../config/types.js';
 import { VECTOR_INDEXED_COLLECTIONS, buildSpaceVectorIndexes, finalizeSpaceIndexReady } from './vector-index.js';
 import { SPACE_COLLECTIONS, repairStaleSpaceIds, dropLegacyPrefixedIndexes, pendingOpConflictMessage , setReindexNeeded, beginSpaceOp, endSpaceOp, spaceOpInFlight } from './_shared.js';
 import { moveSpaceData, applySpaceRenameToConfig } from './rename.js';
+import { ensureMediaJobIndexes } from '../files/media/job-queue.js';
 
 export async function initSpace(
   spaceId: string,
@@ -100,6 +101,26 @@ export async function initSpace(
   // Chunk records point at their file through `parentFileId`. Both the chunk-grouping reads and
   // completeness' "was this file ever chunked" join go through it.
   await filesColl.createIndex({ parentFileId: 1 });
+
+  // ── The media job queue: the most-polled collection in the product, and it had no index at all ──
+  //
+  // Nine collections above get indexes and this one did not, while the worker asks it a question **every
+  // second**. Three queries carry all of the traffic:
+  //
+  //   claimNextJob      { status, $or:[claimableAfter …] }  sort { createdAt: 1 }   — per space, per tick
+  //   resetStalledJobs  { status, progressAt < cutoff }      sort { claimedAt: 1 }   — per space, per sweep
+  //   the /metrics collectors                                                        — four reads per scrape
+  //
+  // Every one of them was a collection scan followed by an in-memory sort. And the collection is not
+  // transient: `completeJob` sets `status: 'complete'` and nothing prunes it, so it holds one document per
+  // file ever uploaded. The scan therefore grows with the AGE of the instance, not with its backlog — a
+  // queue with nothing in it costs more to poll every month it stays up.
+  //
+  // Local, non-synced state (job records do not replicate), so a boot-time idempotent create is the right
+  // shape here rather than a self-healing read path.
+  // The key patterns are declared next to the queries they serve, in job-queue.ts, and created by its own
+  // function — so this cannot drift from them and the database-level test exercises the same call.
+  await ensureMediaJobIndexes(spaceId);
 
   // Lexical retrieval index — the BM25-family half of hybrid search (`brain/lexical-search.ts`).
   //

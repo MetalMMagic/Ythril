@@ -470,6 +470,19 @@ Ythril sets the following headers on every response:
 | `Referrer-Policy` | `no-referrer` | Strips referrer on outbound requests |
 | `X-Request-Id` | UUID | Unique per-request ID for tracing (logged server-side) |
 
+**Compression**: Ythril compresses its own responses (gzip/deflate, negotiated per request) — you do not
+need to configure it on a proxy, and enabling it there as well only re-compresses what is already
+compressed. Measured on the shipped bundle: `main-*.js` 18 169 -> 6 504 bytes, `/metrics` 18 491 -> 3 132
+bytes. **Server-Sent Events are deliberately excluded** (`/api/brain/spaces/:id/events`, the About
+heartbeat): a compressor holds bytes back until it can emit a block, which turns a live stream into
+batches. If you enable compression on a proxy in front, exclude `text/event-stream` there too.
+
+**Caching**: content-hashed build assets (`main-<hash>.js`, `chunk-<hash>.js`, `styles-<hash>.css`) are
+served `public, max-age=31536000, immutable`. Everything else — `index.html` above all, and the unhashed
+`assets/i18n/*.json` — is `no-cache`, which still permits a `304` but never a stale read. Do not add a
+blanket `Cache-Control` on your proxy: caching `index.html` pins a browser to chunk hashes that the next
+release deletes, and the browser then requests JavaScript and gets HTML.
+
 **HSTS**: Since Ythril does not terminate TLS itself, `Strict-Transport-Security` should be set on your reverse proxy (Traefik, Nginx, Caddy).
 
 **CORS**: No `Access-Control-*` headers are set. The Angular SPA is served from the same origin, so cross-origin browser requests are blocked by default. If you need CORS for a custom frontend, configure it on your reverse proxy.

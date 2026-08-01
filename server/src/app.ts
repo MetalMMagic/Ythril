@@ -1,4 +1,6 @@
 import express from 'express';
+import compression from 'compression';
+import { shouldCompress, staticCacheControl } from './util/transfer.js';
 import path from 'path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
@@ -102,6 +104,20 @@ export function createApp() {
   } else {
     log.debug(`trust proxy = ${JSON.stringify(trustProxy)}`);
   }
+
+  // ── Response compression ─────────────────────────────────────────────────
+  //
+  // Measured before it was added: `client/dist/browser` is 5.83 MiB of JS/CSS/HTML and 1.64 MiB gzipped —
+  // 72%, or 4.19 MiB per cold load — and API list responses compress in the same range on every interaction.
+  // Nothing was compressed at all, and there is no reverse proxy to assume: in this product the Node process
+  // IS the web server.
+  //
+  // First in the chain, because it wraps `res.write`/`res.end` for everything downstream. The filter is
+  // `shouldCompress` (see `util/transfer.ts`) — an event stream must NOT be compressed or it stops being
+  // live, and that failure is invisible to any test that only asks whether the event eventually arrived.
+  app.use(compression({
+    filter: (req, res) => shouldCompress(req, res, compression.filter),
+  }));
 
   // ── Request body parsers ─────────────────────────────────────────────────
   app.use(express.json({ limit: '10mb' }));
@@ -547,7 +563,13 @@ export function createApp() {
   // ── Angular SPA — static assets ──────────────────────────────────────────
   // Serve the compiled Angular app. All non-API routes fall through to
   // index.html so Angular's client-side router handles navigation.
-  app.use(express.static(clientDist));
+  // Content-hashed chunks are cached for a year and immutable; everything else — index.html above all, and
+  // the unhashed `assets/i18n/*.json` — is `no-cache`, which still allows a 304 but never a stale read. The
+  // rule lives in `staticCacheControl` because getting it backwards pins a browser to chunk hashes that no
+  // longer exist, which is exactly the failure the fallback comment below describes.
+  app.use(express.static(clientDist, {
+    setHeaders: (res, filePath) => { res.setHeader('Cache-Control', staticCacheControl(filePath)); },
+  }));
 
   // ── SPA fallback — return index.html for unmatched NAVIGATION requests ────
   //

@@ -17,6 +17,40 @@ import { newClaimToken, stalledJobWarning } from './lease.js';
 const MAX_ATTEMPTS = 3;
 
 /**
+ * The indexes `<space>_media_jobs` needs, declared where the queries live.
+ *
+ * `initSpace` creates them; the database-level test creates them from THIS list and then asserts the winning
+ * plan for the real queries. One source, so a test cannot pass against indexes the product does not build —
+ * which is exactly what happens when a test declares its own copy of a schema.
+ *
+ * Nine sibling collections had indexes and this one had none, while the worker queries it every second and
+ * nothing ever prunes it (a completed job stays until its file is deleted). Each entry says which query it
+ * serves; add one only with the query that needs it.
+ */
+export const MEDIA_JOB_INDEXES: Array<Record<string, 1>> = [
+  // claimNextJob: { status, $or:[claimableAfter …] } sorted by createdAt. Status leads because every query
+  // pins it to one value; createdAt last so the sort is satisfied by the index rather than in memory.
+  { status: 1, claimableAfter: 1, createdAt: 1 },
+  // resetStalledJobs: { status, progressAt < cutoff }. Its prefix also serves the three `{status}` counts the
+  // metric collectors take per space per scrape.
+  { status: 1, progressAt: 1 },
+];
+
+/**
+ * Create the job-queue indexes for one space. Idempotent — an existing index of the same shape is a no-op,
+ * which is what makes this safe to run on every boot for every space, including spaces that predate it.
+ *
+ * Exported so `initSpace` has one call to make and the database-level test can exercise the REAL creation
+ * path. A test that builds its own indexes and then asserts a query plan proves that the KEY PATTERNS work;
+ * it says nothing about whether the product ever creates them.
+ */
+export async function ensureMediaJobIndexes(spaceId: string): Promise<void> {
+  for (const keys of MEDIA_JOB_INDEXES) {
+    await jobCollection(spaceId).createIndex(keys);
+  }
+}
+
+/**
  * Exponential backoff schedule (in ms) keyed by next attempt number.
  * After attempt 1 fails → wait 30 s; after 2 fails → wait 2 min.
  * The cap (`maxAttempts`) means we never schedule a wait beyond attempt 3.

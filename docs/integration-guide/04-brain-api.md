@@ -1102,6 +1102,65 @@ GET /api/brain/spaces/:spaceId/stats
 
 ---
 
+### Space Activity
+
+Is this space earning its keep? `stats` says how much is *in* a space; this says whether anyone is getting
+anything *out* of it.
+
+```http
+GET /api/brain/spaces/:spaceId/activity?hours=24
+```
+
+`hours` defaults to 24 and is clamped to 1…2160 (90 days, the bucket retention). A proxy space reports its
+members' rows.
+
+**Response** `200`:
+
+```json
+{
+  "spaceId": "reporting",
+  "hours": 24,
+  "spaces": [
+    {
+      "space": "reporting",
+      "calls": 412,
+      "recall": 380,
+      "answered": 41,
+      "writes": 12,
+      "meanMs": 63,
+      "maxMs": 1840,
+      "over1s": 3,
+      "meanTopScore": 0.31,
+      "lastUsedAt": "2026-08-01T14:00:00.000Z"
+    }
+  ]
+}
+```
+
+**Read `recall` and `answered` together — that is the point of the endpoint.** 380 queries and 41 answers is
+not a popular space; it is a space people keep failing to get an answer out of, and a call count alone cannot
+tell the two apart. `meanTopScore` is the mean best-hit score across **answered** recalls only, so it stays
+inside 0…1 and is `null` when nothing was answered (rather than `0`, which would read as "answers are bad"
+instead of "there were none").
+
+`meanMs` is over all classes of call, `over1s` counts those slower than a second, and `maxMs` is a true
+maximum. **There is no percentile**, deliberately: a mean stored per hour cannot be recombined into a p95, so
+a p95 here would either be a fabrication or require keeping every sample.
+
+| field | counts |
+|---|---|
+| `recall` | `recall`, `query` and `find_similar` — demand on the brain |
+| `writes` | anything that changed a record or added a file, including curation (resolving a conflict, merging a duplicate) |
+| `calls` | all four classes: recall, reads, writes and file traffic |
+
+Operator work on the instance — creating a space, casting a network vote, rotating a token — is **not**
+counted, even though those requests carry a space id. Counting them would credit a brand-new empty space with
+activity it never had.
+
+Buckets are hourly and in UTC, kept for 90 days. A window with no calls returns an empty `spaces` array.
+
+---
+
 ### Check Reindex Status
 
 ```http

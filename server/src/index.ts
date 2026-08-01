@@ -215,6 +215,11 @@ async function main(): Promise<void> {
     // Only now is nothing mid-request. Persist coalesced config writes (sync watermarks), then drop
     // the database connection.
     await flushConfig();
+    // The last partial minute of per-space usefulness counters. After the drain, so calls that finished while
+    // connections were closing are counted too — and before `closeMongo`, since this needs the connection.
+    const { stopSpaceActivityFlush } = await import('./metrics/space-activity-store.js');
+    await stopSpaceActivityFlush().catch(err =>
+      log.debug(`Shutdown: space activity flush failed: ${err instanceof Error ? err.message : String(err)}`));
     await closeMongo();
     process.exit(0);
   };

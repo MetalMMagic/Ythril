@@ -130,6 +130,19 @@ describe('space activity — accumulation', () => {
     assert.equal(row.totals.maxMs, 60);
   });
 
+  it('ignores a score on an UNANSWERED call, or the mean leaves the 0..1 range', () => {
+    // `sumTopScore` is divided by `answered`. Accumulating a score from a call that found nothing produced
+    // means above 1.0 — a similarity score that cannot exist — and a caller with a score to hand will pass it
+    // whether or not the call was answered.
+    drainSpaceActivity();
+    recordSpaceCall('mixed', 'recall', { ms: 10, answered: false, topScore: 0.3 });
+    recordSpaceCall('mixed', 'recall', { ms: 10, answered: true, topScore: 0.8 });
+    const row = peekSpaceActivity().find(r => r.space === 'mixed');
+    assert.equal(row.totals.answered, 1);
+    assert.equal(row.totals.sumTopScore, 0.8);
+    assert.ok(row.totals.sumTopScore / row.totals.answered <= 1, 'a mean score must stay inside 0..1');
+  });
+
   it('counts slow calls instead of pretending to store a percentile', () => {
     drainSpaceActivity();
     recordSpaceCall('slow', 'recall', { ms: 1_500 });

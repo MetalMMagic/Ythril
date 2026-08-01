@@ -94,7 +94,13 @@ export function recordSpaceCall(
   if (ms > t.maxMs) t.maxMs = ms;
   if (ms > SLOW_MS) t.over1s++;
   if (opts.answered) t.answered++;
-  if (typeof opts.topScore === 'number' && Number.isFinite(opts.topScore)) t.sumTopScore += opts.topScore;
+  // Only an ANSWERED call contributes a score, because `sumTopScore` is divided by `answered` to get a mean.
+  // Accumulating it unconditionally made the mean meaningless — 100 calls each reporting 0.3 with 5 answered
+  // came out as 6.0, which is not even inside the range a similarity score can take. Found by a test whose
+  // fixture passed a score on every call, which is exactly what a real caller does when it has one.
+  if (opts.answered && typeof opts.topScore === 'number' && Number.isFinite(opts.topScore)) {
+    t.sumTopScore += opts.topScore;
+  }
 }
 
 /**

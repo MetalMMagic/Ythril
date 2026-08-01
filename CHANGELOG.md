@@ -178,6 +178,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     that could never succeed, because a regex over source cannot know that cosine similarity is undefined at
     the origin. The query vector is now an exported value and the tests assert **its magnitude**.
 
+- **A network join could report success while never recording the peer as a member.** Adding the member
+  happened through a reference taken out of `config.networks` *before* a bcrypt hash — and while the top-level
+  config object survives a reload (the loader mutates it in place, deliberately), a **nested** reference does
+  not: the arrays are replaced wholesale, so the push landed on a detached object and the save wrote a config
+  without it. Silent: the join answered `joined`, and the peer simply was not there.
+  - **The window is reachable by a remote peer.** Reloads happen at runtime from the config-file watcher and
+    from two sync routes (`POST /api/sync/members`, `POST /api/sync/votes`), so a peer casting a vote during
+    another peer's join could erase it.
+  - Fixed by hoisting the hash above the lookup, so no `await` sits inside the window. Not `mutateConfig`
+    there: that branch may *create* the network and push it onto the config, and a re-read would discard it.
+  - Found by a code comment that pointed at a tracker item which had been dropped from the tracker. **25
+    candidate sites, 3 matched the shape, 1 was real** — the other two were a cache fast path whose write
+    already re-resolves by id, and a binding taken *after* its await. The gate is scope-aware so it does not
+    fail on those forever, and it carries a self-test proving it still detects the shape it exists for.
+  - The reproduction is offline and asserts the loss against the real loader, then shows `mutateConfig`
+    repairing it — so the mechanism is demonstrated rather than described.
+
 - **An MCP write refusal now carries its structure, not just a sentence about it.** A schema refusal
   distinguishes violations the write **introduced** from ones the record **already had** — the distinction
   that separates *"fix your patch"* from *"this record was already broken here, and your write is the moment

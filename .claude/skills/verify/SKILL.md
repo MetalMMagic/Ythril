@@ -23,10 +23,15 @@ delete the scratch config files, drop the scratch DB
 (`node -e "...MongoClient... db('ythril_scratch').dropDatabase()"` using the repo's mongodb package),
 restart. The server caches config in memory — a restart is required.
 
-## Client dev server
+## Client: prefer the BUILT bundle over `ng serve`
 
-`proxy.conf.json` targets 3210 — make a scratch copy pointing at 3260 (must be UTF-8 **without BOM**;
-PowerShell 5.1 `-Encoding utf8` writes a BOM and ng fails with `[1,1] InvalidSymbol`):
+The server already serves the compiled SPA — `express.static(client/dist/browser)` with an index.html
+fallback — so `npm run build:client` and then driving **`http://localhost:3260`** needs no second process, no
+proxy file, and tests the bundle that actually ships. Rebuild after each client edit (~7 s).
+
+Only reach for the dev server when you need HMR or source maps. `proxy.conf.json` targets 3210, so make a
+scratch copy pointing at 3260 (must be UTF-8 **without BOM**; PowerShell 5.1 `-Encoding utf8` writes a BOM
+and ng fails with `[1,1] InvalidSymbol`):
 
 ```powershell
 Set-Location client; npx ng serve --port 4260 --proxy-config <scratch>\proxy.conf.json
@@ -36,10 +41,17 @@ Set-Location client; npx ng serve --port 4260 --proxy-config <scratch>\proxy.con
 
 `npm i playwright` in a scratch dir; launch with `channel: 'msedge'` (installed on this machine — no browser download).
 
-Flow and selectors that work:
-- `/` unauthenticated → redirects to `/login`; click "Run first-time setup" → `/setup`.
-- Setup: `#label`, `#pw`, `#pw2`, submit → `.alert-success`, token in `.code-block span` (save it!), "Continue to sign in".
+Flow and selectors that work (verified 2026-08-01 against the built bundle on :3260):
+- Served from the bundle, the **server itself** redirects `/` → `/setup` on a first run. There is no `/login`
+  hop to click through, so wait for `/(setup|login)` and branch.
+- Setup is **label-only**: `#label` then `#submitBtn`. There are no `#pw`/`#pw2` fields and no
+  `.alert-success` — the token lands in an input, readable as `input#token`'s `value` (or from the page text,
+  `ythril_…`). **Save it: it is shown once.** Behind the dev proxy the older flow (`.code-block span`,
+  "Continue to sign in") may still apply.
 - Login: `#token` + submit; bad token → "Invalid or expired token.".
+- **`/files` redirects to `/brain`.** The file manager is a Brain **tab** ("Files", with a count badge), not
+  its own route. Its upload `<input type=file>` is `hidden` inside a label — `setInputFiles` works on it, but
+  only once the tab is open.
 - Spaces/Tokens create flows are dialogs: "Create New Space" / "Create Token" buttons open them; submit with
   `getByRole('button', {name: 'Create', exact: true})` — `has-text` is case-insensitive and matches the opener button too.
 - Brain tabs (Query, Graph, Files, Entities, Edges, Memories, Chrono, File Meta) carry count badges —

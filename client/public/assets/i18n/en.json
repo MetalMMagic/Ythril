@@ -570,6 +570,7 @@
   "files.download": "Download",
   "files.downloadFailed": "Download failed.",
   "files.renameEntryAriaLabel": "Rename entry",
+  "files.reembedAriaLabel": "Re-embed file",
   "files.deleteEntryAriaLabel": "Delete entry",
   "files.closePreviewAriaLabel": "Close preview",
   "files.emptyFolder.title": "Empty folder",

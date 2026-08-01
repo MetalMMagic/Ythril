@@ -16,6 +16,16 @@
  * To run these tests meaningfully, execute them inside the Linux Docker
  * container or in a Linux CI environment.
  *
+ * @needs-instance — reads files the SERVER wrote (config.json, secrets.json, token.txt under
+ * testing/sync/configs/a/); runs in CI, skipped by preflight.
+ *
+ * That declaration was missing, and the gap is not cosmetic: `config.json` is a bind-mounted file that
+ * SURVIVES `npm run test:down`, while `token.txt` is written at boot and does not. So after a teardown this
+ * suite still selected the test-stack config, then died in `before()` with
+ * `ENOENT … testing/sync/configs/a/token.txt` — and took four sibling tests down as cancelled. Preflight
+ * reported a red gate for a stack that was deliberately stopped, which is the "gitignored generated state"
+ * trap: existence of one artefact was read as evidence that all of them are there.
+ *
  * Run: node --test testing/standalone/secrets-permissions.test.js
  */
 

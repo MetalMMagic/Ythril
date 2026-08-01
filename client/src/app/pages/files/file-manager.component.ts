@@ -672,7 +672,28 @@ function xlsxCellText(v: unknown): string {
                           [attr.aria-label]="'files.downloadAriaLabel' | transloco"
                         ><ph-icon name="download-simple" [size]="16"/></button>
                       }
-                      <button class="btn-ghost btn btn-sm" (click)="startRename(entry)">{{ 'files.rename' | transloco }}</button>
+                      @if (canRequeue(entry)) {
+                        <!-- Re-embedding was reachable only from the detail pane, so fixing a file whose
+                             embedding failed meant OPENING it first — and the row already tells you it
+                             failed. The action belongs where the diagnosis is. Hidden while a job is
+                             pending or processing: the server refuses that with a 409, and an action that
+                             exists only to be refused is worse than one that is absent. -->
+                        <button
+                          type="button"
+                          class="btn-ghost btn btn-sm"
+                          [disabled]="requeueingPath() === relPath(entry)"
+                          (click)="requeueEmbedding(entry)"
+                          [attr.title]="'brain.fileMeta.retryEmbedding' | transloco"
+                          [attr.aria-label]="'files.reembedAriaLabel' | transloco"
+                        ><ph-icon name="arrows-clockwise" [size]="16"/></button>
+                      }
+                      <!-- Rename is a pencil, not the word: it sat as the one text button among icons, so it
+                           set the width of the actions column on every row and pushed delete off the edge on
+                           a narrow window. Same label, on hover and for assistive tech. -->
+                      <button class="btn-ghost btn btn-sm" (click)="startRename(entry)"
+                        [attr.title]="'files.rename' | transloco"
+                        [attr.aria-label]="'files.renameEntryAriaLabel' | transloco"
+                      ><ph-icon name="pencil-simple" [size]="16"/></button>
                       <button class="icon-btn danger" (click)="deleteEntry(entry)" [attr.aria-label]="'files.deleteEntryAriaLabel' | transloco"><ph-icon name="x" [size]="16"/></button>
                     </td>
                   </tr>
@@ -847,7 +868,9 @@ function xlsxCellText(v: unknown): string {
                       <button class="btn btn-sm btn-primary" type="submit" [disabled]="metaSaving()">{{ 'common.save' | transloco }}</button>
                       <button class="btn btn-sm btn-secondary" type="button" (click)="cancelMeta()">{{ 'common.cancel' | transloco }}</button>
                       @if (pf.embeddingStatus === 'failed' || pf.embeddingStatus === 'partial') {
-                        <button class="btn btn-sm btn-ghost" type="button" [disabled]="retrying()" (click)="retryMeta(pf)">{{ 'brain.fileMeta.retryEmbedding' | transloco }}</button>
+                        <button class="btn btn-sm btn-ghost" type="button"
+                          [disabled]="requeueingPath() === relPath(pf)"
+                          (click)="requeueEmbedding(pf)">{{ 'brain.fileMeta.retryEmbedding' | transloco }}</button>
                       }
                     </div>
                   </form>
@@ -1142,8 +1165,14 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   metaEditModel = { description: '', tags: [] as string[], entityIds: '', memoryIds: [] as string[], chronoIds: [] as string[] };
   metaSaving = signal(false);
   metaError = signal<string | null>(null);
-  /** True while a retry-embedding request for the open file is in flight. */
-  retrying = signal(false);
+  /**
+   * The path whose re-embed request is in flight, or '' when none is.
+   *
+   * A path rather than a boolean because the action is now on every row as well as in the detail pane: one
+   * shared boolean would grey out every row's button while a single file was being re-queued, which reads as
+   * "the whole list is busy".
+   */
+  requeueingPath = signal('');
 
   // ── Tree sidebar state ───────────────────────────────────────────────────
   sidebarOpen = signal(localStorage.getItem('ythril.sidebar') !== 'closed');
@@ -1664,7 +1693,8 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   }
 
   /** Space-relative path of an entry (matches the FileMeta `_id`/`path`; leading slashes stripped). */
-  private relPath(entry: FileEntry): string {
+  /** Public because the template compares it against `requeueingPath()` to disable one row's button. */
+  relPath(entry: FileEntry): string {
     return this.join(this.currentPath(), entry.name).replace(/^\/+/, '');
   }
 
@@ -1731,16 +1761,37 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     });
   }
 
-  /** Re-queue embedding for the open file (shown only when its status is failed/partial). */
-  retryMeta(entry: FileEntry): void {
-    this.retrying.set(true);
-    this.filesApi.retryEmbedding(this.activeSpaceId(), this.relPath(entry)).subscribe({
+  /**
+   * Can this entry's embedding be re-queued from its row?
+   *
+   * Not while a job is `pending` or `processing`: the server answers those with a `409`, and an action whose
+   * only outcome is a refusal is worse than one that is not offered. A file with no status at all has no job
+   * to retry — an upload still in flight, or a type this instance does not embed.
+   */
+  canRequeue(entry: FileEntry): boolean {
+    if (!entry.isFile || !entry.embeddingStatus) return false;
+    return entry.embeddingStatus !== 'pending' && entry.embeddingStatus !== 'processing';
+  }
+
+  /**
+   * Re-queue embedding for one file, from its row or from the open detail pane.
+   *
+   * One method for both, because they are the same request with the same three outcomes; two copies is how
+   * the row would end up with a different toast, or without the list refresh that makes the new status show.
+   */
+  requeueEmbedding(entry: FileEntry): void {
+    const path = this.relPath(entry);
+    this.requeueingPath.set(path);
+    this.filesApi.retryEmbedding(this.activeSpaceId(), path).subscribe({
       next: () => {
-        this.retrying.set(false);
+        this.requeueingPath.set('');
         this.toast.success(this.transloco.translate('files.detail.retryQueued'));
         this.reloadDir();
       },
-      error: (e) => { this.retrying.set(false); this.toast.error(`${this.transloco.translate('files.detail.retryFailed')} ${httpErrorReason(e)}`.trim()); },
+      error: (e) => {
+        this.requeueingPath.set('');
+        this.toast.error(`${this.transloco.translate('files.detail.retryFailed')} ${httpErrorReason(e)}`.trim());
+      },
     });
   }
 

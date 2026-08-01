@@ -570,6 +570,7 @@
   "files.download": "Pobierać",
   "files.downloadFailed": "Pobieranie nie powiodło się.",
   "files.renameEntryAriaLabel": "Zmień nazwę wpisu",
+  "files.reembedAriaLabel": "Ponownie osadź plik",
   "files.deleteEntryAriaLabel": "Usuń wpis",
   "files.closePreviewAriaLabel": "Zamknij podgląd",
   "files.emptyFolder.title": "Pusty folder",

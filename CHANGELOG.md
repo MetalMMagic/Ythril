@@ -23,6 +23,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Pressing Test on a Models card moved the Verify button out from under the pointer.** 2.2.2 stopped the
+  row overflowing its card, and left the reflow: a test result renders next to the button that produced it —
+  correct for what a screen reader hears — which puts a pill and a detail line *between* Test and Verify, so
+  the result pushed Verify onto the next line and the next click landed on whatever had slid into its place.
+  Actions are now laid out before results (`order`), leaving the markup and the reading order alone.
+  - Measured in Edge against the built bundle, vision card, failing Test: `Test left=295 Verify left=419`
+    both before and after the result arrives; with the rules removed on the same live DOM, Verify drops to
+    `left=295` and 33 px lower — the reported behaviour, reproduced and then fixed on one page.
+  - jsdom has no layout engine, so a unit test cannot measure this. `models-tab.component.spec.ts` fails if
+    the rules are deleted, and the numbers live in the PR.
+- **Re-embedding a file needed you to open it first.** The action lived only in the docked detail pane, so
+  repairing a file whose embedding had failed meant opening the file — while the row was already showing the
+  failure. It is on the row now, as an icon, next to the status that prompts it.
+  - Offered only for a settled job: a `pending` or `processing` file answers a retry with `409`, and an
+    action whose only outcome is a refusal is worse than one that is not there.
+  - A re-queue in flight greys out **that row**, not the list — the in-flight marker is the path, not a
+    boolean, because one shared flag reads as "everything is busy".
+  - **Rename is a pencil.** It was the one text button among icons, so the word set the actions column's
+    width on every row; the label is kept for hover and assistive tech.
+  - Verified in a browser: four buttons, every icon actually painted (an unregistered Phosphor icon renders
+    an empty `svg` with no error at all), and one click re-queues with a toast instead of opening the file.
+
 - **A single-GPU host that swaps models per request could never generate a document description, and nothing
   said so.** The describe call's timeout was hardcoded at 30 s, on the reasoning that a description is a
   nicety on the ingest path and the extractive fallback is always there. That reasoning holds for a resident

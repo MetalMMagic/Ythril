@@ -63,6 +63,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Scoped in the aggregation, not in the caller: a space-scoped token asking for its own numbers never reads
     another space's buckets.
 
+### Fixed
+
+- **An unresponsive notify sink could stop duplicate scanning for good, silently.** The duplicate scanner POSTs
+  to an operator-configured URL when it finds a pair, and that request had **no timeout at all** —
+  `ssrfSafeFetch` guards *where* a request may go, not how long it may take, because it passes `init` straight
+  through. A sink that accepted the connection and never answered hung the `await` forever, inside a scheduled
+  sweep, with nothing logged.
+  - Ten seconds now. Nothing waits on that POST: the duplicate is already recorded and the notification is a
+    courtesy, so a sink that cannot acknowledge in ten seconds is one whose reply we do not need.
+- **Four scheduled sweeps had no reentrancy guard, so a slow pass overlapped the next one.** The duplicate
+  scanner, the contradiction scanner, candidate pruning and the TTL sweep were each started with
+  `schedule(cron, …)` or `setInterval(…)`, and a timer does not wait for its previous callback.
+  - Not hypothetical for these four: the contradiction scanner calls an NLI model **per pair**, so a large space
+    against a slow judge routinely outlives its schedule — and two overlapping passes double the model calls
+    while both write the same candidates collection. Combined with the missing timeout above, every later tick
+    started another pass that hung in the same place: pending requests accumulating without bound, and
+    duplicate scanning stopped for that space with no error to explain it.
+  - All four now go through `runExclusive`, which **skips** rather than queues — each pass recomputes from
+    current state, so a skipped tick costs a delay and nothing else, while queueing is what turns a slow
+    dependency into an unbounded backlog.
+  - The skip logs the elapsed time of the pass still running (`the previous pass has been running for 412s`),
+    because "a pass is still running" is not actionable and "slower than its schedule, by roughly this much" is.
+  - The label is released in a `finally`. A guard that leaks its label on a thrown error is worse than no guard:
+    the sweep would be off for the lifetime of the process, and nothing would say so.
+  - `single-flight.test.js` pins the skip, the release-on-throw, label independence, and — enumerated from
+    source — that every scheduled sweep is guarded and every `ssrfSafeFetch` call site passes a signal, with
+    pass-through wrappers exempt by name. Both mutations (removing the timeout, unguarding the sweep) fail it.
+
 ## [2.2.3] — 2026-08-01
 
 ### Changed

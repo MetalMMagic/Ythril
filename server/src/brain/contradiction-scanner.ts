@@ -40,6 +40,7 @@ import { extraClaimFields, fetchStructuredClaims, type ClaimMap } from './struct
 import { recordContradiction } from './contradiction-candidates.js';
 import { nliConfigured, nliIsLocal } from './nli-client.js';
 import type { ContradictionScannerConfig, DupeScanStateDoc, DupeScanType } from '../config/types.js';
+import { runExclusive } from '../util/single-flight.js';
 
 const SCAN_STATE = 'ythril_dupe_scan_state';
 const DEFAULT_BATCH_SIZE = 200;
@@ -354,7 +355,10 @@ export function startContradictionScanner(): void {
     return;
   }
   _task = schedule(cron, () => {
-    runContradictionScanAllSpaces().catch(err => log.error(`Scheduled contradiction scan error: ${err}`));
+    // Guarded: this sweep calls an NLI model PER PAIR, so on a large space against a slow judge a pass
+    // routinely outlives its schedule — and two overlapping passes double the model calls while both write
+    // the same candidates collection.
+    void runExclusive('Contradiction scan', () => runContradictionScanAllSpaces());
   });
   log.info(`Contradiction scanner scheduled (${cron})`);
 }

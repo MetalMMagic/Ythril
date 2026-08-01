@@ -12,6 +12,7 @@ import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
 import { resolveMemberSpaces } from '../spaces/proxy.js';
 import { ALL_TOOLS, TOOLS_BY_NAME, type ToolSchemas } from './tools/index.js';
+import { SchemaViolationError } from '../brain/write-validation.js';
 import { makeArgsValidator } from './validate-args.js';
 
 // Session map: sessionId → transport
@@ -216,9 +217,15 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.warn(`MCP global tool '${name}' error in space '${callSpace || 'global'}': ${message}`);
+      // A refusal that carries its own classification keeps it. Attached HERE, once, rather than in each
+      // tool: every write tool funnels through this catch, and the alternative was editing a dozen throw
+      // sites — which is how the `introduced` / `preExisting` split came to survive on the REST routes and
+      // not on this one. The prose stays the whole answer for a client that reads only `content`.
+      const structuredContent = err instanceof SchemaViolationError ? err.toStructured() : undefined;
       return {
         content: [{ type: 'text' as const, text: `Error: ${message}` }],
         isError: true,
+        ...(structuredContent ? { structuredContent } : {}),
       };
     }
   });

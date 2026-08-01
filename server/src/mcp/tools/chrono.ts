@@ -76,7 +76,14 @@ export const create_chronoTool: ToolHandler = {
 
     const chronoSchemaViolations = chronoMeta ? validateChrono(chronoMeta, { type: chronoType, properties: chronoProps }) : [];
     if (chronoSchemaViolations.length > 0 && chronoMeta?.validationMode === 'strict') {
-      return { content: [{ type: 'text' as const, text: `Error: schema_violation\n${JSON.stringify(chronoSchemaViolations)}` }], isError: true };
+      // The violations travel as structured data rather than a JSON tail glued to the sentence: a
+      // caller had to parse the message to act on them. The prose is unchanged for a client that
+      // reads only the content blocks.
+      return {
+        content: [{ type: 'text' as const, text: 'Error: schema_violation' }],
+        isError: true,
+        structuredContent: { error: 'schema_violation', violations: chronoSchemaViolations },
+      };
     }
 
     const remQuota = await checkQuota('brain');

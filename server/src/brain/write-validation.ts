@@ -126,8 +126,39 @@ export async function locateForUpdate<T>(
  * allowlist that `create_chrono` enforced, and this is the same shape of hole one layer down: an agent
  * writing through MCP would otherwise store values the REST route now refuses for the identical record.
  */
+/**
+ * A refusal that keeps its own structure on the way out.
+ *
+ * `assertUpdateAllowed` threw a plain `Error`, so by the time the MCP router turned it into a tool result
+ * the `introduced` / `preExisting` split existed only inside an English sentence. The REST routes answer with
+ * the arrays; the MCP callers — which are the primary write path for this product — got prose. A caller that
+ * wants to repair a pre-existing violation and retry had to parse the message to find out which of its
+ * fields were even at fault.
+ *
+ * The classification travels on the error, so every thrower gets it without changing its call shape, and the
+ * router attaches it once. Reported by the canary as a minor point; it is the same "structured detail
+ * flattened at the boundary" shape as the audit-log gap, one layer out.
+ */
+export class SchemaViolationError extends Error {
+  constructor(readonly check: UpdateValidation) {
+    super(`schema_violation: ${check.message}`);
+    this.name = 'SchemaViolationError';
+  }
+
+  /** The machine-readable body an MCP tool result carries beside the prose. */
+  toStructured(): Record<string, unknown> {
+    return {
+      error: 'schema_violation',
+      message: this.check.message,
+      introduced: this.check.introduced,
+      preExisting: this.check.preExisting,
+      violations: this.check.all,
+    };
+  }
+}
+
 export function assertUpdateAllowed(check: UpdateValidation): void {
-  if (check.blocked) throw new Error(`schema_violation: ${check.message}`);
+  if (check.blocked) throw new SchemaViolationError(check);
 }
 
 /**

@@ -23,6 +23,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An MCP write refusal now carries its structure, not just a sentence about it.** A schema refusal
+  distinguishes violations the write **introduced** from ones the record **already had** — the distinction
+  that separates *"fix your patch"* from *"this record was already broken here, and your write is the moment
+  to repair it"*. The REST routes answer with both arrays. Over MCP, the primary write path for this product,
+  it survived only as prose. Reported by the canary.
+  - The create/upsert tools glued `JSON.stringify(violations)` onto the end of the message, so a caller had
+    to split a string to reach it — and the introduced/pre-existing split was not in there at all.
+  - The update tools threw a plain `Error`, so the arrays were computed, used to write the sentence, and
+    dropped by the router.
+  - Both now answer with `structuredContent` (`{ error, message, introduced, preExisting, violations }`).
+    It is optional in the MCP spec and unvalidated when a tool declares no `outputSchema`, so a client that
+    ignores it loses nothing: `content` still carries the same information as prose.
+  - The classification travels **on the error** and the router attaches it **once**, for every write tool.
+    Doing it per tool is how the two transports came to disagree in the first place.
+
 - **A space's directive had two maximum lengths, depending on which transport wrote it.** REST accepted 4000
   characters; the MCP `update_space` tool refused anything over 2000. So a purpose written through one door
   could not be edited through the other — and because the 2.2.2 migration moved legacy `description` text

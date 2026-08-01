@@ -17,6 +17,7 @@ import { deleteEntity } from './entities.js';
 import { deleteEdge } from './edges.js';
 import { deleteChrono } from './chrono.js';
 import { deleteFileCascade } from '../files/delete-cascade.js';
+import { runExclusive } from '../util/single-flight.js';
 
 const SWEEP_INTERVAL_MS = 5 * 60_000; // 5 min
 const SWEEP_BATCH = 500;              // max deletions per collection per cycle
@@ -87,7 +88,7 @@ async function ensureSweepIndexes(): Promise<void> {
 export function startTtlSweep(): void {
   if (_sweepTimer) return;
   void ensureSweepIndexes();
-  _sweepTimer = setInterval(() => { void sweepExpired().catch(err => log.error(`TTL sweep cycle: ${err}`)); }, SWEEP_INTERVAL_MS);
+  _sweepTimer = setInterval(() => { void runExclusive('TTL sweep', () => sweepExpired()); }, SWEEP_INTERVAL_MS);
   _sweepTimer.unref(); // don't keep the process alive
   log.debug('TTL sweep worker started');
 }

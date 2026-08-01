@@ -39,6 +39,7 @@ import {
 import { computeMergePlan, applyResolutions, executeMerge } from './merge.js';
 import { emitWebhookEvent } from '../webhooks/dispatcher.js';
 import type { DupeCandidateDoc, DupeScanStateDoc, DupeScanType, DupeActionRule } from '../config/types.js';
+import { runExclusive } from '../util/single-flight.js';
 
 const DEFAULT_SCHEDULE = '0 3 * * *';   // 03:00 daily
 const DEFAULT_BATCH_SIZE = 200;
@@ -179,6 +180,14 @@ async function tryAutoMerge(spaceId: string, seed: RecallResult, match: RecallRe
   }
 }
 
+/**
+ * How long a notify sink gets to answer.
+ *
+ * Ten seconds because nothing waits on this: the duplicate has already been recorded, and the POST is a
+ * courtesy. A sink that cannot acknowledge in ten seconds is a sink whose reply we do not need, and the
+ * alternative — the previous behaviour — was an unbounded wait inside a scheduled sweep.
+ */
+const NOTIFY_TIMEOUT_MS = 10_000;
 async function fireNotify(spaceId: string, type: DupeScanType, a: RecallResult, b: RecallResult, score: number, overrideUrl?: string): Promise<void> {
   const entry = { type, score, a, b };
   if (overrideUrl) {
@@ -191,6 +200,10 @@ async function fireNotify(spaceId: string, type: DupeScanType, a: RecallResult, 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ event: 'duplicate.detected', spaceId, timestamp: new Date().toISOString(), ...entry }),
+        // No timeout at all until now. `ssrfSafeFetch` guards WHERE the request may go, not how long it may
+        // take — it passes `init` straight through — so a sink that accepted the connection and never
+        // answered hung this await forever, inside a scheduled sweep, with no error to show for it.
+        signal: AbortSignal.timeout(NOTIFY_TIMEOUT_MS),
       });
       resp.body?.cancel?.();
     } catch (err) {
@@ -383,7 +396,7 @@ export function startDupeScanner(): void {
     return;
   }
   _task = schedule(cron, () => {
-    runDupeScanAllSpaces().catch(err => log.error(`Scheduled dupe scan error: ${err}`));
+    void runExclusive('Dupe scan', () => runDupeScanAllSpaces());
   });
   log.info(`Duplicate scanner scheduled (${cron})`);
 }

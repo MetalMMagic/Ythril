@@ -35,6 +35,7 @@ import { col, asFilter } from '../db/mongo.js';
 import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
 import type { DupeScanType } from '../config/types.js';
+import { runExclusive } from '../util/single-flight.js';
 
 /** Both collections key their rows by the same singular vocabulary. */
 const COLLECTION_SUFFIX: Record<string, string> = {
@@ -167,7 +168,7 @@ let _timer: NodeJS.Timeout | null = null;
  */
 export function startCandidatePrune(): void {
   if (_timer) return;
-  _timer = setInterval(() => { void pruneAllSpaces().catch(err => log.error(`Candidate prune cycle: ${err}`)); }, PRUNE_INTERVAL_MS);
+  _timer = setInterval(() => { void runExclusive('Candidate prune', () => pruneAllSpaces()); }, PRUNE_INTERVAL_MS);
   _timer.unref();   // never keep the process alive for housekeeping
   log.debug('Candidate prune worker started');
 }

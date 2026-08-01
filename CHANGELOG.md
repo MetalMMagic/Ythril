@@ -7,86 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Development
-
-- **`npm run docker:compact` returns the Docker disk's empty space to the host drive.** `docker:reclaim`
-  frees space *inside* the VM and then printed four `diskpart` commands for a human to run in an elevated
-  shell — which is why 33 GB of reclaimable space sat inside a 76 GiB `docker_data.vhdx` while the drive it
-  lives on had **918 MB free**. The script now runs the whole sequence and elevates only the step that
-  needs it (a UAC prompt), then restarts Docker. `-WhatIf` reports the disk and the sizes without touching
-  anything.
-  - It stops Docker Desktop and runs `wsl --shutdown`, so every container and **every** WSL distro goes
-    down and comes back; that is stated at the top of the script rather than discovered.
-  - The disk is attached **readonly** while compacting, which is what makes "only removes empty space" a
-    guarantee rather than a claim. It prunes nothing itself: deleting images is a different decision from
-    returning space that is already free.
-
-### Documentation
-
-- **The integration guide is split by topic.** 7,830 lines in one file — the largest single obstacle to
-  reading it. Now 17 parts under `docs/integration-guide/`, numbered because the order is pedagogical
-  (Getting Ythril → Hosting → Authentication → the APIs) and a folder listing sorts alphabetically.
-  - **A pure move.** No sentence is reworded; the diff reviews as one operation.
-  - **`docs/integration-guide.md` is now only an index** — a title, two orienting lines, and the link
-    list. No summary, no abridged contents: prose there would be a second place to remember to edit,
-    which is how two of this guide's claims went stale in the first place.
-  - **Every anchor still resolves.** The Help page fetches the parts and renders them as ONE document,
-    so the guide's own cross-references, the user guide's deep links and the README's all keep working
-    — and the Help nav stays at nine entries instead of becoming twenty-five. Links on disk carry the
-    `NN-part.md#anchor` form that GitHub needs; the concatenation strips the prefix.
-  - 12 links repointed across the guide, the user guide and `dependencies.md`. Verified on a booted
-    instance: 30 sections rendered, 0 leaked part headers, 0 unstripped prefixes, and the three anchors
-    other documents deep-link into all present.
-  - Two gates. `integration-guide-index.test.js` asserts the index links exactly the parts on disk, in
-    order, with no table, code block, endpoint or extra section — mutation-checked by adding a table and
-    by removing a link. And `help-docs-coverage` now looks at `docs/*/*.md` as well: `git ls-files
-    'docs/*.md'` does not descend, so all seventeen parts were invisible to both sides of that
-    comparison and it would have kept passing while shipping nothing.
-  - `angular.json` copies `docs/**/*.md` rather than `docs/*.md`, or the parts would never reach the
-    browser bundle at all.
-  - **The split broke six gates at once**, every one of them because it opened
-    `docs/integration-guide.md` or listed `docs/` one level deep. Two would have gone on *passing*
-    while examining nothing. Six copies of the same two lines is what made it a six-file fix, so
-    there is one copy now: `testing/standalone/_docs.mjs` (`readGuide`, `docFiles`, `allDocsText`).
-    How the guide is stored is not something a check about its content should have to know.
-
-- **The changelog is split by major.** 7,234 lines and 620 KB across 34 releases going back to
-  2025-06 — past the point where one file is navigable, and past where GitHub renders it whole.
-  - `CHANGELOG.md` keeps the current major (2.x) and `[Unreleased]`, where every tool and reader
-    expects it. Frozen series move to `changelog/CHANGELOG-1.x.md` and `changelog/CHANGELOG-0.x.md`,
-    linked from the bottom.
-  - **Not into `docs/`**, deliberately: that directory is copied into the image and served by the
-    in-product Help page, and `help-docs-coverage` requires every tracked `docs/*.md` to appear in the
-    Help nav — archiving there would push two frozen changelogs into a user-facing menu.
-  - Sections are byte-identical; all 34 release headings are still present, verified by count.
-
-- **NOTICE was six packages out of date, and the one it missed hardest was the copyleft.** Last
-  touched 2026-07-20; `ajv`, `marked`, `mermaid`, `exceljs`, `uqr` and `dompurify` had been added since
-  and none was attributed.
-  - `dompurify` is `MPL-2.0 OR Apache-2.0` — the **only** copyleft-carrying package in the redistributed
-    tree, and the unattributed one. Meanwhile `docs/dependencies.md` stated every npm package is "MIT,
-    Apache 2.0, 0BSD, BSD-3-Clause, or ISC" with "no copyleft restrictions", a conclusion reached before
-    that package existed and never rechecked.
-  - Ythril **elects Apache 2.0** from that dual grant, and the election is now recorded in the NOTICE
-    entry rather than left to be inferred — a dual grant is a choice the distributor makes, and "no
-    copyleft applies" should be checkable rather than taken on trust.
-  - New gate `notice-coverage.test.js`: every `dependencies` entry of both workspaces — what ships in
-    the image and in the browser bundle — must be attributed, and anything dual-licensed must state
-    which arm was taken. `devDependencies` are deliberately out of scope; listing build tooling would
-    make NOTICE claim to distribute what it does not.
-
-- **Three 2.2 features never reached the user guide.** The integration guide had them all; the guide a
-  non-integrator actually reads had none of them.
-  - **Verify** — a button on four provider cards, with no user-facing explanation of what it sends
-    (generated payloads, never your data), what `still-loading` means, or why silence transcribing to
-    nothing is a pass.
-  - **The re-upload confirmation** — a new dialog, undocumented, including that it asks once per batch
-    and that Cancel is the default.
-  - **Update validation** — an edit can now be refused for a field the user did not touch, when the
-    record was already non-compliant. Without the guide saying so, that reads as a bug.
-  - The doc-coverage gates check env vars, config keys, routes, MCP tools and shipped guides. **None of
-    them can see that a user-facing UI feature never got written up** — the same blind spot in a
-    different dimension.
+## [2.2.2] — 2026-08-01
 
 ### Added
 
@@ -350,6 +271,87 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   background and 600 weight with tinted even rows — the guides have 25 table cells over 320 characters,
   so row tracking is not cosmetic; body text 14px/1.65. Screenshot-verified at 1680px, the width the
   problem only appears at.
+
+### Documentation
+
+- **The integration guide is split by topic.** 7,830 lines in one file — the largest single obstacle to
+  reading it. Now 17 parts under `docs/integration-guide/`, numbered because the order is pedagogical
+  (Getting Ythril → Hosting → Authentication → the APIs) and a folder listing sorts alphabetically.
+  - **A pure move.** No sentence is reworded; the diff reviews as one operation.
+  - **`docs/integration-guide.md` is now only an index** — a title, two orienting lines, and the link
+    list. No summary, no abridged contents: prose there would be a second place to remember to edit,
+    which is how two of this guide's claims went stale in the first place.
+  - **Every anchor still resolves.** The Help page fetches the parts and renders them as ONE document,
+    so the guide's own cross-references, the user guide's deep links and the README's all keep working
+    — and the Help nav stays at nine entries instead of becoming twenty-five. Links on disk carry the
+    `NN-part.md#anchor` form that GitHub needs; the concatenation strips the prefix.
+  - 12 links repointed across the guide, the user guide and `dependencies.md`. Verified on a booted
+    instance: 30 sections rendered, 0 leaked part headers, 0 unstripped prefixes, and the three anchors
+    other documents deep-link into all present.
+  - Two gates. `integration-guide-index.test.js` asserts the index links exactly the parts on disk, in
+    order, with no table, code block, endpoint or extra section — mutation-checked by adding a table and
+    by removing a link. And `help-docs-coverage` now looks at `docs/*/*.md` as well: `git ls-files
+    'docs/*.md'` does not descend, so all seventeen parts were invisible to both sides of that
+    comparison and it would have kept passing while shipping nothing.
+  - `angular.json` copies `docs/**/*.md` rather than `docs/*.md`, or the parts would never reach the
+    browser bundle at all.
+  - **The split broke six gates at once**, every one of them because it opened
+    `docs/integration-guide.md` or listed `docs/` one level deep. Two would have gone on *passing*
+    while examining nothing. Six copies of the same two lines is what made it a six-file fix, so
+    there is one copy now: `testing/standalone/_docs.mjs` (`readGuide`, `docFiles`, `allDocsText`).
+    How the guide is stored is not something a check about its content should have to know.
+
+- **The changelog is split by major.** 7,234 lines and 620 KB across 34 releases going back to
+  2025-06 — past the point where one file is navigable, and past where GitHub renders it whole.
+  - `CHANGELOG.md` keeps the current major (2.x) and `[Unreleased]`, where every tool and reader
+    expects it. Frozen series move to `changelog/CHANGELOG-1.x.md` and `changelog/CHANGELOG-0.x.md`,
+    linked from the bottom.
+  - **Not into `docs/`**, deliberately: that directory is copied into the image and served by the
+    in-product Help page, and `help-docs-coverage` requires every tracked `docs/*.md` to appear in the
+    Help nav — archiving there would push two frozen changelogs into a user-facing menu.
+  - Sections are byte-identical; all 34 release headings are still present, verified by count.
+
+- **NOTICE was six packages out of date, and the one it missed hardest was the copyleft.** Last
+  touched 2026-07-20; `ajv`, `marked`, `mermaid`, `exceljs`, `uqr` and `dompurify` had been added since
+  and none was attributed.
+  - `dompurify` is `MPL-2.0 OR Apache-2.0` — the **only** copyleft-carrying package in the redistributed
+    tree, and the unattributed one. Meanwhile `docs/dependencies.md` stated every npm package is "MIT,
+    Apache 2.0, 0BSD, BSD-3-Clause, or ISC" with "no copyleft restrictions", a conclusion reached before
+    that package existed and never rechecked.
+  - Ythril **elects Apache 2.0** from that dual grant, and the election is now recorded in the NOTICE
+    entry rather than left to be inferred — a dual grant is a choice the distributor makes, and "no
+    copyleft applies" should be checkable rather than taken on trust.
+  - New gate `notice-coverage.test.js`: every `dependencies` entry of both workspaces — what ships in
+    the image and in the browser bundle — must be attributed, and anything dual-licensed must state
+    which arm was taken. `devDependencies` are deliberately out of scope; listing build tooling would
+    make NOTICE claim to distribute what it does not.
+
+- **Three 2.2 features never reached the user guide.** The integration guide had them all; the guide a
+  non-integrator actually reads had none of them.
+  - **Verify** — a button on four provider cards, with no user-facing explanation of what it sends
+    (generated payloads, never your data), what `still-loading` means, or why silence transcribing to
+    nothing is a pass.
+  - **The re-upload confirmation** — a new dialog, undocumented, including that it asks once per batch
+    and that Cancel is the default.
+  - **Update validation** — an edit can now be refused for a field the user did not touch, when the
+    record was already non-compliant. Without the guide saying so, that reads as a bug.
+  - The doc-coverage gates check env vars, config keys, routes, MCP tools and shipped guides. **None of
+    them can see that a user-facing UI feature never got written up** — the same blind spot in a
+    different dimension.
+
+### Development
+
+- **`npm run docker:compact` returns the Docker disk's empty space to the host drive.** `docker:reclaim`
+  frees space *inside* the VM and then printed four `diskpart` commands for a human to run in an elevated
+  shell — which is why 33 GB of reclaimable space sat inside a 76 GiB `docker_data.vhdx` while the drive it
+  lives on had **918 MB free**. The script now runs the whole sequence and elevates only the step that
+  needs it (a UAC prompt), then restarts Docker. `-WhatIf` reports the disk and the sizes without touching
+  anything.
+  - It stops Docker Desktop and runs `wsl --shutdown`, so every container and **every** WSL distro goes
+    down and comes back; that is stated at the top of the script rather than discovered.
+  - The disk is attached **readonly** while compacting, which is what makes "only removes empty space" a
+    guarantee rather than a claim. It prunes nothing itself: deleting images is a different decision from
+    returning space that is already free.
 
 ## [2.2.1] — 2026-07-31
 

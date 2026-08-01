@@ -12,7 +12,7 @@ import { getTranslocoModule } from '../../testing/transloco-testing';
 import { OverviewTabComponent } from './overview-tab.component';
 import { COLLECTION_TABS } from './brain-tabs';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
-import type { Space, SpaceStats } from '../../core/api.types';
+import type { Space, SpaceStats , SpaceActivity } from '../../core/api.types';
 
 const STATS: SpaceStats = { spaceId: 'general', memories: 5, entities: 12, edges: 30, chrono: 3, files: 7 };
 function space(over: Partial<Space> = {}): Space {
@@ -306,5 +306,76 @@ describe('OverviewTabComponent', () => {
     expect(values).toContain('57');            // total
     expect(el.querySelector('.reindex-note')).not.toBeNull();       // stale note shown
     expect(el.querySelector('.actions button')).not.toBeNull();      // reindex button present
+  });
+});
+
+/**
+ * The usage panel — the owner asked for per-space call counts and timings "to be able to tell apart which
+ * spaces are how useful", and a call count cannot answer that.
+ *
+ * A space asked 380 times that answered 41 is not popular; it is a space people keep failing to get an answer
+ * out of. These pin the three places that distinction shows up in the UI: the rate itself, the difference
+ * between "answers nothing" and "was never asked", and a panel that still renders when the answer is zero.
+ */
+describe('OverviewTabComponent — the usage panel', () => {
+  function activity(over: Partial<SpaceActivity> = {}): SpaceActivity {
+    return {
+      space: 'general', calls: 0, recall: 0, answered: 0, writes: 0,
+      meanMs: null, maxMs: 0, over1s: 0, meanTopScore: null, lastUsedAt: null,
+      ...over,
+    };
+  }
+
+  function render(act: SpaceActivity | null) {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [OverviewTabComponent, getTranslocoModule()],
+      providers: [{ provide: ConfirmDialogService, useValue: { confirm: () => Promise.resolve(true) } }],
+    });
+    const fixture = TestBed.createComponent(OverviewTabComponent);
+    fixture.componentRef.setInput('space', { id: 'general', label: 'General' });
+    fixture.componentRef.setInput('activity', act);
+    fixture.detectChanges();
+    return { fixture, c: fixture.componentInstance, el: fixture.nativeElement as HTMLElement };
+  }
+
+  it('reports the answer rate as a percentage of recalls', () => {
+    const { c } = render(activity({ calls: 400, recall: 380, answered: 41 }));
+    expect(c.answerRate()).toBe(11);
+  });
+
+  it('distinguishes "answers nothing" from "was never asked"', () => {
+    // 0% is a judgement about quality; null means nobody asked. They call for opposite responses from an
+    // operator — fill the space, versus find out why nothing queries it — so they must not render alike.
+    expect(render(activity({ calls: 5, recall: 0, answered: 0 })).c.answerRate()).toBeNull();
+    expect(render(activity({ calls: 20, recall: 20, answered: 0 })).c.answerRate()).toBe(0);
+  });
+
+  it('renders the panel when nothing was asked, instead of hiding it', () => {
+    // Hiding it would look like a failed load. "Nothing has been asked of this space" is an answer.
+    const { el } = render(activity());
+    expect(el.textContent).toContain('brain.overview.useNone');
+    expect(el.textContent).not.toContain('brain.overview.useAnswerRate');
+  });
+
+  it('shows the tiles once there is traffic', () => {
+    const { el } = render(activity({ calls: 120, recall: 100, answered: 90, writes: 20, meanMs: 63 }));
+    expect(el.textContent).toContain('brain.overview.useCalls');
+    expect(el.textContent).toContain('brain.overview.useAnswered');
+    expect(el.textContent).toContain('brain.overview.useAnswerRate');
+    expect(el.textContent).toContain('63 ms');
+  });
+
+  it('hides the panel entirely until the fetch lands, and does not crash on null', () => {
+    const { el, c } = render(null);
+    expect(c.answerRate()).toBeNull();
+    expect(el.textContent).not.toContain('brain.overview.useTitle');
+  });
+
+  it('only mentions slow calls when there are some', () => {
+    expect(render(activity({ calls: 10, recall: 10, answered: 10, over1s: 0 })).el.textContent)
+      .not.toContain('brain.overview.useSlow');
+    expect(render(activity({ calls: 10, recall: 10, answered: 10, over1s: 3, maxMs: 1840 })).el.textContent)
+      .toContain('brain.overview.useSlow');
   });
 });

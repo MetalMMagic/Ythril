@@ -18,7 +18,7 @@ import { StatusPillComponent, StatusVariant } from '../../shared/status-pill.com
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 import { DatePipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
-import { Space, SpaceStats, AboutInfo, EmbeddingQueue, VoteRound, TokenAccessEntry, CompletenessReport, CompletenessCheck } from '../../core/api.types';
+import { Space, SpaceStats, AboutInfo, EmbeddingQueue, VoteRound, TokenAccessEntry, CompletenessReport, CompletenessCheck, SpaceActivity } from '../../core/api.types';
 
 import { CollectionTab } from './brain-tabs';
 
@@ -203,6 +203,70 @@ interface StatCard { key: CollectionTab; icon: string; label: string; value: num
           }
         </div>
       </section>
+
+      <!-- ── Usage: is anyone getting anything OUT of this space? ────── -->
+      @if (activity(); as act) {
+        <section class="panel span-all">
+          <header class="panel-h">
+            <span class="ic"><ph-icon name="broadcast" [size]="16"/></span>
+            <div><h3>{{ 'brain.overview.useTitle' | transloco }}</h3>
+              <p>{{ 'brain.overview.useHint' | transloco }}</p></div>
+          </header>
+          <div class="panel-b">
+            @if (act.calls > 0) {
+              <div class="stat-grid">
+                <div class="stat">
+                  <div class="v">{{ act.calls }}</div>
+                  <div class="l"><ph-icon name="binoculars" [size]="13"/>{{ 'brain.overview.useCalls' | transloco }}</div>
+                </div>
+                <div class="stat">
+                  <div class="v">{{ act.recall }}</div>
+                  <div class="l"><ph-icon name="magnifying-glass" [size]="13"/>{{ 'brain.overview.useRecall' | transloco }}</div>
+                </div>
+                <!-- The headline. Demand without this number is not usefulness — a space asked 380 times that
+                     answered 41 reads identically to the best space in the instance if you only count calls. -->
+                <div class="stat" [class.total]="answerRate() !== null">
+                  <div class="v">{{ answerRate() === null ? '—' : answerRate() + '%' }}</div>
+                  <div class="l"><ph-icon name="check-circle" [size]="13"/>{{ 'brain.overview.useAnswered' | transloco }}</div>
+                </div>
+                <div class="stat">
+                  <div class="v">{{ act.writes }}</div>
+                  <div class="l"><ph-icon name="pencil-simple" [size]="13"/>{{ 'brain.overview.useWrites' | transloco }}</div>
+                </div>
+                <div class="stat">
+                  <div class="v">{{ act.meanMs === null ? '—' : act.meanMs + ' ms' }}</div>
+                  <div class="l"><ph-icon name="timer" [size]="13"/>{{ 'brain.overview.useMean' | transloco }}</div>
+                </div>
+              </div>
+
+              @if (answerRate(); as rate) {
+                <div class="store">
+                  <div class="store-row">
+                    <span class="cap">{{ 'brain.overview.useAnswerRate' | transloco }}</span>
+                    <span class="num">{{ act.answered }} / {{ act.recall }}<!--
+                      -->@if (act.meanTopScore !== null) { · {{ 'brain.overview.useTopScore' | transloco }} {{ act.meanTopScore }} }</span>
+                  </div>
+                  <!-- Inverted thresholds against the storage bar above: there, full is bad. Here a LOW rate is
+                       the warning — questions arriving and going unanswered is the content gap this panel
+                       exists to make visible. -->
+                  <div class="bar"><span [class.warn]="rate < 50 && rate >= 20" [class.err]="rate < 20" [style.width.%]="rate"></span></div>
+                </div>
+              }
+
+              @if (act.over1s > 0) {
+                <div class="store-row" style="margin-top:9px">
+                  <span class="cap">{{ 'brain.overview.useSlow' | transloco }}</span>
+                  <span class="num">{{ act.over1s }} · max {{ act.maxMs }} ms</span>
+                </div>
+              }
+            } @else {
+              <!-- Not "no data": no calls. A space with nothing asked of it is the clearest answer this panel
+                   can give, and blanking the panel would look like a loading failure instead. -->
+              <span class="muted">{{ 'brain.overview.useNone' | transloco }}</span>
+            }
+          </div>
+        </section>
+      }
 
       <!-- ── Completeness ───────────────────────────────────────────── -->
       @if (completeness(); as comp) {
@@ -428,6 +492,14 @@ export class OverviewTabComponent {
   tokenAccess = input<TokenAccessEntry[] | null>(null);
   /** Completeness checks + roll-up (from the shell) — null until it lands, and the panel stays hidden. */
   completeness = input<CompletenessReport | null>(null);
+  /**
+   * This space's usage over the shell's window (from the shell) — null until it lands, panel hidden.
+   *
+   * A single already-summed row rather than the endpoint's array: for a proxy space the shell sums its
+   * members, because the question "is this space useful" is about the thing the operator sees in the list, not
+   * about which member answered.
+   */
+  activity = input<SpaceActivity | null>(null);
   /** Emitted (after a confirm) so the shell's existing reindex flow runs — no duplicate API path. */
   /** A collection tile was clicked — the shell switches to that tab. */
   openTab = output<CollectionTab>();
@@ -438,6 +510,19 @@ export class OverviewTabComponent {
 
   private confirmDialog = inject(ConfirmDialogService);
   private transloco = inject(TranslocoService);
+
+  /**
+   * Answered recalls as a percentage, or null when nothing was asked.
+   *
+   * Null rather than 0 for "no questions": 0% reads as "this space answers nothing", which is a judgement
+   * about quality, when the truth is that nobody asked it anything. The two need different responses from an
+   * operator — fill the space, versus find out why nobody queries it.
+   */
+  answerRate = computed<number | null>(() => {
+    const a = this.activity();
+    if (!a || a.recall === 0) return null;
+    return Math.round((a.answered / a.recall) * 100);
+  });
 
   total = computed(() => {
     const s = this.stats();

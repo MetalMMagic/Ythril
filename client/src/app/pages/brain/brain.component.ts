@@ -13,7 +13,7 @@ import { ChronoTabComponent } from './chrono-tab.component';
 import { OverviewTabComponent } from './overview-tab.component';
 import { ReviewTabComponent } from './review-tab.component';
 import { FormsModule } from '@angular/forms';
-import { Space, SpaceStats, AboutInfo, EmbeddingQueue, VoteRound, TokenAccessEntry, CompletenessReport } from '../../core/api.types';
+import { Space, SpaceStats, AboutInfo, EmbeddingQueue, VoteRound, TokenAccessEntry, CompletenessReport, SpaceActivity } from '../../core/api.types';
 import { SpacesApi } from '../../core/spaces-api.service';
 import { BrainApi } from '../../core/brain-api.service';
 import { AdminApi } from '../../core/admin-api.service';
@@ -301,7 +301,7 @@ interface SpaceView {
           @if (activeSpace(); as sp) {
             <app-overview-tab [space]="sp" [stats]="activeStats()" [needsReindex]="needsReindex()"
               [reindexing]="reindexing()" [about]="aboutInfo()" [embeddingQueue]="embeddingQueue()"
-              [openVotes]="overviewVotes()" [tokenAccess]="tokenAccess()" [completeness]="completeness()"
+              [openVotes]="overviewVotes()" [tokenAccess]="tokenAccess()" [completeness]="completeness()" [activity]="spaceActivity()"
               (reindex)="runReindex()" (retryFailed)="runRetryFailedEmbeddings()"
               (openTab)="setTab($event)" />
           }
@@ -368,6 +368,11 @@ export class BrainComponent implements OnInit, OnDestroy {
   /** Completeness report for the ACTIVE space (Overview panel). Null until it lands or on failure —
    *  a governance panel that cannot load is hidden, not rendered as a zero. */
   completeness = signal<CompletenessReport | null>(null);
+  /**
+   * This space's usage over the window below — one already-summed row, so a proxy space reports the total of
+   * its members rather than a list the panel would have to add up itself.
+   */
+  spaceActivity = signal<SpaceActivity | null>(null);
 
   // Reindex
   needsReindex = signal(false);
@@ -511,12 +516,63 @@ export class BrainComponent implements OnInit, OnDestroy {
     this.overviewVotes.set([]);
     this.tokenAccess.set(null);
     this.completeness.set(null);
+    this.spaceActivity.set(null);
     this.loadStats(id);
     this.loadSpaceMeta(id);
     this.loadEmbeddingQueue(id);
     this.loadOverviewVotes(id);
     this.loadTokenAccess(id);
     this.loadCompleteness(id);
+    this.loadSpaceActivity(id);
+  }
+
+  /**
+   * Usage over the last 7 days, for the Overview's usage panel.
+   *
+   * A week rather than a day on purpose: "is this space useful" is a question about a habit, and a space that
+   * is queried every Monday reads as dead in a 24-hour window.
+   *
+   * The endpoint returns one row per member space; they are summed here so the panel receives a single row.
+   * Summing in the shell rather than server-side keeps the endpoint honest for an API caller who wants to see
+   * WHICH member of a proxy is carrying it.
+   */
+  private loadSpaceActivity(spaceId: string): void {
+    this.spacesApi.getSpaceActivity(spaceId, 7 * 24).subscribe({
+      next: r => {
+        if (this.activeSpaceId() !== spaceId) return;
+        const rows = r.spaces ?? [];
+        if (rows.length === 0) {
+          // An empty window is still an answer — "nothing was asked" — so the panel must render, not vanish.
+          this.spaceActivity.set({
+            space: spaceId, calls: 0, recall: 0, answered: 0, writes: 0,
+            meanMs: null, maxMs: 0, over1s: 0, meanTopScore: null, lastUsedAt: null,
+          });
+          return;
+        }
+        const sum = (pick: (row: SpaceActivity) => number) => rows.reduce((t, row) => t + pick(row), 0);
+        const calls = sum(r2 => r2.calls);
+        const answered = sum(r2 => r2.answered);
+        // Means are recombined from their weights, never averaged: averaging per-space means would give a
+        // one-call member the same say as a thousand-call one.
+        const weightedMs = rows.reduce((t, row) => t + (row.meanMs ?? 0) * row.calls, 0);
+        const weightedScore = rows.reduce((t, row) => t + (row.meanTopScore ?? 0) * row.answered, 0);
+        const lastUsed = rows.map(r2 => r2.lastUsedAt).filter((v): v is string => !!v).sort().at(-1) ?? null;
+        this.spaceActivity.set({
+          space: spaceId,
+          calls,
+          recall: sum(r2 => r2.recall),
+          answered,
+          writes: sum(r2 => r2.writes),
+          meanMs: calls > 0 ? Math.round(weightedMs / calls) : null,
+          maxMs: rows.reduce((m, row) => Math.max(m, row.maxMs), 0),
+          over1s: sum(r2 => r2.over1s),
+          meanTopScore: answered > 0 ? Number((weightedScore / answered).toFixed(3)) : null,
+          lastUsedAt: lastUsed,
+        });
+      },
+      // A failure leaves the signal null and the panel does not render — the same rule completeness follows.
+      error: () => { if (this.activeSpaceId() === spaceId) this.spaceActivity.set(null); },
+    });
   }
 
   /** Fetch the completeness report for a space (Overview panel). Only stores it while that space is

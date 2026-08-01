@@ -42,6 +42,9 @@ function makeApi() {
     getEmbeddingQueue: () => of(null), // Overview embedding-queue panel — null keeps it hidden in tests
     getTokenAccess: () => of({ tokens: [] }), // Overview token-access matrix (admin-only)
     getCompleteness: () => of(null), // Overview completeness panel — null keeps it hidden in tests
+    // Overview usage panel. An empty `spaces` array is the real "nothing was asked in this window" shape, and
+    // the shell turns it into a zeroed row so the panel renders rather than vanishing.
+    getSpaceActivity: () => of({ spaceId: 'general', hours: 168, spaces: [] }),
     listVotes: () => of({ rounds: [] }), // Overview Governance panel — no open votes in tests
   } as any;
 }

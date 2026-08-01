@@ -3,7 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import type {
   Space, SpaceMeta, SpacesResponse, SpaceMetaResponse, KnowledgeType, TypeSchema,
-  DupeActionRule, SpaceStats, WipeCollectionType, WipeResult, CompletenessReport,
+  DupeActionRule, SpaceStats, SpaceActivityResponse, WipeCollectionType, WipeResult, CompletenessReport,
 } from './api.types';
 
 /**
@@ -103,6 +103,19 @@ export class SpacesApi {
 
   getSpaceStats(spaceId: string): Observable<SpaceStats> {
     return this.http.get<SpaceStats>(`/api/brain/spaces/${spaceId}/stats`);
+  }
+
+  /**
+   * Usage over a window, defaulting to a day.
+   *
+   * Separate call from `getSpaceStats` on purpose: stats is counts of stored records and answers instantly,
+   * while this aggregates hourly buckets. Folding them together would make the whole Overview wait on the
+   * slower half, and the panel is designed to render its tiles before this arrives.
+   */
+  getSpaceActivity(spaceId: string, hours = 24): Observable<SpaceActivityResponse> {
+    return this.http.get<SpaceActivityResponse>(
+      `/api/brain/spaces/${spaceId}/activity?hours=${hours}`,
+    );
   }
 
   getReindexStatus(spaceId: string): Observable<{ spaceId: string; needsReindex: boolean }> {

@@ -11,7 +11,7 @@ import { getDb, col, asDoc, asFilter } from '../db/mongo.js';
 import { getConfig, saveConfig, getDataRoot, mutateConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
 import type { Config, SpaceConfig } from '../config/types.js';
-import { repairStaleSpaceIds, pendingOpConflictMessage } from './_shared.js';
+import { repairStaleSpaceIds, pendingOpConflictMessage, beginSpaceOp, endSpaceOp } from './_shared.js';
 
 /** Physically move a space's MongoDB collections and file directories from
  *  {oldId}_* / files/oldId to {newId}_* / files/newId. Idempotent — after a partial
@@ -212,6 +212,20 @@ export function applySpaceRenameToConfig(cfg: Config, space: SpaceConfig, oldId:
  *  retry (the retry resumes the same op rather than starting over).
  *  Returns the updated SpaceConfig on success. */
 export async function renameSpace(oldId: string, newId: string): Promise<SpaceConfig> {
+  // Crash recovery must not run against a rename that is still running HERE. The marker written below is
+  // what `reconcilePendingSpaceOp` acts on, and that reconciler also runs on the config-reload path — so
+  // without this, a config reload during the collection work starts a SECOND `moveSpaceData` over the same
+  // collections, and whichever loses reports `Source collection … does not exist` on a rename that
+  // succeeded. See `beginSpaceOp` in `_shared.ts`.
+  beginSpaceOp();
+  try {
+    return await renameSpaceInner(oldId, newId);
+  } finally {
+    endSpaceOp();
+  }
+}
+
+async function renameSpaceInner(oldId: string, newId: string): Promise<SpaceConfig> {
   const cfg = getConfig();
   const space = cfg.spaces.find(s => s.id === oldId);
   if (!space) throw new Error(`Space '${oldId}' not found`);

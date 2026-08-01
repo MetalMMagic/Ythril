@@ -14,7 +14,7 @@ import { invalidateUsageCache } from '../quota/quota.js';
 import { log } from '../util/log.js';
 import type { SpaceConfig, SpaceMeta, MemoryDoc } from '../config/types.js';
 import { VECTOR_INDEXED_COLLECTIONS, buildSpaceVectorIndexes, finalizeSpaceIndexReady } from './vector-index.js';
-import { SPACE_COLLECTIONS, repairStaleSpaceIds, dropLegacyPrefixedIndexes, pendingOpConflictMessage , setReindexNeeded } from './_shared.js';
+import { SPACE_COLLECTIONS, repairStaleSpaceIds, dropLegacyPrefixedIndexes, pendingOpConflictMessage , setReindexNeeded, beginSpaceOp, endSpaceOp, spaceOpInFlight } from './_shared.js';
 import { moveSpaceData, applySpaceRenameToConfig } from './rename.js';
 
 export async function initSpace(
@@ -411,6 +411,17 @@ export async function dropSpaceData(spaceId: string): Promise<string[]> {
  *  is already going away). If any drop fails, the marker is kept so the operator can
  *  retry (or the next boot resumes) rather than leaving a half-deleted space silently. */
 export async function removeSpace(spaceId: string): Promise<boolean> {
+  // Same reason as renameSpace: this writes a pendingSpaceOp marker before dropping anything, and the
+  // reconciler that acts on that marker also runs on the config-reload path. See beginSpaceOp.
+  beginSpaceOp();
+  try {
+    return await removeSpaceInner(spaceId);
+  } finally {
+    endSpaceOp();
+  }
+}
+
+async function removeSpaceInner(spaceId: string): Promise<boolean> {
   const cfg = getConfig();
   const space = cfg.spaces.find(s => s.id === spaceId);
   if (!space) return false;
@@ -607,6 +618,17 @@ export async function reconcilePendingSpaceOp(): Promise<void> {
   const cfg = getConfig();
   const op = cfg.pendingSpaceOp;
   if (!op) return;
+
+  // A live operation in THIS process is not an interrupted one. The marker is written BEFORE the collection
+  // work, and this function also runs on the config-reload path — so a reload during a rename would start a
+  // second `moveSpaceData` over the same collections, and whichever call loses the race reports
+  // `Source collection … does not exist` on a rename that actually succeeded. Nothing is lost by standing
+  // aside: if the running op dies, its marker survives and the next boot recovers it, which is the only
+  // situation this function exists for.
+  if (spaceOpInFlight()) {
+    log.debug(`Pending space ${op.type} for '${op.spaceId}' is being performed right now — recovery stands aside`);
+    return;
+  }
 
   const target = op.type === 'rename' ? `'${op.spaceId}' → '${op.newId}'` : `'${op.spaceId}'`;
   log.warn(`Resuming interrupted space ${op.type} ${target} (started ${op.startedAt})`);

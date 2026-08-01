@@ -63,6 +63,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     stop descriptions permanently with no error anywhere — and that the call site reads the setting rather
     than a second constant.
 
+- **Crash recovery could race a live rename and report "rename incomplete" on a rename that had just
+  succeeded.** `pendingSpaceOp` is a crash marker: a rename writes it to `config.json` *before* it starts
+  moving collections, so that a process that dies mid-way is rolled forward on the next boot. But
+  `reconcilePendingSpaceOp` also runs on the **config-reload** path — so the marker a live rename had just
+  written was exactly what the reconciler picked up, in the same process, while the original was still
+  running. Both then call `moveSpaceData`, which renames every collection `listCollections()` returned, and
+  the loser of each collection gets `MongoServerError: Source collection … does not exist`. The caller reports
+  that as `rename incomplete (3 errors)`.
+  - Recovery now stands aside while an operation is running **in this process**: a live operation does not
+    need crash recovery, it needs to be left alone. If it dies, its marker survives and the next boot
+    recovers it — which is what the marker is for.
+  - Depth-counted and released in a `finally`, floored at zero so an unbalanced release cannot wedge recovery
+    off permanently.
+  - Observed once in CI on `space-rename` and not reproducible on demand: the watcher's mtime guard makes the
+    window rare rather than closed, and its own comment notes bind-mount mtimes are unreliable. Proved from
+    the code instead — "source collection does not exist" requires a second concurrent mover, and the only
+    other caller of `moveSpaceData` is the reconciler.
+
 - **A document that took longer than `stalledJobTimeoutMs` to embed was re-queued while it was still
   running — and then ran twice.** Stall recovery measures from the last progress report, and the chunk-embed
   phase reported nothing at all: conversion heartbeat per page, then silence for however long hundreds of

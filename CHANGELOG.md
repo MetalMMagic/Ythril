@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The Overview now says whether anyone is getting anything out of the space, not just what is stored in it.**
+  A Usage panel over the last **7 days** — a week rather than a day because usefulness is a question about a
+  habit, and a space queried every Monday reads as dead in a 24-hour window.
+  - Calls, recalls, **answered**, writes and mean duration as tiles, with the answer rate as a bar and the mean
+    best-hit score beside it. Slow calls (over a second, with the true maximum) appear only when there are any.
+  - **The bar's thresholds are inverted against the storage bar above it.** There, full is bad; here a LOW rate
+    is the warning — questions arriving and going unanswered is the content gap the panel exists to surface.
+  - **"Answers nothing" and "was never asked" are shown differently**, because they call for opposite responses:
+    fill the space, versus find out why nothing queries it. A recall count of zero renders as `—`, not as `0%`,
+    which would read as a judgement about quality.
+  - A window with no traffic **still renders the panel**, saying nothing was asked. Hiding it would look like a
+    failed load.
+  - For a proxy space the shell sums its members, recombining the means from their weights rather than averaging
+    per-space averages — otherwise a member with one call gets the same say as one with a thousand.
+
 - **You can now tell which spaces are earning their keep, not just which are busy.** `GET /api/brain/spaces/:id/activity`
   answers "is anyone getting anything out of this space" — asked for by the owner, whose stated intent was to
   tell spaces apart by usefulness rather than to count calls.

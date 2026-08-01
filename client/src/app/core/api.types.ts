@@ -270,6 +270,39 @@ export interface SpaceStats {
 }
 
 /**
+ * One space's usage over a window — `stats` says how much is IN a space, this says whether anyone is getting
+ * anything OUT of it.
+ *
+ * `recall` and `answered` are meant to be read together, and that is the whole reason the endpoint exists: 380
+ * queries against 41 answers is not a popular space, it is a space people keep failing to get an answer out
+ * of, and a call count alone cannot tell the two apart.
+ */
+export interface SpaceActivity {
+  space: string;
+  /** All classes: recall, reads, writes and file traffic. */
+  calls: number;
+  recall: number;
+  /** Recalls that came back with at least one result. */
+  answered: number;
+  writes: number;
+  /** Mean across all call classes, or null when the window had no calls (never NaN). */
+  meanMs: number | null;
+  maxMs: number;
+  /** Calls slower than a second — offered instead of a percentile, which stored means cannot support. */
+  over1s: number;
+  /** Mean best-hit score over ANSWERED recalls, or null when none were. Never 0-for-none. */
+  meanTopScore: number | null;
+  lastUsedAt: string | null;
+}
+
+export interface SpaceActivityResponse {
+  spaceId: string;
+  hours: number;
+  /** One row per member space — a proxy space reports its members. */
+  spaces: SpaceActivity[];
+}
+
+/**
  * One completeness finding. The score is the weighted roll-up of these — the checks are the primitive,
  * because a percentage nobody can decompose is a number nobody can act on.
  */

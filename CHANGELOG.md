@@ -65,6 +65,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A planned restart was treated as a crash: every in-flight embedding job waited out the full stall timeout
+  before resuming.** `stopMediaEmbeddingWorker()` exists — its own comment promises it "completes the in-flight
+  batch" — and the shutdown path never called it. Three consequences from one missing call:
+  - the worker kept **claiming new jobs while the process was draining**, so a job picked up in the last second
+    of life was abandoned instantly;
+  - whatever it held died `processing` with a live claim token, so recovery had to wait out
+    `stalledJobTimeoutMs` — **five minutes by default** — on the next boot before re-queuing it. A rolling
+    restart paid that per in-flight job, per pod;
+  - `closeMongo()` ran while the worker could be mid-write, so its writes failed with connection errors that
+    look like real failures and can spend a retry attempt.
+  - Shutdown now stops the worker and **hands its claims back** (`releaseClaimedJob`): the jobs go straight to
+    `pending` with the backoff cleared, so the next boot starts them immediately. Stall recovery is for when
+    nobody can say what happened; a planned shutdown can say, and saying so costs one write.
+  - **The release does not spend a retry attempt.** The attempt was interrupted, not failed — charging our own
+    deploys against the retry budget is how a file ends up "failed after 3 attempts" having never produced an
+    error.
+  - Guarded on the claim token, so a job already recovered and re-claimed elsewhere is left alone rather than
+    having the claim yanked out from under a worker that is making progress.
+  - `release-claim-on-shutdown-db.test.js` pins all of it against a real MongoDB, including that the release
+    happens **before** `closeMongo` — mutation-verified, since releasing after the connection closes is a fix
+    that silently does nothing.
+
 - **An unresponsive notify sink could stop duplicate scanning for good, silently.** The duplicate scanner POSTs
   to an operator-configured URL when it finds a pair, and that request had **no timeout at all** —
   `ssrfSafeFetch` guards *where* a request may go, not how long it may take, because it passes `init` straight

@@ -199,6 +199,12 @@ async function main(): Promise<void> {
     stopSyncScheduler();
     stopBackupScheduler();
     stopDupeScanner();
+    // The media worker was never stopped here, though `stopMediaEmbeddingWorker` exists and promises to
+    // complete the in-flight batch. Without it the worker kept CLAIMING new jobs while the process drained —
+    // a job picked up in the last second of life is abandoned instantly — and whatever it held died
+    // `processing` with a live token, so the next boot waited out the full stall timeout before re-queuing it.
+    const { stopMediaEmbeddingWorker } = await import('./files/media/worker.js');
+    stopMediaEmbeddingWorker();
     const { stopRetryWorker } = await import('./webhooks/dispatcher.js');
     stopRetryWorker();
 
@@ -217,6 +223,12 @@ async function main(): Promise<void> {
     await flushConfig();
     // The last partial minute of per-space usefulness counters. After the drain, so calls that finished while
     // connections were closing are counted too — and before `closeMongo`, since this needs the connection.
+    // Hand back any claim this process still holds, before the connection goes. A planned shutdown can say
+    // what happened; stall recovery exists for when nobody can.
+    const { releaseHeldJobs } = await import('./files/media/worker.js');
+    await releaseHeldJobs().catch(err =>
+      log.debug(`Shutdown: releasing held jobs failed: ${err instanceof Error ? err.message : String(err)}`));
+
     const { stopSpaceActivityFlush } = await import('./metrics/space-activity-store.js');
     await stopSpaceActivityFlush().catch(err =>
       log.debug(`Shutdown: space activity flush failed: ${err instanceof Error ? err.message : String(err)}`));

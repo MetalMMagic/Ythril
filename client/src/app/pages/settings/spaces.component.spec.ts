@@ -251,6 +251,47 @@ describe('SpacesComponent — settings dialog rendering', () => {
     }
   });
 
+  /**
+   * A governed space says so BEFORE you type.
+   *
+   * Saving a networked space answers `202 vote_pending`: the change is submitted for a vote, not applied.
+   * The notice added with that fix explains it *afterwards*, which is the wrong end of the interaction —
+   * an operator should know the rules of the dialog before they start editing in it. Membership is already
+   * on the space record, so the badge is free.
+   */
+  it('shows the governed badge, naming the networks, for a networked space', () => {
+    const fixture = create([s]);
+    const c = fixture.componentInstance;
+    c.state.openSettings({ ...s, networks: [
+      { id: 'n1', label: 'Research Federation', type: 'democratic' },
+      { id: 'n2', label: 'Ops Braintree', type: 'braintree' },
+    ] } as never);
+    fixture.detectChanges();
+    expect(c.governedBy()).toBe('Research Federation, Ops Braintree');
+    expect(text(fixture)).toContain('spaces.popup.governed');
+  });
+
+  it('shows NOTHING for a space in no network', () => {
+    // The badge has to be absent, not empty: a permanent chip that sometimes means nothing is noise, and
+    // most spaces are in no network at all.
+    const fixture = create([s]);
+    const c = fixture.componentInstance;
+    c.state.openSettings(s);
+    fixture.detectChanges();
+    expect(c.governedBy()).toBeNull();
+    expect(text(fixture)).not.toContain('spaces.popup.governed');
+  });
+
+  it('keys on MEMBERSHIP, not on whether something is happening', () => {
+    // `networkStatus: 'idle'` means the network is quiet — and Save still opens a vote. Keying the badge
+    // on activity would hide it exactly when nothing is going on, which is most of the time.
+    const fixture = create([s]);
+    const c = fixture.componentInstance;
+    c.state.openSettings({ ...s, networkStatus: 'idle', networks: [{ id: 'n1', label: 'Quiet Net', type: 'democratic' }] } as never);
+    fixture.detectChanges();
+    expect(c.governedBy()).toBe('Quiet Net');
+  });
+
   it('the create dialog is gated on showCreateDialog', () => {
     const fixture = create([s]);
     const c = fixture.componentInstance;

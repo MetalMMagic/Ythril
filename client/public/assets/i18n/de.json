@@ -831,6 +831,10 @@
   "spaces.create.strictLinkage": "Strenge Verknüpfung",
   "spaces.create.submitButton": "Erstellen",
   "spaces.popup.tab.settings": "Einstellungen",
+
+  "spaces.popup.governed": "Verwaltet",
+
+  "spaces.popup.governedHint": "Dieser Space gehört zu {{networks}}. Änderungen an Zweck, Nutzungshinweisen oder Schema starten in jedem Netzwerk eine Abstimmung, statt sofort zu greifen — die Änderung wird eingereicht, nicht angewendet.",
   "spaces.popup.tab.schema": "Schema",
   "spaces.popup.tab.dangerZone": "Gefahrenzone",
   "spaces.popup.footer.saveChanges": "Änderungen speichern",

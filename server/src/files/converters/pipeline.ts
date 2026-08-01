@@ -26,12 +26,13 @@ import { writeFile, writeFileBytes } from '../files.js';
 import { resolveSafePathChecked } from '../sandbox.js';
 import { col, asFilter, asDoc } from '../../db/mongo.js';
 import { embed } from '../../brain/embedding.js';
-import { getConfig, getDocumentProcessingConfig } from '../../config/loader.js';
+import { getConfig, getDocumentProcessingConfig, getEmbeddingConfig } from '../../config/loader.js';
 import { vlmExtractDocument } from './vlm-extract.js';
 import type { FileMetaDoc, AuthorRef, DocExtractionMode, TextLevel } from '../../config/types.js';
 import type { StepProgress } from './types.js';
 import { log } from '../../util/log.js';
 import { enqueueMediaJob } from '../media/job-queue.js';
+import { embedConcurrency } from './embed-concurrency.js';
 
 export type InputFormat = 'pdf' | 'docx' | 'epub' | 'html' | 'md' | 'txt' | 'text' | 'auto';
 
@@ -387,7 +388,12 @@ export async function storeConversionResults(
   // the batch. It is still stored WITHOUT a vector — its text is preserved but it is invisible
   // to $vectorSearch — and counted, so the caller reports the job as partial/failed rather
   // than silently "complete".
-  const EMBED_CONCURRENCY = 8;
+  // Sized per embedder, because the two are different problems: an external endpoint is network-bound and
+  // wants sockets in flight, while the bundled in-process model is CPU-bound and eight at once simply
+  // saturates the machine. Measured: one in-process chunk embed blocks the event loop for ~200 ms, so eight
+  // concurrent ones on a small CPU allocation leave nothing for the thread that answers /health — which is
+  // how a 358 KB document turned into a liveness-probe crash loop with no error anywhere.
+  const EMBED_CONCURRENCY = embedConcurrency(getEmbeddingConfig());
   const INSERT_BATCH = 200;
 
   const chunkDocs: FileMetaDoc[] = new Array(chunks.length);
@@ -415,6 +421,15 @@ export async function storeConversionResults(
         embedFailures++;
         log.warn(`Chunk embed failed for ${spaceId}/${chunkId}: ${err instanceof Error ? err.message : String(err)}`);
       }
+
+      // Hand the event loop a turn between chunks.
+      //
+      // An in-process embed blocks it for ~200 ms (measured), and a large document is hundreds of them
+      // back to back. `await` on a promise that is already settled does NOT yield to the macrotask queue —
+      // it resumes in the same tick's microtask drain — so without this, pending I/O callbacks (the ones
+      // that answer /health) can sit behind the whole run. `setImmediate` puts this worker behind them
+      // instead. Cheap: one macrotask per chunk against ~200 ms of work.
+      await new Promise<void>(resolve => setImmediate(resolve));
 
       chunkDocs[i] = {
         _id: chunkId,

@@ -23,6 +23,8 @@ import { listUrlFor, type VlmWire } from '../files/converters/vlm-endpoint.js';
 import { log } from '../util/log.js';
 import { providerSignature, getActiveProviderSignature } from '../files/media/worker.js';
 import { MIN_CANDIDATE_MULTIPLIER, MAX_CANDIDATE_MULTIPLIER } from '../brain/rerank-client.js';
+import { MAX_EMBED_CONCURRENCY } from '../files/converters/embed-concurrency.js';
+import { mergeEmbeddingPatch } from '../config/embedding-patch.js';
 
 export const mediaConfigRouter = Router();
 
@@ -94,6 +96,10 @@ const EmbeddingPatchSchema = z.object({
   // Also re-indexes every vector: the prefix is part of the embedded string, so changing the scheme
   // changes the vector for identical text. Gated by the same client confirmation as model/dimensions.
   prefixScheme: z.enum(['auto', 'none', 'nomic', 'qwen']).optional(),
+  // Chunk-embed concurrency. Accepted here as well as by env so an operator can tune it without a redeploy;
+  // the ceiling is the one `embedConcurrency()` clamps to, imported rather than repeated. Absent means "use
+  // the per-embedder default", which is why there is no value that means that — clearing it is `null`.
+  embedConcurrency: z.number().int().min(1).max(MAX_EMBED_CONCURRENCY).optional().nullable(),
   apiKey: z.string().max(512).optional().nullable(),
 }).strict();
 
@@ -501,12 +507,10 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
     // media merge and apply it separately (apiKey already routed to secrets above).
     delete merged['embedding'];
     if (parsed.data.embedding) {
-      const e = { ...parsed.data.embedding } as Record<string, unknown>;
-      delete e['apiKey']; // never in config.json
-      // null baseUrl clears it (switch back to the bundled local ONNX model).
-      if (e['baseUrl'] === null) delete e['baseUrl'];
+      // Merge, then clear — see mergeEmbeddingPatch. Doing it the other way round (delete the null from the
+      // patch, then spread) is what made `baseUrl: null` a no-op instead of "back to the bundled model".
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      cfg.embedding = { ...(cfg.embedding as any ?? {}), ...e };
+      cfg.embedding = mergeEmbeddingPatch(cfg.embedding as any, parsed.data.embedding) as any;
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     cfg.mediaEmbedding = merged as any;

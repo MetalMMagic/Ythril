@@ -570,15 +570,15 @@ They are never queued, so they do not sit at `pending` waiting for work that wil
 | `renderDpi` | `150` | Page rasterization DPI for the render sidecar (VLM modes only). |
 | `maxPages` | `50` | Pages rendered per **render call** — one sidecar round trip's memory/latency bound. Not how much of a document is read: longer documents are walked in windows of this size. |
 | `maxTotalPages` | `200` | Pages read from **one document** in total, across windows. Beyond this the extraction stops and says so, in the log and in the stored markdown. |
+| `pageTimeoutMs` | `60000` | Per-page VLM transcription timeout (VLM modes only). |
+| `concurrency` | `2` | How many pages are transcribed in parallel (VLM modes only). |
+| `ocrTimeoutMs` | `120000` | Timeout (ms) for a single OCR-sidecar call. Applies to **all** modes — OCR is the engine in `ocr` mode and the grounding evidence + fallback floor in the VLM modes — so raise it when large/complex scanned documents need longer than the 2-min default (especially under `repair`). Env override: `DOC_OCR_TIMEOUT_MS`. |
 
 > **Why two numbers.** They bound different things. `maxPages` is one round trip; `maxTotalPages` is the
 > job's cost ceiling — every page is a VLM call, so an unbounded walk over a 600-page scan means 600 model
 > calls and, with an external endpoint, 600 pages of content leaving the instance, on an upload nobody is
 > watching. Raise `maxTotalPages` deliberately. In `max` mode the consensus pass is skipped for a document
 > that had to be walked, since it re-transcribes every page with a second model.
-| `pageTimeoutMs` | `60000` | Per-page VLM transcription timeout (VLM modes only). |
-| `concurrency` | `2` | How many pages are transcribed in parallel (VLM modes only). |
-| `ocrTimeoutMs` | `120000` | Timeout (ms) for a single OCR-sidecar call. Applies to **all** modes — OCR is the engine in `ocr` mode and the grounding evidence + fallback floor in the VLM modes — so raise it when large/complex scanned documents need longer than the 2-min default (especially under `repair`). Env override: `DOC_OCR_TIMEOUT_MS`. |
 
 The VLM modes require both a running `doc-render` sidecar and a configured `vlmModel`. If either is missing,
 Ythril transparently uses OCR — no upload fails because a model isn't wired in yet.
@@ -632,6 +632,10 @@ see the egress table above. You can optionally point a **bigger, external model*
 | Field | Description |
 |---|---|
 | `baseUrl` | External **OpenAI-compatible** endpoint (`POST {baseUrl}/chat/completions`, with `/v1` inserted if the base does not already carry it — `…:8080` and `…:8080/v1` both work). Validated against SSRF on save (must be a public http(s) URL — no private/loopback/metadata addresses) and reached only through the SSRF-guarded fetch. Env: `DOC_ASSIST_URL`. |
+| `model` | Model tag to request. Env: `DOC_ASSIST_MODEL`. |
+| `apiKey` | Optional bearer token. Stored in `secrets.json` (never `config.json`), masked in the admin API. Env: `DOC_ASSIST_API_KEY`. |
+| `uses` | Which tasks the external model powers — `["repair"]` today (the repair pass); more are planned. Empty ⇒ configured but inert (no egress). |
+| `acknowledgedHost` | The endpoint host the operator acknowledged egress to. **Required to match `baseUrl`'s host whenever `uses` is non-empty** — the admin API rejects the save otherwise, and the extractor re-checks it at runtime, so document content never leaves the box without recorded consent. |
 
 > **Self-hosting inference on a private address?** The `local` / `external` choice selects a **wire
 > protocol**, not a trust level: `local` speaks Ollama's (`/api/chat`), `external` speaks OpenAI's
@@ -709,11 +713,6 @@ see the egress table above. You can optionally point a **bigger, external model*
 > target, the address it resolved to, and the setting that would permit it — so a blocked endpoint is
 > diagnosable from the container log, not only from whatever a dialog happened to show. The line is
 > redacted like any other, so a key in a query string is not echoed into the log.
-
-| `model` | Model tag to request. Env: `DOC_ASSIST_MODEL`. |
-| `apiKey` | Optional bearer token. Stored in `secrets.json` (never `config.json`), masked in the admin API. Env: `DOC_ASSIST_API_KEY`. |
-| `uses` | Which tasks the external model powers — `["repair"]` today (the repair pass); more are planned. Empty ⇒ configured but inert (no egress). |
-| `acknowledgedHost` | The endpoint host the operator acknowledged egress to. **Required to match `baseUrl`'s host whenever `uses` is non-empty** — the admin API rejects the save otherwise, and the extractor re-checks it at runtime, so document content never leaves the box without recorded consent. |
 
 ⚠️ **This is the only setting that sends document content off the instance.** When a task is assigned, the
 external model receives OCR-extracted text and draft transcriptions (and, for future image-based tasks,
@@ -885,8 +884,12 @@ The worker-tuning fields — `workerConcurrency`, `workerPollIntervalMs`, `worke
 >
 > `lockedByInfra` tracks whichever spelling you used, so the Settings UI renders the field read-only
 > either way.
+
+| Field | Env var | Default | Description |
+|---|---|---|---|
 | `embedding.provider` | `EMBEDDING_PROVIDER` | `local` | Text-embedding endpoint trust: `local` (bundled ONNX or an internal HTTP endpoint, plain fetch) or `external` (public endpoint, reached through the SSRF-guarded fetch). Config lives at top-level `config.embedding` but is edited on **Settings → Media Processing**. |
 | `embedding.baseUrl` | `EMBEDDING_URL` | — | Embedding HTTP endpoint (OpenAI-compatible `/v1/embeddings`). `…:8080` and `…:8080/v1` both work. Blank = the bundled in-process ONNX model. |
+| `embedding.embedConcurrency` | `EMBEDDING_CONCURRENCY` | 2 in-process / 8 external | How many chunk embeds run at once while converting one document. Defaults differ by embedder **on purpose**: the bundled model is CPU-bound and shares the event loop that answers `/health`, while an HTTP endpoint does the work elsewhere. Clamped to 1…32. See the note below before raising it. |
 | `embedding.model` | `EMBEDDING_MODEL` | `nomic-ai/nomic-embed-text-v1.5` | Embedding model. **Changing the model / `dimensions` / `similarity` / `prefixScheme` re-indexes every vector** (the UI requires an explicit confirmation; `POST /api/brain/spaces/:id/reindex` runs it). |
 | `embedding.prefixScheme` | `EMBEDDING_PREFIX_SCHEME` | `auto` | Task-prefix convention the model expects: `nomic` (`search_document:` / `search_query:` prefixes, trailing space included), `qwen` (instruction on the query only, passages bare), `none` (symmetric models — OpenAI `text-embedding-3-*`, bge-m3), or `auto`. **`auto` reproduces the behaviour this instance had before the field existed: `nomic` for the bundled model, `none` over HTTP — so upgrading changes no vector.** If you run nomic or Qwen behind an endpoint, set this explicitly and reindex — asymmetric models retrieve measurably worse without the prefix, and nothing errors when it is missing. |
 | `embedding.dimensions` | `EMBEDDING_DIMENSIONS` | `768` | Vector width the model emits. Must match the model — a mismatch is not detected at write time, it surfaces as recall that returns nothing. Listed with `model` above as a re-index trigger. |
@@ -905,6 +908,23 @@ The worker-tuning fields — `workerConcurrency`, `workerPollIntervalMs`, `worke
 | `fallbackToExternal` | `MEDIA_EMBEDDING_FALLBACK_TO_EXTERNAL` | `false` | Use external provider if local fails |
 | `maxFileSizeBytes` | `MAX_FILE_SIZE_BYTES` | `524288000` | Skip embedding for files above this size (500 MiB) |
 | `stalledJobTimeoutMs` | `STALLED_JOB_TIMEOUT_MS` | `300000` | Re-queue jobs stuck in processing for > N ms |
+
+> **Large documents, CPU limits and liveness probes.** With the **bundled in-process** embedder, one ~2 KB
+> chunk costs roughly 200 ms of CPU and blocks the event loop for most of it. A 350 KB document is hundreds
+> of chunks — minutes of work — and if enough of them run at once, HTTP stops being answered for seconds at a
+> time. A Kubernetes `livenessProbe` on `/health` then kills a container that is working correctly, the
+> persisted job resumes after the restart, and the result is a crash loop with **no error and no `failed`
+> status** to point at the document.
+>
+> Measured inside the shipped image, 16 chunks: at concurrency 8 with no yielding, the loop was blocked for
+> **2.5 s at a stretch** (a 50 ms timer fired once in 4.7 s). At concurrency 2 with a yield between chunks it
+> was 0.5 s — and finished **22% faster**, because concurrent CPU-bound inferences thrash rather than
+> parallelise.
+>
+> The defaults above are chosen for that reason, and the pipeline yields between chunks. If you raise
+> `embedConcurrency`, raise the CPU allocation with it, and give the probes room:
+> `timeoutSeconds: 10` with `failureThreshold: 6` tolerates a slow answer far better than the defaults do.
+> An **external** embedding endpoint sidesteps the whole question — the CPU work happens on another host.
 
 #### ISO 27001 / Data Egress Note
 

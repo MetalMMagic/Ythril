@@ -23,6 +23,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Clearing the embedding endpoint from the UI kept the old one, with a `200` and no log line.** The admin
+  PATCH handler deleted the cleared key from the *patch* and then spread the patch over the stored block — so
+  the `null` was gone before it could meet the value it was meant to clear. The configured URL survived, and
+  the save response, resolved from the config that had just not changed, put it straight back in the field:
+  the documented way back to the bundled ONNX model did nothing, and looked like a save that was ignored.
+  - `rerank` and `nli` in the same handler were already correct: they merge first and delete from the result.
+    The embedding branch had the same two lines in the other order.
+  - The merge is now `config/embedding-patch.ts`, a pure function, because the reason this survived is that
+    exercising it needed a running server. `testing/standalone/embedding-patch-merge.test.js` pins the
+    ordering — and fails against the previous shape, in four places.
+  - Same pass: a stored `apiKey` left in `config.json` by an older version is now dropped on any embedding
+    PATCH instead of being merged forward.
+
+- **One large document could stop the instance answering HTTP, and Kubernetes killed it for that.** A 358 KB
+  report is hundreds of chunks. Each in-process chunk embed holds the event loop for ~200 ms, and the
+  pipeline ran **eight at once with nothing yielding in between** — so for minutes at a time there was no
+  turn left for the callback that answers `/health`. The probe timed out, the pod restarted, the persisted
+  job resumed on boot, and it happened again: a crash loop over a document that was converting **correctly**,
+  with no error, no `failed` status and nothing naming the file. Reported by the canary, who had
+  `Readiness probe failed: context deadline exceeded (awaiting headers)` and ~190 MiB of a 10 Gi limit — the
+  memory ceiling everyone reaches for was never the constraint.
+  - **Concurrency is now sized per embedder**: `2` for the bundled in-process model, `8` for an HTTP
+    endpoint, overridable via `embedding.embedConcurrency` / `EMBEDDING_CONCURRENCY` and clamped to 1…32.
+    The two are different problems — an external endpoint is network-bound and wants sockets in flight; the
+    bundled one is CPU-bound and shares the loop.
+  - **The pipeline yields between chunks** (`setImmediate`). `await` on an already-settled promise does not
+    yield to the macrotask queue, so pending I/O sat behind the entire run.
+  - Measured inside the shipped image, 16 chunks: the old shape blocked the loop for **2 482 ms** at a
+    stretch (a 50 ms timer fired **once in 4.7 s**); the new one peaks at **547 ms** and finishes **22%
+    faster** — eight concurrent CPU-bound inferences thrash rather than parallelise, so the old setting was
+    paying for its own outage.
+  - Not sized from `os.availableParallelism()`: it reports the **host's** cores, not the cgroup limit. On the
+    reporting deployment — 4 CPU on a 16-core node — core detection would have "left headroom" of 15 and
+    oversubscribed exactly as before.
+  - `docs/integration-guide/05-files-api.md` carries the numbers plus the `livenessProbe` shape
+    (`timeoutSeconds: 10`, `failureThreshold: 6`) that tolerates a slow answer.
+
+- **21 consecutive rows of the media-configuration reference rendered as quoted literal pipes, not a table.**
+  Rows written directly under a note with no blank line between them are absorbed into that note by
+  CommonMark's lazy continuation; rows appended one blank line below a finished table have no header or
+  delimiter row and are simply a paragraph containing `|` characters. Every `embedding.*`, `mediaEmbedding.*`
+  and worker-tuning setting was in the first category — inside the 2.1 rename note — and three further runs
+  were in the second. `markdownlint` passed on all four: it checks the style of tables it *recognises*, and
+  these had stopped being tables.
+  - Fixed in `05-files-api.md` (three runs) and `11-setup-api.md` (the security-posture gauge).
+  - `testing/standalone/docs-tables-render.test.js` now enumerates every `|`-row run in `docs/` and fails on
+    either spelling, with the detector itself pinned by self-tests — the found-by-eye version of this check
+    would have gone on passing.
+
 - **The vector-index readiness probe sent a query no backend can answer, and waited 600 s per index for it.**
   2.2.2 replaced a lifecycle-field read with *asking* the index whether it serves — the right instinct, with
   the wrong query: a **zero vector**, which cannot be scored against a cosine index.
@@ -52,7 +101,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The gate that let this through asserted the probe was "a real vector query, cheap" — all true of a query
     that could never succeed, because a regex over source cannot know that cosine similarity is undefined at
     the origin. The query vector is now an exported value and the tests assert **its magnitude**.
-
 
 - **An MCP write refusal now carries its structure, not just a sentence about it.** A schema refusal
   distinguishes violations the write **introduced** from ones the record **already had** — the distinction

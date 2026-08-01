@@ -792,6 +792,10 @@ export function getEmbeddingConfig() {
     baseUrl: process.env['EMBEDDING_URL'] ?? base.baseUrl,
     model: process.env['EMBEDDING_MODEL'] ?? base.model ?? 'nomic-ai/nomic-embed-text-v1.5',
     dimensions: process.env['EMBEDDING_DIMENSIONS'] ? Number(process.env['EMBEDDING_DIMENSIONS']) : (base.dimensions ?? 768),
+    // Left `undefined` when unset on purpose: `embedConcurrency()` picks a different default per embedder,
+    // so a number here would flatten that distinction. Clamping happens there, in one place.
+    embedConcurrency: process.env['EMBEDDING_CONCURRENCY']
+      ? Number(process.env['EMBEDDING_CONCURRENCY']) : base.embedConcurrency,
     similarity: base.similarity ?? ('cosine' as const),
     provider: (process.env['EMBEDDING_PROVIDER'] as 'local' | 'external' | undefined) ?? base.provider ?? 'local',
     // 'auto' resolves to the pre-existing behaviour (see resolvePrefixScheme in brain/embedding.ts), so an
@@ -1066,6 +1070,7 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
   if (process.env['EMBEDDING_DIMENSIONS']) locked.push('embedding.dimensions');
   if (process.env['EMBEDDING_PREFIX_SCHEME']) locked.push('embedding.prefixScheme');
   if (process.env['EMBEDDING_API_KEY']) locked.push('embedding.apiKey');
+  if (process.env['EMBEDDING_CONCURRENCY']) locked.push('embedding.embedConcurrency');
 
   return {
     // Per-class ceilings, filled per field so a partial `levels` block cannot drop the classes it

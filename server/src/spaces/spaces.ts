@@ -8,7 +8,7 @@ import { getConfig, saveConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
 import type { SpaceConfig, SpaceMeta, DupeActionRule, DocExtractionMode, ImageLevel, AudioLevel, VideoLevel, TextLevel } from '../config/types.js';
 import { buildSpaceVectorIndexes } from './vector-index.js';
-import { syncSchemaFiles, META_VERSION_CAP } from './_shared.js';
+import { syncSchemaFiles, META_VERSION_CAP, SPACE_PURPOSE_MAX } from './_shared.js';
 
 /**
  * A space's MCP-facing directive, under the one name that still has a store behind it.
@@ -74,7 +74,7 @@ export function updateSpace(
   if (typeof updates.description === 'string') {
     updates = {
       ...updates,
-      meta: { ...(updates.meta ?? space.meta ?? {}), purpose: updates.description.trim().slice(0, 4_000) },
+      meta: { ...(updates.meta ?? space.meta ?? {}), purpose: updates.description.trim().slice(0, SPACE_PURPOSE_MAX) },
     };
   }
   if (updates.maxGiB !== undefined) {

@@ -4,7 +4,7 @@ import { requireAuth, requireAdmin, requireAdminMfa, requireAdminMfaScoped } fro
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { getConfig, saveConfig, getSecrets, getDataRoot, getSchemaLibrary, getDocumentProcessingConfig, getMediaEmbeddingConfig, getStorageConfig } from '../config/loader.js';
 import { capDocExtractionMode } from '../files/converters/extraction-level.js';
-import { slugify } from '../spaces/_shared.js';
+import { slugify, SPACE_PURPOSE_MAX } from '../spaces/_shared.js';
 import { createSpace, removeSpace } from '../spaces/lifecycle.js';
 import { renameSpace } from '../spaces/rename.js';
 import { updateSpace, reorderSpaces, spaceDescriptionAlias, spaceResponse } from '../spaces/spaces.js';
@@ -102,7 +102,7 @@ function findBrokenLibraryRefs(typeSchemas: z.infer<typeof TypeSchemasZ> | undef
 }
 
 const SpaceMetaBody = z.object({
-  purpose: z.string().max(4000).optional(),
+  purpose: z.string().max(SPACE_PURPOSE_MAX).optional(),
   usageNotes: z.string().max(50_000).optional(),
   validationMode: z.enum(['off', 'warn', 'strict']).optional(),
   typeSchemas: TypeSchemasZ.optional(),
@@ -119,7 +119,7 @@ const ProxyForZ = z.union([
 const CreateSpaceBody = z.object({
   id: z.string().min(1).max(40).regex(/^[a-z0-9-]+$/).optional(),
   label: z.string().min(1).max(200),
-  description: z.string().max(4000).optional(),
+  description: z.string().max(SPACE_PURPOSE_MAX).optional(),
   folders: z.array(z.string()).optional(),
   maxGiB: z.number().positive().optional(),
   proxyFor: ProxyForZ.optional(),
@@ -143,7 +143,7 @@ const DupeActionRuleBody = z.object({
 
 const UpdateSpaceBody = z.object({
   label: z.string().min(1).max(200).optional(),
-  description: z.string().max(4000).optional(),
+  description: z.string().max(SPACE_PURPOSE_MAX).optional(),
   maxGiB: z.number().positive().nullable().optional(),
   meta: SpaceMetaBody.optional(),
   dupeRules: z.array(DupeActionRuleBody).max(20).optional(),

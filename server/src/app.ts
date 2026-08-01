@@ -35,6 +35,7 @@ import { dataRouter } from './api/data.js';
 import { mediaConfigRouter } from './api/media-config.js';
 import { modelVerifyRouter } from './api/model-verify.js';
 import { pipelineStatusRouter } from './api/pipeline-status.js';
+import { spaceActivityRouter } from './api/space-activity.js';
 import { maintenanceMiddleware } from './maintenance.js';
 import { globalRateLimit, ipFloodBackstop } from './rate-limit/middleware.js';
 import { configExists, reloadConfig, getConfig, saveConfig, loadSecrets, startConfigWatcher } from './config/loader.js';
@@ -294,6 +295,9 @@ export function createApp() {
   // one should not have to know they live in different files.
   app.use('/api/admin/media-config', modelVerifyRouter);
   app.use('/api/admin/pipeline-status', pipelineStatusRouter);
+  // Cross-space usage comparison. One request for the whole table — per-space calls from the Spaces page
+  // would be a front-end N+1, sixty-five requests to render sixty-five rows.
+  app.use('/api/admin/space-activity', spaceActivityRouter);
   app.use('/api/schema-library', schemaLibraryRouter);
 
   // ── Admin: space wipe ─────────────────────────────────────────────────────

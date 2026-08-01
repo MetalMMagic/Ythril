@@ -29,7 +29,7 @@ import { SchemaApi } from '../../core/schema-api.service';
 import { SpacesApi } from '../../core/spaces-api.service';
 import { ToastService } from '../../core/toast.service';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
-import type { Space } from '../../core/api.types';
+import type { Space, SpaceActivity } from '../../core/api.types';
 import { getTranslocoModule } from '../../testing/transloco-testing';
 import { SpacesComponent } from './spaces.component';
 
@@ -44,6 +44,8 @@ function makeApi(spaces: Space[] = []) {
     listSpaces: () => of({ spaces }),
     listNetworks: () => of({ networks: [] }),
     getSpaceStats: () => of(STATS),
+    // Cross-space usage for the Usage column. Empty is the real shape for an instance with no traffic yet.
+    listSpaceActivity: () => of({ hours: 168, retentionDays: 90, spaces: [] }),
     listSchemaLibrary: () => of({ entries: [] }),
     updateSpace: (_id: string, _body: unknown) => of({ space: space() }),
   } as any;
@@ -191,6 +193,7 @@ describe('SpacesComponent — load-error state', () => {
       listSpaces: () => throwError(() => new Error('boom')),
       listNetworks: () => of({ networks: [] }),
       getSpaceStats: () => of(STATS),
+      listSpaceActivity: () => of({ hours: 168, retentionDays: 90, spaces: [] }),
       listSchemaLibrary: () => of({ entries: [] }),
     } as any;
     TestBed.configureTestingModule({
@@ -326,5 +329,94 @@ describe('SpacesComponent — save re-baselines the unsaved-changes guard', () =
     // Asserted on the STATE, not on whether the dialog closed: closing is what used to mask this.
     c.state.settingsSpace.set(space());
     expect(c.state.isDirty(), 'a saved edit must not still count as unsaved').toBe(false);
+  });
+});
+
+/**
+ * The Usage column and its two sorts — the surface that answers the question the panel cannot.
+ *
+ * The Overview shows one space. "Which spaces are how useful" is a comparison, so it lives here, and the
+ * ordering is where the thinking is: busiest-first finds load, worst-answered-first finds a content gap — a
+ * space fielding questions it cannot answer, which no other column on this page can show.
+ *
+ * The case these pin hardest is the one that is easy to get wrong: a space nobody has asked anything has NO
+ * answer rate, and must not sort as though it were the worst offender. Zero-filling it would put every unused
+ * space above the one space that actually has a problem.
+ */
+describe('SpacesComponent — the Usage column', () => {
+  const USE = (over: Partial<SpaceActivity>): SpaceActivity => ({
+    space: 'x', calls: 0, recall: 0, answered: 0, writes: 0,
+    meanMs: null, maxMs: 0, over1s: 0, meanTopScore: null, lastUsedAt: null, ...over,
+  });
+
+  function createWith(rows: SpaceActivity[], spaces: Space[]) {
+    TestBed.resetTestingModule();
+    const api = {
+      listSpaces: () => of({ spaces }),
+      listNetworks: () => of({ networks: [] }),
+      getSpaceStats: () => of(STATS),
+      listSpaceActivity: () => of({ hours: 168, retentionDays: 90, spaces: rows }),
+      listSchemaLibrary: () => of({ entries: [] }),
+      updateSpace: () => of({ space: space() }),
+    } as any;
+    TestBed.configureTestingModule({
+      imports: [SpacesComponent, getTranslocoModule()],
+      providers: [
+        { provide: SpacesApi, useValue: api },
+        { provide: NetworksApi, useValue: api },
+        { provide: SchemaApi, useValue: api },
+        { provide: ToastService, useValue: { show: () => {}, error: () => {}, success: () => {} } },
+        { provide: ConfirmDialogService, useValue: { confirm: () => Promise.resolve(true) } },
+      ],
+    });
+    const fixture = TestBed.createComponent(SpacesComponent);
+    fixture.detectChanges();
+    return { fixture, c: fixture.componentInstance };
+  }
+
+  it('computes an answer rate per space, and null when it was never asked', () => {
+    const { c } = createWith([USE({ space: 'a', calls: 10, recall: 10, answered: 3 })], [space({ id: 'a' })]);
+    expect(c.answerRate(c.activityFor('a'))).toBe(30);
+    expect(c.answerRate(c.activityFor('missing'))).toBeNull();
+    expect(c.answerRate(USE({ calls: 4, recall: 0 }))).toBeNull();
+  });
+
+  it('sorts busiest first', () => {
+    const { c } = createWith(
+      [USE({ space: 'quiet', calls: 3 }), USE({ space: 'loud', calls: 300 })],
+      [space({ id: 'quiet' }), space({ id: 'loud' })],
+    );
+    c.sortMode.set('calls-desc');
+    expect(c.sortedSpaces().map(s => s.id)).toEqual(['loud', 'quiet']);
+  });
+
+  it('sorts the WORST answer rate first, and puts never-asked spaces LAST', () => {
+    // The whole point. 'gap' is being asked and failing; 'unused' has no rate at all. Zero-filling 'unused'
+    // would bury the one space with a real problem underneath every space nobody uses.
+    const { c } = createWith(
+      [
+        USE({ space: 'good', calls: 100, recall: 100, answered: 95 }),
+        USE({ space: 'gap', calls: 100, recall: 100, answered: 4 }),
+      ],
+      [space({ id: 'good' }), space({ id: 'gap' }), space({ id: 'unused' })],
+    );
+    c.sortMode.set('answers-asc');
+    expect(c.sortedSpaces().map(s => s.id)).toEqual(['gap', 'good', 'unused']);
+  });
+
+  it('renders the calls count and the rate badge together', () => {
+    const { fixture } = createWith(
+      [USE({ space: 'a', calls: 120, recall: 100, answered: 11 })], [space({ id: 'a' })],
+    );
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('120');
+    expect(text).toContain('11%');
+  });
+
+  it('shows an em dash rather than an error when the fetch returns nothing', () => {
+    // A non-admin gets no rows. A missing comparison is not a broken page.
+    const { c } = createWith([], [space({ id: 'a' })]);
+    expect(c.activityFor('a')).toBeUndefined();
+    expect(c.sortedSpaces().map(s => s.id)).toEqual(['a']);
   });
 });

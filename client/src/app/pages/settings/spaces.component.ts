@@ -5,7 +5,7 @@ import { finalize, timeout, TimeoutError } from 'rxjs';
 import {
   Network, Space, SpaceMeta, SpaceStats,
   KnowledgeType, PropertySchema, TypeSchema, ValidationMode, SchemaLibraryEntry,
-  DupeActionRule,
+  DupeActionRule, SpaceActivity,
 } from '../../core/api.types';
 import { NetworksApi } from '../../core/networks-api.service';
 import { SchemaApi } from '../../core/schema-api.service';
@@ -139,6 +139,11 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
             <button class="sort-btn" [class.active]="sortMode()==='za'" (click)="sortMode.set('za')" [attr.title]="'spaces.table.sort.za' | transloco">Z→A</button>
             <button class="sort-btn" [class.active]="sortMode()==='usage-desc'" (click)="sortMode.set('usage-desc')" [attr.title]="'spaces.table.sort.usageDesc' | transloco">↓ GiB</button>
             <button class="sort-btn" [class.active]="sortMode()==='usage-asc'" (click)="sortMode.set('usage-asc')" [attr.title]="'spaces.table.sort.usageAsc' | transloco">↑ GiB</button>
+            <!-- Two orderings, because "useful" has two halves. Busiest finds the load; worst-answered finds
+                 the content gap — a space fielding questions and returning nothing, which is invisible in
+                 every other column on this page. -->
+            <button class="sort-btn" [class.active]="sortMode()==='calls-desc'" (click)="sortMode.set('calls-desc')" [attr.title]="'spaces.table.sort.callsDesc' | transloco">↓ {{ 'spaces.table.sort.callsShort' | transloco }}</button>
+            <button class="sort-btn" [class.active]="sortMode()==='answers-asc'" (click)="sortMode.set('answers-asc')" [attr.title]="'spaces.table.sort.answersAsc' | transloco">↑ {{ 'spaces.table.sort.answersShort' | transloco }}</button>
           </div>
           <button class="btn-primary btn btn-sm" (click)="showCreateDialog.set(true)">{{ 'spaces.table.createButton' | transloco }}</button>
           <button class="btn-secondary btn btn-sm" (click)="store.load()">{{ 'spaces.table.refreshButton' | transloco }}</button>
@@ -155,7 +160,7 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
         <div class="table-wrapper" hscrollTop>
           <table>
             <thead>
-              <tr><th style="width:32px;"></th><th>{{ 'spaces.table.column.label' | transloco }}</th><th>{{ 'spaces.table.column.id' | transloco }}</th><th>{{ 'spaces.table.column.storage' | transloco }}</th><th>{{ 'spaces.table.column.networks' | transloco }}</th><th>{{ 'spaces.table.column.proxy' | transloco }}</th><th></th></tr>
+              <tr><th style="width:32px;"></th><th>{{ 'spaces.table.column.label' | transloco }}</th><th>{{ 'spaces.table.column.id' | transloco }}</th><th>{{ 'spaces.table.column.storage' | transloco }}</th><th>{{ 'spaces.table.column.usage' | transloco }}</th><th>{{ 'spaces.table.column.networks' | transloco }}</th><th>{{ 'spaces.table.column.proxy' | transloco }}</th><th></th></tr>
             </thead>
             <tbody cdkDropList (cdkDropListDropped)="store.reorder($event.previousIndex, $event.currentIndex)">
               @for (s of sortedSpaces(); track s.id) {
@@ -174,6 +179,25 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
                     @if (bar.label !== '—') {
                       <div class="st-bar"><div [class]="'st-bar-fill '+bar.cls" [style.width.%]="bar.pct"></div></div>
                       <div style="font-size:11px;color:var(--text-muted);margin-top:2px;white-space:nowrap;">{{ bar.label }}</div>
+                    } @else {
+                      <span style="color:var(--text-muted)">—</span>
+                    }
+                  </td>
+                  <!-- Usage: calls over the window, and how many recalls found something.
+                       Both numbers, never one: a space asked 380 times that answered 41 is not the busiest
+                       space in a useful sense, and a call count on its own says it is. -->
+                  <td style="min-width:120px;white-space:nowrap;">
+                    @let use = activityFor(s.id);
+                    @if (use) {
+                      <span class="mono" style="font-size:12px;">{{ use.calls }}</span>
+                      @if (answerRate(use); as rate) {
+                        <span class="badge" style="margin-left:6px;font-size:10px;"
+                              [class.badge-green]="rate >= 50" [class.badge-yellow]="rate < 50 && rate >= 20"
+                              [class.badge-red]="rate < 20"
+                              [attr.title]="('spaces.table.usageAnsweredTitle' | transloco) + ' ' + use.answered + '/' + use.recall">{{ rate }}%</span>
+                      } @else if (use.recall > 0) {
+                        <span class="badge badge-red" style="margin-left:6px;font-size:10px;">0%</span>
+                      }
                     } @else {
                       <span style="color:var(--text-muted)">—</span>
                     }
@@ -198,7 +222,7 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
                   <td><button class="icon-btn" [attr.title]="'spaces.table.configureTitle' | transloco" (click)="state.openSettings(s)"><ph-icon name="gear" [size]="16"/></button></td>
                 </tr>
               } @empty {
-                <tr><td colspan="7"><div class="empty-state" style="padding:28px 24px;">
+                <tr><td colspan="8"><div class="empty-state" style="padding:28px 24px;">
                   <div class="empty-state-icon"><ph-icon name="package" [size]="40"/></div>
                   <h3>{{ 'spaces.table.empty' | transloco }}</h3>
                   <p>{{ 'spaces.table.emptyBody' | transloco }}</p>
@@ -251,8 +275,27 @@ export class SpacesComponent implements OnInit {
     return nets.length > 0 ? nets.map(n => n.label).join(', ') : null;
   });
 
+  /**
+   * Usage per space id, over the last 7 days, from ONE request.
+   *
+   * A week, not a day: usefulness is a question about a habit, and a space queried every Monday reads as dead
+   * in a 24-hour window. Empty until it lands, and empty forever for a non-admin — the column then shows an em
+   * dash rather than an error, because a missing comparison is not a broken page.
+   */
+  activity = signal<Map<string, SpaceActivity>>(new Map());
+
+  activityFor(spaceId: string): SpaceActivity | undefined {
+    return this.activity().get(spaceId);
+  }
+
+  /** Answered recalls as a percentage, or null when the space was never asked anything — see the sort. */
+  answerRate(use: SpaceActivity | undefined): number | null {
+    if (!use || use.recall === 0) return null;
+    return Math.round((use.answered / use.recall) * 100);
+  }
+
   spaceSearch = signal('');
-  sortMode = signal<'custom' | 'az' | 'za' | 'usage-desc' | 'usage-asc'>('custom');
+  sortMode = signal<'custom' | 'az' | 'za' | 'usage-desc' | 'usage-asc' | 'calls-desc' | 'answers-asc'>('custom');
   sortedSpaces = computed(() => {
     const list = this.store.spaces();
     const sorted = (() => {
@@ -261,6 +304,18 @@ export class SpacesComponent implements OnInit {
         case 'za':         return [...list].sort((a, b) => b.label.localeCompare(a.label, undefined, { sensitivity: 'base' }));
         case 'usage-desc': return [...list].sort((a, b) => (b.usageGiB ?? 0) - (a.usageGiB ?? 0));
         case 'usage-asc':  return [...list].sort((a, b) => (a.usageGiB ?? 0) - (b.usageGiB ?? 0));
+        // Busiest first — demand, which is only half the answer, so the column shows the rate beside it.
+        case 'calls-desc': return [...list].sort((a, b) => (this.activityFor(b.id)?.calls ?? 0) - (this.activityFor(a.id)?.calls ?? 0));
+        // WORST answer rate first, and only among spaces that were actually asked something. This is the
+        // ordering that finds a content gap: a space fielding questions and returning nothing. A space nobody
+        // queries has no rate at all and sorts last rather than looking like the worst offender.
+        case 'answers-asc': return [...list].sort((a, b) => {
+          const ra = this.answerRate(this.activityFor(a.id)); const rb = this.answerRate(this.activityFor(b.id));
+          if (ra === null && rb === null) return 0;
+          if (ra === null) return 1;
+          if (rb === null) return -1;
+          return ra - rb;
+        });
         default:           return list;
       }
     })();
@@ -279,7 +334,22 @@ export class SpacesComponent implements OnInit {
 
   /** Tracks the kt/typeName target for per-type import. */
 
-  ngOnInit(): void { this.store.load(); }
+  ngOnInit(): void {
+    this.store.load();
+    this.loadActivity();
+  }
+
+  /**
+   * One request for every space's usage. Admin-only server-side, so a non-admin simply gets nothing and the
+   * column shows an em dash — a missing comparison is not a broken page, and an error toast for a panel nobody
+   * asked to see would be worse than silence.
+   */
+  private loadActivity(): void {
+    this.spacesApi.listSpaceActivity(7 * 24).subscribe({
+      next: r => this.activity.set(new Map((r.spaces ?? []).map(a => [a.space, a]))),
+      error: () => this.activity.set(new Map()),
+    });
+  }
 
   storageInfo(s: Space): { pct: number; label: string; cls: string } {
     const used = s.usageGiB ?? 0;

@@ -3,7 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import type {
   Space, SpaceMeta, SpacesResponse, SpaceMetaResponse, KnowledgeType, TypeSchema,
-  DupeActionRule, SpaceStats, SpaceActivityResponse, WipeCollectionType, WipeResult, CompletenessReport,
+  DupeActionRule, SpaceStats, SpaceActivity, SpaceActivityResponse, WipeCollectionType, WipeResult, CompletenessReport,
 } from './api.types';
 
 /**
@@ -115,6 +115,18 @@ export class SpacesApi {
   getSpaceActivity(spaceId: string, hours = 24): Observable<SpaceActivityResponse> {
     return this.http.get<SpaceActivityResponse>(
       `/api/brain/spaces/${spaceId}/activity?hours=${hours}`,
+    );
+  }
+
+  /**
+   * Every space's usage in ONE request, for the Spaces list.
+   *
+   * Not the per-space endpoint called once per row — that is a front-end N+1, and on a sixty-five-space
+   * instance it is sixty-five requests to draw one table. Admin-only, because it is inherently cross-space.
+   */
+  listSpaceActivity(hours = 7 * 24): Observable<{ hours: number; retentionDays: number; spaces: SpaceActivity[] }> {
+    return this.http.get<{ hours: number; retentionDays: number; spaces: SpaceActivity[] }>(
+      `/api/admin/space-activity?hours=${hours}`,
     );
   }
 

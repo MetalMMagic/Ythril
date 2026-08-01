@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The Spaces list can now be sorted by which spaces are actually answering.** A Usage column (calls over the
+  last 7 days, with the share of recalls that found something) and two orderings: **busiest first**, which
+  finds load, and **worst answer rate first**, which finds a content gap — a space fielding questions it cannot
+  answer, invisible in every other column on that page.
+  - **A space nobody has asked anything has no rate at all and sorts LAST**, rather than being zero-filled and
+    ranked as the worst offender. Otherwise every unused space buries the one space with a real problem. Those
+    are different problems: find out why nothing queries it, versus fill the gap it cannot answer.
+  - Fed by one admin request (`GET /api/admin/space-activity`) rather than the per-space endpoint once per
+    row — that is a front-end N+1, and on a 65-space instance it is 65 requests to draw one table.
+  - Admin-only, because it is inherently cross-space. A non-admin sees em dashes in the column: a missing
+    comparison is not a broken page.
 - **The Overview now says whether anyone is getting anything out of the space, not just what is stored in it.**
   A Usage panel over the last **7 days** — a week rather than a day because usefulness is a question about a
   habit, and a space queried every Monday reads as dead in a 24-hour window.

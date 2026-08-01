@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.3] — 2026-08-01
+
 ### Changed
 
 - **A space's settings dialog now says it is governed before you type in it.** Saving a change to a

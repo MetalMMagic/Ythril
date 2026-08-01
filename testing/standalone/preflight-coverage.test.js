@@ -123,3 +123,35 @@ describe('the marker is used honestly', () => {
     assert.ok(marked.length > 0, 'no file declares the marker — the split would be meaningless');
   });
 });
+
+/**
+ * The offline subset is invoked in batches, because the whole list does not fit on a Windows command line.
+ *
+ * `The command line is too long.` is printed by cmd, not by node — so when the enumerated list crossed
+ * 32 767 characters the gate went RED with no test output and nothing named. One added test file was all it
+ * took, and the next person to add one would have hit the same wall with the same unhelpful message.
+ *
+ * This is a source check because the thing being asserted is how a child process is spawned, and the failure
+ * it prevents is a gate that reports nothing at all.
+ */
+describe('preflight invokes the offline subset within the platform limit', () => {
+  const script = readFileSync('scripts/preflight.mjs', 'utf8');
+  const WINDOWS_LIMIT = 32_767;
+
+  it('batches, and by measured length rather than a file count', () => {
+    assert.match(script, /CMD_BUDGET/, 'the batch budget is gone — the full list will not fit on Windows');
+    assert.match(script, /batchLen \+ arg\.length > CMD_BUDGET/,
+      'batching by a fixed file count drifts back over the limit as names grow');
+  });
+
+  it('keeps running after a batch fails, so a later failure is not hidden', () => {
+    // An all-or-nothing invocation reported the first failing batch and never ran the rest.
+    assert.match(script, /standaloneFailed = true/);
+  });
+
+  it('would actually exceed the limit unbatched — the guard is not theoretical', () => {
+    const oneLine = files.map(f => ` ${f}`).join('');
+    assert.ok(oneLine.length * 4 > WINDOWS_LIMIT / 8,
+      'the enumerated list is far from the limit; if that is genuinely true, this guard can go');
+  });
+});

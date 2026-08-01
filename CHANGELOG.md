@@ -23,6 +23,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Preflight went red with no output once the offline test list crossed a Windows command-line limit.** The
+  subset is enumerated file by file, and at 179 files the invocation exceeded 32 767 characters — so cmd
+  answered `The command line is too long.` and the gate failed having run nothing and named nothing. One added
+  test file was all it took.
+  - Batched by measured length rather than a file count (paths differ in length, so a count drifts back over
+    the limit as names grow), and a failing batch no longer stops the remaining ones — an all-or-nothing
+    invocation reported the first failure and never ran the rest.
+  - `preflight-coverage.test.js` fails if the batching is removed or reverted to a fixed count, because the
+    failure it prevents is a gate that reports nothing at all.
+
 - **The media job queue had no indexes at all, and it is the collection this product polls hardest.**
   `initSpace` builds indexes for nine per-space collections — memories, entities, edges, chrono, tombstones,
   conflicts, dupe candidates, contradiction candidates, files — and not for `<space>_media_jobs`, which the

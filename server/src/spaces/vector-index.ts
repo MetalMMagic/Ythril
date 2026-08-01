@@ -268,32 +268,93 @@ export async function ensureVectorSearchIndex(
  * fields still answers this one, and it answers it about the thing recall depends on rather than about
  * the index's metadata.
  *
- * Deliberately cheap and content-free: a zero vector, `limit: 1`, no filter, and the result is thrown
- * away — only whether it threw matters. A zero vector matches nothing meaningfully, which is the point:
- * this is a liveness question, not a search.
+ * Cheap and content-free: a UNIT vector, `limit: 1`, no filter, result discarded. An empty result is a
+ * perfectly good answer — only whether the query was *served* matters.
  *
- * Any throw counts as not-yet-serving. An index still building errors, and so does a genuinely broken
- * one — this poll cannot tell those apart and does not need to. The caller keeps polling and eventually
- * gives up, which is the correct behaviour for both.
+ * ## Why a unit vector, and not the zero vector this shipped with
+ *
+ * A zero vector cannot be scored against a cosine index, and mongot says so outright:
+ *
+ *     Executor error … caused by :: Cosine similarity cannot be calculated against a zero vector.
+ *
+ * So the probe threw **every single time, on every backend** — verified locally against Atlas Local, not
+ * inferred. It was never backend-specific: on a backend that reports `status`/`queryable` the cheap path
+ * returns first and the probe is never reached, which is exactly why our own testing never saw it. The one
+ * deployment that DID reach it — a self-hosted replica set with no lifecycle fields — got a permanent,
+ * deterministic failure dressed up as "not ready yet", 600 s per index, 65 indexes.
+ *
+ * A unit vector (`[1, 0, 0, …]`) is a valid query against any similarity function. It matches nothing in
+ * particular, which is still the point.
+ *
+ * `numCandidates: 10` rather than 1: `numCandidates >= limit` is the documented contract, and 1 sat on the
+ * boundary for no benefit.
+ *
+ * ## Why the error is returned instead of swallowed
+ *
+ * This used to be `catch { return false }`. That discarded the single most useful fact in the entire
+ * incident — the reason — and left the operator reading "probe query did not serve yet" for ten minutes
+ * with no way to learn what the backend had actually said. The caller now logs it, and can tell a query
+ * that will NEVER work from an index that is still building.
  */
+type ProbeOutcome =
+  | { serves: true }
+  /** `permanent` = the backend rejected the query itself, so waiting cannot help. */
+  | { serves: false; error: string; permanent: boolean };
+
+/**
+ * Errors that mean "this query is not valid here", as opposed to "not yet".
+ *
+ * Matched on the message because that is what the driver surfaces for an executor error; each entry is a
+ * refusal of the REQUEST, and no amount of polling turns one into a success.
+ */
+export const PERMANENT_PROBE_ERRORS = [
+  /zero vector/i,               // cosine cannot score it — what shipped in #585
+  /numCandidates/i,             // outside the accepted range for this backend
+  /queryVector/i,               // wrong dimensionality or malformed
+  /\$vectorSearch is not allowed/i,
+  /unrecognized pipeline stage/i,   // no vector search on this deployment at all
+];
+
+/**
+ * The probe's query vector: a unit vector of the configured width.
+ *
+ * Exported so a test can assert the SHAPE rather than grep for it. The previous test asserted the probe was
+ * "a real vector query, cheap" — both true of the zero vector that could never be scored. A regex over
+ * source cannot know that cosine similarity is undefined at the origin; an assertion on the value can.
+ */
+export function probeQueryVector(dims: number): number[] {
+  const v = new Array(dims).fill(0);
+  v[0] = 1;   // valid under cosine, dotProduct and euclidean alike
+  return v;
+}
+
+/** `numCandidates` for the probe. Must be >= `limit`; 1 sat on the boundary for no benefit. */
+export const PROBE_NUM_CANDIDATES = 10;
+
 async function indexServes(
   coll: ReturnType<ReturnType<typeof getDb>['collection']>,
   indexName: string,
-): Promise<boolean> {
+): Promise<ProbeOutcome> {
+  const dims = getEmbeddingConfig().dimensions ?? 768;
   try {
-    const dims = getEmbeddingConfig().dimensions ?? 768;
     await coll.aggregate([{
       $vectorSearch: {
         index: indexName,
         path: 'embedding',
-        queryVector: new Array(dims).fill(0),
-        numCandidates: 1,
+        queryVector: probeQueryVector(dims),
+        numCandidates: PROBE_NUM_CANDIDATES,
         limit: 1,
       },
-    }, { $limit: 1 }, { $project: { _id: 1 } }]).toArray();
-    return true;
-  } catch {
-    return false;
+    }, { $limit: 1 }, { $project: { _id: 1 } }], {
+      // A probe must never be the thing that blocks. Without a cap, a mongot that accepts the query and
+      // then stalls holds this call — and 65 of those at boot is a plausible way to starve the event loop
+      // that answers /health, which is what the reporting fleet saw as kubelet restarts.
+      maxTimeMS: 5_000,
+    }).toArray();
+    return { serves: true };
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    return { serves: false, error, permanent: PERMANENT_PROBE_ERRORS.some(re => re.test(error)) };
   }
 }
 
@@ -359,11 +420,24 @@ export async function pollVectorIndexReady(
          * which matters at 65 indexes on one boot.
          */
         if (current.status === undefined && current.queryable === undefined) {
-          if (await indexServes(coll, indexName)) {
+          const probe = await indexServes(coll, indexName);
+          if (probe.serves) {
             log.debug(`Vector search index ${indexName} serves queries (no lifecycle fields on this backend)`);
             return true;
           }
-          lastSeen += ' — no lifecycle fields on this backend; probe query did not serve yet';
+          // A rejected QUERY is not an unready index. Waiting cannot fix it, and the previous version spent
+          // 600 s per index doing exactly that — then marked working spaces failed. Stop, say what the
+          // backend said, and treat readiness as unknown rather than false: absence of evidence is not
+          // evidence of absence, which is the rule this whole probe exists to honour.
+          if (probe.permanent) {
+            log.warn(
+              `Vector search index ${indexName}: cannot be probed on this backend — ${probe.error}. `
+              + 'Treating it as usable: the index exists and this deployment reports no lifecycle fields, '
+              + 'so there is nothing left to wait for. Recall will report the truth if it is not.',
+            );
+            return true;
+          }
+          lastSeen += ` — no lifecycle fields on this backend; probe did not serve: ${probe.error}`;
         }
       }
     } catch (err) {

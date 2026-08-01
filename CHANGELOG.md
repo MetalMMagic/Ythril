@@ -23,6 +23,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The vector-index readiness probe sent a query no backend can answer, and waited 600 s per index for it.**
+  2.2.2 replaced a lifecycle-field read with *asking* the index whether it serves — the right instinct, with
+  the wrong query: a **zero vector**, which cannot be scored against a cosine index.
+
+  ```text
+  Executor error … caused by :: Cosine similarity cannot be calculated against a zero vector.
+  ```
+
+  Reproduced locally against Atlas Local, not inferred. **It was never backend-specific.** Where `status` or
+  `queryable` exist the cheap path returns first and the probe is never reached — which is exactly why our own
+  testing never saw it. The one fleet that did reach it got a permanent, deterministic refusal reported as
+  *"not ready yet"*: 600 s per index, 65 indexes, spaces marked failed while `recall` answered **the same
+  index at 0.913 twenty seconds later**, plus readiness-probe timeouts that restarted pods. Reported by the
+  canary, who supplied that matched pair and correctly concluded the probe was the broken thing.
+  - **A unit vector** now, valid under cosine, dotProduct and euclidean alike, with `numCandidates` off the
+    boundary. An empty result was always accepted — only *serving* was ever the question.
+  - **The error is no longer swallowed.** `catch { return false }` discarded the one fact that would have
+    made this a five-minute diagnosis, and left an operator reading "probe query did not serve yet" with no
+    way to learn what the backend had said.
+  - **A rejected query is not an unready index.** A refusal of the *request* (zero vector, bad
+    `numCandidates`, wrong dimensionality, no `$vectorSearch` at all) stops the poll immediately, says what
+    the backend said, and treats the index as usable — the index exists and the backend reports no lifecycle
+    fields, so there is nothing left to wait for. Absence of evidence is not evidence of absence, which is
+    the rule this probe exists to honour and the one it was breaking.
+  - **The probe is bounded** (`maxTimeMS`), so a stalled call cannot occupy the loop. 65 unbounded probes at
+    boot is a plausible source of the event-loop starvation that showed up as kubelet restarts.
+  - The gate that let this through asserted the probe was "a real vector query, cheap" — all true of a query
+    that could never succeed, because a regex over source cannot know that cosine similarity is undefined at
+    the origin. The query vector is now an exported value and the tests assert **its magnitude**.
+
+
 - **An MCP write refusal now carries its structure, not just a sentence about it.** A schema refusal
   distinguishes violations the write **introduced** from ones the record **already had** — the distinction
   that separates *"fix your patch"* from *"this record was already broken here, and your write is the moment

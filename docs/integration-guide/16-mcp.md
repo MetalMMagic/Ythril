@@ -10,6 +10,25 @@ Ythril exposes a single global MCP server via SSE. Each tool accepts a `space` p
 
 On connect, the server sends global instructions listing all available space IDs and noting that each tool requires a `space` parameter (except `recall`, `list_chrono`, and `find_similar`, where `space` is optional and enables cross-space results when omitted; and `list_peers`/`sync_now` which are global). Call `list_spaces` to get space IDs, purposes, and entry counts (memories, entities, edges, chrono) — useful for discovering which spaces are populated before querying. Call `get_space_meta` with a specific space to get its full schema, purpose, and usage notes.
 
+> **A refused write is machine-readable.** When a tool refuses a write on schema grounds, the result carries
+> `structuredContent` alongside the prose:
+>
+> ```json
+> {
+>   "error": "schema_violation",
+>   "message": "introduced: status is required; pre-existing: owner is required",
+>   "introduced":  [{ "field": "status", "reason": "required" }],
+>   "preExisting": [{ "field": "owner",  "reason": "required" }],
+>   "violations":  [{ "field": "status", "reason": "required" }, { "field": "owner", "reason": "required" }]
+> }
+> ```
+>
+> **`introduced` vs `preExisting` is the field worth branching on.** `introduced` means your patch caused it —
+> fix the patch. `preExisting` means the stored record already violated the schema there and your write
+> neither caused nor fixed it, which makes this write the moment to repair it. A write is only refused for
+> what it introduces, so a pre-existing violation never blocks an unrelated patch. `content` still carries
+> the same information as a sentence, so a client that reads only text loses nothing.
+>
 > **Tool inputs are self-describing — and enforced.** Every tool's complete input contract — each parameter, its allowed values (`enum`), numeric bounds (`minimum`/`maximum`/`default`), string limits, the filter-operator allowlist, and `additionalProperties: false` — is published in its `inputSchema` via `tools/list`. The dispatcher **validates every call against that schema before running the tool**, rejecting a non-conforming call with an `isError` result — so unknown properties, out-of-range numbers, out-of-enum values, and malformed ids are hard errors, not silently ignored or clamped. Treat `tools/list` as the authoritative, machine-readable reference and read a tool's schema before constructing arguments; the `help` tool points here too.
 
 ### Read-Only Tokens

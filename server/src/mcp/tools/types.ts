@@ -37,6 +37,18 @@ export interface ToolContext {
 export type ToolResult = {
   content: { type: 'text'; text: string }[];
   isError?: boolean;
+  /**
+   * Machine-readable detail alongside the prose, for a client that wants to act on a refusal rather than
+   * show it. Optional in the MCP spec and unvalidated when a tool declares no `outputSchema`, so a client
+   * that ignores it loses nothing — `content` remains the complete answer.
+   *
+   * Added because a schema refusal distinguishes violations the write INTRODUCED from ones the record
+   * already carried, and over MCP that distinction survived only as a sentence: the arrays were flattened
+   * into the message text (the create paths appended `JSON.stringify`) or dropped entirely (the update
+   * paths threw a plain `Error`, and the router turned it into one string). A caller could read it, but
+   * only by parsing English or a JSON blob glued to the end of a message.
+   */
+  structuredContent?: Record<string, unknown>;
 };
 
 /**

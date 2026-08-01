@@ -65,7 +65,14 @@ export const upsert_edgeTool: ToolHandler = {
     const edgeCheck = await classifyEdgeUpsert(wt.target, { from, to, label: label.trim(), properties: edgeProps });
     const edgeSchemaViolations = edgeCheck.all;
     if (edgeCheck.blocked) {
-      return { content: [{ type: 'text' as const, text: `Error: schema_violation: ${edgeCheck.message}\n${JSON.stringify(edgeSchemaViolations)}` }], isError: true };
+      // The violations travel as structured data rather than a JSON tail glued to the sentence: a
+      // caller had to parse the message to act on them. The prose is unchanged for a client that
+      // reads only the content blocks.
+      return {
+        content: [{ type: 'text' as const, text: `Error: schema_violation: ${edgeCheck.message}` }],
+        isError: true,
+        structuredContent: { error: 'schema_violation', message: edgeCheck.message, introduced: edgeCheck.introduced, preExisting: edgeCheck.preExisting, violations: edgeSchemaViolations },
+      };
     }
 
     const edgeTtlDays = ttlDaysFromArgs(a);

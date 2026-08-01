@@ -1161,6 +1161,42 @@ Buckets are hourly and in UTC, kept for 90 days. A window with no calls returns 
 
 ---
 
+### Space Activity — every space at once (admin)
+
+```http
+GET /api/admin/space-activity?hours=168
+Authorization: Bearer ythril_…   # admin token
+```
+
+Same row shape as the per-space endpoint, for **all** spaces in one response, busiest first.
+
+```json
+{
+  "hours": 168,
+  "retentionDays": 90,
+  "spaces": [
+    { "space": "reporting", "calls": 412, "recall": 380, "answered": 41, "meanTopScore": 0.31, "…": "…" },
+    { "space": "handbook",  "calls": 95,  "recall": 88,  "answered": 84, "meanTopScore": 0.72, "…": "…" }
+  ]
+}
+```
+
+**Two endpoints on purpose.** This one is admin-only because it is inherently cross-space — a space-scoped
+token has no business learning how heavily every other space is used, and the per-space route above exists
+for exactly that caller. And it is one request rather than N: calling the per-space endpoint once per row is
+a front-end N+1, which on a sixty-five-space instance means sixty-five requests to draw one table.
+
+**A space with no traffic in the window is absent, not zero-filled.** The caller already knows which spaces
+exist; what it cannot know is which ones the window covers, so the absence carries the information. It also
+keeps a never-asked space from being ranked as though it answered badly — those are different problems with
+different fixes (find out why nothing queries it, versus fill the gap it cannot answer).
+
+`hours` defaults to 168 (7 days) and is clamped to `retentionDays × 24`. A week rather than a day is the
+useful default here: usefulness is a question about a habit, and a space queried every Monday looks dead in a
+24-hour window.
+
+---
+
 ### Check Reindex Status
 
 ```http

@@ -8,6 +8,11 @@
     "noPropertyAccessFromIndexSignature": true,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
+    // See the note in tsconfig.base.json: a statement after a `return` cost a renamed space its usage history,
+    // and by default tsc only greys it out in an editor. The client does not extend the base config, so the
+    // flag has to be set in both places or half the codebase keeps the old behaviour.
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false,
     "skipLibCheck": true,
     "isolatedModules": true,
     "esModuleInterop": true,

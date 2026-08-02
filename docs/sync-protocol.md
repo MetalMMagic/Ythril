@@ -47,14 +47,15 @@ Sync can be triggered two ways:
 
 ## Watermarks
 
-Two independent high-water marks prevent redundant data transfer:
+Three high-water marks are kept per member. The first two prevent redundant data transfer; the third is what makes deletion records prunable.
 
 | Field | Type | Meaning |
 |-------|------|---------|
 | `lastSeqReceived[spaceId]` | `Record<string,number>` | Highest seq we have ever pulled from this peer for this space |
 | `lastSeqPushed[spaceId]` | `Record<string,number>` | Highest seq we have confirmed pushed to this peer for this space |
+| `lastSeqServed[spaceId]` | `Record<string,number>` | Highest `sinceSeq` this peer has pulled **our** tombstones from — its confirmed position in our data ([details](#lastseqserved--the-mirror-watermark-and-why-tombstone-retention-needs-it)) |
 
-Both are stored per member in the config file. After a successful sync they are written through the coalesced asynchronous config flush (`saveConfigSoon`) rather than a blocking synchronous write — sync bookkeeping never stalls the event loop. If a sync fails mid-way, the watermark is not advanced — the next cycle retries from the last safe point, giving at-least-once delivery semantics (re-delivery is harmless: everything is re-derived from `seq`).
+All three are stored per member in the config file. After a successful sync they are written through the coalesced asynchronous config flush (`saveConfigSoon`) rather than a blocking synchronous write — sync bookkeeping never stalls the event loop. If a sync fails mid-way, the watermark is not advanced — the next cycle retries from the last safe point, giving at-least-once delivery semantics (re-delivery is harmless: everything is re-derived from `seq`).
 
 ---
 
@@ -77,7 +78,7 @@ The sync engine uses two helpers to translate between remote and local space IDs
 | `remoteToLocal(remoteSpaceId)` | Remote space ID | Local space ID (or identity if no mapping) | Pull — storing fetched documents in the correct local collection |
 | `localToRemote(localSpaceId)` | Local space ID | Remote space ID (or identity if no mapping) | Push — querying the peer's API with the space ID it expects |
 
-**Watermark keys** use the **remote** space ID (the one the peer recognises). This ensures that `lastSeqReceived` and `lastSeqPushed` align with the peer's `seq` counters regardless of the local alias.
+**Watermark keys use the LOCAL space ID.** The sync loop iterates `net.spaces` (local IDs) and keys all three watermarks by that value, while sending `remoteSpaceId` on the wire — so an aliased space stores its watermarks under the name this instance uses, not the peer's. That is also what makes them survive a local rename, which rewrites the keys by local ID (`applySpaceRenameToConfig`).
 
 **API calls** (`GET /api/sync/memories?spaceId=...`) always use the **remote** space ID so the peer returns the correct data.
 
@@ -135,6 +136,24 @@ All document `_id` values (`memories`, `entities`, `edges`, `chrono`) are **UUID
 After all four document types (memories, entities, edges, chrono) are pulled, `lastSeqReceived[spaceId]` is advanced to the highest `seq` seen **among documents authored by the peer** (`doc.author.instanceId === member.instanceId`) and written to config. On the next cycle the watermark is passed as `sinceSeq` so the peer returns only documents newer than that point.
 
 Docs that originate from a third instance but were relayed through the peer (e.g. during braintree or pubsub fanout) deliberately do not advance the watermark. Those relayed docs may carry a `seq` assigned by their true author's counter, which can be much higher than the peer's own counter. Allowing them to advance `lastSeqReceived` would cause the engine to skip the peer's locally-written documents on the next pull.
+
+### `lastSeqServed` — the mirror watermark, and why tombstone retention needs it
+
+`lastSeqReceived` and `lastSeqPushed` are **our** position in a peer's data. `lastSeqServed[spaceId]` is the opposite: the highest `sinceSeq` that peer has pulled **our** tombstones from, i.e. the position it has confirmed applying. It is recorded on the serving side by `GET /api/sync/tombstones`, keyed by the authenticated peer, after the read.
+
+It exists because tombstone retention cannot be time-based. Tombstones are served by `seq > sinceSeq`, so a peer that was offline longer than any expiry window comes back, never sees the deletion, and pushes its live copy — the deleted record returns. A floor built from `min(lastSeqServed)` across every member of every network carrying the space has no such hole: below it, every peer has already applied the deletion.
+
+The prune (`brain/tombstone-prune.ts`, every 6 h) therefore deletes tombstones with `seq <= min(lastSeqServed)`, and treats every unknown as a reason to keep:
+
+| situation | outcome |
+|---|---|
+| a member has no `lastSeqServed` for the space | **no prune** — including every member until it pulls once after upgrading |
+| the minimum is 0 | **no prune** |
+| a `peerInstanceId` token is scoped to the space but has no member entry | **no prune** — it can pull and has nowhere to record a position (`TokenRecord.spaces` omitted means *all* spaces) |
+| no network carries the space **and** no peer token reaches it | prune everything — the single-instance case |
+| `member.direction === 'push'` | still counted; direction governs our outbound behaviour, not what a peer may `GET` |
+
+**File tombstones are not covered.** `GET /api/sync/file-tombstones` is issued with no `since`, so the full set crosses the wire every cycle and there is no served position to record. Bounding those needs an acknowledgement-based equivalent on the push side, since that endpoint carries no `seq`.
 
 ---
 

@@ -149,6 +149,11 @@ Each array is capped at 500 items. Response includes per-type counters.
 - `GET /api/sync/tombstones?spaceId=general&sinceSeq=0` returns grouped `{ memories, entities, edges, chrono }` tombstones.
 - `POST /api/sync/tombstones` accepts `{ tombstones: [...] }` and applies deletions.
 
+**The `sinceSeq` you send is recorded.** The serving instance stores it as `lastSeqServed` for your peer identity and prunes tombstones that every member has pulled past — that is the only retention bound on the collection, because an age-based one would let a long-absent peer resurrect a deleted record. Two consequences for an integrator:
+
+- **Send your real watermark, and never a value higher than what you have applied.** Claiming a position you have not reached lets the other side drop tombstones you still need.
+- **A peer that never pulls tombstones blocks pruning for its spaces** — deliberately, since "has not pulled" and "has caught up" must not look alike.
+
 ### File Sync Artifacts
 
 - `GET /api/sync/manifest?spaceId=general` returns file digest metadata for delta detection.

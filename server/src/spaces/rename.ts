@@ -140,7 +140,6 @@ export async function moveSpaceData(oldId: string, newId: string): Promise<strin
     await fs.rename(oldChunks, newChunks);
   } catch { /* ignore — chunks dir may not exist / already moved */ }
 
-  return errors;
   // Usage history follows the space. `space_activity` is instance-wide and its bucket `_id` embeds the
   // space id, so the collection renames above cannot carry it: without this a renamed space starts with a
   // blank Usage panel while its old rows linger under an id that no longer exists.
@@ -152,6 +151,8 @@ export async function moveSpaceData(oldId: string, newId: string): Promise<strin
     // Non-fatal: a rename that otherwise succeeded must not fail over its usage history.
     log.warn(`Could not move activity buckets for the rename ${oldId} -> ${newId}: ${err}`);
   }
+
+  return errors;
 }
 
 /** Apply the logical config changes of a rename: point the space entry at `newId`
@@ -183,7 +184,12 @@ export function applySpaceRenameToConfig(cfg: Config, space: SpaceConfig, oldId:
       }
     }
 
-    // Update member watermark keys (lastSeqReceived / lastSeqPushed)
+    // Update member watermark keys (lastSeqReceived / lastSeqPushed / lastSeqServed).
+    //
+    // All three are keyed by space id, so a rename that misses one silently resets that watermark to
+    // "unknown". For the two pull watermarks that means re-pulling from 0 (idempotent by seq). For
+    // `lastSeqServed` it means the tombstone prune stops until every member has pulled again — safe, and
+    // invisible, which is why it is carried here rather than left to heal.
     for (const member of net.members) {
       if (member.lastSeqReceived?.[oldId] !== undefined) {
         member.lastSeqReceived[newId] = member.lastSeqReceived[oldId]!;
@@ -192,6 +198,10 @@ export function applySpaceRenameToConfig(cfg: Config, space: SpaceConfig, oldId:
       if (member.lastSeqPushed?.[oldId] !== undefined) {
         member.lastSeqPushed[newId] = member.lastSeqPushed[oldId]!;
         delete member.lastSeqPushed[oldId];
+      }
+      if (member.lastSeqServed?.[oldId] !== undefined) {
+        member.lastSeqServed[newId] = member.lastSeqServed[oldId]!;
+        delete member.lastSeqServed[oldId];
       }
     }
   }

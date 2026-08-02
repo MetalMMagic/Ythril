@@ -765,6 +765,11 @@ export interface NetworkMember {
   lastSyncAt?: string;       // ISO8601 — set only on successful sync
   lastSeqReceived?: Record<string, number>;  // spaceId → last seq ingested from this peer
   lastSeqPushed?: Record<string, number>;    // spaceId → last seq we confirmed pushed to this peer
+  /** spaceId → the highest `sinceSeq` this peer has pulled OUR tombstones from, i.e. the position it has
+   *  confirmed applying. The mirror of the two above: they are our position in the peer's data, this is the
+   *  peer's position in ours, and without it a tombstone can never be safely dropped (see
+   *  `sync/served-watermark.ts`). Monotonic; absent means "never pulled", which blocks pruning. */
+  lastSeqServed?: Record<string, number>;
   consecutiveFailures?: number;  // incremented on each failed sync; reset to 0 on success
   parentInstanceId?: string; // braintree only
   /** Set during a temporary reparent; stores the original parent so it can be restored. */
@@ -1469,8 +1474,18 @@ export interface TombstoneDoc {
 export interface FileTombstoneDoc {
   _id: string;         // UUID
   spaceId: string;
-  path: string;        // relative path (same convention as ManifestEntry.path)
-  deletedAt: string;   // ISO8601 — used by peers to prune expired tombstones
+  /** Relative path (same convention as ManifestEntry.path). NOTE: a path is often personal in itself, so this
+   *  record outliving the file means the file's NAME survives its deletion. That is the reason retention here
+   *  matters, and it is not bounded yet — see below. */
+  path: string;
+  /** ISO8601. **Nothing prunes on this today.** It used to be documented as "used by peers to prune expired
+   *  tombstones", which was never true: the peer pull (`GET /api/sync/file-tombstones`) is called with no
+   *  `since` at all, so the full set goes over the wire every cycle and none of it is ever removed. Record
+   *  tombstones ARE bounded, by a served-seq floor (`sync/served-watermark.ts`); the file half needs the
+   *  equivalent built from push acknowledgement, because its wire protocol has no seq. Until then, treat this
+   *  field as provenance only — a comment describing behaviour that does not exist is worse than none,
+   *  because it stops the next reader looking. */
+  deletedAt: string;
 }
 
 export interface FileMetaDoc {

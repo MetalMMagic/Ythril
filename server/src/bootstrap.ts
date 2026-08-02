@@ -80,6 +80,10 @@ export async function startConfiguredInstanceServices(): Promise<void> {
   // that never enabled them.
   const { startCandidatePrune } = await import('./brain/candidate-prune.js');
   startCandidatePrune();
+  // Drops tombstones every peer has confirmed applying. Deliberately NOT hung off the sync engine: a space
+  // with no peers never syncs, and that is precisely the space whose whole tombstone collection is droppable.
+  const { startTombstonePrune } = await import('./brain/tombstone-prune.js');
+  startTombstonePrune();
   // Redacts the `changes` payload on brain record-edit audit entries past their shorter retention.
   // The entry itself keeps `audit.retentionDays` — only the user content inside it expires early.
   const { startAuditChangeRetention } = await import('./audit/change-retention.js');

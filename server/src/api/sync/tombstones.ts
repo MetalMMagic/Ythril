@@ -15,7 +15,8 @@ import { log } from '../../util/log.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { TombstoneDoc, FileTombstoneDoc } from '../../config/types.js';
-import { spaceAllowed, isNonPeerSyncWrite, NON_PEER_WRITE_MESSAGE, isDirectionalWriteBlocked } from './_shared.js';
+import { spaceAllowed, isNonPeerSyncWrite, NON_PEER_WRITE_MESSAGE, isDirectionalWriteBlocked, callerPeerId } from './_shared.js';
+import { recordServedSeq } from '../../sync/served-watermark.js';
 
 export const syncTombstonesRouter = Router();
 
@@ -27,6 +28,11 @@ export const syncTombstonesRouter = Router();
 /**
  * GET /api/sync/tombstones?spaceId=&networkId=&sinceSeq=
  * Bulk tombstone export for efficient deletion sync.
+ *
+ * Also records how far this peer has been served (`lastSeqServed`), which is what makes the tombstones
+ * prunable at all — see `sync/served-watermark.ts`. This is the right hook for it: `pullFromPeer` calls this
+ * endpoint first, once per space per cycle, with the peer's raw confirmed watermark, whereas the
+ * record-family GETs page with opaque cursors.
  */
 syncTombstonesRouter.get('/tombstones', syncRateLimit, requireAuth, async (req, res) => {
   try {
@@ -40,6 +46,9 @@ syncTombstonesRouter.get('/tombstones', syncRateLimit, requireAuth, async (req, 
     const entities = await listTombstones(spaceId, since, pageSize, 'entity');
     const edges = await listTombstones(spaceId, since, pageSize, 'edge');
     const chrono = await listTombstones(spaceId, since, pageSize, 'chrono');
+
+    // After the read, so a bookkeeping failure can never cost the peer its tombstones.
+    recordServedSeq(callerPeerId(req.authToken as Record<string, unknown>), spaceId, since);
     res.json({
       memories,
       entities,

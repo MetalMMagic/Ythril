@@ -50,20 +50,23 @@ import { TranslocoService } from '@jsverse/transloco';
     </button>
   </div>
 
-  <!-- Per-type windows live on the TYPE, in the Schema tab — the middle tier of record > schema > space. Not
-       duplicated here: two places to set one window is how they drift, and the type is where an operator
-       already went to define it. This is the pointer, and it names the precedence because that is the part a
-       form cannot show. -->
-  <div class="dz-section-title" style="font-size:12px;">{{ 'spaces.dangerZone.retentionPerType' | transloco }}</div>
-  <p style="font-size:12px;color:var(--text-muted);margin:2px 0 0;">{{ 'spaces.dangerZone.retentionPerTypeHint' | transloco }}</p>
+  <!-- A pointer, not a titled block. The reporter's operator "understood every individual word and could not
+       tell what the block was for", and they were right about why: a heading promises a control, and this
+       section has none — the control is on the Schema tab. So it is one line when there is nothing to list,
+       and a labelled list only when there is something that overrides the field above.
+
+       The precedence now lives in the section description at the top, once, instead of arriving here as a
+       mid-sentence aside on first mention. And nothing says "the number above" any more: that was a bare
+       back-reference the reader had to scroll up and guess at. -->
   @if (declaredRetention().length) {
-    <ul style="margin:8px 0 0;padding-left:18px;font-size:12px;color:var(--text-secondary);">
+    <p class="dz-hint">{{ 'spaces.dangerZone.retentionPerType' | transloco }} — {{ 'spaces.dangerZone.retentionPerTypeHint' | transloco }}</p>
+    <ul style="margin:6px 0 0;padding-left:18px;font-size:12px;color:var(--text-secondary);">
       @for (r of declaredRetention(); track r.key) {
         <li>{{ r.label }}</li>
       }
     </ul>
   } @else {
-    <p style="font-size:12px;color:var(--text-muted);margin:6px 0 0;">{{ 'spaces.dangerZone.retentionPerTypeNone' | transloco }}</p>
+    <p class="dz-hint">{{ 'spaces.dangerZone.retentionPerTypeNone' | transloco }}</p>
   }
 </div>
 

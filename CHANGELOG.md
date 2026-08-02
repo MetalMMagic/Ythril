@@ -148,6 +148,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "stuck" for five minutes while jobs complete normally. An operator built it exactly as written and was paged
   two minutes after an OOM restart. The metrics table now carries the restart guard
   (`time() - process_start_time_seconds > 600`) rather than leaving it to a long `for:` and luck.
+- **A document large enough to need a long render could be re-queued forever, at default settings.** The stall
+  detector re-queues a job that has reported no progress for `stalledJobTimeoutMs` (5 min), and progress is
+  reported *between* steps, never inside one. The render of a page window is `pageTimeoutMs × min(maxPages, 20)`
+  — **20 minutes out of the box, four times the stall timeout** — so the sweep re-queued the job mid-render, the
+  replacement rendered the same window, and it was re-queued at the same point. The loop that never finishes,
+  which the stall floor was added to prevent, reached with nothing configured.
+  - **Why the floor missed it:** `hopBudgets()` listed three *config keys*, and this budget is not a config key
+    — it is computed at the call site, so a list of names could never contain it. The same
+    "a hand-maintained list is never proved complete" failure this codebase has now recorded ten times.
+  - **Four more invisible hops came out of the same sweep**, all inline literals: Whisper transcription at
+    **300 000 ms — exactly the stall default**, so a five-minute transcription of long audio could be re-queued
+    in the same instant it legitimately finished; local image captioning (120 000); external captioning
+    (60 000); external face recognition (30 000, which binds if an operator sets `stalledJobTimeoutMs` to its
+    30 000 minimum). None of them was operator-settable, so nobody could have raised the stall timeout to
+    compensate even knowing they existed.
+  - Every budget now has a name that both the call site and the floor use, and the render window lives in
+    `files/converters/render-budget.ts` with the arithmetic pinned. A beat is also emitted *before* the render,
+    so the stall clock starts at the phase boundary rather than partway through the step before it.
+  - **The cost, stated plainly:** the effective stall timeout on a stock install rises from 5 minutes to
+    **30** (1.5 × the render window), so a genuinely wedged job takes longer to be recovered. That is the right
+    trade against re-queueing a working job forever, and lowering `maxPages` or `pageTimeoutMs` lowers the floor
+    with it — a test pins that lever. A planned restart still releases claims immediately, so this does not
+    affect rolling deploys.
+  - Gate: `stall-floor-covers-every-hop` — enumerates every `timeoutMs:` / `AbortSignal.timeout()` call site on
+    the media path from `git ls-files` and asserts each budget reaches `hopBudgets()`, in both directions. The
+    exemption for a too-small budget is *derived from the admin schema's own minimum* rather than a filename
+    allowlist, and it rejects the original defect expression, which merely *contained* a covered name. 7 of 7
+    mutations caught — one of which exposed a hole in the gate's first version.
 
 - **Renaming a space never moved its usage history — the code was unreachable.** `moveSpaceData` had
   `return errors;` directly above the block that re-keys `space_activity`, so `renameSpaceActivity` was dead:

@@ -10,9 +10,16 @@
  *     ocrTimeoutMs          120 000 ms   0.40x   settable to 1 800 000   (6x the stall default)
  *     describeTimeoutMs      30 000 ms   0.10x   settable to   600 000
  *
- * **At the defaults nothing binds.** The trap is what the admin API allows an operator to set — and following
- * our own documentation gets them close to it: the docs tell a swap-based host to raise `describeTimeoutMs`
- * (ceiling 10 min) and tell large-scan operators to raise `ocrTimeoutMs` (ceiling 30 min).
+ * **CORRECTED: it binds at the defaults.** The reading above counted only SETTABLE config keys, and the longest
+ * step is not one — the render of a page window is `pageTimeoutMs x min(maxPages, 20)` = **1 200 000 ms**,
+ * computed at its call site, four times the stall default with nothing configured. Four more inline literals
+ * were invisible for the same reason (Whisper at exactly 300 000, captioning at 120 000 / 60 000, external face
+ * recognition at 30 000). `stall-floor-covers-every-hop.test.js` now enumerates the call sites so a hop cannot
+ * be added without reaching the floor.
+ *
+ * The configuration trap is real as well, and following our own documentation gets an operator close to it: the
+ * docs tell a swap-based host to raise `describeTimeoutMs` (ceiling 10 min) and tell large-scan operators to
+ * raise `ocrTimeoutMs` (ceiling 30 min).
  *
  * ## Why exceeding it loops rather than merely being slow
  *
@@ -119,12 +126,41 @@ describe('the worker uses the floor, not the raw setting', () => {
   });
 
   it('names only DURATION budgets as hops', () => {
-    // `maxPages` and `concurrency` are not durations; including one would raise the floor for no reason and
-    // make recovery slower than it needs to be.
+    // `maxPages` and `concurrency` are not durations; feeding one would raise the floor for no reason and make
+    // recovery slower than it needs to be.
+    //
+    // Checked on the fed VALUES with comments stripped, not on the helper's whole text. The earlier version
+    // grepped the raw source, so it failed the moment a comment mentioned `maxPages` while the code was
+    // correct — and it would equally have passed a count fed under a duration-shaped key. What matters is what
+    // reaches `effectiveStallTimeoutMs`.
     const helper = src.match(/function hopBudgets\(\)[\s\S]*?\n\}/)?.[0] ?? '';
-    assert.ok(helper.includes('pageTimeoutMs') && helper.includes('ocrTimeoutMs')
-      && helper.includes('describeTimeoutMs'), 'the three call budgets must be listed');
-    assert.ok(!/maxPages|concurrency|PollInterval/.test(helper),
-      'a non-duration in hopBudgets would inflate the stall floor');
+    assert.ok(helper.length > 100, 'could not locate hopBudgets()');
+    const code = helper.replace(/\/\/.*$/gm, '');
+
+    const fed = [...code.matchAll(/^\s*(\w+):\s*([^,\n]+),/gm)].map(m => ({ key: m[1], value: m[2].trim() }));
+    assert.ok(fed.length >= 4, `only ${fed.length} hops parsed out of hopBudgets()`);
+
+    for (const { key, value } of fed) {
+      assert.ok(!/^(doc\.)?(maxPages|concurrency)$/.test(value) && !/PollInterval/.test(value),
+        `hopBudgets feeds '${key}: ${value}', which is not a duration — it would inflate the stall floor`);
+      // Every fed value must NAME a millisecond quantity: a config `*TimeoutMs`, a `*_TIMEOUT_MS` constant, or
+      // a helper whose name ends in `Ms`. That admits a DERIVED duration (the render window is
+      // `pageTimeoutMs x min(maxPages, 20)`, computed inside `worstRenderWindowMs`) while still rejecting a
+      // raw count.
+      assert.match(value, /TimeoutMs\b|_TIMEOUT_MS\b|Ms\(/,
+        `hopBudgets feeds '${key}: ${value}', which does not name a millisecond quantity`);
+    }
+
+    const keys = fed.map(f => f.key);
+    for (const required of ['pageTimeoutMs', 'ocrTimeoutMs', 'describeTimeoutMs', 'renderWindowMs']) {
+      assert.ok(keys.includes(required), `hopBudgets no longer feeds ${required}`);
+    }
+  });
+
+  it('feeds the render window, which is the longest step at the DEFAULTS', () => {
+    // The reason this file's opening measurement was wrong: it counted settable config keys, and the render
+    // budget is computed at its call site. 60 000 x min(50, 20) = 1 200 000 ms against a 300 000 ms default.
+    const helper = src.match(/function hopBudgets\(\)[\s\S]*?\n\}/)?.[0] ?? '';
+    assert.match(helper, /renderWindowMs:\s*worstRenderWindowMs\(/);
   });
 });

@@ -14,7 +14,12 @@ export interface ExternalFace {
 /** Wire shape a provider must return: `{ faces: [{ embedding, boxRaw? }] }`. */
 interface ExternalFaceResponse { faces?: Array<{ embedding?: unknown; boxRaw?: unknown }> }
 
-const TIMEOUT_MS = 30_000;
+/**
+ * Exported so `hopBudgets()` can see it. 30 s is comfortably under the 300 s stall default, but
+ * `stalledJobTimeoutMs` may be set as low as 30 000 (admin schema minimum) — at which point this single call
+ * is exactly the stall timeout, and a job would be re-queued in the same instant the call gave up.
+ */
+export const FACE_TIMEOUT_MS = 30_000;
 /** A single image cannot legitimately contain more than this; caps a hostile or broken provider. */
 const MAX_FACES = 64;
 
@@ -71,7 +76,7 @@ export async function detectFacesExternal(imageBytes: Buffer): Promise<ExternalF
         ...(ext?.model ? { model: ext.model } : {}),
         image: imageBytes.toString('base64'),
       }),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(FACE_TIMEOUT_MS),
     }, {
       // Matches the assist model: a self-hosted recogniser may live on a private cluster address. The
       // guard stays on — DNS-resolve, IP-pin and redirect re-validation all still apply; only the

@@ -108,9 +108,23 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
               @if (state.settingsNotice()) {
                 <div class="alert alert-info" style="flex:1;margin:0;padding:6px 12px;font-size:13px;">{{ state.settingsNotice() }}</div>
               }
-              <button class="btn btn-primary" type="button" (click)="saveSettings()" [disabled]="state.settingsSaving()">
-                @if (state.settingsSaving()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }{{ 'spaces.popup.footer.saveChanges' | transloco }}
-              </button>
+              <!-- Once the outcome is TERMINAL, the button says so.
+                   A governed save answers 202 and opens a vote, so the work is finished and there is nothing
+                   left to submit, but the button still read "Save changes" and the only exit was the (X),
+                   which universally means DISCARD. A reporting operator: "i have to click (X) which feels
+                   unsure if the changes are now actually up for vote or discarded."
+                   That is a wrong-action risk, not a wobble: read as cancel, someone looks for another way to
+                   confirm, saves again, and creates a SECOND proposal for the same change. A button that
+                   submitted successfully must not still be offering to submit. -->
+              @if (state.settingsNotice()) {
+                <button class="btn btn-primary" type="button" (click)="state.closeSettings()">
+                  {{ 'spaces.popup.footer.done' | transloco }}
+                </button>
+              } @else {
+                <button class="btn btn-primary" type="button" (click)="saveSettings()" [disabled]="state.settingsSaving()">
+                  @if (state.settingsSaving()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }{{ 'spaces.popup.footer.saveChanges' | transloco }}
+                </button>
+              }
             </div>
           }
         </div><!-- sp-panel -->

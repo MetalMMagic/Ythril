@@ -857,6 +857,7 @@
   "spaces.popup.tab.schema": "Schema",
   "spaces.popup.tab.dangerZone": "Gefahrenzone",
   "spaces.popup.footer.saveChanges": "Änderungen speichern",
+  "spaces.popup.footer.done": "Fertig",
   "spaces.unsaved.title": "Nicht gespeicherte Änderungen verwerfen?",
   "spaces.unsaved.message": "Sie haben nicht gespeicherte Änderungen an den Einstellungen dieses Space. Wenn Sie jetzt verlassen, gehen sie verloren.",
   "spaces.unsaved.confirm": "Änderungen verwerfen",

@@ -857,6 +857,7 @@
   "spaces.popup.tab.schema": "Schema",
   "spaces.popup.tab.dangerZone": "Danger Zone",
   "spaces.popup.footer.saveChanges": "Save changes",
+  "spaces.popup.footer.done": "Done",
   "spaces.unsaved.title": "Discard unsaved changes?",
   "spaces.unsaved.message": "You have unsaved changes to this space's settings. If you leave now they will be lost.",
   "spaces.unsaved.confirm": "Discard changes",

@@ -1486,8 +1486,8 @@ export interface ChronoEntry {
   embeddingModel?: string;
   /** Absolute expiry (F10) — see MemoryDoc._expireAt. */
   _expireAt?: Date;
-  /** When this entry's CONTENT should be dropped while the entry itself stays — the first tier of
-   *  `SpaceConfig.chronoRetention`. Set from the type's `contentDays`; absent means never. */
+  /** When this entry's CONTENT should be dropped while the entry itself stays. Set from the type schema's
+   *  `retention.contentDays` (see `TypeSchema.retention`); absent means never. */
   _contentExpireAt?: Date;
   /** True once the content window lapsed and the detail was dropped. Present so a reader can tell
    *  "this record never had a description" from "it did, and it expired" — the same distinction

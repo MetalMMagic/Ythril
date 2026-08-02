@@ -1,55 +1,51 @@
 /**
- * Per-chrono-type retention — the rule, kept pure.
+ * Record retention — the rule, kept pure.
  *
- * ## Why a space-wide TTL was the wrong axis
+ * ## The precedence, decided by the owner on 2026-08-02
  *
- * From a canary operator, 2026-08-02. Their `operation-logs` space holds deploy `event`s next to
- * `health-snapshot` and `metrics-snapshot` records, and the two want opposite treatment:
+ *     record  >  schema  >  space
  *
- *   - **Deploy events are content-free by design**, so they are semantically almost identical to each other
- *     and to anything mentioning deployment. A cross-space recall for *"how is the platform deployed and what
- *     runs on the server"* returned **four near-identical `platform-apps deployed` chronos at 0.874**,
- *     outranking the guideline it should have surfaced at 0.823. They displace knowledge.
- *   - **Snapshots exist to be trended** (`diskServerDaysToFull`, `mongoDataSizeGiB`, `trivyCriticalCVEs`) and
- *     are one per run, so retaining them is nearly free — while 90 days is a single quarter with no
- *     year-over-year comparison.
+ * - **record** — `ttlDays` on the write. Someone said what they wanted for that record; `0`/`null` means
+ *   never expire and wins over any policy.
+ * - **schema** — `typeSchemas[collection][type].retention`. Per TYPE, and it lives where the type is already
+ *   defined rather than in a second parallel map an operator has to know exists.
+ * - **space** — `recordTtlDays`. The floor, and the only tier that can reach records with no type at all.
  *
- * So this is a **recall-quality** feature that happens to look like a storage one. Their volumes were 516 and
- * 139 records; nobody was worried about disk.
+ * ## Why per-type exists
+ *
+ * A space-wide TTL cannot express a space that holds two kinds of thing. The case that drove it, from a canary
+ * operator: one space with deploy `event` chronos — **content-free by design**, so they cluster tightly and
+ * displace real answers (a recall for *"how is the platform deployed"* returned four near-identical
+ * `platform-apps deployed` records at 0.874, above the guideline it should have surfaced at 0.823) — next to
+ * `health-snapshot` records that exist to be trended and must outlive any prune window. Their volumes were 516
+ * and 139 records, so this was never about storage.
  *
  * ## Two tiers, borrowed rather than invented
  *
  * The audit log already splits "the entry" from "the payload inside it" (`audit.recordChangeRetentionDays`),
- * and the operator asked for that shape by name. It maps exactly:
+ * and the operator asked for that shape by name:
  *
- *   contentDays  →  drop the bulky, recallable part; keep the fact. `contentRedacted: true` so a reader can
- *                   tell "there was no detail" from "there was, and it expired".
- *   days         →  delete the record, through the normal delete path so it tombstones and propagates.
+ *     contentDays  →  drop the bulky, recallable part; keep the fact. `contentRedacted: true` so a reader can
+ *                     tell "there was no detail" from "there was, and it expired".
+ *     days         →  delete the record, through the normal delete path so it tombstones and propagates.
  *
  * **Dropping the vector is the point of the first tier**, not a side effect: a record with no embedding is
- * still listed and still queryable by field, but it can no longer win a semantic search — which is precisely
- * the problem that was reported.
+ * still listed and still queryable by field, but it cannot win a semantic search.
  *
- * ## Precedence
- *
- * A per-record `ttlDays` on the write beats everything (someone said what they wanted for that record); then
- * the per-type policy; then the space's `recordTtlDays`. Absent everywhere means no expiry, as before.
+ * `contentDays` is **chrono only** — the field names it removes are chrono's, and the write path rejects it on
+ * other collections rather than accepting a setting that would do nothing.
  */
+import type { KnowledgeType, SpaceMeta } from '../config/types.js';
 
 const DAY_MS = 86_400_000;
 
-/** Per-type policy as stored on the space. Both fields optional so a type can set one tier only. */
-export interface ChronoTypeRetention {
-  days?: number;
-  contentDays?: number;
-}
-
-export type ChronoRetentionPolicy = Record<string, ChronoTypeRetention>;
+/** Collections whose types may set a content window. The tier's field list is chrono's. */
+export const CONTENT_TIER_COLLECTIONS: readonly KnowledgeType[] = ['chrono'];
 
 /** The subset of a space this decision needs — so every branch is testable without a config. */
 export interface RetentionSpace {
   recordTtlDays?: number;
-  chronoRetention?: ChronoRetentionPolicy;
+  meta?: SpaceMeta;
 }
 
 /** A positive, finite day count, or undefined. Rejects 0 and negatives: those mean "no policy", not "instant". */
@@ -57,70 +53,94 @@ function days(v: unknown): number | undefined {
   return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : undefined;
 }
 
-/**
- * Retention in days for a chrono of this type: the per-type value, else the space default.
- *
- * A type named in the policy with no `days` deliberately falls through to the space default rather than
- * meaning "keep forever" — the operator's intent when they set only `contentDays` is "redact sooner, delete on
- * the usual schedule", and reading it as an exemption would silently retain records they expected to go.
- */
-export function chronoRetentionDays(space: RetentionSpace, type: string): number | undefined {
-  return days(space.chronoRetention?.[type]?.days) ?? days(space.recordTtlDays);
+/** The type's own retention block, if the schema declares one. */
+export function schemaRetention(
+  space: RetentionSpace,
+  collection: KnowledgeType,
+  type: string | undefined,
+): { days?: number; contentDays?: number } | undefined {
+  if (!type) return undefined;
+  return space.meta?.typeSchemas?.[collection]?.[type]?.retention;
 }
 
 /**
- * Days after which a chrono of this type loses its content but keeps its fact, or undefined for never.
+ * Retention in days for a record of this collection+type: the schema's value, else the space default.
  *
- * Clamped below the delete window: a content window at or past the delete window can never fire, and a policy
- * that silently does nothing is worse than a rejected one. Clamping rather than erroring keeps a two-step
- * config edit (lower `days`, then lower `contentDays`) from failing halfway.
+ * A type whose schema sets only `contentDays` deliberately falls through to the space default rather than
+ * meaning "keep forever" — the intent behind a content window is "redact sooner", and reading it as an
+ * exemption would silently retain records the operator expected to go.
  */
-export function chronoContentDays(space: RetentionSpace, type: string): number | undefined {
-  const content = days(space.chronoRetention?.[type]?.contentDays);
+export function retentionDays(
+  space: RetentionSpace,
+  collection: KnowledgeType,
+  type: string | undefined,
+): number | undefined {
+  return days(schemaRetention(space, collection, type)?.days) ?? days(space.recordTtlDays);
+}
+
+/**
+ * Days after which a record loses its content but keeps its fact, or undefined for never.
+ *
+ * Two guards, both of which prevent a policy that cannot fire:
+ *  - the collection must support the tier (`chrono`);
+ *  - the content window must be strictly inside the delete window, or the record is gone first.
+ *
+ * Clamping rather than erroring keeps a two-step config edit (lower `days`, then lower `contentDays`) from
+ * failing halfway; the write path rejects the *unsupported collection* case loudly, where it can.
+ */
+export function contentDays(
+  space: RetentionSpace,
+  collection: KnowledgeType,
+  type: string | undefined,
+): number | undefined {
+  if (!CONTENT_TIER_COLLECTIONS.includes(collection)) return undefined;
+  const content = days(schemaRetention(space, collection, type)?.contentDays);
   if (content === undefined) return undefined;
-  const total = chronoRetentionDays(space, type);
+  const total = retentionDays(space, collection, type);
   if (total !== undefined && content >= total) return undefined;
   return content;
 }
 
-/** `now + days` as a BSON Date, or undefined. `from` is the record's creation time, not the sweep's clock. */
+/** `from + days` as a BSON Date, or undefined. `from` is the record's creation time, not the sweep's clock. */
 function plusDays(from: number, d: number | undefined): Date | undefined {
   return d === undefined ? undefined : new Date(from + d * DAY_MS);
 }
 
 /**
- * The `_expireAt` a chrono of this type should carry.
+ * The `_expireAt` a record should carry, applying record > schema > space.
  *
  * `ttlDays` follows the same contract as `expiryForCreate`: `0`/`null` is an explicit "never expire" and wins
- * over any policy, a positive number wins, and omitted defers to the type policy then the space default.
+ * over any policy, a positive number wins, and omitted defers to the schema then the space default.
  */
-export function chronoExpiry(
+export function recordExpiry(
   space: RetentionSpace,
-  type: string,
+  collection: KnowledgeType,
+  type: string | undefined,
   createdAtMs: number,
   ttlDays?: number | null,
 ): Date | undefined {
   if (ttlDays === 0 || ttlDays === null) return undefined;
   const explicit = days(ttlDays);
   if (explicit !== undefined) return plusDays(createdAtMs, explicit);
-  return plusDays(createdAtMs, chronoRetentionDays(space, type));
+  return plusDays(createdAtMs, retentionDays(space, collection, type));
 }
 
-/** When this chrono's content should be dropped, or undefined if it never should. */
-export function chronoContentExpiry(
+/** When this record's content should be dropped, or undefined if it never should. */
+export function recordContentExpiry(
   space: RetentionSpace,
-  type: string,
+  collection: KnowledgeType,
+  type: string | undefined,
   createdAtMs: number,
 ): Date | undefined {
-  return plusDays(createdAtMs, chronoContentDays(space, type));
+  return plusDays(createdAtMs, contentDays(space, collection, type));
 }
 
 /**
  * Fields removed when a chrono's content window lapses.
  *
  * `embedding` and `embeddingModel` go with the text: leaving the vector behind would keep the record winning
- * semantic searches for content that is no longer there, which is the failure this feature exists to fix.
- * `title`, `type`, `startsAt`, `tags` and the id links stay — that is the "it happened" half.
+ * semantic searches for content that is no longer there, which is the failure this exists to fix. `title`,
+ * `type`, `startsAt`, `tags` and the id links stay — that is the "it happened" half.
  */
 export const REDACTED_CHRONO_FIELDS = [
   'description', 'matchedText', 'properties', 'embedding', 'embeddingModel',
@@ -130,4 +150,27 @@ export const REDACTED_CHRONO_FIELDS = [
 export function needsContentRedaction(doc: Record<string, unknown>): boolean {
   if (doc['contentRedacted'] === true) return false;
   return REDACTED_CHRONO_FIELDS.some(f => doc[f] !== undefined);
+}
+
+/**
+ * Every `collection.type` in this space that declares a retention window, for display and for the sweep.
+ *
+ * Returned sorted so a UI and a log line list them in the same order regardless of key insertion order.
+ */
+export function declaredRetention(
+  space: RetentionSpace,
+): Array<{ collection: KnowledgeType; type: string; days?: number; contentDays?: number }> {
+  const out: Array<{ collection: KnowledgeType; type: string; days?: number; contentDays?: number }> = [];
+  const schemas = space.meta?.typeSchemas ?? {};
+  for (const collection of Object.keys(schemas) as KnowledgeType[]) {
+    for (const [type, schema] of Object.entries(schemas[collection] ?? {})) {
+      const r = schema?.retention;
+      if (!r) continue;
+      const d = days(r.days);
+      const c = days(r.contentDays);
+      if (d === undefined && c === undefined) continue;
+      out.push({ collection, type, ...(d !== undefined ? { days: d } : {}), ...(c !== undefined ? { contentDays: c } : {}) });
+    }
+  }
+  return out.sort((a, b) => a.collection.localeCompare(b.collection) || a.type.localeCompare(b.type));
 }

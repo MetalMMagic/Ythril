@@ -99,6 +99,11 @@ interface StatCard { key: CollectionTab; icon: string; label: string; value: num
       border-radius: 8px; font-size: 12.5px; border: 1px solid var(--warning-border); background: var(--warning-bg); }
     .reindex-note ph-icon { flex: none; margin-top: 1px; color: var(--warning); }
     .actions { margin-top: 13px; }
+    .retention { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-muted); }
+    .ret-line { margin: 4px 0 0; font-size: 12.5px; color: var(--text-primary); }
+    .ret-types { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 3px;
+      font-size: 11.5px; color: var(--text-secondary); }
+    .ret-edit { margin: 7px 0 0; font-size: 11px; }
     .muted { color: var(--text-muted); font-size: 12.5px; }
 
     .net-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
@@ -341,6 +346,23 @@ interface StatCard { key: CollectionTab; icon: string; label: string; value: num
             </div>
           }
 
+          <!-- Retention belongs on this card: both answers here are about the lifecycle of what is stored,
+               and "why did that record disappear?" is asked far more often than it is answered. Read-only —
+               it is set in the Danger Zone (space-wide) and on the type in the Schema tab, and duplicating an
+               editor is how the two drift. -->
+          <div class="retention">
+            <div class="idx-row">
+              <span class="lab">{{ 'brain.overview.retentionTitle' | transloco }}</span>
+            </div>
+            <p class="ret-line">{{ retentionSummary() }}</p>
+            @if (retentionTypes().length) {
+              <ul class="ret-types">
+                @for (r of retentionTypes(); track r.key) { <li>{{ r.label }}</li> }
+              </ul>
+            }
+            <p class="muted ret-edit">{{ 'brain.overview.retentionEdit' | transloco }}</p>
+          </div>
+
           <div class="actions">
             <button class="btn btn-sm btn-secondary" type="button" [disabled]="reindexing()" (click)="requestReindex()">
               @if (reindexing()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
@@ -557,6 +579,39 @@ export class OverviewTabComponent {
   failureReasons = computed<Array<{ reason: string | null; count: number }>>(
     () => this.embeddingQueue()?.failedByReason ?? [],
   );
+  /** The space-wide tier, in words. "No expiry" is a real answer and the one most spaces give. */
+  retentionSummary = computed<string>(() => {
+    const days = this.space()?.recordTtlDays;
+    return days && days > 0
+      ? this.transloco.translate('brain.overview.retentionSpaceWide', { days })
+      : this.transloco.translate('brain.overview.retentionNone');
+  });
+
+  /**
+   * Types whose schema overrides the space-wide window.
+   *
+   * Listed because the line above is a half-truth without them: an operator who set 30 days and sees one type
+   * keeping records for ten years needs the reason on the same card, not in another tab.
+   */
+  retentionTypes = computed<Array<{ key: string; label: string }>>(() => {
+    const schemas = this.space()?.meta?.typeSchemas ?? {};
+    const t = (k: string, p?: Record<string, unknown>) => this.transloco.translate(k, p);
+    const out: Array<{ key: string; label: string }> = [];
+    for (const [collection, types] of Object.entries(schemas)) {
+      for (const [type, schema] of Object.entries(types ?? {})) {
+        const r = schema?.retention;
+        if (!r || (!r.days && !r.contentDays)) continue;
+        const name = `${collection}.${type}`;
+        const label = r.days && r.contentDays
+          ? t('brain.overview.retentionTypeContent', { type: name, days: r.days, contentDays: r.contentDays })
+          : r.days
+            ? t('brain.overview.retentionType', { type: name, days: r.days })
+            : t('brain.overview.retentionTypeContentOnly', { type: name, contentDays: r.contentDays });
+        out.push({ key: name, label });
+      }
+    }
+    return out.sort((a, b) => a.key.localeCompare(b.key));
+  });
 
   total = computed(() => {
     const s = this.stats();

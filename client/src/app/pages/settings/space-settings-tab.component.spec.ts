@@ -64,11 +64,15 @@ describe('SpaceSettingsTabComponent — U9 pt3 arrangement', () => {
     expect(el.querySelectorAll('app-settings-card').length).toBe(5);
   });
 
-  it('still renders label, purpose, usage notes, max storage, and record TTL', async () => {
+  it('still renders label, purpose, usage notes and max storage — but no longer edits retention', async () => {
+    // Retention moved to the Danger Zone (owner call, 2026-08-02): it DELETES records, while the storage cap
+    // beside it only refuses new writes. One number input is now the correct count, and the pointer stays so
+    // nobody concludes the setting vanished.
     const { el } = await setup();
     expect(el.querySelectorAll('input[type="text"]').length).toBeGreaterThanOrEqual(1); // label
     expect(el.querySelectorAll('textarea').length).toBe(2);                             // purpose + usageNotes
-    expect(el.querySelectorAll('input[type="number"]').length).toBe(2);                 // maxGiB + recordTtlDays
+    expect(el.querySelectorAll('input[type="number"]').length).toBe(1);                 // maxGiB only
+    expect(el.textContent).toContain('spaces.settings.recordTtlMoved');                 // the pointer
   });
 
   it('no longer renders the validation controls; the selects are the extraction-mode + 4 media-level pickers', async () => {
@@ -112,7 +116,7 @@ describe('SpaceSettingsTabComponent — U9 pt3 arrangement', () => {
     expect(el.querySelectorAll('app-status-pill').length).toBe(0);
     // Each blank number input still communicates its default through placeholder text...
     const numbers = [...el.querySelectorAll('input[type="number"]')] as HTMLInputElement[];
-    expect(numbers.length).toBe(2);
+    expect(numbers.length).toBe(1);   // maxGiB; retention moved to the Danger Zone
     expect(numbers.every(n => n.placeholder.trim().length > 0)).toBe(true);
     // ...and the extraction select keeps its "use instance default" (value="") option.
     const select = el.querySelector('select') as HTMLSelectElement;

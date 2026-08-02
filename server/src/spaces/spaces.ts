@@ -61,7 +61,7 @@ export function spaceResponse<T extends { meta?: SpaceMeta }>(space: T): T & { d
  *  Returns the updated SpaceConfig, or null if the space was not found. */
 export function updateSpace(
   spaceId: string,
-  updates: { label?: string; description?: string; maxGiB?: number | null; meta?: SpaceMeta; dupeRules?: DupeActionRule[]; dupeMergeSurvivor?: 'older' | 'newer'; dupeRulesOnInsert?: boolean; recordTtlDays?: number | null; chronoRetention?: Record<string, { days?: number; contentDays?: number }> | null; documentExtraction?: DocExtractionMode | null; imageAnalysis?: ImageLevel | null; audioAnalysis?: AudioLevel | null; videoAnalysis?: VideoLevel | null; textAnalysis?: TextLevel | null },
+  updates: { label?: string; description?: string; maxGiB?: number | null; meta?: SpaceMeta; dupeRules?: DupeActionRule[]; dupeMergeSurvivor?: 'older' | 'newer'; dupeRulesOnInsert?: boolean; recordTtlDays?: number | null; documentExtraction?: DocExtractionMode | null; imageAnalysis?: ImageLevel | null; audioAnalysis?: AudioLevel | null; videoAnalysis?: VideoLevel | null; textAnalysis?: TextLevel | null },
 ): SpaceConfig | null {
   const cfg = getConfig();
   const space = cfg.spaces.find(s => s.id === spaceId);
@@ -94,11 +94,6 @@ export function updateSpace(
   // F10 auto-TTL — local operational setting; `in` so an explicit clear (undefined) removes it.
   if ('recordTtlDays' in updates) {
     space.recordTtlDays = updates.recordTtlDays && updates.recordTtlDays > 0 ? updates.recordTtlDays : undefined;
-  }
-  // Per-chrono-type retention — same contract: local, immediate, cleared by an explicit empty/null.
-  if ('chronoRetention' in updates) {
-    const p = updates.chronoRetention;
-    space.chronoRetention = p && Object.keys(p).length > 0 ? p : undefined;
   }
   // F11-c per-space extraction-mode override — local operational setting; `in` so an explicit clear removes it.
   if ('documentExtraction' in updates) {

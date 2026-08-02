@@ -61,6 +61,30 @@ export interface TypeSchema {
   /** Regex pattern for entity.name validation (entity collection only). */
   namingPattern?: string;
   /**
+   * How long records of this type are kept. The middle tier of **record > schema > space**
+   * (owner decision, 2026-08-02).
+   *
+   * A space-wide `recordTtlDays` cannot express a space that holds two kinds of thing. The case that drove
+   * it: one space with deploy `event` chronos — content-free by design, so they cluster tightly and
+   * **displace real answers in recall** — next to `health-snapshot` records that exist to be trended and must
+   * outlive any prune window. Putting the window on the TYPE puts it where the type is already defined,
+   * rather than in a second parallel map an operator has to know exists.
+   *
+   * - `days` — delete records of this type after this many days, through the normal delete path, so the
+   *   deletion tombstones and propagates to peers.
+   * - `contentDays` — **chrono only.** Drop the bulky, recallable part (`description`, `matchedText`,
+   *   `properties` and the embedding) while keeping the record, and set `contentRedacted: true`. That a
+   *   deploy happened stays true; the detail does not, and it stops competing in semantic search because a
+   *   record with no vector cannot win one. Rejected on other collections rather than silently ignored.
+   *
+   * A per-record `ttlDays` on the write still wins over both, including `0`/`null` for "never expire".
+   *
+   * **This lives in space meta, so it is governed and replicated** like the rest of the schema: in a network
+   * the policy is agreed, and each instance then expires its own copy locally. That is deliberate — the
+   * alternative (a local-only setting) lets two members of one network disagree about what the space keeps.
+   */
+  retention?: { days?: number; contentDays?: number };
+  /**
    * **RETIRED — read and written, consumed by nothing.** Stored values are preserved; there is no
    * longer an editor for this field on the space Schema tab or in the Schema Library.
    *
@@ -235,28 +259,6 @@ export interface SpaceConfig {
    *  `now + recordTtlDays` and deleted by the TTL sweep once it lapses (through the normal delete path,
    *  so it tombstones + syncs). A per-record `ttlDays` on a write overrides this. Absent = no auto-TTL. */
   recordTtlDays?: number;
-  /**
-   * Per-CHRONO-TYPE retention, overriding `recordTtlDays` for the types named (canary ask, 2026-08-02).
-   *
-   * A space-wide TTL is the wrong axis for a telemetry space. The reporting operator's `operation-logs` space
-   * holds deploy `event`s alongside `health-snapshot`/`metrics-snapshot` records, and the two want opposite
-   * treatment: the events should go (they are content-free by design, so they cluster tightly and **displace
-   * knowledge in recall** — four near-identical `platform-apps deployed` chronos scored 0.874 against the
-   * guideline they wanted at 0.823), while the snapshots must stay far longer because they exist to be
-   * trended, and 90 days is one quarter with no year-over-year.
-   *
-   * Two tiers per type, taken from the audit log's design because it is the right shape and reusing it beats
-   * inventing a second one:
-   *
-   *   - `contentDays` — after this, the bulky, recallable part goes (`description`, `matchedText`,
-   *     `properties`, the vector) and `contentRedacted: true` is set. The record stays: **that a deploy
-   *     happened is still true, the detail is not kept, and it stops competing in recall.**
-   *   - `days` — after this, the record is deleted through the normal path, so it tombstones and propagates.
-   *
-   * Local and operational, like `recordTtlDays` beside it: never governed, never synced. A per-record
-   * `ttlDays` on a write still wins over both. Absent, or a type not named, falls back to `recordTtlDays`.
-   */
-  chronoRetention?: Record<string, { days?: number; contentDays?: number }>;
   /** Vector-search index lifecycle for a newly created space (B1). Creation now
    *  returns immediately with 'building' and the (slow, up-to-minutes) Atlas index
    *  builds finish asynchronously — flipping this to 'ready', or 'failed' if a build
@@ -1484,8 +1486,8 @@ export interface ChronoEntry {
   embeddingModel?: string;
   /** Absolute expiry (F10) — see MemoryDoc._expireAt. */
   _expireAt?: Date;
-  /** When this entry's CONTENT should be dropped while the entry itself stays — the first tier of
-   *  `SpaceConfig.chronoRetention`. Set from the type's `contentDays`; absent means never. */
+  /** When this entry's CONTENT should be dropped while the entry itself stays. Set from the type schema's
+   *  `retention.contentDays` (see `TypeSchema.retention`); absent means never. */
   _contentExpireAt?: Date;
   /** True once the content window lapsed and the detail was dropped. Present so a reader can tell
    *  "this record never had a description" from "it did, and it expired" — the same distinction

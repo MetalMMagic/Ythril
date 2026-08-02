@@ -23,14 +23,23 @@ const skip = await mongoSkipReason();
 const SPACE = 'telemetry';
 const DAY = 86_400_000;
 
-let mongo, backfillChronoExpiry, redactLapsedChronoContent, hasChronoPolicy;
+let mongo, backfillChronoExpiry, redactLapsedChronoContent, policedChronoTypes;
 
-/** The reporter's own policy shape. */
+/**
+ * The reporter's own policy, in the shape it actually lives in: on the TYPE, in the space's schema.
+ *
+ * Owner decision, 2026-08-02 — retention resolves record > schema > space, and the per-type window belongs
+ * where the type is defined rather than in a second map on the space.
+ */
 const POLICY = {
   recordTtlDays: 90,
-  chronoRetention: {
-    event: { days: 90, contentDays: 14 },
-    'health-snapshot': { days: 3650 },
+  meta: {
+    typeSchemas: {
+      chrono: {
+        event: { retention: { days: 90, contentDays: 14 } },
+        'health-snapshot': { retention: { days: 3650 } },
+      },
+    },
   },
 };
 
@@ -52,7 +61,7 @@ const load = async (id) => mongo.col(`${SPACE}_chrono`).findOne({ _id: id });
 describe('chrono retention (real MongoDB)', { skip }, () => {
   before(async () => {
     mongo = await openTestMongo('chronoretention');
-    ({ backfillChronoExpiry, redactLapsedChronoContent, hasChronoPolicy } =
+    ({ backfillChronoExpiry, redactLapsedChronoContent, policedChronoTypes } =
       await import('../../server/dist/brain/chrono-redaction.js'));
   });
 
@@ -98,11 +107,18 @@ describe('chrono retention (real MongoDB)', { skip }, () => {
     assert.equal((await load('e-bad'))._expireAt, undefined);
   });
 
-  it('does nothing at all without a policy', async () => {
+  it('does nothing at all without a schema policy', async () => {
+    // A space-wide window alone does not drive the backfill: the space tier is applied at WRITE time by
+    // `stampExpiryOnCreate`, and re-stamping every historical record from it is a different decision than the
+    // one the operator made by naming a type.
     await mongo.col(`${SPACE}_chrono`).insertOne(chrono('e1', 'event', new Date().toISOString()));
-    assert.equal(hasChronoPolicy({ recordTtlDays: 90 }), false);
+    assert.deepEqual(policedChronoTypes({ recordTtlDays: 90 }), []);
     assert.equal(await backfillChronoExpiry(SPACE, { recordTtlDays: 90 }), 0);
     assert.equal((await load('e1'))._expireAt, undefined);
+  });
+
+  it('polices exactly the types whose schema declares a window', async () => {
+    assert.deepEqual(policedChronoTypes(POLICY).sort(), ['event', 'health-snapshot']);
   });
 
   it('drops the detail and the vector, and KEEPS the record', async () => {

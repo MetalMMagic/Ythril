@@ -68,6 +68,14 @@ const TypeSchemaZ = z.union([
     namingPattern: z.string().max(500).optional(),
     tagSuggestions: z.array(z.string().min(1).max(200)).max(200).optional(),
     propertySchemas: z.record(z.string().min(1).max(200), PropertySchemaZ).optional(),
+    // The schema tier of record > schema > space. `.strict()` above means an unlisted key is REJECTED, so
+    // without this the field would be stripped from every PATCH and the feature would silently not exist.
+    retention: z.object({
+      days: z.number().int().positive().max(36500).optional(),
+      contentDays: z.number().int().positive().max(36500).optional(),
+    }).strict().refine(v => v.days !== undefined || v.contentDays !== undefined, {
+      message: 'retention needs days, contentDays, or both',
+    }).optional(),
   }).strict(),
 ]);
 
@@ -151,19 +159,6 @@ const UpdateSpaceBody = z.object({
   dupeRulesOnInsert: z.boolean().optional(),
   // F10: auto-TTL in days. 0/null clears it; a positive value stamps every new/updated record.
   recordTtlDays: z.number().int().nonnegative().max(36500).nullable().optional(),
-  // Per-chrono-type retention (canary ask, 2026-08-02). Overrides `recordTtlDays` for the types named, because
-  // a telemetry space wants deploy `event`s pruned and `health-snapshot`s kept for trending, and one space-wide
-  // number cannot express both. `days` deletes (through the normal path, so it tombstones); `contentDays`
-  // drops the detail and the vector while keeping the record. `null` clears the whole policy.
-  chronoRetention: z.record(
-    z.string().min(1).max(64),
-    z.object({
-      days: z.number().int().positive().max(36500).optional(),
-      contentDays: z.number().int().positive().max(36500).optional(),
-    }).strict().refine(v => v.days !== undefined || v.contentDays !== undefined, {
-      message: 'each chronoRetention entry needs days, contentDays, or both',
-    }),
-  ).nullable().optional(),
   // F11-c: per-space document-extraction mode override. null clears it (inherit the instance default).
   // `max` is accepted as the legacy spelling of `repair` and normalised on the way in.
   documentExtraction: z.enum(DOC_EXTRACTION_MODES_IN).nullable().optional(),
@@ -173,8 +168,8 @@ const UpdateSpaceBody = z.object({
   audioAnalysis: z.enum(AUDIO_LEVELS).nullable().optional(),
   videoAnalysis: z.enum(VIDEO_LEVELS).nullable().optional(),
   textAnalysis: z.enum(TEXT_LEVELS).nullable().optional(),
-}).refine(d => d.label !== undefined || d.description !== undefined || d.meta !== undefined || d.maxGiB !== undefined || d.dupeRules !== undefined || d.dupeMergeSurvivor !== undefined || d.dupeRulesOnInsert !== undefined || d.recordTtlDays !== undefined || d.chronoRetention !== undefined || d.documentExtraction !== undefined || d.imageAnalysis !== undefined || d.audioAnalysis !== undefined || d.videoAnalysis !== undefined || d.textAnalysis !== undefined, {
-  message: 'At least one of label, description, maxGiB, meta, dupeRules, dupeMergeSurvivor, dupeRulesOnInsert, recordTtlDays, chronoRetention, documentExtraction, imageAnalysis, audioAnalysis, videoAnalysis, or textAnalysis must be provided',
+}).refine(d => d.label !== undefined || d.description !== undefined || d.meta !== undefined || d.maxGiB !== undefined || d.dupeRules !== undefined || d.dupeMergeSurvivor !== undefined || d.dupeRulesOnInsert !== undefined || d.recordTtlDays !== undefined || d.documentExtraction !== undefined || d.imageAnalysis !== undefined || d.audioAnalysis !== undefined || d.videoAnalysis !== undefined || d.textAnalysis !== undefined, {
+  message: 'At least one of label, description, maxGiB, meta, dupeRules, dupeMergeSurvivor, dupeRulesOnInsert, recordTtlDays, documentExtraction, imageAnalysis, audioAnalysis, videoAnalysis, or textAnalysis must be provided',
 });
 
 const ReorderSpacesBody = z.object({
@@ -358,7 +353,7 @@ spacesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
   }
 
   const spaces = visibleSpaces.map((space, idx) => {
-    const { id, label, builtIn, folders, maxGiB, flex, proxyFor, meta, dupeRules, dupeMergeSurvivor, dupeRulesOnInsert, recordTtlDays, chronoRetention, documentExtraction, imageAnalysis, audioAnalysis, videoAnalysis, textAnalysis, indexStatus } = space;
+    const { id, label, builtIn, folders, maxGiB, flex, proxyFor, meta, dupeRules, dupeMergeSurvivor, dupeRulesOnInsert, recordTtlDays, documentExtraction, imageAnalysis, audioAnalysis, videoAnalysis, textAnalysis, indexStatus } = space;
     return {
     id, label, builtIn, folders, maxGiB, flex,
     // Deprecated alias of `meta.purpose`, derived rather than stored — see `spaceDescriptionAlias`.
@@ -373,7 +368,6 @@ spacesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
     ...(dupeMergeSurvivor ? { dupeMergeSurvivor } : {}),
     ...(dupeRulesOnInsert ? { dupeRulesOnInsert } : {}),
     ...(recordTtlDays ? { recordTtlDays } : {}),
-    ...(chronoRetention ? { chronoRetention } : {}),
     ...(documentExtraction ? { documentExtraction } : {}),
     // Only present when the space overrides the instance — an absent field means 'follows the
     // instance', which the UI renders differently from an explicit choice.
@@ -540,15 +534,6 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminMfaScoped('id'), async (
     if (ttl) void ensureTtlIndex(id).catch(err => log.warn(`ensureTtlIndex ${id}: ${err}`));
   }
 
-  // Per-chrono-type retention — same treatment: local, immediate, never voted. `null` or an empty object
-  // clears the policy. The index matters more here than for `recordTtlDays`: the redaction pass has its own
-  // sweep query, so without it a space that enables this would be scanned every five minutes.
-  if (parsed.data.chronoRetention !== undefined) {
-    const policy = parsed.data.chronoRetention;
-    const next = policy && Object.keys(policy).length > 0 ? policy : undefined;
-    updateSpace(id, { chronoRetention: next });
-    if (next) void ensureTtlIndex(id).catch(err => log.warn(`ensureTtlIndex ${id}: ${err}`));
-  }
 
   // A space may pick any extraction mode up to the instance ceiling and nothing beyond. The client only
   // offers valid options, but an API caller (or a space whose stored value predates a lowered ceiling)

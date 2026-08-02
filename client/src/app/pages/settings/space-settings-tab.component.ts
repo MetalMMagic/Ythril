@@ -53,10 +53,12 @@ import { SettingsCardComponent } from '../../shared/settings-card.component';
         <input type="number" [(ngModel)]="state.stForm.maxGiB" min="0" step="0.1" [placeholder]="'spaces.settings.unlimitedPlaceholder' | transloco" />
         <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">{{ 'spaces.settings.maxStorageHint' | transloco }}</div>
       </div>
-      <div class="field" style="margin:0;max-width:220px;">
+      <!-- Retention moved to the Danger Zone (owner call, 2026-08-02). It DELETES records, which is what the
+           Danger Zone is for, and it sat here beside a storage cap that only refuses new writes — two very
+           different consequences in one card. The pointer stays so nobody concludes the setting vanished. -->
+      <div class="field" style="margin:0;max-width:260px;">
         <label>{{ 'spaces.settings.recordTtl' | transloco }}</label>
-        <input type="number" [(ngModel)]="state.stForm.recordTtlDays" min="0" step="1" [placeholder]="'spaces.settings.recordTtlPlaceholder' | transloco" />
-        <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">{{ 'spaces.settings.recordTtlHint' | transloco }}</div>
+        <div style="font-size:12px;color:var(--text-muted);">{{ 'spaces.settings.recordTtlMoved' | transloco }}</div>
       </div>
     </div>
   </app-settings-card>

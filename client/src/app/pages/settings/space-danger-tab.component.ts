@@ -5,7 +5,7 @@
  * the server data and SpaceSettingsState owns the dialog form state, and both are services the
  * page provides — so this component just renders them and calls them.
  */
-import { Component, ChangeDetectionStrategy, inject, signal } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, signal, computed, effect } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TranslocoPipe } from '@jsverse/transloco';
@@ -25,6 +25,48 @@ import { TranslocoService } from '@jsverse/transloco';
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [SPACE_DIALOG_STYLES],
   template: `
+<!-- ── Retention ────────────────────────────────────────────────────────────────────────────────────────
+     Here rather than in Settings (owner call, 2026-08-02) because this DELETES records on a timer. It used
+     to sit next to the storage cap, which only refuses new writes — the same card for "you cannot add more"
+     and "what you have will be removed".
+
+     Two levels, and the copy is explicit that a per-record ttlDays overrides both, because that is the part
+     an operator cannot discover from a form. NOTE: no backticks anywhere in this template — one kills the
+     whole string and the error points at @Component, never at the comment. -->
+<div class="dz-section dz-red">
+  <div class="dz-section-title">{{ 'spaces.dangerZone.retentionTitle' | transloco }}</div>
+  <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;">{{ 'spaces.dangerZone.retentionDescription' | transloco }}</p>
+
+  <div class="field" style="margin:0 0 14px;max-width:240px;">
+    <label>{{ 'spaces.dangerZone.retentionSpaceWide' | transloco }}</label>
+    <input type="number" [(ngModel)]="ttlDays" name="ttlDays" min="0" step="1"
+      [placeholder]="'spaces.dangerZone.retentionNever' | transloco" />
+    <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">{{ 'spaces.dangerZone.retentionSpaceWideHint' | transloco }}</div>
+  </div>
+
+  <div style="margin-bottom:12px;">
+    <button class="btn btn-secondary" type="button" [disabled]="savingRetention()" (click)="saveRetention()">
+      @if (savingRetention()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }{{ 'spaces.dangerZone.retentionSave' | transloco }}
+    </button>
+  </div>
+
+  <!-- Per-type windows live on the TYPE, in the Schema tab — the middle tier of record > schema > space. Not
+       duplicated here: two places to set one window is how they drift, and the type is where an operator
+       already went to define it. This is the pointer, and it names the precedence because that is the part a
+       form cannot show. -->
+  <div class="dz-section-title" style="font-size:12px;">{{ 'spaces.dangerZone.retentionPerType' | transloco }}</div>
+  <p style="font-size:12px;color:var(--text-muted);margin:2px 0 0;">{{ 'spaces.dangerZone.retentionPerTypeHint' | transloco }}</p>
+  @if (declaredRetention().length) {
+    <ul style="margin:8px 0 0;padding-left:18px;font-size:12px;color:var(--text-secondary);">
+      @for (r of declaredRetention(); track r.key) {
+        <li>{{ r.label }}</li>
+      }
+    </ul>
+  } @else {
+    <p style="font-size:12px;color:var(--text-muted);margin:6px 0 0;">{{ 'spaces.dangerZone.retentionPerTypeNone' | transloco }}</p>
+  }
+</div>
+
 <div class="dz-section">
   <div class="dz-section-title">{{ 'spaces.dangerZone.renameTitle' | transloco }}</div>
   <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;">{{ 'spaces.dangerZone.renameDescription' | transloco }}</p>
@@ -110,6 +152,75 @@ export class SpaceDangerTabComponent {
   private transloco = inject(TranslocoService);
 
   rebuildingIndexes = signal(false);
+
+  // ── Retention ──────────────────────────────────────────────────────────────────────────────────────
+  //
+  // Local form state rather than SpaceSettingsState: this section saves itself. Retention deletes records,
+  // so it should not ride along in a footer save with a label edit — an operator must press a button that
+  // says what it does.
+
+  /** Space-wide window in days. 0 / empty = never expire. */
+  ttlDays: number | null = null;
+
+  savingRetention = signal(false);
+
+  /** Seeded from the space the dialog opened on; re-seeds when that changes. */
+  private seeded = '';
+
+  constructor() {
+    effect(() => {
+      const s = this.state.settingsSpace();
+      if (!s || this.seeded === s.id) return;
+      this.seeded = s.id;
+      this.ttlDays = s.recordTtlDays ?? null;
+    });
+  }
+
+  /**
+   * The per-TYPE windows already declared in the schema, read-only.
+   *
+   * Shown rather than edited here on purpose: a window set in two places drifts, and the type is where an
+   * operator already went to define it. But an operator standing in the Danger Zone about to set a space-wide
+   * number needs to know which types override it — otherwise they set 30 days and wonder why one type keeps
+   * everything for ten years.
+   */
+  declaredRetention = computed<Array<{ key: string; label: string }>>(() => {
+    const schemas = this.state.settingsSpace()?.meta?.typeSchemas ?? {};
+    const t = (k: string, p?: Record<string, unknown>) => this.transloco.translate(k, p);
+    const out: Array<{ key: string; label: string }> = [];
+    for (const [collection, types] of Object.entries(schemas)) {
+      for (const [type, schema] of Object.entries(types ?? {})) {
+        const r = schema?.retention;
+        if (!r || (!r.days && !r.contentDays)) continue;
+        const name = `${collection}.${type}`;
+        const label = r.days && r.contentDays
+          ? t('brain.overview.retentionTypeContent', { type: name, days: r.days, contentDays: r.contentDays })
+          : r.days
+            ? t('brain.overview.retentionType', { type: name, days: r.days })
+            : t('brain.overview.retentionTypeContentOnly', { type: name, contentDays: r.contentDays });
+        out.push({ key: name, label });
+      }
+    }
+    return out.sort((a, b) => a.key.localeCompare(b.key));
+  });
+
+  async saveRetention(): Promise<void> {
+    const space = this.state.settingsSpace();
+    if (!space) return;
+    this.savingRetention.set(true);
+    try {
+      await this.spacesApi.updateSpace(space.id, {
+        // `null` clears it, which is what an emptied field means. 0 is treated the same by the server.
+        recordTtlDays: this.ttlDays && this.ttlDays > 0 ? Number(this.ttlDays) : null,
+      });
+      await this.store.load();
+      this.toast.success(this.transloco.translate('spaces.dangerZone.retentionSaved'));
+    } catch (err) {
+      this.toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      this.savingRetention.set(false);
+    }
+  }
 
   /**
    * Rebuild this space's vector search indexes — the repair for "search returns nothing".

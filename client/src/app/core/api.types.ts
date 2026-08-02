@@ -66,6 +66,9 @@ export interface TypeSchema {
   namingPattern?: string;
   tagSuggestions?: string[];
   propertySchemas?: Record<string, PropertySchema>;
+  /** How long records of this type are kept — the schema tier of **record > schema > space**. `days` deletes
+   *  the record; `contentDays` (chrono only) drops the detail and the embedding but keeps the record. */
+  retention?: { days?: number; contentDays?: number };
 }
 
 /** An entry in the instance-level schema library. */

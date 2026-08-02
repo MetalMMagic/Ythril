@@ -148,9 +148,10 @@ export async function createChrono(
   if (fields.properties !== undefined) doc.properties = fields.properties;
   if (fields.recurrence !== undefined) doc.recurrence = fields.recurrence;
 
-  // The type is passed so per-type retention applies: a telemetry space prunes deploy `event`s while keeping
-  // `health-snapshot`/`metrics-snapshot` for trending, which one space-wide TTL cannot express.
-  stampExpiryOnCreate(spaceId, doc, ttlDays, doc.type);
+  // The collection+type is passed so the SCHEMA tier applies (record > schema > space): a telemetry space
+  // prunes deploy `event`s while keeping `health-snapshot`/`metrics-snapshot` for trending, which one
+  // space-wide TTL cannot express.
+  stampExpiryOnCreate(spaceId, doc, ttlDays, { collection: 'chrono', type: doc.type });
   await col<ChronoEntry>(`${spaceId}_chrono`).insertOne(asDoc<ChronoEntry>(doc));
   if (actor) emitWebhookEvent({ event: 'chrono.created', spaceId, entry: { ...doc, embedding: undefined }, ...actor });
   // Advisory only — the entry is stored either way.

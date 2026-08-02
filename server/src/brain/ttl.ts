@@ -10,7 +10,8 @@
 import { col } from '../db/mongo.js';
 import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
-import { chronoExpiry, chronoContentExpiry, type RetentionSpace } from './chrono-retention.js';
+import { recordExpiry, recordContentExpiry, type RetentionSpace } from './chrono-retention.js';
+import type { KnowledgeType } from '../config/types.js';
 
 const DAY_MS = 86_400_000;
 
@@ -31,16 +32,18 @@ function spaceTtlExpiry(spaceId: string): Date | undefined {
  * Expiry to stamp on **create**: a per-record `ttlDays > 0` wins; `ttlDays` 0/null means "never expire"
  * (no stamp even if the space has a default); omitted falls back to the space's `recordTtlDays`.
  */
-export function expiryForCreate(spaceId: string, ttlDays?: number | null, chronoType?: string): Date | undefined {
+export function expiryForCreate(
+  spaceId: string,
+  ttlDays?: number | null,
+  typed?: { collection: KnowledgeType; type?: string },
+): Date | undefined {
   if (ttlDays === 0 || ttlDays === null) return undefined;
   if (typeof ttlDays === 'number' && ttlDays > 0) return new Date(Date.now() + ttlDays * DAY_MS);
-  // A chrono type may carry its own window, which overrides the space default (see `chrono-retention.ts`: a
-  // telemetry space wants deploy events pruned and health snapshots kept, and one space-wide number cannot
-  // express both).
-  if (chronoType !== undefined) {
-    const space = retentionSpace(spaceId);
-    if (space) return chronoExpiry(space, chronoType, Date.now(), ttlDays);
-  }
+  // record > schema > space (owner decision, 2026-08-02). The type's own schema may carry a window, which
+  // overrides the space default — a telemetry space wants deploy events pruned and health snapshots kept, and
+  // one space-wide number cannot express both. See `chrono-retention.ts`.
+  const space = typed ? retentionSpace(spaceId) : undefined;
+  if (space && typed) return recordExpiry(space, typed.collection, typed.type, Date.now(), ttlDays);
   return spaceTtlExpiry(spaceId);
 }
 
@@ -49,11 +52,11 @@ export function stampExpiryOnCreate(
   spaceId: string,
   doc: { _expireAt?: Date; _contentExpireAt?: Date },
   ttlDays?: number | null,
-  chronoType?: string,
+  typed?: { collection: KnowledgeType; type?: string },
 ): void {
-  const expireAt = expiryForCreate(spaceId, ttlDays, chronoType);
+  const expireAt = expiryForCreate(spaceId, ttlDays, typed);
   if (expireAt) doc._expireAt = expireAt;
-  const contentAt = contentExpiryForCreate(spaceId, chronoType);
+  const contentAt = contentExpiryForCreate(spaceId, typed);
   if (contentAt) doc._contentExpireAt = contentAt;
 }
 
@@ -64,17 +67,20 @@ export function stampExpiryOnCreate(
  * whether its detail is worth keeping for the whole of that. An operator who set `ttlDays` for one record and
  * a content window for its type meant both.
  */
-export function contentExpiryForCreate(spaceId: string, chronoType?: string): Date | undefined {
-  if (chronoType === undefined) return undefined;
+export function contentExpiryForCreate(
+  spaceId: string,
+  typed?: { collection: KnowledgeType; type?: string },
+): Date | undefined {
+  if (!typed) return undefined;
   const space = retentionSpace(spaceId);
-  return space ? chronoContentExpiry(space, chronoType, Date.now()) : undefined;
+  return space ? recordContentExpiry(space, typed.collection, typed.type, Date.now()) : undefined;
 }
 
 /** The retention-relevant fields of a space, or undefined pre-setup / for an unknown id. */
 function retentionSpace(spaceId: string): RetentionSpace | undefined {
   try {
     const s = getConfig().spaces.find(x => x.id === spaceId);
-    return s ? { recordTtlDays: s.recordTtlDays, chronoRetention: s.chronoRetention } : undefined;
+    return s ? { recordTtlDays: s.recordTtlDays, meta: s.meta } : undefined;
   } catch { return undefined; }
 }
 

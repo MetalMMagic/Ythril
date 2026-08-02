@@ -51,6 +51,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Development
 
+- **Two gates could pass while examining nothing, and now none can.** Most gates in this suite share one shape:
+  enumerate a set discovered at run time (a directory walk, `git ls-files`), derive a list of offenders, assert it
+  is empty. If the **enumeration** breaks — a renamed directory, a changed pathspec, a declaration syntax that no
+  longer matches — the offender list is empty for the wrong reason and the gate goes green having checked nothing.
+  - `index-ready-poll` walked `server/src` and `stale-nested-config-ref` scanned `git ls-files`, neither asserting
+    the walk found anything. Both now floor their enumeration with a message that says what the number means.
+  - **`gates-cannot-pass-vacuously.test.js` makes it a rule for every gate written from now on**, enumerated over
+    `testing/standalone/` itself. Verified by planting an unfloored gate and watching it fail.
+  - Its exemptions are **properties of the code, not a list of blessed filenames**: reading a NAMED file is not
+    enumeration (a missing file throws, which is loud), and a hardcoded fixture list cannot silently empty. A
+    name-based allowlist is the thing that goes stale and quietly grows.
+  - It floors its own enumeration too, and asserts that its classifier still recognises at least twenty
+    enumerating gates — otherwise a renamed helper would make every gate look non-enumerating and this file would
+    pass while checking nothing, which is the same defect one level up.
+  - Found by running lens 10 (Testing & Quality) on the evidence of the previous day: four gate defects had
+    surfaced **by accident** in a single session — a test reading server-written state from the offline subset, a
+    red run that was a pool-shutdown deadline rather than a test, a metric family undocumented for two releases,
+    and preflight going red with **no output at all** when its command line outgrew a Windows limit.
+  - The scanner behind it corrected itself twice before being trusted: its first version could not match a floor
+    written `serverFiles().length > 100` (the character class stopped at the parenthesis) and its second rejected
+    `> 0` as a floor. Both false positives named gates that were already correct — including one written an hour
+    earlier.
+
 - **The database twin of the #604 join defect is now checked, and the codebase is clean of it.** #604 was a
   reference taken into `config.networks`, a bcrypt hash awaited, and the push landing on an object the config
   reload had already replaced — a join answering success with the peer never recorded. The same shape exists for

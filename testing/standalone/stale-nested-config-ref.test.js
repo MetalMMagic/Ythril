@@ -177,6 +177,9 @@ describe('no NEW site holds a nested config reference across an await and writes
   }
 
   it('finds none', () => {
+    // Floor the enumeration first: `git ls-files` returning nothing — a moved directory, a changed pathspec —
+    // would make this gate pass while scanning zero files.
+    assert.ok(files.length > 100, `only ${files.length} tracked sources scanned`);
     const offenders = [];
     for (const f of files) {
       for (const h of scanFile(readFileSync(f, 'utf8'))) {

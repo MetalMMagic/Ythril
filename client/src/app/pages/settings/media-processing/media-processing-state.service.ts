@@ -480,7 +480,24 @@ export class MediaProcessingStateService {
   // page ended up rendering "As much as this instance can do…" underneath a fully German heading — the
   // strings lived in a service, so the template's transloco pipe never saw them. The characterization
   // tests assert on these keys now: same states reported, different representation.
-  setMode(m: DocMode): void { this.docMode.set(m); if (this.form.documentProcessing) this.form.documentProcessing.mode = m; }
+  /**
+   * Set the document extraction mode.
+   *
+   * `touched.set(true)` is load-bearing, and its absence was a BLOCKER. The mode is a segmented control — a row
+   * of `<button>`s — and a button click fires neither `input` nor `change`, so the page's single delegated
+   * `(input)/(change)` listener never saw it. The form mutated, `touched()` stayed false,
+   * `pipeDirty('pipe-documents')` therefore stayed false, and **the Documents pipeline's Save button was never
+   * rendered at all.** A reporting operator had `DOC_VERIFY_MODEL` configured and resident with no way to raise
+   * the level its consensus pass needs: a feature fully provisioned and unreachable, and nothing errored.
+   *
+   * `setCeiling` already did this, and `models-tab` carries the same note verbatim ("programmatic change — the
+   * page's input listener won't see it"). The trap was known in two places and missed here.
+   */
+  setMode(m: DocMode): void {
+    this.docMode.set(m);
+    if (this.form.documentProcessing) this.form.documentProcessing.mode = m;
+    this.touched.set(true);
+  }
   private vlmConfigured(): boolean { return !!this.docCfg().vlmModel; }
   // 'off' runs nothing, so a missing vision model is not a problem it can have.
   vlmNeededButMissing(): boolean { return this.docMode() !== 'ocr' && this.docMode() !== 'off' && !this.vlmConfigured(); }

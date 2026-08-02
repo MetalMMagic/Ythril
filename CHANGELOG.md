@@ -7,7 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Tombstones are no longer kept forever — and the bound is a peer watermark, not an expiry date.**
+  `<space>_tombstones` was the last growing collection with no retention at all: one document per deletion,
+  removed only by wiping the space. On an instance whose agents write and delete, the tombstones eventually
+  outnumber the live records and every sync page walks past them.
+  - **An age-based TTL would have been the wrong fix**, and an easy one to ship. Tombstones are served by
+    `seq > sinceSeq`, so a peer offline longer than any window comes back, never learns of the deletion, and
+    pushes its live copy — a retention fix turning into *"deleted records keep coming back"* weeks later, with
+    nothing left to point at. The floor is what peers have **provably been served** instead, so below it every
+    peer has already applied the deletion and resurrection is impossible by construction.
+  - **The prerequisite did not exist.** `lastSeqReceived` / `lastSeqPushed` are our position in a peer's data;
+    nothing recorded a peer's position in ours, because every pull handler read `sinceSeq` off the query string
+    and threw it away. `GET /api/sync/tombstones` now records it as `lastSeqServed` — the same coalesced config
+    write the pull watermark uses, after the read, so a bookkeeping failure can never cost a peer its tombstones.
+  - **Everything unknown resolves to "keep".** A member that has never pulled blocks its space (which is every
+    member until it pulls once after this upgrade); a floor of zero prunes nothing; and *no members* does not
+    mean *no peers* — a manually provisioned peer token, or an asymmetric network only the other side holds,
+    authorises by token space-scope with no member entry, so a space is prunable only when no network lists it
+    **and** no `peerInstanceId` token is scoped to it. `TokenRecord.spaces` omitted means **all** spaces, so one
+    unscoped peer token makes every space unprunable. A single-instance install therefore drops the whole
+    collection, which is the common case and the largest win.
+  - `direction` deliberately does not exclude a member: it governs our outbound behaviour, not what a peer may
+    GET from us. A push-only network never prunes, and the log names the member holding the floor down.
+  - Gates: `tombstone-floor` (33 cases, offline and pure) and `tombstone-prune-db` (9, real MongoDB, including
+    that the tombstone one seq **above** the floor survives). 14 of 14 mutations caught, in both spellings —
+    a floor too high, and a floor where there should be none.
+  - **The file half is not done, and the comment that claimed it was is fixed.**
+    `FileTombstoneDoc.deletedAt` was documented as *"used by peers to prune expired tombstones"*; nothing
+    prunes on it, and the peer pull is issued with no `since` at all. Its retention needs the equivalent built
+    from push acknowledgement, since that wire protocol carries no `seq`.
+
 ### Fixed
+
+- **Renaming a space never moved its usage history — the code was unreachable.** `moveSpaceData` had
+  `return errors;` directly above the block that re-keys `space_activity`, so `renameSpaceActivity` was dead:
+  the renamed space showed a blank Usage panel and the old buckets lingered under an id that no longer existed,
+  which is precisely what the comment above the dead block says it prevents.
+  - It passed review, the test suite and a clean `tsc` because **TypeScript's default for `allowUnreachableCode`
+    only greys the code out in an editor**. Both tsconfigs now set `allowUnreachableCode: false` and
+    `allowUnusedLabels: false`, making the whole defect class a compile error; the repo had exactly one
+    instance, and the server, the client bundle and all 855 client tests build clean with the flag on.
+  - `client/tsconfig.json` does not extend `tsconfig.base.json`, so the flag has to be set in both files or half
+    the codebase keeps the old behaviour. `unreachable-code-is-an-error.test.js` asserts both, and that the four
+    dependent configs still inherit — a one-line silent revert would otherwise take the protection with it.
 
 - **A restored backup silently disabled record expiry.** NDJSON has no date type, so the dump wrote `_expireAt`
   as a string and the restore returned one. A TTL index only matches BSON dates, so after **any** restore every

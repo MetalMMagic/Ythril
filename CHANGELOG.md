@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A chrono's `properties` no longer goes with its embedding when a content window lapses.** The canary asked
+  whether the two can expire separately — so a type can go **semantically silent while staying queryable by
+  field** — and was holding a space's configuration until the answer. They were right to ask: for an alert
+  episode, `properties` (`alertname`, `fingerprint`, `notifyCount`, `reopens`, `outcome`) *is* the entire value
+  and nothing else records it.
+  - What displaces knowledge in recall is the **vector**, plus the free text that produced it. A structured
+    field reachable only by an explicit query displaces nothing, so removing it bought nothing this tier exists
+    to buy and destroyed the only thing a telemetry record was for. `description`, `matchedText`, `embedding`
+    and `embeddingModel` still go; `properties` stays. If you want the structured data gone too, that is `days`.
+
+- **The retention docs described a field that no longer exists.** `04-brain-api.md` still documented
+  `chronoRetention` on the space object — the shape that was replaced before it ever reached a tagged release —
+  so a reader concluded the middle tier was chrono-only and stored on the space, and filed it as a defect
+  against code that was already correct. Rewritten as the three tiers it actually is, with the old shape called
+  out so anyone who read the previous revision is not left guessing.
+
+- **The per-type `tagSuggestions` retirement contradicted itself between two sections of one page.** The
+  `typeSchemas` section said both lists were retired; the `meta` field table said the per-type one was
+  "unaffected". An integrator with twenty per-type lists could not tell which sentence was current and stopped.
+  Both are retired on the same terms. The line now also records what the API actually does, which had no
+  documented answer: `null` on a meta write is **rejected** with a 400, `[]` is how you clear a list, and no
+  route removes a top-level `meta` key — the field stays present and empty, which is what makes the retirement
+  reversible.
+
+- **Danger Zone retention copy rewritten.** A reporting operator "understood every individual word and could
+  not tell what the block was for", and the four reasons were all fair: a titled block that could not do
+  anything (the control is on the Schema tab), the tier model introduced as a mid-sentence aside on first
+  mention, a bare "the number above" back-reference, and a status line phrased as an explanation whose
+  "everything" was not true. The precedence is now stated once, at the top, where the section is described; the
+  per-type part is a pointer line rather than a heading that promises a control it does not have; and no copy
+  refers to "the number above" any more.
+
 ## [2.2.5] — 2026-08-02
 
 ### Added

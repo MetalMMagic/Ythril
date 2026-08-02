@@ -95,48 +95,73 @@ expiry is stamped on the file's metadata record; when it lapses, the sweep runs 
 (the blob, its embedding chunks, conversion artifacts and any queued job — not just the record), the same as
 `DELETE /api/files/:spaceId`. The space-wide `recordTtlDays` default applies to uploads that omit `ttlDays`.
 
-#### Per-chrono-type retention
+#### Per-type retention — `record > schema > space`
 
 A space-wide TTL is the wrong axis for a space that mixes telemetry with knowledge. Deploy `event`s are
 content-free by design, so they cluster tightly and **displace real answers in recall**; `health-snapshot` and
 `metrics-snapshot` records exist to be trended, and a 90-day cap is one quarter with no year-over-year. One
 number cannot serve both.
 
-`chronoRetention` on the space (`PATCH /api/spaces/:id`) sets a window **per chrono type**, overriding
-`recordTtlDays` for the types it names:
+Retention therefore resolves in three tiers:
+
+| tier | where | reaches |
+|---|---|---|
+| **record** | `ttlDays` on the write | that one record. Wins outright; `0`/`null` means never expire |
+| **schema** | `typeSchemas.<collection>.<type>.retention` | every record of that type, in any of the four typed collections |
+| **space** | `recordTtlDays` | everything else, including records with no type at all |
+
+The middle tier lives **on the type**, beside `namingPattern` and `propertySchemas`, because retention is a
+per-type rule and that is where the per-type rules already are:
 
 ```json
 {
-  "chronoRetention": {
-    "event":            { "days": 90, "contentDays": 14 },
-    "episode":          { "days": 90 },
-    "health-snapshot":  { "days": 3650 },
-    "metrics-snapshot": { "days": 3650 }
+  "meta": {
+    "typeSchemas": {
+      "chrono": {
+        "event":            { "retention": { "days": 90, "contentDays": 14 } },
+        "health-snapshot":  { "retention": { "days": 3650 } }
+      },
+      "entity": {
+        "ticket":  { "retention": { "days": 365 } },
+        "roadmap": { "retention": { "days": 3650 } }
+      }
+    }
   }
 }
 ```
 
-Two tiers, the same shape the audit log uses for its change payloads:
+> **A previous release documented a `chronoRetention` map on the space object.** That shape was replaced before
+> it was ever in a tagged release, and it no longer exists — a per-type window on the space object would have
+> been a second place to configure one rule. Use `typeSchemas.<collection>.<type>.retention`.
+
+Two tiers per type, the same shape the audit log uses for its change payloads:
 
 | field | effect |
 |---|---|
-| `contentDays` | The **detail** goes — `description`, `matchedText`, `properties` and the embedding — and `contentRedacted: true` is set with `contentRedactedAt`. The record stays: *that* a deploy happened is still true, and it no longer competes in semantic search, because a record with no vector cannot win one. |
+| `contentDays` | **Chrono only.** The recallable part goes — `description`, `matchedText`, the embedding and `embeddingModel` — and `contentRedacted: true` is set with `contentRedactedAt`. The record stays and **so does `properties`**: it goes semantically silent while remaining queryable by field. Rejected on other collections rather than silently ignored. |
 | `days` | The record is deleted, through the normal delete path, so it tombstones and propagates to peers. |
+
+**Why `properties` survives redaction:** the thing that displaces knowledge in recall is the *vector*, plus the
+free text that produced it. `properties` is structured, small, and reachable only by an explicit field query, and
+for a telemetry record it is often the entire value — an alert episode's `alertname` / `fingerprint` /
+`notifyCount` / `outcome` is what the record is *for*. Removing it bought nothing this feature exists to buy. If
+you want the structured data gone too, that is what `days` is.
 
 Rules worth knowing before you configure it:
 
 - **A per-record `ttlDays` still wins**, including `0`/`null` for "never expire". Someone said what they wanted
   for that record.
-- **A type named with only `contentDays`** still deletes on the space's `recordTtlDays` schedule. Setting a
-  content window means "redact sooner", not "exempt from deletion".
+- **A type with only `contentDays`** still deletes on the space's `recordTtlDays` schedule. Setting a content
+  window means "redact sooner", not "exempt from deletion".
 - **A `contentDays` at or past the delete window is ignored**, because it could never fire, and a policy that
   silently does nothing is worse than a rejected one.
 - **It applies to records you already have.** A background pass stamps existing chronos from **their own
   `createdAt`**, not from when you enabled the policy — so switching it on prunes the backlog rather than
   granting everything a fresh full window.
-- Local and operational, like `recordTtlDays`: never governed by a network vote, never synced. Each instance
-  applies the same policy to its own copy and the tombstones converge.
-- `null` or `{}` clears the policy.
+- The schema lives in space meta, so this tier is **governed and replicated**: in a network the policy is agreed
+  and each instance then expires its own copy locally, and the tombstones converge.
+- Set the space-wide number in **Settings → Spaces → Danger Zone**; set a type's window on the type, in the
+  **Schema** tab.
 
 ---
 

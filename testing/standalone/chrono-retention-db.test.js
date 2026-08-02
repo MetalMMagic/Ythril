@@ -132,12 +132,19 @@ describe('chrono retention (real MongoDB)', { skip }, () => {
     assert.ok(doc, 'the record itself must survive — that is the whole point of the first tier');
     assert.equal(doc.contentRedacted, true);
     assert.ok(typeof doc.contentRedactedAt === 'string');
-    for (const gone of ['description', 'matchedText', 'properties', 'embedding', 'embeddingModel']) {
+    for (const gone of ['description', 'matchedText', 'embedding', 'embeddingModel']) {
       assert.equal(doc[gone], undefined, `${gone} survived redaction`);
     }
     for (const kept of ['title', 'type', 'startsAt', 'tags', 'entityIds', 'status', 'createdAt']) {
       assert.notEqual(doc[kept], undefined, `${kept} must survive redaction`);
     }
+    // `properties` SURVIVES — asked and answered by the reporting operator, who was holding a space's
+    // configuration on the answer: for an alert episode `properties` (alertname, fingerprint, notifyCount,
+    // outcome) is the entire value and nothing else records it. What displaces knowledge in recall is the
+    // vector, not a structured field reachable only by explicit query. Going semantically silent while staying
+    // queryable is the whole point of this tier.
+    assert.deepEqual(doc.properties, { revision: 'abc123' },
+      'properties must survive redaction — the record goes semantically silent, not blank');
   });
 
   it('does not touch a record whose content window has not lapsed', async () => {

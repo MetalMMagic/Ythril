@@ -185,6 +185,16 @@ describe('what redaction removes', () => {
     }
   });
 
+  it('keeps `properties` — the record goes semantically silent, not blank', () => {
+    // Asked and answered by the reporting operator, who was holding a space's configuration on it: for an alert
+    // episode `properties` (alertname, fingerprint, notifyCount, outcome) is the entire value and nothing else
+    // records it. What displaces knowledge in recall is the VECTOR, plus the free text that produced it; a
+    // structured field reachable only by explicit query displaces nothing. Removing it bought nothing this
+    // feature exists to buy — `days` is what removes the structured data.
+    assert.equal(REDACTED_CHRONO_FIELDS.includes('properties'), false,
+      'properties must survive redaction, or the tier destroys the only thing a telemetry record was for');
+  });
+
   it('does not rewrite a record that is already redacted', () => {
     assert.equal(needsContentRedaction({ contentRedacted: true, description: 'x' }), false);
   });

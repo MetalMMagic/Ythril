@@ -100,10 +100,13 @@ const SCHEMA_MD_STYLES = `
 .sch-detail > .field > label { margin-top:16px; }
 .sch-detail > .field:first-of-type > label,
 .sch-detail .sch-section-label:first-of-type { margin-top:0; }
-/* The two retention windows sit side by side and wrap on a narrow pane. Capped so a 3-digit day count does
-   not get an input the width of the whole detail column. */
+/* The two retention windows sit side by side and wrap only on a genuinely narrow pane.
+   .field must be given a BASIS: it is a flex column, so its intrinsic width is its widest child, and the
+   chrono hint under the second input is a long sentence — left to size itself that field claimed the whole
+   row and both stacked. Verified by measurement, not by looking at the CSS: the first attempt reported
+   two inputs with the labels and placeholders all correct, and they were one above the other. */
 .ret-row { display:flex; gap:14px; flex-wrap:wrap; align-items:flex-start; }
-.ret-row .field { min-width:0; }
+.ret-row .field { flex:1 1 190px; min-width:0; max-width:260px; }
 .ret-row input { max-width:150px; }
 .sch-msg { font-size:12px; margin-top:6px; }
 .sch-msg.err { color:var(--error); }

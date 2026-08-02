@@ -235,6 +235,28 @@ export interface SpaceConfig {
    *  `now + recordTtlDays` and deleted by the TTL sweep once it lapses (through the normal delete path,
    *  so it tombstones + syncs). A per-record `ttlDays` on a write overrides this. Absent = no auto-TTL. */
   recordTtlDays?: number;
+  /**
+   * Per-CHRONO-TYPE retention, overriding `recordTtlDays` for the types named (canary ask, 2026-08-02).
+   *
+   * A space-wide TTL is the wrong axis for a telemetry space. The reporting operator's `operation-logs` space
+   * holds deploy `event`s alongside `health-snapshot`/`metrics-snapshot` records, and the two want opposite
+   * treatment: the events should go (they are content-free by design, so they cluster tightly and **displace
+   * knowledge in recall** — four near-identical `platform-apps deployed` chronos scored 0.874 against the
+   * guideline they wanted at 0.823), while the snapshots must stay far longer because they exist to be
+   * trended, and 90 days is one quarter with no year-over-year.
+   *
+   * Two tiers per type, taken from the audit log's design because it is the right shape and reusing it beats
+   * inventing a second one:
+   *
+   *   - `contentDays` — after this, the bulky, recallable part goes (`description`, `matchedText`,
+   *     `properties`, the vector) and `contentRedacted: true` is set. The record stays: **that a deploy
+   *     happened is still true, the detail is not kept, and it stops competing in recall.**
+   *   - `days` — after this, the record is deleted through the normal path, so it tombstones and propagates.
+   *
+   * Local and operational, like `recordTtlDays` beside it: never governed, never synced. A per-record
+   * `ttlDays` on a write still wins over both. Absent, or a type not named, falls back to `recordTtlDays`.
+   */
+  chronoRetention?: Record<string, { days?: number; contentDays?: number }>;
   /** Vector-search index lifecycle for a newly created space (B1). Creation now
    *  returns immediately with 'building' and the (slow, up-to-minutes) Atlas index
    *  builds finish asynchronously — flipping this to 'ready', or 'failed' if a build
@@ -1462,6 +1484,15 @@ export interface ChronoEntry {
   embeddingModel?: string;
   /** Absolute expiry (F10) — see MemoryDoc._expireAt. */
   _expireAt?: Date;
+  /** When this entry's CONTENT should be dropped while the entry itself stays — the first tier of
+   *  `SpaceConfig.chronoRetention`. Set from the type's `contentDays`; absent means never. */
+  _contentExpireAt?: Date;
+  /** True once the content window lapsed and the detail was dropped. Present so a reader can tell
+   *  "this record never had a description" from "it did, and it expired" — the same distinction
+   *  `changesRedacted` draws in the audit log. */
+  contentRedacted?: boolean;
+  /** ISO8601 — when the redaction happened. */
+  contentRedactedAt?: string;
 }
 
 export interface TombstoneDoc {

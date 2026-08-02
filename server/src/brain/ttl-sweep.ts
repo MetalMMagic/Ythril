@@ -18,6 +18,7 @@ import { deleteEdge } from './edges.js';
 import { deleteChrono } from './chrono.js';
 import { deleteFileCascade } from '../files/delete-cascade.js';
 import { runExclusive } from '../util/single-flight.js';
+import { sweepChronoRetention } from './chrono-redaction.js';
 
 const SWEEP_INTERVAL_MS = 5 * 60_000; // 5 min
 const SWEEP_BATCH = 500;              // max deletions per collection per cycle
@@ -65,6 +66,12 @@ export async function sweepExpired(now: Date = new Date()): Promise<number> {
     }
   }
   if (total > 0) log.info(`TTL sweep deleted ${total} expired record(s)`);
+
+  // Per-chrono-type retention rides the same cycle: its backfill and content-redaction passes are the same
+  // shape of work on the same clock, and running them here means one timer rather than two doing housekeeping
+  // over the same collections. Failures are contained inside it — a retention problem must not stop deletions.
+  await sweepChronoRetention(now).catch(err => log.warn(`Chrono retention sweep: ${err}`));
+
   return total;
 }
 

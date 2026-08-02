@@ -10,6 +10,7 @@
 import { col } from '../db/mongo.js';
 import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
+import { chronoExpiry, chronoContentExpiry, type RetentionSpace } from './chrono-retention.js';
 
 const DAY_MS = 86_400_000;
 
@@ -30,16 +31,51 @@ function spaceTtlExpiry(spaceId: string): Date | undefined {
  * Expiry to stamp on **create**: a per-record `ttlDays > 0` wins; `ttlDays` 0/null means "never expire"
  * (no stamp even if the space has a default); omitted falls back to the space's `recordTtlDays`.
  */
-export function expiryForCreate(spaceId: string, ttlDays?: number | null): Date | undefined {
+export function expiryForCreate(spaceId: string, ttlDays?: number | null, chronoType?: string): Date | undefined {
   if (ttlDays === 0 || ttlDays === null) return undefined;
   if (typeof ttlDays === 'number' && ttlDays > 0) return new Date(Date.now() + ttlDays * DAY_MS);
+  // A chrono type may carry its own window, which overrides the space default (see `chrono-retention.ts`: a
+  // telemetry space wants deploy events pruned and health snapshots kept, and one space-wide number cannot
+  // express both).
+  if (chronoType !== undefined) {
+    const space = retentionSpace(spaceId);
+    if (space) return chronoExpiry(space, chronoType, Date.now(), ttlDays);
+  }
   return spaceTtlExpiry(spaceId);
 }
 
-/** Set `_expireAt` on a create doc in place when an expiry applies. */
-export function stampExpiryOnCreate(spaceId: string, doc: { _expireAt?: Date }, ttlDays?: number | null): void {
-  const expireAt = expiryForCreate(spaceId, ttlDays);
+/** Set `_expireAt` (and, for a chrono type with a content window, `_contentExpireAt`) on a create doc. */
+export function stampExpiryOnCreate(
+  spaceId: string,
+  doc: { _expireAt?: Date; _contentExpireAt?: Date },
+  ttlDays?: number | null,
+  chronoType?: string,
+): void {
+  const expireAt = expiryForCreate(spaceId, ttlDays, chronoType);
   if (expireAt) doc._expireAt = expireAt;
+  const contentAt = contentExpiryForCreate(spaceId, chronoType);
+  if (contentAt) doc._contentExpireAt = contentAt;
+}
+
+/**
+ * When this record's CONTENT should be dropped while the record itself stays — chrono only.
+ *
+ * Deliberately not gated on a per-record `ttlDays`: that says when the record goes, and says nothing about
+ * whether its detail is worth keeping for the whole of that. An operator who set `ttlDays` for one record and
+ * a content window for its type meant both.
+ */
+export function contentExpiryForCreate(spaceId: string, chronoType?: string): Date | undefined {
+  if (chronoType === undefined) return undefined;
+  const space = retentionSpace(spaceId);
+  return space ? chronoContentExpiry(space, chronoType, Date.now()) : undefined;
+}
+
+/** The retention-relevant fields of a space, or undefined pre-setup / for an unknown id. */
+function retentionSpace(spaceId: string): RetentionSpace | undefined {
+  try {
+    const s = getConfig().spaces.find(x => x.id === spaceId);
+    return s ? { recordTtlDays: s.recordTtlDays, chronoRetention: s.chronoRetention } : undefined;
+  } catch { return undefined; }
 }
 
 /**
@@ -73,4 +109,11 @@ export async function ensureTtlIndex(spaceId: string): Promise<void> {
       log.warn(`ensureTtlIndex ${spaceId}_${c}: ${err}`);
     }
   }));
+  // Chrono only: the content-redaction pass has its own sweep query, and without an index it would scan the
+  // whole collection every five minutes on a space that never uses the feature.
+  try {
+    await col(`${spaceId}_chrono`).createIndex({ _contentExpireAt: 1 }, { name: 'ttl_contentExpireAt', sparse: true });
+  } catch (err) {
+    log.warn(`ensureTtlIndex ${spaceId}_chrono content: ${err}`);
+  }
 }

@@ -39,6 +39,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     prunes on it, and the peer pull is issued with no `since` at all. Its retention needs the equivalent built
     from push acknowledgement, since that wire protocol carries no `seq`.
 
+- **File tombstones are bounded too — so deleting a file no longer keeps its name forever.** This is the half
+  with the privacy weight: `FileTombstoneDoc.path` is often personal in itself (`patients/john-doe-2024.pdf`),
+  so the record outliving the file meant the file's **name** survived its deletion, permanently.
+  - **A different mechanism, because there is no `seq` to build a floor from.** File tombstones are keyed by
+    `deletedAt`, so the confirmation comes from the **push**: `POST /api/sync/file-tombstones` upserts what it
+    receives and re-propagates it onward, so a 200 proves that peer holds it and will keep passing it on —
+    which makes dropping our copy safe transitively. The engine previously discarded that response
+    (*"Ignore response — best-effort"*); it now records the newest `deletedAt` **from the array it actually
+    sent**, because a file deleted between building the body and reading the reply was never in the payload.
+  - **Only a 200 acknowledges anything.** A 403 is a direction-blocked peer that will never accept our
+    tombstones, and a timeout proves nothing at all; both leave the position unknown, which blocks pruning.
+  - **Timestamps are only compared in the fixed-width UTC form.** ISO8601 sorts lexically as `…Z`, but an
+    offset form (`+02:00`) sorts later while being earlier in real time, so it would move the floor past
+    tombstones nobody has acknowledged. Anything not matching the exact form is treated as unknown.
+  - **The pull is deliberately left unfiltered**, and the reasoning is pinned by a test because the
+    "optimisation" is the obvious next edit. Sending `since=<last pulled>` would skip an old deletion relayed
+    onward later — the tombstone is older than the watermark, so it is never seen and the file stays. The
+    payload problem it would address is already solved by the prune: once every peer's copy is bounded, the
+    full set *is* small.
+  - Gates: `file-tombstone-ack` (18 cases) and `file-tombstone-prune-db` (8, real MongoDB, including that a
+    tombstone with no `deletedAt` is not treated as the epoch — MongoDB does not match a missing field against
+    `$lte`, which is the behaviour relied on). 10 of 10 mutations caught.
+
 ### Fixed
 
 - **Renaming a space never moved its usage history — the code was unreachable.** `moveSpaceData` had

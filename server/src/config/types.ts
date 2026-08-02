@@ -765,6 +765,11 @@ export interface NetworkMember {
   lastSyncAt?: string;       // ISO8601 — set only on successful sync
   lastSeqReceived?: Record<string, number>;  // spaceId → last seq ingested from this peer
   lastSeqPushed?: Record<string, number>;    // spaceId → last seq we confirmed pushed to this peer
+  /** spaceId → the newest `deletedAt` among FILE tombstones this peer has answered 200 to on a push.
+   *  File tombstones carry no `seq`, so their retention floor is built from acknowledgement rather than from a
+   *  served position (see `sync/file-tombstone-ack.ts`). Only a 200 may advance it: a direction-blocked peer
+   *  that 403s has NOT taken the deletion, and pruning on a rejected push is how a deleted file comes back. */
+  lastFileTombstoneAckedAt?: Record<string, string>;
   /** spaceId → the highest `sinceSeq` this peer has pulled OUR tombstones from, i.e. the position it has
    *  confirmed applying. The mirror of the two above: they are our position in the peer's data, this is the
    *  peer's position in ours, and without it a tombstone can never be safely dropped (see

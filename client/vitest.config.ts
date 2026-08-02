@@ -43,6 +43,33 @@ export default defineConfig({
     // at the very end of a run. The cost of leaving it is a gate that goes red at random with every single
     // test passing — and a gate people stop trusting is a gate they stop running.
     teardownTimeout: 30_000,
+    /**
+     * Worker THREADS, not forked processes.
+     *
+     * Raising `teardownTimeout` above fixed a fork that had not *exited* before the pool's deadline. It did not
+     * fix the next thing: under `npm run preflight` — which builds the server and the client bundle first and
+     * leaves the machine loaded — the run reported
+     *
+     *     Test Files  77 passed (77)
+     *           Tests  855 passed (855)
+     *     npm error code 3221225477
+     *
+     * `3221225477` is `0xC0000005`: a Windows **access violation**. A forked child was segfaulting during
+     * teardown, *after* every test had passed, and npm turned that into a failed gate. No timeout can fix a
+     * native crash, which is why the previous ceiling raise did not help. Two bare `vitest run` invocations
+     * straight afterwards exited 0 with the same 855 — it needed the load to reproduce, and under preflight it
+     * reproduced every time.
+     *
+     * Switching the pool to threads fixed it: two consecutive preflights green, 855/855 in both. The
+     * per-file isolation this suite depends on is unchanged — `isolate` defaults to true for threads as well,
+     * so each spec file still gets a fresh Angular test platform and TestBed. That was the constraint that
+     * ruled out a shared/single worker (leaked TestBed state, NG0400 from a double-created platform); it does
+     * not rule out threads.
+     *
+     * If this ever regresses, the exit code is the diagnosis — `3221225477` means the worker died rather than
+     * a test failing, and the suite summary immediately above it will say so.
+     */
+    pool: 'threads',
     // Default per-file isolation (each spec file in its own fork) — so each file gets a fresh
     // Angular test platform and TestBed. A shared/single fork instead leaked TestBed state
     // between files (a component created by one file broke the next) and double-created the

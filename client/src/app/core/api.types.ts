@@ -246,6 +246,8 @@ export interface EmbeddingQueue {
   complete: number;
   failed: number;
   failedSample: { path: string; lastError: string | null }[];
+  /** Every failure grouped by reason, most common first. Optional so an older server still parses. */
+  failedByReason?: { reason: string | null; count: number }[];
 }
 
 /** One token that can reach a space (F9 Overview token-access matrix). Minimal, non-secret fields only. */

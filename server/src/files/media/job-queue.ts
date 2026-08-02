@@ -78,6 +78,12 @@ function fileCollection(spaceId: string) {
 
 // ── Queue summary (F9 Overview embedding-queue panel) ────────────────────────
 
+/** How many individual failed jobs to name. A list, not a report — the grouping below is the report. */
+export const FAILED_SAMPLE_LIMIT = 5;
+
+/** Distinct failure reasons to return. Beyond a handful the answer is "lots of different things". */
+export const FAILED_REASON_LIMIT = 10;
+
 export interface MediaJobCounts {
   pending: number;
   processing: number;
@@ -85,27 +91,54 @@ export interface MediaJobCounts {
   failed: number;
   /** Up to a few failed jobs (file path + reason) for the panel to surface, not the whole failed set. */
   failedSample: Array<{ path: string; lastError: string | null }>;
+  /**
+   * Every failure grouped by reason, most common first — computed over the WHOLE failed set, not the sample.
+   *
+   * `failedSample` shows five paths, which answers "which file" and not "why", and with forty failures an
+   * operator could not tell one dead endpoint from forty unrelated problems. The counts here do not depend on
+   * which five happened to come back first.
+   */
+  failedByReason: Array<{ reason: string | null; count: number }>;
 }
 
 /**
- * Count this space's embedding jobs by status, plus a small sample of failed ones (path + reason).
- * One aggregation over `${spaceId}_media_jobs`; a missing collection aggregates to all-zero. Per single
- * space — callers sum across members for a proxy space.
+ * Count this space's embedding jobs by status, a small sample of failed ones (path + reason), and every
+ * failure grouped by reason.
+ *
+ * A missing collection aggregates to all-zero. Per single space — callers sum across members for a proxy
+ * space. The two failure queries only run when something has actually failed, so the common case is one
+ * aggregation.
  */
 export async function getMediaJobCounts(spaceId: string): Promise<MediaJobCounts> {
   const rows = await jobCollection(spaceId)
     .aggregate([{ $group: { _id: '$status', n: { $sum: 1 } } }])
     .toArray() as Array<{ _id: string; n: number }>;
-  const c: MediaJobCounts = { pending: 0, processing: 0, complete: 0, failed: 0, failedSample: [] };
+  const c: MediaJobCounts = {
+    pending: 0, processing: 0, complete: 0, failed: 0, failedSample: [], failedByReason: [],
+  };
   for (const r of rows) {
     if (r._id === 'pending' || r._id === 'processing' || r._id === 'complete' || r._id === 'failed') c[r._id] = r.n;
   }
   if (c.failed > 0) {
     const failed = await jobCollection(spaceId)
       .find(asFilter<MediaJobDoc>({ status: 'failed' }), { projection: { _id: 1, lastError: 1 } })
-      .limit(5)
+      .limit(FAILED_SAMPLE_LIMIT)
       .toArray() as Array<{ _id: string; lastError: string | null }>;
     c.failedSample = failed.map(d => ({ path: d._id, lastError: d.lastError ?? null }));
+
+    // With 40 failures an operator saw five paths and could not tell whether they shared a cause. Grouping
+    // by reason answers the question the sample was standing in for — "is this one broken endpoint or forty
+    // different problems?" — at one aggregation rather than forty rows, and it covers EVERY failure rather
+    // than the arbitrary first few.
+    const byReason = await jobCollection(spaceId)
+      .aggregate([
+        { $match: { status: 'failed' } },
+        { $group: { _id: { $ifNull: ['$lastError', null] }, n: { $sum: 1 } } },
+        { $sort: { n: -1 } },
+        { $limit: FAILED_REASON_LIMIT },
+      ])
+      .toArray() as Array<{ _id: string | null; n: number }>;
+    c.failedByReason = byReason.map(r => ({ reason: r._id ?? null, count: r.n }));
   }
   return c;
 }

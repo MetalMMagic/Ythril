@@ -118,6 +118,13 @@ interface StatCard { key: CollectionTab; icon: string; label: string; value: num
     .fail-list li { display: flex; flex-direction: column; gap: 1px; font-size: 11.5px; border-top: 1px solid var(--border-muted); padding-top: 6px; }
     .fail-list .fp { font-family: var(--font-mono, monospace); color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .fail-list .fe { color: var(--error); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* Reasons read as a count-first tally, deliberately unlike the path list below it: the eye should land on
+       "38" before the message, because the number is the diagnosis. */
+    .fail-reasons { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+    .fail-reasons li { display: flex; align-items: baseline; gap: 8px; font-size: 11.5px; }
+    .fail-reasons .rc { font-family: var(--font-mono, monospace); font-weight: 650; color: var(--error); min-width: 2.5ch; text-align: right; flex: none; }
+    .fail-reasons .re { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .fail-more { font-size: 11px; margin: 6px 0 0; }
 
     .vote-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
     .vote-list li { border: 1px solid var(--border-muted); border-radius: 8px; padding: 9px 11px; background: var(--bg-elevated); }
@@ -360,12 +367,29 @@ interface StatCard { key: CollectionTab; icon: string; label: string; value: num
             @if (q.failed === 0 && q.pending === 0 && q.processing === 0) {
               <div class="muted" style="margin-top:12px;">{{ 'brain.overview.queue.idle' | transloco }}</div>
             }
+            <!-- Reasons first, and only when they add something. Five paths answer "which file"; the
+                 grouping answers "why", over EVERY failure rather than the arbitrary first five — which is
+                 the difference between one dead endpoint and forty unrelated problems. Hidden when there is
+                 a single reason, because then the list below already says it. -->
+            @if (failureReasons().length > 1) {
+              <ul class="fail-reasons">
+                @for (r of failureReasons(); track r.reason) {
+                  <li>
+                    <span class="rc">{{ r.count }}</span>
+                    <span class="re" [title]="r.reason">{{ r.reason || ('brain.overview.queue.unknownError' | transloco) }}</span>
+                  </li>
+                }
+              </ul>
+            }
             @if (q.failedSample.length) {
               <ul class="fail-list">
                 @for (f of q.failedSample; track f.path) {
                   <li><span class="fp" [title]="f.path">{{ f.path }}</span><span class="fe" [title]="f.lastError">{{ f.lastError || ('brain.overview.queue.unknownError' | transloco) }}</span></li>
                 }
               </ul>
+              @if (q.failed > q.failedSample.length) {
+                <p class="muted fail-more">{{ 'brain.overview.queue.failedMore' | transloco: { shown: q.failedSample.length, total: q.failed } }}</p>
+              }
             }
             @if (q.failed > 0) {
               <button class="btn btn-sm btn-secondary retry-failed-btn" type="button" style="margin-top:12px;" (click)="requestRetryFailed()">
@@ -523,6 +547,16 @@ export class OverviewTabComponent {
     if (!a || a.recall === 0) return null;
     return Math.round((a.answered / a.recall) * 100);
   });
+
+  /**
+   * Failed jobs grouped by reason, most common first — over the whole failed set, not the five-path sample.
+   *
+   * Tolerates the field being absent so an older server (or a cached response from one) renders the panel
+   * rather than throwing on `.length`: absent and empty both mean "nothing to add here".
+   */
+  failureReasons = computed<Array<{ reason: string | null; count: number }>>(
+    () => this.embeddingQueue()?.failedByReason ?? [],
+  );
 
   total = computed(() => {
     const s = this.stats();

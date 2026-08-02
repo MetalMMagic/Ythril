@@ -391,6 +391,7 @@
   "brain.overview.queue.failed": "Fehlgeschlagen",
   "brain.overview.queue.idle": "Keine Einbettungsjobs in der Warteschlange.",
   "brain.overview.queue.unknownError": "Unbekannter Fehler",
+  "brain.overview.queue.failedMore": "{{shown}} von {{total}} Fehlern werden angezeigt.",
   "brain.overview.queue.retryFailed": "Alle fehlgeschlagenen wiederholen",
   "brain.overview.confirmRetryFailedTitle": "Fehlgeschlagene Aufträge wiederholen",
   "brain.overview.confirmRetryFailed": "{{count}} fehlgeschlagene Embedding-Aufträge in diesem Space erneut einreihen?",

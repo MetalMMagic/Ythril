@@ -25,7 +25,7 @@ import { parseSortParam, toMongoSort, SORTABLE_FIELDS } from '../../brain/list-s
 import { textSearchOr, SEARCHABLE_FIELDS } from '../../brain/text-search.js';
 import { resolveMemberSpaces, resolveWriteTarget, findFirstAcrossMembers, collectAcrossMembers, isStrictLinkage } from '../../spaces/proxy.js';
 import type { FileMetaDoc } from '../../config/types.js';
-import { fetchJobProgress, getMediaJobCounts, type MediaJobCounts } from '../../files/media/job-queue.js';
+import { fetchJobProgress, getMediaJobCounts, FAILED_SAMPLE_LIMIT, FAILED_REASON_LIMIT, type MediaJobCounts } from '../../files/media/job-queue.js';
 import { tagContains } from '../../brain/tag-filter.js';
 
 
@@ -258,13 +258,23 @@ fileMetaRouter.get('/spaces/:spaceId/embedding-queue', globalRateLimit, requireS
     res.status(404).json({ error: `Space '${spaceId}' not found` });
     return;
   }
-  const total: MediaJobCounts = { pending: 0, processing: 0, complete: 0, failed: 0, failedSample: [] };
+  const total: MediaJobCounts = {
+    pending: 0, processing: 0, complete: 0, failed: 0, failedSample: [], failedByReason: [],
+  };
+  // Reasons are summed across member spaces before truncating, so a proxy space's grouping is the grouping of
+  // its whole fleet rather than of whichever member was iterated first.
+  const reasons = new Map<string | null, number>();
   for (const mid of resolveMemberSpaces(spaceId)) {
     const c = await getMediaJobCounts(mid);
     total.pending += c.pending; total.processing += c.processing; total.complete += c.complete; total.failed += c.failed;
     total.failedSample.push(...c.failedSample);
+    for (const r of c.failedByReason) reasons.set(r.reason, (reasons.get(r.reason) ?? 0) + r.count);
   }
-  total.failedSample = total.failedSample.slice(0, 5);
+  total.failedSample = total.failedSample.slice(0, FAILED_SAMPLE_LIMIT);
+  total.failedByReason = [...reasons.entries()]
+    .map(([reason, count]) => ({ reason, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, FAILED_REASON_LIMIT);
   res.json(total);
 });
 

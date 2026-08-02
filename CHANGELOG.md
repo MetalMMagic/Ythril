@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Failed embedding jobs are grouped by reason, over all of them rather than the first five.** The Overview
+  panel listed up to five failed paths, which answers *"which file"* and not *"why"* — so with forty failures
+  an operator could not tell one dead endpoint from forty unrelated problems, and the five they saw were
+  whichever came back first. `GET .../embedding-queue` now also returns `failedByReason`, computed over the
+  whole failed set and summed across member spaces before truncating, so a proxy space's grouping is its
+  fleet's grouping.
+  - The panel shows the tally count-first (the number is the diagnosis), hides it when there is only one
+    reason — a panel that says the same thing twice teaches people to skim both — and now says plainly when
+    the path list is not showing everything.
+  - The client tolerates the field being absent, so an older server or a cached response from one still
+    renders the panel instead of failing on it.
+
 - **Retention per chrono TYPE, so telemetry stops displacing knowledge in recall.** Asked for by the canary
   operator, and the reason is not storage — their volumes were 516 and 139 records. It is that a space-wide TTL
   is the wrong axis for a space holding both kinds of thing.

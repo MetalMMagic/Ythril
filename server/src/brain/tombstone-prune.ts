@@ -26,13 +26,18 @@ import { log } from '../util/log.js';
 import { runExclusive } from '../util/single-flight.js';
 import { tombstoneFloorForSpace } from '../sync/served-watermark.js';
 import type { TombstoneFloor } from '../sync/served-watermark.js';
-import type { TombstoneDoc } from '../config/types.js';
+import { fileTombstoneFloorForSpace } from '../sync/file-tombstone-ack.js';
+import type { FileTombstoneFloor } from '../sync/file-tombstone-ack.js';
+import type { TombstoneDoc, FileTombstoneDoc } from '../config/types.js';
 
 /** Housekeeping, not correctness — a tombstone kept six hours too long costs nothing. */
 const PRUNE_INTERVAL_MS = 6 * 60 * 60 * 1000;   // 6h
 
 export interface TombstonePruneResult {
+  /** Record tombstones removed (bounded by served seq). */
   removed: number;
+  /** File tombstones removed (bounded by push acknowledgement). */
+  filesRemoved: number;
   /** Spaces left alone, by reason — logged so "nothing happened" is diagnosable rather than mysterious. */
   blocked: Record<string, number>;
 }
@@ -71,30 +76,79 @@ export async function pruneSpaceTombstones(spaceId: string): Promise<number> {
   return pruneTombstonesToFloor(spaceId, floor);
 }
 
-/** Prune every real (non-proxy) space, reporting what was skipped and why. */
+/**
+ * Prune every real (non-proxy) space — record tombstones by served seq, file tombstones by acknowledgement —
+ * reporting what was skipped and why.
+ *
+ * The two halves are counted separately because their floors are independent: a space can be prunable for
+ * records and blocked for files (a peer that pulls but never accepts a push) or the reverse.
+ */
 export async function pruneAllTombstones(): Promise<TombstonePruneResult> {
-  const result: TombstonePruneResult = { removed: 0, blocked: {} };
+  const result: TombstonePruneResult = { removed: 0, filesRemoved: 0, blocked: {} };
   let cfg;
   try { cfg = getConfig(); } catch { return result; }   // pre-setup
 
   for (const s of cfg.spaces) {
     if (s.proxyFor) continue;
+
     const floor = tombstoneFloorForSpace(cfg, s.id);
-    if (!floor.prune) {
+    if (floor.prune) {
+      const removed = await pruneTombstonesToFloor(s.id, floor);
+      if (removed > 0) result.removed += removed;
+    } else {
       result.blocked[floor.reason] = (result.blocked[floor.reason] ?? 0) + 1;
       if (floor.blockedBy) {
         log.debug(`Tombstone prune: space '${s.id}' held by '${floor.blockedBy}' (${floor.reason})`);
       }
-      continue;
     }
-    const removed = await pruneSpaceTombstones(s.id);
-    if (removed > 0) result.removed += removed;
+
+    const fileFloor = fileTombstoneFloorForSpace(cfg, s.id);
+    if (fileFloor.prune) {
+      const removed = await pruneFileTombstonesToFloor(s.id, fileFloor);
+      if (removed > 0) result.filesRemoved += removed;
+    } else {
+      result.blocked[fileFloor.reason] = (result.blocked[fileFloor.reason] ?? 0) + 1;
+      if (fileFloor.blockedBy) {
+        log.debug(`File tombstone prune: space '${s.id}' held by '${fileFloor.blockedBy}' (${fileFloor.reason})`);
+      }
+    }
   }
 
   if (result.removed > 0) {
     log.info(`Tombstone prune: removed ${result.removed} tombstone(s) every peer has already applied`);
   }
+  if (result.filesRemoved > 0) {
+    // Worth its own line: this is the one that stops a deleted file's NAME being retained indefinitely.
+    log.info(`Tombstone prune: removed ${result.filesRemoved} file tombstone(s) every peer has acknowledged`);
+  }
   return result;
+}
+
+/**
+ * Delete this space's FILE tombstones at or below an acknowledged position.
+ *
+ * Split from the config read for the same reason as the record version, and it needs its own query because the
+ * key is a `deletedAt` string rather than a `seq`: ISO8601 UTC timestamps compare lexically in MongoDB, and a
+ * document whose `deletedAt` is missing or malformed does not match `$lte` at all — which is the behaviour
+ * relied on here, since an unparseable timestamp cannot be proven delivered.
+ */
+export async function pruneFileTombstonesToFloor(spaceId: string, floor: FileTombstoneFloor): Promise<number> {
+  if (!floor.prune) return -1;
+  try {
+    const res = await col<FileTombstoneDoc>(`${spaceId}_file_tombstones`)
+      .deleteMany(asFilter<FileTombstoneDoc>({ deletedAt: { $lte: floor.upTo } }));
+    return res.deletedCount ?? 0;
+  } catch (err) {
+    log.warn(`File tombstone prune (${spaceId}): ${err instanceof Error ? err.message : String(err)}`);
+    return -1;
+  }
+}
+
+/** Prune one space's file tombstones to the position its peers have acknowledged. */
+export async function pruneSpaceFileTombstones(spaceId: string): Promise<number> {
+  let floor: FileTombstoneFloor;
+  try { floor = fileTombstoneFloorForSpace(getConfig(), spaceId); } catch { return -1; }
+  return pruneFileTombstonesToFloor(spaceId, floor);
 }
 
 let _timer: NodeJS.Timeout | null = null;

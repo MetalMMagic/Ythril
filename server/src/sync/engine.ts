@@ -19,6 +19,7 @@ import { getConfig, saveConfig, saveConfigSoon, getSecrets, getFaceRecognitionCo
 import { toSafeRelPath } from '../util/paths.js';
 import { col, asFilter, asDoc, asBulk } from '../db/mongo.js';
 import { applyRemoteTombstone, listTombstones } from '../brain/tombstones.js';
+import { recordFileTombstoneAck, ackedPositionFrom } from './file-tombstone-ack.js';
 import { recordSyncResult, type SyncCounts } from './history.js';
 import { buildFileManifest } from '../files/manifest.js';
 import { log } from '../util/log.js';
@@ -1127,7 +1128,7 @@ async function syncFiles(
         .find(asFilter<FileTombstoneDoc>({ spaceId }))
         .toArray();
       if (ourTombstones.length > 0) {
-        await peerSafeFetch(
+        const ackResp = await peerSafeFetch(
           `${member.url}/api/sync/file-tombstones?networkId=${encodeURIComponent(networkId)}`,
           {
             ...opts(),
@@ -1135,7 +1136,19 @@ async function syncFiles(
             body: JSON.stringify({ spaceId: remoteSpaceId, tombstones: ourTombstones }),
           },
         );
-        // Ignore response — best-effort; peer will log errors internally.
+        // A 200 is a real acknowledgement, and it used to be thrown away. The peer upserts every tombstone it
+        // receives and re-propagates it onward, so a 200 proves this peer now holds them — which is what lets us
+        // drop ours (see `sync/file-tombstone-ack.ts`). The position is taken from the array we actually SENT,
+        // never from a fresh query: a file deleted between building this body and reading the response was not in
+        // the payload, and counting it as delivered would drop a tombstone no peer has seen.
+        //
+        // Anything other than 200 acknowledges nothing. A 403 means a direction-blocked peer that will never
+        // accept our tombstones, and pruning on a rejected push is precisely how a deleted file comes back.
+        if (ackResp.ok) {
+          recordFileTombstoneAck(member.instanceId, spaceId, ackedPositionFrom(ourTombstones));
+        } else {
+          log.debug(`Push file tombstones to ${member.label}: ${ackResp.status} — position not advanced`);
+        }
       }
     } catch (err) {
       log.warn(`Push file tombstones to ${member.label}: ${err}`);

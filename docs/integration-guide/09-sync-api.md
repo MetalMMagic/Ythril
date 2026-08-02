@@ -157,8 +157,15 @@ Each array is capped at 500 items. Response includes per-type counters.
 ### File Sync Artifacts
 
 - `GET /api/sync/manifest?spaceId=general` returns file digest metadata for delta detection.
-- `GET /api/sync/file-tombstones?spaceId=general&since=<ISO>` returns file delete tombstones.
+- `GET /api/sync/file-tombstones?spaceId=general&since=<ISO>` returns file delete tombstones. **The sync engine
+  deliberately omits `since`**: a file tombstone carries its original `deletedAt` and can be relayed onward long
+  afterwards, so filtering by it would skip an older deletion arriving late and the file would stay. Use it only
+  if you can tolerate that.
 - `POST /api/sync/file-tombstones` applies file delete tombstones (`{ spaceId, tombstones: [...] }`).
+  **Your `200` is an acknowledgement.** The sender records the newest `deletedAt` in the batch as your confirmed
+  position and eventually drops its own copies below the minimum across all members — so answer `200` only once
+  the tombstones are durably recorded. `{ applied: 0 }` is a valid acknowledgement (the upsert is idempotent);
+  a non-2xx or a timeout means the sender keeps its copies, which is the safe direction.
 
 ### Merkle Consistency Check
 

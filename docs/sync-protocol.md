@@ -47,13 +47,14 @@ Sync can be triggered two ways:
 
 ## Watermarks
 
-Three high-water marks are kept per member. The first two prevent redundant data transfer; the third is what makes deletion records prunable.
+Four high-water marks are kept per member. The first two prevent redundant data transfer; the last two are what make deletion records prunable.
 
 | Field | Type | Meaning |
 |-------|------|---------|
 | `lastSeqReceived[spaceId]` | `Record<string,number>` | Highest seq we have ever pulled from this peer for this space |
 | `lastSeqPushed[spaceId]` | `Record<string,number>` | Highest seq we have confirmed pushed to this peer for this space |
 | `lastSeqServed[spaceId]` | `Record<string,number>` | Highest `sinceSeq` this peer has pulled **our** tombstones from — its confirmed position in our data ([details](#lastseqserved--the-mirror-watermark-and-why-tombstone-retention-needs-it)) |
+| `lastFileTombstoneAckedAt[spaceId]` | `Record<string,string>` | Newest `deletedAt` among FILE tombstones this peer answered `200` to on a push ([details](#lastfiletombstoneackedat--the-same-bound-for-file-tombstones-from-acknowledgement)) |
 
 All three are stored per member in the config file. After a successful sync they are written through the coalesced asynchronous config flush (`saveConfigSoon`) rather than a blocking synchronous write — sync bookkeeping never stalls the event loop. If a sync fails mid-way, the watermark is not advanced — the next cycle retries from the last safe point, giving at-least-once delivery semantics (re-delivery is harmless: everything is re-derived from `seq`).
 
@@ -153,7 +154,19 @@ The prune (`brain/tombstone-prune.ts`, every 6 h) therefore deletes tombstones w
 | no network carries the space **and** no peer token reaches it | prune everything — the single-instance case |
 | `member.direction === 'push'` | still counted; direction governs our outbound behaviour, not what a peer may `GET` |
 
-**File tombstones are not covered.** `GET /api/sync/file-tombstones` is issued with no `since`, so the full set crosses the wire every cycle and there is no served position to record. Bounding those needs an acknowledgement-based equivalent on the push side, since that endpoint carries no `seq`.
+### `lastFileTombstoneAckedAt` — the same bound for file tombstones, from acknowledgement
+
+File tombstones carry no `seq` (they are keyed by `deletedAt`) and their pull is unfiltered, so there is no served position to record. Their floor comes from the **push** instead: `POST /api/sync/file-tombstones` upserts every tombstone it receives and re-propagates it onward, so a **200** proves that peer now holds it and will keep passing it on — which makes dropping the local copy safe transitively.
+
+`lastFileTombstoneAckedAt[spaceId]` is the newest `deletedAt` in a set the member answered 200 to, and the prune deletes file tombstones at or below `min()` of it across the space's members. Three rules make it safe:
+
+- **The position comes from the array that was sent**, never from a fresh query — a file deleted between building the body and reading the reply was not in the payload.
+- **Only a 200 counts.** A 403 (direction-blocked peer) or a timeout leaves the position unknown, which blocks pruning. `applied: 0` still counts: the upsert is idempotent, so a peer that already held them all legitimately answers zero.
+- **Timestamps are compared only in the fixed-width `…Z` form**, which sorts lexically. An offset form (`+02:00`) sorts later while being earlier in real time, so anything else is treated as unknown rather than compared.
+
+**The file-tombstone pull is deliberately NOT filtered by `since`.** A file tombstone carries its original `deletedAt` and can reach a peer long after that timestamp — a third instance's old deletion relayed onward, or a peer back from a week offline. `deletedAt > since` would skip exactly those, and the file they should delete would stay. The payload concern such a filter would address is answered by the prune instead: once every peer's copy is bounded, the full set is small.
+
+This matters more than the record half: `FileTombstoneDoc.path` is often personal in itself, so an unbounded collection means a deleted file's **name** is retained indefinitely.
 
 ---
 

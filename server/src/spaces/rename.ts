@@ -184,12 +184,13 @@ export function applySpaceRenameToConfig(cfg: Config, space: SpaceConfig, oldId:
       }
     }
 
-    // Update member watermark keys (lastSeqReceived / lastSeqPushed / lastSeqServed).
+    // Update member watermark keys (lastSeqReceived / lastSeqPushed / lastSeqServed /
+    // lastFileTombstoneAckedAt).
     //
-    // All three are keyed by space id, so a rename that misses one silently resets that watermark to
-    // "unknown". For the two pull watermarks that means re-pulling from 0 (idempotent by seq). For
-    // `lastSeqServed` it means the tombstone prune stops until every member has pulled again — safe, and
-    // invisible, which is why it is carried here rather than left to heal.
+    // All four are keyed by space id, so a rename that misses one silently resets that watermark to
+    // "unknown". For the two pull watermarks that means re-pulling from 0 (idempotent by seq). For the two
+    // retention floors it means the tombstone prune stops until every member has pulled (or acked) again —
+    // safe, and invisible, which is why they are carried here rather than left to heal.
     for (const member of net.members) {
       if (member.lastSeqReceived?.[oldId] !== undefined) {
         member.lastSeqReceived[newId] = member.lastSeqReceived[oldId]!;
@@ -202,6 +203,10 @@ export function applySpaceRenameToConfig(cfg: Config, space: SpaceConfig, oldId:
       if (member.lastSeqServed?.[oldId] !== undefined) {
         member.lastSeqServed[newId] = member.lastSeqServed[oldId]!;
         delete member.lastSeqServed[oldId];
+      }
+      if (member.lastFileTombstoneAckedAt?.[oldId] !== undefined) {
+        member.lastFileTombstoneAckedAt[newId] = member.lastFileTombstoneAckedAt[oldId]!;
+        delete member.lastFileTombstoneAckedAt[oldId];
       }
     }
   }

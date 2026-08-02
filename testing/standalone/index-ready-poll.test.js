@@ -52,8 +52,12 @@ function codeOf(file) {
 
 describe('search-index listing is never name-filtered', () => {
   it('no caller passes a name to listSearchIndexes', () => {
+    const all = sources();
+    // Floor the enumeration. Without this a broken walk yields no files, no offenders, and a green gate that
+    // examined nothing — the exact failure this lens pass went looking for.
+    assert.ok(all.length > 100, `only walked ${all.length} source files`);
     const offenders = [];
-    for (const f of sources()) {
+    for (const f of all) {
       const code = codeOf(f);
       code.split('\n').forEach((line, i) => {
         // Anything other than an empty argument list.

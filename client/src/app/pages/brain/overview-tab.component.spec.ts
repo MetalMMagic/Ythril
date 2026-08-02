@@ -148,6 +148,56 @@ describe('OverviewTabComponent', () => {
     expect((noQ.fixture.nativeElement as HTMLElement).querySelector('.fail-list')).toBeNull();
   });
 
+  it('groups failures by reason when there is more than one, and says how many the list omits', () => {
+    // Five paths answer "which file", not "why". With forty failures an operator could not tell one dead
+    // endpoint from forty unrelated problems, and the sample is whichever five came back first.
+    const many = setup();
+    many.fixture.componentRef.setInput('embeddingQueue', {
+      pending: 0, processing: 0, complete: 100, failed: 40,
+      failedSample: Array.from({ length: 5 }, (_, i) => ({ path: `docs/f${i}.pdf`, lastError: 'vision model down' })),
+      failedByReason: [
+        { reason: 'vision model down', count: 38 },
+        { reason: null, count: 2 },
+      ],
+    });
+    many.fixture.detectChanges();
+    const el = many.fixture.nativeElement as HTMLElement;
+    const reasons = el.querySelector('.fail-reasons');
+    expect(reasons).toBeTruthy();
+    expect(reasons!.textContent).toContain('38');
+    expect(reasons!.textContent).toContain('vision model down');
+    // The count is over EVERY failure, not the five in the sample.
+    expect(reasons!.textContent).not.toContain('5 ');
+    // And the list says plainly that it is not showing everything.
+    expect(el.querySelector('.fail-more')).toBeTruthy();
+  });
+
+  it('hides the grouping when it would only repeat the list, and survives a server that omits it', () => {
+    // One reason adds nothing over the per-path list — a panel that says the same thing twice trains people
+    // to skim both.
+    const one = setup();
+    one.fixture.componentRef.setInput('embeddingQueue', {
+      pending: 0, processing: 0, complete: 3, failed: 1,
+      failedSample: [{ path: 'docs/bad.pdf', lastError: 'vision model down' }],
+      failedByReason: [{ reason: 'vision model down', count: 1 }],
+    });
+    one.fixture.detectChanges();
+    const oneEl = one.fixture.nativeElement as HTMLElement;
+    expect(oneEl.querySelector('.fail-reasons')).toBeNull();
+    expect(oneEl.querySelector('.fail-more')).toBeNull();   // the sample covers all 1
+
+    // An older server (or a cached response from one) sends no `failedByReason` at all. The panel must render.
+    const legacy = setup();
+    legacy.fixture.componentRef.setInput('embeddingQueue', {
+      pending: 0, processing: 0, complete: 3, failed: 2,
+      failedSample: [{ path: 'docs/bad.pdf', lastError: 'boom' }],
+    });
+    legacy.fixture.detectChanges();
+    const legacyEl = legacy.fixture.nativeElement as HTMLElement;
+    expect(legacyEl.querySelector('.fail-list')).toBeTruthy();
+    expect(legacyEl.querySelector('.fail-reasons')).toBeNull();
+  });
+
   it('shows a "retry all failed" button only when failed > 0, and emits after the confirm', async () => {
     // failed > 0 → button present; the confirm-accepted click emits retryFailed once.
     const withFail = setup({ confirm: true });

@@ -391,6 +391,7 @@
   "brain.overview.queue.failed": "Failed",
   "brain.overview.queue.idle": "No embedding jobs queued.",
   "brain.overview.queue.unknownError": "Unknown error",
+  "brain.overview.queue.failedMore": "Showing {{shown}} of {{total}} failures.",
   "brain.overview.queue.retryFailed": "Retry all failed",
   "brain.overview.confirmRetryFailedTitle": "Retry failed jobs",
   "brain.overview.confirmRetryFailed": "Re-queue {{count}} failed embedding job(s) in this space?",

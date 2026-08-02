@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Retention per chrono TYPE, so telemetry stops displacing knowledge in recall.** Asked for by the canary
+  operator, and the reason is not storage — their volumes were 516 and 139 records. It is that a space-wide TTL
+  is the wrong axis for a space holding both kinds of thing.
+  - **The problem, in their measurement:** deploy `event`s are content-free by design, so they cluster tightly
+    and match anything on the topic. A cross-space recall for *"how is the platform deployed and what runs on
+    the server"* returned **four near-identical `platform-apps deployed` chronos at 0.874**, above the
+    guideline it should have surfaced at 0.823. Meanwhile `health-snapshot` / `metrics-snapshot` records must be
+    kept far longer than any prune window, because they exist to be trended and 90 days is one quarter with no
+    year-over-year. One number cannot serve both.
+  - `chronoRetention` on the space sets `{ days, contentDays }` per type, overriding `recordTtlDays` for the
+    types it names. **Two tiers, taken from the audit log's design rather than invented** — which is what they
+    asked for by name: `contentDays` drops the detail (`description`, `matchedText`, `properties` **and the
+    embedding**) and sets `contentRedacted: true`, so that a deploy happened is still recorded while it stops
+    competing in semantic search; `days` deletes the record through the normal path, so it tombstones and
+    propagates.
+  - **Dropping the vector is the point, not a side effect.** A record that keeps its embedding keeps winning
+    searches for content that is no longer there.
+  - Precedence is documented and pinned: a per-record `ttlDays` wins (including `0`/`null` for never); a type
+    named with only `contentDays` still deletes on the space schedule; and a `contentDays` at or past the delete
+    window is ignored, because it could never fire and a policy that silently does nothing is worse than a
+    rejected one.
+  - **It applies to records that already exist.** A self-healing pass on the existing TTL sweep stamps them
+    from **their own `createdAt`**, so enabling the policy prunes the backlog instead of granting everything a
+    fresh full window. Lazy rather than a boot migration because chrono is synced data — a boot migration would
+    stamp local copies while a peer's unstamped ones came back on the next pull.
+  - Gates: `chrono-retention` (22 cases, pure) and `chrono-retention-db` (10, real MongoDB — including that the
+    record **survives** redaction, which is the whole promise of the first tier). 10 of 10 mutations caught,
+    every one of them in the direction of removing more than the operator asked for.
+
 - **Tombstones are no longer kept forever — and the bound is a peer watermark, not an expiry date.**
   `<space>_tombstones` was the last growing collection with no retention at all: one document per deletion,
   removed only by wiping the space. On an instance whose agents write and delete, the tombstones eventually

@@ -956,13 +956,28 @@ The worker-tuning fields — `workerConcurrency`, `workerPollIntervalMs`, `worke
 > replacement starts the same document, reaches the same step, and is re-queued at the same point. A loop that
 > never finishes.
 >
-> Measured at the defaults, nothing comes close — the longest step is `ocrTimeoutMs` at 0.4× the stall
-> timeout. It is reachable by configuration: `ocrTimeoutMs` accepts up to **30 minutes** and the two model
-> budgets up to **10** each, against a 5-minute stall default.
+> **This binds at the defaults, and it is not only reachable by configuration.** The claim that the longest
+> step was `ocrTimeoutMs` at 0.4× the stall timeout counted only the *settable* fields. Two kinds of budget were
+> not settable and therefore not counted:
 >
-> Rather than refuse the setting, **stall detection raises its own threshold** to 1.5× the longest configured
-> step and logs one line saying so. Nothing you set is contradicted; the detector simply stops firing inside a
-> step you authorised. Raise `stalledJobTimeoutMs` past that figure yourself and the line goes away.
+> | step | budget | vs the 5-minute stall default |
+> |---|---|---|
+> | render of one page window | `pageTimeoutMs × min(maxPages, 20)` = **20 min** | **4×** |
+> | audio transcription (Whisper) | 5 min, fixed | **1×** — equal, so indistinguishable without head-room |
+> | image caption (local / external) | 2 min / 1 min | 0.4× / 0.2× |
+> | external face recognition | 30 s | 0.1× |
+>
+> So on a stock install the effective stall timeout is now **30 minutes** (1.5 × the render window), not 5. That
+> is the cost of the fix, and it is the right trade: the alternative was a document large enough to need a
+> >5-minute render being re-queued mid-render, forever. **Lower `maxPages` or `pageTimeoutMs` and the floor
+> comes down with them** — 3-page windows need no raise at all.
+>
+> Rather than refuse a setting, **stall detection raises its own threshold** to 1.5× the longest step and logs
+> one line saying so. Nothing you set is contradicted; the detector simply stops firing inside a step it
+> allows. Raise `stalledJobTimeoutMs` past that figure yourself and the line goes away.
+>
+> Also reachable by configuration, as before: `ocrTimeoutMs` accepts up to **30 minutes** and the two model
+> budgets up to **10** each.
 
 #### ISO 27001 / Data Egress Note
 

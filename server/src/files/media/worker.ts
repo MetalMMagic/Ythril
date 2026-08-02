@@ -67,6 +67,9 @@ import {
   mediaJobDurationSeconds,
 } from '../../metrics/registry.js';
 import { stallTimeoutWithWarning } from './stall-floor.js';
+import { worstRenderWindowMs } from '../converters/render-budget.js';
+import { VISION_TIMEOUT_MS, EXTERNAL_VISION_TIMEOUT_MS, STT_TIMEOUT_MS } from './providers.js';
+import { FACE_TIMEOUT_MS } from './face-external.js';
 
 let running = false;
 let stalledSweepTimer: NodeJS.Timeout | null = null;
@@ -89,6 +92,20 @@ function hopBudgets(): Record<string, number | undefined> {
     pageTimeoutMs: doc.pageTimeoutMs,
     ocrTimeoutMs: doc.ocrTimeoutMs,
     describeTimeoutMs: doc.describeTimeoutMs,
+    // The longest step of all, and it was missing — because it is not a config KEY. The render of a page
+    // window is `pageTimeoutMs x min(maxPages, 20)`, which at the defaults is 1 200 000 ms against a
+    // 300 000 ms stall timeout: four times over, with nothing configured. A list of names could not contain a
+    // derived value, so the value now has a name (`render-budget.ts`) that both the call site and this list
+    // use. `renderWindowMs` rather than a config key on purpose: it is what the detector must not fire inside.
+    renderWindowMs: worstRenderWindowMs(doc),
+    // The media provider calls, which were inline literals and therefore equally invisible. STT is the sharp
+    // one: 300 000 ms is EXACTLY the stall default, so a five-minute transcription could be re-queued in the
+    // same instant it legitimately finished. These are not operator-settable, so nobody could have raised the
+    // stall timeout to compensate even knowing about them.
+    visionTimeoutMs: VISION_TIMEOUT_MS,
+    externalVisionTimeoutMs: EXTERNAL_VISION_TIMEOUT_MS,
+    sttTimeoutMs: STT_TIMEOUT_MS,
+    faceTimeoutMs: FACE_TIMEOUT_MS,
   };
 }
 
@@ -201,8 +218,11 @@ async function workerLoop(): Promise<void> {
   const startupCfg = getMediaEmbeddingConfig();
   // Floored by the longest single hop a job may take: a step longer than the stall timeout reports no
   // progress while it runs, so the job would be re-queued mid-step and reach the same step again forever.
-  // Measured at the defaults it never binds (the worst hop is OCR at 0.40x the timeout); it binds when an
-  // operator raises a hop, which the ceilings invite — ocrTimeoutMs alone goes to thirty minutes.
+  //
+  // It DOES bind at the defaults, and the earlier claim here that it never did was measured against config
+  // keys only. The render of a page window is `pageTimeoutMs x min(maxPages, 20)` = 1 200 000 ms out of the
+  // box, four times the 300 000 ms stall timeout, so the floor now raises to 1 800 000 ms on a stock install.
+  // An operator raising a hop still binds too — ocrTimeoutMs alone goes to thirty minutes.
   const startupStalledTimeoutMs = stallTimeoutWithWarning(
     startupCfg.stalledJobTimeoutMs ?? 300_000,
     hopBudgets(),

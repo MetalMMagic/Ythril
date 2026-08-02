@@ -17,6 +17,7 @@ import { getDocumentProcessingConfig, getMediaEmbeddingConfig, getDocAssistApiKe
 import type { DocExtractionMode } from '../../config/types.js';
 import { UnstructuredConverter, type UnstructuredResult } from './unstructured.js';
 import { renderDocumentPages, isRenderAvailableFor } from './renderer.js';
+import { renderWindowTimeoutMs } from './render-budget.js';
 import { transcribePageImage, repairMarkdown, repairMarkdownExternal, reconcileConsensus } from './vlm-client.js';
 import type { StepProgress } from './types.js';
 import { decideRoute, validateExtraction, bestByEvidence } from './extraction-policy.js';
@@ -130,12 +131,17 @@ export async function vlmExtractDocument(
 
     for (let startPage = 0; pagesRead < pageBudget; startPage += windowSize) {
       const take = Math.min(windowSize, pageBudget - pagesRead);
+      // One beat BEFORE the render, so the stall clock starts when this step does rather than partway through
+      // the one before it — the same reason the describe pass gets one. It does not make the step visible
+      // (nothing reports from inside a single fetch), which is why the stall FLOOR has to know this budget too:
+      // see `render-budget.ts`, where the number now lives so the detector and the call site cannot disagree.
+      onProgress?.({ step: 'render', steps, done: pagesRead, total: Math.min(totalPages, pageBudget) });
       const window = await renderDocumentPages(fileBytes, {
         fileName,
         dpi: cfg.renderDpi,
         maxPages: take,
         startPage,
-        timeoutMs: cfg.pageTimeoutMs * Math.min(take, 20),
+        timeoutMs: renderWindowTimeoutMs(cfg.pageTimeoutMs, take),
       });
       totalPages = window.total;
       if (window.pages.length === 0) {

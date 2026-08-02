@@ -375,11 +375,33 @@ export const mediaJobsFailed = new Gauge({
  * with every heartbeat — so this is that field, aggregated. Nothing new is measured; something already
  * measured is finally reachable from a dashboard.
  *
- * `step` comes from the route the document is actually taking (`render`, `vlm`, `embed`, `describe`, …), so
- * it is not a fixed list here. Steps are remembered once seen and reported as `0` when no job is in them:
- * a series that disappears cannot be alerted on, because absent and zero look the same in a query.
+ * `step` comes from the route the document is actually taking (`render`, `vlm`, `embed`, `describe`, …), so it
+ * is not a closed list — but the known names are **seeded at zero** (`KNOWN_JOB_STEPS`) and any other step is
+ * remembered the moment it is seen. Both halves matter: a series that disappears cannot be alerted on, and a
+ * series that has never existed cannot be alerted on either, which is the case that bit a customer during
+ * their first incident.
  */
-const _seenJobSteps = new Set<string>();
+/**
+ * Step names seeded at zero from the first scrape, so the series exists before any job has been in them.
+ *
+ * "Remembered once seen" was not enough, and a customer proved it precisely: with
+ * `ythril_media_jobs_processing = 3` during their first incident, `ythril_media_job_phase > 0` returned **an
+ * empty result set** — no series at all. Twenty minutes later, queue drained, it returned the full grid at 0.
+ *
+ * *"The window where the metric is missing is the window where it is needed."* The first time anyone reaches
+ * for this metric is the first incident, when by definition nothing has been seen yet. So the known step names
+ * are pre-registered; a step outside this list still appears the moment it is observed.
+ *
+ * `unknown` is included on purpose: it is a real fallback (a processing job whose heartbeat predates the step
+ * report, or one that has not reached its first step), and an operator seeing it needs to know it is expected
+ * rather than a gap. A step name appearing that is NOT in this list means the pipeline gained a phase nobody
+ * named here.
+ */
+export const KNOWN_JOB_STEPS = [
+  'render', 'ocr', 'vlm', 'validate', 'repair', 'chunk', 'embed', 'describe', 'caption', 'transcribe', 'unknown',
+] as const;
+
+const _seenJobSteps = new Set<string>(KNOWN_JOB_STEPS);
 export const mediaJobPhase = new Gauge({
   name: 'ythril_media_job_phase',
   help: 'In-flight media jobs by the pipeline step they are currently in (collected at scrape time)',

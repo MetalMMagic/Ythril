@@ -64,6 +64,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A Windows-authored Markdown file was embedded as ONE vector, whatever its size — unretrievable, and
+  gigabytes of memory to compute.** Reported by a canary operator whose pod went **3.98 → 9.996 GiB inside a
+  single 15-second scrape window**, was OOMKilled at a 16 GiB limit, and then sat at **15.40 GiB RSS at idle
+  with an empty queue** for over half an hour. Their three findings — the idle memory, the OOM burst, and
+  "large documents chunk to two and vanish from recall" — were one bug in two layers.
+  - **CRLF defeated the chunker silently.** Everything downstream splits on `\n` and anchors line patterns with
+    `$`, and in JavaScript `$` never matches before a `\r` while `.` cannot match one either (it is a line
+    terminator). So on a CRLF document `/^#{2,3}\s+(.+)$/` matched **nothing**: `sectionChunk` found no headings
+    and returned the entire file as a single chunk. `normaliseMarkdown` now normalises line endings first —
+    one line, and it is the whole difference between a document being retrievable and not.
+  - **The chunker had a minimum section size and no maximum**, so even with correct line endings one long
+    section stayed one chunk. Sections over `DEFAULT_MAX_BODY_LENGTH` (2 000 chars ≈ 500 tokens) are now split
+    at paragraph boundaries, keeping the heading on every part; tables are still never bisected, and a single
+    indivisible block is emitted whole.
+  - **The local embed call passed no `truncation`.** Self-attention is quadratic, so one unchunked body was not
+    just a bad vector, it was an enormous one: measured on this repo's own docs, the worst case was
+    **21 270 MiB of fp32 attention scores for a single layer, now 97 MiB — a 219× reduction.** Beyond the
+    model's position count the vector was also silently *wrong*. Truncation is now on, with a `warn` above
+    8 000 chars so an unchunked body is visible rather than merely expensive.
+  - **Why the memory never came back:** the ONNX CPU allocator is an arena — it grows to the high-water mark
+    and does not return pages. Everything the operator measured follows from that, including
+    `container_memory_cache` at 0.005 GiB and a figure that was flat rather than decaying across seven
+    consecutive samples. Their instance also showed why 2.2.3's concurrency drop made it *worse*: the peak is
+    set by the size of one chunk, not by how many run at once.
+  - **Documents already ingested keep their coarse chunks until re-ingested**, since better chunking changes
+    vectors. Worth doing deliberately for large files — and one at a time, not as a bulk re-conversion.
+  - Gate: `chunk-size-bounded` (14 cases) asserts a CRLF document chunks identically to its LF twin, that no
+    tracked doc produces a large **and divisible** chunk, that headings survive a split, that a table is never
+    bisected, and that the pre-fix collapse still reproduces when normalisation is skipped — because a gate
+    that only exercises the fixed path cannot prove the fix. 7 of 7 mutations caught.
+
+- **`ythril_media_job_phase` had no series during the incident it exists for.** With
+  `ythril_media_jobs_processing = 3`, a query for `ythril_media_job_phase > 0` returned an empty result set;
+  twenty minutes later, queue drained, it returned the full grid at zero. Steps were remembered *once seen*,
+  and the first time anyone reaches for this metric is the first incident — *"the window where the metric is
+  missing is the window where it is needed"*. The known step names are now seeded at zero from the first
+  scrape; an unlisted step still appears the moment it is observed.
+
+- **The documented stuck-job recipe fires on every restart.** `rate(ythril_embed_chunks_total[5m]) == 0` while
+  `ythril_media_jobs_processing > 0` was our recommendation, and a counter resets on restart — so it reports
+  "stuck" for five minutes while jobs complete normally. An operator built it exactly as written and was paged
+  two minutes after an OOM restart. The metrics table now carries the restart guard
+  (`time() - process_start_time_seconds > 600`) rather than leaving it to a long `for:` and luck.
+
 - **Renaming a space never moved its usage history — the code was unreachable.** `moveSpaceData` had
   `return errors;` directly above the block that re-keys `space_activity`, so `renameSpaceActivity` was dead:
   the renamed space showed a blank Usage panel and the old buckets lingered under an id that no longer existed,

@@ -61,6 +61,15 @@ export function prepareInput(
   return TASK_PREFIX[resolvePrefixScheme(cfg)][task] + text;
 }
 
+/**
+ * Above this many characters, a local embed is worth one `warn` — it is past the point where a single vector
+ * can be about anything specific, and it means something upstream produced an unchunked body.
+ *
+ * ~8,000 chars is roughly 2,000 tokens: comfortably inside the model's window (so this is not the truncation
+ * threshold, which the tokeniser owns) and comfortably past the point where averaging destroys the signal.
+ */
+const MAX_LOCAL_EMBED_CHARS = 8_000;
+
 // ── Local ONNX pipeline singleton ─────────────────────────────────────────
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type LocalPipeline = (text: string, opts: Record<string, unknown>) => Promise<any>;
@@ -188,7 +197,23 @@ export async function embed(
     }
 
     const pipe = await getLocalPipeline(cfg.model);
-    const output = await pipe(input, { pooling: 'mean', normalize: true });
+    // `truncation: true` is not a nicety — without it a long input cost GIGABYTES and produced a worse vector.
+    //
+    // Self-attention is quadratic in sequence length. A customer's 57 KB Markdown file chunked to two ~28 KB
+    // chunks (the chunker had a minimum section size and no maximum, fixed in `section-chunker.ts`), which is
+    // ~7,000 tokens: ~196 MiB of attention scores per head in fp32, ~2.35 GiB for one layer's twelve. Their pod
+    // went 3.98 → 9.996 GiB inside a single 15-second scrape window, was OOMKilled at a 16 GiB limit, and then
+    // sat at 15.40 GiB at idle because the ONNX arena allocator never returns its high-water mark. Reducing
+    // embed concurrency had made it worse, because the peak is set by one chunk's size.
+    //
+    // It was also silently WRONG beyond the model's position count, so this is a correctness fix as much as a
+    // memory one — and the chunker's cap does not make it redundant: this is the path every caller shares,
+    // including `remember` with a large fact and a query nobody bounded.
+    if (input.length > MAX_LOCAL_EMBED_CHARS) {
+      log.warn(`Embedding input is ${input.length} chars; the local model truncates to its context window. `
+        + 'A vector over this much text averages away everything specific in it — chunk the source instead.');
+    }
+    const output = await pipe(input, { pooling: 'mean', normalize: true, truncation: true });
     const vector = Array.from(output.data as Float32Array) as number[];
 
     if (vector.length !== cfg.dimensions) {

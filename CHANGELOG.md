@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.5] — 2026-08-02
+
 ### Added
 
 - **Failed embedding jobs are grouped by reason, over all of them rather than the first five.** The Overview
@@ -30,12 +32,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     guideline it should have surfaced at 0.823. Meanwhile `health-snapshot` / `metrics-snapshot` records must be
     kept far longer than any prune window, because they exist to be trended and 90 days is one quarter with no
     year-over-year. One number cannot serve both.
-  - `chronoRetention` on the space sets `{ days, contentDays }` per type, overriding `recordTtlDays` for the
-    types it names. **Two tiers, taken from the audit log's design rather than invented** — which is what they
+  - **Retention resolves as `record > schema > space`.** A per-record `ttlDays` wins outright; failing that the
+    TYPE's own schema window (`typeSchemas[collection][type].retention`) applies; failing that the space-wide
+    `recordTtlDays`, which stays the only tier that can reach records with no type at all.
+  - Putting the per-type window on the **schema** rather than in a map on the space puts it where the type is
+    already defined, and generalises it: `typeSchemas` covers entity, memory, edge **and** chrono, so a space
+    with `person` entities to keep and `build-artifact` entities to prune can now say so. Because the schema
+    lives in space meta, this tier is **governed and replicated** — in a network the policy is agreed and each
+    instance then expires its own copy locally.
+  - **Two tiers per type, taken from the audit log's design rather than invented** — which is what the operator
     asked for by name: `contentDays` drops the detail (`description`, `matchedText`, `properties` **and the
     embedding**) and sets `contentRedacted: true`, so that a deploy happened is still recorded while it stops
     competing in semantic search; `days` deletes the record through the normal path, so it tombstones and
-    propagates.
+    propagates. `contentDays` is chrono-only, because the fields it drops are chrono's, and it resolves to
+    nothing elsewhere rather than storing a setting that would do nothing.
+  - **The settings are where an operator will look.** The space-wide window moved to the space **Danger Zone**
+    — it deletes records, while the storage cap it used to sit beside only refuses new writes — which also
+    lists the types that override it, read-only, with a pointer to the Schema tab. The Brain **Overview** shows
+    the effective policy on its Indexing card. The **MCP** `ttlDays` description states the full precedence, so
+    an agent writing records does not have to infer it.
   - **Dropping the vector is the point, not a side effect.** A record that keeps its embedding keeps winning
     searches for content that is no longer there.
   - Precedence is documented and pinned: a per-record `ttlDays` wins (including `0`/`null` for never); a type
@@ -46,7 +61,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     from **their own `createdAt`**, so enabling the policy prunes the backlog instead of granting everything a
     fresh full window. Lazy rather than a boot migration because chrono is synced data — a boot migration would
     stamp local copies while a peer's unstamped ones came back on the next pull.
-  - Gates: `chrono-retention` (22 cases, pure) and `chrono-retention-db` (10, real MongoDB — including that the
+  - Gates: `chrono-retention` (30 cases, pure) and `chrono-retention-db` (11, real MongoDB — including that the
     record **survives** redaction, which is the whole promise of the first tier). 10 of 10 mutations caught,
     every one of them in the direction of removing more than the operator asked for.
 

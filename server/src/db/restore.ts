@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 import { MongoClient } from 'mongodb';
+import { EJSON } from 'bson';
 import type { DumpManifest } from './dump.js';
 import { log } from '../util/log.js';
 import { dbNameFromUri } from './db-name.js';
@@ -48,6 +49,20 @@ export async function restoreDatabase(uri: string, srcDir: string): Promise<void
         continue;
       }
 
+      // A collection the dump recorded as EMPTY still has to come back.
+      //
+      // Skipping it left the restored instance without the collection at all: a dump→drop→restore round trip
+      // returned three of four collections and reported success. `initSpace` recreates the per-space ones on the
+      // next boot, which is why this was survivable and therefore invisible — but a restore that silently
+      // returns less than it took is not something to leave resting on a later repair.
+      if (expectedCount === 0) {
+        await db.createCollection(name).catch(() => {
+          // Already there (a restore over a live database) — nothing to do.
+        });
+        log.debug(`restore: ${name} ← 0 docs (collection created)`);
+        continue;
+      }
+
       // Drop existing data before restoring
       await db.collection(name).drop().catch(() => {
         // Ignore "ns not found" — collection may not exist yet on a fresh DB
@@ -66,7 +81,10 @@ export async function restoreDatabase(uri: string, srcDir: string): Promise<void
       for await (const line of rl) {
         const trimmed = line.trim();
         if (!trimmed) continue;
-        batch.push(JSON.parse(trimmed) as Record<string, unknown>);
+        // Extended JSON, matching the dump. On a pre-existing plain-JSON dump this behaves exactly as
+        // `JSON.parse` did — EJSON only reinterprets the `$date`/`$oid` wrappers it wrote itself — so older
+        // backups still restore, with their old (string-dated) semantics rather than a hard failure.
+        batch.push(EJSON.parse(trimmed) as Record<string, unknown>);
 
         if (batch.length >= INSERT_BATCH_SIZE) {
           await col.insertMany(batch, { ordered: false });

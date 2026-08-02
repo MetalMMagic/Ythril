@@ -125,7 +125,8 @@ export async function upsertEdge(
     if (tags !== undefined) $set['tags'] = effectiveTags;
     if (properties !== undefined) $set['properties'] = mergedEdgeProperties(existing as EdgeDoc, properties);
     const $unset: Record<string, unknown> = {};
-    applyExpiryToUpdate(spaceId, ttlDays, (existing as EdgeDoc)._expireAt != null, $set, $unset); // F10
+    applyExpiryToUpdate(spaceId, ttlDays, (existing as EdgeDoc)._expireAt != null, $set, $unset,
+      { collection: 'edge', existing: existing as unknown as Record<string, unknown> }); // F10
     const updateOp: Record<string, unknown> = { $set };
     if (Object.keys($unset).length > 0) updateOp['$unset'] = $unset;
     await collection.updateOne(
@@ -166,7 +167,9 @@ export async function upsertEdge(
     seq,
     ...embeddingFields,
   };
-  stampExpiryOnCreate(spaceId, doc, ttlDays);
+  // `doc.label`, NOT `doc.type` — an edge has both, and the schema is keyed by label (see validateEdgeWrite).
+  // Passing `type` here would look right and read a schema that is never there.
+  stampExpiryOnCreate(spaceId, doc, ttlDays, { collection: 'edge', type: doc.label });
   await collection.insertOne(asDoc<EdgeDoc>(doc));
   if (actor) emitWebhookEvent({ event: 'edge.created', spaceId, entry: { ...doc, embedding: undefined }, ...actor });
   return doc;
@@ -322,7 +325,8 @@ export async function updateEdgeById(
     $set['matchedText'] = embedText;
   } catch { /* embedding unavailable — keep existing embedding */ }
 
-  applyExpiryToUpdate(spaceId, ttlDays, existing._expireAt != null, $set, $unset); // F10
+  applyExpiryToUpdate(spaceId, ttlDays, existing._expireAt != null, $set, $unset,
+    { collection: 'edge', existing: existing as unknown as Record<string, unknown> }); // F10
   const updateOp: Record<string, unknown> = { $set };
   if (Object.keys($unset).length > 0) updateOp['$unset'] = $unset;
   await collection.updateOne(asFilter<EdgeDoc>({ _id: id }), asUpdate<EdgeDoc>(updateOp));

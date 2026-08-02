@@ -53,6 +53,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Per-type retention only ever fired on chrono.** The tier is documented as reaching *"every record of that
+  type, in any of the four typed collections"*, with `entity.ticket` as its worked example, and for entities,
+  memories and edges it did nothing at all.
+  - **The cause was one missing argument, in six places.** `expiryForCreate` reads `typed ? … : undefined`, and
+    only `chrono.ts` passed `typed`. Every *update* site omitted it too, chrono's included — so even chrono
+    applied the tier to records written after the policy and not to records edited after it.
+  - **Thirty unit cases and eleven database cases covered it and all passed.** They hand the resolver its
+    `collection`; nothing asserted a *caller* supplies one. Unit-green, integration-absent — the same shape as
+    the missing Schema-tab control above, one layer in.
+  - **Edges key on `label`, not `type`** — an edge document carries both, and the schema is keyed by label.
+    Reading `type` finds a schema that is never there and looks like it worked, so `applyExpiryToUpdate` now
+    takes the collection and the existing document and works the field out itself rather than trusting six call
+    sites to pick right.
+  - **The backfill pass walked chrono only**, so even with the create path fixed, a window set today would never
+    have reached yesterday's records in the other three collections. It now walks all four. `files` stays out: no
+    type, so no schema window. `contentDays` is still stamped on chrono alone — writing `_contentExpireAt` where
+    no sweep reads it would put a policy in the data that never fires.
+  - **A dormant policy switching on is now announced.** A window configured months ago through the API begins
+    deleting records the first time the pass reaches it. That is the documented behaviour, and it gets one `info`
+    line per space and type naming the window rather than a debug-level count.
+  - Gates: `retention-reaches-every-collection` parses the call sites and fails if any create or update in a
+    typed collection omits its collection, or if the backfill's collection list narrows; plus a database gate
+    proving an `entity` window lands in `_expireAt`, that an edge is found by its label (its `type` is set to
+    something different on purpose, so a wrong-field resolver cannot pass by luck), and that no content window is
+    stamped outside chrono. Mutation-tested 5/5, each mutant being the original bug in one of its forms.
+
 - **A chrono's `properties` no longer goes with its embedding when a content window lapses.** The canary asked
   whether the two can expire separately — so a type can go **semantically silent while staying queryable by
   field** — and was holding a space's configuration until the answer. They were right to ask: for an alert

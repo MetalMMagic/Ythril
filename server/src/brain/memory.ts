@@ -82,7 +82,8 @@ export async function remember(
   if (type !== undefined) doc.type = type;
   if (description !== undefined) doc.description = description;
   if (properties !== undefined) doc.properties = properties;
-  stampExpiryOnCreate(spaceId, doc, ttlDays);
+  // See entities.ts: without `typed` the schema tier is unreachable and the space default applies instead.
+  stampExpiryOnCreate(spaceId, doc, ttlDays, { collection: 'memory', type: doc.type });
   await col<MemoryDoc>(`${spaceId}_memories`).insertOne(asDoc<MemoryDoc>(doc));
   // Real-time duplicate-rule evaluation (opt-in per space). Fire-and-forget; the
   // dynamic import avoids a static cycle with dupe-scanner.js.
@@ -165,7 +166,8 @@ export async function updateMemory(
     } catch { /* embedding unavailable — keep existing embedding */ }
   }
 
-  applyExpiryToUpdate(spaceId, ttlDays, existing._expireAt != null, $set, $unset); // F10
+  applyExpiryToUpdate(spaceId, ttlDays, existing._expireAt != null, $set, $unset,
+    { collection: 'memory', existing: existing as unknown as Record<string, unknown> }); // F10
   const updateOp: Record<string, unknown> = { $set };
   if (Object.keys($unset).length > 0) updateOp['$unset'] = $unset;
   await col<MemoryDoc>(`${spaceId}_memories`).updateOne(

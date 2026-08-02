@@ -15,6 +15,18 @@ import { SpacesApi } from '../../core/spaces-api.service';
  */
 export interface TypeSchemaState {
   namingPattern:   string;
+  /**
+   * How long records of this type are kept — the SCHEMA tier of record > schema > space.
+   *
+   * `null` for "not set", not `0`: zero is a real value the API rejects, and an empty number input must mean
+   * "inherit the space default" rather than "expire immediately".
+   *
+   * `contentDays` is chrono-only (it drops the recallable half — description, matchedText and the embedding —
+   * while keeping the record and its `properties`). The editor only offers it for chrono, because the API
+   * refuses it elsewhere and a control that cannot work is worse than none.
+   */
+  retentionDays:        number | null;
+  retentionContentDays: number | null;
   tagSuggestions:  string[];
   propertySchemas: { key: string; s: PropertySchema; _enumInput: string }[];
   _newPropInput:   string;
@@ -25,6 +37,86 @@ export interface TypeSchemaState {
    * silently converts a linked schema into an empty inline one — pinned by the round-trip tests.
    */
   _libRef?: string;
+}
+
+/**
+ * A blank `TypeSchemaState`, optionally overridden — the single place the shape is written out.
+ *
+ * There were NINE object literals spelling this interface out field by field (add-type, unlink, two import
+ * paths, three library paths, and two specs). Adding `retentionDays` to the interface made all nine a
+ * compile error, which is the good outcome; the bad outcome is the tenth site, written next month, that
+ * spreads an older shape and quietly drops a field nobody notices until a save loses it. A factory makes
+ * "every construction site" one site.
+ */
+export function emptyTypeSchemaState(over: Partial<TypeSchemaState> = {}): TypeSchemaState {
+  return {
+    namingPattern: '', retentionDays: null, retentionContentDays: null,
+    tagSuggestions: [], propertySchemas: [], _newPropInput: '', _newTagInput: '',
+    ...over,
+  };
+}
+
+/**
+ * Editor state → the wire `TypeSchema`, in one place.
+ *
+ * There were three copies of this: the save path, the per-type JSON export, and "save this type to the
+ * library". They had already drifted — only one of them trimmed the property `pattern` — and adding a field
+ * to one of three serialisers is how an editable setting ends up unsaved on some paths and not others.
+ *
+ * `withRetention: false` is for the schema library, whose entry schema is `.strict()` and has no `retention`
+ * key: a window belongs to a type IN A SPACE, and sending one would 400 the request.
+ */
+export function typeSchemaFromState(
+  kt: KnowledgeType,
+  state: TypeSchemaState,
+  { withRetention = true }: { withRetention?: boolean } = {},
+): TypeSchema {
+  const ts: TypeSchema = {};
+  if (kt === 'entity' && state.namingPattern.trim()) ts.namingPattern = state.namingPattern.trim();
+  if (withRetention) {
+    // Omitted entirely when neither window is set, so a type that inherits the space default does not carry
+    // an empty `retention: {}` the API would reject.
+    //
+    // `contentDays` is sent only for chrono: the API accepts it elsewhere but the sweep ignores it, so writing
+    // it would store a setting that silently does nothing — and dropping it here also keeps a stale value from
+    // a type whose kind changed out of the payload.
+    const days = positiveDays(state.retentionDays);
+    const contentDays = kt === 'chrono' ? positiveDays(state.retentionContentDays) : undefined;
+    if (days !== undefined || contentDays !== undefined) {
+      ts.retention = { ...(days !== undefined ? { days } : {}), ...(contentDays !== undefined ? { contentDays } : {}) };
+    }
+  }
+  if (state.tagSuggestions.length) ts.tagSuggestions = [...state.tagSuggestions];
+  if (state.propertySchemas.length) {
+    const ps: Record<string, PropertySchema> = {};
+    for (const { key, s } of state.propertySchemas) {
+      const schema: PropertySchema = {};
+      if (s.type)            schema.type    = s.type;
+      if (s.enum?.length)    schema.enum    = [...s.enum];
+      if (s.minimum != null) schema.minimum = s.minimum;
+      if (s.maximum != null) schema.maximum = s.maximum;
+      if (s.pattern?.trim()) schema.pattern = s.pattern.trim();
+      if (s.mergeFn)         schema.mergeFn = s.mergeFn;
+      if (s.required)        schema.required = s.required;
+      if (s.default != null) schema.default  = s.default;
+      ps[key] = schema;
+    }
+    ts.propertySchemas = ps;
+  }
+  return ts;
+}
+
+/**
+ * A day count the API will accept, or undefined.
+ *
+ * `Number()` because a `type="number"` input bound with ngModel yields a STRING when the user types into it
+ * on some paths, and `'30' > 0` is true while `JSON.stringify` would then send `"30"` — which the server's
+ * `z.number()` rejects with a message about the wrong type, on a field the user filled in correctly.
+ */
+function positiveDays(v: number | null): number | undefined {
+  if (v === null || v === undefined || (v as unknown) === '') return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) && Number.isInteger(n) && n > 0 ? n : undefined;
 }
 
 /**
@@ -145,19 +237,17 @@ export class SpaceSettingsState {
       for (const [name, ts] of Object.entries(meta.typeSchemas?.[kt] ?? {})) {
         // Preserve $ref as _libRef sentinel so buildMeta() can round-trip it
         if (ts.$ref?.startsWith('library:')) {
-          map[name] = {
-            namingPattern: '', tagSuggestions: [], propertySchemas: [],
-            _newPropInput: '', _newTagInput: '',
-            _libRef: ts.$ref.slice('library:'.length),
-          };
+          map[name] = emptyTypeSchemaState({ _libRef: ts.$ref.slice('library:'.length) });
         } else {
-          map[name] = {
+          map[name] = emptyTypeSchemaState({
             namingPattern:   ts.namingPattern   ?? '',
+            // `?? null`, never `?? 0`: an absent window means "inherit the space default", and 0 is a value the
+            // API rejects. Reading it as 0 would round-trip a blank field into an invalid save.
+            retentionDays:        ts.retention?.days        ?? null,
+            retentionContentDays: ts.retention?.contentDays ?? null,
             tagSuggestions:  [...(ts.tagSuggestions ?? [])],
             propertySchemas: Object.entries(ts.propertySchemas ?? {}).map(([k, ps]) => ({ key: k, s: { ...ps }, _enumInput: '' })),
-            _newPropInput: '',
-            _newTagInput:  '',
-          };
+          });
         }
       }
       return map;
@@ -257,26 +347,7 @@ export class SpaceSettingsState {
             out[name] = { $ref: `library:${state._libRef}` };
             continue;
           }
-          const ts: TypeSchema = {};
-          if (kt === 'entity' && state.namingPattern.trim()) ts.namingPattern = state.namingPattern.trim();
-          if (state.tagSuggestions.length) ts.tagSuggestions = [...state.tagSuggestions];
-          if (state.propertySchemas.length) {
-            const ps: Record<string, PropertySchema> = {};
-            for (const { key, s } of state.propertySchemas) {
-              const schema: PropertySchema = {};
-              if (s.type)            schema.type    = s.type;
-              if (s.enum?.length)    schema.enum    = [...s.enum];
-              if (s.minimum != null) schema.minimum = s.minimum;
-              if (s.maximum != null) schema.maximum = s.maximum;
-              if (s.pattern?.trim()) schema.pattern = s.pattern.trim();
-              if (s.mergeFn)         schema.mergeFn = s.mergeFn;
-              if (s.required)        schema.required = s.required;
-              if (s.default != null) schema.default  = s.default;
-              ps[key] = schema;
-            }
-            ts.propertySchemas = ps;
-          }
-          out[name] = ts;
+          out[name] = typeSchemaFromState(kt, state);
         }
         typeSchemas[kt] = out;
       }
@@ -329,7 +400,7 @@ export class SpaceSettingsState {
     if (!raw || (this.schTypeSchemas[kt] ?? {})[raw]) return;
     this.schTypeSchemas = {
       ...this.schTypeSchemas,
-      [kt]: { ...(this.schTypeSchemas[kt] ?? {}), [raw]: { namingPattern: '', tagSuggestions: [], propertySchemas: [], _newPropInput: '', _newTagInput: '' } },
+      [kt]: { ...(this.schTypeSchemas[kt] ?? {}), [raw]: emptyTypeSchemaState() },
     };
     this.schNewTypeInputs = { ...this.schNewTypeInputs, [kt]: '' };
     this.schSelectedType  = { kt, name: raw };

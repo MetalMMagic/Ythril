@@ -16,7 +16,7 @@ import { of, throwError } from 'rxjs';
 import { SpacesApi } from '../../core/spaces-api.service';
 import type { Space } from '../../core/api.types';
 import { getTranslocoModule } from '../../testing/transloco-testing';
-import { SpaceSettingsState } from './space-settings-state.service';
+import { SpaceSettingsState, emptyTypeSchemaState } from './space-settings-state.service';
 
 function space(over: Partial<Space> = {}): Space {
   return { id: 'work', label: 'Work', ...over } as Space;
@@ -195,8 +195,8 @@ describe('SpaceSettingsState — buildMeta (what actually gets saved)', () => {
   it('namingPattern is entity-only — the same state on a memory type is dropped', () => {
     const c = make();
     c.openSettings(space());
-    c.schTypeSchemas.entity = { person: { namingPattern: '^A', tagSuggestions: [], propertySchemas: [], _newPropInput: '', _newTagInput: '' } };
-    c.schTypeSchemas.memory = { note: { namingPattern: '^A', tagSuggestions: [], propertySchemas: [], _newPropInput: '', _newTagInput: '' } };
+    c.schTypeSchemas.entity = { person: emptyTypeSchemaState({ namingPattern: '^A' }) };
+    c.schTypeSchemas.memory = { note: emptyTypeSchemaState({ namingPattern: '^A' }) };
     const meta = c.buildMeta();
     expect(meta.typeSchemas!.entity!['person']).toEqual({ namingPattern: '^A' });
     expect(meta.typeSchemas!.memory!['note']).toEqual({});
@@ -205,10 +205,9 @@ describe('SpaceSettingsState — buildMeta (what actually gets saved)', () => {
   it('maps a property schema field-by-field, omitting empty ones', () => {
     const c = make();
     c.openSettings(space());
-    c.schTypeSchemas.entity = { person: {
-      namingPattern: '', tagSuggestions: [], _newPropInput: '', _newTagInput: '',
+    c.schTypeSchemas.entity = { person: emptyTypeSchemaState({
       propertySchemas: [{ key: 'age', s: { type: 'number', minimum: 0, maximum: 5, pattern: '  ', enum: [], required: true }, _enumInput: '' }],
-    } };
+    }) };
     const ps = c.buildMeta().typeSchemas!.entity!['person']!.propertySchemas!['age']!;
     expect(ps).toEqual({ type: 'number', minimum: 0, maximum: 5, required: true });
     expect(ps.pattern).toBeUndefined(); // whitespace-only pattern dropped
@@ -219,6 +218,95 @@ describe('SpaceSettingsState — buildMeta (what actually gets saved)', () => {
     const c = make();
     c.openSettings(space());
     expect(c.buildMeta().typeSchemas).toBeUndefined();
+  });
+});
+
+/**
+ * Per-type retention (the SCHEMA tier of record > schema > space).
+ *
+ * The reason this needs its own block rather than one assertion: the PATCH merge REPLACES a named type's
+ * definition wholesale, so a save that emits `retention` and forgets `propertySchemas` does not merely fail
+ * to add a window — it deletes the type's property rules on a `validationMode: strict` space and breaks
+ * every subsequent write to it. A canary operator asked about exactly that before touching their four types.
+ */
+describe('SpaceSettingsState — per-type retention', () => {
+  const withWindows = space({
+    meta: { typeSchemas: {
+      chrono: { event: { retention: { days: 90, contentDays: 30 }, propertySchemas: { alertname: { type: 'string' } } } },
+      entity: { person: { namingPattern: '^[A-Z]', retention: { days: 400 } } },
+    } },
+  } as Partial<Space>);
+
+  it('loads both windows off the wire and writes them back unchanged', () => {
+    const c = make();
+    c.openSettings(withWindows);
+    expect(c.typeState('chrono', 'event').retentionDays).toBe(90);
+    expect(c.typeState('chrono', 'event').retentionContentDays).toBe(30);
+    expect(c.buildMeta().typeSchemas!.chrono!['event']!.retention).toEqual({ days: 90, contentDays: 30 });
+  });
+
+  it('carries propertySchemas and namingPattern through with it — the merge REPLACES the type', () => {
+    const c = make();
+    c.openSettings(withWindows);
+    c.typeState('chrono', 'event').retentionDays = 60;      // edit only the window
+    const chrono = c.buildMeta().typeSchemas!.chrono!['event']!;
+    expect(chrono.retention).toEqual({ days: 60, contentDays: 30 });
+    expect(chrono.propertySchemas).toEqual({ alertname: { type: 'string' } });
+    const person = c.buildMeta().typeSchemas!.entity!['person']!;
+    expect(person.namingPattern).toBe('^[A-Z]');
+    expect(person.retention).toEqual({ days: 400 });
+  });
+
+  it('an empty field means inherit — no retention key at all, never a zero', () => {
+    const c = make();
+    c.openSettings(space());
+    c.schTypeSchemas.chrono = { event: emptyTypeSchemaState() };
+    expect(c.buildMeta().typeSchemas!.chrono!['event']).toEqual({});
+  });
+
+  it('a cleared field removes the window that was loaded', () => {
+    const c = make();
+    c.openSettings(withWindows);
+    c.typeState('chrono', 'event').retentionDays = null;
+    c.typeState('chrono', 'event').retentionContentDays = null;
+    expect(c.buildMeta().typeSchemas!.chrono!['event']!.retention).toBeUndefined();
+  });
+
+  it('rejects a value the API would 400 on — zero, negative, fractional, or a numeric string', () => {
+    const c = make();
+    c.openSettings(space());
+    for (const bad of [0, -5, 1.5, '' as unknown as number]) {
+      c.schTypeSchemas.chrono = { event: emptyTypeSchemaState({ retentionDays: bad }) };
+      expect(c.buildMeta().typeSchemas!.chrono!['event']!.retention, `days=${bad}`).toBeUndefined();
+    }
+    // A number input bound with ngModel can hand back a STRING. It must be sent as a number or the
+    // server rejects a field the operator filled in correctly.
+    c.schTypeSchemas.chrono = { event: emptyTypeSchemaState({ retentionDays: '45' as unknown as number }) };
+    expect(c.buildMeta().typeSchemas!.chrono!['event']!.retention).toEqual({ days: 45 });
+  });
+
+  it('contentDays is chrono-only — set on any other collection it is dropped, not stored dead', () => {
+    const c = make();
+    c.openSettings(space());
+    for (const kt of ['entity', 'memory', 'edge'] as const) {
+      c.schTypeSchemas[kt] = { thing: emptyTypeSchemaState({ retentionDays: 30, retentionContentDays: 10 }) };
+      expect(c.buildMeta().typeSchemas![kt]!['thing']!.retention, kt).toEqual({ days: 30 });
+    }
+  });
+
+  it('a $ref type never emits retention — the library entry schema has no such field', () => {
+    const c = make();
+    c.openSettings(space());
+    c.schTypeSchemas.chrono = { event: emptyTypeSchemaState({ _libRef: 'events-v1', retentionDays: 90 }) };
+    expect(c.buildMeta().typeSchemas!.chrono!['event']).toEqual({ $ref: 'library:events-v1' });
+  });
+
+  it('counts as a change, so the footer Save lights up for it', () => {
+    const c = make();
+    c.openSettings(withWindows);
+    expect(c.isDirty()).toBe(false);
+    c.typeState('chrono', 'event').retentionDays = 45;
+    expect(c.isDirty()).toBe(true);
   });
 });
 

@@ -21,7 +21,7 @@ import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { ModalDirective } from '../../shared/modal.directive';
 import { SPACE_DIALOG_STYLES } from './space-dialog.styles';
-import { SpaceSettingsState, type TypeSchemaState } from './space-settings-state.service';
+import { SpaceSettingsState, emptyTypeSchemaState, typeSchemaFromState, type TypeSchemaState } from './space-settings-state.service';
 import { SchemaApi } from '../../core/schema-api.service';
 import { ToastService } from '../../core/toast.service';
 import { KnowledgeType, PropertySchema, SchemaLibraryEntry, TypeSchema } from '../../core/api.types';
@@ -100,6 +100,11 @@ const SCHEMA_MD_STYLES = `
 .sch-detail > .field > label { margin-top:16px; }
 .sch-detail > .field:first-of-type > label,
 .sch-detail .sch-section-label:first-of-type { margin-top:0; }
+/* The two retention windows sit side by side and wrap on a narrow pane. Capped so a 3-digit day count does
+   not get an input the width of the whole detail column. */
+.ret-row { display:flex; gap:14px; flex-wrap:wrap; align-items:flex-start; }
+.ret-row .field { min-width:0; }
+.ret-row input { max-width:150px; }
 .sch-msg { font-size:12px; margin-top:6px; }
 .sch-msg.err { color:var(--error); }
 .sch-msg.ok  { color:var(--success); }
@@ -226,6 +231,11 @@ const SCHEMA_MD_STYLES = `
               @if (kt === 'entity' && state.typeState(kt,name).namingPattern) {
                 <span class="badge badge-gray">pat</span>
               }
+              <!-- A window deletes records, so it is visible from the list rather than only after selecting
+                   the type. Amber, not grey: this is the one badge here that describes data loss. -->
+              @if (state.typeState(kt,name).retentionDays || state.typeState(kt,name).retentionContentDays) {
+                <span class="badge badge-yellow">ttl</span>
+              }
             }
           </span>
         </button>
@@ -310,6 +320,47 @@ const SCHEMA_MD_STYLES = `
               <label>{{ 'spaces.schema.namingPattern' | transloco }} <span class="sch-hint">{{ 'spaces.schema.namingPatternHint' | transloco }}</span></label>
               <input type="text" [(ngModel)]="state.typeState(kt,name).namingPattern" [placeholder]="'spaces.schema.namingPatternPlaceholder' | transloco" style="max-width:320px;" />
             </div>
+          }
+          <!-- Retention — the SCHEMA tier of record > schema > space, and the control the Danger Zone, the
+               integration guide and the API have all been pointing at. It belongs here, beside the type's
+               other rules, rather than in a second parallel map an operator has to know exists.
+
+               The hint names what an empty field inherits, with the space default's actual number in it: the
+               operator who asked for this said the old arrangement was a convention they had to know, and
+               "inherit" without saying inherit-WHAT is the same failure one level down.
+
+               NOTE: no backticks anywhere in this comment — one kills the whole template string and the
+               error then points at @Component. -->
+          <div class="sch-section-label">{{ 'spaces.schema.retention.label' | transloco }}
+            <span class="sch-hint">
+              @if (state.settingsSpace()?.recordTtlDays) {
+                {{ 'spaces.schema.retention.hintSpace' | transloco: { days: state.settingsSpace()!.recordTtlDays } }}
+              } @else {
+                {{ 'spaces.schema.retention.hintNoSpace' | transloco }}
+              }
+            </span>
+          </div>
+          <div class="ret-row">
+            <div class="field" style="margin:0;">
+              <label>{{ 'spaces.schema.retention.days' | transloco }}</label>
+              <input type="number" min="1" step="1" [(ngModel)]="state.typeState(kt,name).retentionDays"
+                [placeholder]="'spaces.schema.retention.inherit' | transloco" />
+            </div>
+            <!-- chrono only, because that is the only collection whose sweep implements it. Offering it on
+                 the others would store a number that never fires. -->
+            @if (kt === 'chrono') {
+              <div class="field" style="margin:0;">
+                <label>{{ 'spaces.schema.retention.contentDays' | transloco }}</label>
+                <input type="number" min="1" step="1" [(ngModel)]="state.typeState(kt,name).retentionContentDays"
+                  [placeholder]="'spaces.schema.retention.never' | transloco" />
+                <div class="sch-hint" style="margin-top:3px;">{{ 'spaces.schema.retention.contentDaysHint' | transloco }}</div>
+              </div>
+            }
+          </div>
+          <!-- The server CLAMPS a content window that is not strictly inside the delete window (it would
+               never fire), so without this the field would accept a number and silently do nothing. -->
+          @if (contentWindowNeverFires(kt,name); as total) {
+            <div class="sch-msg err">{{ 'spaces.schema.retention.contentTooLate' | transloco: { total } }}</div>
           }
           <!-- Per-type tag suggestions were retired here. The editor reached nothing: not the Brain
                record forms (they suggest from tags already in use) and not the schema guidance sent to
@@ -618,6 +669,23 @@ export class SpaceSchemaTabComponent implements OnInit {
     return Object.entries(schema?.propertySchemas ?? {}).map(([key, s]) => ({ key, s }));
   }
 
+  /**
+   * The effective delete window when a chrono type's content window sits at or beyond it — else null.
+   *
+   * Mirrors `contentDays()` on the server exactly, including its fall-through: a type with no `days` of its own
+   * is still deleted at the SPACE default, so a 30-day content window under a 30-day space default never fires
+   * either. Returning the number lets the message say which window it lost to, which is the part an operator
+   * cannot work out from the two fields in front of them.
+   */
+  contentWindowNeverFires(kt: KnowledgeType, name: string): number | null {
+    if (kt !== 'chrono') return null;
+    const s = this.state.typeState(kt, name);
+    const content = Number(s.retentionContentDays);
+    if (!Number.isFinite(content) || content <= 0) return null;
+    const total = Number(s.retentionDays) || Number(this.state.settingsSpace()?.recordTtlDays) || 0;
+    return total > 0 && content >= total ? total : null;
+  }
+
   /** A one-line, read-only summary of a property's constraints for the linked-type view. */
   propConstraintSummary(s: PropertySchema): string {
     const parts: string[] = [];
@@ -643,14 +711,14 @@ export class SpaceSchemaTabComponent implements OnInit {
       ...this.state.schTypeSchemas,
       [kt]: {
         ...(this.state.schTypeSchemas[kt] ?? {}),
-        [name]: {
+        // No retention: a library entry cannot carry one (the library's own schema rejects the field), so an
+        // unlinked type starts on the space default rather than inheriting a window from somewhere it never had.
+        // _libRef intentionally dropped — the type is now a plain inline schema.
+        [name]: emptyTypeSchemaState({
           namingPattern:   schema.namingPattern ?? '',
           tagSuggestions:  [...(schema.tagSuggestions ?? [])],
           propertySchemas: Object.entries(schema.propertySchemas ?? {}).map(([k, ps]) => ({ key: k, s: { ...ps }, _enumInput: '' })),
-          _newPropInput: '',
-          _newTagInput:  '',
-          // _libRef intentionally dropped — the type is now a plain inline schema.
-        },
+        }),
       },
     };
   }
@@ -723,8 +791,18 @@ export class SpaceSchemaTabComponent implements OnInit {
 
   /** Map one raw type-schema object (as exported / stored) into editor state. */
   private mapImportedTypeSchema(ts2: Record<string, unknown>): TypeSchemaState {
-    return {
+    // A retention window travels with the type it belongs to. It is read defensively because the file is
+    // arbitrary JSON: a string or a negative number becomes "inherit" rather than a save the API will reject.
+    const ret = ts2['retention'];
+    const win = (k: string): number | null => {
+      if (!ret || typeof ret !== 'object' || Array.isArray(ret)) return null;
+      const v = (ret as Record<string, unknown>)[k];
+      return typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : null;
+    };
+    return emptyTypeSchemaState({
       namingPattern:   typeof ts2['namingPattern'] === 'string' ? ts2['namingPattern'] : '',
+      retentionDays:        win('days'),
+      retentionContentDays: win('contentDays'),
       tagSuggestions:  Array.isArray(ts2['tagSuggestions']) ? [...ts2['tagSuggestions'] as string[]] : [],
       propertySchemas: (() => {
         const ps = ts2['propertySchemas'];
@@ -736,9 +814,7 @@ export class SpaceSchemaTabComponent implements OnInit {
           _enumInput: '',
         }));
       })(),
-      _newPropInput: '',
-      _newTagInput:  '',
-    };
+    });
   }
 
   onImportSchemaFile(event: Event): void {
@@ -812,28 +888,9 @@ export class SpaceSchemaTabComponent implements OnInit {
   exportTypeSchema(kt: KnowledgeType, name: string): void {
     const space = this.state.settingsSpace();
     if (!space) return;
-    const state = this.state.typeState(kt, name);
-    const schema: TypeSchema = {};
-    const trimmedPattern = state.namingPattern.trim();
-    if (kt === 'entity' && trimmedPattern) schema.namingPattern = trimmedPattern;
-    if (state.tagSuggestions.length) schema.tagSuggestions = [...state.tagSuggestions];
-    if (state.propertySchemas.length) {
-      const ps: Record<string, PropertySchema> = {};
-      for (const { key, s } of state.propertySchemas) {
-        const entry: PropertySchema = {};
-        if (s.type)            entry.type    = s.type;
-        if (s.enum?.length)    entry.enum    = [...s.enum];
-        if (s.minimum != null) entry.minimum = s.minimum;
-        if (s.maximum != null) entry.maximum = s.maximum;
-        const trimmedProp = s.pattern?.trim();
-        if (trimmedProp)       entry.pattern = trimmedProp;
-        if (s.mergeFn)         entry.mergeFn = s.mergeFn;
-        if (s.required)        entry.required = s.required;
-        if (s.default != null) entry.default  = s.default;
-        ps[key] = entry;
-      }
-      schema.propertySchemas = ps;
-    }
+    // The export carries the retention window: it is part of what this type IS, and a file that omits it
+    // re-imports as "inherit the space default" — a silent policy change on a round trip.
+    const schema = typeSchemaFromState(kt, this.state.typeState(kt, name));
     const payload = { knowledgeType: kt, typeName: name, schema };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url  = URL.createObjectURL(blob);
@@ -873,22 +930,10 @@ export class SpaceSchemaTabComponent implements OnInit {
           this.schImportError.set(this.transloco.translate('spaces.schema.import.invalidTypeFile'));
           return;
         }
-        const ts2 = schemaRaw as Record<string, unknown>;
-        const imported: TypeSchemaState = {
-          namingPattern:   typeof ts2['namingPattern'] === 'string' ? ts2['namingPattern'] : '',
-          tagSuggestions:  Array.isArray(ts2['tagSuggestions']) ? [...ts2['tagSuggestions'] as string[]] : [],
-          propertySchemas: (() => {
-            const ps = ts2['propertySchemas'];
-            if (!ps || typeof ps !== 'object' || Array.isArray(ps)) return [];
-            return Object.entries(ps as Record<string, unknown>).map(([k, v]) => ({
-              key: k,
-              s:   { ...(v as PropertySchema) },
-              _enumInput: '',
-            }));
-          })(),
-          _newPropInput: '',
-          _newTagInput:  '',
-        };
+        // Same mapping as the whole-schema import, and deliberately the same CALL: this was a hand-copied
+        // duplicate of it, so the two paths read different subsets of a type — the bulk import gained
+        // fields the per-type one silently dropped.
+        const imported: TypeSchemaState = this.mapImportedTypeSchema(schemaRaw as Record<string, unknown>);
         // When importing as a new type (name derived from file), check for collision
         if (!this._typeImportTarget?.name && this.state.typeNames(kt).includes(name)) {
           // Stash parsed state and show conflict dialog instead of erroring
@@ -948,42 +993,22 @@ export class SpaceSchemaTabComponent implements OnInit {
     const entryName = name.toLowerCase().replace(/[^a-z0-9_-]/g, '-').replace(/^[^a-z0-9]+/, '').slice(0, 200);
     if (!entryName) return;
 
-    const schema: TypeSchema = {};
-    if (kt === 'entity' && state.namingPattern.trim()) schema.namingPattern = state.namingPattern.trim();
-    if (state.tagSuggestions.length) schema.tagSuggestions = [...state.tagSuggestions];
-    if (state.propertySchemas.length) {
-      const ps: Record<string, PropertySchema> = {};
-      for (const { key, s } of state.propertySchemas) {
-        const entry: PropertySchema = {};
-        if (s.type)            entry.type    = s.type;
-        if (s.enum?.length)    entry.enum    = [...s.enum];
-        if (s.minimum != null) entry.minimum = s.minimum;
-        if (s.maximum != null) entry.maximum = s.maximum;
-        if (s.pattern?.trim()) entry.pattern = s.pattern.trim();
-        if (s.mergeFn)         entry.mergeFn = s.mergeFn;
-        if (s.required)        entry.required = s.required;
-        if (s.default != null) entry.default  = s.default;
-        ps[key] = entry;
-      }
-      schema.propertySchemas = ps;
-    }
+    // `withRetention: false` — a library entry has no `retention` key and its schema is strict, so including
+    // one would 400. That is also why the caller is warned: converting this type to a $ref leaves the window
+    // behind, and a silently-dropped delete policy is the worst kind to drop.
+    const schema = typeSchemaFromState(kt, state, { withRetention: false });
+    const losesRetention = state.retentionDays !== null || state.retentionContentDays !== null;
 
     const body = { knowledgeType: kt, typeName: name, schema: schema as Omit<TypeSchema, '$ref'> };
     this.schemaApi.upsertSchemaLibraryEntry(entryName, body).subscribe({
       next: () => {
         // Convert the in-space type to a $ref pointing at the new library entry
-        const refState: TypeSchemaState & { _libRef?: string } = {
-          namingPattern:   '',
-          tagSuggestions:  [],
-          propertySchemas: [],
-          _newPropInput:   '',
-          _newTagInput:    '',
-          _libRef:         entryName,
-        };
+        const refState: TypeSchemaState = emptyTypeSchemaState({ _libRef: entryName });
         this.state.schTypeSchemas = {
           ...this.state.schTypeSchemas,
           [kt]: { ...(this.state.schTypeSchemas[kt] ?? {}), [name]: refState },
         };
+        if (losesRetention) this.toast.info(this.transloco.translate('spaces.schema.retention.libDropped', { name }));
       },
       error: (err) => {
         this.schImportError.set(err?.error?.error ?? this.transloco.translate('spaces.schema.libSave.failed'));
@@ -1054,10 +1079,7 @@ export class SpaceSchemaTabComponent implements OnInit {
       const typeName = entry.typeName;
       if (!typeName) continue;
       if (Object.keys(next[kt] ?? {}).includes(typeName)) { skipped.push(typeName); continue; }
-      const refState: TypeSchemaState & { _libRef?: string } = {
-        namingPattern: '', tagSuggestions: [], propertySchemas: [],
-        _newPropInput: '', _newTagInput: '', _libRef: entry.name,
-      };
+      const refState: TypeSchemaState = emptyTypeSchemaState({ _libRef: entry.name });
       next = { ...next, [kt]: { ...(next[kt] ?? {}), [typeName]: refState } };
     }
     this.state.schTypeSchemas = next as typeof this.state.schTypeSchemas;
@@ -1083,14 +1105,7 @@ export class SpaceSchemaTabComponent implements OnInit {
     const typeName = target.name || entry.typeName;
     if (!typeName) return;
     // Store as a special sentinel state that renders as a $ref in buildMeta()
-    const refState: TypeSchemaState & { _libRef?: string } = {
-      namingPattern:   '',
-      tagSuggestions:  [],
-      propertySchemas: [],
-      _newPropInput:   '',
-      _newTagInput:    '',
-      _libRef:         entry.name,
-    };
+    const refState: TypeSchemaState = emptyTypeSchemaState({ _libRef: entry.name });
     // When adding a new type from lib (no pre-existing name), check for collision
     if (!target.name && this.state.typeNames(kt).includes(typeName)) {
       this.closeLibPicker();

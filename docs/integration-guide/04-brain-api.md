@@ -160,8 +160,13 @@ Rules worth knowing before you configure it:
   granting everything a fresh full window.
 - The schema lives in space meta, so this tier is **governed and replicated**: in a network the policy is agreed
   and each instance then expires its own copy locally, and the tombstones converge.
+- **A type defined by `$ref` has no window.** A schema-library entry cannot carry `retention` — its schema
+  rejects the field, because one entry is referenced by any number of spaces and a delete policy is not a
+  property of the shape. Resolve the `$ref` to an inline definition first, or use the space-wide default.
 - Set the space-wide number in **Settings → Spaces → Danger Zone**; set a type's window on the type, in the
-  **Schema** tab.
+  **Schema** tab, beside its naming pattern and property rules. Both are editable in the UI — the delete window
+  on any type, and the content window on chrono types, where the editor also refuses a content window that
+  could never fire.
 
 ---
 

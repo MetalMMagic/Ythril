@@ -25,6 +25,49 @@ export const register = new Registry();
 // ── Default process metrics (CPU, memory, event loop lag, GC) ──────────────
 collectDefaultMetrics({ register });
 
+/**
+ * How long each async collector takes, so a slow scrape names its own cause.
+ *
+ * ## Why this exists
+ *
+ * A canary operator measured `/metrics` hitting its **10-second Prometheus timeout** during an embedding run —
+ * `up=0` for two windows, both inside the ingest, both recovering the moment the queue paused. And they took the
+ * measurement that eliminates the obvious explanation, from the same scrape:
+ *
+ *     nodejs_eventloop_lag_mean_seconds   0.01006
+ *     nodejs_eventloop_lag_p99_seconds    0.01025
+ *     nodejs_eventloop_lag_stddev_seconds 0.00012
+ *
+ * 10 ms, flat. So this is **not** the event-loop starvation fixed in 2.2.3 — that would show there and does
+ * not. A handler taking >10 s while the loop sits at 10 ms is a handler that is **awaiting**, not one hogging
+ * the CPU. Their words, and the reason this is instrumentation rather than a guess.
+ *
+ * Every gauge below with an `async collect()` walks **every space** and queries per space — thirteen spaces on
+ * their instance, several of those queries against `<space>_media_jobs`, which the embedding worker writes to
+ * continuously. Any of them could own the ten seconds. We cannot reproduce their load, so the instance reports
+ * it instead.
+ *
+ * **All nine are timed, including the ones not suspected.** Instrumenting only the suspects would make the
+ * measurement agree with the hypothesis by construction — and the useful outcome is as likely to be "the one I
+ * expected is fast" as a confirmation.
+ *
+ * Cheap by design: one histogram observation per collector per scrape, so a 30-second scrape interval is nine
+ * observations every thirty seconds. The buckets run out to 15 s because the value worth seeing is the one past
+ * the 10 s timeout — a histogram whose top bucket is below the failure cannot describe it.
+ */
+const collectDuration = new Histogram({
+  name: 'ythril_metrics_collect_duration_seconds',
+  help: 'Time for one async metric collector to gather its values, by collector (one observation per scrape)',
+  labelNames: ['collector'] as const,
+  buckets: [0.01, 0.05, 0.25, 1, 2.5, 5, 10, 15],
+  registers: [register],
+});
+
+/** Start timing one collector. The returned function records the elapsed time; call it on every exit path. */
+function collectTimer(collector: string): () => void {
+  return collectDuration.startTimer({ collector });
+}
+
 // ── HTTP ────────────────────────────────────────────────────────────────────
 
 export const httpRequestsTotal = new Counter({
@@ -78,6 +121,7 @@ export const memoriesTotal = new Gauge({
   labelNames: ['space'] as const,
   registers: [register],
   async collect() {
+    const done = collectTimer('memories_total');
     try {
       const cfg = getConfig();
       for (const space of cfg.spaces.filter(s => !s.proxyFor)) {
@@ -85,6 +129,7 @@ export const memoriesTotal = new Gauge({
         this.set({ space: space.id }, count);
       }
     } catch { /* MongoDB may not be ready at startup */ }
+    done();
   },
 });
 
@@ -94,6 +139,7 @@ export const entitiesTotal = new Gauge({
   labelNames: ['space'] as const,
   registers: [register],
   async collect() {
+    const done = collectTimer('entities_total');
     try {
       const cfg = getConfig();
       for (const space of cfg.spaces.filter(s => !s.proxyFor)) {
@@ -101,6 +147,7 @@ export const entitiesTotal = new Gauge({
         this.set({ space: space.id }, count);
       }
     } catch { /* ignore */ }
+    done();
   },
 });
 
@@ -110,6 +157,7 @@ export const edgesTotal = new Gauge({
   labelNames: ['space'] as const,
   registers: [register],
   async collect() {
+    const done = collectTimer('edges_total');
     try {
       const cfg = getConfig();
       for (const space of cfg.spaces.filter(s => !s.proxyFor)) {
@@ -117,6 +165,7 @@ export const edgesTotal = new Gauge({
         this.set({ space: space.id }, count);
       }
     } catch { /* ignore */ }
+    done();
   },
 });
 
@@ -126,6 +175,7 @@ export const chronoEntriesTotal = new Gauge({
   labelNames: ['space'] as const,
   registers: [register],
   async collect() {
+    const done = collectTimer('chrono_entries_total');
     try {
       const cfg = getConfig();
       for (const space of cfg.spaces.filter(s => !s.proxyFor)) {
@@ -133,6 +183,7 @@ export const chronoEntriesTotal = new Gauge({
         this.set({ space: space.id }, count);
       }
     } catch { /* ignore */ }
+    done();
   },
 });
 
@@ -177,6 +228,7 @@ export const storageUsedBytes = new Gauge({
   labelNames: ['area'] as const,
   registers: [register],
   async collect() {
+    const done = collectTimer('storage_used_bytes');
     try {
       const usage = await measureUsage();
       const GiB = 1024 ** 3;
@@ -184,6 +236,7 @@ export const storageUsedBytes = new Gauge({
       this.set({ area: 'brain' }, usage.brain * GiB);
       this.set({ area: 'total' }, usage.total * GiB);
     } catch { /* ignore */ }
+    done();
   },
 });
 
@@ -324,6 +377,7 @@ export const mediaJobsPending = new Gauge({
   labelNames: ['space'] as const,
   registers: [register],
   async collect() {
+    const done = collectTimer('media_jobs_pending');
     try {
       const cfg = getConfig();
       for (const space of cfg.spaces.filter(s => !s.proxyFor)) {
@@ -331,6 +385,7 @@ export const mediaJobsPending = new Gauge({
         this.set({ space: space.id }, count);
       }
     } catch { /* MongoDB may not be ready */ }
+    done();
   },
 });
 
@@ -340,6 +395,7 @@ export const mediaJobsProcessing = new Gauge({
   labelNames: ['space'] as const,
   registers: [register],
   async collect() {
+    const done = collectTimer('media_jobs_processing');
     try {
       const cfg = getConfig();
       for (const space of cfg.spaces.filter(s => !s.proxyFor)) {
@@ -347,6 +403,7 @@ export const mediaJobsProcessing = new Gauge({
         this.set({ space: space.id }, count);
       }
     } catch { /* ignore */ }
+    done();
   },
 });
 
@@ -356,6 +413,7 @@ export const mediaJobsFailed = new Gauge({
   labelNames: ['space'] as const,
   registers: [register],
   async collect() {
+    const done = collectTimer('media_jobs_failed');
     try {
       const cfg = getConfig();
       for (const space of cfg.spaces.filter(s => !s.proxyFor)) {
@@ -363,6 +421,7 @@ export const mediaJobsFailed = new Gauge({
         this.set({ space: space.id }, count);
       }
     } catch { /* ignore */ }
+    done();
   },
 });
 
@@ -408,6 +467,7 @@ export const mediaJobPhase = new Gauge({
   labelNames: ['space', 'step'] as const,
   registers: [register],
   async collect() {
+    const done = collectTimer('media_job_phase');
     try {
       const cfg = getConfig();
       for (const space of cfg.spaces.filter(s => !s.proxyFor)) {
@@ -425,6 +485,7 @@ export const mediaJobPhase = new Gauge({
         for (const step of _seenJobSteps) this.set({ space: space.id, step }, counts.get(step) ?? 0);
       }
     } catch { /* MongoDB may not be ready */ }
+    done();
   },
 });
 

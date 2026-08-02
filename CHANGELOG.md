@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`ythril_metrics_collect_duration_seconds{collector}` — so a slow `/metrics` names its own cause.** A canary
+  operator measured the endpoint hitting its **10-second Prometheus timeout** during an embedding run: `up=0`
+  across two windows, both inside the ingest, both recovering the moment the queue paused.
+  - **And they took the measurement that eliminates the obvious explanation**, from the same scrape: event-loop
+    lag mean `0.01006`, p99 `0.01025`, stddev `0.00012`. Flat 10 ms. So this is **not** the starvation fixed in
+    2.2.3 — that would show there and does not. A handler taking >10 s while the loop sits at 10 ms is one that
+    is *awaiting*, not one hogging the CPU.
+  - Nine gauges are collected at scrape time and each walks **every space**, several querying the collection the
+    embedding worker writes to continuously. Any of them could own the ten seconds, and their load is not
+    reproducible here — so the instance reports it instead of us guessing.
+  - **All nine are timed, including the ones not suspected**: instrumenting only the suspects would make the
+    measurement agree with the hypothesis by construction, and "the one I expected is fast" is just as useful an
+    answer. `topk(3, …_sum / …_count)` is the query.
+  - Buckets run to **15 s** deliberately: a histogram whose top bucket sits below the failure cannot describe
+    it. Cost is one observation per collector per scrape.
+  - Gate: `collectors-are-timed` enumerates the `async collect()` blocks from source and requires each to start a
+    timer **as its first statement** (a timer started after the first await measures the wrong thing) and to stop
+    it before returning — so the next collector added cannot be the untimed one. It also asserts the top bucket
+    exceeds the timeout it exists to describe.
+
 ### Fixed
 
 - **A chrono's `properties` no longer goes with its embedding when a content window lapses.** The canary asked

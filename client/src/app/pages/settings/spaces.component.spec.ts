@@ -274,6 +274,46 @@ describe('SpacesComponent — settings dialog rendering', () => {
     expect(text(fixture)).toContain('spaces.popup.governed');
   });
 
+  /**
+   * A terminal outcome stops offering to submit.
+   *
+   * A governed save answers 202 and opens a vote, so the work is finished — but the footer still read "Save
+   * changes" and the only exit was the (X), which universally means DISCARD. A reporting operator: *"i have to
+   * click (X) which feels unsure if the changes are now actually up for vote or discarded."*
+   *
+   * The risk is a wrong action, not a wobble: read as cancel, someone looks for another way to confirm, saves
+   * again, and creates a SECOND proposal for the same change.
+   */
+  it('swaps Save changes for Done once a save has a terminal outcome', () => {
+    const fixture = create([s]);
+    const c = fixture.componentInstance;
+    c.state.openSettings(s);
+    fixture.detectChanges();
+    // Before: the dialog is offering to submit.
+    expect(text(fixture)).toContain('spaces.popup.footer.saveChanges');
+    expect(text(fixture)).not.toContain('spaces.popup.footer.done');
+
+    // A governed save sets the notice and keeps the dialog open.
+    c.state.settingsNotice.set('submitted for a vote');
+    fixture.detectChanges();
+    expect(text(fixture)).toContain('spaces.popup.footer.done');
+    expect(text(fixture)).not.toContain('spaces.popup.footer.saveChanges');
+  });
+
+  it('the Done button closes the dialog rather than saving again', () => {
+    // The whole point: a second click must not open a second vote round.
+    const fixture = create([s]);
+    const c = fixture.componentInstance;
+    c.state.openSettings(s);
+    c.state.settingsNotice.set('submitted for a vote');
+    fixture.detectChanges();
+    const btn = (fixture.nativeElement as HTMLElement).querySelector('.sp-footer .btn-primary') as HTMLButtonElement;
+    expect(btn).toBeTruthy();
+    btn.click();
+    fixture.detectChanges();
+    expect(c.state.settingsSpace()).toBeNull();
+  });
+
   it('shows NOTHING for a space in no network', () => {
     // The badge has to be absent, not empty: a permanent chip that sometimes means nothing is noise, and
     // most spaces are in no network at all.

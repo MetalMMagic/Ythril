@@ -857,6 +857,7 @@
   "spaces.popup.tab.schema": "Schemat",
   "spaces.popup.tab.dangerZone": "Strefa zagrożenia",
   "spaces.popup.footer.saveChanges": "Zapisz zmiany",
+  "spaces.popup.footer.done": "Gotowe",
   "spaces.unsaved.title": "Odrzucić niezapisane zmiany?",
   "spaces.unsaved.message": "Masz niezapisane zmiany w ustawieniach tej przestrzeni. Jeśli teraz wyjdziesz, zostaną utracone.",
   "spaces.unsaved.confirm": "Odrzuć zmiany",

@@ -824,4 +824,39 @@ describe('MediaProcessingStateService — external face model', () => {
     const face = sent(patch)['faceRecognition'] as Record<string, any>;
     expect(face['externalModel']).not.toHaveProperty('apiKey');
   });
+
+  /**
+   * The extraction mode is a row of BUTTONS, and a button click fires neither `input` nor `change` — so the
+   * page's one delegated `(input)/(change)` listener never sees it.
+   *
+   * That made the Documents pipeline unsaveable: the form mutated, `touched()` stayed false, `pipeDirty()`
+   * therefore stayed false, and **the Save button was never rendered at all.** A reporting operator had
+   * `DOC_VERIFY_MODEL` configured and resident with no way to raise the level the consensus pass needs — a
+   * feature fully provisioned and unreachable, and they called it the one item stopping work.
+   *
+   * `setCeiling` already marked the form touched for exactly this reason, and `models-tab` carries the note
+   * verbatim. The trap was known in two places and missed in the third.
+   */
+  it('setMode marks the form touched, so the Documents Save button can appear at all', () => {
+    const { c } = make(cfgFixture({ documentProcessing: { mode: 'auto' } }));
+    expect(c.touched()).toBe(false);
+    expect(c.pipeDirty('pipe-documents')).toBe(false);
+
+    c.setMode('repair');
+
+    expect(c.form.documentProcessing!.mode).toBe('repair');
+    expect(c.touched()).toBe(true);
+    // The button keys off this, and it is the whole point: a changed form with no dirty state is a form that
+    // cannot be saved.
+    expect(c.pipeDirty('pipe-documents')).toBe(true);
+  });
+
+  it('setCeiling does the same, for the same reason', () => {
+    // Pinned alongside it so the pair cannot drift apart again.
+    const { c } = make(cfgFixture({}));
+    expect(c.touched()).toBe(false);
+    c.form.levels = { ...(c.form.levels ?? {}), images: 'off' };
+    c.touched.set(true);
+    expect(c.pipeDirty('pipe-images')).toBe(true);
+  });
 });

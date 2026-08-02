@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A restored backup silently disabled record expiry.** NDJSON has no date type, so the dump wrote `_expireAt`
+  as a string and the restore returned one. A TTL index only matches BSON dates, so after **any** restore every
+  record the operator had asked to expire became permanent — for as long as that instance ran, with nothing in
+  the log. The instance that loses the guarantee is the one that already had a bad day.
+  - Both sides now use **Extended JSON** (`EJSON`, which ships with the driver). Relaxed mode keeps ordinary
+    values looking like ordinary JSON so a dump stays readable and greppable, while wrapping the types JSON
+    cannot express. **Reading is backward compatible**: on a pre-existing plain-JSON dump `EJSON.parse` behaves
+    exactly as `JSON.parse` did, so old backups still restore — with their old semantics rather than a failure.
+- **A collection the dump recorded as empty did not come back at all.** A dump → drop → restore round trip
+  returned three of four collections and reported success. `initSpace` recreates the per-space ones on the next
+  boot, which is why this was survivable and therefore invisible — but a restore that silently returns less than
+  it took should not rest on a later repair.
+  - Both were found by writing the round-trip the Data-Integrity lens asks for and had never existed: the
+    integration suite proves the endpoints answer, not that the data survives. `backup-restore-round-trip-db.test.js`
+    seeds a 768-float vector, a Date, unicode, an empty string, a nested object and an empty collection, then
+    dumps, **drops the whole database**, restores and compares document for document. Dropping is the point —
+    restoring over live data would let a forgotten collection pass unnoticed.
+
 - **A space recreated with the same id inherited usage it never served, and a renamed space lost its history.**
   `dropSpaceData` removes every collection whose name starts with `<spaceId>_`; `space_activity` is
   **instance-wide**, keyed `<space>:<hour>`, so the prefix drop could not reach it. Found by running the

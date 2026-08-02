@@ -20,6 +20,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { MongoClient } from 'mongodb';
+import { EJSON } from 'bson';
 import { log } from '../util/log.js';
 import { dbNameFromUri } from './db-name.js';
 
@@ -73,7 +74,18 @@ export async function dumpDatabase(uri: string, destDir: string): Promise<DumpMa
 
       try {
         for await (const doc of cursor) {
-          stream.write(JSON.stringify(doc) + '\n');
+          // Extended JSON, not `JSON.stringify`.
+          //
+          // NDJSON has no date type, so a plain stringify wrote `_expireAt` as a string — and on restore it came
+          // back a string. The TTL index only matches BSON dates, so every record the operator asked to expire
+          // silently became permanent, for as long as that instance ran. Nothing errors; the retention policy
+          // just stops applying, and only after a restore.
+          //
+          // `EJSON.stringify` in relaxed mode keeps numbers and strings looking like ordinary JSON (so a dump
+          // stays readable and greppable) while wrapping the types JSON cannot express — `{"$date": …}` for a
+          // Date, `{"$oid": …}` for an ObjectId. `EJSON.parse` reverses it, and on a pre-existing plain-JSON dump
+          // it behaves exactly as `JSON.parse` did, so old backups still restore with their old semantics.
+          stream.write(EJSON.stringify(doc, { relaxed: true }) + '\n');
           count++;
         }
       } finally {

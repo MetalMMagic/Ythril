@@ -75,6 +75,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The image shipped with no `NOTICE` and no `LICENSE`.** Confirmed against the published artefact rather than
+  inferred: `docker run --rm --entrypoint sh ythril/ythril:2.2.5 -c 'ls /app/NOTICE /app/LICENSE /NOTICE /LICENSE'`
+  returned four *No such file or directory*. The Dockerfile never copied them into the production stage.
+  - **The image is the primary distribution** — most users never see the git repo — so it was the one place the
+    notices were legally required and the one place they were absent. **Apache-2.0 §4(d)** requires a distribution
+    of a work carrying a NOTICE file to "include a readable copy of the attribution notices contained within such
+    NOTICE file", and Ythril redistributes several Apache-2.0 works in that image (`@huggingface/transformers`,
+    `sharp`, and the embedding model weights). **MIT** requires its notice "in all copies or substantial portions".
+    An image is a copy.
+  - This is the one finding from the Legal & Compliance lens that was not merely an unverifiable record: the
+    obligation itself was unmet in the shipped artefact.
+  - `COPY NOTICE LICENSE ./` in the production stage, **after** the dependency install so correcting a copyright
+    line cannot invalidate a 1.07 GB layer. Verified in a real build: 20,479 and 5,082 bytes at `/app/`, readable by
+    the `node` runtime user.
+  - Gated from both ends, because neither half is sufficient alone. `notice-ships-in-the-image` asserts the
+    Dockerfile instruction and the ordering — it must run without Docker, so it can only see the cause. The publish
+    workflow now asks the **built image** whether the files are there and non-empty, because a `COPY` that lands in
+    the wrong directory passes every unit test there is.
+
 - **NOTICE attributed a package that was removed months ago.** `qrcode` was swapped for `uqr` — the MFA component's
   spec documents the swap in its own header, *"CommonJS `qrcode` → ESM `uqr`"* — the dependency went, and the NOTICE
   entry stayed. That claims Ythril redistributes something it does not, which is the small end of a licence problem

@@ -75,6 +75,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **NOTICE attributed a package that was removed months ago.** `qrcode` was swapped for `uqr` — the MFA component's
+  spec documents the swap in its own header, *"CommonJS `qrcode` → ESM `uqr`"* — the dependency went, and the NOTICE
+  entry stayed. That claims Ythril redistributes something it does not, which is the small end of a licence problem
+  and the sharp end of a trust one: the whole value of NOTICE is that it can be believed.
+  - `notice-coverage.test.js` already had a reverse check, but it was **a hardcoded allowlist of five build tools** —
+    it cannot see a dependency that is simply gone. It now asserts that every package-shaped heading names something
+    actually installed: 43 headings, and it found exactly the one stale entry.
+  - Prose headings are handled generally rather than by a list of the two that exist today — `mongodb (Node.js
+    Driver)`, `jszip (transitive, via exceljs)` — because the third one would otherwise fail for no reason. Any
+    trailing parenthetical is stripped, which can never hide a real name since an npm name can contain neither a
+    space nor a paren. **Mutation-tested 7/7**, with four of the seven being legitimate heading shapes that must not
+    fire.
+
 - **The one model Ythril actually ships had no attribution at all.** `NOTICE` is careful about the distinction —
   the Ollama entry says its vision models "are pulled at runtime under their own licenses", the
   faster-whisper-server entry says the image "is **not bundled with or distributed by** Ythril". Both correct. And

@@ -33,10 +33,35 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 
 const NOTICE = readFileSync('NOTICE', 'utf8');
 const NOTICE_LC = NOTICE.toLowerCase();
+
+/**
+ * Every package name present after an install, across the root and both workspaces.
+ *
+ * Used only by the stale-entry check at the bottom: "is this thing still here at all?" needs the installed set,
+ * not the declared one, because a heading may legitimately name a transitive package (`jszip`).
+ */
+const INSTALLED = (() => {
+  const out = new Set();
+  const scan = (root) => {
+    if (!existsSync(root)) return;
+    for (const entry of readdirSync(root)) {
+      if (entry.startsWith('.')) continue;              // .bin, .package-lock.json, … npm internals
+      const dir = join(root, entry);
+      if (!statSync(dir).isDirectory()) continue;
+      if (entry.startsWith('@')) for (const s of readdirSync(dir)) out.add(`${entry}/${s}`);
+      else out.add(entry);
+    }
+  };
+  scan('node_modules');
+  scan('server/node_modules');
+  scan('client/node_modules');
+  return out;
+})();
 
 const MANIFESTS = [
   ['server', 'server/package.json'],
@@ -131,5 +156,35 @@ describe('NOTICE covers everything we redistribute', () => {
     const overclaimed = BUILD_ONLY.filter(n => NOTICE_LC.includes(`### ${n.toLowerCase()}\n`));
     assert.deepEqual(overclaimed, [],
       'NOTICE lists build tooling that is never redistributed — that overstates what ships');
+  });
+
+  it('does not attribute a package that is no longer here at all', () => {
+    // The allowlist above catches build tooling. It cannot catch a dependency that was REMOVED and whose entry
+    // was left behind — which is what happened: `qrcode` was swapped for `uqr` (the mfa spec documents the swap
+    // in its own header), the dependency went, and the NOTICE entry stayed. Found by the Legal & Compliance audit
+    // lens, not by this file.
+    //
+    // Generalisable and satisfiable, unlike a full transitive audit: every package-shaped heading must name
+    // something actually installed. 43 headings, and it found exactly one stale entry.
+    const stale = [];
+    for (const heading of [...NOTICE.matchAll(/^### (.+)$/gm)].map(m => m[1].trim())) {
+      // Headings that are not packages: licence texts, pulled images, model weights, the typeface, Ythril itself.
+      if (/^(MIT|Apache License|BSD-|ISC|0BSD|Runtime Dependency|Bundled model|Inter |Ythril|SIL |Mozilla|Eclipse|GNU)/i.test(heading)) continue;
+      // One heading may list several packages, and several carry a parenthetical gloss —
+      // `mongodb (Node.js Driver)`, `jszip (transitive, via exceljs)`. ANY trailing parenthetical is stripped
+      // rather than a hardcoded list of the two that exist today: the third one would otherwise fail the gate for
+      // no reason, and an npm name can contain neither a space nor a paren, so this can never hide a real name.
+      const names = heading
+        .replace(/\s*\([^)]*\)\s*$/, '')
+        .split(',').map(s => s.trim()).filter(Boolean);
+      for (const name of names) {
+        if (!INSTALLED.has(name) && !INSTALLED.has(name.toLowerCase())) {
+          stale.push(`${name}  (heading: "${heading}")`);
+        }
+      }
+    }
+    assert.deepEqual(stale, [], 'NOTICE attributes packages that are not installed. Either they were removed and '
+      + 'the entry was left behind — which claims we redistribute something we do not — or a heading is spelled '
+      + `differently from the package name:\n  ${stale.join('\n  ')}`);
   });
 });

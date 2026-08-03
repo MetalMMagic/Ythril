@@ -60,18 +60,10 @@ import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
     }
     .menu-btn:hover { color: var(--text-primary); background: var(--bg-elevated); }
 
-    .topbar-logout {
-      background: none;
-      border: none;
-      color: var(--text-secondary);
-      font-size: 13px;
-      cursor: pointer;
-      padding: 5px 10px;
-      border-radius: var(--radius-sm);
-      transition: color var(--transition), background var(--transition);
-      font-family: var(--font);
-    }
-    .topbar-logout:hover { color: var(--text-primary); background: var(--bg-elevated); }
+    /* Sign out was the product's only bespoke button: borderless, 13px, 5px/10px padding — 28px tall where the
+       house small button is 27px. It appeared on every page because it lives here, which made a one-off look like a
+       second app-wide style in the drift measurement. It uses .btn .btn-sm .btn-secondary now, so there is one small
+       button and this block is gone. */
 
     .layout {
       display: flex;
@@ -226,7 +218,7 @@ import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
           <app-brand-logo [size]="21" />
         </a>
         <span class="topbar-spacer"></span>
-        <button class="topbar-logout" (click)="logout()">{{ 'nav.signOut' | transloco }}</button>
+        <button class="btn btn-sm btn-secondary" type="button" (click)="logout()">{{ 'nav.signOut' | transloco }}</button>
       </header>
     }
 

@@ -124,8 +124,9 @@ interface Step {
 
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px 16px; margin-top: 14px; }
     .field > label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 5px; font-weight: 500; }
-    .field input { width: 100%; background: var(--bg-primary); color: var(--text-primary);
-      border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 13px; }
+    /* Geometry comes from the ONE input rule in styles.scss. This was a second, identical copy of the block that
+       models-tab also had — including the same wrong 8px radius. The re-measurement is what found it: inputs still
+       reported 38px after the first copy was removed, because both tabs render on the Models page. */
     .field input:disabled { opacity: .6; cursor: not-allowed; }
     .warnline { display: flex; align-items: flex-start; gap: 8px; margin-top: 12px; padding: 10px 12px;
       border-radius: 9px; font-size: 12.5px; border: 1px solid var(--warning-border); background: var(--warning-bg); }

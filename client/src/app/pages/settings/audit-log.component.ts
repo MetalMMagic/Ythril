@@ -36,16 +36,8 @@ import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
       font-size: 12px;
       color: var(--text-secondary);
     }
-    .audit-toolbar input,
-    .audit-toolbar select {
-      font-size: 13px;
-      padding: 5px 8px;
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border);
-      background: var(--bg-primary);
-      color: var(--text-primary);
-      font-family: var(--font);
-    }
+    /* Geometry comes from the ONE input rule in styles.scss — this block restated it almost exactly, which is
+       precisely how a shared control drifts: every copy is defensible on its own and no two agree. */
     .audit-toolbar button {
       padding: 6px 14px;
       font-size: 13px;
@@ -182,7 +174,8 @@ import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
     }
 
     .export-btns { display: flex; gap: 8px; }
-    .export-btns button { font-size: 12px; padding: 4px 10px; }
+    /* No button geometry here. These three carried NO class and re-created .btn-sm's metrics locally; they use the
+       class now, so the small-button size is defined in one place. */
 
     .error-msg { color: var(--error); margin: 12px 0; }
   `],
@@ -271,9 +264,9 @@ import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
     <!-- Export -->
     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
       <div class="export-btns">
-        <button (click)="exportJson()">{{ 'auditLog.exportJson' | transloco }}</button>
-        <button (click)="exportCsv()">{{ 'auditLog.exportCsv' | transloco }}</button>
-        <button (click)="exportAll()" [disabled]="exportingAll()" [attr.title]="'auditLog.exportAllTitle' | transloco">
+        <button class="btn btn-sm btn-secondary" type="button" (click)="exportJson()">{{ 'auditLog.exportJson' | transloco }}</button>
+        <button class="btn btn-sm btn-secondary" type="button" (click)="exportCsv()">{{ 'auditLog.exportCsv' | transloco }}</button>
+        <button class="btn btn-sm btn-primary" type="button" (click)="exportAll()" [disabled]="exportingAll()" [attr.title]="'auditLog.exportAllTitle' | transloco">
           {{ (exportingAll() ? 'auditLog.exportAllBusy' : 'auditLog.exportAll') | transloco }}
         </button>
       </div>

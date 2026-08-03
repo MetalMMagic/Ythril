@@ -166,6 +166,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **One input and one small button, everywhere.** The drift the new sweep measured is fixed, on the owner's call.
+  - **Inputs: 4 distinct computed signatures → 1.** Every input is now **32px** on `--bg-primary` with
+    `var(--radius-sm)` and 13px type, decided in one place — the global rule in `styles.scss`. Three component
+    overrides were removed, plus **a fourth the re-measurement found**: `pipelines-tab` carried a second, identical
+    copy of `models-tab`'s block, including the same wrong hardcoded `8px` radius, so inputs still reported 38px
+    after the first copy went. Measuring again is what caught it.
+  - **Two real defects inside that**: Models hardcoded `border-radius: 8px` where every other input uses the token,
+    and the Spaces search box was the only input in the product on `--bg-surface` instead of `--bg-primary`.
+  - **Buttons: the one-off is gone.** "Sign out" was the product's only bespoke button (borderless, 13px, 28px tall
+    against the house 27px) and appeared on every page because it lives in the shell — which made a single element
+    look like a second app-wide style. It uses `.btn .btn-sm .btn-secondary` now, as do the audit log's three export
+    buttons, which had **no class at all** and re-created `.btn-sm`'s metrics locally.
+  - **Verified by re-measuring, then by looking.** `testing/ux-drift-sweep.mjs` reports one input signature across
+    all four surfaces; screenshots of Spaces, Audit log, Models and Schema library confirm the layouts are intact
+    and the top bar reads correctly with a real button in it.
+
 - **The other 25 controls now announce their state too, so the allowlist is empty.** Completes the previous entry in
   one more pass rather than leaving the debt to age.
   - The attribute was chosen **per group**, not swept in: `aria-selected` (with `role="tablist"`/`role="tab"`) for the

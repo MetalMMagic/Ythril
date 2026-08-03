@@ -75,6 +75,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The Brain Overview assembled itself one card at a time.** Each card rendered only once its own request
+  landed, so every arrival pushed the ones below it down — *"they appear one by one as each request lands, rather
+  than as a laid-out set that fills in"*, the milder half of the same canary report.
+  - Four panels now reserve their space with a placeholder **at the card's settled size**, in the real frame with
+    the real title and hint. The point is the size, not the shimmer: what makes a page look like it is building
+    itself is the layout moving. Measured — the grid is **943 px from the first frame to the last**, with one
+    distinct panel count throughout; before, each card's full height arrived separately.
+  - The placeholder is keyed on a per-panel **pending** flag, not on the value being null, because null cannot
+    say *"not yet"*: `tokenAccess` is null **permanently** for a non-admin (the endpoint 403s) and `completeness`
+    is null after a failure, so a placeholder keyed on null would have sat there forever. Pending is raised only
+    where the values are blanked — a space switch — and never by the live-event refresh, which has good data on
+    screen.
+  - The shared piece is the **lines only**; the frame stays in the caller. A first version drew the frame too and
+    would have rendered an unstyled grey block — `.panel` belongs to the Overview's own styles and view
+    encapsulation does not let a child borrow them. It compiled and it built.
+  - Gate `overview-pending-is-cleared`: every panel must clear its flag on **both** outcomes (eight places), the
+    clearing function must really clear, and the branches and keys — written in two different files — must not
+    drift. It exists because a mutation test showed a gutted clearing function left the whole component spec
+    green. Five specs plus the gate, mutation-tested 5/5 and 5/5, after fixing two assertions of my own that
+    passed against a deliberate break (both sliced from the first textual match of a method name, and both
+    measured the wrong region).
+
 - **Watching an ingest replaced the whole file listing with a spinner every four seconds.** The progress poll
   called the same loader a first load uses, and the template is *spinner-or-table* — so the table was unmounted
   and remounted on every tick, for the whole of an ingest. A canary operator, verbatim: *"i only want to see

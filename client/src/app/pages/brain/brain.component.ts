@@ -302,6 +302,7 @@ interface SpaceView {
             <app-overview-tab [space]="sp" [stats]="activeStats()" [needsReindex]="needsReindex()"
               [reindexing]="reindexing()" [about]="aboutInfo()" [embeddingQueue]="embeddingQueue()"
               [openVotes]="overviewVotes()" [tokenAccess]="tokenAccess()" [completeness]="completeness()" [activity]="spaceActivity()"
+              [pending]="overviewPending()"
               (reindex)="runReindex()" (retryFailed)="runRetryFailedEmbeddings()"
               (openTab)="setTab($event)" />
           }
@@ -373,6 +374,30 @@ export class BrainComponent implements OnInit, OnDestroy {
    * its members rather than a list the panel would have to add up itself.
    */
   spaceActivity = signal<SpaceActivity | null>(null);
+
+  /**
+   * Which Overview panels have been blanked for a space switch and are still awaiting their first answer.
+   *
+   * The Overview's cards each render only when their own value arrives, so the board assembled itself one card at
+   * a time and every arrival pushed the ones below it down — the milder half of a canary flicker report. A
+   * skeleton at the card's final size fixes that, but only if it can tell "not yet" from "never".
+   *
+   * `null` alone cannot: `tokenAccess` is null **permanently** for a non-admin (the endpoint 403s), and
+   * `completeness` is null after a failure. A skeleton keyed on null would sit there forever in both cases.
+   *
+   * So pending is set ONLY where the value is blanked — in `selectSpace` — and cleared by both the success and
+   * the failure handler. It is deliberately not set by the live-event refresh: that has good data on screen, and
+   * covering it with a skeleton would be the same defect this exists to remove.
+   */
+  overviewPending = signal<Record<'activity' | 'completeness' | 'queue' | 'tokens', boolean>>({
+    activity: false, completeness: false, queue: false, tokens: false,
+  });
+
+  /** Clear one panel's pending flag — called from both handlers of each loader, success or failure. */
+  private settled(key: 'activity' | 'completeness' | 'queue' | 'tokens'): void {
+    if (!this.overviewPending()[key]) return;
+    this.overviewPending.update(p => ({ ...p, [key]: false }));
+  }
 
   // Reindex
   needsReindex = signal(false);
@@ -517,6 +542,8 @@ export class BrainComponent implements OnInit, OnDestroy {
     this.tokenAccess.set(null);
     this.completeness.set(null);
     this.spaceActivity.set(null);
+    // Blanked and awaiting a first answer — the ONLY place pending is raised. See `overviewPending`.
+    this.overviewPending.set({ activity: true, completeness: true, queue: true, tokens: true });
     this.loadStats(id);
     this.loadSpaceMeta(id);
     this.loadEmbeddingQueue(id);
@@ -569,9 +596,10 @@ export class BrainComponent implements OnInit, OnDestroy {
           meanTopScore: answered > 0 ? Number((weightedScore / answered).toFixed(3)) : null,
           lastUsedAt: lastUsed,
         });
+        this.settled('activity');
       },
       // A failure leaves the signal null and the panel does not render — the same rule completeness follows.
-      error: () => { if (this.activeSpaceId() === spaceId) this.spaceActivity.set(null); },
+      error: () => { if (this.activeSpaceId() === spaceId) this.spaceActivity.set(null); this.settled('activity'); },
     });
   }
 
@@ -579,16 +607,17 @@ export class BrainComponent implements OnInit, OnDestroy {
    *  still active; a failure leaves the signal null and the panel simply does not render. */
   private loadCompleteness(spaceId: string): void {
     this.spacesApi.getCompleteness(spaceId).subscribe({
-      next: r => { if (this.activeSpaceId() === spaceId) this.completeness.set(r); },
-      error: () => { if (this.activeSpaceId() === spaceId) this.completeness.set(null); },
+      next: r => { if (this.activeSpaceId() === spaceId) this.completeness.set(r); this.settled('completeness'); },
+      error: () => { if (this.activeSpaceId() === spaceId) this.completeness.set(null); this.settled('completeness'); },
     });
   }
 
   /** Fetch the embedding-job backlog for a space; only stores it while that space is still active. */
   private loadEmbeddingQueue(spaceId: string): void {
     this.brainApi.getEmbeddingQueue(spaceId).subscribe({
-      next: q => { if (this.activeSpaceId() === spaceId) this.embeddingQueue.set(q); },
-      error: () => {},
+      next: q => { if (this.activeSpaceId() === spaceId) this.embeddingQueue.set(q); this.settled('queue'); },
+      // A failed refresh keeps the last good value on purpose; it only has to stop the skeleton.
+      error: () => this.settled('queue'),
     });
   }
 
@@ -596,8 +625,9 @@ export class BrainComponent implements OnInit, OnDestroy {
    *  caller leaves the signal null, which keeps the panel hidden. Only stores it while still active. */
   private loadTokenAccess(spaceId: string): void {
     this.brainApi.getTokenAccess(spaceId).subscribe({
-      next: r => { if (this.activeSpaceId() === spaceId) this.tokenAccess.set(r.tokens); },
-      error: () => { if (this.activeSpaceId() === spaceId) this.tokenAccess.set(null); },
+      next: r => { if (this.activeSpaceId() === spaceId) this.tokenAccess.set(r.tokens); this.settled('tokens'); },
+      // A 403 for a non-admin lands here and is permanent — clearing pending is what stops a forever-skeleton.
+      error: () => { if (this.activeSpaceId() === spaceId) this.tokenAccess.set(null); this.settled('tokens'); },
     });
   }
 

@@ -44,7 +44,7 @@ import { SettingsCardComponent } from '../../shared/settings-card.component';
           @for (lang of languages; track lang.code) {
             <button
               class="lang-btn"
-              [class.active]="activeLang() === lang.code"
+              [class.active]="activeLang() === lang.code" [attr.aria-current]="activeLang() === lang.code ? 'true' : null"
               (click)="setLang(lang.code)">
               {{ lang.label }}
             </button>

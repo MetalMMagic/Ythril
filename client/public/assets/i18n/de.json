@@ -857,6 +857,8 @@
   "spaces.create.strictLinkage": "Strenge Verknüpfung",
   "spaces.create.submitButton": "Erstellen",
   "spaces.popup.tab.settings": "Einstellungen",
+  "spaces.schema.collTabsAriaLabel": "Datensatz-Sammlungen",
+  "spaces.settings.tabsAriaLabel": "Bereiche der Space-Einstellungen",
 
   "spaces.popup.governed": "Verwaltet",
 

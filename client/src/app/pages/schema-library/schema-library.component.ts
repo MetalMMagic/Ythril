@@ -262,10 +262,10 @@ export function entriesFromTypeSchemas(
     @if (pageTab() === 'library' && entries().length) {
       <div class="type-filters">
         @for (kt of ['entity','memory','edge','chrono']; track kt) {
-          <button class="type-filter-btn" [class.active]="typeFilter() === kt" type="button" (click)="typeFilter.set(typeFilter() === kt ? null : $any(kt))">{{ kt }}</button>
+          <button class="type-filter-btn" [class.active]="typeFilter() === kt" [attr.aria-pressed]="typeFilter() === kt" type="button" (click)="typeFilter.set(typeFilter() === kt ? null : $any(kt))">{{ kt }}</button>
         }
         @for (g of availableGroups(); track g) {
-          <button class="group-filter-btn" [class.active]="groupFilter() === g" type="button" (click)="groupFilter.set(groupFilter() === g ? null : g)"><ph-icon name="tag" [size]="11" style="margin-right:3px;vertical-align:-1px;"/>{{ g }}</button>
+          <button class="group-filter-btn" [class.active]="groupFilter() === g" [attr.aria-pressed]="groupFilter() === g" type="button" (click)="groupFilter.set(groupFilter() === g ? null : g)"><ph-icon name="tag" [size]="11" style="margin-right:3px;vertical-align:-1px;"/>{{ g }}</button>
         }
       </div>
     }

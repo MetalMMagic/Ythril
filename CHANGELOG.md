@@ -112,6 +112,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Four English sentences reached the screen without going through transloco, and one of them already had a
+  translation.** First finding of the Accessibility & Internationalization lens.
+  - `schemaLib.error.nameRequired` existed in **all three locales** — `"Eintragsname ist erforderlich."` sat in the
+    bundle while the component hard-coded `'Name is required.'` two lines away. The translation was not missing; it
+    was **unused**. A German or Polish operator read English at exactly the moment they had made a mistake.
+  - The other three (a type-name check, an invalid-JSON message, and the OIDC callback's missing-code error) are now
+    translated in `en`/`de`/`pl`, with real diacritics.
+  - **The lens's own note was stale and is corrected in `_REFERENCE.md`.** It claimed settings pages had literals in
+    the data-management and import-conflict dialogs; a sweep of **125 client files** found 4 offenders and **none**
+    in those places. Template text nodes: **zero**. The discipline was good — it was the TypeScript side that had
+    drifted, because a `.set('…')` in an error path does not look like a translation problem.
+  - Gate `no-hardcoded-user-strings`, mutation-tested **8/8**. It scans message sinks and text-bearing attributes for
+    anything sentence-shaped, and deliberately ignores one-word strings — a gate with false positives is a gate that
+    gets switched off.
+
 - **A typo in any numeric setting silently changed behaviour instead of stopping the boot.** Second finding of the
   Observability & Operability lens. Fifteen settings were read as `Number(process.env[X])` and exactly **one**
   checked the result, so `8OOO` (letter O), `30_000`, `5s` or a stray space became `NaN` — and `NaN` does not fail.

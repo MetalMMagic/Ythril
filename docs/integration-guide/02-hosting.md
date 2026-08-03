@@ -755,6 +755,46 @@ Named volumes persist across upgrades. The server applies any pending MongoDB in
 
 **Breaking changes**, when they occur, will be listed in `CHANGELOG.md` with migration steps.
 
+### Rolling Back
+
+**The first boot on a new version rewrites `config.json`, and some of those rewrites drop a field an older
+build reads.** So a rollback is not simply "run the previous image": that path exists, but it needs the copy of
+`config.json` you took *before* upgrading.
+
+The rewrites are one-time and idempotent, they are logged when they happen, and each one exists because a setting
+moved. They are listed here so the consequence of going back is not a surprise:
+
+| the boot migrates | dropping | so an older build |
+|---|---|---|
+| `mediaEmbedding.enabled` → per-class `levels` | `enabled` | defaults it back to **`true`**: an instance where media embedding was deliberately **off** starts sending uploads to the vision and speech models again |
+| a space's `description` → `meta.purpose` | `description` | reads no space instructions, because the field it serves to MCP clients is gone |
+| `mediaEmbedding.faceRecognition.enabled` → the image ladder | `faceRecognition.enabled` | applies its own default for face recognition rather than the choice that was recorded |
+
+Each of those is silent in the old build — the field is simply absent, which reads as "never configured" rather
+than "removed".
+
+#### The procedure
+
+```bash
+# BEFORE upgrading — this file is the rollback, and it is 4 KB
+docker compose cp ythril:/config/config.json ./config.json.pre-upgrade
+
+# ... upgrade, and if it goes wrong:
+docker compose down
+docker compose cp ./config.json.pre-upgrade ythril:/config/config.json
+# pin the previous tag in compose (or .env), then:
+docker compose up -d
+```
+
+**Brain data in MongoDB needs no rollback of its own.** Documents only ever gain fields, and both the API and the
+UI ignore ones they do not know, so an older build reads newer records — it simply does not show the newer fields.
+The exception is anything created by a feature the old version lacks: a record whose `type` has no schema in the
+old build is still stored and still returned, just unvalidated.
+
+**Vector indexes are rebuilt on boot**, so a rollback that changes the embedding model or its dimensions costs a
+reindex, not data. Check `GET /ready` before sending traffic — see [Runtime Model Downloads](#runtime-model-downloads)
+if you also pinned a different model.
+
 **Backup before upgrading:**
 
 ```bash

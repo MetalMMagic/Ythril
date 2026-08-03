@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A documented rollback procedure, because an upgrade is one-way and nothing said so.** Third finding of the
+  Observability & Operability lens. The docs covered upgrading — volumes persist, indexes rebuild, back up first —
+  and said nothing about the direction an operator needs at three in the morning.
+  - The first boot on a new version **rewrites `config.json`**: three migrations run in `loadConfig` and each one
+    persists. Two of them *delete* a field, so an older build cannot see what was there.
+  - **The consequence is now stated, not just the mechanism.** Verified from history: the default for
+    `mediaEmbedding.enabled` before it was removed was **`true`**, so rolling back past that change would
+    **re-enable media embedding on an instance where it had deliberately been switched off** — uploads start
+    reaching the vision and speech models again. Silently, because an absent field reads as "never configured".
+  - The mechanism to go back already existed; it was never named as one. The pre-upgrade copy of `config.json` **is**
+    the rollback, and the section gives the four commands.
+  - Also answered, because they are the next two questions: **brain data needs no rollback** (documents only gain
+    fields, and readers ignore what they do not know) and **vector indexes rebuild on boot**.
+  - Gate `rollback-is-documented`, mutation-tested **11/11**. A migration added to `loadConfig` without a row in the
+    rollback table now fails the build — a one-way door nobody was told about is exactly what this is for.
+    Three of its own assertions were too loose and were caught the same way: a renamed heading still matched, an
+    alternation let the section's own prose satisfy the check for a command, and one surviving `saveConfig` call
+    passed a check meant to cover all three.
+
 - **Export the whole audit log as NDJSON** — `GET /api/admin/audit-log/export`, the same filters as the paged
   endpoint with no row cap. The paged endpoint stops at 1,000 rows because a browser table has to stop somewhere,
   and that ceiling is what made "produce everything you hold about this subject's activity" a paging script: the

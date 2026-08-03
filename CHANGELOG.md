@@ -9,6 +9,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Backups can be encrypted, opt-in, on every path.** A backup is a complete **plaintext** copy of the database
+  by default — and an encrypted `mongod` does not protect it, because the dump is read *through* mongod and comes
+  out decrypted. `encrypt: true` in `backup.json`, or the toggle on **Settings → Data**, wraps every record in the
+  same AES-256-GCM envelope as the encrypted state files.
+  - **Off by default**, deliberately (owner decision, 2026-08-03): a backup you cannot restore is not a backup, and
+    encrypting by default makes disaster recovery onto a *fresh* instance depend on having the old secret to hand
+    **before** the restore.
+  - **One setting, every path.** The UI toggle writes the same key the infra config uses, and both callers of
+    `dumpDatabase` read it — so the manual endpoint, the scheduled run and the offsite copy cannot disagree. It is
+    emitted only when ON, so turning it off removes the key rather than writing `false`, keeping
+    *absent = plaintext* the single source of truth.
+  - **Restoring needs no setting.** An encrypted backup is detected per record, so an operator never has to
+    remember how one was written, a backup restores with its manifest lost, and a mixed file still works. With the
+    secret missing the restore refuses, naming the variables to set, rather than importing ciphertext.
+  - **Enabling it without a master secret fails before writing a byte**, rather than leaving a half-plaintext
+    directory that looks like a valid backup.
+  - **Encryption is per record, not per file**, so restore keeps streaming. Per-file envelopes would load an entire
+    collection into memory to decrypt it — unbounded, and only visible once the database is large.
+  - **The cost, measured and corrected:** roughly **1.4×** on large records and **3×** on a database of very small
+    ones, because each record carries a fixed envelope header. An earlier estimate of 1.4–2.3× came from a model
+    whose smallest record was 120 bytes; a real round trip measured 3.05× on ~45-byte records. The UI states the
+    real figure next to the toggle.
+  - **The trap this design exists around, recorded because it is easy to reintroduce:** `encryptEnvelope` derives
+    its key *inside every call*, which is correct for the four state files it was written for and one scrypt
+    (N=16384) **per record** for a new caller — hours on a large collection, presenting as a hang. `deriveKey` /
+    `encryptWithKey` / `deriveKeyForSalt` / `decryptWithKey` make the expensive step the caller's explicit choice;
+    `encryptEnvelope` delegates to them so there is still exactly one implementation of the envelope format. It
+    was nearly reintroduced on the read side one file later — a "memoised" closure that still called
+    `decryptEnvelope` and therefore memoised nothing.
+  - Gate `backup-encryption-is-consistent` (8 checks, 13/14 mutations killed, the 14th confirmed by hand): nothing
+    writes backup data outside the choke point, every caller passes the option, neither hardcodes it, restore takes
+    no flag, the secret resolves before the first file opens, and the key derives once per dump. It also caught two
+    bugs in itself — a naive comment stripper that ate half a source file and turned a real assertion into a false
+    **pass**, and a position-only guard check that a `if (false)` mutation walked straight through.
+  - Verified by a real dump → restore against mongod, four ways: plaintext and encrypted both restore byte-identical
+    with `Date` and `ObjectId` types intact (the reason the dump uses EJSON at all), and both missing-secret cases
+    refuse with an actionable message.
+
 - **The CLA is now enforced, not just stated.** #664 shipped `CLA.md`; a document nothing checks is policy on
   paper. `.github/workflows/cla.yml` asks a first-time contributor to sign, records the signature in
   `signatures/cla.json` on a `cla-signatures` branch, and passes silently for everyone who already has.

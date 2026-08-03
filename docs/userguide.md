@@ -847,6 +847,7 @@ Configure automatic backups and an optional offsite destination from **Settings 
 ```json
 {
   "schedule": "0 2 * * *",
+  "encrypt": false,
   "retention": {
     "keepLocal": 7
   },
@@ -862,9 +863,34 @@ Configure automatic backups and an optional offsite destination from **Settings 
 | Field | Description |
 |---|---|
 | `schedule` | Cron expression for automatic backups (e.g. `"0 2 * * *"` = daily at 02:00). |
+| `encrypt` | Encrypt every record in a backup with the instance master secret. **Default: `false`** (plaintext). Requires `YTHRIL_MASTER_KEY` or `YTHRIL_MASTER_PASSPHRASE`. Applies to manual, scheduled **and** offsite backups. See [Encrypted backups](#encrypted-backups) below. |
 | `retention.keepLocal` | Maximum number of local backups to retain. Oldest are deleted after each run. **Default: unlimited** — local backups are never pruned unless you set this. |
 | `offsite.destPath` | Absolute path **on the server's filesystem** to copy each backup to. See [Configuring the offsite path](#configuring-the-offsite-path) below. |
 | `offsite.retention.keepCount` | Maximum number of offsite backup sets to retain. **Default: 14** — offsite sets older than the 14 most recent are deleted after each run. Set this explicitly if you are keeping long-term archives. |
+
+### Encrypted backups
+
+A backup is a **complete plaintext copy of the database** by default — every memory, entity, edge, chrono entry,
+file-meta record and audit entry. Note that an encrypted `mongod` does not protect it: the dump is read *through*
+mongod, so it comes out decrypted. Setting `encrypt: true` (or the toggle on **Settings → Data**) encrypts every
+record with the instance master secret, using the same AES-256-GCM envelope as the encrypted state files.
+
+**It is off by default, deliberately.** A backup you cannot restore is not a backup, and encrypting by default
+makes disaster recovery onto a *fresh* instance depend on having the old secret to hand **before** the restore.
+Some operators also back up precisely so they can inspect or migrate the data with other tools.
+
+Three things to know before enabling it:
+
+1. **Losing the secret makes the backup unrecoverable.** That is by design, not a bug to work around. Store the
+   secret somewhere other than the instance it protects.
+2. **Encrypted backups are larger** — roughly 1.4× on large records, and measured at **3×** on a database of many
+   very small ones, because each record carries a fixed envelope header. Check your disk headroom.
+3. **Restoring needs no setting.** An encrypted backup is detected per record, so you never have to remember how
+   one was written — and a backup still restores if its `manifest.json` is lost. If the secret is missing, the
+   restore refuses with a message naming the environment variables to set, rather than importing ciphertext.
+
+Enabling it without a master secret configured fails the backup **before writing anything**, rather than leaving a
+half-plaintext directory that looks like a valid backup.
 
 > **The two retention settings default in opposite directions.** Local backups are kept forever until you set `keepLocal`; offsite sets are pruned to the 14 most recent unless you set `keepCount`. If you rely on the offsite copy as a long-term archive, set `keepCount` to the number of sets you actually want — otherwise older ones are removed on the next run.
 

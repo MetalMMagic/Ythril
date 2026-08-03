@@ -447,6 +447,7 @@ Authorization: Bearer <admin-token>
 {
   "config": {
     "schedule": "0 2 * * *",
+    "encrypt": false,
     "retention": { "keepLocal": 7 },
     "offsite": {
       "destPath": "/backups",

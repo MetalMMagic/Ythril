@@ -403,14 +403,14 @@ const SCHEMA_MD_STYLES = `
                         </label>
                       </div>
                     </td>
-                    <td><span class="badge badge-gray" style="font-size:11px;">{{ p.s.type ?? 'any' }}</span></td>
+                    <td><span class="badge badge-gray">{{ p.s.type ?? 'any' }}</span></td>
                     <td style="font-size:11px;color:var(--text-muted);">
-                      @if (p.s.enum?.length) { <span class="badge badge-gray" style="font-size:10px;margin-right:3px;">enum {{ p.s.enum!.length }}</span> }
+                      @if (p.s.enum?.length) { <span class="badge badge-gray" style="margin-right:3px">enum {{ p.s.enum!.length }}</span> }
                       @if (p.s.minimum!==undefined) { <span style="margin-right:4px;">min:{{ p.s.minimum }}</span> }
                       @if (p.s.maximum!==undefined) { <span style="margin-right:4px;">max:{{ p.s.maximum }}</span> }
                       @if (p.s.pattern) { <span style="margin-right:4px;">pattern</span> }
                       @if (p.s.default!==undefined) { <span style="margin-right:4px;">default:{{ p.s.default }}</span> }
-                      @if (p.s.mergeFn) { <span class="badge badge-blue" style="font-size:10px;">{{ p.s.mergeFn }}</span> }
+                      @if (p.s.mergeFn) { <span class="badge badge-blue">{{ p.s.mergeFn }}</span> }
                     </td>
                     <td (click)="$event.stopPropagation()">
                       <button class="icon-btn danger" type="button" (click)="state.removeProp(kt,name,p.key)" [attr.title]="'common.remove' | transloco"><ph-icon name="x" [size]="14"/></button>

@@ -304,7 +304,7 @@ import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
                             <input type="checkbox" [checked]="isSpaceSelected(s.id)" (click)="$event.stopPropagation()" (change)="toggleSpace(s.id)" />
                           </td>
                           <td>{{ s.label }}</td>
-                          <td><span class="badge badge-gray mono" style="font-size:11px;">{{ s.id }}</span></td>
+                          <td><span class="badge badge-gray mono">{{ s.id }}</span></td>
                         </tr>
                       }
                     </tbody>

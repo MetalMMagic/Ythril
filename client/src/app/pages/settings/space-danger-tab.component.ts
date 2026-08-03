@@ -134,7 +134,7 @@ import { TranslocoService } from '@jsverse/transloco';
       <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);">
         <div>
           <span style="font-weight:500;">{{ n.label }}</span>
-          <span class="badge badge-gray" style="margin-left:8px;font-size:11px;">{{ n.id }}</span>
+          <span class="badge badge-gray" style="margin-left:8px">{{ n.id }}</span>
         </div>
         <button class="btn btn-secondary btn-sm" type="button" (click)="leaveNetworkDanger(n.id)">{{ 'spaces.dangerZone.leaveButton' | transloco }}</button>
       </div>

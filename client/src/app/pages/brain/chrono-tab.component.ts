@@ -221,7 +221,7 @@ import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
                         <div class="desc-clamp">{{ entry.description || '—' }}</div>
                       </td>
                       <td><span class="badge badge-blue">{{ entry.type }}</span></td>
-                      <td><span class="badge" [class.badge-purple]="entry.status === 'upcoming'" [class.badge-blue]="entry.status === 'active'" style="font-size:11px">{{ entry.status }}</span></td>
+                      <td><span class="badge" [class.badge-purple]="entry.status === 'upcoming'" [class.badge-blue]="entry.status === 'active'">{{ entry.status }}</span></td>
                       <td style="color:var(--text-muted); font-size:12px">{{ entry.startsAt | date:'dd.MM.yyyy HH:mm' }}</td>
                       <td style="color:var(--text-muted); font-size:12px">{{ entry.endsAt ? (entry.endsAt | date:'dd.MM.yyyy HH:mm') : '—' }}</td>
                       <td>

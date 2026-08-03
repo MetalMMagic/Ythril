@@ -284,7 +284,7 @@ import { NetworkEnableWizardComponent } from './network-enable-wizard.component'
                 <div class="member-row">
                   <span class="mono badge badge-gray" style="font-size:11px;">{{ m.instanceId.slice(0, 8) }}</span>
                   <span style="font-weight:500; flex:1;">{{ m.label }}</span>
-                  <span class="badge badge-gray" style="font-size:11px;">{{ m.syncDirection ?? 'both' }}</span>
+                  <span class="badge badge-gray">{{ m.syncDirection ?? 'both' }}</span>
                   <!-- Sync health at a glance: last successful sync + a failing badge when a run streak is failing. -->
                   @if (m.consecutiveFailures) {
                     <span class="member-failing" [attr.title]="'networks.member.failingTitle' | transloco: { count: m.consecutiveFailures }">

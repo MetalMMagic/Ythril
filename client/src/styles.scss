@@ -222,11 +222,25 @@ code, pre {
 .field-hint.error { color: var(--error); }
 .field-hint.success { color: var(--success); }
 
+/* Every input type this product renders, not just the common five.
+ *
+ * `datetime-local` was missing, so the audit log's two date filters fell through to the BROWSER DEFAULT — white
+ * background, black text — the moment the component override that had been styling them was removed in #659. A
+ * selector list is a promise about which controls look like the product; an incomplete one fails silently, and this
+ * one was only visible in a screenshot. The drift sweep could not see it either, because its selector list had the
+ * same gap: the tool and the CSS shared one blind spot. */
 input[type="text"],
 input[type="password"],
 input[type="email"],
 input[type="number"],
 input[type="search"],
+input[type="url"],
+input[type="tel"],
+input[type="datetime-local"],
+input[type="date"],
+input[type="time"],
+input[type="month"],
+input[type="week"],
 textarea,
 select {
   /*
@@ -255,11 +269,20 @@ select {
   appearance: none;
 }
 
+/* Same list as the base rule above — a type styled but not focus-styled loses its focus ring, which is an
+   accessibility regression rather than a cosmetic one. */
 input[type="text"]:focus,
 input[type="password"]:focus,
 input[type="email"]:focus,
 input[type="number"]:focus,
 input[type="search"]:focus,
+input[type="url"]:focus,
+input[type="tel"]:focus,
+input[type="datetime-local"]:focus,
+input[type="date"]:focus,
+input[type="time"]:focus,
+input[type="month"]:focus,
+input[type="week"]:focus,
 textarea:focus,
 select:focus {
   border-color: var(--accent);
@@ -518,22 +541,38 @@ tr:last-child td { border-bottom: none; }
 tbody tr:hover td { background: var(--bg-elevated); }
 
 /* ── Badges ──────────────────────────────────────────────────────────────── */
+/*
+ * ONE pill shape. `.badge` is the class version of `app-status-pill`, so it has to measure the same.
+ *
+ * It did not: `border-radius: 20px` against the component's `999px`, 11px type against 11.5px, 8px padding against
+ * 9px — three badges rendering at 22/24/24px beside a 23px pill, on the same screens. Measured, not read
+ * (`testing/ux-drift-sweep.mjs`); encapsulation meant neither file looked wrong on its own.
+ *
+ * The two are kept in step deliberately rather than merged: markup that cannot reach the component still gets the
+ * house shape from the class. If they ever need to differ, that is a decision, not a drift.
+ */
 .badge {
   display: inline-flex;
   align-items: center;
-  padding: 2px 8px;
-  border-radius: 20px;
-  font-size: 11px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
   font-weight: 500;
   letter-spacing: 0.02em;
   border: 1px solid transparent;
 }
 
 .badge-purple { background: rgba(124, 106, 247, 0.15); color: #9580ff; border-color: rgba(124, 106, 247, 0.3); }
-.badge-green  { background: rgba(63, 185, 80,  0.15); color: #3fb950; border-color: rgba(63, 185, 80,  0.3); }
-.badge-yellow { background: rgba(210, 153, 34,  0.15); color: #d29922; border-color: rgba(210, 153, 34,  0.3); }
-.badge-red    { background: rgba(248, 81, 73,   0.1);  color: #f85149; border-color: rgba(248, 81, 73,   0.3); }
-.badge-blue   { background: rgba(88, 166, 255,  0.1);  color: #58a6ff; border-color: rgba(88, 166, 255,  0.3); }
+/* Mixed from the tokens, not hardcoded. Each of these repeated a semantic colour as a literal, so it could not
+   follow its token -- exactly what made a themed pill show red text on a green background before #637. */
+.badge-green  { background: color-mix(in srgb, var(--success) 15%, transparent); color: var(--success);
+                border-color: color-mix(in srgb, var(--success) 30%, transparent); }
+.badge-yellow { background: color-mix(in srgb, var(--warning) 15%, transparent); color: var(--warning);
+                border-color: color-mix(in srgb, var(--warning) 30%, transparent); }
+.badge-red    { background: color-mix(in srgb, var(--error) 12%, transparent); color: var(--error);
+                border-color: color-mix(in srgb, var(--error) 30%, transparent); }
+.badge-blue   { background: color-mix(in srgb, var(--info) 12%, transparent); color: var(--info);
+                border-color: color-mix(in srgb, var(--info) 30%, transparent); }
 .badge-orange { background: rgba(227, 134, 37,  0.15); color: #e38625; border-color: rgba(227, 134, 37,  0.3); }
 .badge-gray   { background: var(--bg-elevated); color: var(--text-secondary); border-color: var(--border); }
 
@@ -631,9 +670,20 @@ hr, .divider {
 ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
 
 /* ── Monospace text ──────────────────────────────────────────────────────── */
+/*
+ * Typeface only — no size.
+ *
+ * This used to say `font-size: 0.85em`, which made a typeface switch double as a size multiplier: `.badge.mono`
+ * measured **11.05px** against every other badge's 11.5px. Nobody chose 11.05px; the cascade did. And because
+ * `.mono` and `.badge` have equal specificity, source order decided it — `.mono` is declared later, so it won.
+ *
+ * `1em` was tried first and was worse: it resolves against the PARENT, so the same badge went to 13px. Removing the
+ * declaration is the fix — with no size of its own, `.mono` cannot outrank the element it is applied to, and a badge
+ * stays a badge whether or not its text is monospace. Both attempts were measured, which is the only reason the
+ * second one was caught.
+ */
 .mono {
   font-family: var(--font-mono);
-  font-size: 0.85em;
 }
 
 /* ── Tag pills ───────────────────────────────────────────────────────────── */

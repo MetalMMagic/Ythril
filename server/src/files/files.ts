@@ -3,7 +3,7 @@ import path from 'path';
 import { createHash } from 'crypto';
 import { resolveSafePathChecked, spaceRoot } from './sandbox.js';
 import { getConfig, getDataRoot, getStorageConfig } from '../config/loader.js';
-import { FILE_MODE, harden, mkdirPrivate } from '../util/fs-modes.js';
+import { FILE_MODE, harden, hardenPath, mkdirPrivate } from '../util/fs-modes.js';
 
 export interface FileEntry {
   name: string;
@@ -128,7 +128,11 @@ export async function moveFile(
   await fs.rename(srcAbs, dstAbs);
   // A rename carries the source's mode with it, so moving a file that predates this hardening would silently
   // reintroduce an 0644 file into a tightened tree.
-  await harden(dstAbs, FILE_MODE);
+  //
+  // `hardenPath`, not `harden(dstAbs, FILE_MODE)`: this function moves DIRECTORIES too, and `0600` on a directory
+  // removes the execute bit that makes it openable at all. Getting that wrong took the server down — see the note
+  // on `hardenPath`.
+  await hardenPath(dstAbs);
 }
 
 /** Recursively sum file sizes under a directory. Returns 0 if dir doesn't exist. */

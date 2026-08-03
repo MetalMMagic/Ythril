@@ -93,6 +93,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Verified against the artefact, not the instruction.** An integration test uploads a file and reads
     `stat -c %a` inside the container: `600` for the file, `700` for the directory. No source check can prove a
     mode landed, and the development machine is Windows, where these numbers do not exist at all.
+  - **`0600` on a directory is not a tightening, it is a brick — and the first attempt at this shipped that bug to
+    CI, which caught it.** `moveFile` moves directories as well as files, so a moved directory lost its execute
+    bit. Nothing failed at the move; the next offsite backup walked the tree with `fs.cpSync`, whose C++
+    `std::filesystem` iterator threw `Permission denied` — and that exception reaches `terminate()` rather than
+    JavaScript, so it **killed the server** (container exit 139, 94 tests failed and 169 were cancelled). Fixed
+    with `hardenPath`, which chooses the mode from what the path actually is.
+  - **A backup can no longer take the instance down with it.** The hazard outlives our bug: any directory under
+    the files root that this process cannot open does the same thing, and no `try`/`catch` around `cpSync` can
+    stop it. Both offsite copies now walk the tree in JavaScript first and fail with a message naming the
+    offending directories instead.
   - Gate `backups-are-not-world-readable` extended to every writer of user data and mutation-tested **13/13**,
     including both mode constants, the self-healing chmod, and each `chmod` staying best-effort.
 

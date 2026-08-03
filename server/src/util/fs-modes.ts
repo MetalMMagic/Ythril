@@ -36,6 +36,33 @@ export async function harden(target: string, mode: number): Promise<void> {
   try { await fsp.chmod(target, mode); } catch { /* non-POSIX host, or a path we do not own */ }
 }
 
+/**
+ * Tighten a path whose KIND is not known at the call site, and return the mode chosen.
+ *
+ * A directory needs its execute bit or it cannot be opened at all — `0600` on a directory is not a tightening,
+ * it is a brick. This is not theoretical: applying `FILE_MODE` unconditionally after a rename (`moveFile` moves
+ * files *or* directories) produced
+ *
+ *   filesystem error: directory iterator cannot open directory: Permission denied
+ *
+ * from `fs.cpSync` during the next offsite backup — and because that error comes out of C++ `std::filesystem`
+ * rather than JavaScript, it called `terminate()` and **killed the whole server** (container exit 139). One
+ * unreadable directory anywhere under the files root was enough.
+ *
+ * Returns the mode applied so a test can assert the CHOICE rather than its effect: `chmod` is a no-op on Windows,
+ * so an assertion about permissions afterwards would pass on the development machine no matter what.
+ */
+export async function hardenPath(target: string): Promise<number> {
+  let mode = FILE_MODE;
+  try {
+    if ((await fsp.stat(target)).isDirectory()) mode = DIR_MODE;
+  } catch {
+    return 0;   // gone already — nothing to tighten, and nothing to report
+  }
+  await harden(target, mode);
+  return mode;
+}
+
 /** Create `dir` (and parents) owner-only, tightening it if it already existed. */
 export function mkdirPrivateSync(dir: string): void {
   fs.mkdirSync(dir, { recursive: true, mode: DIR_MODE });

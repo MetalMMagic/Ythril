@@ -17,6 +17,57 @@ import path from 'node:path';
 import { log } from '../util/log.js';
 
 /**
+ * Every directory under `root` that cannot be opened, as relative paths.
+ *
+ * ## Why this walk exists
+ *
+ * `fs.cpSync(…, { recursive: true })` iterates the tree in C++. When it meets a directory it cannot open, the
+ * `std::filesystem` iterator throws — and that exception does not become a JavaScript error. It reaches
+ * `terminate()`, which **kills the process**:
+ *
+ *     terminate called after throwing an instance of 'std::filesystem::__cxx11::filesystem_error'
+ *       what():  filesystem error: directory iterator cannot open directory: Permission denied
+ *
+ * Observed, not theorised: one unreadable directory under the files root took the whole server down mid-backup
+ * (container exit 139), and no `try`/`catch` around `cpSync` can prevent it. The cause that time was ours and is
+ * fixed, but the hazard is not: a directory an operator dropped into the mount as another user does the same
+ * thing, and a backup must never be able to take the instance with it.
+ *
+ * So the tree is walked in JavaScript first, where `EACCES` is an ordinary error. It costs one `readdir` per
+ * directory against a copy that reads every byte of every file, and it turns an unrecoverable crash into a failed
+ * request with a message naming the directory to fix.
+ */
+function unreadableDirs(root: string): string[] {
+  const bad: string[] = [];
+  const walk = (dir: string): void => {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      bad.push(path.relative(root, dir) || '.');
+      return;
+    }
+    for (const e of entries) {
+      if (e.isDirectory()) walk(path.join(dir, e.name));
+    }
+  };
+  walk(root);
+  return bad;
+}
+
+/** Throw a catchable, actionable error rather than letting `cpSync` end the process. */
+function assertCopyable(root: string, what: string): void {
+  const bad = unreadableDirs(root);
+  if (bad.length === 0) return;
+  throw new Error(
+    `Cannot copy ${what}: ${bad.length} director${bad.length === 1 ? 'y is' : 'ies are'} not readable by this `
+    + `process — ${bad.slice(0, 5).join(', ')}${bad.length > 5 ? `, and ${bad.length - 5} more` : ''}. `
+    + 'Fix their permissions (or ownership) and retry; copying was not attempted, because the recursive copy would '
+    + 'have terminated the server rather than reporting this.',
+  );
+}
+
+/**
  * Copy a completed DB backup directory to the offsite destination.
  * Creates <destRoot>/<backupId>/ as a recursive copy of <srcDir>.
  * Returns the destination path.
@@ -29,6 +80,7 @@ export function copyBackupOffsite(srcDir: string, destRoot: string, backupId: st
   // This narrows the exposure; it does not remove it. The destination is usually a mounted share, and its own
   // permissions and encryption are the operator's to arrange — which is why `12-admin-api.md` now says so instead
   // of leaving a reader to assume that "encryption at rest" covered this.
+  assertCopyable(srcDir, 'the database dump');
   mkdirPrivateSync(destDir);
   fs.cpSync(srcDir, destDir, { recursive: true });
   return destDir;
@@ -49,6 +101,7 @@ export function copyFilesOffsite(
   if (!fs.existsSync(filesDir)) return null;
   const destDir = path.join(destRoot, `${backupId}-files`);
   // Same reasoning as above, and it applies more here: these are the users' UPLOADED FILES, verbatim.
+  assertCopyable(filesDir, 'the uploaded files');
   mkdirPrivateSync(destDir);
   fs.cpSync(filesDir, destDir, { recursive: true });
   return destDir;

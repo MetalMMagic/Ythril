@@ -786,6 +786,24 @@ describe('File metadata (MongoDB) — directory operations', () => {
     const dstRecords = dstMeta.body.files.filter(f => f.path.startsWith(`${dstDir}/`));
     assert.ok(dstRecords.length >= 3, `Expected ≥3 metadata records under ${dstDir}, got ${dstRecords.length}`);
     assert.ok(dstRecords.every(f => f.path.startsWith(`${dstDir}/`)), 'All records must use new dir prefix');
+
+    // A moved directory must still be OPENABLE. This is not a formality: hardening the files tree chmodded the
+    // destination of every move, and applying the FILE mode to a directory removed its execute bit. Nothing failed
+    // at the move — the next offsite backup walked the tree with `fs.cpSync`, which is C++, so
+    // `std::filesystem_error: directory iterator cannot open directory: Permission denied` reached `terminate()`
+    // and killed the server outright (container exit 139). This exact directory is the one that did it.
+    const listUrl = `${INSTANCES.a}/api/files/general?path=${encodeURIComponent(dstDir)}`;
+    const listed = await fetch(listUrl, { headers: { 'Authorization': `Bearer ${tokenA}` } });
+    assert.equal(listed.status, 200, `a moved directory must still be listable: ${await listed.text()}`);
+
+    const modes = execSync(
+      `docker exec ythril-a stat -c %a /data/files/general/${dstDir} /data/files/general/${dstDir}/nested`,
+    ).toString().trim().split('\n');
+    for (const m of modes) {
+      assert.equal(m, '700',
+        `a moved directory is mode ${m}; a directory without its owner-execute bit cannot be opened, and the `
+        + 'recursive walk in an offsite backup dies in native code rather than throwing something catchable');
+    }
   });
 });
 

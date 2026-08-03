@@ -20,6 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     a flag to make a failed model load succeed.
   - Linked from the contribution guide under *Before You Change Something Load-Bearing*, so it is findable rather
     than merely present.
+  - **Two existing gates shaped where the files live**, which is the right way round. The Help coverage test failed
+    because the records ship and were not offered, so they are now one Help entry with the records as `parts` — the
+    integration guide's shape. The Help component spec then required an entry's `file:` to be a **flat** top-level
+    doc and its parts to be two-digit, so the index moved to `docs/decisions.md` and the records are `01-`…`03-`.
+    The coverage test had also hardcoded `integration-guide/` as the only nested folder; it now accepts any, since a
+    second split guide is precisely the case it exists for.
   - Gate `decisions-are-recorded`, mutation-tested **9/9**: a record must reason (context, decision, consequences,
     pointers), must name its reversal, must be listed in the index, and **every cited path must exist** — a citation
     that has moved is worse than no citation.

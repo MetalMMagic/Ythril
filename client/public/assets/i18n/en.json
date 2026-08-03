@@ -81,6 +81,7 @@
   "help.doc.userguide": "User guide",
   "help.doc.integration-guide": "Integration guide (API & MCP)",
   "help.doc.usecase-examples": "Use-case examples",
+  "help.doc.decisions": "Decision records",
   "help.doc.workstation-mode-guide": "Workstation mode",
   "help.doc.network-types": "Network types",
   "help.doc.sync-protocol": "Sync protocol",

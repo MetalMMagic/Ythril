@@ -1,4 +1,4 @@
-# 001 — PDF and office rasterisation uses PDFium, not PyMuPDF
+# 01 — PDF and office rasterisation uses PDFium, not PyMuPDF
 
 **Status:** accepted · **Scope:** `sidecars/doc-render`, `sidecars/doc-office`
 

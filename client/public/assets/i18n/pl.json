@@ -81,6 +81,7 @@
   "help.doc.userguide": "Przewodnik użytkownika",
   "help.doc.integration-guide": "Przewodnik integracji (API i MCP)",
   "help.doc.usecase-examples": "Przykłady zastosowań",
+  "help.doc.decisions": "Zapisy decyzji",
   "help.doc.workstation-mode-guide": "Tryb stacji roboczej",
   "help.doc.network-types": "Typy sieci",
   "help.doc.sync-protocol": "Protokół synchronizacji",

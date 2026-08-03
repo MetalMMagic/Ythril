@@ -39,16 +39,24 @@ import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 const DIR = join('docs', 'decisions');
+/**
+ * The index is a FLAT top-level file, not `decisions/README.md`.
+ *
+ * The in-product Help page requires every entry's `file:` to be a flat `docs/*.md` — nesting belongs in `parts:`,
+ * which is how the 17-part integration guide is offered as one nav entry. Keeping the index at `docs/decisions.md`
+ * means one index, a stable `decisions.md#…` link target, and no second copy to drift.
+ */
+const INDEX = join('docs', 'decisions.md');
 
 describe('the folder exists and is reachable', () => {
   it('there is a decisions folder with an index', () => {
     assert.ok(existsSync(DIR), 'docs/decisions is gone — the rationale for the irreversible calls ships nowhere again');
-    assert.ok(existsSync(join(DIR, 'README.md')), 'the index is gone');
+    assert.ok(existsSync(INDEX), 'the index is gone');
   });
 
   it('the index explains why the folder exists, not just what is in it', () => {
     // Without the reason, the next person adds a record for a styling preference and the folder becomes noise.
-    const idx = readFileSync(join(DIR, 'README.md'), 'utf8');
+    const idx = readFileSync(INDEX, 'utf8');
     assert.match(idx, /gitignored/i,
       'the index should say why the rationale did not already ship — todo/ is gitignored');
     assert.match(idx, /irreversible|expensive to reverse/i, 'it must say what belongs here');
@@ -57,7 +65,7 @@ describe('the folder exists and is reachable', () => {
 });
 
 describe('every record reasons, rather than announcing', () => {
-  const records = readdirSync(DIR).filter(f => /^\d{3}-.+\.md$/.test(f));
+  const records = readdirSync(DIR).filter(f => /^\d{2}-.+\.md$/.test(f));
 
   it('found the records', () => {
     assert.ok(records.length >= 3, `expected the decision records, found ${records.length}`);
@@ -103,7 +111,7 @@ describe('every record reasons, rather than announcing', () => {
 
   it('the index lists every record', () => {
     // An unlisted record is an orphan, which is the failure this lens asks about for docs generally.
-    const idx = readFileSync(join(DIR, 'README.md'), 'utf8');
+    const idx = readFileSync(INDEX, 'utf8');
     const unlisted = records.filter(f => !idx.includes(f));
     assert.deepEqual(unlisted, [], `these exist but the index does not mention them:\n  ${unlisted.join('\n  ')}`);
   });
@@ -114,7 +122,7 @@ describe('the records point at things that are actually there', () => {
     // The failure mode for a retrospective record: it cites a file that has since moved, and now the pointer is
     // worse than no pointer.
     const missing = [];
-    for (const f of readdirSync(DIR).filter(x => /^\d{3}-.+\.md$/.test(x))) {
+    for (const f of readdirSync(DIR).filter(x => /^\d{2}-.+\.md$/.test(x))) {
       const src = readFileSync(join(DIR, f), 'utf8');
       for (const m of src.matchAll(/`((?:server|client|testing|docs|sidecars)\/[A-Za-z0-9._\-/]+|Dockerfile|NOTICE)`/g)) {
         const p = m[1];

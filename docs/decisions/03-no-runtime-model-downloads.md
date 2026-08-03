@@ -1,4 +1,4 @@
-# 003 — The published image may not fetch a model at runtime
+# 03 — The published image may not fetch a model at runtime
 
 **Status:** accepted · **Scope:** `Dockerfile`, `server/src/brain/embedding.ts`
 

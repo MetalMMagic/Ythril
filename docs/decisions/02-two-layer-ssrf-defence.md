@@ -1,4 +1,4 @@
-# 002 — SSRF is checked twice: a string check at config time, a DNS-resolved check at use time
+# 02 — SSRF is checked twice: a string check at config time, a DNS-resolved check at use time
 
 **Status:** accepted · **Scope:** `server/src/util/ssrf.ts` and every caller that takes a URL from a user
 

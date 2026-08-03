@@ -39,7 +39,7 @@ MongoDB is not installed locally — it runs inside Docker via `mongodb/mongodb-
 
 ## Before You Change Something Load-Bearing
 
-Read [`docs/decisions/`](decisions/README.md). It records the calls that are expensive or impossible to reverse —
+Read [`docs/decisions.md`](decisions.md). It records the calls that are expensive or impossible to reverse —
 why PDF rasterisation avoids the obvious library, why SSRF is checked twice, why the image refuses to fetch a model
 at runtime — and each record names **the reversal it exists to prevent**.
 

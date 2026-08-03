@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The Overview's last two cards no longer make the page jump on a cold load** (canary B). Four of the six
+  self-gating cards already had a skeleton; these two did not, and the framing in the original report — "add
+  skeletons" — was wrong because most of them were already there.
+  - **Statistics** is the first card on the tab, and its loading state was a single line of muted text that
+    collapsed into a full stats grid. The largest layout jump on the page, and the one a reader sees first.
+  - **Instance** had **no loading branch at all**: the panel was simply absent, then appeared, shifting whatever
+    the reader was already looking at.
+  - `about` needed a **different lifetime** from the four existing keys, and flattening that would have been a
+    bug: it is fetched once at init and never re-fetched, so raising its flag per space switch would have put a
+    skeleton over data already on screen. It is one-shot — starts pending, clears once — and `selectSpace` now
+    uses `update()` rather than `set()` so it cannot be clobbered.
+  - Both settle on **failure** as well as success. A skeleton that never resolves is worse than a layout that
+    jumps, and #662 was entirely about not letting a failure masquerade as another state.
+  - Verified on a cold load with the overview APIs deliberately delayed, because the pending state is otherwise
+    a race: **8 panels during and after, identical panel heights, 0px document-height shift.** The stable panel
+    count is the direct evidence for the Instance fix — that card was previously not in the DOM at all while
+    loading.
+
 - **Wide tables and code blocks in a rendered guide now show a scroll control.** They already scrolled; on this
   platform that was invisible, because overlay scrollbars paint only while scrolling and take no layout space —
   so the content read as **cut off** rather than reachable. Measured on `/settings/help` at 420px: this was the

@@ -400,12 +400,16 @@ export class BrainComponent implements OnInit, OnDestroy {
    * the failure handler. It is deliberately not set by the live-event refresh: that has good data on screen, and
    * covering it with a skeleton would be the same defect this exists to remove.
    */
-  overviewPending = signal<Record<'activity' | 'completeness' | 'queue' | 'tokens', boolean>>({
-    activity: false, completeness: false, queue: false, tokens: false,
+  overviewPending = signal<Record<'activity' | 'completeness' | 'queue' | 'tokens' | 'stats' | 'about', boolean>>({
+    activity: false, completeness: false, queue: false, tokens: false, stats: false,
+    // `about` is the one key with a DIFFERENT lifetime: the instance panel is fetched once at init and
+    // never re-fetched, so it starts pending and is cleared exactly once. Raising it per space switch
+    // would put a skeleton over data already on screen.
+    about: true,
   });
 
   /** Clear one panel's pending flag — called from both handlers of each loader, success or failure. */
-  private settled(key: 'activity' | 'completeness' | 'queue' | 'tokens'): void {
+  private settled(key: 'activity' | 'completeness' | 'queue' | 'tokens' | 'stats' | 'about'): void {
     if (!this.overviewPending()[key]) return;
     this.overviewPending.update(p => ({ ...p, [key]: false }));
   }
@@ -443,7 +447,10 @@ export class BrainComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.loadSpaces();
     // Instance identity/health for the Overview's Instance panel — one instance-wide fetch, best-effort.
-    this.adminApi.getAbout().subscribe({ next: a => this.aboutInfo.set(a), error: () => {} });
+    this.adminApi.getAbout().subscribe({
+      next: a => { this.aboutInfo.set(a); this.settled('about'); },
+      error: () => this.settled('about'),
+    });
   }
 
   /** Public so the error state's Retry can re-run it without a page reload. */
@@ -561,7 +568,10 @@ export class BrainComponent implements OnInit, OnDestroy {
     this.completeness.set(null);
     this.spaceActivity.set(null);
     // Blanked and awaiting a first answer — the ONLY place pending is raised. See `overviewPending`.
-    this.overviewPending.set({ activity: true, completeness: true, queue: true, tokens: true });
+    // update(), not set(): `about` is one-shot and must keep whatever it already resolved to.
+    this.overviewPending.update(p => ({
+      ...p, activity: true, completeness: true, queue: true, tokens: true, stats: true,
+    }));
     this.loadStats(id);
     this.loadSpaceMeta(id);
     this.loadEmbeddingQueue(id);
@@ -681,8 +691,11 @@ export class BrainComponent implements OnInit, OnDestroy {
         this.spaces.update(list =>
           list.map(sv => sv.space.id === spaceId ? { ...sv, stats } : sv),
         );
+        this.settled('stats');
       },
-      error: () => {},
+      // Settled on FAILURE too, or the skeleton becomes permanent — a card that never resolves is worse
+      // than one that jumps, and #662 was entirely about a failure not masquerading as another state.
+      error: () => this.settled('stats'),
     });
     this.spacesApi.getReindexStatus(spaceId).subscribe({
       next: ({ needsReindex }) => this.needsReindex.set(needsReindex),

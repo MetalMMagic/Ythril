@@ -34,11 +34,21 @@ const PANELS = [
   { key: 'completeness', loader: 'loadCompleteness' },
   { key: 'queue',        loader: 'loadEmbeddingQueue' },
   { key: 'tokens',       loader: 'loadTokenAccess' },
+  // `stats` is per-space like the four above — it is blanked and re-raised on every space switch.
+  { key: 'stats',        loader: 'loadStats', public: true },
+  // `about` is the odd one out and the reason `raisedInSelectSpace` exists as a separate field: the instance
+  // panel is fetched ONCE at init and never re-fetched, so it is one-shot. Raising it on a space switch would
+  // put a skeleton over data already on screen, which is why `selectSpace` must NOT list it.
+  { key: 'about',        loader: 'ngOnInit', public: true, oneShot: true },
 ];
 
 /** The body of one loader method, sliced to its own closing brace rather than a character count. */
 function loaderBody(name) {
-  const start = src.indexOf(`private ${name}(`);
+  // Not every loader is private: `loadStats` is called from four tab components' (mutated) outputs, and
+  // `ngOnInit` is a lifecycle hook. Anchored on either modifier rather than assuming one, because assuming
+  // `private` is what made this helper report "loadStats not found" for a method sitting in plain sight.
+  let start = src.indexOf(`private ${name}(`);
+  if (start < 0) start = src.indexOf(`\n  ${name}(`);
   assert.ok(start > 0, `${name} not found in ${BRAIN}`);
   const end = src.indexOf('\n  }', start);
   assert.ok(end > start, `could not find the end of ${name}`);
@@ -65,18 +75,29 @@ describe('an Overview skeleton can always be dismissed', () => {
 
   it('pending is raised ONLY where the values are blanked', () => {
     // Raising it anywhere else would cover good data with a placeholder — the defect this whole change removes.
-    // `overviewPending.set(` is the raise; `.update(` inside `settled()` is the lower.
-    const raises = [...src.matchAll(/overviewPending\.set\(/g)].length;
+    //
+    // Matched on `...p, activity: true` rather than on `overviewPending.set(`, because the raise legitimately
+    // became an `update()`: `about` has a ONE-SHOT lifetime (fetched once at init, never re-fetched), so a
+    // `set()` here would clobber it back to pending on every space switch and put a skeleton over data
+    // already on screen. The invariant this test protects — raised in exactly ONE place, beside the blanks —
+    // is unchanged; only the method is. Matching the method name made the test about the mechanism instead of
+    // the guarantee.
+    const raises = [...src.matchAll(/\.\.\.p, activity: true/g)].length;
     assert.equal(raises, 1, 'pending must be raised in exactly one place (selectSpace, beside the blanks)');
+
     // Anchored on the METHOD, not the first textual match — `selectSpace(` appears in the template first, and
     // slicing from there measured 19k characters of the wrong thing.
     const at = src.indexOf('  selectSpace(id: string): void {');
     assert.ok(at > 0, 'selectSpace method not found');
     const selectSpace = src.slice(at, src.indexOf('\n  }', at));
-    assert.match(selectSpace, /overviewPending\.set\(\{ activity: true, completeness: true, queue: true, tokens: true \}\)/,
-      'the space switch must raise all four, since it blanks all four');
+    for (const key of ['activity', 'completeness', 'queue', 'tokens', 'stats']) {
+      assert.match(selectSpace, new RegExp(`${key}: true`),
+        `the space switch blanks ${key}, so it must raise its pending flag too`);
+    }
+    // And it must NOT raise `about`, whose data is not blanked by a space switch.
+    assert.doesNotMatch(selectSpace, /about: true/,
+      'about is fetched once at init, so raising it on a space switch would cover data already on screen');
   });
-
   it('`settled` really lowers the flag', () => {
     // The call-site checks above pass whether or not the function does anything, which a mutation test proved:
     // gutting the body left every one of them green.

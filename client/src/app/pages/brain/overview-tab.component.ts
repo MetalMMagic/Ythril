@@ -211,6 +211,10 @@ interface StatCard { key: CollectionTab; icon: string; label: string; value: num
                 <div class="bar"><span [class.warn]="pct >= 80 && pct < 95" [class.err]="pct >= 95" [style.width.%]="pct"></span></div>
               }
             </div>
+          } @else if (pending().stats) {
+            <!-- Sized to the settled grid, not a one-line placeholder. This is the FIRST card on the tab,
+                 and a single line collapsing into a full stats grid was the largest layout jump on it. -->
+            <app-skeleton-lines [rows]="4" />
           } @else {
             <span class="muted">{{ 'brain.overview.statsLoading' | transloco }}</span>
           }
@@ -519,6 +523,20 @@ interface StatCard { key: CollectionTab; icon: string; label: string; value: num
             </dl>
           </div>
         </section>
+      } @else if (pending().about) {
+        <!-- NO BACKTICKS in a template comment: one ends the template string, and the error points at
+             @Component rather than here.
+             This card had NO else branch at all: the panel was simply absent until its data arrived and then
+             appeared, shifting whatever the reader was already looking at. The about data is fetched once at
+             init, so its pending flag is one-shot — see overviewPending in brain.component. -->
+        <section class="panel" [attr.aria-busy]="true">
+          <header class="panel-h">
+            <span class="ic"><ph-icon name="info" [size]="16"/></span>
+            <div><h3>{{ 'brain.overview.instanceTitle' | transloco }}</h3>
+              <p>{{ 'brain.overview.instanceHint' | transloco }}</p></div>
+          </header>
+          <div class="panel-b"><app-skeleton-lines [rows]="4" /></div>
+        </section>
       }
 
       <!-- ── Token access (admin-only; null for non-admins → hidden) ──── -->
@@ -591,8 +609,8 @@ export class OverviewTabComponent {
    * (the endpoint 403s) and `completeness` is null after a failure, so a skeleton keyed on null alone would sit
    * there forever. The parent raises these only where it blanks, and clears each from both handlers.
    */
-  pending = input<Record<'activity' | 'completeness' | 'queue' | 'tokens', boolean>>({
-    activity: false, completeness: false, queue: false, tokens: false,
+  pending = input<Record<'activity' | 'completeness' | 'queue' | 'tokens' | 'stats' | 'about', boolean>>({
+    activity: false, completeness: false, queue: false, tokens: false, stats: false, about: false,
   });
   /** Emitted (after a confirm) so the shell's existing reindex flow runs — no duplicate API path. */
   /** A collection tile was clicked — the shell switches to that tab. */

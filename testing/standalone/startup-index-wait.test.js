@@ -113,9 +113,14 @@ describe('the readiness timeout is a parameter, and generous off the boot path',
   it('startup waits far longer than 60s, because nothing is blocked on it', () => {
     // The old ceiling was short BECAUSE boot was blocked on it — and being short is exactly why it
     // always expired on a real migration and reported `failed` for indexes that were building fine.
-    const m = /STARTUP_INDEX_READY_TIMEOUT_MS = Number\(process\.env\['INDEX_READY_TIMEOUT_MS'\] \?\? ([^)]+)\)/
+    // Matches either idiom on purpose. The reading moved from a raw `Number(process.env[…])` to the validated
+    // `envInt(…)` helper, so that a typo stops the boot instead of becoming NaN — and this assertion, which is
+    // about the CEILING rather than how it is read, caught the refactor. Keeping both shapes means the next
+    // refactor of the same kind does not have to touch a test whose subject has not changed.
+    const m = /STARTUP_INDEX_READY_TIMEOUT_MS = (?:Number\(process\.env\['INDEX_READY_TIMEOUT_MS'\] \?\? ([^)]+)\)|envInt\('INDEX_READY_TIMEOUT_MS',\s*([^)]+)\))/
       .exec(LIFECYCLE);
     assert.ok(m, 'startup timeout should be defined and env-overridable');
+    m[1] = m[1] ?? m[2];
     // eslint-disable-next-line no-eval
     const ms = eval(m[1].replaceAll('_', ''));
     assert.ok(ms >= 5 * 60_000, `expected a multi-minute ceiling, got ${ms}ms`);

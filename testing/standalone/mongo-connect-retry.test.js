@@ -80,7 +80,13 @@ describe('the retry loop itself', () => {
   it('is bounded by a budget, not by an attempt count alone', () => {
     // An attempt count with growing backoff has no predictable ceiling; a deadline does, which is what
     // an orchestrator's startup budget has to be sized against.
-    assert.match(SRC, /CONNECT_RETRY_BUDGET_MS = Number\(process\.env\['MONGO_CONNECT_RETRY_MS'\] \?\? 30_000\)/);
+    // Either idiom. The read moved to the validated `envInt` helper because a typo used to become NaN, and
+    // `elapsed < NaN` is false — which silently reduced this budget to ZERO retries, the exact boot race the
+    // retry loop exists to survive. This assertion is about the budget's shape, not about how it is read.
+    assert.match(
+      SRC,
+      /CONNECT_RETRY_BUDGET_MS = (?:Number\(process\.env\['MONGO_CONNECT_RETRY_MS'\] \?\? 30_000\)|envInt\('MONGO_CONNECT_RETRY_MS', 30_000\))/,
+    );
     assert.match(SRC, /Date\.now\(\) >= deadline/);
   });
 

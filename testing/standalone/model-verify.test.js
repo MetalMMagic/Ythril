@@ -81,12 +81,17 @@ describe('a cold start is reported as its own outcome', () => {
   it('the budget is generous enough for a swapping backend', () => {
     // The field measurement was 34.7s for a model being swapped in on a shared GPU. A tight budget here
     // recreates the false negative this endpoint removes.
-    const ms = Number(/MODEL_VERIFY_TIMEOUT_MS'\] \?\? (\d+_?\d*)/.exec(SRC)?.[1].replace('_', ''));
+    // Matches either idiom: the read moved to the validated `envInt` helper so a typo stops the boot instead of
+    // becoming NaN. This assertion is about the BUDGET, not about how it is read, so it accepts both shapes.
+    const raw = /MODEL_VERIFY_TIMEOUT_MS'\] \?\? (\d+_?\d*)/.exec(SRC)?.[1]
+      ?? /envInt\('MODEL_VERIFY_TIMEOUT_MS',\s*(\d+_?\d*)\)/.exec(SRC)?.[1];
+    const ms = Number(String(raw).replaceAll('_', ''));
     assert.ok(ms >= 60_000, `budget is ${ms}ms — a cold model load has been measured at ~35s`);
   });
 
   it('the budget is tunable without a rebuild', () => {
-    assert.match(SRC, /process\.env\['MODEL_VERIFY_TIMEOUT_MS'\]/);
+    assert.match(SRC, /process\.env\['MODEL_VERIFY_TIMEOUT_MS'\]|envInt\('MODEL_VERIFY_TIMEOUT_MS'/,
+      'the budget must stay env-overridable, however it is read');
   });
 });
 

@@ -19,6 +19,7 @@ import { atlasVectorScore, scoresAgree } from './vector-score.js';
 import type { ChronoStatus } from '../config/types.js';
 import { log } from '../util/log.js';
 import { recallDegradedTotal } from '../metrics/registry.js';
+import { envInt } from '../config/env-num.js';
 
 /**
  * End-to-end budget for one recall call.
@@ -32,7 +33,7 @@ import { recallDegradedTotal } from '../metrics/registry.js';
  * hop it can cancel is the reranker, because that is the only optional one. Raise it if your clients are
  * patient and your corpus is slow; lower it if you would rather degrade sooner.
  */
-export const RECALL_BUDGET_MS = Number(process.env['RECALL_BUDGET_MS'] ?? 25_000);
+export const RECALL_BUDGET_MS = envInt('RECALL_BUDGET_MS', 25_000);
 
 /**
  * Below this much remaining budget the reranker is skipped entirely rather than started.
@@ -42,7 +43,7 @@ export const RECALL_BUDGET_MS = Number(process.env['RECALL_BUDGET_MS'] ?? 25_000
  * order — a slightly worse ranking, delivered — which is the trade the whole pipeline already makes when
  * a reranker is unreachable.
  */
-export const RERANK_MIN_BUDGET_MS = Number(process.env['RERANK_MIN_BUDGET_MS'] ?? 3_000);
+export const RERANK_MIN_BUDGET_MS = envInt('RERANK_MIN_BUDGET_MS', 3_000);
 
 export type RecallKnowledgeType = 'memory' | 'entity' | 'edge' | 'chrono' | 'file';
 

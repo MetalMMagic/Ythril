@@ -34,7 +34,11 @@ const src = readFileSync(HELP_COMPONENT, 'utf8');
  */
 const listed = [
   ...[...src.matchAll(/file:\s*'([^']+)'/g)].map(m => m[1]),
-  ...[...src.matchAll(/'(integration-guide\/[^']+\.md)'/g)].map(m => m[1]),
+  // ANY nested folder, not just `integration-guide/`. The pattern used to name that one folder literally, so
+  // `docs/decisions/` arrived as three shipped-but-unoffered files and this gate — correctly — went red. Naming the
+  // folder was the narrow part: a second split guide is exactly the case the check exists for, and hardcoding the
+  // first one meant the second could only be caught by failing.
+  ...[...src.matchAll(/'([a-z0-9][a-z0-9-]*\/[^']+\.md)'/g)].map(m => m[1]),
 ];
 /** The `id:` values, needed for the i18n check. */
 const ids = [...src.matchAll(/id:\s*'([^']+)',\s*file:/g)].map(m => m[1]);

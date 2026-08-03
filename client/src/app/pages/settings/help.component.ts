@@ -49,6 +49,18 @@ export const HELP_DOCS = [
     ],
   },
   { id: 'usecase-examples', file: 'usecase-examples.md' },
+  // The decision records, as ONE entry with the records as parts — the same shape as the integration guide above.
+  // Four separate entries would crowd an operator's nav with contributor material; one entry keeps every record
+  // reachable (the coverage gate requires that) while costing a single line in the list. The contribution guide is
+  // already offered here, so contributor docs belonging in Help is the existing convention, not a new one.
+  {
+    id: 'decisions', file: 'decisions.md',
+    parts: [
+      'decisions/01-pdfium-not-pymupdf.md',
+      'decisions/02-two-layer-ssrf-defence.md',
+      'decisions/03-no-runtime-model-downloads.md',
+    ],
+  },
   { id: 'workstation-mode-guide', file: 'workstation-mode-guide.md' },
   { id: 'network-types', file: 'network-types.md' },
   { id: 'sync-protocol', file: 'sync-protocol.md' },

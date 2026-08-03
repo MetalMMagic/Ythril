@@ -37,6 +37,16 @@ MongoDB is not installed locally — it runs inside Docker via `mongodb/mongodb-
 
 ---
 
+## Before You Change Something Load-Bearing
+
+Read [`docs/decisions.md`](decisions.md). It records the calls that are expensive or impossible to reverse —
+why PDF rasterisation avoids the obvious library, why SSRF is checked twice, why the image refuses to fetch a model
+at runtime — and each record names **the reversal it exists to prevent**.
+
+They are short, and they are there because the reasoning used to live only in code comments and in working notes
+that are gitignored. If a change of yours contradicts one, that is not automatically wrong — but it needs its own
+record rather than arriving inside an unrelated commit.
+
 ## Repository Layout
 
 ```text

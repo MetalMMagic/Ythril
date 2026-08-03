@@ -1,0 +1,35 @@
+# Decision records
+
+Short records of the calls that are **expensive or impossible to reverse**, so the reasoning survives the people who
+made it.
+
+## Why this folder exists
+
+The reasoning was there — it just did not ship. Ythril's code comments carry an unusual amount of *why*, and the
+working trackers carry more. But `todo/` is **gitignored** (`.gitignore:51`), so `_REFERENCE.md` and
+`_PARKED-DECISIONS.md` — where the rationale for the cross-cutting calls actually lived — are invisible to anyone who
+clones the repository. A contributor could read every comment in the tree and still not know why PDF rasterisation
+avoids the obvious library, or why a "broken" model load must not be fixed by letting it download.
+
+That has a cost beyond onboarding: a decision nobody can see gets **accidentally reversed**. Each record below names
+the reversal it exists to prevent.
+
+## What belongs here
+
+Only irreversible or expensive-to-reverse calls: a dependency chosen for licence reasons, a security model, a
+behaviour operators build on. Not style, not anything a comment beside the code says better — a record that duplicates
+a comment will rot in one of the two places.
+
+**Retrospective by design.** These were written after the fact, from artefacts already in the tree, and each one cites
+where the detail lives so nothing here becomes the second source of truth.
+
+| # | Decision | Reversal it prevents |
+|---|---|---|
+| [001](001-pdfium-not-pymupdf.md) | PDF and office rasterisation uses **PDFium**, not PyMuPDF | swapping in PyMuPDF for its nicer API, and taking AGPL-3.0 into a redistributed image |
+| [002](002-two-layer-ssrf-defence.md) | SSRF is checked **twice** — a string check at config time, a DNS-resolved check at use time | deleting the "redundant" second check, reopening DNS-rebinding and redirect pivots |
+| [003](003-no-runtime-model-downloads.md) | The published image **may not fetch a model at runtime** | "fixing" a failed model load by letting it download, which silently sends an air-gapped operator's IP to a third party |
+
+## Format
+
+Context → Decision → Consequences → Where the detail lives. No template ceremony; the point is that the *why* is
+findable by someone who has just cloned the repository.

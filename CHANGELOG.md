@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`docs/decisions/` — the reasoning behind the irreversible calls now ships.** First finding of the Documentation
+  & DX lens. The reasoning existed; it just was not in the repository: `todo/` is **gitignored**, so `_REFERENCE.md`
+  and `_PARKED-DECISIONS.md` — where the cross-cutting rationale lived — are invisible to anyone who clones.
+  - Three records, written from artefacts already in the tree rather than invented: **PDFium not PyMuPDF** (AGPL-3.0
+    avoided in a redistributed image), **two-layer SSRF defence** (a string check at config time, a DNS-resolved and
+    redirect-revalidating check at use time), and **no runtime model downloads** in the published image.
+  - Each names **the reversal it exists to prevent**, because that is the part a reviewer needs at the moment it
+    matters — a dependency bump that swaps in an AGPL library, a tidy-up that deletes a "redundant" check, unsetting
+    a flag to make a failed model load succeed.
+  - Linked from the contribution guide under *Before You Change Something Load-Bearing*, so it is findable rather
+    than merely present.
+  - Gate `decisions-are-recorded`, mutation-tested **9/9**: a record must reason (context, decision, consequences,
+    pointers), must name its reversal, must be listed in the index, and **every cited path must exist** — a citation
+    that has moved is worse than no citation.
+
 - **A documented rollback procedure, because an upgrade is one-way and nothing said so.** Third finding of the
   Observability & Operability lens. The docs covered upgrading — volumes persist, indexes rebuild, back up first —
   and said nothing about the direction an operator needs at three in the morning.

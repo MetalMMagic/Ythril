@@ -75,6 +75,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Uploaded files were world-readable, and one sentence of the previous fix said otherwise.** Third finding from
+  the Privacy audit lens, and it corrects the documentation shipped with the backup hardening: that text claimed
+  Ythril writes uploads `0600`/`0700`. Backups did; uploads did not.
+  - `<data-root>/files/` holds **every document a user uploaded, verbatim** — the most sensitive bytes on the
+    volume. Every writer took the process umask: `0755` directories, `0644` files. So did the chunk staging area a
+    resumable upload passes through, which holds the same bytes half-arrived.
+  - Now `0600` files inside `0700` directories, from **one definition** in `server/src/util/fs-modes.ts`. The local
+    and offsite backup paths were switched onto the same helper, so "as tight as the state files" is stated once
+    rather than repeated at nine call sites.
+  - **A rename carries the source mode**, so `moveFile` re-tightens its destination — otherwise moving an old file
+    would quietly reintroduce an `0644` file into a hardened tree.
+  - **Upgrades heal instead of migrating.** `mode:` only applies at creation, so every writer also chmods; a
+    re-upload, edit or move tightens a file that predates this. There is no boot-time walk of the files tree,
+    because on a large instance that is exactly the migration that ends up skipped — and the docs give the one-line
+    `find` for tightening everything at once.
+  - **Verified against the artefact, not the instruction.** An integration test uploads a file and reads
+    `stat -c %a` inside the container: `600` for the file, `700` for the directory. No source check can prove a
+    mode landed, and the development machine is Windows, where these numbers do not exist at all.
+  - Gate `backups-are-not-world-readable` extended to every writer of user data and mutation-tested **13/13**,
+    including both mode constants, the self-healing chmod, and each `chmod` staying best-effort.
+
 - **"Works fully offline" was an assertion, and a cache miss quietly downloaded from `huggingface.co`.** Found by
   the Privacy audit lens. `env.allowRemoteModels` defaults to **`true`** in `@huggingface/transformers`, and
   `brain/embedding.ts` set `env.cacheDir` and nothing else — so loading a model that was not in that cache fetched

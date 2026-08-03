@@ -32,50 +32,107 @@ import { join } from 'node:path';
 const ROOT = process.cwd();
 const read = (p) => readFileSync(join(ROOT, p), 'utf8');
 
-/** Every `mkdirSync` in a file, with its options text — so a missing `mode` is visible. */
-function mkdirs(src) {
-  return [...src.matchAll(/fs\.mkdirSync\(([^;]*?)\);/gs)].map(m => m[1].replace(/\s+/g, ' ').trim());
+/**
+ * Every directory-creating call in a file, normalised to one line.
+ *
+ * Both idioms are collected: the raw `fs.mkdirSync(…)`/`fs.mkdir(…)` that has to carry a mode itself, and the
+ * `mkdirPrivateSync`/`mkdirPrivate` helper that carries it for the caller. A file that uses the helper everywhere
+ * has no raw call left to check, which is the point — one definition rather than a mode repeated at nine sites.
+ */
+function rawMkdirsIn(src) {
+  return [...src.matchAll(/(?:await\s+)?fsp?\.mkdir(?:Sync)?\(([^;]*?)\);/gs)]
+    .map(m => m[1].replace(/\s+/g, ' ').trim());
 }
 
-describe('a dump is written as tightly as the state files it sits beside', () => {
-  const dump = read('server/src/db/dump.ts');
-  const offsite = read('server/src/db/offsite.ts');
+/** Files that put user data or database contents on disk, and must all be as tight as `config.json`. */
+const WRITERS = [
+  ['server/src/db/dump.ts', 'a decrypted NDJSON copy of the whole database'],
+  ['server/src/db/offsite.ts', 'the same dump, plus every uploaded file verbatim'],
+  ['server/src/files/files.ts', 'every uploaded document, verbatim'],
+  ['server/src/files/chunks.ts', 'the same documents, mid-upload'],
+];
 
+describe('one definition of "as tight as the state files"', () => {
+  const modes = read('server/src/util/fs-modes.ts');
+
+  it('the helper exists and its constants are owner-only', () => {
+    // Everything below is worthless if these two numbers drift, and a number is the easiest thing in the world to
+    // relax by one digit while reviewing something else.
+    assert.match(modes, /export const FILE_MODE = 0o600;/, 'FILE_MODE must be 0o600 — what config.json has always been');
+    assert.match(modes, /export const DIR_MODE = 0o700;/, 'DIR_MODE must be 0o700 — a directory needs x to be traversable');
+  });
+
+  it('the helper re-applies the mode, so an upgrade heals instead of needing a tree walk', () => {
+    // `mode:` only applies at CREATION. Without the chmod, an instance that already has files keeps them 0644
+    // forever, and a recursive chmod at boot is exactly the expensive migration that gets skipped.
+    assert.match(modes, /chmodSync\(target, mode\)/, 'hardenSync must chmod the target');
+    assert.match(modes, /chmod\(target, mode\)/, 'harden must chmod the target');
+    for (const fn of ['mkdirPrivateSync', 'mkdirPrivate']) {
+      const at = modes.indexOf(`export ${fn.endsWith('Sync') ? 'function' : 'async function'} ${fn}(`);
+      assert.ok(at > 0, `${fn} is gone`);
+      assert.match(modes.slice(at, at + 260), /harden(Sync)?\(dir, DIR_MODE\)/,
+        `${fn} must tighten a directory that already existed, not only one it creates`);
+    }
+  });
+
+  it('every chmod is best-effort, so a non-POSIX host cannot fail a write', () => {
+    // Windows and plenty of network shares (SMB, some NFS exports) ignore POSIX modes. Hardening must never turn a
+    // working upload or backup into a failed one — the mode is a tightening, not a precondition.
+    for (const m of modes.matchAll(/chmod(?:Sync)?\([^)]*\)/g)) {
+      const at = modes.indexOf(m[0]);
+      const around = modes.slice(Math.max(0, at - 140), at + m[0].length + 40);
+      assert.match(around, /try\s*\{|catch/, `${m[0]} is not guarded`);
+    }
+  });
+});
+
+describe('nothing that holds user data is written with default permissions', () => {
   it('found the writers — the parse still matches', () => {
-    assert.ok(mkdirs(dump).length >= 1, 'no mkdirSync found in dump.ts');
-    assert.ok(mkdirs(offsite).length >= 2, `expected both offsite copies, found ${mkdirs(offsite).length}`);
+    // Without this, a rename would reduce every sweep below to zero files and they would all pass having examined
+    // nothing: the failure mode every coverage gate in this repo has had at least once.
+    for (const [file] of WRITERS) {
+      assert.ok(read(file).length > 200, `${file} is missing or empty`);
+    }
   });
 
-  it('every backup directory is created 0700', () => {
+  it('every directory is created owner-only', () => {
     const loose = [];
-    for (const [file, src] of [['dump.ts', dump], ['offsite.ts', offsite]]) {
-      for (const call of mkdirs(src)) {
-        if (!/mode:\s*0o700/.test(call)) loose.push(`${file}: fs.mkdirSync(${call})`);
+    for (const [file, holds] of WRITERS) {
+      const src = read(file);
+      for (const call of rawMkdirsIn(src)) {
+        // A raw mkdir is fine only if it states the mode itself; otherwise it must go through the helper.
+        if (!/mode:\s*(0o700|DIR_MODE)/.test(call)) loose.push(`${file} (${holds}): fs.mkdir(${call})`);
       }
     }
-    assert.deepEqual(loose, [], 'these create a directory holding a plaintext copy of the database — or of every '
-      + `uploaded file — with default permissions, typically 0755:\n  ${loose.join('\n  ')}`);
+    assert.deepEqual(loose, [], 'these create a directory holding user data or database contents with default '
+      + 'permissions, typically 0755:\n  ' + loose.join('\n  '));
   });
 
-  it('the NDJSON files themselves are written 0600', () => {
-    // The directory mode is not enough on a host where an existing directory is reused, and `cpSync` preserves
-    // source file modes — so the FILE mode is what actually travels offsite.
-    const streams = [...dump.matchAll(/createWriteStream\(([^;]*?)\);/gs)].map(m => m[1].replace(/\s+/g, ' '));
-    assert.ok(streams.length >= 1, 'no createWriteStream found in dump.ts');
-    for (const s of streams) {
-      assert.match(s, /mode:\s*0o600/,
-        `a collection dump is written without a restrictive mode: createWriteStream(${s})`);
-    }
-  });
-
-  it('a non-POSIX host cannot make the chmod fatal', () => {
-    // Windows and some network shares do not honour POSIX modes. Hardening must not turn a working backup into a
-    // failed one — the mode is a tightening, not a precondition.
-    for (const [file, src] of [['dump.ts', dump], ['offsite.ts', offsite]]) {
-      for (const m of src.matchAll(/fs\.chmodSync\([^)]*\)/g)) {
-        const around = src.slice(Math.max(0, src.indexOf(m[0]) - 120), src.indexOf(m[0]) + m[0].length + 80);
-        assert.match(around, /try\s*\{/, `${file}: ${m[0]} is not guarded — a non-POSIX host would fail the backup`);
+  it('every file is written owner-only', () => {
+    // The directory mode is not enough: an operator may point a path at a directory that already exists, and
+    // `cpSync` preserves SOURCE file modes — so the file mode is what actually travels offsite.
+    const loose = [];
+    for (const [file, holds] of WRITERS) {
+      const src = read(file);
+      const writes = [
+        ...[...src.matchAll(/createWriteStream\(([^;]*?)\);/gs)].map(m => ['createWriteStream', m[1]]),
+        ...[...src.matchAll(/(?:await\s+)?fsp?\.writeFile\(([^;]*?)\);/gs)].map(m => ['writeFile', m[1]]),
+      ];
+      for (const [kind, args] of writes) {
+        const one = args.replace(/\s+/g, ' ').trim();
+        if (!/mode:\s*(0o600|FILE_MODE)/.test(one)) loose.push(`${file} (${holds}): ${kind}(${one})`);
       }
+    }
+    assert.deepEqual(loose, [], 'these write user data or database contents with default permissions, typically '
+      + '0644 — readable by every other user on the host:\n  ' + loose.join('\n  '));
+  });
+
+  it('an overwrite is tightened too, not only a creation', () => {
+    // A resumed upload and an edited file both OVERWRITE, and `mode:` does nothing then. Each writer of a
+    // potentially-existing file has to chmod as well — this is what makes the change self-healing on upgrade.
+    for (const file of ['server/src/files/files.ts', 'server/src/files/chunks.ts']) {
+      assert.match(read(file), /harden\(/,
+        `${file} sets a mode on creation but never chmods, so files that predate this stay 0644 forever`);
     }
   });
 });

@@ -162,8 +162,20 @@ transparently:
     [POST /api/admin/data/backup](12-admin-api.md#post-apiadmindatabackup);
   - **brain data in MongoDB itself** — that is the encrypted-`mongod` job described below.
 
-  Ythril writes everything in the first two categories `0600`/`0700` so it is not readable by other users on the
-  host, and `requireEncryptedAtRest` deliberately does not claim otherwise.
+  Ythril writes everything in the first two categories `0600`/`0700` — files owner-read/write, directories
+  owner-only — so it is not readable by other users on the host or by another container sharing the mount, and
+  `requireEncryptedAtRest` deliberately does not claim otherwise. That covers uploads, the chunk staging area a
+  resumable upload passes through, local backups, and offsite copies, from one definition in `util/fs-modes.ts`.
+
+  **On upgrade this heals rather than migrating.** A `mode:` argument only applies when a file is created, so files
+  that predate this keep their old permissions until something rewrites them — re-uploading, editing or moving a file
+  tightens it. There is no boot-time walk of the files tree, because on a large instance that is exactly the
+  expensive migration that ends up skipped. To tighten everything at once:
+
+  ```bash
+  # inside the container, or against the mounted volume on the host
+  find /data/files /data/backups -type d -exec chmod 700 {} + -o -type f -exec chmod 600 {} +
+  ```
 
 ```yaml
 # docker compose — master key from a secret/env, kept out of the image

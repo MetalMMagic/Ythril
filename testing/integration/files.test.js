@@ -247,6 +247,29 @@ describe('Delete file and directory', () => {
     assert.equal(r2.status, 404, `Expected 404 after orphan cleanup, got ${r2.status}`);
   });
 
+  it('an uploaded file lands 0600 inside a 0700 directory', async () => {
+    // Asserted against the ARTEFACT, because no source check can prove a mode actually landed — and this machine
+    // cannot measure it either: Windows ignores POSIX modes, so the numbers only exist on a Linux host.
+    //
+    // Uploaded files used to be written with the process umask (0644 in 0755 directories) while `config.json` has
+    // always been 0600. The most sensitive bytes on the volume were the most readable — to any other user on the
+    // host, and to any container sharing the mount. Found by the Privacy audit lens.
+    const filePath = 'permission-probe.txt';
+    await uploadFile(tokenA, 'general', filePath, 'mode probe');
+
+    const fileMode = execSync(`docker exec ythril-a stat -c %a /data/files/general/${filePath}`).toString().trim();
+    assert.equal(fileMode, '600',
+      `an uploaded document is mode ${fileMode}; it holds whatever a user chose to upload and must be owner-only`);
+
+    const dirMode = execSync('docker exec ythril-a stat -c %a /data/files/general').toString().trim();
+    assert.equal(dirMode, '700',
+      `the space files directory is mode ${dirMode}; 0755 lets any other user on the host list and read it`);
+
+    // Cleanup so the listing assertions elsewhere are unaffected.
+    const url = `${INSTANCES.a}/api/files/general?path=${encodeURIComponent(filePath)}`;
+    await fetch(url, { method: 'DELETE', headers: { 'Authorization': `Bearer ${tokenA}` } });
+  });
+
   it('DELETE directory without confirm returns 422', async () => {
     const ts = Date.now();
     // Create the directory and a file inside

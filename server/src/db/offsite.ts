@@ -12,6 +12,7 @@
  *   <destRoot>/<backupId>-files/      — copy of <dataRoot>/files/ (user-uploaded files)
  */
 import fs from 'node:fs';
+import { mkdirPrivateSync } from '../util/fs-modes.js';
 import path from 'node:path';
 import { log } from '../util/log.js';
 
@@ -28,8 +29,7 @@ export function copyBackupOffsite(srcDir: string, destRoot: string, backupId: st
   // This narrows the exposure; it does not remove it. The destination is usually a mounted share, and its own
   // permissions and encryption are the operator's to arrange — which is why `12-admin-api.md` now says so instead
   // of leaving a reader to assume that "encryption at rest" covered this.
-  fs.mkdirSync(destDir, { recursive: true, mode: 0o700 });
-  try { fs.chmodSync(destDir, 0o700); } catch { /* the share may not honour POSIX modes at all */ }
+  mkdirPrivateSync(destDir);
   fs.cpSync(srcDir, destDir, { recursive: true });
   return destDir;
 }
@@ -49,8 +49,7 @@ export function copyFilesOffsite(
   if (!fs.existsSync(filesDir)) return null;
   const destDir = path.join(destRoot, `${backupId}-files`);
   // Same reasoning as above, and it applies more here: these are the users' UPLOADED FILES, verbatim.
-  fs.mkdirSync(destDir, { recursive: true, mode: 0o700 });
-  try { fs.chmodSync(destDir, 0o700); } catch { /* the share may not honour POSIX modes at all */ }
+  mkdirPrivateSync(destDir);
   fs.cpSync(filesDir, destDir, { recursive: true });
   return destDir;
 }

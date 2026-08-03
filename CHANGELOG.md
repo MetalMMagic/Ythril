@@ -75,6 +75,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A themed brand colour recoloured "Active" and "Online" while "Healthy" and "Reachable" stayed green.** A theme
+  can override any CSS custom property — that is the feature — and `.pill.active` read `--accent` while its four
+  siblings read `--success` / `--warning` / `--error` / `--info`. The reporting operator's framing is now the rule:
+  **brand follows the theme, semantic state never does.**
+  - **Audited every state colour rather than the one pill a red theme surfaced, and found two more**: the summary
+    strip's value colour (`.v.active, .v.ok`) and the usage bar's healthy fill, both reading the brand while their
+    own warn/danger siblings read semantic tokens. So a red theme recoloured exactly the *everything-is-fine*
+    states and left the problems alone.
+  - New `--state-active` token, valued at the **default accent** so the default theme is pixel-identical and only a
+    themed instance changes — which is the entire bug. The active pill's background and border are mixed from the
+    same token: they were hardcoded rgba of the default accent, which is how a themed instance got **red text on a
+    green pill**.
+  - **Navigation deliberately still follows the brand** — a selected tab, a highlighted tree node, a sort caret say
+    *"you are here"*, which is identity. This is a category split, not a purge, and the gate checks both halves.
+  - Gate `state-colours-ignore-the-theme`, mutation-tested **7/7**, including the over-correction (converting a
+    navigation style to a state token) and a `--state-active` defined as an alias of `--accent`, which would have
+    made the whole fix cosmetic.
+  - Verified live under a red brand: **all six pill variants unchanged**, and the selected tab correctly turns red.
+    The strip and bar are covered by the gate only — the live probe for them reported identical colours for
+    variants that must differ, so it was not exercising those rules and is not counted.
+
 - **The Docker image shipped the embedding model twice — 482.5 MiB of every pull, of every tag.** A canary
   operator reported that the three largest layers all changed digest between 2.2.4 and 2.2.5, making a patch
   upgrade a near-full download; asking the registry which steps those layers were turned up something worse than

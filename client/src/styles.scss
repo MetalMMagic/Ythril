@@ -19,6 +19,19 @@
   --nav-active:     #a0ff80;
   --nav-active-dim: rgba(0, 229, 255, 0.08);
 
+  /* ── Semantic STATE colours — a theme must not move these ───────────────────────────────────────────────
+     A theme owns identity: `--accent` and friends. It does not own facts. A reporting operator set a red brand
+     colour and watched "Active" and "Online" turn red while "Healthy" and "Reachable" stayed green — because
+     `.pill.active` read `--accent` while its siblings read these tokens. Their framing is the rule:
+     BRAND FOLLOWS THE THEME, SEMANTIC STATE NEVER DOES.
+
+     `--state-active` exists for exactly that reason: "configured", "in use", "online" are facts, so they need a
+     token of their own rather than borrowing the brand. Its value is the DEFAULT accent, so the default theme is
+     pixel-identical and only a themed instance changes — which is the whole bug.
+
+     Anything that reports what the system IS belongs here. Anything that says "you are here" — a selected tab, a
+     highlighted row, a sort caret — is navigation, and correctly follows `--accent`. */
+  --state-active: #ceff80;
   --success:      #3fb950;
   --warning:      #d29922;
   --error:        #f85149;

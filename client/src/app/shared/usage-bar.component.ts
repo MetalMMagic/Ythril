@@ -25,7 +25,10 @@ export function usageLevel(pct: number, warnAtPercent: number): UsageLevel {
   styles: [`
     .track { height: 8px; background: var(--bg-elevated); border-radius: 4px; overflow: hidden; }
     .fill  { height: 100%; border-radius: 4px; transition: width .4s ease, background .2s ease; }
-    .fill.ok     { background: var(--accent); }
+    /* --state-active, not --accent: "usage is fine" is a fact, and warn/danger below are already semantic, so a
+       themed brand colour recoloured only the healthy state — the one an operator glances at to confirm nothing
+       is wrong. Same value as the default accent, so the default theme is unchanged. */
+    .fill.ok     { background: var(--state-active); }
     .fill.warn   { background: var(--warning); }
     .fill.danger { background: var(--error); }
   `],

@@ -33,7 +33,11 @@ export interface SummaryItem {
              border-top: 1px solid var(--border-muted); align-items: center; }
     .item { display: flex; flex-direction: column; gap: 1px; }
     .v { font-size: 20px; font-weight: 650; line-height: 1.1; font-variant-numeric: tabular-nums; color: var(--text-primary); }
-    .v.active, .v.ok { color: var(--accent); }
+    /* --state-active, not --accent. Both of these report a FACT about the system, and its siblings below already
+       read semantic tokens — so a themed brand colour moved two of the five and left three alone. Found by
+       auditing every state colour rather than only the pill a red theme happened to surface.
+       The value is the default accent, so nothing changes on the default theme. */
+    .v.active, .v.ok { color: var(--state-active); }
     .v.warn  { color: var(--warning); }
     .v.error { color: var(--error); }
     .v.pending { color: var(--info); }

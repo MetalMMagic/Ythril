@@ -322,6 +322,24 @@ are Apache 2.0 licensed.
 Ythril communicates with the sidecar only over an HTTP socket on an isolated internal media network; no
 faster-whisper-server code is linked into or incorporated into the Ythril application.
 
+### Bundled model weights: nomic-ai/nomic-embed-text-v1.5
+
+License: Apache License 2.0
+Copyright (c) Nomic AI
+
+**This one IS redistributed**, which is what separates it from the model entries above. The weights are downloaded
+at image build time and baked into the image (`MODEL_CACHE_DIR=/app/model-cache`) so an instance embeds text on
+first boot with no network — the offline-start guarantee the rest of the build is arranged around. Every user of a
+Ythril image therefore receives a copy of these weights.
+
+Role: the default text-embedding model, and the only model Ythril ships. Everything else — the Ollama vision
+models, the Whisper speech models — is pulled independently at runtime under its own licence, and those entries
+above say so.
+
+The files are shipped **unmodified**, so Apache 2.0 requires no statement of changes. The Apache 2.0 text is
+already reproduced under License Texts above. `models-are-attributed` asserts that every model identifier baked
+into any Dockerfile in this repo has an entry here.
+
 ### Inter (typeface)
 
 License: SIL Open Font License 1.1

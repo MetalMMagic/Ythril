@@ -75,6 +75,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The one model Ythril actually ships had no attribution at all.** `NOTICE` is careful about the distinction —
+  the Ollama entry says its vision models "are pulled at runtime under their own licenses", the
+  faster-whisper-server entry says the image "is **not bundled with or distributed by** Ythril". Both correct. And
+  the model that *is* bundled had no entry.
+  - `nomic-ai/nomic-embed-text-v1.5` is downloaded at image build time and baked in, so an instance embeds text on
+    first boot with no network — the offline-start guarantee the whole build is arranged around, and the reason that
+    layer is the largest thing in the image. **Every user of a Ythril image receives a copy of those weights.** It
+    is Apache-2.0, so the obligation is attribution, and the attribution was missing.
+  - `NOTICE` now carries it, states the licence, says the files ship **unmodified** (so no statement of changes is
+    required), and says explicitly that these weights *are* redistributed — the distinction drawn the right way
+    round, since drawing it wrongly would read as a considered answer.
+  - Gate `models-are-attributed` takes its list from the **Dockerfiles**, not from a list somebody maintains:
+    "which models ship" is whatever an image downloads, so adding one is automatically a NOTICE change. The
+    detector self-tests that it finds a HuggingFace-style id and does not mistake a repo path or a base image for
+    one. **Mutation-tested 5/5**, including a second model baked in with no attribution.
+
 - **A GPL arm was being redistributed with no record of which arm applied.** `jszip` is offered as
   `MIT OR GPL-3.0-or-later`, arrives transitively through `exceljs`, and **ships in the browser bundle**. Nothing was
   broken — MIT is available and MIT is what applies — but `docs/dependencies.md` stated that exactly *one* package

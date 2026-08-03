@@ -479,6 +479,16 @@ button:disabled, .btn:disabled {
  * did not bring it back. So the track and thumb are ordinary elements the directive positions — always
  * visible while the table overflows, and themable like everything else.
  */
+/*
+ * Wrapper that `MdScrollersDirective` puts around a wide table or code block inside rendered markdown.
+ *
+ * It exists only to give the drawn control a parent to insert its track into — the control is a SIBLING placed
+ * before its host, so the host needs a parent that is not the article itself (inserting into the article would
+ * put a track between two paragraphs). `display: block` and no padding, so it is invisible in the layout: the
+ * only thing it changes is that a track can appear above the element it scrolls.
+ */
+.md-scroll { display: block; }
+
 .hscroll-top {
   position: relative;
   height: 10px;

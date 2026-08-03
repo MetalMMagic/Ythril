@@ -70,8 +70,26 @@ function stylesBlock(src) {
   return raw.replace(/\/\*[\s\S]*?\*\//g, '');
 }
 
+/**
+ * Detect the BINDING, not a mention of it.
+ *
+ * This used to test the raw file, so any file whose comments discussed `[innerHTML]` was classified as
+ * rendering it — and the map then had to list a directive that renders nothing, which would have made the map
+ * a lie about the very thing it exists to enumerate. `md-scrollers.directive.ts` tripped it by explaining *why*
+ * Angular directives cannot reach `[innerHTML]` content.
+ *
+ * Comments are stripped first, which is what `stylesBlock` above already does for the same reason: prose about
+ * a thing is not the thing. Six gates in this repo have now fired on the comment explaining their own subject.
+ */
+function rendersInnerHtml(src) {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ')
+    .includes('[innerHTML]');
+}
+
 describe('CSS for [innerHTML] content can reach it', () => {
-  const usesInnerHtml = sources().filter(f => readFileSync(f, 'utf8').includes('[innerHTML]'));
+  const usesInnerHtml = sources().filter(f => rendersInnerHtml(readFileSync(f, 'utf8')));
 
   it('finds the components that render innerHTML (the check itself works)', () => {
     // A refactor that reduced this to zero would make every assertion below pass by examining nothing.

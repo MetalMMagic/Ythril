@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Wide tables and code blocks in a rendered guide now show a scroll control.** They already scrolled; on this
+  platform that was invisible, because overlay scrollbars paint only while scrolling and take no layout space —
+  so the content read as **cut off** rather than reachable. Measured on `/settings/help` at 420px: this was the
+  one finding #663 left open.
+  - **Two CSS fixes were tried first and measured as failures**, recorded so nobody repeats them:
+    `scrollbar-width: thin` yields a **2px** bar *and* makes Chromium 121+ ignore `::-webkit-scrollbar`
+    entirely; `::-webkit-scrollbar` with an explicit height did not apply here at all (0px on `table`, 2px on
+    `pre`). Neither shipped — CSS that does not work is worse than a known gap, because it looks like a fix.
+  - The mechanism that works is the **drawn** control, and it could not reach this content for a structural
+    reason: **Angular never instantiates directives inside `[innerHTML]`**. So `attachHscrollTop` was extracted
+    from `HscrollTopDirective` into a plain function taking any element, with the directive becoming a thin
+    wrapper — one implementation of the pointer maths, not two that drift.
+  - `MdScrollersDirective` sits on the container, walks the injected DOM after each render, wraps only the
+    elements that actually overflow, and attaches one control each. Both markdown surfaces benefit: the Help
+    guides and the Files preview share one pipeline.
+  - **The extraction got the characterization tests it never had.** The plan claimed the directive had a spec;
+    it did not — ~150 lines of DOM and pointer arithmetic were covered only by a Playwright sweep needing a
+    running instance. 14 tests now pin insertion position, both hide conditions, the proportional thumb, the
+    28px floor, scroll tracking, track-click, drag maths, pointer-id isolation, teardown, and the
+    unguarded-`ResizeObserver` regression that once took down twelve unrelated specs. **14 mutations killed, 0
+    survived** — after fixing three of my own tests that passed for the wrong reason, including one that
+    asserted the 28px floor while measuring a 0-width track.
+  - Verified against the live bundle, not just by the sweep going 4 → 0: on the integration guide at 420px,
+    **228 overflowing elements produced 228 wrappers and 228 VISIBLE tracks** with real thumb widths — the exact
+    property both CSS attempts failed.
+
 - **Backups can be encrypted, opt-in, on every path.** A backup is a complete **plaintext** copy of the database
   by default — and an encrypted `mongod` does not protect it, because the dump is read *through* mongod and comes
   out decrypted. `encrypt: true` in `backup.json`, or the toggle on **Settings → Data**, wraps every record in the

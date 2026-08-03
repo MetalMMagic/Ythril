@@ -92,7 +92,16 @@ async function measure(selector, props) {
 }
 
 const groups = {
-  'TEXT INPUTS': { sel: 'input[type=text], input:not([type]), input[type=search], input[type=number]', props: INPUT_PROPS, map: {} },
+  // Every type the product renders. The first version listed four, which is the SAME gap the global CSS rule had
+  // — so when a component override was removed and the audit log's `datetime-local` filters fell back to the
+  // browser default (white on white), this tool could not see it. The measurement and the thing it measures must
+  // not share a blind spot.
+  'TEXT INPUTS': {
+    sel: 'input[type=text], input:not([type]), input[type=search], input[type=number], input[type=url],'
+       + ' input[type=tel], input[type=datetime-local], input[type=date], input[type=time], input[type=month],'
+       + ' input[type=week], input[type=password], input[type=email], textarea, select',
+    props: INPUT_PROPS, map: {},
+  },
   'BUTTONS': { sel: 'button', props: BUTTON_PROPS, map: {} },
   'PILLS / BADGES': { sel: '[class*=pill], [class*=badge], [class*=chip]', props: PILL_PROPS, map: {} },
 };

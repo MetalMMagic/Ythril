@@ -183,9 +183,9 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
                   <td><span class="drag-handle" cdkDragHandle [class.drag-handle-disabled]="sortMode() !== 'custom'" [attr.title]="'spaces.table.dragHandleTitle' | transloco"><ph-icon name="dots-three-vertical" [size]="16"/></span></td>
                   <td style="font-weight:500;">{{ s.label }}
                     @if (s.indexStatus === 'building') {
-                      <span class="badge badge-blue" style="font-size:10px;margin-left:6px;font-weight:normal;" [attr.title]="'spaces.indexBuildingTitle' | transloco"><span class="spinner" style="width:8px;height:8px;border-width:1.5px;display:inline-block;vertical-align:middle;margin-right:3px;"></span>{{ 'spaces.indexBuilding' | transloco }}</span>
+                      <span class="badge badge-blue" style="margin-left:6px;font-weight:normal" [attr.title]="'spaces.indexBuildingTitle' | transloco"><span class="spinner" style="width:8px;height:8px;border-width:1.5px;display:inline-block;vertical-align:middle;margin-right:3px;"></span>{{ 'spaces.indexBuilding' | transloco }}</span>
                     } @else if (s.indexStatus === 'failed') {
-                      <span class="badge badge-red" style="font-size:10px;margin-left:6px;font-weight:normal;" [attr.title]="'spaces.indexFailedTitle' | transloco">{{ 'spaces.indexFailed' | transloco }}</span>
+                      <span class="badge badge-red" style="margin-left:6px;font-weight:normal" [attr.title]="'spaces.indexFailedTitle' | transloco">{{ 'spaces.indexFailed' | transloco }}</span>
                     }
                   </td>
                   <td><span class="badge badge-gray mono">{{ s.id }}</span></td>
@@ -205,12 +205,12 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
                     @if (use) {
                       <span class="mono" style="font-size:12px;">{{ use.calls }}</span>
                       @if (answerRate(use); as rate) {
-                        <span class="badge" style="margin-left:6px;font-size:10px;"
+                        <span class="badge" style="margin-left:6px"
                               [class.badge-green]="rate >= 50" [class.badge-yellow]="rate < 50 && rate >= 20"
                               [class.badge-red]="rate < 20"
                               [attr.title]="('spaces.table.usageAnsweredTitle' | transloco) + ' ' + use.answered + '/' + use.recall">{{ rate }}%</span>
                       } @else if (use.recall > 0) {
-                        <span class="badge badge-red" style="margin-left:6px;font-size:10px;">0%</span>
+                        <span class="badge badge-red" style="margin-left:6px">0%</span>
                       }
                     } @else {
                       <span style="color:var(--text-muted)">—</span>
@@ -229,7 +229,7 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
                       <span class="badge badge-blue" style="font-style:italic;">{{ 'spaces.badge.allSpaces' | transloco }}</span>
                     } @else if (s.proxyFor?.length) {
                       @for (pid of s.proxyFor; track pid) {
-                        <span class="badge badge-blue" style="margin-right:4px;font-size:11px;">{{ pid }}</span>
+                        <span class="badge badge-blue" style="margin-right:4px">{{ pid }}</span>
                       }
                     } @else { <span style="color:var(--text-muted)">—</span> }
                   </td>

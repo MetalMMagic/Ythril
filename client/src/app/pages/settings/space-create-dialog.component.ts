@@ -65,7 +65,7 @@ import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
                     <tr style="cursor:pointer;" [class.text-muted]="proxyForAll" (click)="!proxyForAll && toggleProxyFor(s.id)">
                       <td style="text-align:center;"><input type="checkbox" [checked]="proxyForAll || isProxyForSelected(s.id)" [disabled]="proxyForAll" (click)="$event.stopPropagation()" (change)="!proxyForAll && toggleProxyFor(s.id)" /></td>
                       <td>{{ s.label }}</td>
-                      <td><span class="badge badge-gray mono" style="font-size:11px;">{{ s.id }}</span></td>
+                      <td><span class="badge badge-gray mono">{{ s.id }}</span></td>
                     </tr>
                   }
                 </tbody>

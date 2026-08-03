@@ -182,6 +182,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The audit log's two date filters rendered WHITE — a regression from the previous PR, caught by looking.**
+  #659 removed a component override that had been styling `input[type=datetime-local]`, and the global input rule's
+  selector list never covered that type, so both filters fell through to the browser default: white background,
+  black text, in a dark admin UI.
+  - The list now covers every type the product renders — `url`, `tel`, `datetime-local`, `date`, `time`, `month`,
+    `week` — in **both** the base rule and the `:focus` rule, because a type styled but not focus-styled loses its
+    focus ring, which is an accessibility regression rather than a cosmetic one.
+  - **The drift sweep had the same blind spot**, which is why it reported "one signature" while two inputs were
+    white: its selector list was the same four types as the CSS. The measurement and the thing it measures must not
+    share a gap. It now measures every type, and reports the datetime fields at 34px — 2px taller because a native
+    picker has intrinsic content, which is a browser fact rather than drift.
+
+- **One pill shape, and the badge colours follow their tokens.** `.badge` is the class version of
+  `app-status-pill`, and it measured differently: `border-radius: 20px` against `999px`, 11px type against 11.5px,
+  8px padding against 9px — three badges at 22/24/24px beside a 23px pill on the same screens.
+  - Aligned to the component. **20 inline `font-size` declarations** across 10 files were also removed: an inline
+    style beats the class, so every call site had been quietly re-deciding the size of a shared control.
+  - `.badge-green/-yellow/-red/-blue` hardcoded the semantic hexes (`#3fb950`, `#d29922`, …) instead of mixing from
+    `--success`/`--warning`/`--error`/`--info` — the same defect #637 fixed in the pill, where a hardcoded literal
+    stops following its token.
+  - **`.mono` no longer sets a size.** `font-size: 0.85em` made a typeface switch double as a size multiplier, so
+    `.badge.mono` measured **11.05px** — a number nobody chose, produced by the cascade, and winning over `.badge`
+    only because `.mono` is declared later. `1em` was tried first and was worse (it resolves against the parent:
+    13px); removing the declaration is the fix. Both attempts were measured, which is the only reason the second
+    was caught.
+
 - **One input and one small button, everywhere.** The drift the new sweep measured is fixed, on the owner's call.
   - **Inputs: 4 distinct computed signatures → 1.** Every input is now **32px** on `--bg-primary` with
     `var(--radius-sm)` and 13px type, decided in one place — the global rule in `styles.scss`. Three component

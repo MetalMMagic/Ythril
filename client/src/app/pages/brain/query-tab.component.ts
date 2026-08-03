@@ -220,13 +220,13 @@ import { BrainStore } from './brain-store.service';
                     @if (g.file; as f) {
                       <!-- A grouped document: name the FILE once, then say where inside it matched. -->
                       <div style="display:flex; gap:8px; margin-bottom:4px; align-items:center; flex-wrap:wrap;">
-                        <span class="badge badge-purple" style="font-size:10px;">file</span>
+                        <span class="badge badge-purple">file</span>
                         <strong style="font-size:12px; word-break:break-all;">{{ f.path }}</strong>
                         @if (g.score != null) {
                           <span style="font-size:11px; color:var(--text-muted);">{{ 'common.score' | transloco }}: {{ g.score.toFixed(3) }}</span>
                         }
                         @if (g.hitCount > 1) {
-                          <span class="badge" style="font-size:10px;">{{ 'brain.query.passages' | transloco: { count: g.hitCount } }}</span>
+                          <span class="badge">{{ 'brain.query.passages' | transloco: { count: g.hitCount } }}</span>
                         }
                       </div>
                       @if (f.description) {
@@ -251,7 +251,7 @@ import { BrainStore } from './brain-store.service';
                       </ul>
                     } @else {
                       <div style="display:flex; gap:8px; margin-bottom:4px; align-items:center;">
-                        <span class="badge badge-purple" style="font-size:10px;">{{ g.hits[0].type }}</span>
+                        <span class="badge badge-purple">{{ g.hits[0].type }}</span>
                         @if (g.score != null) {
                           <span style="font-size:11px; color:var(--text-muted);">{{ 'common.score' | transloco }}: {{ g.score.toFixed(3) }}</span>
                         }

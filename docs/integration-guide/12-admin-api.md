@@ -309,6 +309,28 @@ Content-Type: application/json
 
 Trigger an immediate point-in-time dump of the entire MongoDB database. The backup is written to `<data-root>/backups/<ISO-timestamp>/` and contains a `manifest.json` plus one NDJSON file per collection.
 
+> **A backup is an unencrypted copy of everything, and `requireEncryptedAtRest` does not cover it.**
+>
+> The dump is written by reading *through* `mongod`, so it comes out **decrypted**: every memory, entity, edge,
+> chrono entry, file-meta record and audit entry, as plaintext NDJSON on the data volume. If you followed
+> [Encryption at Rest](02-hosting.md#encryption-at-rest) and gave the instance a master key, that covers the app's
+> four state files — `config.json`, `secrets.json`, `schema-library.json`, `schema-catalogs.json`. It does not
+> cover this, and neither does running against an encrypted `mongod`.
+>
+> Ythril writes the dump directory `0700` and each NDJSON file `0600`, so it is not readable by other users on the
+> host. Beyond that the protection is yours to arrange:
+>
+> - treat `<data-root>/backups/` as sensitive as the database itself — it *is* the database;
+> - the **offsite** copy is usually a mounted share, and `<destRoot>/<backupId>-files/` additionally contains every
+>   uploaded file verbatim. Ythril creates those directories `0700` too, but a network filesystem may not honour
+>   POSIX modes at all — encrypt the volume or the transport;
+> - a dump you download is plaintext from the moment it leaves the instance.
+>
+> This is stated rather than fixed because whether Ythril should *encrypt* dumps with the master key is a real
+> trade-off: it would make a backup unrestorable without that key, which is either the point or a foot-gun
+> depending on why you are taking it. Until that is decided, the honest thing is to say what the current behaviour
+> is.
+
 When `YTHRIL_DB_MIGRATION_ENABLED=true` and a `backup.json` config file is present, this endpoint also:
 
 - Copies the backup (plus `<data-root>/files/`) to the configured `offsite.destPath`

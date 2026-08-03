@@ -146,4 +146,33 @@ describe('every vendored client asset is attributed', () => {
     assert.ok(csp, 'could not find the CSP header value in server/src/app.ts');
     assert.match(csp[0], /font-src 'self'/, "the CSP header must carry font-src 'self'");
   });
+
+  it('every place that quotes the CSP quotes the SAME one', () => {
+    // Adding the directive broke an integration test that pins the header by equality — correctly, and it also
+    // turned up THREE docs pages quoting the full policy verbatim. A header that is written out in five places
+    // drifts in four of them, and a reader who checks the docs against a running instance finds a mismatch and
+    // does not know which is wrong.
+    //
+    // So the source is the source, and everything that quotes it must quote it whole and identically.
+    const app = read('server/src/app.ts');
+    const directives = app.match(/`frame-ancestors \$\{frameAncestorsDirective\(\)\}([^`]*)`/);
+    assert.ok(directives, 'could not parse the CSP directive tail from server/src/app.ts');
+    const tail = directives[1].trim();           // "; object-src 'none'; base-uri 'self'; font-src 'self'"
+    assert.ok(tail.length > 20, `the parsed CSP tail looks wrong: ${JSON.stringify(tail)}`);
+
+    const quoters = [
+      'testing/integration/setup.test.js',
+      'docs/integration-guide/02-hosting.md',
+      'docs/integration-guide/15-about-and-embedding.md',
+      'docs/integration-guide/17-quotas-pagination-oidc.md',
+    ];
+    const stale = [];
+    for (const f of quoters) {
+      const text = read(f);
+      // Each quoter writes `frame-ancestors …` followed by the same directive tail. Normalise whitespace only.
+      if (!text.replace(/\s+/g, ' ').includes(tail.replace(/\s+/g, ' '))) stale.push(f);
+    }
+    assert.deepEqual(stale, [], 'these quote the CSP but not the current directive set. The header in '
+      + `server/src/app.ts ends with:\n  ${tail}\n\nStale:\n  ${stale.join('\n  ')}`);
+  });
 });

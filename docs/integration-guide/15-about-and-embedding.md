@@ -161,7 +161,7 @@ The resolved allowlist is logged at startup, and is served to the SPA on `/api/t
 - `cssUrl` is restricted to HTTPS (except `localhost` for development).
 - `postMessage` origin must be `self` **or** an operator-allowlisted origin.
 - Only CSS custom properties (`--*`) are applied from runtime tokens.
-- `Content-Security-Policy: frame-ancestors 'self' <allowlisted origins…>; object-src 'none'; base-uri 'self'` — with no allowlist this is `'self'` only, blocking cross-origin embedding, plugin injection, and base-tag hijacking.
+- `Content-Security-Policy: frame-ancestors 'self' <allowlisted origins…>; object-src 'none'; base-uri 'self'; font-src 'self'` — with no allowlist `frame-ancestors` is `'self'` only, blocking cross-origin embedding, plugin injection and base-tag hijacking; `font-src 'self'` keeps the UI's typeface on the instance rather than a CDN.
 
 ---
 

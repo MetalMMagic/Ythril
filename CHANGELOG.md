@@ -91,6 +91,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Verified on a running instance with **every off-origin request blocked**: Inter loads and is actually used
     (measured 878 px against a 950 px forced fallback — a claim of `font-family: Inter` alone would prove nothing),
     and **zero off-origin requests were attempted**. Before this change there would have been three.
+  - **Adding one CSP directive turned up four places quoting the whole policy verbatim** — an integration test
+    pinning it by equality (which caught the change, correctly) and three integration-guide pages. A header written
+    out in five places drifts in four of them, and a reader checking the docs against a running instance cannot tell
+    which is wrong. The gate now parses the directive tail out of `app.ts` and asserts every quoter carries it
+    whole; proven by deleting the directive from one doc and watching it go red.
   - Gate `no-external-assets`, mutation-tested **11/11**: nine ways to reintroduce the leak caught (a stylesheet
     link, a preconnect, a remote script, a remote `@import`, a remote `@font-face` src, the CSP directive removed,
     the NOTICE entry removed, the upstream version dropped, the provenance section deleted) and two comments

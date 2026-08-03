@@ -67,9 +67,18 @@ describe('Security headers', () => {
     assert.equal(r.headers.get('x-content-type-options'), 'nosniff');
   });
 
-  it('Content-Security-Policy: frame-ancestors self is set', async () => {
+  it('Content-Security-Policy is exactly the expected directive set', async () => {
+    // Pinned by EQUALITY, not by substring, and deliberately so: a substring check would pass while a directive
+    // was silently dropped, and every one of these is load-bearing. `font-src 'self'` is the newest — the client
+    // used to fetch its typeface from a CDN, and nothing here stopped it.
+    //
+    // The cost is that an intentional change edits this line. That is the right cost for a security header: it
+    // makes adding or removing a directive a visible decision rather than a side effect.
     const r = await fetch(`${INSTANCES.a}/health`);
-    assert.equal(r.headers.get('content-security-policy'), "frame-ancestors 'self'; object-src 'none'; base-uri 'self'");
+    assert.equal(
+      r.headers.get('content-security-policy'),
+      "frame-ancestors 'self'; object-src 'none'; base-uri 'self'; font-src 'self'",
+    );
   });
 
   it('Referrer-Policy: no-referrer is set', async () => {

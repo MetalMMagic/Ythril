@@ -75,6 +75,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The form-mutator gate now exists too — the last of the two deferred ones.** The Media Processing page arms its
+  dirty state from **one delegated `(input)`/`(change)` listener**, which covers a human typing in a field and
+  cannot cover a method that writes the form itself. `setMode()` did not mark the form touched, so
+  `pipeDirty('pipe-documents')` stayed false and the Documents pipeline's **Save button was never rendered** — a
+  canary operator had a verify model configured and resident with no way to reach the level it needs, and nothing
+  errored. `setCeiling()` already did it right and `models-tab` carried the same warning verbatim: **the trap was
+  documented in two places and missed in the third.**
+  - The first attempt was mis-scoped, which is why it did not ship: the mutator is in a state service and the flag
+    is set by a listener on the component, so a check reading one file cannot see the pair. The rule that *is*
+    checkable in one file is also the one that matters — inside the state service, a method that assigns into
+    `this.form` must set `touched` in the same method, because a programmatic write is exactly what the listener
+    misses. A loader that explicitly clears the flag is the stated exemption.
+  - **The write detector self-tests first**, on both shapes: `this.form.x = 1` is a write, `const y = this.form.x`
+    and `if (this.form.a !== b)` are not. Getting that backwards makes the gate either silent or unbearable. It
+    also brace-matches method bodies, after a first parse let one method's body leak into the next.
+  - The gate also asserts the delegated listener still exists — it is the other half of the contract, and without
+    it the narrow rule would be the wrong rule.
+  - **Mutation-tested 7/7 in both directions:** the original blocker restored, a new unmarked mutator, both
+    listeners removed, the explanatory note deleted — all caught; three reader-only methods — none flagged.
+
 - **The doc-link gate that was specified but not shipped now exists, and is trustworthy.** Four broken
   cross-references were fixed in the previous batch after a canary operator found one by enumerating the ingested
   chunks of the target file and noticing no chunk carried the heading — they read our docs *into* Ythril, so a

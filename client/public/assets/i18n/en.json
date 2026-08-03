@@ -857,6 +857,8 @@
   "spaces.create.strictLinkage": "Strict linkage",
   "spaces.create.submitButton": "Create",
   "spaces.popup.tab.settings": "Settings",
+  "spaces.schema.collTabsAriaLabel": "Record collections",
+  "spaces.settings.tabsAriaLabel": "Space settings sections",
 
   "spaces.popup.governed": "Governed",
 

@@ -90,8 +90,8 @@ import { TranslocoPipe } from '@jsverse/transloco';
     } @else {
       <div class="props-wrap">
         <div class="props-toggle">
-          <button [class.active]="mode() === 'table'" (click)="mode.set('table')">{{ 'propertiesView.tableButton' | transloco }}</button>
-          <button [class.active]="mode() === 'json'" (click)="mode.set('json')">{{ 'propertiesView.jsonButton' | transloco }}</button>
+          <button [class.active]="mode() === 'table'" [attr.aria-pressed]="mode() === 'table'" (click)="mode.set('table')">{{ 'propertiesView.tableButton' | transloco }}</button>
+          <button [class.active]="mode() === 'json'" [attr.aria-pressed]="mode() === 'json'" (click)="mode.set('json')">{{ 'propertiesView.jsonButton' | transloco }}</button>
         </div>
         @if (mode() === 'table') {
           <table class="props-table">

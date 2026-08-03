@@ -186,7 +186,7 @@ interface Step {
         <div class="knobs-h">{{ 'mediaProcessing.pipelines.extractionMode' | transloco }}</div>
         <div class="modeseg" role="group" [attr.aria-label]="'mediaProcessing.pipelines.extractionMode' | transloco">
           @for (m of s.MODES; track m) {
-            <button type="button" [class.on]="s.docMode() === m" (click)="s.setMode(m)" [disabled]="s.managed">
+            <button type="button" [class.on]="s.docMode() === m" [attr.aria-pressed]="s.docMode() === m" (click)="s.setMode(m)" [disabled]="s.managed">
               {{ 'mediaProcessing.mode.' + m | transloco }}
             </button>
           }
@@ -275,7 +275,7 @@ interface Step {
                    document extraction mode — one control vocabulary across all of them. -->
               <div class="modeseg" role="group" [attr.aria-label]="'mediaProcessing.class.' + c.cls | transloco">
                 @for (rung of c.ladder; track rung) {
-                  <button type="button" [class.on]="ceilingOf(c.cls) === rung" (click)="setCeiling(c.cls, rung)"
+                  <button type="button" [class.on]="ceilingOf(c.cls) === rung" [attr.aria-pressed]="ceilingOf(c.cls) === rung" (click)="setCeiling(c.cls, rung)"
                     [disabled]="rungDisabled(c.cls, rung, p.steps)">
                     {{ 'mediaProcessing.level.' + rung | transloco }}
                   </button>

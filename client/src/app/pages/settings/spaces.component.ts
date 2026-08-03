@@ -71,11 +71,11 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
             }
             <button class="icon-btn" [attr.aria-label]="'common.close' | transloco" (click)="attemptClose()"><ph-icon name="x" [size]="14"/></button>
           </div>
-          <div class="sp-tabs">
-            <button class="sp-tab" [class.active]="state.settingsTab()==='settings'" (click)="state.settingsTab.set('settings')">{{ 'spaces.popup.tab.settings' | transloco }}</button>
-            <button class="sp-tab" [class.active]="state.settingsTab()==='schema'"   (click)="state.settingsTab.set('schema')">{{ 'spaces.popup.tab.schema' | transloco }}</button>
-            <button class="sp-tab" [class.active]="state.settingsTab()==='duplicates'" (click)="state.settingsTab.set('duplicates')">{{ 'spaces.popup.tab.duplicates' | transloco }}</button>
-            <button class="sp-tab danger-tab" [class.active]="state.settingsTab()==='danger'" (click)="state.settingsTab.set('danger')">{{ 'spaces.popup.tab.dangerZone' | transloco }}</button>
+          <div class="sp-tabs" role="tablist" [attr.aria-label]="'spaces.settings.tabsAriaLabel' | transloco">
+            <button class="sp-tab" [class.active]="state.settingsTab()==='settings'" [attr.aria-selected]="state.settingsTab()==='settings'" role="tab" (click)="state.settingsTab.set('settings')">{{ 'spaces.popup.tab.settings' | transloco }}</button>
+            <button class="sp-tab" [class.active]="state.settingsTab()==='schema'" [attr.aria-selected]="state.settingsTab()==='schema'" role="tab"   (click)="state.settingsTab.set('schema')">{{ 'spaces.popup.tab.schema' | transloco }}</button>
+            <button class="sp-tab" [class.active]="state.settingsTab()==='duplicates'" [attr.aria-selected]="state.settingsTab()==='duplicates'" role="tab" (click)="state.settingsTab.set('duplicates')">{{ 'spaces.popup.tab.duplicates' | transloco }}</button>
+            <button class="sp-tab danger-tab" [class.active]="state.settingsTab()==='danger'" [attr.aria-selected]="state.settingsTab()==='danger'" role="tab" (click)="state.settingsTab.set('danger')">{{ 'spaces.popup.tab.dangerZone' | transloco }}</button>
           </div>
           <div class="sp-body">
 
@@ -148,16 +148,16 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
             class="space-search-input"
             [placeholder]="'spaces.table.search.placeholder' | transloco" />
           <div class="sort-group" [attr.aria-label]="'spaces.table.sortLabel' | transloco">
-            <button class="sort-btn" [class.active]="sortMode()==='custom'" (click)="sortMode.set('custom')" [attr.title]="'spaces.table.sort.custom' | transloco">⠿</button>
-            <button class="sort-btn" [class.active]="sortMode()==='az'" (click)="sortMode.set('az')" [attr.title]="'spaces.table.sort.az' | transloco">A→Z</button>
-            <button class="sort-btn" [class.active]="sortMode()==='za'" (click)="sortMode.set('za')" [attr.title]="'spaces.table.sort.za' | transloco">Z→A</button>
-            <button class="sort-btn" [class.active]="sortMode()==='usage-desc'" (click)="sortMode.set('usage-desc')" [attr.title]="'spaces.table.sort.usageDesc' | transloco">↓ GiB</button>
-            <button class="sort-btn" [class.active]="sortMode()==='usage-asc'" (click)="sortMode.set('usage-asc')" [attr.title]="'spaces.table.sort.usageAsc' | transloco">↑ GiB</button>
+            <button class="sort-btn" [class.active]="sortMode()==='custom'" [attr.aria-pressed]="sortMode()==='custom'" (click)="sortMode.set('custom')" [attr.title]="'spaces.table.sort.custom' | transloco">⠿</button>
+            <button class="sort-btn" [class.active]="sortMode()==='az'" [attr.aria-pressed]="sortMode()==='az'" (click)="sortMode.set('az')" [attr.title]="'spaces.table.sort.az' | transloco">A→Z</button>
+            <button class="sort-btn" [class.active]="sortMode()==='za'" [attr.aria-pressed]="sortMode()==='za'" (click)="sortMode.set('za')" [attr.title]="'spaces.table.sort.za' | transloco">Z→A</button>
+            <button class="sort-btn" [class.active]="sortMode()==='usage-desc'" [attr.aria-pressed]="sortMode()==='usage-desc'" (click)="sortMode.set('usage-desc')" [attr.title]="'spaces.table.sort.usageDesc' | transloco">↓ GiB</button>
+            <button class="sort-btn" [class.active]="sortMode()==='usage-asc'" [attr.aria-pressed]="sortMode()==='usage-asc'" (click)="sortMode.set('usage-asc')" [attr.title]="'spaces.table.sort.usageAsc' | transloco">↑ GiB</button>
             <!-- Two orderings, because "useful" has two halves. Busiest finds the load; worst-answered finds
                  the content gap — a space fielding questions and returning nothing, which is invisible in
                  every other column on this page. -->
-            <button class="sort-btn" [class.active]="sortMode()==='calls-desc'" (click)="sortMode.set('calls-desc')" [attr.title]="'spaces.table.sort.callsDesc' | transloco">↓ {{ 'spaces.table.sort.callsShort' | transloco }}</button>
-            <button class="sort-btn" [class.active]="sortMode()==='answers-asc'" (click)="sortMode.set('answers-asc')" [attr.title]="'spaces.table.sort.answersAsc' | transloco">↑ {{ 'spaces.table.sort.answersShort' | transloco }}</button>
+            <button class="sort-btn" [class.active]="sortMode()==='calls-desc'" [attr.aria-pressed]="sortMode()==='calls-desc'" (click)="sortMode.set('calls-desc')" [attr.title]="'spaces.table.sort.callsDesc' | transloco">↓ {{ 'spaces.table.sort.callsShort' | transloco }}</button>
+            <button class="sort-btn" [class.active]="sortMode()==='answers-asc'" [attr.aria-pressed]="sortMode()==='answers-asc'" (click)="sortMode.set('answers-asc')" [attr.title]="'spaces.table.sort.answersAsc' | transloco">↑ {{ 'spaces.table.sort.answersShort' | transloco }}</button>
           </div>
           <button class="btn-primary btn btn-sm" (click)="showCreateDialog.set(true)">{{ 'spaces.table.createButton' | transloco }}</button>
           <button class="btn-secondary btn btn-sm" (click)="store.load()">{{ 'spaces.table.refreshButton' | transloco }}</button>

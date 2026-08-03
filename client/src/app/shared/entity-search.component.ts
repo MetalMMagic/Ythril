@@ -207,8 +207,8 @@ import { TranslocoPipe } from '@jsverse/transloco';
       />
       @if (mode !== 'bar' || showModeToggle) {
         <div class="pill-group" [attr.title]="'common.searchMode.tooltip' | transloco">
-          <button type="button" [class.active]="searchMode() === 'name'"     (click)="setMode('name')">{{ 'common.sortAZ' | transloco }}</button>
-          <button type="button" [class.active]="searchMode() === 'semantic'" (click)="setMode('semantic')">{{ 'entitySearch.semantic' | transloco }}</button>
+          <button type="button" [class.active]="searchMode() === 'name'" [attr.aria-pressed]="searchMode() === 'name'"     (click)="setMode('name')">{{ 'common.sortAZ' | transloco }}</button>
+          <button type="button" [class.active]="searchMode() === 'semantic'" [attr.aria-pressed]="searchMode() === 'semantic'" (click)="setMode('semantic')">{{ 'entitySearch.semantic' | transloco }}</button>
         </div>
       }
       @if (mode === 'bar' && displayValue()) {

@@ -857,6 +857,8 @@
   "spaces.create.strictLinkage": "Ścisłe powiązanie",
   "spaces.create.submitButton": "Tworzyć",
   "spaces.popup.tab.settings": "Ustawienia",
+  "spaces.schema.collTabsAriaLabel": "Kolekcje rekordów",
+  "spaces.settings.tabsAriaLabel": "Sekcje ustawień przestrzeni",
 
   "spaces.popup.governed": "Zarządzany",
 

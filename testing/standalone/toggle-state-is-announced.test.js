@@ -33,18 +33,16 @@ import { join } from 'node:path';
 /**
  * Known gaps, by path, with the exact number of buttons still missing an ARIA state.
  *
+ * **Empty, and it should stay that way.** The 25 entries this list was created with are all fixed, so the debt
+ * existed for exactly one PR — which is what an allowlist is for. Every assertion below now runs with nothing to
+ * forgive: a new state-bearing button anywhere in the client must announce itself or the build fails.
+ *
+ * If an entry is ever added back it needs a reason in the PR that adds it and a plan to remove it. A permanent entry
+ * is indistinguishable from the gate not existing.
+ *
  * Keyed on the full path, not the basename: two different components are called `schema-library.component.ts`.
  */
-const KNOWN_GAPS = {
-  'client/src/app/pages/settings/spaces.component.ts': 11,
-  'client/src/app/pages/settings/space-schema-tab.component.ts': 4,
-  'client/src/app/pages/schema-library/schema-library.component.ts': 2,
-  'client/src/app/pages/settings/media-processing/pipelines-tab.component.ts': 2,
-  'client/src/app/shared/entity-search.component.ts': 2,
-  'client/src/app/shared/properties-view.component.ts': 2,
-  'client/src/app/pages/brain/brain.component.ts': 1,
-  'client/src/app/pages/settings/preferences.component.ts': 1,
-};
+const KNOWN_GAPS = {};
 
 function clientSources(dir = join('client', 'src', 'app'), out = []) {
   for (const entry of readdirSync(dir)) {
@@ -106,10 +104,12 @@ describe('no NEW control conveys its state by CSS alone', () => {
       + `says:\n  ${stale.join('\n  ')}`);
   });
 
-  it('the remaining debt is going DOWN', () => {
-    // A single number, checked, so "we will get to it" cannot drift upward unnoticed.
-    const total = Object.values(gaps()).reduce((a, b) => a + b, 0);
-    assert.ok(total <= 25, `${total} controls still convey state by CSS alone; the recorded ceiling is 25`);
+  it('there is no remaining debt at all', () => {
+    // Was `<= 25` for exactly one PR. Now zero: every state-bearing control in the client announces its state.
+    const now = gaps();
+    const total = Object.values(now).reduce((a, b) => a + b, 0);
+    const detail = Object.entries(now).map(([f, n]) => `${f}: ${n}`).join('\n  ');
+    assert.equal(total, 0, `${total} control(s) convey state by CSS alone:\n  ${detail}`);
   });
 });
 

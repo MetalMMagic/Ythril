@@ -180,7 +180,7 @@ interface SpaceView {
         @for (sv of spaces(); track sv.space.id) {
           <button
             class="space-chip"
-            [class.active]="activeSpaceId() === sv.space.id"
+            [class.active]="activeSpaceId() === sv.space.id" [attr.aria-current]="activeSpaceId() === sv.space.id ? 'true' : null"
             [title]="sv.space.label + ' (' + sv.space.id + ')'"
             (click)="selectSpace(sv.space.id)"
           >

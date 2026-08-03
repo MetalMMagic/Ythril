@@ -112,6 +112,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The other 25 controls now announce their state too, so the allowlist is empty.** Completes the previous entry in
+  one more pass rather than leaving the debt to age.
+  - The attribute was chosen **per group**, not swept in: `aria-selected` (with `role="tablist"`/`role="tab"`) for the
+    two real tab strips — space settings and the schema collection tabs; **`aria-current`** for the Brain space chips
+    and the language buttons, where exactly one of a set is current; **`aria-pressed`** for segmented mode switches,
+    the seven sort selectors and the filter toggles, which are genuinely two-state.
+  - Getting that wrong in the easy direction — `aria-pressed` everywhere — would tell a screen reader that several
+    spaces or languages are simultaneously pressed, which is worse than saying nothing.
+  - `KNOWN_GAPS` in the gate is now `{}`, and the ceiling assertion is an exact **zero** rather than `<= 25`. The gate
+    already refused to let a fixed file linger in the list, so emptying it was forced rather than optional — which is
+    the behaviour that keeps an allowlist from quietly becoming permanent.
+
 - **39 controls showed their selected state and announced nothing; 3 did it properly.** Fourth finding of the
   Accessibility lens. On the Brain page — the product's primary navigation — **none of the eight tabs was marked
   selected**, so which view you were on was visible and unannounced.

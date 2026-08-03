@@ -154,20 +154,20 @@ const SCHEMA_MD_STYLES = `
   <span style="font-size:11px;color:var(--text-muted);margin-left:4px;">{{ 'spaces.schema.autoSyncHint' | transloco }}</span>
 </div>
 <!-- collection tabs -->
-<div class="sch-coll-tabs">
-  <button class="sch-coll-tab" [class.active]="state.schemaCollTab()==='entity'" (click)="state.schemaCollTab.set('entity');schImportError.set('');schImportInfo.set('')">
+<div class="sch-coll-tabs" role="tablist" [attr.aria-label]="'spaces.schema.collTabsAriaLabel' | transloco">
+  <button class="sch-coll-tab" [class.active]="state.schemaCollTab()==='entity'" [attr.aria-selected]="state.schemaCollTab()==='entity'" role="tab" (click)="state.schemaCollTab.set('entity');schImportError.set('');schImportInfo.set('')">
     {{ 'spaces.schema.tab.entities' | transloco }}
     @if (state.typeCount('entity')) { <span class="sch-cnt-badge">{{ state.typeCount('entity') }}</span> }
   </button>
-  <button class="sch-coll-tab" [class.active]="state.schemaCollTab()==='edge'" (click)="state.schemaCollTab.set('edge');schImportError.set('');schImportInfo.set('')">
+  <button class="sch-coll-tab" [class.active]="state.schemaCollTab()==='edge'" [attr.aria-selected]="state.schemaCollTab()==='edge'" role="tab" (click)="state.schemaCollTab.set('edge');schImportError.set('');schImportInfo.set('')">
     {{ 'spaces.schema.tab.edges' | transloco }}
     @if (state.typeCount('edge')) { <span class="sch-cnt-badge">{{ state.typeCount('edge') }}</span> }
   </button>
-  <button class="sch-coll-tab" [class.active]="state.schemaCollTab()==='memory'" (click)="state.schemaCollTab.set('memory');schImportError.set('');schImportInfo.set('')">
+  <button class="sch-coll-tab" [class.active]="state.schemaCollTab()==='memory'" [attr.aria-selected]="state.schemaCollTab()==='memory'" role="tab" (click)="state.schemaCollTab.set('memory');schImportError.set('');schImportInfo.set('')">
     {{ 'spaces.schema.tab.memories' | transloco }}
     @if (state.typeCount('memory')) { <span class="sch-cnt-badge">{{ state.typeCount('memory') }}</span> }
   </button>
-  <button class="sch-coll-tab" [class.active]="state.schemaCollTab()==='chrono'" (click)="state.schemaCollTab.set('chrono');schImportError.set('');schImportInfo.set('')">
+  <button class="sch-coll-tab" [class.active]="state.schemaCollTab()==='chrono'" [attr.aria-selected]="state.schemaCollTab()==='chrono'" role="tab" (click)="state.schemaCollTab.set('chrono');schImportError.set('');schImportInfo.set('')">
     {{ 'spaces.schema.tab.chrono' | transloco }}
     @if (state.typeCount('chrono')) { <span class="sch-cnt-badge">{{ state.typeCount('chrono') }}</span> }
   </button>

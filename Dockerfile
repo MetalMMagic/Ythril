@@ -107,6 +107,24 @@ RUN --mount=type=cache,target=/tmp/hf-model-cache \
     chown -R node:node /app/model-cache && \
     find /app/model-cache -exec touch -h -d '@1' {} +
 
+# No model may be fetched at RUN TIME. Set after the warm step above, which is the one place a download
+# is legitimate — it happens on a build machine, once, and its result is what ships.
+#
+# `env.allowRemoteModels` defaults to TRUE in @huggingface/transformers, so before this a cache MISS
+# silently downloaded from huggingface.co: the instance's IP and the model id it asked for, to a third
+# party, with no configuration, from an image whose README says "works fully offline". Exactly one model
+# is baked in, so every other id — and every id at all on an install with an empty cache — was that request.
+#
+# `HF_HUB_OFFLINE` is the ecosystem's name for this and is already set on the `unstructured` sidecar in
+# docker-compose.yml, for the same reason. transformers.js does not read it (it is Python's), so
+# `brain/embedding.ts` maps it onto `env.allowRemoteModels` itself.
+#
+# This cannot break the bundled model: transformers.js consults its FileCache BEFORE deciding local vs
+# remote, so the baked `/app/model-cache` satisfies the load. Verified against a real populated cache —
+# the default model loads with remote fetching disabled; a model that is NOT baked fails with a message
+# naming this flag. An operator who deliberately wants a different model sets `HF_HUB_OFFLINE=0`.
+ENV HF_HUB_OFFLINE=1
+
 # Copy compiled output from builder
 COPY --from=builder /build/server/dist ./server/dist
 

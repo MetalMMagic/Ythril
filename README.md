@@ -83,7 +83,7 @@ A single semantic query crosses memories, notes, documents, speech, and pictures
 ## Your data, your rules
 
 - **Self-hosted, `docker compose up`.** No accounts, no per-seat pricing, no data leaving your machine.
-- **Works fully offline.** Bundled local models for embeddings, vision, and speech — plug in OpenAI/Azure/your own endpoints only if you *want* to.
+- **Works fully offline** — and the image *enforces* it. Bundled local models for embeddings, vision and speech; runtime model downloads are switched off (`HF_HUB_OFFLINE=1`), so a cache miss fails loudly instead of quietly fetching from `huggingface.co`. Plug in OpenAI/Azure/your own endpoints only if you *want* to.
 - **Never trains on your knowledge.** It's a database you run, not a service that mines you.
 - **Enterprise-grade security out of the box** — OIDC/SSO, optional MFA, an immutable audit log, per-token scopes, and aggressive SSRF/injection hardening. [Details ↓](#-under-the-hood)
 

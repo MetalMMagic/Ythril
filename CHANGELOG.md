@@ -75,6 +75,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **"Works fully offline" was an assertion, and a cache miss quietly downloaded from `huggingface.co`.** Found by
+  the Privacy audit lens. `env.allowRemoteModels` defaults to **`true`** in `@huggingface/transformers`, and
+  `brain/embedding.ts` set `env.cacheDir` and nothing else — so loading a model that was not in that cache fetched
+  it from the hub: **this instance's IP address and the model id it asked for, to a third party**, with no
+  configuration, no log line, and no mention in any document. The image bakes exactly one model, so every other id
+  — and any id at all on a from-source install with an empty cache — was that request.
+  - **The same failure had already been found once, for the other language.** `docker-compose.yml` sets
+    `HF_HUB_OFFLINE: "1"` on the `unstructured` sidecar with a long comment explaining that `huggingface_hub` calls
+    the hub even for models baked into the image. Nobody connected it to the Node process — which is the one making
+    the offline claim, and which does not read that variable at all, because it belongs to Python.
+  - **The flag is honoured now**: `HF_HUB_OFFLINE`, `TRANSFORMERS_OFFLINE` or `YTHRIL_MODELS_OFFLINE` maps onto
+    `env.allowRemoteModels`, and **the published image sets it** — after the build-time warm step, which is the one
+    place a download belongs.
+  - **A miss that is still allowed announces itself before it happens**, naming the host, the model and the size,
+    so the egress appears in the log rather than only in a packet capture.
+  - **A blocked miss explains itself in Ythril's terms.** The library's own message names a
+    `node_modules/@huggingface/transformers/models/…` path that has nothing to do with where Ythril keeps models;
+    the loader rewrites it to name `MODEL_CACHE_DIR`, the flag, and how to bake a model in.
+  - **This cannot break the bundled model, and that was measured rather than argued.** `getModelFile` consults its
+    `FileCache` *before* deciding local-versus-remote. Against a real 523 MB cache: the baked model loaded with
+    remote fetching disabled; a model that was not baked failed with the rewritten error; and with the flag unset
+    the warning appeared before the download. All three verified against the compiled loader.
+  - `README.md` and a new **Runtime Model Downloads** section in `02-hosting.md` now state the mechanism, what a
+    miss reveals, and how to populate a cache for a different model without opening the egress.
+  - Gate `no-runtime-model-egress`, mutation-tested **10/10**, including that the warning stays *before* the load
+    and that the image sets the flag *after* the warm step.
+
+### Changed
+
+- **`env-var-docs-coverage` caught its own exemption going stale.** `HF_HUB_OFFLINE` was listed as "a third-party
+  library's env, set in a sidecar image" — true when written, false once the app read it. The fix was a documented
+  setting, not a wider allowlist.
+- **`models-are-attributed` no longer mistakes a source path for a model.** `brain/embedding.ts` matched its
+  detector (`…embed…`) and was reported as unattributed model weights. Source-file extensions are excluded, and
+  both shapes are pinned in the detector's own self-test — a false positive is what costs a gate its credibility.
+
 - **A database backup was a world-readable plaintext copy of everything.** Found by the Privacy audit lens.
   `02-hosting.md` has a section called **Encryption at Rest**; it is accurately scoped in its own text (four state
   files) and recommends an encrypted `mongod` for brain data. A backup bypasses the whole arrangement: `dumpDatabase`

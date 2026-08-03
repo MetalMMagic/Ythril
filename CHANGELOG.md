@@ -93,6 +93,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A typo in any numeric setting silently changed behaviour instead of stopping the boot.** Second finding of the
+  Observability & Operability lens. Fifteen settings were read as `Number(process.env[X])` and exactly **one**
+  checked the result, so `8OOO` (letter O), `30_000`, `5s` or a stray space became `NaN` — and `NaN` does not fail.
+  Measured against real Node:
+
+  | a typo in | did | so |
+  |---|---|---|
+  | `SHUTDOWN_DRAIN_MS` | `setTimeout(fn, NaN)` fires after **0 ms** | the graceful drain did not drain |
+  | `MONGO_CONNECT_RETRY_MS` | `elapsed < NaN` is **false** | zero retries; the mongod boot race returned |
+  | `EMBEDDING_DIMENSIONS` | serialises as **`null`** | a vector index with a null dimension |
+  | `RECALL_BUDGET_MS` | every comparison **false** | the recall budget stopped applying |
+
+  - Two of those are guarantees the hosting guide documents, lost without a word. **`PORT` was already safe** —
+    Node refuses `listen(NaN)` — and that is now the behaviour of all of them.
+  - One helper (`config/env-num.ts`) with a **registry** of every numeric setting, its bounds, and what it does.
+    The boot refuses to start and names **every** offender at once, because an operator with two typos should not
+    need two restarts to find them both.
+  - The reader deliberately **does not throw**: several settings are read at module scope, so a throw would happen
+    during import and hand the operator a stack trace from a module they have never heard of instead of the message.
+  - An **empty** value still means "not set" — the usual way to clear a setting in a compose file — and surrounding
+    whitespace is trimmed, so a YAML block scalar cannot break a value.
+  - Gate `numeric-env-is-validated`, mutation-tested **16/16**, including that the registry stays exhaustive: a new
+    raw `Number(process.env[…])` anywhere in the tree fails the build. It caught four weak assertions of its own
+    while being written — among them one that passed with the boot check **commented out**, and one that passed
+    with the description deleted because the word it matched also appears in the variable name.
+
 - **`GET /ready` returned the MongoDB driver's error message verbatim, on a public endpoint.** First finding of the
   Observability & Operability audit lens. `/health` and `/ready` are registered **before every authentication
   middleware** — they have to be, an orchestrator cannot carry a token — so both are reachable by anyone who can

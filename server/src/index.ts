@@ -9,13 +9,14 @@ import { stopBackupScheduler } from './db/backup-scheduler.js';
 import { stopDupeScanner } from './brain/dupe-scanner.js';
 import { cleanupStaleChunks } from './files/chunks.js';
 import { log, redactSecrets } from './util/log.js';
+import { envInt, assertNumericEnvOrExit } from './config/env-num.js';
 
 // Enable debug logging when --debug flag is passed or DEBUG env is already set.
 if (process.argv.includes('--debug')) {
   process.env['DEBUG'] = '1';
 }
 
-const PORT = Number(process.env['PORT'] ?? 3200);
+const PORT = envInt('PORT', 3200);
 
 // ANSI helpers — no-op when stdout is not a TTY (e.g. piped logs)
 const isTTY = process.stdout.isTTY;
@@ -26,6 +27,15 @@ const YELLOW = isTTY ? '\x1b[33m'          : '';
 const RESET  = isTTY ? '\x1b[0m'           : '';
 
 async function main(): Promise<void> {
+  // Before anything else, including reading the config file: a malformed numeric setting stops the boot.
+  //
+  // These used to be `Number(process.env[X])` with no check, so a typo (`8OOO` with letter O, `30_000`, `5s`)
+  // became NaN — and NaN does not fail, it silently changes behaviour. Measured: a NaN `SHUTDOWN_DRAIN_MS` makes
+  // `setTimeout` fire after 0 ms, so the graceful drain does not drain; a NaN `MONGO_CONNECT_RETRY_MS` makes the
+  // retry budget comparison false, so there are zero retries. Both are documented guarantees, lost in silence.
+  // Same choice the at-rest encryption already makes: refuse to start rather than continue wrongly.
+  assertNumericEnvOrExit();
+
   const isFirstRun = !configExists();
 
   if (!isFirstRun) {
@@ -154,7 +164,7 @@ async function main(): Promise<void> {
    * config flush and the Mongo close that follow. Kubernetes' default is 30 s, so this is the tighter
    * of the two constraints; raise `SHUTDOWN_DRAIN_MS` if your orchestrator gives you longer.
    */
-  const DRAIN_MS = Number(process.env['SHUTDOWN_DRAIN_MS'] ?? 8_000);
+  const DRAIN_MS = envInt('SHUTDOWN_DRAIN_MS', 8_000);
 
   /**
    * How long to keep serving after readiness starts reporting false, before the drain begins.
@@ -166,7 +176,7 @@ async function main(): Promise<void> {
    *
    * Comes out of the same budget as DRAIN_MS: both must fit inside the orchestrator's stop grace.
    */
-  const READY_GRACE_MS = Number(process.env['SHUTDOWN_READY_GRACE_MS'] ?? 2_000);
+  const READY_GRACE_MS = envInt('SHUTDOWN_READY_GRACE_MS', 2_000);
 
   let shuttingDown = false;
 

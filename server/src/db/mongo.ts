@@ -3,6 +3,7 @@ import { getMongoUri } from '../config/loader.js';
 import { log } from '../util/log.js';
 import { dbNameFromUri } from './db-name.js';
 import { withJitter } from '../util/backoff.js';
+import { envInt } from '../config/env-num.js';
 
 let _client: MongoClient | null = null;
 let _dbName = 'ythril';
@@ -12,7 +13,7 @@ let _vectorSearchAvailable: boolean | null = null;
 let _vectorSearchDetails = '';
 
 /** Total time the first connection may spend retrying before boot gives up. */
-const CONNECT_RETRY_BUDGET_MS = Number(process.env['MONGO_CONNECT_RETRY_MS'] ?? 30_000);
+const CONNECT_RETRY_BUDGET_MS = envInt('MONGO_CONNECT_RETRY_MS', 30_000);
 
 /**
  * Errors worth retrying: the database is there but not yet able to hold a connection.

@@ -42,6 +42,7 @@ import { getPublicBaseUrl } from '../config/public-url.js';
 import { createOAuthToken, findMatchingToken } from '../auth/tokens.js';
 import { authRateLimit } from '../rate-limit/middleware.js';
 import { log } from '../util/log.js';
+import { envInt } from '../config/env-num.js';
 
 // ── Public base URL / resource identifiers ──────────────────────────────────
 
@@ -72,10 +73,9 @@ const MAX_OAUTH_CLIENTS = 50;
 // abandoned connectors don't leave permanent credentials behind, and the total
 // count is capped as a backstop. Both are overridable via env; a TTL of 0 opts
 // out of expiry (tokens never expire) for operators who need long-lived ones.
-const OAUTH_TOKEN_TTL_DAYS = (() => {
-  const raw = Number(process.env['MCP_OAUTH_TOKEN_TTL_DAYS']);
-  return Number.isFinite(raw) && raw >= 0 ? raw : 90;
-})();
+// Was the ONE numeric setting that validated its own input. It now shares the boot-time check with the other
+// thirteen, so a typo is reported alongside them instead of quietly becoming 90.
+const OAUTH_TOKEN_TTL_DAYS = envInt('MCP_OAUTH_TOKEN_TTL_DAYS', 90);
 const OAUTH_TOKEN_TTL_MS: number | null = OAUTH_TOKEN_TTL_DAYS === 0 ? null : OAUTH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000;
 const MAX_OAUTH_TOKENS = 50;
 

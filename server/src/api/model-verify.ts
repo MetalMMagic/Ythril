@@ -41,6 +41,7 @@ import { createMediaProviders } from '../files/media/providers.js';
 import { embed } from '../brain/embedding.js';
 import { repairMarkdownExternal } from '../files/converters/vlm-client.js';
 import { log } from '../util/log.js';
+import { envInt } from '../config/env-num.js';
 
 export const modelVerifyRouter = Router();
 
@@ -51,7 +52,7 @@ export const modelVerifyRouter = Router();
  * swapping in on a shared GPU took 34.7s in the field; 180s leaves room for a larger model on a busier
  * host without ever making the operator wonder whether the button did anything.
  */
-const VERIFY_TIMEOUT_MS = Number(process.env['MODEL_VERIFY_TIMEOUT_MS'] ?? 180_000);
+const VERIFY_TIMEOUT_MS = envInt('MODEL_VERIFY_TIMEOUT_MS', 180_000);
 
 /**
  * A 1×1 transparent PNG.

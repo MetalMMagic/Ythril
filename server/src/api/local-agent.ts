@@ -10,6 +10,7 @@ import { globalRateLimit } from '../rate-limit/middleware.js';
 import { requireAdminMfa } from '../auth/middleware.js';
 import { log } from '../util/log.js';
 import { isLoopbackHost, LOCAL_AGENT_DEFAULT_URL } from './local-agent-url.js';
+import { envInt } from '../config/env-num.js';
 
 export const localAgentRouter = Router();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -366,7 +367,7 @@ localAgentRouter.post('/enable-networks/execute', globalRateLimit, requireAdminM
     // correct origin into cloudflared config.yml regardless of what port Ythril runs on.
     // YTHRIL_LOCAL_AGENT_ORIGIN overrides this — needed in Docker workstation mode where
     // the container's internal PORT (3200) differs from the host-exposed port (e.g. 3210).
-    const serverPort = Number(process.env['PORT'] ?? 3200);
+    const serverPort = envInt('PORT', 3200);
     const defaultOrigin = process.env['YTHRIL_LOCAL_AGENT_ORIGIN']?.trim()
       || `http://localhost:${serverPort}`;
     const bodyWithOrigin = {

@@ -4,6 +4,7 @@ import { log } from '../util/log.js';
 import type { Config, SecretsFile, SchemaLibraryEntry, SchemaCatalog } from './types.js';
 import { normalizeDocExtractionMode } from './types.js';
 import { resolveMasterSecret, isEnvelope, encryptEnvelope, decryptEnvelope } from './secretbox.js';
+import { envIntOpt } from './env-num.js';
 
 const CONFIG_PATH = process.env['CONFIG_PATH'] ?? '/config/config.json';
 const SECRETS_PATH = path.join(path.dirname(CONFIG_PATH), 'secrets.json');
@@ -791,11 +792,10 @@ export function getEmbeddingConfig() {
   return {
     baseUrl: process.env['EMBEDDING_URL'] ?? base.baseUrl,
     model: process.env['EMBEDDING_MODEL'] ?? base.model ?? 'nomic-ai/nomic-embed-text-v1.5',
-    dimensions: process.env['EMBEDDING_DIMENSIONS'] ? Number(process.env['EMBEDDING_DIMENSIONS']) : (base.dimensions ?? 768),
+    dimensions: envIntOpt('EMBEDDING_DIMENSIONS') ?? base.dimensions ?? 768,
     // Left `undefined` when unset on purpose: `embedConcurrency()` picks a different default per embedder,
     // so a number here would flatten that distinction. Clamping happens there, in one place.
-    embedConcurrency: process.env['EMBEDDING_CONCURRENCY']
-      ? Number(process.env['EMBEDDING_CONCURRENCY']) : base.embedConcurrency,
+    embedConcurrency: envIntOpt('EMBEDDING_CONCURRENCY') ?? base.embedConcurrency,
     similarity: base.similarity ?? ('cosine' as const),
     provider: (process.env['EMBEDDING_PROVIDER'] as 'local' | 'external' | undefined) ?? base.provider ?? 'local',
     // 'auto' resolves to the pre-existing behaviour (see resolvePrefixScheme in brain/embedding.ts), so an
@@ -1160,11 +1160,11 @@ export function getDocumentProcessingConfig(): Required<DocumentProcessingConfig
     maxTotalPages: base.maxTotalPages ?? d.maxTotalPages,
     pageTimeoutMs: base.pageTimeoutMs ?? d.pageTimeoutMs,
     concurrency: base.concurrency ?? d.concurrency,
-    ocrTimeoutMs: process.env['DOC_OCR_TIMEOUT_MS'] ? Number(process.env['DOC_OCR_TIMEOUT_MS']) : (base.ocrTimeoutMs ?? d.ocrTimeoutMs),
+    ocrTimeoutMs: envIntOpt('DOC_OCR_TIMEOUT_MS') ?? base.ocrTimeoutMs ?? d.ocrTimeoutMs,
     // A single-GPU backend that swaps models per request spends the first part of this call LOADING one,
     // which is why it is tunable at all: at 30 s such a host times out on every document and silently keeps
     // extractive text instead.
-    describeTimeoutMs: process.env['DOC_DESCRIBE_TIMEOUT_MS'] ? Number(process.env['DOC_DESCRIBE_TIMEOUT_MS']) : (base.describeTimeoutMs ?? d.describeTimeoutMs),
+    describeTimeoutMs: envIntOpt('DOC_DESCRIBE_TIMEOUT_MS') ?? base.describeTimeoutMs ?? d.describeTimeoutMs,
     vlmModel: process.env['DOC_VLM_MODEL'] ?? base.vlmModel ?? d.vlmModel,
     vlmBaseUrl: process.env['DOC_VLM_URL'] ?? base.vlmBaseUrl ?? d.vlmBaseUrl,
     repairModel: process.env['DOC_REPAIR_MODEL'] ?? base.repairModel ?? d.repairModel,

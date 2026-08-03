@@ -8,8 +8,9 @@ import os from 'node:os';
 import { redactSecrets } from '../util/log.js';
 import { spawn } from 'node:child_process';
 import { z } from 'zod';
+import { envInt } from '../config/env-num.js';
 
-const PORT = Number(process.env['YTHRIL_CONNECTOR_PORT'] ?? 38123);
+const PORT = envInt('YTHRIL_CONNECTOR_PORT', 38123);
 const HOST = process.env['YTHRIL_CONNECTOR_BIND_HOST'] ?? '0.0.0.0';
 const TOKEN_FILE = process.env['YTHRIL_CONNECTOR_TOKEN_FILE'] ?? path.join(os.homedir(), '.ythril-local-connector', 'token');
 // On Windows workstations, service install is the correct default so the tunnel survives reboots

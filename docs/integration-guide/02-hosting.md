@@ -102,6 +102,35 @@ DEBUG=1 docker compose up
 | `SYNC_ALLOW_PRIVATE_PEERS` | `false` | Allow sync **peer URLs** to resolve to private/reserved addresses (RFC-1918, CGNAT, IPv6 ULA) — for same-host or LAN networks (overrides the `allowPrivatePeers` config key). Default `false`: sync connects only to public peers, and any peer that tries to move its URL onto a private address is refused. Even when `true`, crown-jewel addresses (loopback, link-local / cloud IMDS `169.254.169.254`, unspecified) stay blocked. |
 | `MCP_OAUTH_TOKEN_TTL_DAYS` | `90` | Lifetime (in days) of PATs minted by the MCP OAuth browser-connector flow. Tokens expire after this many days, so an abandoned connector leaves no permanent credential behind; the connector re-consents when its token lapses. Each connector holds **one** token that a fresh consent rotates (never accumulates), and the total connector-token count is capped. Set to `0` to disable expiry (tokens never expire) if you need long-lived connector credentials. |
 
+### A Malformed Setting Stops the Boot
+
+Every numeric setting in the table above is **validated at start-up**, before the config file is read. A value
+that is present but not a whole number in range makes the instance refuse to start, naming every offender at once:
+
+```text
+[ERROR] Refusing to start: 2 environment settings are malformed.
+[ERROR]   • SHUTDOWN_DRAIN_MS="8OOO" is not usable — it is not a number. It sets how long in-flight requests
+          get after SIGTERM, and must be a whole number between 0 and 300000.
+[ERROR]   • RECALL_BUDGET_MS="30_000" is not usable — it is not a number. …
+```
+
+An **empty** value means "not set" and uses the documented default, which is the usual way to clear a setting in a
+compose file. Surrounding whitespace is ignored, so a YAML block scalar cannot break a value.
+
+This is deliberately a refusal rather than a fallback, because **a typo is never a preference.** These were read
+with an unchecked `Number()`, so a mistyped value became `NaN` — and `NaN` does not fail, it quietly changes
+behaviour. Measured:
+
+| a typo in | did | so |
+|---|---|---|
+| `SHUTDOWN_DRAIN_MS` | `setTimeout(fn, NaN)` fires after **0 ms** | the graceful drain did not drain: in-flight requests were cut off at SIGTERM |
+| `MONGO_CONNECT_RETRY_MS` | `elapsed < NaN` is **false** | zero retries, so a MongoDB that was still starting killed the boot |
+| `EMBEDDING_DIMENSIONS` | serialises as **`null`** | the vector index was created with a null dimension |
+| `RECALL_BUDGET_MS` | every comparison **false** | the recall budget silently stopped applying |
+
+Two of those are guarantees this guide documents, lost without a word. `PORT` was the one already safe — Node
+refuses `listen(NaN)` outright — and that is now the behaviour of all of them.
+
 ### Data Persistence
 
 All persistent data lives in named Docker volumes:

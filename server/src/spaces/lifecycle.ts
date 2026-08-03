@@ -17,6 +17,7 @@ import { VECTOR_INDEXED_COLLECTIONS, buildSpaceVectorIndexes, finalizeSpaceIndex
 import { SPACE_COLLECTIONS, repairStaleSpaceIds, dropLegacyPrefixedIndexes, pendingOpConflictMessage , setReindexNeeded, beginSpaceOp, endSpaceOp, spaceOpInFlight } from './_shared.js';
 import { moveSpaceData, applySpaceRenameToConfig } from './rename.js';
 import { ensureMediaJobIndexes } from '../files/media/job-queue.js';
+import { envInt } from '../config/env-num.js';
 
 export async function initSpace(
   spaceId: string,
@@ -176,7 +177,7 @@ export async function initSpace(
  * and reported `failed` for indexes that were building perfectly well. Off the boot path nothing is
  * waiting on this but a status label, so it can afford to be long enough to be TRUE.
  */
-const STARTUP_INDEX_READY_TIMEOUT_MS = Number(process.env['INDEX_READY_TIMEOUT_MS'] ?? 10 * 60_000);
+const STARTUP_INDEX_READY_TIMEOUT_MS = envInt('INDEX_READY_TIMEOUT_MS', 10 * 60_000);
 
 /** How many spaces confirm their index builds at once, once boot has already finished. */
 const FINALIZE_CONCURRENCY = 3;

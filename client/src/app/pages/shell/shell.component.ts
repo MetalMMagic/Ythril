@@ -45,6 +45,10 @@ import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
     .topbar-spacer { flex: 1; }
 
+    /* The embedded nav bar exists only below the breakpoint. Above it the sidebar is inline, so a bar
+       holding nothing but a drawer opener would be 56px of host-portal space spent on a no-op. */
+    .topbar-embedded { display: none; }
+
     /* Hamburger — hidden on desktop, shown below the breakpoint. */
     .menu-btn {
       display: none;
@@ -177,6 +181,7 @@ import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
     @media (max-width: 768px) {
       .menu-btn { display: inline-flex; }
+      .topbar-embedded { display: flex; }
       .main { padding: 20px 16px; }
 
       /* The sidebar becomes an off-canvas overlay drawer. It stays in the DOM
@@ -202,7 +207,25 @@ import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
   template: `
     <!-- Top bar — hidden in embedded mode (?embedded=1): it duplicates the host
          portal's chrome, and its Sign out would end only the Ythril session. -->
-    @if (!embed.embedded()) {
+    @if (embed.embedded()) {
+      <!-- …but the hamburger is not chrome, it is the ONLY way to open the sidebar below 768px, where the
+           sidebar is an off-canvas drawer. Without this an embedded narrow iframe rendered whatever page it
+           landed on and no navigation at all: measured at 420px, sidebar at left:-280 and no control able to
+           reach it. This bar is nav-only (no logo, no Sign out, so neither objection above applies) and is
+           display:none above the breakpoint, where the sidebar is inline and needs no opener. -->
+      <header class="topbar topbar-embedded">
+        <button
+          class="menu-btn"
+          type="button"
+          [attr.aria-label]="'nav.menu' | transloco"
+          [attr.aria-expanded]="drawerOpen()"
+          aria-controls="app-sidebar"
+          (click)="toggleDrawer()"
+        >
+          <ph-icon [name]="drawerOpen() ? 'x' : 'list'" [size]="20"/>
+        </button>
+      </header>
+    } @else {
       <header class="topbar">
         <button
           class="menu-btn"

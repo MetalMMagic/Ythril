@@ -9,6 +9,8 @@
  */
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { Subject } from 'rxjs';
 import { provideRouter, Router, NavigationEnd } from '@angular/router';
 import { of } from 'rxjs';
@@ -18,7 +20,7 @@ import { EmbedService } from '../../core/embed.service';
 import { getTranslocoModule } from '../../testing/transloco-testing';
 import { ShellComponent } from './shell.component';
 
-function make() {
+function make(embedded = false) {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     imports: [ShellComponent, getTranslocoModule()],
@@ -26,7 +28,7 @@ function make() {
       provideRouter([]),
       { provide: FilesApi, useValue: { listConflicts: () => of({ conflicts: [] }) } as any },
       { provide: AuthService, useValue: { logout: () => {}, logoutOidc: async () => false } as unknown as AuthService },
-      { provide: EmbedService, useValue: { embedded: () => false } as unknown as EmbedService },
+      { provide: EmbedService, useValue: { embedded: () => embedded } as unknown as EmbedService },
     ],
   });
   const fixture = TestBed.createComponent(ShellComponent);
@@ -77,6 +79,62 @@ describe('ShellComponent — drawer', () => {
     vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1200);
     cmp.onResize();
     expect(cmp.drawerOpen()).toBe(false); // crossed to desktop → closed
+  });
+
+  /**
+   * Embedded mode (`?embedded=1`) hides the topbar because it duplicates the host portal's chrome. The
+   * hamburger lived in that topbar — and below 768px the hamburger is the ONLY way to open the sidebar,
+   * which is an off-canvas drawer there. So an embedded narrow iframe rendered whatever page it landed on
+   * and no navigation at all: measured on a real browser at 420px, sidebar at `left: -280px`, no control
+   * anywhere able to reach it.
+   */
+  describe('embedded mode', () => {
+    const opener = (fixture: ReturnType<typeof make>['fixture']) =>
+      fixture.nativeElement.querySelector('[aria-controls="app-sidebar"]');
+
+    it('still renders a drawer opener — without one, narrow embeds have no navigation', () => {
+      const { fixture } = make(true);
+      fixture.detectChanges();
+      expect(opener(fixture), 'no control targets app-sidebar, so the off-canvas drawer cannot be opened').toBeTruthy();
+    });
+
+    it('renders no host chrome — the reason the topbar was hidden still holds', () => {
+      // Guards the fix against overcorrection: bringing the whole topbar back would restore the logo and a
+      // Sign out that ends only the Ythril session, which is what embedded mode exists to avoid.
+      const { fixture } = make(true);
+      fixture.detectChanges();
+      const host: HTMLElement = fixture.nativeElement;
+      expect(host.querySelector('app-brand-logo'), 'embedded mode must not duplicate the host portal logo').toBeNull();
+      expect(host.querySelector('.topbar-logo')).toBeNull();
+      expect(
+        [...host.querySelectorAll('button')].some(b => /sign ?out|abmelden|wyloguj/i.test(b.textContent ?? '')),
+        'embedded mode must not offer Sign out — it would end only the Ythril session',
+      ).toBe(false);
+      // And the opener from the previous test is still there, so "no chrome" did not become "no nav".
+      expect(opener(fixture)).toBeTruthy();
+    });
+
+    it('normal mode keeps its full topbar', () => {
+      const { fixture } = make(false);
+      fixture.detectChanges();
+      const host: HTMLElement = fixture.nativeElement;
+      expect(host.querySelector('.topbar')).toBeTruthy();
+      expect(host.querySelector('app-brand-logo')).toBeTruthy();
+      expect(opener(fixture)).toBeTruthy();
+    });
+
+    it('the embedded bar is shown only below the breakpoint (asserted on the CSS — jsdom has no layout)', () => {
+      // jsdom evaluates no media queries and computes no layout, so the rule itself is the only thing that
+      // can be checked here. Without the media-query half, embedded desktop users would get 56px of bar
+      // holding a hamburger that does nothing, because the sidebar is already inline at that width.
+      // vitest runs with cwd = client/, and `new URL(..., import.meta.url)` throws at collection time here.
+      const src = readFileSync(resolve('src/app/pages/shell/shell.component.ts'), 'utf8');
+      expect(src, 'the embedded bar must default to hidden').toMatch(/\.topbar-embedded\s*\{\s*display:\s*none;?\s*\}/);
+      const mq = src.slice(src.indexOf('@media (max-width: 768px)'));
+      const block = mq.slice(0, mq.indexOf('\n    }'));
+      expect(block, 'the 768px block must reveal the embedded bar').toMatch(/\.topbar-embedded\s*\{\s*display:\s*flex/);
+      expect(block, 'the 768px block must also reveal the hamburger').toMatch(/\.menu-btn\s*\{\s*display:\s*inline-flex/);
+    });
   });
 
   it('navigation closes the drawer (NavigationEnd subscription)', () => {

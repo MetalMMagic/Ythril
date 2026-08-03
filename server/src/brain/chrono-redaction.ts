@@ -2,6 +2,17 @@
  * The chrono content-redaction pass, and the lazy backfill that makes schema-tier retention apply to records
  * that already exist.
  *
+ * ## The backfill covers all four typed collections; redaction is chrono-only
+ *
+ * Those are two different reasons, not one inconsistency. **Redaction** removes `description`, `matchedText` and
+ * the embedding — chrono's field names, and the tier is declared chrono-only in `CONTENT_TIER_COLLECTIONS`.
+ * **Backfill** just stamps `_expireAt` from a policy, which every typed collection has.
+ *
+ * It did not, until now. The schema tier is documented as reaching *"every record of that type, in any of the
+ * four typed collections"*, and for entities, memories and edges nothing had ever stamped a record: the create
+ * path never passed its collection to the resolver, so it silently fell through to the space default, and this
+ * pass only ever walked chrono. `files` stays out on purpose — a file has no type, so it has no schema window.
+ *
  * ## Why this is lazy rather than a boot migration
  *
  * `<space>_chrono` is **synced data**: it replicates to peers by whole-document upsert. A boot migration would
@@ -33,7 +44,11 @@ import {
   recordExpiry, recordContentExpiry, needsContentRedaction, REDACTED_CHRONO_FIELDS, declaredRetention,
   type RetentionSpace,
 } from './chrono-retention.js';
-import type { ChronoEntry } from '../config/types.js';
+import { COLLECTION_SUFFIX, TYPE_FIELD } from './ttl.js';
+import type { ChronoEntry, KnowledgeType } from '../config/types.js';
+
+/** Every collection the schema tier can reach. `files` is absent: a file has no type, so no schema window. */
+const TYPED_COLLECTIONS: readonly KnowledgeType[] = ['entity', 'memory', 'edge', 'chrono'];
 
 /** Max records touched per space per pass, so one enormous space cannot monopolise a sweep cycle. */
 const BATCH = 500;
@@ -45,50 +60,86 @@ export interface ChronoRetentionResult {
   redacted: number;
 }
 
-/** The chrono types whose schema declares a retention window — the cheap check that skips the common case. */
+/** The types in one collection whose schema declares a retention window — the check that skips the common case. */
+export function policedTypes(space: RetentionSpace, collection: KnowledgeType): string[] {
+  return declaredRetention(space).filter(r => r.collection === collection).map(r => r.type);
+}
+
+/** Kept as the chrono-specific name the redaction pass and its tests read. */
 export function policedChronoTypes(space: RetentionSpace): string[] {
-  return declaredRetention(space).filter(r => r.collection === 'chrono').map(r => r.type);
+  return policedTypes(space, 'chrono');
 }
 
 /**
- * Stamp chrono records that a schema policy covers but that carry no expiry yet.
+ * Windows already reported at info, so switching a policy on announces itself ONCE rather than per sweep.
+ *
+ * Process-lifetime, deliberately not persisted: a restart re-announcing the active delete policies is useful,
+ * and a stamp count in a debug line was not enough. Bounded by the number of policed types.
+ */
+const announced = new Set<string>();
+
+/**
+ * Stamp records that a schema policy covers but that carry no expiry yet.
  *
  * Only fetches records missing BOTH stamps, so a settled collection costs one indexed miss per cycle.
+ *
+ * **Schema tier only.** A record written before the SPACE default was set is deliberately left alone: widening
+ * this to `recordTtlDays` would start deleting historic records on every space that has ever set one, which is a
+ * far larger blast radius than the policy change the operator made.
  */
-export async function backfillChronoExpiry(spaceId: string, space: RetentionSpace): Promise<number> {
-  const types = policedChronoTypes(space);
+export async function backfillTypedExpiry(
+  spaceId: string,
+  space: RetentionSpace,
+  collection: KnowledgeType,
+): Promise<number> {
+  const types = policedTypes(space, collection);
   if (types.length === 0) return 0;
   let stamped = 0;
 
-  const rows = await col<ChronoEntry>(`${spaceId}_chrono`)
+  const name = `${spaceId}_${COLLECTION_SUFFIX[collection]}`;
+  const typeField = TYPE_FIELD[collection];
+  const rows = await col(name)
     .find(
-      asFilter<ChronoEntry>({
-        type: { $in: types },
+      asFilter({
+        [typeField]: { $in: types },
         _expireAt: { $exists: false },
         _contentExpireAt: { $exists: false },
       }),
-      { projection: { _id: 1, type: 1, createdAt: 1 } },
+      { projection: { _id: 1, [typeField]: 1, createdAt: 1 } },
     )
     .limit(BATCH)
-    .toArray() as unknown as Array<{ _id: string; type: string; createdAt?: string }>;
+    .toArray() as unknown as Array<Record<string, unknown> & { _id: string; createdAt?: string }>;
 
   for (const r of rows) {
     // From the record's OWN creation time. Using `now` would hand every existing record a fresh full window,
     // which is the opposite of what enabling a retention policy means.
     const createdMs = Date.parse(r.createdAt ?? '');
     if (!Number.isFinite(createdMs)) continue;   // cannot date it ⇒ cannot expire it
+    const type = typeof r[typeField] === 'string' ? r[typeField] as string : undefined;
     const $set: Record<string, unknown> = {};
-    const expireAt = recordExpiry(space, 'chrono', r.type, createdMs);
-    const contentAt = recordContentExpiry(space, 'chrono', r.type, createdMs);
+    const expireAt = recordExpiry(space, collection, type, createdMs);
+    const contentAt = recordContentExpiry(space, collection, type, createdMs);
     if (expireAt) $set['_expireAt'] = expireAt;
     if (contentAt) $set['_contentExpireAt'] = contentAt;
     if (Object.keys($set).length === 0) continue;
-    await col<ChronoEntry>(`${spaceId}_chrono`).updateOne(
-      asFilter<ChronoEntry>({ _id: r._id }), asUpdate<ChronoEntry>({ $set }),
-    );
+    // A policy configured months ago and never applied begins deleting records the moment this pass reaches it.
+    // That is the documented behaviour and it is still worth saying out loud, once, at info.
+    const key = `${spaceId}|${collection}|${type ?? ''}`;
+    if (!announced.has(key)) {
+      announced.add(key);
+      log.info(`Retention: '${spaceId}' ${collection}/${type} is being stamped from its schema window`
+        + `${expireAt ? ` — delete at ${expireAt.toISOString()} for the oldest in this batch` : ''}`
+        + `${contentAt ? `, detail dropped at ${contentAt.toISOString()}` : ''}`);
+    }
+    await col(name).updateOne(asFilter({ _id: r._id }), asUpdate({ $set }));
     stamped++;
   }
   return stamped;
+}
+
+/** Chrono-only alias, kept because the redaction pass and its DB tests are chrono-specific by nature. */
+export async function backfillChronoExpiry(spaceId: string, space: RetentionSpace): Promise<number> {
+  return backfillTypedExpiry(spaceId, space, 'chrono');
 }
 
 /** Drop the content of records whose content window has lapsed, keeping the record. */
@@ -131,7 +182,11 @@ export async function sweepChronoRetention(now: Date = new Date()): Promise<Chro
     if (s.proxyFor?.length) continue;
     const space: RetentionSpace = { recordTtlDays: s.recordTtlDays, meta: s.meta };
     try {
-      result.stamped += await backfillChronoExpiry(s.id, space);
+      // All four typed collections, not just chrono. The schema tier is documented as reaching every one of
+      // them, and for three of them nothing had ever stamped a record.
+      for (const collection of TYPED_COLLECTIONS) {
+        result.stamped += await backfillTypedExpiry(s.id, space, collection);
+      }
       result.redacted += await redactLapsedChronoContent(s.id, now);
     } catch (err) {
       log.warn(`Chrono retention (${s.id}): ${err instanceof Error ? err.message : String(err)}`);

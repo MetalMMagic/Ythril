@@ -200,7 +200,8 @@ export async function updateChrono(
     } catch { /* embedding unavailable — keep existing embedding */ }
   }
 
-  applyExpiryToUpdate(spaceId, ttlDays, existing._expireAt != null, $set, $unset); // F10
+  applyExpiryToUpdate(spaceId, ttlDays, existing._expireAt != null, $set, $unset,
+    { collection: 'chrono', existing: existing as unknown as Record<string, unknown> }); // F10
   const updateOp: Record<string, unknown> = { $set };
   if (Object.keys($unset).length > 0) updateOp['$unset'] = $unset;
   await col<ChronoEntry>(`${spaceId}_chrono`).updateOne(

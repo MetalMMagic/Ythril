@@ -155,9 +155,13 @@ Rules worth knowing before you configure it:
   window means "redact sooner", not "exempt from deletion".
 - **A `contentDays` at or past the delete window is ignored**, because it could never fire, and a policy that
   silently does nothing is worse than a rejected one.
-- **It applies to records you already have.** A background pass stamps existing chronos from **their own
+- **It applies to records you already have.** A background pass stamps existing records from **their own
   `createdAt`**, not from when you enabled the policy — so switching it on prunes the backlog rather than
-  granting everything a fresh full window.
+  granting everything a fresh full window. It never re-slides an expiry a record already has, so a deliberate
+  per-record `ttlDays` is safe from it, and the first time it reaches a space+type it logs one `info` line
+  naming the window: a dormant policy that starts deleting records should say so.
+  - **This is the schema tier only.** Changing the space-wide `recordTtlDays` does *not* reach back over records
+    written before the change — that would start deleting history on every space that has ever set one.
 - The schema lives in space meta, so this tier is **governed and replicated**: in a network the policy is agreed
   and each instance then expires its own copy locally, and the tombstones converge.
 - **A type defined by `$ref` has no window.** A schema-library entry cannot carry `retention` — its schema

@@ -19,6 +19,26 @@ const DAY_MS = 86_400_000;
  *  deleter runs the full file cascade, and only file-level records ever carry `_expireAt`.) */
 export const TTL_COLLECTIONS = ['memories', 'entities', 'edges', 'chrono', 'files'] as const;
 
+/**
+ * The Mongo collection suffix for each typed knowledge collection.
+ *
+ * `KnowledgeType` is singular (`entity`) and the collection is plural (`<space>_entities`) — a mapping that was
+ * open-coded in five places and is the sort of thing a fifth caller gets wrong once.
+ */
+export const COLLECTION_SUFFIX: Record<KnowledgeType, string> = {
+  entity: 'entities', memory: 'memories', edge: 'edges', chrono: 'chrono',
+};
+
+/**
+ * The document field that names a record's type, per collection.
+ *
+ * **Edges key on `label`, not `type`** — `EdgeDoc` has both, and `validateEdgeWrite` looks the schema up by
+ * `label`. Reading `type` for an edge finds a schema that is never there and looks like it worked.
+ */
+export const TYPE_FIELD: Record<KnowledgeType, 'type' | 'label'> = {
+  entity: 'type', memory: 'type', edge: 'label', chrono: 'type',
+};
+
 function spaceRecordTtlDays(spaceId: string): number | undefined {
   try { return getConfig().spaces.find(s => s.id === spaceId)?.recordTtlDays; } catch { return undefined; }
 }
@@ -88,8 +108,16 @@ function retentionSpace(spaceId: string): RetentionSpace | undefined {
  * Apply the TTL to an **update**'s `$set`/`$unset` in place:
  *   - `ttlDays > 0` → set a new expiry;
  *   - `ttlDays` 0/null → clear the expiry (opt the record out of the space default);
- *   - omitted → apply the space default **only when the record has no expiry yet** (`hasExistingExpiry`
+ *   - omitted → apply the resolved default **only when the record has no expiry yet** (`hasExistingExpiry`
  *     false), never re-sliding an existing one.
+ *
+ * `typed` carries the same schema tier as the create path. Without it this resolved straight to the SPACE
+ * default, so a record that gained an expiry on update got the space number even when its own type declared a
+ * shorter one — the type's window applied to records written after the policy and not to records edited after it.
+ *
+ * It takes the **collection plus the existing document**, not a type string, and works the type out itself. Seven
+ * call sites would otherwise each have to pick the right field and the right precedence, and the bug this fixes
+ * is precisely a caller getting that wrong: `edge` keys on `label` while its sibling collections key on `type`.
  */
 export function applyExpiryToUpdate(
   spaceId: string,
@@ -97,13 +125,32 @@ export function applyExpiryToUpdate(
   hasExistingExpiry: boolean,
   $set: Record<string, unknown>,
   $unset: Record<string, unknown>,
+  typed?: { collection: KnowledgeType; existing: Record<string, unknown> },
 ): void {
   if (ttlDays === 0 || ttlDays === null) { $unset['_expireAt'] = ''; return; }
   if (typeof ttlDays === 'number' && ttlDays > 0) { $set['_expireAt'] = new Date(Date.now() + ttlDays * DAY_MS); return; }
   if (!hasExistingExpiry) {
-    const expireAt = spaceTtlExpiry(spaceId);
+    const expireAt = expiryForCreate(spaceId, undefined, typed && {
+      collection: typed.collection,
+      // The type the record will HAVE, not the one it had: an update that changes the type must resolve against
+      // the new one, or a record moved into a policed type keeps the old type's window.
+      type: effectiveType(typed.collection, $set, typed.existing),
+    });
     if (expireAt) $set['_expireAt'] = expireAt;
   }
+}
+
+/** The type a record will carry after this `$set` is applied — the update's value if it sets one, else current. */
+export function effectiveType(
+  collection: KnowledgeType,
+  $set: Record<string, unknown>,
+  existing: Record<string, unknown>,
+): string | undefined {
+  const field = TYPE_FIELD[collection];
+  const next = $set[field];
+  if (typeof next === 'string') return next;
+  const current = existing[field];
+  return typeof current === 'string' ? current : undefined;
 }
 
 /** Ensure the (plain, non-TTL) `_expireAt` index that keeps the sweep query cheap. */

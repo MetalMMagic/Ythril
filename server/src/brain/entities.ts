@@ -143,7 +143,8 @@ export async function upsertEntity(
     const $set: Record<string, unknown> = { name, type, tags: updatedTags, properties: mergedProps, updatedAt: now, seq, ...embeddingFields };
     if (description !== undefined) $set['description'] = description;
     const $unset: Record<string, unknown> = {};
-    applyExpiryToUpdate(spaceId, ttlDays, existing._expireAt != null, $set, $unset); // F10
+    applyExpiryToUpdate(spaceId, ttlDays, existing._expireAt != null, $set, $unset,
+      { collection: 'entity', existing: existing as unknown as Record<string, unknown> }); // F10
     const updateOp: Record<string, unknown> = { $set };
     if (Object.keys($unset).length > 0) updateOp['$unset'] = $unset;
     await collection.updateOne(
@@ -193,7 +194,9 @@ export async function upsertEntity(
     ...embeddingFields,
   };
   if (description !== undefined) doc.description = description;
-  stampExpiryOnCreate(spaceId, doc, ttlDays);
+  // `typed` is what makes the SCHEMA tier reachable. Omit it and the resolver silently falls through to the
+  // space default, so a window set on `typeSchemas.entity.<type>.retention` does nothing at all.
+  stampExpiryOnCreate(spaceId, doc, ttlDays, { collection: 'entity', type: doc.type });
   await collection.insertOne(asDoc<EntityDoc>(doc));
   // Real-time duplicate-rule evaluation (opt-in per space). Fire-and-forget; the
   // dynamic import avoids a static cycle with dupe-scanner.js.
@@ -305,7 +308,8 @@ export async function updateEntityById(
     $set['matchedText'] = embedText;
   } catch { /* embedding unavailable — keep existing embedding */ }
 
-  applyExpiryToUpdate(spaceId, ttlDays, existing._expireAt != null, $set, $unset); // F10
+  applyExpiryToUpdate(spaceId, ttlDays, existing._expireAt != null, $set, $unset,
+    { collection: 'entity', existing: existing as unknown as Record<string, unknown> }); // F10
   const updateOp: Record<string, unknown> = { $set };
   if (Object.keys($unset).length > 0) updateOp['$unset'] = $unset;
   await collection.updateOne(asFilter<EntityDoc>({ _id: id }), asUpdate<EntityDoc>(updateOp));

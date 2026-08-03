@@ -76,6 +76,13 @@ RUN npm ci --workspace=server --omit=dev
 # downloads per-IP (shared CI egress → intermittent 403), so the fewer fetches the
 # better; the retry/backoff below rides through a transient 403 on the rare build
 # that does have to download. `--mount=type=cache` additionally speeds local rebuilds.
+#
+# The step ends by fixing ownership AND stamping every file to a fixed mtime. Both decide what a user downloads:
+#   - ownership HERE rather than in a later `chown -R`, which would rewrite the whole tree into a second layer.
+#     It did: the published image shipped the model TWICE. See the note by the mkdir near the end of this file.
+#   - a fixed mtime because `cp -a` preserves the download's timestamps, and those land in the layer tar. Two
+#     builds of the identical model then produce different layer digests, so the layer can never be reused across
+#     releases even when nothing about the model changed. Determinism is the precondition for that reuse.
 ENV MODEL_CACHE_DIR=/app/model-cache
 RUN --mount=type=cache,target=/tmp/hf-model-cache \
     printf '%s\n' \
@@ -96,7 +103,9 @@ RUN --mount=type=cache,target=/tmp/hf-model-cache \
     node /app/server/warm.mjs && \
     rm /app/server/warm.mjs && \
     mkdir -p /app/model-cache && \
-    cp -a /tmp/hf-model-cache/. /app/model-cache/
+    cp -a /tmp/hf-model-cache/. /app/model-cache/ && \
+    chown -R node:node /app/model-cache && \
+    find /app/model-cache -exec touch -h -d '@1' {} +
 
 # Copy compiled output from builder
 COPY --from=builder /build/server/dist ./server/dist
@@ -112,8 +121,16 @@ ENV CLIENT_DIST=/app/client/dist/browser
 
 EXPOSE 3200
 
-# Pre-create mount-point directories owned by node so volume mounts are writable
-RUN mkdir -p /data /config && chown -R node:node /data /config /app/model-cache
+# Pre-create mount-point directories owned by node so volume mounts are writable.
+#
+# `/app/model-cache` is NOT chowned here, and that is the point. A `chown -R` rewrites every file's metadata, so
+# Docker copied the whole 482.5 MiB model tree into a SECOND layer — the published image shipped the embedding
+# model TWICE, in every tag, on every pull. Measured against the registry: layer 10 was the model at 482.5 MiB and
+# layer 13 was this chown at exactly 482.5 MiB, which no `mkdir` of two empty directories can account for.
+#
+# The ownership is set inside the RUN that creates the cache instead, so it lands in that one layer.
+# `/data` and `/config` are empty, so chowning them costs nothing.
+RUN mkdir -p /data /config && chown -R node:node /data /config
 
 # Run as non-root user
 USER node

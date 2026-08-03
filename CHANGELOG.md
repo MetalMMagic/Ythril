@@ -75,6 +75,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The Docker image shipped the embedding model twice — 482.5 MiB of every pull, of every tag.** A canary
+  operator reported that the three largest layers all changed digest between 2.2.4 and 2.2.5, making a patch
+  upgrade a near-full download; asking the registry which steps those layers were turned up something worse than
+  a layer-ordering problem.
+  - **`chown -R node:node … /app/model-cache` was a 482.5 MiB layer.** A recursive chown rewrites every file's
+    metadata, so Docker copied the entire model tree into a second layer. Measured from the published manifests:
+    layer 10 was the model at 482.5 MiB and layer 13 was that chown at *exactly* 482.5 MiB, which two empty
+    `mkdir`s cannot account for. The ownership is now set inside the step that creates the cache, and the chown
+    layer is **12.3 kB**.
+  - **A 2.2.4 → 2.2.5 pull re-downloaded 1759.9 of 1836.1 MiB — 96%.** Removing the duplicate takes the whole
+    image to ~1353.6 MiB compressed: **26% off every pull**, not only an upgrade.
+  - The model files are also **stamped to a fixed mtime** now. `cp -a` preserved the download's timestamps, which
+    go into the layer tar, so two builds of the identical model produced different layer digests and the layer
+    could never be reused across releases. Determinism is the precondition for that reuse.
+  - Verified on a built image: the layer is 12.3 kB, the cache is `node`-owned, every mtime is the fixed epoch,
+    and the model still loads **with `--network none`** and returns its 768 dimensions.
+  - Still legitimately large and still changing per release: `npm ci` (1.07 GB, moves when the lockfile does) and
+    the apt layer (755 MB). The latter carries `python3 make g++` in the *final* stage purely to compile bcrypt
+    during `npm ci --omit=dev` — moving that build into the builder stage is filed as the next reduction.
+
 - **The Brain Overview assembled itself one card at a time.** Each card rendered only once its own request
   landed, so every arrival pushed the ones below it down — *"they appear one by one as each request lands, rather
   than as a laid-out set that fills in"*, the milder half of the same canary report.

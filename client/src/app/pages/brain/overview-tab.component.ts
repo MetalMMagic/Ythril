@@ -15,6 +15,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, input, output } f
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { StatusPillComponent, StatusVariant } from '../../shared/status-pill.component';
+import { SkeletonLinesComponent } from '../../shared/skeleton-lines.component';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 import { DatePipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
@@ -30,7 +31,7 @@ interface StatCard { key: CollectionTab; icon: string; label: string; value: num
   selector: 'app-overview-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [TranslocoPipe, PhIconComponent, StatusPillComponent, RouterLink, DatePipe],
+  imports: [TranslocoPipe, PhIconComponent, StatusPillComponent, SkeletonLinesComponent, RouterLink, DatePipe],
   styles: [`
     :host { display: block; }
 
@@ -278,6 +279,15 @@ interface StatCard { key: CollectionTab; icon: string; label: string; value: num
             }
           </div>
         </section>
+      } @else if (pending().activity) {
+        <section class="panel span-all" [attr.aria-busy]="true">
+          <header class="panel-h">
+            <span class="ic"><ph-icon name="broadcast" [size]="16"/></span>
+            <div><h3>{{ 'brain.overview.useTitle' | transloco }}</h3>
+              <p>{{ 'brain.overview.useHint' | transloco }}</p></div>
+          </header>
+          <div class="panel-b"><app-skeleton-lines [rows]="4" /></div>
+        </section>
       }
 
       <!-- ── Completeness ───────────────────────────────────────────── -->
@@ -324,6 +334,15 @@ interface StatCard { key: CollectionTab; icon: string; label: string; value: num
             </div>
           </section>
         }
+      } @else if (pending().completeness) {
+        <section class="panel" [attr.aria-busy]="true">
+          <header class="panel-h">
+            <span class="ic"><ph-icon name="check-circle" [size]="16"/></span>
+            <div><h3>{{ 'brain.overview.compTitle' | transloco }}</h3>
+              <p>{{ 'brain.overview.compHint' | transloco }}</p></div>
+          </header>
+          <div class="panel-b"><app-skeleton-lines [rows]="4" /></div>
+        </section>
       }
 
       <!-- ── Indexing ───────────────────────────────────────────────── -->
@@ -419,6 +438,15 @@ interface StatCard { key: CollectionTab; icon: string; label: string; value: num
               </button>
             }
           </div>
+        </section>
+      } @else if (pending().queue) {
+        <section class="panel" [attr.aria-busy]="true">
+          <header class="panel-h">
+            <span class="ic"><ph-icon name="stack" [size]="16"/></span>
+            <div><h3>{{ 'brain.overview.queueTitle' | transloco }}</h3>
+              <p>{{ 'brain.overview.queueHint' | transloco }}</p></div>
+          </header>
+          <div class="panel-b"><app-skeleton-lines [rows]="3" /></div>
         </section>
       }
 
@@ -519,6 +547,15 @@ interface StatCard { key: CollectionTab; icon: string; label: string; value: num
             }
           </div>
         </section>
+      } @else if (pending().tokens) {
+        <section class="panel" [attr.aria-busy]="true">
+          <header class="panel-h">
+            <span class="ic"><ph-icon name="key" [size]="16"/></span>
+            <div><h3>{{ 'brain.overview.tokenTitle' | transloco }}</h3>
+              <p>{{ 'brain.overview.tokenHint' | transloco }}</p></div>
+          </header>
+          <div class="panel-b"><app-skeleton-lines [rows]="3" /></div>
+        </section>
       }
     </div>
   `,
@@ -546,6 +583,17 @@ export class OverviewTabComponent {
    * about which member answered.
    */
   activity = input<SpaceActivity | null>(null);
+
+  /**
+   * Which panels have been blanked for a space switch and are still awaiting a first answer.
+   *
+   * Separate from the values because `null` cannot say it: `tokenAccess` is null **permanently** for a non-admin
+   * (the endpoint 403s) and `completeness` is null after a failure, so a skeleton keyed on null alone would sit
+   * there forever. The parent raises these only where it blanks, and clears each from both handlers.
+   */
+  pending = input<Record<'activity' | 'completeness' | 'queue' | 'tokens', boolean>>({
+    activity: false, completeness: false, queue: false, tokens: false,
+  });
   /** Emitted (after a confirm) so the shell's existing reindex flow runs — no duplicate API path. */
   /** A collection tile was clicked — the shell switches to that tab. */
   openTab = output<CollectionTab>();

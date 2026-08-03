@@ -416,7 +416,9 @@ describe('OverviewTabComponent — the usage panel', () => {
     expect(el.textContent).toContain('63 ms');
   });
 
-  it('hides the panel entirely until the fetch lands, and does not crash on null', () => {
+  it('hides the panel when the fetch has landed with nothing, and does not crash on null', () => {
+    // `pending` defaults to false, which is "settled with no data" — the panel stays hidden, as it always has.
+    // The loading case is a skeleton and is covered in its own block below.
     const { el, c } = render(null);
     expect(c.answerRate()).toBeNull();
     expect(el.textContent).not.toContain('brain.overview.useTitle');
@@ -427,5 +429,81 @@ describe('OverviewTabComponent — the usage panel', () => {
       .not.toContain('brain.overview.useSlow');
     expect(render(activity({ calls: 10, recall: 10, answered: 10, over1s: 3, maxMs: 1840 })).el.textContent)
       .toContain('brain.overview.useSlow');
+  });
+});
+
+/**
+ * The board must be LAID OUT from the first frame (canary B, symptom 1).
+ *
+ * Each card rendered only once its own request landed, so the Overview assembled itself one card at a time and
+ * every arrival pushed the ones below it down: *"they appear one by one as each request lands, rather than as a
+ * laid-out set that fills in."*
+ *
+ * A skeleton fixes that only if it can tell **not yet** from **never** — `tokenAccess` is null permanently for a
+ * non-admin (the endpoint 403s) and `completeness` is null after a failure, so a placeholder keyed on null alone
+ * would sit there forever. Hence a separate `pending` map, raised only where the value is blanked.
+ */
+describe('OverviewTabComponent — first-load skeletons', () => {
+  const PENDING = { activity: true, completeness: true, queue: true, tokens: true };
+
+  function render(pending: Partial<typeof PENDING> = {}) {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [OverviewTabComponent, getTranslocoModule()],
+      providers: [provideRouter([]), { provide: ConfirmDialogService, useValue: { confirm: vi.fn() } }],
+    });
+    const fixture = TestBed.createComponent(OverviewTabComponent);
+    fixture.componentRef.setInput('space', space());
+    fixture.componentRef.setInput('stats', STATS);
+    fixture.componentRef.setInput('pending', { activity: false, completeness: false, queue: false, tokens: false, ...pending });
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    return { fixture, el };
+  }
+
+  const busy = (el: HTMLElement) => el.querySelectorAll('.panel[aria-busy="true"]').length;
+  const titles = (el: HTMLElement) => [...el.querySelectorAll('.grid > .panel h3')].map(h => h.textContent?.trim());
+
+  it('reserves a card for every panel still awaiting its first answer', () => {
+    const { el } = render(PENDING);
+    expect(busy(el)).toBe(4);
+    // The frame is the real one, so the placeholder is identifiable rather than an anonymous grey box.
+    for (const key of ['brain.overview.useTitle', 'brain.overview.compTitle', 'brain.overview.queueTitle', 'brain.overview.tokenTitle']) {
+      expect(titles(el), key).toContain(key);
+    }
+  });
+
+  it('the board has the SAME cards, in the same order, loading or settled', () => {
+    // This is the whole fix: what makes the page look like it is assembling itself is the layout moving.
+    const loading = titles(render(PENDING).el);
+    const settled = titles(render({}).el);
+    // Settled-with-no-data hides the four optional panels; loading shows their frames. Every OTHER card must be
+    // in the same place in both, and the four must appear in loading exactly where they will land.
+    expect(loading.filter(t => !settled.includes(t)).sort()).toEqual([
+      'brain.overview.compTitle', 'brain.overview.queueTitle', 'brain.overview.tokenTitle', 'brain.overview.useTitle',
+    ]);
+    expect(settled.every(t => loading.includes(t))).toBe(true);
+  });
+
+  it('reserves nothing once a panel has settled, even with no data', () => {
+    // The difference that makes the skeleton safe: a non-admin never gets tokenAccess, and a forever-skeleton
+    // would be worse than the missing card.
+    const { el } = render({});
+    expect(busy(el)).toBe(0);
+    expect(titles(el)).not.toContain('brain.overview.tokenTitle');
+  });
+
+  it('is per panel — one still loading does not reserve the others', () => {
+    const { el } = render({ tokens: true });
+    expect(busy(el)).toBe(1);
+    expect(titles(el)).toContain('brain.overview.tokenTitle');
+    expect(titles(el)).not.toContain('brain.overview.useTitle');
+  });
+
+  it('draws lines, not a spinner — the size is the point', () => {
+    const { el } = render(PENDING);
+    const lines = el.querySelectorAll('app-skeleton-lines .sk-line');
+    expect(lines.length).toBe(4 + 4 + 3 + 3);          // the per-card row counts
+    expect(el.querySelector('.panel[aria-busy="true"] .spinner')).toBeNull();
   });
 });

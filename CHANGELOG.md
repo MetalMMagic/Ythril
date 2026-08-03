@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Contributor licensing: a Contributor License Agreement, because the old wording quietly closed a door.**
+  `docs/contribution-guide.md` had 400+ lines on architecture, security and test discipline and one sentence on
+  licensing: *"By contributing, you agree that your contributions are licensed under the same terms."*
+  - That reads as reassuring and was the problem. A contribution arriving under **PolyForm Small Business** does
+    **not** carry the right to sublicense or relicense it — so the one sentence that looked like it settled the
+    question was the sentence that would have made a future relicence require the individual agreement of every
+    past contributor.
+  - `CLA.md` is a **licence, not an assignment** — adapted from the Apache ICLA v2.0, the established reference,
+    so nothing here is freshly drafted. **A contributor keeps the copyright in everything they write.** What
+    they grant is a perpetual, irrevocable licence that explicitly includes **sublicensing and relicensing under
+    any terms**, which is the operative clause and the whole reason to have one.
+  - Signing is one click on a first pull request via a bot, covering every later contribution. Nothing to print,
+    nothing to repeat.
+  - Owner decision, 2026-08-03, from three options (licence CLA / assignment CLA / DCO-only). Worth recording
+    why it was not urgent and was still worth doing now: **every commit in the repo is the owner or Copilot, so
+    the owner holds 100% of the copyright today and could already relicense unilaterally.** The CLA is pure
+    prevention — and its entire value is being in place *before* the first outside pull request, because
+    retrofitting one means chasing people down.
+
 - **A failed load no longer reads as "there is nothing here".** Eight surfaces cleared their spinner on failure and
   fell through to the empty state, so a request that never succeeded and a result set that is genuinely empty rendered
   the same words.

@@ -15,23 +15,30 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { of } from 'rxjs';
 import { getTranslocoModule } from '../../testing/transloco-testing';
 import { SpaceSchemaTabComponent } from './space-schema-tab.component';
-import { SpaceSettingsState, type TypeSchemaState } from './space-settings-state.service';
+import { SpaceSettingsState, emptyTypeSchemaState, type TypeSchemaState } from './space-settings-state.service';
 import { SpacesApi } from '../../core/spaces-api.service';
 import { SchemaApi } from '../../core/schema-api.service';
 import { ToastService } from '../../core/toast.service';
 
-const mkType = (over: Partial<TypeSchemaState> = {}): TypeSchemaState => ({
-  namingPattern: '', tagSuggestions: [], propertySchemas: [], _newPropInput: '', _newTagInput: '', ...over,
-});
+const mkType = (over: Partial<TypeSchemaState> = {}): TypeSchemaState => emptyTypeSchemaState(over);
+
+/** Captures what the component told the user, so a warning can be asserted rather than assumed. */
+const toasts: { kind: string; msg: string }[] = [];
 
 function setup(schemaApi: Partial<SchemaApi> = {}) {
+  toasts.length = 0;
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     imports: [SpaceSchemaTabComponent, getTranslocoModule()],
     providers: [
       SpaceSettingsState,
       { provide: SpacesApi, useValue: {} },
-      { provide: ToastService, useValue: { show: () => {}, error: () => {}, success: () => {} } },
+      { provide: ToastService, useValue: {
+        show: () => {},
+        error:   (msg: string) => toasts.push({ kind: 'error', msg }),
+        success: (msg: string) => toasts.push({ kind: 'success', msg }),
+        info:    (msg: string) => toasts.push({ kind: 'info', msg }),
+      } },
       { provide: SchemaApi, useValue: { listSchemaLibrary: () => of({ entries: [] }), upsertSchemaLibraryEntry: () => of({ entry: {} }), ...schemaApi } },
     ],
   });
@@ -203,6 +210,95 @@ describe('SpaceSchemaTabComponent — schema-library link (must survive the rede
   });
 });
 
+describe('SpaceSchemaTabComponent — per-type retention', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  /** The private mapper, reached the same way this file already reaches `_libPickerTarget`. */
+  const importer = (c: SpaceSchemaTabComponent) =>
+    (c as unknown as { mapImportedTypeSchema(o: Record<string, unknown>): TypeSchemaState })
+      .mapImportedTypeSchema.bind(c);
+
+  it('an imported file brings its retention window with it', () => {
+    const { c } = setup();
+    const ts = importer(c)({ retention: { days: 90, contentDays: 30 } });
+    expect(ts.retentionDays).toBe(90);
+    expect(ts.retentionContentDays).toBe(30);
+  });
+
+  it('a junk retention value in a file becomes inherit, not a save the API rejects', () => {
+    const { c } = setup();
+    const map = importer(c);
+    expect(map({ retention: { days: '90' } }).retentionDays).toBeNull();
+    expect(map({ retention: { days: -1 } }).retentionDays).toBeNull();
+    expect(map({ retention: { days: 1.5 } }).retentionDays).toBeNull();
+    expect(map({ retention: 'soon' }).retentionDays).toBeNull();
+    expect(map({}).retentionDays).toBeNull();
+  });
+
+  it('saving a type to the library strips the window and SAYS SO', () => {
+    const upsert = vi.fn().mockReturnValue(of({ entry: { name: 'event' } }));
+    const { c, state } = setup({ upsertSchemaLibraryEntry: upsert as never });
+    state.schTypeSchemas = { ...state.schTypeSchemas, chrono: { event: mkType({ retentionDays: 90, retentionContentDays: 30 }) } };
+    c.saveTypeToLibrary('chrono', 'event');
+    // A library entry's schema is strict and has no `retention` — sending one would 400 the request.
+    expect(upsert.mock.calls[0][1].schema.retention).toBeUndefined();
+    // ...and the window is now gone from the space too, since the type became a $ref. Silence here would
+    // mean an operator's delete policy vanished on an action that looks like "share this schema".
+    expect(toasts.filter(t => t.kind === 'info')).toHaveLength(1);
+  });
+
+  it('says nothing about retention when there was none to lose', () => {
+    const upsert = vi.fn().mockReturnValue(of({ entry: { name: 'event' } }));
+    const { c, state } = setup({ upsertSchemaLibraryEntry: upsert as never });
+    state.schTypeSchemas = { ...state.schTypeSchemas, chrono: { event: mkType() } };
+    c.saveTypeToLibrary('chrono', 'event');
+    expect(toasts.filter(t => t.kind === 'info')).toEqual([]);
+  });
+
+  it('unlinking a library type starts on the space default rather than inventing a window', () => {
+    const entry = { name: 'ev', knowledgeType: 'chrono', typeName: 'event', schema: { propertySchemas: {} } };
+    const { c, state } = setup({ listSchemaLibrary: () => of({ entries: [entry] }) as never });
+    c.ngOnInit();
+    state.schTypeSchemas = { ...state.schTypeSchemas, chrono: { event: mkType({ _libRef: 'ev' }) } };
+    c.unlinkType('chrono', 'event');
+    expect(state.typeState('chrono', 'event').retentionDays).toBeNull();
+    expect(state.typeState('chrono', 'event').retentionContentDays).toBeNull();
+  });
+
+  describe('contentWindowNeverFires — mirrors the server clamp', () => {
+    /** A component with one chrono type and, optionally, a space-wide default. */
+    function withWindows(days: number | null, contentDays: number | null, spaceTtl?: number) {
+      const { c, state } = setup();
+      state.schTypeSchemas = { ...state.schTypeSchemas, chrono: { event: mkType({ retentionDays: days, retentionContentDays: contentDays }) } };
+      state.settingsSpace.set({ id: 'work', label: 'Work', ...(spaceTtl ? { recordTtlDays: spaceTtl } : {}) } as never);
+      return c;
+    }
+
+    it('flags a content window at or beyond the type window', () => {
+      expect(withWindows(30, 30).contentWindowNeverFires('chrono', 'event')).toBe(30);
+      expect(withWindows(30, 45).contentWindowNeverFires('chrono', 'event')).toBe(30);
+    });
+
+    it('accepts one strictly inside it', () => {
+      expect(withWindows(90, 30).contentWindowNeverFires('chrono', 'event')).toBeNull();
+    });
+
+    it('falls through to the SPACE default when the type sets no delete window', () => {
+      // The reason this case exists: the two fields in front of the operator look fine — one is empty. The
+      // record is still deleted at the space default, so a content window at or past it never fires.
+      expect(withWindows(null, 30, 30).contentWindowNeverFires('chrono', 'event')).toBe(30);
+      expect(withWindows(null, 20, 30).contentWindowNeverFires('chrono', 'event')).toBeNull();
+      expect(withWindows(null, 30).contentWindowNeverFires('chrono', 'event')).toBeNull(); // no window anywhere
+    });
+
+    it('says nothing for a collection that has no content tier', () => {
+      const { c, state } = setup();
+      state.schTypeSchemas = { ...state.schTypeSchemas, memory: { note: mkType({ retentionDays: 30, retentionContentDays: 30 }) } };
+      expect(c.contentWindowNeverFires('memory', 'note')).toBeNull();
+    });
+  });
+});
+
 describe('SpaceSchemaTabComponent — validation controls (moved here in U9 pt3)', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
@@ -214,7 +310,7 @@ describe('SpaceSchemaTabComponent — validation controls (moved here in U9 pt3)
       providers: [
         SpaceSettingsState,
         { provide: SpacesApi, useValue: {} },
-        { provide: ToastService, useValue: { show: () => {}, error: () => {}, success: () => {} } },
+        { provide: ToastService, useValue: { show: () => {}, error: () => {}, success: () => {}, info: () => {} } },
         { provide: SchemaApi, useValue: { listSchemaLibrary: () => of({ entries: [] }), upsertSchemaLibraryEntry: () => of({ entry: {} }) } },
       ],
     });

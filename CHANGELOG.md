@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Per-type retention is editable — the control the Danger Zone, the guide and the release notes were already
+  pointing at.** `retention` shipped end to end: the API took it, the sweep applied it, the Danger Zone listed
+  the windows a type had, and the integration guide said *"set a type's window on the type, in the Schema tab."*
+  There was no such input. The only way to configure the middle tier of `record > schema > space` was a
+  hand-written `PATCH`, and a canary operator found that out by going to set it.
+  - **Nothing was red.** Each layer was correct on its own; the gap was between them. The layer that would have
+    caught it — anything asserting the editor can reach what the API accepts — did not exist.
+  - **Delete records after (days)** on any type, plus **Drop detail after (days)** on chrono types only, where
+    the content tier is the only one the sweep implements. An empty field means *inherit*, and the hint names the
+    number being inherited — the operator who asked for this said the old arrangement was "a convention the
+    operator has to know", and "inherit" without saying inherit-**what** is that failure one level down.
+  - The editor **refuses a content window at or past the delete window**, mirroring the server's clamp including
+    its fall-through to the space default: a 30-day content window under a 30-day *space* default never fires
+    either, and the two fields in front of the operator look fine because one of them is empty.
+  - A yellow **ttl** badge marks a type with a window in the list, so what expires is visible without opening
+    each type — the one badge on that tab that describes data loss.
+  - **A type saved to the schema library leaves its window behind, and now says so.** A library entry cannot
+    carry `retention` (one entry is referenced by any number of spaces; a delete policy is not a property of the
+    shape), so the conversion to a `$ref` silently dropped it on an action that reads as "share this schema".
+  - Per-type export/import carries the window with the type, defensively parsed — a string, a negative or a
+    fractional day count in a file becomes *inherit* rather than a save the API rejects.
+
 - **`ythril_metrics_collect_duration_seconds{collector}` — so a slow `/metrics` names its own cause.** A canary
   operator measured the endpoint hitting its **10-second Prometheus timeout** during an embedding run: `up=0`
   across two windows, both inside the ingest, both recovering the moment the queue paused.
@@ -54,6 +76,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   documented answer: `null` on a meta write is **rejected** with a 400, `[]` is how you clear a list, and no
   route removes a top-level `meta` key — the field stays present and empty, which is what makes the retirement
   reversible.
+
+- **The per-type schema import read a different set of fields than the whole-schema import.** Two hand-copied
+  mappers: adding a field to one left the other silently dropping it, which is how a single-type JSON import
+  could lose what the same file kept when imported as part of a whole schema. One mapper now, called by both.
+  - Same for the reverse direction: **three** copies turned editor state into a wire `TypeSchema` (save,
+    per-type export, save-to-library) and they had already drifted — only one of them trimmed a property
+    `pattern`. One serialiser now, with the library's stricter shape as a flag rather than a fourth copy.
+  - And the editor's own state had **nine** hand-written object literals. They are one factory, pinned by a
+    gate, because the compiler only catches a missing field while every copy spells every field out.
+
+- **Two docs pointed at the wrong place for a per-type window.** The Brain Overview's retention card said
+  "Change in Settings → Spaces → Danger Zone" while listing the per-type windows that are *not* edited there,
+  and the user guide still described the space-wide field as living on the Settings tab, which it left when it
+  moved in with the destructive settings. Both now name the right tab for each tier.
 
 - **Danger Zone retention copy rewritten.** A reporting operator "understood every individual word and could
   not tell what the block was for", and the four reasons were all fair: a titled block that could not do

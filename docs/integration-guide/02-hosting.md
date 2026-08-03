@@ -154,6 +154,15 @@ transparently:
   behind. New installs write encrypted from the first save.
 - **Back up the master secret.** Losing it makes the encrypted files unrecoverable — that is the point.
   Deliver it as a Docker/Kubernetes/systemd secret, not baked into an image.
+- **What this does NOT cover**, stated here because the section title invites the wider reading:
+  - **uploaded files** under `<data-root>/files/` are stored as they arrived;
+  - **database backups** under `<data-root>/backups/` are plaintext NDJSON — a dump reads *through* `mongod`, so an
+    encrypted `mongod` does not protect it either. See
+    [POST /api/admin/data/backup](12-admin-api.md#post-apiadmindatabackup);
+  - **brain data in MongoDB itself** — that is the encrypted-`mongod` job described below.
+
+  Ythril writes everything in the first two categories `0600`/`0700` so it is not readable by other users on the
+  host, and `requireEncryptedAtRest` deliberately does not claim otherwise.
 
 ```yaml
 # docker compose — master key from a secret/env, kept out of the image

@@ -75,6 +75,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A database backup was a world-readable plaintext copy of everything.** Found by the Privacy audit lens.
+  `02-hosting.md` has a section called **Encryption at Rest**; it is accurately scoped in its own text (four state
+  files) and recommends an encrypted `mongod` for brain data. A backup bypasses the whole arrangement: `dumpDatabase`
+  reads *through* `mongod`, so the NDJSON that lands in `<data-root>/backups/` is **decrypted** — every memory,
+  entity, edge, chrono entry, file-meta record and audit entry, in the clear, on the same volume.
+  `requireEncryptedAtRest` does not touch it, and nothing said so.
+  - **The permissions were inverted with respect to sensitivity.** The four state files have always been written
+    `0600`. The dump directory was created with plain `mkdirSync(dir, { recursive: true })` — default `0755`, files
+    `0644` — as was the offsite copy, which additionally contains **every uploaded file verbatim**. The least
+    sensitive thing on the volume was the best protected.
+  - Now `0700` on every backup directory and `0600` on every NDJSON file, with each `chmod` guarded so a
+    non-POSIX host or a network share that ignores modes cannot turn a hardening into a failed backup.
+  - **Both docs now say what is and is not covered.** The admin endpoint explains that a dump is unencrypted, that
+    the at-rest flag does not cover it, and *why* (it reads through `mongod`). The Encryption at Rest section now
+    scopes itself — uploads, backups and MongoDB brain data are named as exclusions, because a reader who stops at
+    the heading is exactly the reader this is for.
+  - **Whether dumps should be encrypted is parked, not decided.** A backup you cannot restore is not a backup, and
+    encrypting with the master key means a lost key loses the backups too — the trade-off the state files make
+    deliberately, at higher stakes. Recommendation and a middle option are in `_PARKED-DECISIONS.md`.
+  - Gate `backups-are-not-world-readable`, mutation-tested **7/7**, covering both the modes and the documentation.
+
 - **The image shipped with no `NOTICE` and no `LICENSE`.** Confirmed against the published artefact rather than
   inferred: `docker run --rm --entrypoint sh ythril/ythril:2.2.5 -c 'ls /app/NOTICE /app/LICENSE /NOTICE /LICENSE'`
   returned four *No such file or directory*. The Dockerfile never copied them into the production stage.

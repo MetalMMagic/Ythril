@@ -22,7 +22,14 @@ import { log } from '../util/log.js';
  */
 export function copyBackupOffsite(srcDir: string, destRoot: string, backupId: string): string {
   const destDir = path.join(destRoot, backupId);
-  fs.mkdirSync(destDir, { recursive: true });
+  // 0700, matching the source dump. `cpSync` preserves the source file modes, so the 0600 NDJSON files stay 0600 —
+  // it is the DIRECTORY that would otherwise be created world-readable.
+  //
+  // This narrows the exposure; it does not remove it. The destination is usually a mounted share, and its own
+  // permissions and encryption are the operator's to arrange — which is why `12-admin-api.md` now says so instead
+  // of leaving a reader to assume that "encryption at rest" covered this.
+  fs.mkdirSync(destDir, { recursive: true, mode: 0o700 });
+  try { fs.chmodSync(destDir, 0o700); } catch { /* the share may not honour POSIX modes at all */ }
   fs.cpSync(srcDir, destDir, { recursive: true });
   return destDir;
 }
@@ -41,7 +48,9 @@ export function copyFilesOffsite(
 ): string | null {
   if (!fs.existsSync(filesDir)) return null;
   const destDir = path.join(destRoot, `${backupId}-files`);
-  fs.mkdirSync(destDir, { recursive: true });
+  // Same reasoning as above, and it applies more here: these are the users' UPLOADED FILES, verbatim.
+  fs.mkdirSync(destDir, { recursive: true, mode: 0o700 });
+  try { fs.chmodSync(destDir, 0o700); } catch { /* the share may not honour POSIX modes at all */ }
   fs.cpSync(filesDir, destDir, { recursive: true });
   return destDir;
 }

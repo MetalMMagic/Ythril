@@ -45,7 +45,19 @@ function redactUri(uri: string): string {
  * Returns the manifest describing the dump.
  */
 export async function dumpDatabase(uri: string, destDir: string): Promise<DumpManifest> {
-  fs.mkdirSync(destDir, { recursive: true });
+  // 0700, and 0600 on every file below.
+  //
+  // A dump is a COMPLETE PLAINTEXT COPY of the database — every memory, entity, edge, chrono entry, file-meta
+  // record and audit entry, as NDJSON. It is written by reading THROUGH mongod, so an encrypted `mongod` (the
+  // mitigation `02-hosting.md` recommends for brain data) protects nothing here: the dump comes out decrypted.
+  //
+  // These directories were created with default permissions — typically 0755, with 0644 files — while the app's
+  // own state files have always been written 0600. So the least sensitive thing on the volume was the best
+  // protected. Found by the Privacy audit lens.
+  //
+  // This is a tightening only: the owning process is the sole reader, and `restoreDatabase` runs as the same user.
+  fs.mkdirSync(destDir, { recursive: true, mode: 0o700 });
+  try { fs.chmodSync(destDir, 0o700); } catch { /* non-POSIX host, or pre-existing dir we do not own */ }
 
   const client = new MongoClient(uri, {
     serverSelectionTimeoutMS: 15_000,
@@ -67,7 +79,7 @@ export async function dumpDatabase(uri: string, destDir: string): Promise<DumpMa
     for (const name of collectionNames) {
       const col = db.collection(name);
       const destFile = path.join(destDir, `${name}.ndjson`);
-      const stream = fs.createWriteStream(destFile, { encoding: 'utf8' });
+      const stream = fs.createWriteStream(destFile, { encoding: 'utf8', mode: 0o600 });
 
       let count = 0;
       const cursor = col.find({}).batchSize(CURSOR_BATCH_SIZE);

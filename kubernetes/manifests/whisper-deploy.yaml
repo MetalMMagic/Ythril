@@ -3,7 +3,8 @@
 # Exposes an OpenAI-compatible POST /v1/audio/transcriptions endpoint with
 # response_format=verbose_json for per-segment timing data.
 #
-# Image: fedirz/faster-whisper-server (MIT licence, Apache 2.0 models).
+# Image: fedirz/faster-whisper-server (MIT). Models: the Systran faster-whisper CTranslate2 conversions
+# (MIT), which are conversions of OpenAI Whisper (Apache 2.0). See NOTICE.
 # Default model: base — adequate for most speech; upgrade to medium/large-v3
 # for noisy recordings or non-English audio.
 #

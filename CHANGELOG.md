@@ -94,6 +94,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     workflow now asks the **built image** whether the files are there and non-empty, because a `COPY` that lands in
     the wrong directory passes every unit test there is.
 
+- **NOTICE named the wrong licence for the Whisper models an operator actually pulls.** It said they "are Apache 2.0
+  licensed", which is the licence of **OpenAI's upstream Whisper weights** — not of the artefacts that get fetched. What
+  `faster-whisper-server` downloads are the **Systran `faster-whisper-*` CTranslate2 conversions, published under MIT**
+  (Ythril's default is `base`, so `Systran/faster-whisper-base`). Both are permissive, so nothing an operator may do
+  changes — but a stated licence should name the thing it describes. The Kubernetes manifest carried the same error in a
+  comment and is corrected too.
+  - Worth recording how nearly this went the other way: I first assumed Whisper was MIT upstream and the conversions
+    Apache-2.0. It is the reverse. Both were checked against the model API rather than recalled.
+
 - **NOTICE attributed a package that was removed months ago.** `qrcode` was swapped for `uqr` — the MFA component's
   spec documents the swap in its own header, *"CommonJS `qrcode` → ESM `uqr`"* — the dependency went, and the NOTICE
   entry stayed. That claims Ythril redistributes something it does not, which is the small end of a licence problem

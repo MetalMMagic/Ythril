@@ -311,8 +311,14 @@ Ythril** - it is pulled independently at deployment time.
 Role: speech-to-text - transcribes uploaded / segmented audio via an OpenAI-compatible endpoint.
 
 License: MIT (the server). The full MIT text, with its copyright notice, ships in the image's bundled
-`LICENSE`; Ythril does not redistribute the image. Whisper models are pulled separately at runtime and
-are Apache 2.0 licensed.
+`LICENSE`; Ythril does not redistribute the image.
+
+The MODELS are pulled separately at runtime, and there are two licences in play rather than one. What the server
+actually downloads are the **Systran `faster-whisper-*` CTranslate2 conversions, published under MIT** — Ythril's
+default is `base`, so `Systran/faster-whisper-base`. Those are conversions of **OpenAI's Whisper weights, which are
+Apache 2.0**. This entry previously named only Apache 2.0, which is the licence of the upstream weights and not of
+the artefacts that are fetched. Both are permissive, so nothing an operator may do changes — but a stated licence
+should name the thing it is describing.
 
 Ythril communicates with the sidecar only over an HTTP socket on an isolated internal media network; no
 faster-whisper-server code is linked into or incorporated into the Ythril application.

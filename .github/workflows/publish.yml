@@ -60,3 +60,27 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64,linux/arm64
+
+      # The licence obligation, verified against the ARTEFACT rather than the instruction.
+      #
+      # `testing/standalone/notice-ships-in-the-image.test.js` asserts the Dockerfile copies NOTICE and LICENSE in,
+      # because that check has to run without Docker. It cannot see whether the COPY landed where the image serves
+      # from — and a COPY that silently lands in the wrong place passes every unit test there is. So the published
+      # image is asked directly.
+      #
+      # This exists because it once did not: 2.2.5 shipped with neither file. The image is the primary distribution,
+      # so it was the one place Apache-2.0 §4(d) and the MIT notice clause actually applied, and the one place they
+      # were unmet.
+      - name: Verify the licence and notices are in the published image
+        run: |
+          IMAGE="$(echo '${{ steps.meta.outputs.tags }}' | head -n1)"
+          echo "Checking $IMAGE"
+          for f in NOTICE LICENSE; do
+            if docker run --rm --entrypoint sh "$IMAGE" -c "test -s /app/$f"; then
+              echo "  ok: /app/$f present and non-empty"
+            else
+              echo "  FAIL: /app/$f is missing or empty in the published image."
+              echo "  Apache-2.0 4(d) and the MIT notice clause require the notices to travel with the copy."
+              exit 1
+            fi
+          done

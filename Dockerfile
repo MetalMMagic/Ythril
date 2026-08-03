@@ -113,6 +113,21 @@ COPY --from=builder /build/server/dist ./server/dist
 # Copy compiled Angular SPA from client-builder
 COPY --from=client-builder /build/client/dist/browser ./client/dist/browser
 
+# The licence and the third-party notices, INSIDE the image.
+#
+# They were not here, and the image is the primary distribution — most users never see the git repo. That made the
+# one place the notices are legally required the one place they were absent:
+#
+#   - Apache-2.0 §4(d): a distribution of a work that carries a NOTICE file "must include a readable copy of the
+#     attribution notices contained within such NOTICE file". Ythril redistributes several Apache-2.0 works in this
+#     image — @huggingface/transformers, sharp, and the embedding model weights themselves.
+#   - MIT: "The above copyright notice and this permission notice shall be included in all copies or substantial
+#     portions of the Software." An image is a copy.
+#
+# A few KB, in the app layer where it belongs. Found by the Legal & Compliance audit lens; asserted by
+# `notice-ships-in-the-image`.
+COPY NOTICE LICENSE ./
+
 ENV NODE_ENV=production
 ENV PORT=3200
 ENV CONFIG_PATH=/config/config.json

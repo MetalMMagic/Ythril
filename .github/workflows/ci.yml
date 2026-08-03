@@ -20,6 +20,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Full history: the CHANGELOG check below diffs `base...HEAD`, which needs a MERGE BASE. The default
+          # shallow clone has none, and the failure mode is the bad one — the diff errors, the check skips, and a
+          # missing entry looks like a passing build.
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -29,6 +34,18 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      # A change to shipped code needs a CHANGELOG entry under [Unreleased].
+      #
+      # The rule was already the house rule and was being followed — 28 PRs in the batch that added this, every one
+      # with an entry. Nothing enforced it, and a rule kept alive by memory is one distracted afternoon from lapsing,
+      # invisibly: nobody notices the entry that was never written.
+      #
+      # PRs only. On a push to main there is no base to diff against, and the entry was already required of the PR.
+      - name: CHANGELOG entry for shipped changes
+        if: github.event_name == 'pull_request'
+        run: |
+          node scripts/check-changelog.mjs "origin/$GITHUB_BASE_REF"
 
       - name: Lint docs
         run: npm run lint:docs

@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **CI now enforces the CHANGELOG rule that memory had been enforcing.** Second finding of the Documentation & DX
+  lens. An `[Unreleased]` entry for every user-facing change is the house rule, and it was being followed — **28 PRs
+  in this batch, every one with an entry** — but nothing checked it. A rule kept alive by memory is one distracted
+  afternoon from lapsing, and the lapse is invisible: nobody notices the entry that was never written.
+  - A diff touching `server/src/`, `client/src/` or `client/public/` must add at least one line **inside the**
+    **`[Unreleased]` section** — not merely touch the file, which a typo fix in a released section would satisfy
+    while the actual change went unrecorded.
+  - **Exempt by path, with no marker-based escape hatch.** Tests, `docs/`, `scripts/`, `todo/`, workflows and any
+    `*.spec.ts` change without changing what a user gets. A `[skip changelog]` in a PR title leaves no record and
+    gets used the moment it is inconvenient; if a source change genuinely has no user-facing effect, one line saying
+    so is cheaper and records that somebody considered the question.
+  - **A check that cannot run must not report success.** `actions/checkout` now uses `fetch-depth: 0`, because
+    `base...HEAD` needs a merge base — and if the diff fails anyway the script **exits 1 in CI** rather than
+    skipping. Verified in both directions against real commits: a scratch branch touching `server/src` with no entry
+    failed; adding the entry passed.
+  - Gate `changelog-entry-is-enforced`, mutation-tested **11/11**, pinning the CI wiring (including the PR-only
+    condition and `fetch-depth: 0`) and every decision inside the script.
+
 - **`docs/decisions/` — the reasoning behind the irreversible calls now ships.** First finding of the Documentation
   & DX lens. The reasoning existed; it just was not in the repository: `todo/` is **gitignored**, so `_REFERENCE.md`
   and `_PARKED-DECISIONS.md` — where the cross-cutting rationale lived — are invisible to anyone who clones.

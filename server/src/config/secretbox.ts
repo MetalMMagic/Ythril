@@ -110,6 +110,26 @@ export function deriveKey(secret: MasterSecret): DerivedKey {
 }
 
 /**
+ * Derive for a salt that already exists — the DECRYPT side of {@link deriveKey}.
+ *
+ * {@link deriveKey} invents a random salt, which is right for writing and useless for reading. A batch reader
+ * has the salt in front of it (every envelope records the one its file was written with) and needs the key that
+ * matches it, derived **once**, not once per line.
+ *
+ * Without this the reader has no choice but {@link decryptEnvelope}, which derives from each envelope's own
+ * salt on every call — correct, and one scrypt per record. That is the same trap {@link DerivedKey} exists to
+ * avoid, and it is easy to reintroduce on the read side after fixing it on the write side.
+ */
+export function deriveKeyForSalt(secret: MasterSecret, salt: Buffer | null): DerivedKey {
+  if (secret.kind === 'key') {
+    if (salt) throw new Error('envelope has a scrypt salt but YTHRIL_MASTER_KEY is set, not a passphrase');
+    return { key: secret.key, kdf: 'raw' };
+  }
+  if (!salt) throw new Error('envelope has no salt but YTHRIL_MASTER_PASSPHRASE is set, not a raw key');
+  return { key: scryptKey(secret.passphrase, salt), kdf: 'scrypt', salt };
+}
+
+/**
  * Encrypt with an already-derived key. Cheap and safe to call in a loop: only the 12-byte IV is fresh per
  * call, which is what AES-GCM requires (a reused key with a reused IV is catastrophic; a reused key with a
  * fresh IV is the normal, correct construction).

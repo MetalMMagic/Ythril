@@ -19,6 +19,7 @@
  */
 import fs from 'node:fs';
 import { FILE_MODE, mkdirPrivateSync } from '../util/fs-modes.js';
+import { resolveMasterSecret, deriveKey, encryptWithKey, type DerivedKey } from '../config/secretbox.js';
 import path from 'node:path';
 import { MongoClient } from 'mongodb';
 import { EJSON } from 'bson';
@@ -34,6 +35,26 @@ export interface DumpManifest {
   createdAt: string;
   sourceUriRedacted: string;
   collections: Array<{ name: string; count: number }>;
+  /**
+   * True when every record line in this dump is an encryption envelope.
+   *
+   * `restoreDatabase` does not rely on this — it detects an envelope per line, so a dump restores correctly
+   * even if the manifest is lost or hand-edited, and a mixed file still works. The flag exists so an
+   * OPERATOR (and the UI) can tell what a directory holds without opening a data file and reading ciphertext.
+   */
+  encrypted?: boolean;
+}
+
+/** Options for {@link dumpDatabase}. */
+export interface DumpOptions {
+  /**
+   * Encrypt every record line with the configured master secret.
+   *
+   * Default **false** — plaintext, which is the owner's chosen default: a backup you cannot restore is not a
+   * backup, and encrypting by default makes disaster recovery onto a fresh instance depend on having the old
+   * key to hand *before* the restore.
+   */
+  encrypt?: boolean;
 }
 
 function redactUri(uri: string): string {
@@ -45,7 +66,29 @@ function redactUri(uri: string): string {
  * Creates destDir if it does not exist.
  * Returns the manifest describing the dump.
  */
-export async function dumpDatabase(uri: string, destDir: string): Promise<DumpManifest> {
+export async function dumpDatabase(uri: string, destDir: string, opts: DumpOptions = {}): Promise<DumpManifest> {
+  // Derive the key ONCE for the whole dump, before any collection is opened.
+  //
+  // This hoist is the entire reason `deriveKey`/`encryptWithKey` exist. `encryptEnvelope` derives inside every
+  // call, so encrypting per record through it would run one scrypt (N=16384, tens of milliseconds) PER RECORD —
+  // a hundred thousand records is hours and the backup would look like a hang. One derivation, one salt, a
+  // fresh IV per line.
+  //
+  // Resolved up front so "encryption was asked for and no secret is configured" fails BEFORE a single byte is
+  // written, rather than leaving a half-plaintext directory behind.
+  let dk: DerivedKey | null = null;
+  if (opts.encrypt) {
+    const secret = resolveMasterSecret();
+    if (!secret) {
+      throw new Error(
+        'Backup encryption is enabled but no master secret is configured. Set YTHRIL_MASTER_KEY or '
+        + 'YTHRIL_MASTER_PASSPHRASE, or turn encryption off. Note that losing the secret makes the backup '
+        + 'unrecoverable — back it up somewhere other than the instance it protects.',
+      );
+    }
+    dk = deriveKey(secret);
+  }
+
   // 0700, and 0600 on every file below.
   //
   // A dump is a COMPLETE PLAINTEXT COPY of the database — every memory, entity, edge, chrono entry, file-meta
@@ -97,7 +140,13 @@ export async function dumpDatabase(uri: string, destDir: string): Promise<DumpMa
           // stays readable and greppable) while wrapping the types JSON cannot express — `{"$date": …}` for a
           // Date, `{"$oid": …}` for an ObjectId. `EJSON.parse` reverses it, and on a pre-existing plain-JSON dump
           // it behaves exactly as `JSON.parse` did, so old backups still restore with their old semantics.
-          stream.write(EJSON.stringify(doc, { relaxed: true }) + '\n');
+          //
+          // Encryption, when enabled, wraps this ONE line — per record, not per file. Per-file would mean
+          // `restoreDatabase` loading an entire collection into memory to decrypt it, which is unbounded and
+          // only bites once the database is large. `dk` is derived once above, so this is a cheap AES call plus
+          // a fresh IV, not a key derivation.
+          const line = EJSON.stringify(doc, { relaxed: true });
+          stream.write((dk ? encryptWithKey(line, dk) : line) + '\n');
           count++;
         }
       } finally {
@@ -121,6 +170,7 @@ export async function dumpDatabase(uri: string, destDir: string): Promise<DumpMa
       createdAt: new Date().toISOString(),
       sourceUriRedacted: redactUri(uri),
       collections: manifestCollections,
+      ...(dk ? { encrypted: true } : {}),
     };
 
     fs.writeFileSync(

@@ -24,6 +24,7 @@ import { TranslocoPipe } from '@jsverse/transloco';
 import { PhIconComponent } from '../../../shared/ph-icon.component';
 import { StatusPillComponent } from '../../../shared/status-pill.component';
 import { HealthDotComponent } from './health-dot.component';
+import { HscrollTopDirective } from '../../../shared/hscroll-top.directive';
 import { MediaProcessingStateService, PipeId } from './media-processing-state.service';
 import { PipelineStatusService } from './pipeline-status.service';
 import { HealthState, MODE_STAGES, IMAGE_LEVELS, AUDIO_LEVELS, VIDEO_LEVELS, TEXT_LEVELS, MediaClass } from './media-processing.types';
@@ -45,7 +46,7 @@ interface Step {
   selector: 'app-pipelines-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgTemplateOutlet, FormsModule, TranslocoPipe, PhIconComponent, StatusPillComponent, HealthDotComponent],
+  imports: [NgTemplateOutlet, FormsModule, TranslocoPipe, PhIconComponent, StatusPillComponent, HealthDotComponent, HscrollTopDirective],
   styles: [`
     :host { display: block; }
     .pipe-card { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 10px;
@@ -165,7 +166,7 @@ interface Step {
         <app-status-pill [variant]="s.docVariant()" [dot]="true">{{ s.docPillLabelKey() | transloco }}</app-status-pill>
       </header>
 
-      <div class="chain">
+      <div class="chain" hscrollTop>
         @for (st of documentSteps(); track st.key) {
           <div class="step" [class.cond]="st.conditional" [class.dim]="stepDim(st.key)" [class.active]="stepActive(st.key)">
             <div class="box">
@@ -245,7 +246,7 @@ interface Step {
           </div>
         </header>
 
-        <div class="chain">
+        <div class="chain" hscrollTop>
           @for (st of p.steps; track st.key) {
             <!-- dim/active, same as the document pipeline. Without these the four media pipelines showed
                  availability only: green dots everywhere and no indication of which steps the chosen

@@ -412,6 +412,11 @@ button:disabled, .btn:disabled {
   justify-content: space-between;
   margin-bottom: 16px;
   gap: 12px;
+  /* A card header is a title plus however many controls that card needs, and at a narrow width they do not
+     fit on one line. Without this the header simply grew past the page pane and `.main` slid sideways —
+     filter bars, headings and all — which is what the responsive sweep calls rule 1. Measured on
+     /settings/spaces at 420px: the search input's 364px pushed the pane 48px past its box. */
+  flex-wrap: wrap;
 }
 
 .card-title {

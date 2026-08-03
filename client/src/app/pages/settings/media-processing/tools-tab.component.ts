@@ -24,6 +24,7 @@ import { PhIconComponent } from '../../../shared/ph-icon.component';
 import { StatusPillComponent, StatusVariant } from '../../../shared/status-pill.component';
 import { HealthDotComponent } from './health-dot.component';
 import { ModelProviderCardComponent } from './model-provider-card.component';
+import { HscrollTopDirective } from '../../../shared/hscroll-top.directive';
 import { PipelineStatusService } from './pipeline-status.service';
 import { SpaceIndexStatus } from './media-processing.types';
 import { SpacesApi } from '../../../core/spaces-api.service';
@@ -34,7 +35,7 @@ import { ConfirmDialogService } from '../../../core/confirm-dialog.service';
   selector: 'app-tools-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [TranslocoPipe, PhIconComponent, StatusPillComponent, HealthDotComponent, ModelProviderCardComponent],
+  imports: [TranslocoPipe, PhIconComponent, StatusPillComponent, HealthDotComponent, ModelProviderCardComponent, HscrollTopDirective],
   styles: [`
     :host { display: block; }
     /* Splitter + chunker sit side by side as model-style cards, matching the Models tab grid. */
@@ -126,7 +127,7 @@ import { ConfirmDialogService } from '../../../core/confirm-dialog.service';
         } @else if (!spaces().length) {
           <div class="empty">{{ 'mediaProcessing.tools.indexEmpty' | transloco }}</div>
         } @else {
-          <div class="tablewrap">
+          <div class="tablewrap" hscrollTop>
             <table>
               <thead>
                 <tr>

@@ -173,7 +173,9 @@ import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
       font-family: var(--font);
     }
 
-    .export-btns { display: flex; gap: 8px; }
+    /* flex-wrap because "Export all matching (NDJSON)" is 195px and cannot shrink: at 420px these three
+       pushed the page pane 72px past its box, so the whole audit log slid sideways. */
+    .export-btns { display: flex; gap: 8px; flex-wrap: wrap; }
     /* No button geometry here. These three carried NO class and re-created .btn-sm's metrics locally; they use the
        class now, so the small-button size is defined in one place. */
 

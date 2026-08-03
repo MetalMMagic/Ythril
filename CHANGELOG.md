@@ -211,6 +211,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An embedded iframe narrower than 768px had no navigation at all.** Below that width the sidebar is an
+  off-canvas drawer and the hamburger is the only thing that opens it — and the hamburger lived in the topbar,
+  which `?embedded=1` removes because it duplicates the host portal's chrome. So a portal embedding Ythril in a
+  narrow frame got whatever page it landed on and no way to leave it. Measured on a real browser at 420px:
+  sidebar at `left: -280px`, and **no control anywhere on the page able to reach it**.
+  - Embedded mode now renders a nav-only bar holding just the drawer opener — no logo, no Sign out, so both
+    reasons the topbar was hidden still hold — and only below the breakpoint, where the sidebar is off-canvas.
+    Above it the sidebar is inline and a bar holding a no-op hamburger would just cost the host 56px.
+  - Pinned by four assertions in `shell.component.spec.ts`, including the overcorrection (bringing the whole
+    topbar back) and the CSS media query, which jsdom cannot evaluate. **6 mutations killed, 0 survived.**
+
+- **Two pages slid sideways at phone width, and four scrollers were invisible.** Found by running
+  `testing/responsive-sweep.mjs` at 600px and 420px — the first run since the pages this batch touched:
+  **19 findings, now 0.**
+  - `/settings/spaces` and `/settings/audit-log` violated the sweep's rule 1 — the whole page pane scrolled
+    sideways, filter bars and headings and all. Named precisely rather than guessed: the spaces search input's
+    364px pushed the pane 48px past its box, and the audit log's 195px "Export all matching (NDJSON)" button
+    pushed it 72px. Both were flex rows that could not wrap. `.card-header` now wraps globally, which is the
+    correct behaviour for a title-plus-controls row at any width, and `.export-btns` wraps too.
+  - The Help page's table of contents was one `overflow-x: auto` row of nowrap buttons: **976px of hidden
+    content past a 388px box, with no visible affordance**, so ten of the sixteen guides were simply not there.
+    A table of contents is a list, and a list may take two lines — it wraps below 900px now, and is still the
+    sticky vertical column above it.
+  - Media Processing's two pipeline chain diagrams and the Tools tab's table scroll legitimately, so they get
+    the drawn `hscrollTop` control that already exists for exactly this — up to 488px of the pipeline was past
+    the edge with nothing to say so.
+  - The eight error states added in #662 were measured at both widths too: the pane does not overflow, the long
+    server reason wraps, and Retry stays reachable.
+
 - **The Schema Library page had no Help link, and a dead copy of the page is why.** `pages/settings/schema-library.component.ts`
   was unreachable — no route, no importer, and a class name that collided with the live page — and the Help table had
   been written against the URL that dead file implied (`/settings/schema-library`), which nothing routes to. So the
@@ -814,6 +843,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "everything" was not true. The precedence is now stated once, at the top, where the section is described; the
   per-type part is a pointer line rather than a heading that promises a control it does not have; and no copy
   refers to "the number above" any more.
+
+### Known gaps
+
+- **Wide tables and code blocks inside a rendered guide still scroll invisibly** (`/settings/help` at 420px,
+  4 occurrences). Recorded in the component with both failed attempts measured, so nobody repeats them:
+  `scrollbar-width: thin` yields a **2px** bar *and* makes Chromium 121+ ignore `::-webkit-scrollbar`
+  entirely, and `::-webkit-scrollbar` with an explicit height did not apply here at all (measured 0px on
+  `table`, 2px on `pre`, with and without `:is()`). The mechanism that does work in this app is the drawn
+  control, and it needs a host element in the template — this content arrives as sanitized `innerHTML`, so
+  closing the gap means wrapping `pre`/`table` during render. Tracked rather than bodged.
 
 ## [2.2.5] — 2026-08-02
 

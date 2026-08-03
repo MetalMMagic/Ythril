@@ -83,7 +83,13 @@ export type HelpDocId = typeof HELP_DOCS[number]['id'];
        chip row above the document, which keeps every guide one tap away on a phone. */
     @media (min-width: 900px) { .help { grid-template-columns: 232px minmax(0, 1fr); align-items: start; } }
 
-    .index { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+    /* NO BACKTICKS in this block — one ends the styles template string, and the error points at @Component.
+       Wraps rather than scrolls below 900px. It used to be a single overflow-x:auto row of nowrap buttons,
+       which measured 976px of hidden content past a 388px box with no visible affordance — on this platform
+       an overlay scrollbar paints nothing, so ten of the sixteen guides were simply not there. A table of
+       contents is a list, and a list may take two lines; scrolling it was the wrong shape for the content.
+       Above 900px it is still the sticky vertical column. */
+    .index { display: flex; flex-wrap: wrap; gap: 6px; padding-bottom: 4px; }
     @media (min-width: 900px) {
       .index { flex-direction: column; overflow-x: visible; position: sticky; top: 12px; }
     }
@@ -111,7 +117,22 @@ export type HelpDocId = typeof HELP_DOCS[number]['id'];
      */
     .doc ::ng-deep :is(p, li, blockquote) { max-width: 78ch; }
 
-    /* Long tables and code blocks scroll inside the document rather than widening the page. */
+    /* Long tables and code blocks scroll inside the document rather than widening the page.
+
+       NO BACKTICKS in this block.
+
+       KNOWN GAP, measured rather than assumed: on this platform that scroll is INVISIBLE. Overlay
+       scrollbars paint only while scrolling and take no layout space, so a table or code block wider than
+       the pane looks like a complete one that was cut. Two attempts are recorded so nobody repeats them:
+
+         - scrollbar-width:thin + scrollbar-color yields a 2px bar (offsetHeight - clientHeight === 2) AND
+           makes Chromium 121+ ignore ::-webkit-scrollbar entirely.
+         - ::-webkit-scrollbar with an explicit height did not apply here at all, with or without :is(),
+           measured at 0px on table and 2px on pre.
+
+       The mechanism that does work in this app is the DRAWN control (hscrollTop, see its own file), and it
+       needs a host element in the template. This content arrives as sanitized innerHTML, so there is none.
+       Closing this means wrapping pre/table during render so a host exists — tracked, not bodged here. */
     .doc ::ng-deep :is(pre, table) { max-width: 100%; overflow-x: auto; }
     .doc ::ng-deep table { display: block; border-collapse: collapse; font-variant-numeric: tabular-nums; }
     .doc ::ng-deep :is(th, td) { border: 1px solid var(--border-muted); padding: 6px 10px; font-size: 13px; text-align: left;

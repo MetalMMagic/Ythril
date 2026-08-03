@@ -130,6 +130,34 @@ Only `--`-prefixed CSS custom properties are accepted. Standard CSS properties (
 
 The `postMessage` handler validates `event.origin`. **Same-origin messages are always accepted. A cross-origin embedder — which is what portal-style embedding actually is — is accepted only if the operator has explicitly allowlisted its origin** (see below). Without that opt-in, a cross-origin `postMessage` is ignored *and* the browser will refuse to frame Ythril at all.
 
+### What a theme owns — and what it must not touch
+
+**A theme owns identity. It does not own facts.**
+
+Both paths above can set any `--` custom property, so both can reach tokens that are not brand colours. One class
+of token reports **what the system is**, and recolouring it makes the product lie:
+
+| do not override | it means |
+|---|---|
+| `--state-active` | a feature is configured and running — "Active", "Online", "In use" |
+| `--success` | a check passed — "Healthy", "Reachable", "Complete" |
+| `--warning` | degraded, still working — a fallback is in use |
+| `--error` | failed |
+| `--info` | in progress, nothing wrong |
+| `--status-*-bg` / `--status-*-fg`, `--success-*`, `--warning-*`, `--error-*` | derived from the five above |
+
+This is not a style preference. A brand palette built on red made **"Active" and "Online" render red** while
+"Healthy" and "Reachable" stayed green — the same instance reporting the same good news in two colours, one of which
+reads as an alarm. Fixed in the code for the tokens that were mixing the two, but a theme can still override these
+directly, and nothing in the browser can stop it.
+
+**Brand tokens are yours**: `--accent`, `--accent-hover`, `--accent-text`, `--nav-active`, the backgrounds, the text
+greys, the borders, the radii. Anything that says *"you are here"* — a selected tab, a highlighted row, a sort caret
+— is navigation and correctly follows `--accent`.
+
+One caveat if you do restyle the text greys: they are chosen to clear **WCAG AA (4.5:1)** against all three
+background tokens, and that is computed on every build (`text-contrast-meets-aa`). A theme is outside that check.
+
 ### Enabling cross-origin embedding (opt-in)
 
 By default Ythril may only be framed and themed by its own origin. To embed it in a portal on a **different** origin, list that origin in `config.json`:

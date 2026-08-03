@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The theme docs now say which tokens a theme must not touch.** Raised by an operator screenshot: a **red** brand
+  palette on 2.2.5 rendered the "Active" pill red.
+  - **Already fixed in code, and not yet released.** In the v2.2.5 tag `.pill.active` reads `var(--accent)` with a
+    hardcoded `rgba(206,255,128,…)` background — red text on a greenish pill, exactly the screenshot — and
+    `--state-active` did not exist. #637 fixed that and swept two more elements; 2.2.5 predates it by 31 commits.
+  - **What was actually left is the theme surface.** Both theming paths — the injected `cssUrl` stylesheet and the
+    `postMessage` token channel — accept **any** `--` custom property, so an embedder can set `--error` or
+    `--state-active` directly. No code can prevent that; the only defence is saying which tokens report facts, and
+    that rule lived in a CSS comment where no operator would read it.
+  - `15-about-and-embedding.md` now has **"What a theme owns — and what it must not touch"**: the five fact tokens
+    and their derived pairs, the brand tokens that *are* the operator's, the line between them (a selected tab
+    follows the accent; a status pill does not), and the concrete failure that motivates it.
+  - Gate `theme-cannot-recolour-facts`: every semantic token declared in `:root` must be named in that list, so a
+    sixth one cannot be added without documenting it. It deliberately does **not** pin `--state-active`'s value —
+    keeping it identical to the default accent is #637's choice, so an unthemed instance stays pixel-identical.
+
 - **`testing/ux-drift-sweep.mjs` — control drift measured from computed styles in the running app.** First tool of
   the UX audit lens, whose brief states that visual consistency is the primary review dimension and that **reading
   CSS does not find drift**: view encapsulation lets two components style "the same" input differently and neither

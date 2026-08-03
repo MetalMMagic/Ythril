@@ -11,6 +11,7 @@ import { createWriteStream } from 'fs';
 import path from 'path';
 import { createHash } from 'crypto';
 import { getDataRoot } from '../config/loader.js';
+import { FILE_MODE, harden, mkdirPrivate } from '../util/fs-modes.js';
 import { log } from '../util/log.js';
 
 /** Deterministic upload ID from (spaceId, path, total). */
@@ -59,11 +60,14 @@ export async function storeChunk(
 ): Promise<{ received: number; complete: boolean }> {
   const id = uploadId(spaceId, filePath, total);
   const dir = uploadDir(spaceId, id);
-  await fs.mkdir(dir, { recursive: true });
+  // Staging holds the same bytes as the finished file, so it gets the same protection. A half-uploaded document
+  // is not less confidential than a complete one.
+  await mkdirPrivate(dir);
 
   // Write chunk as <start>.bin
   const chunkFile = path.join(dir, `${start}.bin`);
-  await fs.writeFile(chunkFile, data);
+  await fs.writeFile(chunkFile, data, { mode: FILE_MODE });
+  await harden(chunkFile, FILE_MODE);
 
   // Calculate total received bytes from all chunk files
   const entries = await fs.readdir(dir);
@@ -136,12 +140,12 @@ export async function assembleChunks(
     );
   }
 
-  await fs.mkdir(path.dirname(targetPath), { recursive: true });
+  await mkdirPrivate(path.dirname(targetPath));
 
   // Assemble sequentially: read each chunk, hash it, then write it. One chunk is
   // held in memory at a time (chunk size is bounded by the upload body limit).
   const hash = createHash('sha256');
-  const out = createWriteStream(targetPath);
+  const out = createWriteStream(targetPath, { mode: FILE_MODE });
   try {
     for (const cf of sized) {
       const buf = await fs.readFile(path.join(dir, cf.name));
@@ -158,6 +162,7 @@ export async function assembleChunks(
     out.destroy();
     throw err;
   }
+  await harden(targetPath, FILE_MODE);   // a resumed upload OVERWRITES, and `mode:` only applies at creation
 
   const sha256 = hash.digest('hex');
 

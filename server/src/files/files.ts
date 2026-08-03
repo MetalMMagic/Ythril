@@ -3,6 +3,7 @@ import path from 'path';
 import { createHash } from 'crypto';
 import { resolveSafePathChecked, spaceRoot } from './sandbox.js';
 import { getConfig, getDataRoot, getStorageConfig } from '../config/loader.js';
+import { FILE_MODE, harden, hardenPath, mkdirPrivate } from '../util/fs-modes.js';
 
 export interface FileEntry {
   name: string;
@@ -26,7 +27,9 @@ export interface FileEntry {
 
 /** Ensure the space files directory exists */
 export async function ensureSpaceFilesDir(spaceId: string): Promise<void> {
-  await fs.mkdir(spaceRoot(spaceId), { recursive: true });
+  // Owner-only. A space's files directory holds every document uploaded to that space; it has no business being
+  // world-readable, and it was — see `util/fs-modes.ts`.
+  await mkdirPrivate(spaceRoot(spaceId));
 }
 
 /** Read a text file — rejects if it's a directory or doesn't exist */
@@ -45,8 +48,11 @@ export async function readFileBytes(spaceId: string, filePath: string): Promise<
 /** Write a text file, creating parent directories as needed */
 export async function writeFile(spaceId: string, filePath: string, content: string): Promise<{ sha256: string }> {
   const abs = await resolveSafePathChecked(spaceId, filePath);
-  await fs.mkdir(path.dirname(abs), { recursive: true });
-  await fs.writeFile(abs, content, 'utf8');
+  await mkdirPrivate(path.dirname(abs));
+  await fs.writeFile(abs, content, { encoding: 'utf8', mode: FILE_MODE });
+  // `mode:` only applies when the file is CREATED, so an overwrite of a file that predates this leaves it `0644`.
+  // The chmod is what makes the tightening self-healing instead of needing a boot-time walk of the whole tree.
+  await harden(abs, FILE_MODE);
   const sha256 = createHash('sha256').update(content, 'utf8').digest('hex');
   return { sha256 };
 }
@@ -58,8 +64,9 @@ export async function writeFileBytes(
   data: Buffer,
 ): Promise<{ sha256: string }> {
   const abs = await resolveSafePathChecked(spaceId, filePath);
-  await fs.mkdir(path.dirname(abs), { recursive: true });
-  await fs.writeFile(abs, data);
+  await mkdirPrivate(path.dirname(abs));
+  await fs.writeFile(abs, data, { mode: FILE_MODE });
+  await harden(abs, FILE_MODE);   // see the note in `writeFile` above
   const sha256 = createHash('sha256').update(data).digest('hex');
   return { sha256 };
 }
@@ -106,7 +113,7 @@ export async function fileExists(spaceId: string, filePath: string): Promise<boo
 /** Create a directory (including parents) */
 export async function createDir(spaceId: string, dirPath: string): Promise<void> {
   const abs = await resolveSafePathChecked(spaceId, dirPath);
-  await fs.mkdir(abs, { recursive: true });
+  await mkdirPrivate(abs);
 }
 
 /** Move/rename a file or directory */
@@ -117,8 +124,15 @@ export async function moveFile(
 ): Promise<void> {
   const srcAbs = await resolveSafePathChecked(spaceId, srcPath);
   const dstAbs = await resolveSafePathChecked(spaceId, dstPath);
-  await fs.mkdir(path.dirname(dstAbs), { recursive: true });
+  await mkdirPrivate(path.dirname(dstAbs));
   await fs.rename(srcAbs, dstAbs);
+  // A rename carries the source's mode with it, so moving a file that predates this hardening would silently
+  // reintroduce an 0644 file into a tightened tree.
+  //
+  // `hardenPath`, not `harden(dstAbs, FILE_MODE)`: this function moves DIRECTORIES too, and `0600` on a directory
+  // removes the execute bit that makes it openable at all. Getting that wrong took the server down — see the note
+  // on `hardenPath`.
+  await hardenPath(dstAbs);
 }
 
 /** Recursively sum file sizes under a directory. Returns 0 if dir doesn't exist. */

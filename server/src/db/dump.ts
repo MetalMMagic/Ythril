@@ -18,6 +18,7 @@
  * directory.
  */
 import fs from 'node:fs';
+import { FILE_MODE, mkdirPrivateSync } from '../util/fs-modes.js';
 import path from 'node:path';
 import { MongoClient } from 'mongodb';
 import { EJSON } from 'bson';
@@ -56,8 +57,7 @@ export async function dumpDatabase(uri: string, destDir: string): Promise<DumpMa
   // protected. Found by the Privacy audit lens.
   //
   // This is a tightening only: the owning process is the sole reader, and `restoreDatabase` runs as the same user.
-  fs.mkdirSync(destDir, { recursive: true, mode: 0o700 });
-  try { fs.chmodSync(destDir, 0o700); } catch { /* non-POSIX host, or pre-existing dir we do not own */ }
+  mkdirPrivateSync(destDir);
 
   const client = new MongoClient(uri, {
     serverSelectionTimeoutMS: 15_000,
@@ -79,7 +79,7 @@ export async function dumpDatabase(uri: string, destDir: string): Promise<DumpMa
     for (const name of collectionNames) {
       const col = db.collection(name);
       const destFile = path.join(destDir, `${name}.ndjson`);
-      const stream = fs.createWriteStream(destFile, { encoding: 'utf8', mode: 0o600 });
+      const stream = fs.createWriteStream(destFile, { encoding: 'utf8', mode: FILE_MODE });
 
       let count = 0;
       const cursor = col.find({}).batchSize(CURSOR_BATCH_SIZE);

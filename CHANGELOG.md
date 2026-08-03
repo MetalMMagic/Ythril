@@ -75,6 +75,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The admin UI fetched its font from Google on every page load. It is now self-hosted.** Found by the Legal &
+  Compliance audit lens, and the licence problem is the least of the three:
+  - **It told a third party who was looking.** Every load of a *self-hosted* admin UI sent the operator's IP to a
+    font CDN. Nothing stopped it: there was no CSP `font-src`, and `Referrer-Policy: no-referrer` hides the
+    referring page, not the address.
+  - **It broke the offline promise the rest of the build keeps.** The image pre-downloads the embedding model *"so
+    the container starts offline"* and ships the docs because an air-gapped instance has *"no route to
+    github.com"* — and then the UI asked the internet for its font, so on those installs it silently failed and
+    re-flowed the text on every page.
+  - **The font was neither bundled nor attributed**, so the SIL OFL notice it requires was absent.
+  - Four latin weights (300/400/500/600) are now vendored as WOFF2 — **96 KB total**, content-hashed by the
+    bundler — with the OFL attribution and the upstream release recorded in `NOTICE`, provenance and a refresh
+    recipe in `docs/dependencies.md`, and **`font-src 'self'` added to the CSP** as the enforcement half.
+  - Verified on a running instance with **every off-origin request blocked**: Inter loads and is actually used
+    (measured 878 px against a 950 px forced fallback — a claim of `font-family: Inter` alone would prove nothing),
+    and **zero off-origin requests were attempted**. Before this change there would have been three.
+  - Gate `no-external-assets`, mutation-tested **11/11**: nine ways to reintroduce the leak caught (a stylesheet
+    link, a preconnect, a remote script, a remote `@import`, a remote `@font-face` src, the CSP directive removed,
+    the NOTICE entry removed, the upstream version dropped, the provenance section deleted) and two comments
+    *mentioning* the old URLs correctly ignored — the prose explaining the fix must not be what trips the gate.
+  - **`notice-coverage.test.js` could never have caught this**: it walks the workspaces' `dependencies`, and a
+    typeface fetched from a URL — or checked in as four files — is not one. That whole class of shipped, licensed
+    material had no check. It has one now.
+
 - **The form-mutator gate now exists too — the last of the two deferred ones.** The Media Processing page arms its
   dirty state from **one delegated `(input)`/`(change)` listener**, which covers a human typing in a field and
   cannot cover a method that writes the form itself. `setMode()` did not mark the form touched, so

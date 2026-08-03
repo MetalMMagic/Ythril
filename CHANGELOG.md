@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The CLA is now enforced, not just stated.** #664 shipped `CLA.md`; a document nothing checks is policy on
+  paper. `.github/workflows/cla.yml` asks a first-time contributor to sign, records the signature in
+  `signatures/cla.json` on a `cla-signatures` branch, and passes silently for everyone who already has.
+  - **Self-hosted deliberately.** The hosted alternative keeps the record of who signed in a Gist under a
+    third-party account and wants the CLA text as a second copy that can drift from `CLA.md`. For a project that
+    ships air-gapped and may be licensed commercially, "who holds the signature record" is not a thing to
+    outsource.
+  - **Pinned to `v2.6.1`, and that pin is the interesting part:** the action publishes **no floating `v2` tag**
+    (`git/ref/tags/v2` is a 404), so the `@v2` a first draft used would have failed on the very first run —
+    caught by checking rather than assuming. Every input name was verified against the action's own `action.yml`.
+  - **`pull_request_target` is normally a footgun** because it exposes repository secrets to a fork's pull
+    request. It is safe here for one specific reason, recorded in the file so it is not lost: the job **never
+    checks out or executes pull-request code** — no checkout, no build, no test. If anyone adds a checkout step,
+    that reasoning stops holding.
+  - A guard step fails with the cause named if `CLA_SIGNATURES_TOKEN` is missing or expired. An expired PAT fails
+    the check closed, which is the safe direction, but would otherwise read as a mysterious red check.
+
 - **Contributor licensing: a Contributor License Agreement, because the old wording quietly closed a door.**
   `docs/contribution-guide.md` had 400+ lines on architecture, security and test discipline and one sentence on
   licensing: *"By contributing, you agree that your contributions are licensed under the same terms."*

@@ -1467,6 +1467,8 @@
   "brain.error.loadChrono": "Nie udało się załadować wpisów osi czasu.",
   "brain.error.loadFileMeta": "Nie udało się załadować rekordów plików.",
   "files.error.loadFiles": "Nie udało się załadować plików.",
+  "files.refreshing": "Sprawdzanie zmian",
+  "files.refreshFailed": "Nie udało się odświeżyć — lista poniżej może być nieaktualna. Ponawianie.",
   "schemaLib.error.load": "Nie udało się załadować biblioteki schematów.",
   "graph.error.load": "Nie udało się załadować grafu.",
   "auditLog.summary.shown": "Wyświetlone",

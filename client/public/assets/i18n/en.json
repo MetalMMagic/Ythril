@@ -1467,6 +1467,8 @@
   "brain.error.loadChrono": "Couldn't load timeline entries.",
   "brain.error.loadFileMeta": "Couldn't load file records.",
   "files.error.loadFiles": "Couldn't load files.",
+  "files.refreshing": "Checking for changes",
+  "files.refreshFailed": "Could not refresh — the list below may be out of date. Retrying.",
   "schemaLib.error.load": "Couldn't load the schema library.",
   "graph.error.load": "Couldn't load the graph.",
   "auditLog.summary.shown": "Shown",

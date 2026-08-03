@@ -75,6 +75,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Watching an ingest replaced the whole file listing with a spinner every four seconds.** The progress poll
+  called the same loader a first load uses, and the template is *spinner-or-table* — so the table was unmounted
+  and remounted on every tick, for the whole of an ingest. A canary operator, verbatim: *"i only want to see
+  progress bars move while waiting and not a screenflickering."*
+  - **Their diagnosis was the fix**: the view treated *"a refetch is in flight"* as *"we have no data yet"*. The
+    rule now stated as a rule: **a refresh must never re-enter the empty state a first load uses.**
+  - A reload of the **same** directory keeps the rows and updates them in place, marked by a 2px indeterminate
+    hairline instead of an overlay. A navigation to a **different** directory is still a foreground load — rows
+    from the directory you are leaving must not appear under the name of the one you are entering, which is why
+    the classification compares the path rather than trusting the caller. Six callers; asking each to classify
+    itself is how five get it right and one does not.
+  - **A failed refresh no longer discards good rows either.** That is the same defect in another dress, and a
+    transient failure during an ingest is exactly when it happens: the rows stay, marked as not-current, and the
+    next tick clears it. A failed *first* load still reaches the error state rather than an empty folder.
+  - Measured rather than eyeballed, because the flicker is between frames: a MutationObserver plus a 20 Hz DOM
+    sample over three real poll ticks. Against the fix, 280 samples with rows and **0 without**; against the
+    original code, 3 table removals and **72 of 280 samples with no rows at all**. The first attempt at that
+    harness reached the component through `window.ng`, which a production build strips — so it drove nothing and
+    reported a clean pass.
+  - Six specs, mutation-tested 4/4, including the two directions that must NOT regress: a first load still shows
+    the spinner, and a navigation is still a load.
+
 - **"Save retention" in the Danger Zone saved nothing and said it had.** It `await`ed the Observable that
   `updateSpace` returns. Awaiting a cold Observable resolves immediately with the Observable *itself* and never
   subscribes, so **no request was ever sent** — and the success toast fired anyway. Every other call in that

@@ -273,11 +273,18 @@ import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
       <div class="export-btns">
         <button (click)="exportJson()">{{ 'auditLog.exportJson' | transloco }}</button>
         <button (click)="exportCsv()">{{ 'auditLog.exportCsv' | transloco }}</button>
+        <button (click)="exportAll()" [disabled]="exportingAll()" [attr.title]="'auditLog.exportAllTitle' | transloco">
+          {{ (exportingAll() ? 'auditLog.exportAllBusy' : 'auditLog.exportAll') | transloco }}
+        </button>
       </div>
       @if (retentionDays() > 0) {
         <span style="font-size:12px; color:var(--text-muted);">{{ 'auditLog.retention' | transloco: { days: retentionDays() } }}</span>
       }
     </div>
+
+    @if (exportError()) {
+      <div class="alert alert-error" style="margin-bottom:8px;">{{ exportError() }}</div>
+    }
 
     @if (error()) {
       <p class="error-msg">{{ error() }}</p>
@@ -437,6 +444,11 @@ export class AuditLogComponent implements OnInit, OnDestroy {
     ];
   });
 
+  /** True while the full NDJSON export is in flight — it can take a moment on a busy instance. */
+  exportingAll = signal(false);
+  /** A failed export says so; a download that quietly does nothing looks exactly like an empty result. */
+  exportError = signal('');
+
   filterAfter = '';
   filterBefore = '';
   filterOperation = '';
@@ -576,9 +588,45 @@ export class AuditLogComponent implements OnInit, OnDestroy {
     return '';
   }
 
+  /**
+   * The page on screen, as JSON.
+   *
+   * Both of these export `entries()` — **one page**, at most `pageSize` rows out of `total()`. That was not wrong,
+   * but the buttons used to say only "Export JSON" / "Export CSV", so an operator asked to produce someone's
+   * activity record could hand over a 100-row file believing it was the whole thing. The labels now say `page`, and
+   * `exportAll()` below is the one that means everything.
+   */
   exportJson(): void {
     const blob = new Blob([JSON.stringify(this.entries(), null, 2)], { type: 'application/json' });
-    this.downloadBlob(blob, 'audit-log.json');
+    this.downloadBlob(blob, 'audit-log-page.json');
+  }
+
+  /**
+   * Every entry matching the current filters, streamed from the server as NDJSON.
+   *
+   * The filters are the ones already on screen, so what comes down is what the operator was looking at — without
+   * the 1,000-row ceiling the paged endpoint has to impose on a table.
+   */
+  exportAll(): void {
+    if (this.exportingAll()) return;
+    this.exportingAll.set(true);
+    this.exportError.set('');
+    const params = this.buildParams();
+    delete params.limit;
+    delete params.offset;
+    this.adminApi.exportAuditLog(params).subscribe({
+      next: (blob) => {
+        const stamp = new Date().toISOString().slice(0, 10);
+        this.downloadBlob(blob, `audit-log-${stamp}.ndjson`);
+        this.exportingAll.set(false);
+      },
+      error: (err) => {
+        // Surfaced rather than swallowed: a download that silently does nothing is indistinguishable from an
+        // empty result, and for an audit export those two must never look the same.
+        this.exportError.set(err?.error?.error ?? this.transloco.translate('auditLog.exportAllFailed'));
+        this.exportingAll.set(false);
+      },
+    });
   }
 
   exportCsv(): void {
@@ -592,7 +640,7 @@ export class AuditLogComponent implements OnInit, OnDestroy {
     );
     const csv = [headers.join(','), ...rows].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
-    this.downloadBlob(blob, 'audit-log.csv');
+    this.downloadBlob(blob, 'audit-log-page.csv');
   }
 
   private downloadBlob(blob: Blob, filename: string): void {

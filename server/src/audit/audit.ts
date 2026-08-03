@@ -157,7 +157,14 @@ export interface AuditQueryResult {
   hasMore: boolean;
 }
 
-export async function queryAuditLog(params: AuditQueryParams): Promise<AuditQueryResult> {
+/**
+ * The Mongo filter for a set of query parameters.
+ *
+ * Extracted so the paged query and the streaming export cannot drift: an export that silently interpreted
+ * `operation=a,b` differently from the screen the operator built the filter on would be worse than no export,
+ * because the difference is invisible in the result.
+ */
+export function buildAuditFilter(params: AuditQueryParams): Filter<AuditLogEntry> {
   const filter: Filter<AuditLogEntry> = {};
 
   if (params.after || params.before) {
@@ -181,6 +188,29 @@ export async function queryAuditLog(params: AuditQueryParams): Promise<AuditQuer
       filter.operation = { $in: ops } as Filter<AuditLogEntry>['operation'];
     }
   }
+
+  return filter;
+}
+
+/**
+ * Every matching entry, oldest first, as a cursor — for the NDJSON export.
+ *
+ * **Ascending**, unlike the paged query. The screen wants the newest thing first; a file wants to read like a
+ * log, and appending a later export to an earlier one should produce something still in order.
+ *
+ * No `limit`: the paged endpoint caps at 1,000 rows because a browser table has to stop somewhere, and that cap
+ * is exactly what made "give me the whole record" a paging script. The cursor streams, so an unbounded result
+ * set costs bounded memory.
+ */
+export function streamAuditEntries(params: AuditQueryParams): AsyncIterable<AuditLogEntry> {
+  return col()
+    .find(buildAuditFilter(params))
+    .sort({ timestamp: 1 } as Sort)
+    .batchSize(500);
+}
+
+export async function queryAuditLog(params: AuditQueryParams): Promise<AuditQueryResult> {
+  const filter = buildAuditFilter(params);
 
   const limit = Math.min(Math.max(params.limit ?? 100, 1), 1000);
   const offset = Math.max(params.offset ?? 0, 0);

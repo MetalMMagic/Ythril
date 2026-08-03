@@ -25,7 +25,14 @@ export type StatusVariant = 'active' | 'ok' | 'warn' | 'error' | 'off' | 'env' |
       font-size: 11.5px; font-weight: 600; letter-spacing: .01em; line-height: 1.5;
       padding: 2px 9px; border-radius: 999px; border: 1px solid transparent; white-space: nowrap;
     }
-    .pill.active  { color: var(--accent);  background: rgba(206,255,128,.12); border-color: rgba(206,255,128,.28); }
+    /* --state-active, NOT --accent. A pill reports a fact, and a theme owns identity, not facts: a red brand
+       colour turned "Active" and "Online" red while "Healthy" and "Reachable" stayed green. The background is
+       mixed from the same token so the two cannot drift — it used to be a hardcoded rgba of the default accent,
+       which is how a themed instance ended up with red text on a green pill.
+       NO BACKTICKS in this block — it is one template string, and one backtick ends it. */
+    .pill.active  { color: var(--state-active);
+                    background: color-mix(in srgb, var(--state-active) 12%, transparent);
+                    border-color: color-mix(in srgb, var(--state-active) 28%, transparent); }
     .pill.ok      { color: var(--success); background: rgba(63,185,80,.13);   border-color: rgba(63,185,80,.30); }
     .pill.warn    { color: var(--warning); background: rgba(210,153,34,.14);  border-color: rgba(210,153,34,.32); }
     .pill.error   { color: var(--error);   background: rgba(248,81,73,.10);   border-color: rgba(248,81,73,.30); }

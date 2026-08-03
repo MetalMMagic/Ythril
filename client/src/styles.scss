@@ -229,14 +229,26 @@ input[type="number"],
 input[type="search"],
 textarea,
 select {
+  /*
+   * ONE input, everywhere — 32px tall, measured rather than eyeballed.
+   *
+   * The same element used to be four different controls: 28px on Spaces, 32px on the audit log, 38px on Models,
+   * 39px from this rule — across two background tokens, two radii and two type sizes. Encapsulation hid it, because
+   * each component's CSS looked reasonable on its own; only computed styles in the running app showed the spread
+   * (`testing/ux-drift-sweep.mjs`).
+   *
+   * 13px type with 5px vertical padding lands on 32px, which is where three of the four surfaces already sat.
+   * 14px/8px was the outlier, and 39px is tall for a dense admin UI. The component overrides that produced the other
+   * three are gone, so this is now the only place an input's geometry is decided.
+   */
   width: 100%;
-  padding: 8px 12px;
+  padding: 5px 10px;
   background: var(--bg-primary);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
   font-family: var(--font);
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.5;
   transition: border-color var(--transition), box-shadow var(--transition);
   outline: none;

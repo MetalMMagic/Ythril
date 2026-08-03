@@ -34,9 +34,10 @@ import { TestTarget } from './media-processing.types';
     .field { margin-bottom: 13px; }
     .field:last-child { margin-bottom: 0; }
     .field > label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 5px; font-weight: 500; }
-    .field input, .field select { width: 100%; background: var(--bg-primary); color: var(--text-primary);
-      border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 13px; }
-    .field input[data-mono] { font-family: var(--font-mono, monospace); font-size: 12.5px; }
+    /* Geometry comes from the ONE input rule in styles.scss. This used to restate it — and got the radius wrong,
+       hardcoding 8px where every other input uses var(--radius-sm) — which is how the product ended up with four
+       different inputs. */
+    .field input[data-mono] { font-family: var(--font-mono, monospace); }
     .field input:disabled, .field select:disabled { opacity: .6; cursor: not-allowed; }
     .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
     /* Each field stacks label / input / hint. Left to themselves the two columns lay those out

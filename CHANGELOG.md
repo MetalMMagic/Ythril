@@ -75,6 +75,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The doc-link gate that was specified but not shipped now exists, and is trustworthy.** Four broken
+  cross-references were fixed in the previous batch after a canary operator found one by enumerating the ingested
+  chunks of the target file and noticing no chunk carried the heading — they read our docs *into* Ythril, so a
+  wrong page is a wrong fact in a vector store. The gate that found the other three did not ship: its
+  heading-slug logic was wrong on its own assertions, and **a link checker I do not trust is worse than none.**
+  - **The slugifier now tests itself before it is allowed to judge anything** — fifteen cases taken from the real
+    docs (code spans, em dashes, ampersands, digits, underscores, bold) plus GitHub's `-1`/`-2` duplicate
+    numbering. That block failing is the gate refusing to run rather than the gate being wrong quietly.
+  - It caught two of my own bugs on the way. The slugifier was being handed whole heading *lines*; and it stripped
+    inline code spans before reading headings, so `### \`lastSeqServed\` — …` lost its first word and **four
+    perfectly good links were reported as broken** — precisely the false positive that gets a link checker
+    deleted. An anchor comes from the *rendered* text, so fences are stripped and spans are not.
+  - **Mutation-tested in both directions, 9/9:** four real breakages caught (a missing file, a sibling path that
+    should be `../`, a mistyped fragment, a renamed heading orphaning its link) and five look-alikes correctly
+    ignored (a link inside a fence, one in an inline span, an image, an external URL with a fragment, and a
+    heading whose anchor depends on a code span).
+  - The docs are clean as of this commit: every relative link resolves to a file that exists and, where it names
+    one, to a heading that exists.
+
 - **A themed brand colour recoloured "Active" and "Online" while "Healthy" and "Reachable" stayed green.** A theme
   can override any CSS custom property — that is the feature — and `.pill.active` read `--accent` while its four
   siblings read `--success` / `--warning` / `--error` / `--info`. The reporting operator's framing is now the rule:

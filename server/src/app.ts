@@ -45,7 +45,7 @@ import { clearOidcCache } from './auth/oidc.js';
 import { initSpace, ensureGeneralSpace, wipeSpace, reconcilePendingSpaceOp, WIPE_COLLECTION_TYPES, type WipeCollectionType } from './spaces/lifecycle.js';
 import { col, asFilter, asDoc } from './db/mongo.js';
 import { log } from './util/log.js';
-import { getReadiness } from './ready.js';
+import { getReadiness, classifyCheckError } from './ready.js';
 import { isShuttingDown } from './lifecycle.js';
 import {
   httpRequestsTotal,
@@ -177,12 +177,15 @@ export function createApp() {
       const result = await getReadiness();
       res.status(result.ready ? 200 : 503).json(result);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      // A code, not the message. This endpoint is public by necessity — an orchestrator cannot carry a token —
+      // and driver messages name internal hosts and addresses (`getaddrinfo ENOTFOUND mongo-a.internal`). The
+      // detail is logged instead, which is also where it was missing entirely before. See `ready.ts`.
+      log.error(`Readiness check itself failed: ${err instanceof Error ? err.message : String(err)}`);
       res.status(503).json({
         ready: false,
         checks: {
-          mongodb: { status: 'error', error: message },
-          vectorSearch: { status: 'error', error: 'check skipped' },
+          mongodb: { status: 'error', reason: classifyCheckError(err) },
+          vectorSearch: { status: 'error', reason: 'error' },
         },
       });
     }

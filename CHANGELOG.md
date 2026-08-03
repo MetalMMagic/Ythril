@@ -93,6 +93,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`GET /ready` returned the MongoDB driver's error message verbatim, on a public endpoint.** First finding of the
+  Observability & Operability audit lens. `/health` and `/ready` are registered **before every authentication
+  middleware** — they have to be, an orchestrator cannot carry a token — so both are reachable by anyone who can
+  reach the port, and `checks.mongodb.error` described the infrastructure.
+  - **Measured against the real driver, not assumed.** No credential leaked in any case tried; **internal hostnames
+    did** (`getaddrinfo ENOTFOUND mongo-a.internal`), and other topology failures name internal addresses and ports.
+  - It also made `/ready` the **only** route in the product that answered this way: the global error handler already
+    logs the detail and returns a flat `Internal server error`, the two other public routers echo nothing, and the
+    three admin routers that do echo a raw message sit behind auth, where it is useful.
+  - Now a **stable code** — `unreachable`, `timeout`, `auth_failed`, `not_primary`, `unsupported`, `error` — which is
+    the more useful thing for a probe anyway: it can be alerted on, which a driver message never could.
+  - **The detail now goes to the log, where it was missing entirely.** It used to be handed to whoever probed the
+    endpoint and then discarded, so an operator watching a failing pod saw silence. Logged **once per transition**,
+    with a recovery line, because a Kubernetes probe runs every few seconds and repeating it would bury the log.
+  - The payload and every code are documented in `02-hosting.md`, which never described this response at all.
+  - Gate `public-probes-leak-nothing`, mutation-tested **16/16**. It caught two real defects while being written: a
+    slice that stopped at a `;` inside a comment and hid two of the six codes, and a classifier that read
+    `connection 4 to 10.1.2.3:27017 closed` — the commonest failure of all — as the vague `error`.
+
 - **The audit page's "Export JSON" and "Export CSV" exported only the page on screen.** Up to 100 rows out of a
   `total` that is routinely thousands, with nothing in the label to say so — an operator asked to produce someone's
   activity record could hand over a truncated file believing it complete. They now say **"Export page"**, and

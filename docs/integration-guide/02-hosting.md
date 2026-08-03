@@ -282,6 +282,44 @@ and every refusal names the setting that would permit it.
 `/ready` deliberately ignores optional components. Folding a dead render sidecar into it would let a
 degraded feature pull a healthy instance out of the load balancer.
 
+##### What `/ready` returns, and why it says so little
+
+`/ready` and `/health` are registered **before every authentication middleware** — they have to be, an orchestrator
+cannot carry a token — so both are **public**. That is why a failing check reports a **code**, never the underlying
+driver message:
+
+```json
+{
+  "ready": false,
+  "checks": {
+    "mongodb": { "status": "error", "reason": "unreachable" },
+    "vectorSearch": { "status": "ok" }
+  }
+}
+```
+
+| `reason` | Meaning | What to check |
+|---|---|---|
+| `unreachable` | wrong host or port, firewall, DNS failure, connection refused or reset | connectivity to MongoDB |
+| `timeout` | reachable, but did not answer inside 2 s | load on the database |
+| `auth_failed` | credentials rejected | the user/password in `MONGO_URI` |
+| `not_primary` | connected to a secondary, so writes would fail | replica-set state |
+| `unsupported` | the server answered but lacks something required (e.g. no vector search) | MongoDB flavour and version |
+| `error` | nothing more specific matched | **the server log** |
+
+**The full message is in the log**, once per transition — a Kubernetes probe runs every few seconds, so repeating
+it on every failed poll would bury everything else:
+
+```text
+[WARN ] Readiness: mongodb is failing (unreachable) — getaddrinfo ENOTFOUND mongo-a.internal
+[INFO ] Readiness: mongodb recovered
+```
+
+Before this, the driver's message was returned in the response and logged **nowhere** — so the detail went to
+whoever probed the endpoint, including anyone who could reach it, and an operator watching the logs of a failing
+pod saw silence. A code is also the more useful thing for a probe: it is stable enough to alert on, which a driver
+message never was.
+
 #### The single most useful habit: read the posture block
 
 It prints at boot and is live at `GET /api/about/security`. Every line is written to be actionable — a

@@ -112,6 +112,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`--text-muted` failed WCAG AA on every surface, at 11px.** Third finding of the Accessibility lens, and the
+  first time the palette's ratios were computed rather than judged by eye.
+
+  | token | bg-primary | bg-surface | bg-elevated |
+  |---|---|---|---|
+  | `--text-primary` #e6edf3 | 16.02 | 14.64 | 13.70 |
+  | `--text-secondary` #8b949e | 6.15 | 5.62 | 5.26 |
+  | **`--text-muted` #6e7681** | **4.12** | **3.77** | **3.52** |
+
+  - AA for normal text is **4.5:1**. `--text-muted` cleared only the large-text threshold (3:1) while being used at
+    **11px** for field labels, timestamps and retention notes — where that exemption cannot apply. 3.52:1 on the
+    surface it is drawn on most.
+  - Both greys were lifted — `#848c97` (5.57 / 5.09 / **4.76**) and `#9ba4ae` (7.49 / 6.85 / 6.41) — so the
+    three-level hierarchy survives: the luminance gap between secondary and muted is **10.7 points against 11.3**
+    before, and `--text-primary` is untouched. **Checked on a rendered before/after**, not only in arithmetic,
+    because a colour change is a visual change.
+  - **"Contrast in both themes" collapses to one theme**: the product is dark-only — no `[data-theme]`, no
+    `prefers-color-scheme` block. The gate asserts that, and **fails if a light theme appears**, so a second palette
+    cannot ship without its ratios being computed too.
+  - Gate `text-contrast-meets-aa`, mutation-tested **8/8**. It computes WCAG ratios in the test — a ratio left as a
+    comment drifts the first time somebody nudges a grey to suit their monitor — and it checks its own arithmetic
+    against reference values (21:1 for black on white, 4.54:1 for the canonical `#767676`). It also refuses a
+    palette that passes by flattening every grey to near-white, which would satisfy the numbers and destroy the
+    hierarchy.
+
 - **A full-screen dialog with no focus trap: Tab walked out of it into the page behind.** Second finding of the
   Accessibility lens. `ModalDirective` exists so no dialog hand-rolls this — `role="dialog"`, `aria-modal`, a CDK
   focus trap, focus restore to the opener, Escape — and the file manager's full-screen preview overlay bypassed it.

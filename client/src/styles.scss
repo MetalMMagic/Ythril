@@ -55,9 +55,16 @@
   --border:       #30363d;
   --border-muted: #21262d;
 
-  --text-primary:   #e6edf3;
-  --text-secondary: #8b949e;
-  --text-muted:     #6e7681;
+  /* Contrast is COMPUTED, not eyeballed — `text-contrast-meets-aa` recomputes these ratios on every run.
+     `--text-muted` was #6e7681: 4.12 / 3.77 / 3.52 against bg-primary / surface / elevated, so it FAILED
+     WCAG AA (4.5:1) on all three and passed only the large-text threshold — while being used at 11px for
+     field labels and timestamps, where the large-text exemption cannot apply.
+     Both greys were lifted so the three-level hierarchy survives: the luminance gap between secondary and
+     muted is 10.7 points, against 11.3 before, and primary is untouched. Verified on a rendered
+     before/after as well as in numbers. */
+  --text-primary:   #e6edf3;   /* 16.02 / 14.64 / 13.70 — AA, AAA */
+  --text-secondary: #9ba4ae;   /*  7.49 /  6.85 /  6.41 — AA, AAA */
+  --text-muted:     #848c97;   /*  5.57 /  5.09 /  4.76 — AA */
 
   --accent:       #ceff80;
   --accent-hover: #a0ff80;

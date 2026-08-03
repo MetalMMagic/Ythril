@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { SchemaLibraryEntry, KnowledgeType } from '../../core/api.types';
 import { SchemaApi } from '../../core/schema-api.service';
-import { TranslocoPipe } from '@jsverse/transloco';
+import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { ModalDirective } from '../../shared/modal.directive';
 
@@ -334,6 +334,7 @@ import { ModalDirective } from '../../shared/modal.directive';
 })
 export class SchemaLibraryComponent implements OnInit {
   private schemaApi = inject(SchemaApi);
+  private transloco = inject(TranslocoService);
 
   entries = signal<SchemaLibraryEntry[]>([]);
   loading = signal(true);
@@ -404,14 +405,17 @@ export class SchemaLibraryComponent implements OnInit {
 
   submitDialog(): void {
     const { name, knowledgeType, typeName, description, schemaJson } = this.form;
-    if (!name.trim()) { this.dialogError.set('Name is required.'); return; }
-    if (!typeName.trim()) { this.dialogError.set('Type name is required.'); return; }
+    // Translated, like every other message on this page. These three were the last English literals in the
+    // client: a German or Polish operator hit an untranslated sentence at exactly the moment they had made a
+    // mistake and most needed to read it.
+    if (!name.trim()) { this.dialogError.set(this.transloco.translate('schemaLib.error.nameRequired')); return; }
+    if (!typeName.trim()) { this.dialogError.set(this.transloco.translate('schemaLib.error.typeRequired')); return; }
 
     let schema: object;
     try {
       schema = JSON.parse(schemaJson || '{}');
     } catch {
-      this.dialogError.set('Schema is not valid JSON.');
+      this.dialogError.set(this.transloco.translate('schemaLib.error.invalidJson'));
       return;
     }
 

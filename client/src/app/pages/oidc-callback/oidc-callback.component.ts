@@ -4,7 +4,7 @@ import { AuthService, OIDC_SILENT_STATE_PREFIX } from '../../core/auth.service';
 import { HttpClient } from '@angular/common/http';
 import { CommonModule } from '@angular/common';
 import { BrandLogoComponent } from '../../shared/brand-logo.component';
-import { TranslocoPipe } from '@jsverse/transloco';
+import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
 /**
  * Handles the redirect back from the IdP after the user authenticates.
@@ -51,6 +51,7 @@ export class OidcCallbackComponent implements OnInit {
   private router = inject(Router);
   private auth = inject(AuthService);
   private http = inject(HttpClient);
+  private transloco = inject(TranslocoService);
 
   error = signal('');
 
@@ -87,7 +88,7 @@ export class OidcCallbackComponent implements OnInit {
     }
 
     if (!code || !state) {
-      this.error.set('Missing authorization code or state in callback URL.');
+      this.error.set(this.transloco.translate('oidcCallback.error.missingCode'));
       return;
     }
 

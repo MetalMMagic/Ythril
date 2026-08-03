@@ -24,7 +24,7 @@ import { SPACE_DIALOG_STYLES } from './space-dialog.styles';
 import { SpaceSettingsState, emptyTypeSchemaState, typeSchemaFromState, type TypeSchemaState } from './space-settings-state.service';
 import { SchemaApi } from '../../core/schema-api.service';
 import { ToastService } from '../../core/toast.service';
-import { KnowledgeType, PropertySchema, SchemaLibraryEntry, TypeSchema } from '../../core/api.types';
+import { KnowledgeType, PropertySchema, SchemaLibraryEntry, TypeSchema, recordTtlWindows } from '../../core/api.types';
 import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
 
 const SCHEMA_MD_STYLES = `
@@ -335,9 +335,11 @@ const SCHEMA_MD_STYLES = `
                NOTE: no backticks anywhere in this comment — one kills the whole template string and the
                error then points at @Component. -->
           <div class="sch-section-label">{{ 'spaces.schema.retention.label' | transloco }}
+            <!-- The inherited number is THIS collection's bucket, not one space-wide figure: the space tier is
+                 five windows, and naming the wrong one would be worse than naming none. -->
             <span class="sch-hint">
-              @if (state.settingsSpace()?.recordTtlDays) {
-                {{ 'spaces.schema.retention.hintSpace' | transloco: { days: state.settingsSpace()!.recordTtlDays } }}
+              @if (spaceWindow(kt); as days) {
+                {{ 'spaces.schema.retention.hintSpace' | transloco: { days } }}
               } @else {
                 {{ 'spaces.schema.retention.hintNoSpace' | transloco }}
               }
@@ -685,8 +687,19 @@ export class SpaceSchemaTabComponent implements OnInit {
     const s = this.state.typeState(kt, name);
     const content = Number(s.retentionContentDays);
     if (!Number.isFinite(content) || content <= 0) return null;
-    const total = Number(s.retentionDays) || Number(this.state.settingsSpace()?.recordTtlDays) || 0;
+    const total = Number(s.retentionDays) || this.spaceWindow(kt) || 0;
     return total > 0 && content >= total ? total : null;
+  }
+
+  /**
+   * The space-tier window this collection would inherit, or null.
+   *
+   * The space tier is five per-collection windows, so "the space default" is not one number. Naming the wrong
+   * bucket in the hint would be worse than naming none — an operator would set a window against a figure that
+   * does not apply to the type in front of them.
+   */
+  spaceWindow(kt: KnowledgeType): number | null {
+    return recordTtlWindows(this.state.settingsSpace()?.recordTtlDays)[kt];
   }
 
   /** A one-line, read-only summary of a property's constraints for the linked-type view. */

@@ -6,7 +6,7 @@
  */
 import { getConfig, saveConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
-import type { SpaceConfig, SpaceMeta, DupeActionRule, DocExtractionMode, ImageLevel, AudioLevel, VideoLevel, TextLevel } from '../config/types.js';
+import type { SpaceConfig, SpaceMeta, DupeActionRule, DocExtractionMode, ImageLevel, AudioLevel, VideoLevel, TextLevel, RecordTtlWindows } from '../config/types.js';
 import { buildSpaceVectorIndexes } from './vector-index.js';
 import { syncSchemaFiles, META_VERSION_CAP, SPACE_PURPOSE_MAX } from './_shared.js';
 
@@ -61,7 +61,7 @@ export function spaceResponse<T extends { meta?: SpaceMeta }>(space: T): T & { d
  *  Returns the updated SpaceConfig, or null if the space was not found. */
 export function updateSpace(
   spaceId: string,
-  updates: { label?: string; description?: string; maxGiB?: number | null; meta?: SpaceMeta; dupeRules?: DupeActionRule[]; dupeMergeSurvivor?: 'older' | 'newer'; dupeRulesOnInsert?: boolean; recordTtlDays?: number | null; documentExtraction?: DocExtractionMode | null; imageAnalysis?: ImageLevel | null; audioAnalysis?: AudioLevel | null; videoAnalysis?: VideoLevel | null; textAnalysis?: TextLevel | null },
+  updates: { label?: string; description?: string; maxGiB?: number | null; meta?: SpaceMeta; dupeRules?: DupeActionRule[]; dupeMergeSurvivor?: 'older' | 'newer'; dupeRulesOnInsert?: boolean; recordTtlDays?: number | RecordTtlWindows | null; documentExtraction?: DocExtractionMode | null; imageAnalysis?: ImageLevel | null; audioAnalysis?: AudioLevel | null; videoAnalysis?: VideoLevel | null; textAnalysis?: TextLevel | null },
 ): SpaceConfig | null {
   const cfg = getConfig();
   const space = cfg.spaces.find(s => s.id === spaceId);
@@ -92,8 +92,10 @@ export function updateSpace(
     space.dupeRulesOnInsert = updates.dupeRulesOnInsert || undefined;
   }
   // F10 auto-TTL — local operational setting; `in` so an explicit clear (undefined) removes it.
+  // The caller has already normalised the shape (`normaliseRecordTtl`): merged over what was stored, buckets
+  // cleared, and an all-empty object collapsed to undefined. Re-deciding it here is how the two would drift.
   if ('recordTtlDays' in updates) {
-    space.recordTtlDays = updates.recordTtlDays && updates.recordTtlDays > 0 ? updates.recordTtlDays : undefined;
+    space.recordTtlDays = updates.recordTtlDays ?? undefined;
   }
   // F11-c per-space extraction-mode override — local operational setting; `in` so an explicit clear removes it.
   if ('documentExtraction' in updates) {

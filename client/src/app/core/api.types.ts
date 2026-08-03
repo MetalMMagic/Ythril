@@ -8,6 +8,38 @@
 
 // ── Shared types ─────────────────────────────────────────────────────────────
 
+/**
+ * What kind of thing a record is, for the SPACE retention tier: the four knowledge types plus `file`.
+ *
+ * Files share this tier but have no type, so the schema tier cannot reach them — that asymmetry is the whole
+ * reason this is a separate name from `KnowledgeType`, and the reason there are five buckets rather than four.
+ */
+export type TtlBucket = KnowledgeType | 'file';
+
+/** The space-wide retention window per bucket. Absent or `null` means no window for that bucket. */
+export interface RecordTtlWindows {
+  entity?: number | null;
+  memory?: number | null;
+  edge?:   number | null;
+  chrono?: number | null;
+  file?:   number | null;
+}
+
+/** The five buckets, in the order the UI shows them. `file` last: it is the one with no schema tier above it. */
+export const TTL_BUCKETS: readonly TtlBucket[] = ['entity', 'memory', 'edge', 'chrono', 'file'];
+
+/**
+ * A space's windows as a full five-bucket map, widening the legacy scalar — so no component has to know which
+ * shape it is looking at. `null` means "no window", which is also what an absent bucket means.
+ */
+export function recordTtlWindows(stored: number | RecordTtlWindows | undefined): Record<TtlBucket, number | null> {
+  const ok = (v: unknown): number | null =>
+    typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : null;
+  const out = {} as Record<TtlBucket, number | null>;
+  for (const b of TTL_BUCKETS) out[b] = typeof stored === 'number' ? ok(stored) : ok(stored?.[b]);
+  return out;
+}
+
 export interface Space {
   id: string;
   label: string;
@@ -22,8 +54,14 @@ export interface Space {
   dupeRules?: DupeActionRule[];
   dupeMergeSurvivor?: 'older' | 'newer';
   dupeRulesOnInsert?: boolean;
-  /** Auto-TTL (F10): records auto-expire after this many days. Absent/0 = no expiry. */
-  recordTtlDays?: number;
+  /**
+   * Auto-TTL (F10): the SPACE tier of `record > schema > space`. Absent/0 = no expiry.
+   *
+   * **Two shapes.** A bare number is the legacy setting and still means all five buckets; the object is per
+   * bucket. Never read it directly for display — use `recordTtlWindows()`, which widens the scalar so the UI
+   * never has to know which one it is looking at.
+   */
+  recordTtlDays?: number | RecordTtlWindows;
   /** Per-space document-extraction mode override (F11-c). Absent = inherit the instance default
    *  (Settings → Models). Local/operational, like dupe rules. */
   documentExtraction?: 'off' | 'ocr' | 'vlm' | 'repair' | 'auto';

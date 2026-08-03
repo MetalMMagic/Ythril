@@ -291,6 +291,27 @@ describe('SpaceSchemaTabComponent — per-type retention', () => {
       expect(withWindows(null, 30).contentWindowNeverFires('chrono', 'event')).toBeNull(); // no window anywhere
     });
 
+    it('falls through to THIS collection\'s bucket, not to some other one', () => {
+      // The space tier is five per-collection windows. Reading the wrong bucket would warn against a number
+      // that does not apply to the type in front of the operator — or stay silent when it should warn.
+      const { c, state } = setup();
+      state.schTypeSchemas = { ...state.schTypeSchemas, chrono: { event: mkType({ retentionDays: null, retentionContentDays: 30 }) } };
+      state.settingsSpace.set({ id: 'work', label: 'Work', recordTtlDays: { entity: 365, chrono: 30 } } as never);
+      expect(c.contentWindowNeverFires('chrono', 'event')).toBe(30);   // chrono's 30, not entity's 365
+      expect(c.spaceWindow('chrono')).toBe(30);
+      expect(c.spaceWindow('entity')).toBe(365);
+      expect(c.spaceWindow('memory')).toBeNull();
+    });
+
+    it('reads a legacy scalar as every bucket', () => {
+      // A space that set one number before the split still means all five, so the hint keeps naming it.
+      const { c, state } = setup();
+      state.settingsSpace.set({ id: 'work', label: 'Work', recordTtlDays: 90 } as never);
+      for (const kt of ['entity', 'memory', 'edge', 'chrono'] as const) {
+        expect(c.spaceWindow(kt), kt).toBe(90);
+      }
+    });
+
     it('says nothing for a collection that has no content tier', () => {
       const { c, state } = setup();
       state.schTypeSchemas = { ...state.schTypeSchemas, memory: { note: mkType({ retentionDays: 30, retentionContentDays: 30 }) } };

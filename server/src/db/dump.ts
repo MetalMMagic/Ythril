@@ -50,6 +50,10 @@ export interface DumpOptions {
   /**
    * Encrypt every record line with the configured master secret.
    *
+   * **Measured cost:** roughly 1.4x on large records and up to 3x on a database of very small ones (the fixed
+   * envelope header dominates). Per-line is still the right shape — per-file would make restore load an entire
+   * collection into memory, which is unbounded rather than merely large.
+   *
    * Default **false** — plaintext, which is the owner's chosen default: a backup you cannot restore is not a
    * backup, and encrypting by default makes disaster recovery onto a fresh instance depend on having the old
    * key to hand *before* the restore.

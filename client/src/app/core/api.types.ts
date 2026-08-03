@@ -737,6 +737,17 @@ export interface AuditLogParams {
 
 export interface BackupConfigData {
   schedule?: string;
+  /**
+   * Encrypt every record line in a backup with the instance's master secret.
+   *
+   * **Absent means plaintext** — that is the default, and it is why this is optional rather than a boolean the
+   * UI always writes: turning the toggle off removes the key instead of writing `false`, so an untouched
+   * `backup.json` stays byte-identical and "absent === plaintext" is the single source of truth on both sides.
+   *
+   * There is no matching option on restore: an encrypted backup is detected per line, so an operator never has
+   * to remember how one was written.
+   */
+  encrypt?: boolean;
   retention?: { keepLocal?: number };
   offsite?: { destPath: string; retention?: { keepCount?: number } };
 }

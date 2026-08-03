@@ -1467,6 +1467,8 @@
   "brain.error.loadChrono": "Zeitleisteneinträge konnten nicht geladen werden.",
   "brain.error.loadFileMeta": "Dateidatensätze konnten nicht geladen werden.",
   "files.error.loadFiles": "Dateien konnten nicht geladen werden.",
+  "files.refreshing": "Suche nach Änderungen",
+  "files.refreshFailed": "Aktualisierung fehlgeschlagen — die Liste unten ist möglicherweise nicht aktuell. Neuer Versuch folgt.",
   "schemaLib.error.load": "Schema-Bibliothek konnte nicht geladen werden.",
   "graph.error.load": "Graph konnte nicht geladen werden.",
   "auditLog.summary.shown": "Angezeigt",

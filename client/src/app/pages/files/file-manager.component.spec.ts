@@ -404,6 +404,139 @@ function fakeFileList(names: string[]): FileList {
   return { ...files, length: files.length, item: (i: number) => files[i] } as unknown as FileList;
 }
 
+/**
+ * A refresh must never re-enter the empty state a first load uses (canary B).
+ *
+ * `loadDir` set `loading` on every call, and the template is `@if (loading()) { spinner } @else { table }` — so
+ * the 4-second progress poll unmounted the entire file listing and replaced it with a spinner, every four
+ * seconds, for the whole of an ingest. Their operator, verbatim: *"i only want to see progress bars move while
+ * waiting and not a screenflickering."*
+ *
+ * These assert the DOM, not the flag: a spinner instead of the table is the symptom, and asserting `loading()`
+ * alone would pass on a template that unmounts for some other reason.
+ */
+describe('FileManagerComponent — a refresh keeps the view (canary B)', () => {
+  /** A listing API whose responses are controllable per call, so a refresh can be observed mid-flight. */
+  function create(entries: FileEntry[], listFiles?: () => Observable<{ entries: FileEntry[] }>) {
+    TestBed.configureTestingModule({
+      imports: [FileManagerComponent, getTranslocoModule()],
+      providers: [
+        { provide: FilesApi, useValue: { ...makeApi(entries), ...(listFiles ? { listFiles } : {}) } },
+        { provide: SpacesApi, useValue: makeApi(entries) },
+        { provide: AuthService, useValue: { token: () => '' } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => '' } } } },
+      ],
+    });
+    const fixture = TestBed.createComponent(FileManagerComponent);
+    fixture.componentRef.setInput('embeddedSpaceId', 'work');
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  const rows = (f: { nativeElement: HTMLElement }) => f.nativeElement.querySelectorAll('table tbody tr').length;
+  const spinner = (f: { nativeElement: HTMLElement }) => f.nativeElement.querySelector('.loading-overlay');
+
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('does not unmount the table while a reload of the SAME directory is in flight', () => {
+    const gate = new Subject<{ entries: FileEntry[] }>();
+    let calls = 0;
+    const fixture = create([fileEntry('a.pdf'), fileEntry('b.pdf')], () => {
+      calls++;
+      return calls === 1 ? of({ entries: [fileEntry('a.pdf'), fileEntry('b.pdf')] }) : gate.asObservable();
+    });
+    expect(rows(fixture)).toBe(2);
+
+    fixture.componentInstance.reloadDir();          // the poll's call
+    fixture.detectChanges();
+
+    // Mid-flight: the rows are still there and the overlay has NOT appeared. This is the whole fix.
+    expect(spinner(fixture)).toBeNull();
+    expect(rows(fixture)).toBe(2);
+    expect(fixture.componentInstance.loading()).toBe(false);
+    expect(fixture.componentInstance.refreshing()).toBe(true);
+
+    gate.next({ entries: [fileEntry('a.pdf'), fileEntry('b.pdf'), fileEntry('c.pdf')] });
+    fixture.detectChanges();
+    expect(rows(fixture)).toBe(3);                  // updated in place
+    expect(fixture.componentInstance.refreshing()).toBe(false);
+  });
+
+  it('shows the hairline while refreshing, and nothing when idle', () => {
+    const gate = new Subject<{ entries: FileEntry[] }>();
+    let calls = 0;
+    const fixture = create([fileEntry('a.pdf')], () => {
+      calls++;
+      return calls === 1 ? of({ entries: [fileEntry('a.pdf')] }) : gate.asObservable();
+    });
+    expect(fixture.nativeElement.querySelector('.fm-refreshing')).toBeNull();
+
+    fixture.componentInstance.reloadDir();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.fm-refreshing')).toBeTruthy();
+
+    gate.next({ entries: [fileEntry('a.pdf')] });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.fm-refreshing')).toBeNull();
+  });
+
+  it('a failed refresh keeps the rows and says they are not current', () => {
+    // A transient failure during an ingest is exactly when this happens, and throwing away good rows for it is
+    // the same defect in another dress.
+    let calls = 0;
+    const fixture = create([fileEntry('a.pdf')], () => {
+      calls++;
+      return calls === 1
+        ? of({ entries: [fileEntry('a.pdf')] })
+        : new Observable<{ entries: FileEntry[] }>(sub => sub.error(new Error('boom')));
+    });
+    expect(rows(fixture)).toBe(1);
+
+    fixture.componentInstance.reloadDir();
+    fixture.detectChanges();
+
+    expect(rows(fixture)).toBe(1);                                       // rows survive
+    expect(spinner(fixture)).toBeNull();
+    expect(fixture.componentInstance.loadError()).toBeNull();            // NOT the first-load error state
+    expect(fixture.componentInstance.refreshFailed()).toBe(true);
+    expect(fixture.nativeElement.querySelector('.fm-stale')).toBeTruthy();
+  });
+
+  it('a FIRST load still shows the spinner — the empty state is not what changed', () => {
+    const gate = new Subject<{ entries: FileEntry[] }>();
+    const fixture = create([], () => gate.asObservable());
+    expect(spinner(fixture)).toBeTruthy();
+    expect(fixture.componentInstance.loading()).toBe(true);
+    gate.next({ entries: [fileEntry('a.pdf')] });
+    fixture.detectChanges();
+    expect(spinner(fixture)).toBeNull();
+  });
+
+  it('a failed FIRST load still reaches the error state, not an empty folder', () => {
+    const fixture = create([], () => new Observable<{ entries: FileEntry[] }>(sub => sub.error(new Error('nope'))));
+    expect(fixture.componentInstance.loadError()).not.toBeNull();
+    expect(fixture.componentInstance.refreshFailed()).toBe(false);
+  });
+
+  it('navigating to a DIFFERENT directory is a load, not a refresh', () => {
+    // Rows from the directory being left must not be shown under the name of the one being entered — which is
+    // why the classification compares the path rather than trusting the caller.
+    const gate = new Subject<{ entries: FileEntry[] }>();
+    let calls = 0;
+    const fixture = create([fileEntry('a.pdf')], () => {
+      calls++;
+      return calls === 1 ? of({ entries: [fileEntry('a.pdf')] }) : gate.asObservable();
+    });
+    expect(rows(fixture)).toBe(1);
+
+    fixture.componentInstance.navigate('/sub');
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.loading()).toBe(true);
+    expect(spinner(fixture)).toBeTruthy();
+  });
+});
+
 describe('FileManagerComponent — upload queue (U12)', () => {
   let mock: ReturnType<typeof makeUploadApi>;
 

@@ -144,6 +144,40 @@ function xlsxCellText(v: unknown): string {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe, ErrorStateComponent, TagInputComponent, EntityRefFieldComponent, MemoryRefFieldComponent, ChronoRefFieldComponent, SortableHeaderComponent, StepProgressBarComponent, HscrollTopDirective],
   styles: [`
+    /* A background refresh, as a 2px indeterminate hairline above the table. Deliberately NOT a spinner and
+       deliberately not an overlay: the whole point is that nothing on screen moves or disappears while a poll
+       is in flight. It reserves its own 2px so the table does not shift when it appears.
+       NO BACKTICKS anywhere in this block — it is one template string. */
+    .fm-refreshing {
+      height: 2px;
+      margin-bottom: 6px;
+      border-radius: 2px;
+      overflow: hidden;
+      background: color-mix(in srgb, var(--accent) 14%, transparent);
+    }
+    .fm-refreshing::after {
+      content: '';
+      display: block;
+      width: 34%;
+      height: 100%;
+      border-radius: 2px;
+      background: var(--accent);
+      animation: fm-slide 1.1s ease-in-out infinite;
+    }
+    @keyframes fm-slide {
+      0%   { transform: translateX(-100%); }
+      100% { transform: translateX(300%); }
+    }
+    /* Honesty when a poll fails: the rows stay, but they are no longer claimed to be current. */
+    .fm-stale {
+      font-size: 12px;
+      color: var(--warning, var(--text-muted));
+      margin-bottom: 6px;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .fm-refreshing::after { animation: none; width: 100%; opacity: .5; }
+    }
+
     .toolbar {
       display: flex;
       align-items: center;
@@ -607,6 +641,12 @@ function xlsxCellText(v: unknown): string {
             @if (loading()) {
               <div class="loading-overlay"><span class="spinner"></span></div>
             } @else {
+          <!-- A background refresh is a HAIRLINE, not an unmount. The table below stays exactly where it is and
+               its rows update in place, so the per-row progress bars advance instead of the screen blinking. -->
+          @if (refreshing()) { <div class="fm-refreshing" role="status" [attr.aria-label]="'files.refreshing' | transloco"></div> }
+          @if (refreshFailed()) {
+            <div class="fm-stale">{{ 'files.refreshFailed' | transloco }}</div>
+          }
           <div class="table-wrapper" hscrollTop>
             <table>
               <thead>
@@ -1048,7 +1088,22 @@ export class FileManagerComponent implements OnInit, OnDestroy {
         : String(ka).localeCompare(String(kb)) * sign;
     });
   });
+  /**
+   * True only while a load that has **nothing to show** is in flight — the state that replaces the view.
+   *
+   * A REFRESH must never enter it. It used to: `loadDir` set this on every call, including the 4-second progress
+   * poll, so watching an ingest meant the whole file table was unmounted and replaced by a spinner every four
+   * seconds. A reporting operator, verbatim: *"i only want to see progress bars move while waiting and not a
+   * screenflickering."* They were right about the mechanism too — the view treated "a refetch is in flight" as
+   * "we have no data yet".
+   *
+   * The rule, worth stating as a rule: **a refresh must never re-enter the empty state a first load uses.**
+   */
   loading = signal(false);
+  /** True while a reload of the SAME directory is in flight over rows already on screen. Never unmounts them. */
+  refreshing = signal(false);
+  /** Set when a background refresh failed, so stale rows are not passed off as current. Cleared on success. */
+  refreshFailed = signal(false);
   /** Failure reason for the directory listing; null when it loaded (U3). */
   loadError = signal<string | null>(null);
   loadingSpaces = signal(true);
@@ -1226,17 +1281,46 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     }
   }
 
+  /**
+   * The path `entries()` currently describes, or null before the first successful listing.
+   *
+   * This is what decides load-vs-refresh, rather than a flag at each call site. `loadDir` has six callers (the
+   * navigation effect, the poll, the retry button, and three post-mutation reloads) and asking each to classify
+   * itself is how five get it right and one does not — the exact shape of the retention bug fixed in #632.
+   *
+   * Comparing the PATH is also the only correct rule: rows from the directory you are leaving must not be shown
+   * under the name of the one you are entering, so a navigation is always a foreground load.
+   */
+  private loadedPath: string | null = null;
+
   private loadDir(path: string): void {
-    this.loading.set(true);
-    this.loadError.set(null);
+    // A refresh only when there is something on screen that this listing will replace in place.
+    const isRefresh = this.loadedPath === path && this.entries().length > 0 && this.loadError() === null;
+    if (isRefresh) this.refreshing.set(true);
+    else { this.loading.set(true); this.loadError.set(null); }
     this.filesApi.listFiles(this.activeSpaceId(), path).subscribe({
       next: ({ entries }) => {
         this.entries.set(entries);
+        this.loadedPath = path;
+        this.loadError.set(null);
+        this.refreshFailed.set(false);
         this.loading.set(false);
+        this.refreshing.set(false);
         this.syncProgressPolling();
       },
-      // A failed listing must not fall through to the "empty folder" state (U3).
-      error: (e) => { this.loadError.set(httpErrorReason(e)); this.loading.set(false); },
+      error: (e) => {
+        if (isRefresh) {
+          // A failed POLL must not throw away good rows either — that is the same defect in another dress, and
+          // a transient failure during an ingest is exactly when it would happen. Keep the rows, mark them as
+          // not-current, and let the next tick clear it.
+          this.refreshFailed.set(true);
+          this.refreshing.set(false);
+          return;
+        }
+        // A failed first listing must not fall through to the "empty folder" state (U3).
+        this.loadError.set(httpErrorReason(e));
+        this.loading.set(false);
+      },
     });
   }
 

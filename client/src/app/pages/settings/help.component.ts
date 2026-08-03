@@ -19,6 +19,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { TranslocoPipe } from '@jsverse/transloco';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
+import { MdScrollersDirective } from '../../shared/md-scrollers.directive';
 import { MarkdownRenderService } from '../../shared/markdown-render.service';
 import { httpErrorReason } from '../../core/http-error';
 
@@ -75,7 +76,7 @@ export type HelpDocId = typeof HELP_DOCS[number]['id'];
   selector: 'app-help',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [TranslocoPipe, PhIconComponent, ErrorStateComponent],
+  imports: [TranslocoPipe, PhIconComponent, ErrorStateComponent, MdScrollersDirective],
   styles: [`
     :host { display: block; }
     .help { display: grid; grid-template-columns: 1fr; gap: 16px; }
@@ -178,7 +179,7 @@ export type HelpDocId = typeof HELP_DOCS[number]['id'];
           <!-- Links inside a rendered guide are handled in onDocClick rather than by the browser: a
                bare hash link would otherwise navigate the router, and a cross-doc link like
                integration-guide.md would leave the app for a URL that does not exist. -->
-          <article #doc [innerHTML]="html()" (click)="onDocClick($event)"></article>
+          <article #doc [innerHTML]="html()" [mdScrollers]="html()" (click)="onDocClick($event)"></article>
           <p class="loading" style="margin-top:22px;">
             <ph-icon name="info" [size]="14"/>{{ 'help.shippedNote' | transloco }}
           </p>

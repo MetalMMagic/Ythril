@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A failed load no longer reads as "there is nothing here".** Eight surfaces cleared their spinner on failure and
+  fell through to the empty state, so a request that never succeeded and a result set that is genuinely empty rendered
+  the same words.
+  - **The sharpest was `/files/conflicts`**: a 500 produced a green check-circle and *"No conflicts — all synced files
+    are in agreement."* The **widest** was `/brain`, the front door: a user with a full brain was told to create their
+    first space. The file manager showed no message at all — an empty space selector and a blank body, which reads as
+    a broken page rather than a failed request.
+  - Fixed on `/brain` (space list), `/files/conflicts`, the Brain → Review → **Contradictions** tab, the Schema
+    Library's **Foreign Catalogs** tab, Settings → **Networks** (both the network list and a network's sync history),
+    Settings → **Tokens**, and the schema tab's **library picker**. Each now branches to `ErrorStateComponent` —
+    warning icon, what failed, the server's reason, and a Retry that re-runs the load — *before* the empty state.
+  - Contradictions is the one that had the guarantee written down and broken anyway: its error handler carried the
+    comment *"A load failure must not read as 'no contradictions' — the empty state would be a lie"*, and it raised a
+    toast and left the page alone. On a **first** load there was nothing on the page to leave alone, so it settled on
+    "no contradictions — your brain is consistent" while nobody had checked. The toast stays; the page now holds the
+    state too.
+  - Reasons come from the existing `httpErrorReason`, so a 5xx carries its `X-Request-Id` into the message on screen
+    and can be grepped straight out of the server log. Error signals are `string | null` rather than `''`, matching
+    the four Brain record tabs, because that helper can legitimately return an empty reason and truthiness would then
+    read a real failure as "no failure".
+  - Gate `failed-load-is-distinct`: it **parses each template's `@if / @else if / @else` chains** and requires the
+    chain that renders an empty state to carry a failure branch. A file-level "does this component mention an error
+    state?" version was written first and a mutation defeated it — changing the guard to `@else if (false)` left the
+    element and its bindings in place, and an unrelated dialog's `createError()` kept the file looking compliant.
+    Two exemptions, each asserted to still need one. 20 mutations killed, 0 survived.
+  - Verified by driving the built bundle with one endpoint per surface answering 500 and **reading all sixteen
+    screenshots**, not by counting signals: this batch already shipped a white-on-white regression that every number
+    called clean.
+
 - **The theme docs now say which tokens a theme must not touch.** Raised by an operator screenshot: a **red** brand
   palette on 2.2.5 rendered the "Active" pill red.
   - **Already fixed in code, and not yet released.** In the v2.2.5 tag `.pill.active` reads `var(--accent)` with a
@@ -181,6 +210,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     exceeds the timeout it exists to describe.
 
 ### Fixed
+
+- **The Schema Library page had no Help link, and a dead copy of the page is why.** `pages/settings/schema-library.component.ts`
+  was unreachable — no route, no importer, and a class name that collided with the live page — and the Help table had
+  been written against the URL that dead file implied (`/settings/schema-library`), which nothing routes to. So the
+  real page, a top-level nav item, resolved to no guide section while the table looked complete. The dead file is
+  deleted and the anchor now reads `/schema-library`.
+  - The same check found a **second** orphan: `/settings/mfa` is not a route either. MFA has no page of its own —
+    `<app-mfa/>` is embedded in Preferences — so that anchor now belongs to `/settings/preferences`, which previously
+    had no Help control at all.
+  - `help-anchors.spec.ts` now checks **both directions against the router**, not against the table: every declared
+    route resolves to a guide section or is listed with the reason it needs none, and every table prefix must match a
+    route that exists. A table that only validates itself cannot see either of these failures — every existing
+    assertion passed while a whole nav item had no help.
 
 - **The audit log's two date filters rendered WHITE — a regression from the previous PR, caught by looking.**
   #659 removed a component override that had been styling `input[type=datetime-local]`, and the global input rule's

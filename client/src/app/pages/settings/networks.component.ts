@@ -13,13 +13,15 @@ import { PhIconComponent } from '../../shared/ph-icon.component';
 import { StatusPillComponent } from '../../shared/status-pill.component';
 import { SummaryStripComponent, type SummaryItem } from '../../shared/summary-strip.component';
 import { RelativeTimeComponent } from '../../shared/relative-time.component';
+import { ErrorStateComponent } from '../../shared/error-state.component';
+import { httpErrorReason } from '../../core/http-error';
 import { NetworkCreateDialogComponent } from './network-create-dialog.component';
 import { NetworkJoinDialogComponent } from './network-join-dialog.component';
 import { NetworkEnableWizardComponent } from './network-enable-wizard.component';
 @Component({
   selector: 'app-networks',
   standalone: true,
-  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, StatusPillComponent, SummaryStripComponent, RelativeTimeComponent, NetworkCreateDialogComponent, NetworkJoinDialogComponent, NetworkEnableWizardComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, StatusPillComponent, SummaryStripComponent, RelativeTimeComponent, ErrorStateComponent, NetworkCreateDialogComponent, NetworkJoinDialogComponent, NetworkEnableWizardComponent],
   styles: [`
     .network-card {
       background: var(--bg-surface);
@@ -162,6 +164,8 @@ import { NetworkEnableWizardComponent } from './network-enable-wizard.component'
 
     @if (loading()) {
       <div class="loading-overlay"><span class="spinner"></span></div>
+    } @else if (loadError() !== null) {
+      <app-error-state [message]="'networks.loadError' | transloco" [reason]="loadError() ?? ''" (retry)="load()" />
     } @else if (networks().length === 0) {
       <div class="empty-state">
         <div class="empty-state-icon">🔗</div>
@@ -246,6 +250,9 @@ import { NetworkEnableWizardComponent } from './network-enable-wizard.component'
                 @if (historyExpanded() === net.id) {
                   @if (historyLoading()) {
                     <div style="padding:8px 0; color:var(--text-muted); font-size:12px;">{{ 'networks.network.syncHistory.loading' | transloco }}</div>
+                  } @else if (historyError() !== null) {
+                    <app-error-state [message]="'networks.network.syncHistory.loadError' | transloco"
+                                     [reason]="historyError() ?? ''" [icon]="28" (retry)="retryHistory(net.id)" />
                   } @else if (historyForNet(net.id).length === 0) {
                     <div style="padding:8px 0; color:var(--text-muted); font-size:12px;">{{ 'networks.network.syncHistory.empty' | transloco }}</div>
                   } @else {
@@ -379,6 +386,8 @@ export class NetworksComponent implements OnInit {
 
   networks = signal<Network[]>([]);
   loading = signal(true);
+  /** Null until the last load failed — checked before the empty state, so a failure never reads as "no networks". */
+  loadError = signal<string | null>(null);
   showCreateDialog = signal(false);
   showJoinDialog = signal(false);
   expanded = signal('');
@@ -408,6 +417,8 @@ export class NetworksComponent implements OnInit {
   // Sync history state
   historyExpanded = signal('');
   historyLoading = signal(false);
+  /** Null until the sync history failed to load — else "no sync history yet" claims the sync never ran. */
+  historyError = signal<string | null>(null);
   expandedError = signal('');
   private historyByNetwork: Record<string, SyncHistoryRecord[]> = {};
 
@@ -502,6 +513,7 @@ export class NetworksComponent implements OnInit {
 
   load(): void {
     this.loading.set(true);
+    this.loadError.set(null);
     this.networksApi.listNetworks().subscribe({
       next: ({ networks }) => {
         this.networks.set(networks);
@@ -509,7 +521,7 @@ export class NetworksComponent implements OnInit {
         // Load votes for each network
         for (const net of networks) this.loadVotes(net.id);
       },
-      error: () => this.loading.set(false),
+      error: (err) => { this.loadError.set(httpErrorReason(err)); this.loading.set(false); },
     });
   }
 
@@ -648,15 +660,21 @@ export class NetworksComponent implements OnInit {
     this.expandedError.update(v => v === recordId ? '' : recordId);
   }
 
+  /** Public so the history panel's error state can retry the one network it belongs to. */
+  retryHistory(networkId: string): void {
+    this.loadHistory(networkId);
+  }
+
   private loadHistory(networkId: string): void {
     this.historyLoading.set(true);
+    this.historyError.set(null);
     this.networksApi.getSyncHistory(networkId).subscribe({
       next: ({ history }) => {
         this.historyByNetwork[networkId] = history;
         this.historyLoading.set(false);
         this.networks.update(n => [...n]);
       },
-      error: () => this.historyLoading.set(false),
+      error: (err) => { this.historyError.set(httpErrorReason(err)); this.historyLoading.set(false); },
     });
   }
 

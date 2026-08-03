@@ -26,6 +26,8 @@ import { SchemaApi } from '../../core/schema-api.service';
 import { ToastService } from '../../core/toast.service';
 import { KnowledgeType, PropertySchema, SchemaLibraryEntry, TypeSchema, recordTtlWindows } from '../../core/api.types';
 import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
+import { ErrorStateComponent } from '../../shared/error-state.component';
+import { httpErrorReason } from '../../core/http-error';
 
 const SCHEMA_MD_STYLES = `
 /* A floor, so this row cannot collapse and drag the master/detail grid up with it. The row's height is
@@ -117,7 +119,7 @@ const SCHEMA_MD_STYLES = `
 @Component({
   selector: 'app-space-schema-tab',
   standalone: true,
-  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, ModalDirective, HscrollTopDirective],
+  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, ModalDirective, HscrollTopDirective, ErrorStateComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [SPACE_DIALOG_STYLES, SCHEMA_MD_STYLES],
   template: `
@@ -539,6 +541,9 @@ const SCHEMA_MD_STYLES = `
       </div>
       @if (libPickerLoading()) {
         <div class="empty-state"><span class="spinner"></span></div>
+      } @else if (libPickerError() !== null) {
+        <app-error-state [message]="'spaces.schema.libPicker.loadError' | transloco" [reason]="libPickerError() ?? ''"
+                         [icon]="32" (retry)="retryLibPicker()" />
       } @else if (!libPickerEntries().length) {
         <p style="font-size:13px;color:var(--text-muted);">{{ 'spaces.schema.libPicker.empty' | transloco }}</p>
       } @else {
@@ -646,6 +651,8 @@ export class SpaceSchemaTabComponent implements OnInit {
   exportLibDialog = signal<{ groupName: string; namePrefix: string; saving: boolean; error: string } | null>(null);
 
   libPickerLoading    = signal(false);
+  /** Null until the picker's fetch failed — checked before its empty text, so a failure never reads as "the library is empty". */
+  libPickerError      = signal<string | null>(null);
 
   libPickerEntries    = signal<SchemaLibraryEntry[]>([]);
 
@@ -1035,17 +1042,26 @@ export class SpaceSchemaTabComponent implements OnInit {
   triggerImportFromLibrary(kt: KnowledgeType, name: string): void {
     this._libPickerTarget = { kt, name };
     this.libPickerLoading.set(true);
+    this.libPickerError.set(null);
     this.showLibPickerDialog.set(true);
     this.schemaApi.listSchemaLibrary().subscribe({
       next: ({ entries }) => {
         this.libPickerEntries.set(entries.filter(e => e.knowledgeType === kt));
         this.libPickerLoading.set(false);
       },
-      error: () => {
+      error: (err) => {
         this.libPickerEntries.set([]);
+        this.libPickerError.set(httpErrorReason(err));
         this.libPickerLoading.set(false);
       },
     });
+  }
+
+  /** Retry from the picker's error state — re-runs whichever of the two open paths produced it. */
+  retryLibPicker(): void {
+    const target = this._libPickerTarget;
+    if (target?.kt) this.triggerImportFromLibrary(target.kt, target.name);
+    else this.triggerImportFromLibraryAny();
   }
 
 
@@ -1059,10 +1075,15 @@ export class SpaceSchemaTabComponent implements OnInit {
     this.libImportSkipped.set([]);
     this._libPickerTarget = { kt: null, name: '' };
     this.libPickerLoading.set(true);
+    this.libPickerError.set(null);
     this.showLibPickerDialog.set(true);
     this.schemaApi.listSchemaLibrary().subscribe({
       next: ({ entries }) => { this.libPickerEntries.set(entries); this.libPickerLoading.set(false); },
-      error: () => { this.libPickerEntries.set([]); this.libPickerLoading.set(false); },
+      error: (err) => {
+        this.libPickerEntries.set([]);
+        this.libPickerError.set(httpErrorReason(err));
+        this.libPickerLoading.set(false);
+      },
     });
   }
 

@@ -24,8 +24,8 @@ import { ToastService } from '../../core/toast.service';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { PropSchemaTableComponent } from '../../shared/prop-schema-table.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
-import { ModalDirective } from '../../shared/modal.directive';
 import { httpErrorReason } from '../../core/http-error';
+import { ModalDirective } from '../../shared/modal.directive';
 
 // ── Local form state ────────────────────────────────────────────────────────
 
@@ -335,6 +335,9 @@ export function entriesFromTypeSchemas(
     } @else {
       @if (catalogsLoading()) {
         <div class="empty-state"><span class="spinner"></span></div>
+      } @else if (catalogsLoadError() !== null) {
+        <app-error-state [message]="'schemaLib.catalog.loadError' | transloco" [reason]="catalogsLoadError() ?? ''"
+                         (retry)="loadCatalogs()" />
       } @else if (!catalogs().length) {
         <div class="empty-state">
           <p style="color:var(--text-muted);">{{ 'schemaLib.catalog.empty' | transloco }}</p>
@@ -684,6 +687,12 @@ export class SchemaLibraryComponent implements OnInit {
   /** Foreign catalog signals. */
   catalogs        = signal<SchemaCatalog[]>([]);
   catalogsLoading = signal(false);
+  /**
+   * Null until the catalog list failed to load. Distinct from `catalogError`, which belongs to the
+   * add-catalog dialog: the load used to clear `catalogs` on failure, so the page reported "no catalogs
+   * configured" to an operator who had configured several.
+   */
+  catalogsLoadError = signal<string | null>(null);
   catalogSaving   = signal(false);
   catalogError    = signal('');
   showAddCatalog  = signal(false);
@@ -992,11 +1001,12 @@ export class SchemaLibraryComponent implements OnInit {
   loadCatalogs(): void {
     if (this.catalogsLoading()) return;
     this.catalogsLoading.set(true);
+    this.catalogsLoadError.set(null);
     this.schemaApi.listSchemaCatalogs().pipe(
       finalize(() => this.catalogsLoading.set(false)),
     ).subscribe({
       next: ({ catalogs }) => this.catalogs.set(catalogs),
-      error: () => this.catalogs.set([]),
+      error: (err) => { this.catalogs.set([]); this.catalogsLoadError.set(httpErrorReason(err)); },
     });
   }
 

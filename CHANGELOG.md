@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`testing/ux-drift-sweep.mjs` — control drift measured from computed styles in the running app.** First tool of
+  the UX audit lens, whose brief states that visual consistency is the primary review dimension and that **reading
+  CSS does not find drift**: view encapsulation lets two components style "the same" input differently and neither
+  file looks wrong.
+  - Its first run found that **a text input is four different controls** — 28 / 32 / 38 / 39 px tall across Spaces,
+    Audit log, Models and Schema library, on **two different background tokens**, with two radii and two type sizes.
+    That is the #385 search-bar drift pattern, still live on four surfaces.
+  - Buttons show **16 distinct signatures**; the two most-used differ by **1px height and 1px font-size** and appear
+    on 8 and 7 pages respectively — two near-identical styles used interchangeably app-wide. Models also has
+    fractional type (`12.5px`), meaning a rem/em cascade rather than a token.
+  - **The fix is a shared style and lands separately**, because it is a visual change that needs its own
+    before/after pass. The numbers are recorded so it can be done deliberately rather than by eye.
+  - A run that measures **nothing exits non-zero**: an empty report reads exactly like a clean one, and the first
+    draft did that — it passed its arguments to `$$eval` in the wrong order and swallowed the error.
+
 - **CI now enforces the CHANGELOG rule that memory had been enforcing.** Second finding of the Documentation & DX
   lens. An `[Unreleased]` entry for every user-facing change is the house rule, and it was being followed — **28 PRs
   in this batch, every one with an entry** — but nothing checked it. A rule kept alive by memory is one distracted

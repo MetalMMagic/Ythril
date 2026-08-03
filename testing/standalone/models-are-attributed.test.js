@@ -58,7 +58,14 @@ function dockerfiles() {
 function bakedModels(src) {
   const found = new Set();
   const RE = /\b([a-zA-Z0-9][\w.-]*)\/([\w.-]*(?:embed|whisper|moondream|clip|bge|gte|minilm|nli|rerank|llama|qwen|mistral|phi)[\w.-]*)\b/gi;
-  for (const m of src.matchAll(RE)) found.add(`${m[1]}/${m[2]}`);
+  // A source path is not a model id. `brain/embedding.ts` matched — a Dockerfile comment naming the file that
+  // loads the model was reported as an unattributed model, which is the false positive that costs a gate its
+  // credibility. No HuggingFace or Ollama id ends in a source-file extension, so this cannot hide a real one.
+  const SOURCE_FILE = /\.(ts|tsx|js|mjs|cjs|json|py|md|yml|yaml|sh|css|scss|html)$/i;
+  for (const m of src.matchAll(RE)) {
+    if (SOURCE_FILE.test(m[2])) continue;
+    found.add(`${m[1]}/${m[2]}`);
+  }
   return [...found];
 }
 
@@ -74,6 +81,10 @@ describe('the model-id detector, before it is trusted to judge anything', () => 
       'FROM node:22-slim@sha256:6c74791e',
       'COPY --from=builder /build/server/dist ./server/dist',
       'RUN npm ci --workspace=server --omit=dev',
+      // A comment naming the file that loads the model. This one got through and reported `brain/embedding.ts`
+      // as an unattributed model, so it is pinned as a case rather than left to the next reader to rediscover.
+      '# `brain/embedding.ts` maps HF_HUB_OFFLINE onto env.allowRemoteModels itself.',
+      'import { embed } from "../brain/embedding.js";',
     ]) assert.deepEqual(bakedModels(line), [], line);
   });
 });

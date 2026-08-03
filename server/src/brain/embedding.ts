@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { getDataRoot, getEmbeddingConfig } from '../config/loader.js';
 import { ssrfSafeFetch } from '../util/ssrf.js';
@@ -77,6 +78,41 @@ type LocalPipeline = (text: string, opts: Record<string, unknown>) => Promise<an
 let _pipelineInit: Promise<LocalPipeline> | null = null;
 let _pipelineModelId: string | null = null;
 
+/**
+ * Is this instance forbidden from fetching a model at runtime?
+ *
+ * Reads the ECOSYSTEM names first on purpose. An operator air-gapping a stack sets `HF_HUB_OFFLINE=1`,
+ * and `docker-compose.yml` already sets exactly that on the `unstructured` sidecar — so an operator has
+ * every reason to believe the convention is honoured stack-wide. It was not: transformers.js does not
+ * read those variables at all (they belong to Python's `huggingface_hub`), so the Node process ignored
+ * them completely. `YTHRIL_MODELS_OFFLINE` is the explicit spelling for anyone who would rather not
+ * borrow another project's variable.
+ */
+function modelsOffline(): boolean {
+  const truthy = (v: string | undefined): boolean =>
+    v !== undefined && v !== '' && v !== '0' && v.toLowerCase() !== 'false' && v.toLowerCase() !== 'no';
+  return truthy(process.env['HF_HUB_OFFLINE'])
+    || truthy(process.env['TRANSFORMERS_OFFLINE'])
+    || truthy(process.env['YTHRIL_MODELS_OFFLINE']);
+}
+
+/**
+ * Is `modelId` already in the on-disk cache, so that loading it needs no network?
+ *
+ * transformers.js keys its `FileCache` as `<cacheDir>/<model-id>/<file>` — verified against the cache the
+ * Dockerfile bakes, which contains `nomic-ai/nomic-embed-text-v1.5/{config.json,tokenizer.json,onnx/…}`.
+ * `config.json` is the first file every load asks for, so its presence is the cheap, accurate test for
+ * "this load will stay local". Deliberately synchronous and best-effort: this only decides whether to
+ * WARN, never whether to load.
+ */
+function isCached(cacheDir: string, modelId: string): boolean {
+  try {
+    return fs.existsSync(path.join(cacheDir, ...modelId.split('/'), 'config.json'));
+  } catch {
+    return false;
+  }
+}
+
 function getLocalPipeline(modelId: string): Promise<LocalPipeline> {
   // Re-init only if the configured model changes (rare: config reload)
   if (_pipelineInit && _pipelineModelId === modelId) return _pipelineInit;
@@ -88,9 +124,54 @@ function getLocalPipeline(modelId: string): Promise<LocalPipeline> {
     const cacheDir = process.env['MODEL_CACHE_DIR'] ??
                      path.join(getDataRoot(), '.model-cache');
     env.cacheDir = cacheDir;
-    log.info(`Loading embedding model ${modelId} (cache: ${cacheDir})`);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const pipe = await pipeline('feature-extraction', modelId) as any;
+
+    // A cache MISS reaches out to huggingface.co, and nothing used to say so.
+    //
+    // `env.allowRemoteModels` defaults to `true` in @huggingface/transformers, so `pipeline(…)` on a model
+    // that is not in `cacheDir` silently downloads it: the instance's IP and the model id it asked for,
+    // to a third party, with no configuration, from a product whose README says "works fully offline".
+    // The shipped image bakes exactly ONE model, `nomic-ai/nomic-embed-text-v1.5`, so every other id —
+    // and any id at all on a from-source install with an empty cache — was that request.
+    //
+    // Two changes, and neither of them can break the default:
+    //   1. the offline flag is honoured (see `modelsOffline`), and the published image sets it;
+    //   2. when remote IS allowed and the model is absent, the egress is ANNOUNCED before it happens.
+    //
+    // Measured rather than assumed, because the ordering inside `getModelFile` decides whether this is
+    // safe: the `FileCache` is consulted BEFORE any local-or-remote decision, so a populated `cacheDir`
+    // satisfies a load with remote fetching disabled. Loading the baked model against a real populated
+    // cache with `allowRemoteModels = false` succeeded; a different id under the same conditions failed.
+    const offline = modelsOffline();
+    const cached = isCached(cacheDir, modelId);
+    if (offline) env.allowRemoteModels = false;
+    else if (!cached) {
+      log.warn(
+        `Embedding model '${modelId}' is not in the local cache (${cacheDir}), so loading it will DOWNLOAD it `
+        + 'from huggingface.co — roughly 274 MB, and that request carries this instance\'s IP address and the '
+        + 'model id. Set HF_HUB_OFFLINE=1 (or YTHRIL_MODELS_OFFLINE=1) to forbid it, and bake the model into '
+        + 'your image instead. The published Ythril image already ships with the flag set.',
+      );
+    }
+
+    log.info(`Loading embedding model ${modelId} (cache: ${cacheDir}${offline ? ', offline' : ''})`);
+    let pipe: unknown;
+    try {
+      pipe = await pipeline('feature-extraction', modelId);
+    } catch (err) {
+      // The library's own message on a blocked miss names `node_modules/@huggingface/transformers/models/`,
+      // a path that has nothing to do with where Ythril keeps its models — so an operator would go looking
+      // in the wrong place for a file that was never meant to be there. Say what actually happened.
+      if (offline && !cached) {
+        throw new Error(
+          `Embedding model '${modelId}' is not in the model cache (${cacheDir}) and runtime downloads are `
+          + 'disabled by HF_HUB_OFFLINE / TRANSFORMERS_OFFLINE / YTHRIL_MODELS_OFFLINE. Either bake the model '
+          + 'into the image (see docs/integration-guide/02-hosting.md), point MODEL_CACHE_DIR at a cache that '
+          + 'has it, or unset the flag to allow a one-time download from huggingface.co. '
+          + `Underlying error: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      throw err;
+    }
     log.info(`Embedding model ready: ${modelId}`);
     return pipe as LocalPipeline;
   })();

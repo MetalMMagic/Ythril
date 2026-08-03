@@ -90,6 +90,7 @@ DEBUG=1 docker compose up
 | `PORT` | `3200` | HTTP listen port |
 | `CLIENT_DIST` | (resolved from the image layout) | Directory the built Angular client is served from. Set by the Dockerfile; override it only when running the server against a client build in a non-standard location — a local dev checkout, or an image you re-layered. |
 | `MODEL_CACHE_DIR` | `/app/model-cache` in the image, else `<DATA_ROOT>/.model-cache` | Where the bundled in-process embedding model's weights are cached. Baked into the image so a cold start does not download them; the `DATA_ROOT` fallback is for running from source. Point it at a persistent volume if you strip the cache out of your image, or **every** boot re-downloads the model. |
+| `HF_HUB_OFFLINE` / `TRANSFORMERS_OFFLINE` / `YTHRIL_MODELS_OFFLINE` | `1` in the image, unset when running from source | Forbid fetching a model at runtime. Any of the three, set to anything other than `0`/`false`/`no`/empty, stops the in-process embedding model from reaching `huggingface.co`: a model that is not in `MODEL_CACHE_DIR` fails to load, with an error naming the cache and this flag, instead of being downloaded. The first two are the names the wider ecosystem uses (Python's `huggingface_hub` reads them, and `docker-compose.yml` already sets `HF_HUB_OFFLINE` on the `unstructured` sidecar); transformers.js reads none of them, so Ythril maps them itself. Set `HF_HUB_OFFLINE=0` in the image if you deliberately want to switch to a model it does not carry. |
 | `DEBUG` | (unset) | Set to `1` for verbose logging |
 | `MONGO_CONNECT_RETRY_MS` | `30000` | How long the **first** MongoDB connection may spend retrying before boot gives up. A container orchestrator's healthcheck can report MongoDB healthy while it is still finishing startup, so the first driver connection can have its socket reset mid-handshake — which used to kill the process outright. Only "not up yet" failures are retried (network errors, server selection, topology closed); bad credentials and a malformed URI fail immediately, because waiting cannot help and retrying would turn a clear error into a boot that appears to hang. Backoff is jittered so several instances starting together do not retry in lockstep. |
 | `SHUTDOWN_DRAIN_MS` | `8000` | How long in-flight HTTP requests get to finish after SIGTERM before their connections are forced shut. On SIGTERM the server stops accepting new connections, waits for the running ones, then flushes config and closes MongoDB. The default is sized for **Docker's 10 s stop grace period** — the whole drain plus the flush has to fit inside it or the container is SIGKILLed mid-write anyway. Kubernetes allows 30 s by default, so raise this if your orchestrator gives you longer. |
@@ -172,6 +173,52 @@ services:
       YTHRIL_MASTER_KEY: "${YTHRIL_MASTER_KEY:?set a 32-byte base64 key}"
       YTHRIL_REQUIRE_ENCRYPTED_AT_REST: "true"
 ```
+
+### Runtime Model Downloads
+
+**The published image never fetches a model at runtime, and that is enforced rather than assumed.**
+
+Ythril's in-process embedding model is baked into the image at `/app/model-cache`, and the image sets
+`HF_HUB_OFFLINE=1`. Only one model is baked in — `nomic-ai/nomic-embed-text-v1.5`, the default — so this
+matters the moment you change it.
+
+Without the flag, the underlying library (`@huggingface/transformers`) allows remote model loading by
+default. A cache **miss** is then a download from `huggingface.co`, which carries **your instance's IP
+address and the model id it asked for** to a third party. Nothing configured it and nothing announced it.
+That is the behaviour the flag turns off.
+
+What each situation does now:
+
+| situation | behaviour |
+|---|---|
+| the image, default model | loads from the baked cache — no network, ever |
+| the image, a model id it does not carry | **fails to load**, with an error naming `MODEL_CACHE_DIR` and this flag |
+| the image with `HF_HUB_OFFLINE=0` | downloads on a miss, and **logs a warning first** naming the host, the model, and the size |
+| from source, empty cache | downloads on first use, with the same warning — this is how you populate a cache |
+
+The flag does **not** disable the bundled model: the library consults its on-disk cache *before* deciding
+local-versus-remote, so a populated `MODEL_CACHE_DIR` satisfies the load with downloads switched off.
+
+To use a different local model on an offline instance, populate the cache rather than opening the egress:
+
+```bash
+# On a machine WITH internet. Same image, same cache layout the offline instance expects,
+# so nothing has to be assembled by hand.
+WARM='import("./server/dist/brain/embedding.js").then(m => m.warmEmbeddingModel())'
+
+docker run --rm -v "$PWD/cache:/cache" -e MODEL_CACHE_DIR=/cache -e HF_HUB_OFFLINE=0 -e EMBEDDING_MODEL=<model-id> ghcr.io/ythril-network/ythril node -e "$WARM"
+
+# Then mount ./cache at MODEL_CACHE_DIR on the offline instance, set EMBEDDING_MODEL to the
+# same id, and leave HF_HUB_OFFLINE=1. The load is a cache hit and never touches the network.
+```
+
+Changing the embedding model **invalidates every existing vector**, so plan the
+[reindex](04-brain-api.md#reindex-space) that has to follow it.
+
+Other model-loading components are separate processes with their own controls: the vision model is pulled
+by **Ollama** when you start it, and the speech model by the **faster-whisper** sidecar. Both are containers
+you run, and both pull at *their* start-up rather than mid-request. The `unstructured` sidecar's layout
+models are baked into its image and it runs with `HF_HUB_OFFLINE=1` on an internal network with no route out.
 
 ### Security Posture Check
 

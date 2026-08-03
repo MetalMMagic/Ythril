@@ -93,7 +93,11 @@ const NOT_A_SETTING = new Map([
   ['DOCKERHUB_USERNAME', 'a GitHub Actions secret, not read by the app'],
   ['DOCKERHUB_TOKEN', 'a GitHub Actions secret, not read by the app'],
   ['NUMBA_CACHE_DIR', "a third-party library's env, set in a sidecar image"],
-  ['HF_HUB_OFFLINE', "a third-party library's env, set in a sidecar image"],
+  // `HF_HUB_OFFLINE` used to sit here, exempted as "a third-party library's env, set in a sidecar image".
+  // That was true and became false: the Node process reads it now, because transformers.js does NOT (it is
+  // Python's variable) and an operator who sets it stack-wide has every right to expect the embedding model
+  // to obey. This gate is what noticed — the exemption's stated reason stopped matching the code, and the
+  // fix is a documented setting rather than a wider allowlist.
   ['XDG_CACHE_HOME', "a third-party library's env, set in a sidecar image"],
   // Removed settings the docs still name so an upgrader can find out they are gone.
   ['MEDIA_EMBEDDING_ENABLED', 'removed in 2.0.0; documented as a breaking change'],

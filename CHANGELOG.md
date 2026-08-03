@@ -112,6 +112,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **39 controls showed their selected state and announced nothing; 3 did it properly.** Fourth finding of the
+  Accessibility lens. On the Brain page — the product's primary navigation — **none of the eight tabs was marked
+  selected**, so which view you were on was visible and unannounced.
+  - A consistency gap rather than a design question: `review-tab.component.ts` already had the right pattern
+    (`role="tablist"` / `role="tab"` / `aria-selected` / `aria-controls`).
+  - Fixed here, the three highest-impact groups: the **Brain tab strip** (6 buttons), the **schema-library page
+    tabs**, and the **graph toolbar** — `aria-pressed` on the direction and label toggles, `aria-current` on the
+    space chips, because a single-select set is not a set of independent toggles and telling a screen reader that
+    several spaces are simultaneously *pressed* would be worse than saying nothing.
+  - **25 remain, in 8 files, enumerated in the gate rather than described.** That allowlist is the point: the debt
+    is finite and visible, a **new** control cannot skip ARIA, no listed file may get worse, and a file that gets
+    fixed must be **removed** from the list rather than left as slack.
+  - Gate `toggle-state-is-announced`, mutation-tested **8/8** — including that adding one more unannounced button to
+    an already-listed file fails, since an allowlist is a ceiling and never a licence.
+
 - **`--text-muted` failed WCAG AA on every surface, at 11px.** Third finding of the Accessibility lens, and the
   first time the palette's ratios were computed rather than judged by eye.
 

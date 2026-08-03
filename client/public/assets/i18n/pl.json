@@ -314,6 +314,7 @@
   "brain.reindex.stale": "Osadzania są przestarzałe — model osadzania uległ zmianie i to miejsce wymaga ponownego indeksowania.",
   "brain.reindex.button": "Zindeksuj teraz ponownie",
   "brain.tab.overview": "Przegląd",
+  "brain.tabsAriaLabel": "Widoki Brain",
   "brain.tab.query": "Zapytanie",
   "brain.tab.graph": "Wykres",
   "brain.tab.files": "Akta",

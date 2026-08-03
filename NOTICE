@@ -182,11 +182,6 @@ All rights reserved.
 License: MIT
 Copyright (c) 2026 Gerald Yeo
 
-### qrcode
-
-License: MIT
-Copyright (c) 2012 Ryan Day
-
 ### rxjs
 
 License: Apache License 2.0
@@ -322,6 +317,24 @@ are Apache 2.0 licensed.
 Ythril communicates with the sidecar only over an HTTP socket on an isolated internal media network; no
 faster-whisper-server code is linked into or incorporated into the Ythril application.
 
+### Bundled model weights: nomic-ai/nomic-embed-text-v1.5
+
+License: Apache License 2.0
+Copyright (c) Nomic AI
+
+**This one IS redistributed**, which is what separates it from the model entries above. The weights are downloaded
+at image build time and baked into the image (`MODEL_CACHE_DIR=/app/model-cache`) so an instance embeds text on
+first boot with no network — the offline-start guarantee the rest of the build is arranged around. Every user of a
+Ythril image therefore receives a copy of these weights.
+
+Role: the default text-embedding model, and the only model Ythril ships. Everything else — the Ollama vision
+models, the Whisper speech models — is pulled independently at runtime under its own licence, and those entries
+above say so.
+
+The files are shipped **unmodified**, so Apache 2.0 requires no statement of changes. The Apache 2.0 text is
+already reproduced under License Texts above. `models-are-attributed` asserts that every model identifier baked
+into any Dockerfile in this repo has an entry here.
+
 ### Inter (typeface)
 
 License: SIL Open Font License 1.1
@@ -394,6 +407,19 @@ Copyright (c) 2014-2019 Guyon Roche
 License: MIT
 Copyright (c) 2023 Anthony Fu (https://github.com/antfu)
 Copyright (c) Project Nayuki
+
+### jszip (transitive, via exceljs)
+
+JSZip is dual-licensed, `MIT OR GPL-3.0-or-later`. **Ythril elects the MIT License**, whose text is already
+reproduced under License Texts above — so no GPL-3.0 text is required here, and no copyleft obligation attaches.
+
+Listed although it is a **transitive** dependency, which the direct-attribution rule would otherwise skip: it is
+pulled in by `exceljs` and **ships in the browser bundle**, and a dual grant with a copyleft arm is exactly the case
+where "which arm applies" must be recorded rather than inferred. `no-copyleft-in-the-shipped-tree` asserts that
+every restrictive licence anywhere in the redistributed tree has an entry here.
+
+License: MIT (elected from `MIT OR GPL-3.0-or-later`)
+Copyright (c) 2009-2016 Stuart Knightley, David Duponchel, Franz Buchinger, António Afonso
 
 ### dompurify
 

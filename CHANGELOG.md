@@ -75,6 +75,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **NOTICE attributed a package that was removed months ago.** `qrcode` was swapped for `uqr` — the MFA component's
+  spec documents the swap in its own header, *"CommonJS `qrcode` → ESM `uqr`"* — the dependency went, and the NOTICE
+  entry stayed. That claims Ythril redistributes something it does not, which is the small end of a licence problem
+  and the sharp end of a trust one: the whole value of NOTICE is that it can be believed.
+  - `notice-coverage.test.js` already had a reverse check, but it was **a hardcoded allowlist of five build tools** —
+    it cannot see a dependency that is simply gone. It now asserts that every package-shaped heading names something
+    actually installed: 43 headings, and it found exactly the one stale entry.
+  - Prose headings are handled generally rather than by a list of the two that exist today — `mongodb (Node.js
+    Driver)`, `jszip (transitive, via exceljs)` — because the third one would otherwise fail for no reason. Any
+    trailing parenthetical is stripped, which can never hide a real name since an npm name can contain neither a
+    space nor a paren. **Mutation-tested 7/7**, with four of the seven being legitimate heading shapes that must not
+    fire.
+
+- **The one model Ythril actually ships had no attribution at all.** `NOTICE` is careful about the distinction —
+  the Ollama entry says its vision models "are pulled at runtime under their own licenses", the
+  faster-whisper-server entry says the image "is **not bundled with or distributed by** Ythril". Both correct. And
+  the model that *is* bundled had no entry.
+  - `nomic-ai/nomic-embed-text-v1.5` is downloaded at image build time and baked in, so an instance embeds text on
+    first boot with no network — the offline-start guarantee the whole build is arranged around, and the reason that
+    layer is the largest thing in the image. **Every user of a Ythril image receives a copy of those weights.** It
+    is Apache-2.0, so the obligation is attribution, and the attribution was missing.
+  - `NOTICE` now carries it, states the licence, says the files ship **unmodified** (so no statement of changes is
+    required), and says explicitly that these weights *are* redistributed — the distinction drawn the right way
+    round, since drawing it wrongly would read as a considered answer.
+  - Gate `models-are-attributed` takes its list from the **Dockerfiles**, not from a list somebody maintains:
+    "which models ship" is whatever an image downloads, so adding one is automatically a NOTICE change. The
+    detector self-tests that it finds a HuggingFace-style id and does not mistake a repo path or a base image for
+    one. **Mutation-tested 5/5**, including a second model baked in with no attribution.
+
+- **A GPL arm was being redistributed with no record of which arm applied.** `jszip` is offered as
+  `MIT OR GPL-3.0-or-later`, arrives transitively through `exceljs`, and **ships in the browser bundle**. Nothing was
+  broken — MIT is available and MIT is what applies — but `docs/dependencies.md` stated that exactly *one* package
+  was dual-licensed with a copyleft arm and concluded that "no copyleft restrictions apply to any redistributed npm
+  package". The conclusion held; the reasoning had not been checked. There were two.
+  - `NOTICE` now records the **MIT election** for `jszip`, in the same form the `dompurify` entry uses, and says why
+    a transitive package is listed at all. `docs/dependencies.md` carries a table of both dual grants, what each is
+    offered as, which arm Ythril elects, and how each reaches the user.
+  - **`notice-coverage.test.js` could not have found it, and says so in its own header**: transitive dependencies
+    are deliberately out of scope, because "the full transitive set is thousands of packages, and a gate nobody can
+    satisfy is a gate that gets deleted." That is right for *attribution* and wrong for *copyleft* — attributing
+    1,147 MIT packages would be unsatisfiable busywork, while the number with a restrictive licence is **two**.
+  - New gate `no-copyleft-in-the-shipped-tree` scans every installed package, flags copyleft and use-restricted
+    identifiers (excluding LGPL, which separate-process use satisfies — ffmpeg is the case in point), and requires
+    each hit to carry a NOTICE entry that names the elected arm. The classifier self-tests on nine restrictive and
+    eleven permissive identifiers before it judges anything.
+  - **Mutation-tested 6/6**, including the one that matters most: a **new AGPL package appearing in the installed
+    tree** is caught.
+
 - **The admin UI fetched its font from Google on every page load. It is now self-hosted.** Found by the Legal &
   Compliance audit lens, and the licence problem is the least of the three:
   - **It told a third party who was looking.** Every load of a *self-hosted* admin UI sent the operator's IP to a

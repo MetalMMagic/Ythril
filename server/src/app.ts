@@ -136,7 +136,15 @@ export function createApp() {
     // base-uri 'self' prevents <base href> injection in any XSS context.
     res.setHeader(
       'Content-Security-Policy',
-      `frame-ancestors ${frameAncestorsDirective()}; object-src 'none'; base-uri 'self'`,
+      // `font-src 'self'` is the enforcement half of self-hosting the UI font. The client used to fetch Inter from
+      // a font CDN on every page load, and nothing here stopped it: there was no font-src, and `Referrer-Policy`
+      // hides the referring page but not the IP. A self-hosted admin UI must not tell a third party who is
+      // looking at it, and an air-gapped install must not depend on a route it does not have.
+      //
+      // Deliberately NOT adding `style-src`: Angular injects inline styles, so that directive would need
+      // `'unsafe-inline'` to be correct and would then assert nothing. One narrow directive that actually holds
+      // beats a broad one written to be satisfied.
+      `frame-ancestors ${frameAncestorsDirective()}; object-src 'none'; base-uri 'self'; font-src 'self'`,
     );
     res.setHeader('Referrer-Policy', 'no-referrer');
     next();

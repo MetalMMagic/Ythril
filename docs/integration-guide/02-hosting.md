@@ -466,7 +466,7 @@ Ythril sets the following headers on every response:
 | Header | Value | Purpose |
 |---|---|---|
 | `X-Content-Type-Options` | `nosniff` | Prevents MIME-type sniffing |
-| `Content-Security-Policy` | `frame-ancestors 'self'; object-src 'none'; base-uri 'self'` | Blocks cross-origin embedding, plugin injection, and base-tag hijacking. Cross-origin embedding is possible only by explicitly allowlisting origins under `embed.allowedOrigins` — see [Theme API](15-about-and-embedding.md#enabling-cross-origin-embedding-opt-in) |
+| `Content-Security-Policy` | `frame-ancestors 'self'; object-src 'none'; base-uri 'self'; font-src 'self'` | Blocks cross-origin embedding, plugin injection, base-tag hijacking, and any font fetched from a third party — the UI serves its own, so an air-gapped instance renders correctly and no operator's IP reaches a font CDN. Cross-origin embedding is possible only by explicitly allowlisting origins under `embed.allowedOrigins` — see [Theme API](15-about-and-embedding.md#enabling-cross-origin-embedding-opt-in) |
 | `Referrer-Policy` | `no-referrer` | Strips referrer on outbound requests |
 | `X-Request-Id` | UUID | Unique per-request ID for tracing (logged server-side) |
 

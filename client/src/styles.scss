@@ -1,3 +1,51 @@
+/* ── Inter, self-hosted ──────────────────────────────────────────────────────────────────────────────────────
+   Vendored, not fetched. `index.html` used to carry a preconnect pair and a stylesheet link to Google's font CDN,
+   fetched on every page load. Three problems, and the first two matter more than the licence one:
+
+     - it sent every operator's IP to a third party on every load of a SELF-HOSTED admin UI. There is no CSP
+       `font-src` to stop it and `Referrer-Policy: no-referrer` does not hide an IP;
+     - it broke on exactly the air-gapped installs the rest of the build works hard to support. The image
+       pre-downloads the embedding model "so the container starts offline" and ships the docs because an
+       air-gapped instance has "no route to github.com" — and then the UI asked the internet for its font;
+     - the font was neither bundled nor attributed, so the OFL notice it requires was missing.
+
+   A production build strips this comment; an HTML comment would have shipped, which is why the note lives here.
+
+   Four weights, latin subset, 96 KB total — the weights `--font` actually asks for (300/400/500/600). `swap` so
+   text paints immediately in the system fallback and reflows once; with the files served from the same origin that
+   window is a few milliseconds rather than a network round trip.
+
+   Files are copied from @fontsource/inter 5.3.0 (OFL-1.1). See `NOTICE` for the attribution the licence requires
+   and `docs/dependencies.md` for how to refresh them. */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+  src: url('assets/fonts/inter-latin-300-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('assets/fonts/inter-latin-400-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('assets/fonts/inter-latin-500-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('assets/fonts/inter-latin-600-normal.woff2') format('woff2');
+}
+
 /* ── Design tokens ───────────────────────────────────────────────────────── */
 :root {
   --bg-primary:   #0d1117;

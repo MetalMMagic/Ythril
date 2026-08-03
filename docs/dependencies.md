@@ -26,6 +26,28 @@ redistributed, so listing them would make NOTICE less accurate, not more.
 
 ---
 
+## Vendored client assets
+
+Some things the browser downloads are **not npm dependencies**, so the coverage test above cannot see them. They
+are checked in as files and shipped by the bundler, and they carry licences of their own.
+
+| asset | where | licence | provenance |
+|---|---|---|---|
+| **Inter**, four latin weights (300/400/500/600), WOFF2 | `client/src/assets/fonts/` | SIL Open Font License 1.1 | copied unmodified from the `@fontsource/inter` **5.3.0** distribution |
+
+**To refresh them:** `npm i -D @fontsource/inter@<version>`, copy
+`node_modules/@fontsource/inter/files/inter-latin-{300,400,500,600}-normal.woff2` into
+`client/src/assets/fonts/`, remove the dependency again, and update the version in the table above and in
+[NOTICE](../NOTICE). The package is not kept as a dependency because nothing imports it — the four files are the
+whole of what ships, and an unused dependency in the manifest is a worse record than this paragraph.
+
+**They are served by the instance, deliberately.** The UI previously fetched its font from a public font CDN on
+every page load, which sent every operator's IP to a third party from a self-hosted admin UI and failed outright on
+an air-gapped install. `testing/standalone/no-external-assets.test.js` now asserts that the client requests no
+asset from a remote host, and that anything vendored under `client/src/assets/` is attributed in NOTICE.
+
+---
+
 ## mongodb/mongodb-atlas-local (Docker image)
 
 ### What it is and why it is used

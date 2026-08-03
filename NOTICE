@@ -322,6 +322,17 @@ are Apache 2.0 licensed.
 Ythril communicates with the sidecar only over an HTTP socket on an isolated internal media network; no
 faster-whisper-server code is linked into or incorporated into the Ythril application.
 
+### Inter (typeface)
+
+License: SIL Open Font License 1.1
+Copyright (c) 2016 The Inter Project Authors (https://github.com/rsms/inter)
+
+Four latin-subset weights (300/400/500/600) are bundled as WOFF2 in the client, at
+`client/src/assets/fonts/`, taken from the @fontsource/inter 5.3.0 distribution. They are SERVED BY THE
+INSTANCE — the UI fetches no font from a third party, so an air-gapped install renders correctly and no
+operator's IP reaches a font CDN. The OFL requires this notice and permits bundling; "Inter" is not a
+Reserved Font Name in the upstream licence, and the files are shipped unmodified.
+
 ### @phosphor-icons/core
 
 License: MIT

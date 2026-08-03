@@ -83,7 +83,7 @@ import { GRAPH_STYLES } from './graph.styles';
     @if (!isEmbedded() && spaces().length > 0) {
       <div class="space-tabs">
         @for (s of spaces(); track s.id) {
-          <button class="space-chip" [class.active]="activeSpaceId() === s.id" (click)="onSpaceChange(s.id)">{{ s.label }}</button>
+          <button class="space-chip" type="button" [class.active]="activeSpaceId() === s.id" [attr.aria-current]="activeSpaceId() === s.id ? 'true' : null" (click)="onSpaceChange(s.id)">{{ s.label }}</button>
         }
       </div>
     }
@@ -110,13 +110,13 @@ import { GRAPH_STYLES } from './graph.styles';
       </div>
 
       <div class="pill-group">
-        <button [class.active]="direction() === 'outbound'" (click)="setDirection('outbound')">{{ 'graph.toolbar.direction.out' | transloco }}</button>
-        <button [class.active]="direction() === 'inbound'" (click)="setDirection('inbound')">{{ 'graph.toolbar.direction.in' | transloco }}</button>
-        <button [class.active]="direction() === 'both'"    (click)="setDirection('both')">{{ 'graph.toolbar.direction.both' | transloco }}</button>
+        <button type="button" [class.active]="direction() === 'outbound'" [attr.aria-pressed]="direction() === 'outbound'" (click)="setDirection('outbound')">{{ 'graph.toolbar.direction.out' | transloco }}</button>
+        <button type="button" [class.active]="direction() === 'inbound'" [attr.aria-pressed]="direction() === 'inbound'" (click)="setDirection('inbound')">{{ 'graph.toolbar.direction.in' | transloco }}</button>
+        <button type="button" [class.active]="direction() === 'both'" [attr.aria-pressed]="direction() === 'both'"    (click)="setDirection('both')">{{ 'graph.toolbar.direction.both' | transloco }}</button>
       </div>
 
       <div class="pill-group">
-        <button [class.active]="!hideLabels()" (click)="onHideLabelsChange(!hideLabels())" [attr.title]="'graph.toolbar.toggleLabels' | transloco">{{ 'graph.toolbar.labels' | transloco }}</button>
+        <button type="button" [class.active]="!hideLabels()" [attr.aria-pressed]="!hideLabels()" (click)="onHideLabelsChange(!hideLabels())" [attr.title]="'graph.toolbar.toggleLabels' | transloco">{{ 'graph.toolbar.labels' | transloco }}</button>
       </div>
 
       <div class="toolbar-spacer"></div>

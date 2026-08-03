@@ -240,9 +240,9 @@ export function entriesFromTypeSchemas(
     </div>
 
     <!-- page tabs: My Library / Foreign Catalogs -->
-    <div class="page-tabs">
-      <button class="page-tab" [class.active]="pageTab()==='library'" (click)="pageTab.set('library')">{{ 'schemaLib.tab.library' | transloco }}</button>
-      <button class="page-tab" [class.active]="pageTab()==='catalogs'" (click)="pageTab.set('catalogs');loadCatalogs()"><ph-icon name="globe" [size]="13" style="margin-right:4px;"/>{{ 'schemaLib.tab.catalogs' | transloco }}</button>
+    <div class="page-tabs" role="tablist" [attr.aria-label]="'schemaLib.title' | transloco">
+      <button class="page-tab" type="button" role="tab" [class.active]="pageTab()==='library'" [attr.aria-selected]="pageTab()==='library'" (click)="pageTab.set('library')">{{ 'schemaLib.tab.library' | transloco }}</button>
+      <button class="page-tab" type="button" role="tab" [class.active]="pageTab()==='catalogs'" [attr.aria-selected]="pageTab()==='catalogs'" (click)="pageTab.set('catalogs');loadCatalogs()"><ph-icon name="globe" [size]="13" style="margin-right:4px;"/>{{ 'schemaLib.tab.catalogs' | transloco }}</button>
     </div>
 
     <div class="search-row" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">

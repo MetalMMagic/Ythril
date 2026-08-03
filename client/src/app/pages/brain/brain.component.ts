@@ -212,25 +212,28 @@ interface SpaceView {
         <div class="alert alert-success" style="margin-bottom:10px; font-size:13px;"><ph-icon name="check" [size]="14" style="display:inline-flex;vertical-align:middle;margin-right:4px;"/> {{ reindexResult() }}</div>
       }
 
-      <!-- Sub-tabs: Query on left, collections on right -->
-      <div class="tabs">
-        <button class="tab" [class.active]="activeTab() === 'overview'" (click)="setTab('overview')">
+      <!-- Sub-tabs: Query on left, collections on right.
+           role=tablist / role=tab / aria-selected, matching the pattern review-tab already used. Without
+           aria-selected the active tab was conveyed by a CSS class ALONE, so a screen-reader user could not
+           tell which of eight views they were on: the state was visible and unannounced. -->
+      <div class="tabs" role="tablist" [attr.aria-label]="'brain.tabsAriaLabel' | transloco">
+        <button class="tab" type="button" role="tab" [class.active]="activeTab() === 'overview'" [attr.aria-selected]="activeTab() === 'overview'" (click)="setTab('overview')">
           <ph-icon name="chart-bar" [size]="15" style="display:inline-flex;vertical-align:middle;margin-right:4px;"/> {{ 'brain.tab.overview' | transloco }}
         </button>
-        <button class="tab" [class.active]="activeTab() === 'query'" (click)="setTab('query')">
+        <button class="tab" type="button" role="tab" [class.active]="activeTab() === 'query'" [attr.aria-selected]="activeTab() === 'query'" (click)="setTab('query')">
           <ph-icon name="magnifying-glass" [size]="15" style="display:inline-flex;vertical-align:middle;margin-right:4px;"/> {{ 'brain.tab.query' | transloco }}
         </button>
-        <button class="tab" [class.active]="activeTab() === 'graph'" (click)="setTab('graph')">
+        <button class="tab" type="button" role="tab" [class.active]="activeTab() === 'graph'" [attr.aria-selected]="activeTab() === 'graph'" (click)="setTab('graph')">
           <ph-icon name="binoculars" [size]="15" style="display:inline-flex;vertical-align:middle;margin-right:4px;"/> {{ 'brain.tab.graph' | transloco }}
         </button>
         <!-- Review (F-REVIEW): duplicate pairs awaiting a decision in this space. Grouped with the
              other whole-space views rather than after Files — it is a workflow, not a record collection. -->
-        <button class="tab" [class.active]="activeTab() === 'review'" (click)="setTab('review')">
+        <button class="tab" type="button" role="tab" [class.active]="activeTab() === 'review'" [attr.aria-selected]="activeTab() === 'review'" (click)="setTab('review')">
           <ph-icon name="copy" [size]="15" style="display:inline-flex;vertical-align:middle;margin-right:4px;"/> {{ 'brain.tab.review' | transloco }}
         </button>
         <span class="tab-spacer"></span>
         @for (tab of collectionTabs; track tab.key) {
-          <button class="tab" [class.active]="activeTab() === tab.key" (click)="setTab(tab.key)">
+          <button class="tab" type="button" role="tab" [class.active]="activeTab() === tab.key" [attr.aria-selected]="activeTab() === tab.key" (click)="setTab(tab.key)">
             <ph-icon [name]="tab.icon" [size]="15" style="display:inline-flex;vertical-align:middle;margin-right:4px;"/> {{ tab.label | transloco }}
             @if (activeStats(); as s) {
               @if (tab.statsKey) {
@@ -241,7 +244,7 @@ interface SpaceView {
         }
         <!-- Files (the former File Meta slot) — the file manager and File Meta merged into one tab: the
              explorer now shows each file's status, tags and folder sizes inline. -->
-        <button class="tab" [class.active]="activeTab() === 'files'" (click)="setTab('files')">
+        <button class="tab" type="button" role="tab" [class.active]="activeTab() === 'files'" [attr.aria-selected]="activeTab() === 'files'" (click)="setTab('files')">
           <ph-icon name="folder" [size]="15" style="display:inline-flex;vertical-align:middle;margin-right:4px;"/> {{ 'brain.tab.files' | transloco }}
           @if (activeStats(); as s) {
             <span class="tab-count">{{ s.files }}</span>

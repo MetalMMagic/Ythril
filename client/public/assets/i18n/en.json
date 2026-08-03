@@ -314,6 +314,7 @@
   "brain.reindex.stale": "Embeddings are stale — the embedding model has changed and this space needs reindexing.",
   "brain.reindex.button": "Reindex now",
   "brain.tab.overview": "Overview",
+  "brain.tabsAriaLabel": "Brain views",
   "brain.tab.query": "Query",
   "brain.tab.graph": "Graph",
   "brain.tab.files": "Files",

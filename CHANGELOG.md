@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The space retention tier is one window per kind of record — five, not one.** A canary operator's case, and it
+  is unanswerable with a scalar: their `tickets` space holds ticket **entities** that must outlive their
+  status-change **chronos**, and `alerts` holds durable `alert-rule` entities beside `episode` chronos that are
+  pure telemetry. The schema tier does not help — it keys on a type *name*, while this is about a whole
+  collection.
+  - **`recordTtlDays` now takes an object**: `{ "chrono": 90, "file": 30 }`, buckets `entity`, `memory`, `edge`,
+    `chrono`, `file`. Five, and they spotted why: the guide makes this setting the default for **file uploads**
+    too, so splitting it four ways would have silently attached files to whichever bucket was picked. Files are
+    "the largest and the most obviously disposable", and they have no type for the schema tier to reach.
+  - **The bare number still works, permanently**, and reads as all five. This is local, non-synced config, so a
+    read-side widening is enough and no boot migration can half-apply across a network.
+  - **A partial object MERGES** — `{"chrono":90}` leaves the other four alone. That is deliberately the *opposite*
+    of the `typeSchemas` rule one level down, where a named type is replaced wholesale: there the value is a whole
+    definition the caller is holding, here each bucket is one independent number. Both are now documented as such,
+    because the same operator was nearly bitten by the other one. A bare number still *replaces* the whole object:
+    somebody sending `90` means all five.
+  - Five fields in the Danger Zone, the Brain Overview's retention line reads per bucket (and keeps its one-line
+    form when all five agree), and the Schema tab's *"empty inherits…"* hint now names **that collection's**
+    window rather than one space-wide figure.
+  - Gate `record-ttl-buckets` (20 cases) covers all six write cases, the widening, and the surfaces.
+    Mutation-tested 6/6.
+
 - **Per-type retention is editable — the control the Danger Zone, the guide and the release notes were already
   pointing at.** `retention` shipped end to end: the API took it, the sweep applied it, the Danger Zone listed
   the windows a type had, and the integration guide said *"set a type's window on the type, in the Schema tab."*
@@ -52,6 +74,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     exceeds the timeout it exists to describe.
 
 ### Fixed
+
+- **"Save retention" in the Danger Zone saved nothing and said it had.** It `await`ed the Observable that
+  `updateSpace` returns. Awaiting a cold Observable resolves immediately with the Observable *itself* and never
+  subscribes, so **no request was ever sent** — and the success toast fired anyway. Every other call in that
+  component uses `.subscribe`; this was the one that did not, from the moment retention moved to that tab.
+  - Found by driving the UI, not by a test: the button reported success, the network tab was empty, and nothing
+    anywhere went red. Now `firstValueFrom`, with a gate that fails on a bare `await` of that call.
+
+- **A partial `recordTtlDays` write cleared the buckets it did not mention.** The setting is applied early in
+  `PATCH /api/spaces/:id` — merged over what is stored and normalised — and then the generic `...restPatch`
+  spread near the end wrote the raw request body over the top of it. So `{"chrono":90}` dropped the other four,
+  and clearing every field stored five explicit `null`s rather than nothing. Both returned `200`.
+  `documentExtraction` was already excluded from that spread for the same reason; `recordTtlDays` now is too.
+
+- **The space settings tab echoed `recordTtlDays` back on every save.** Harmless while the tier was one number,
+  destructive once it became five: a scalar write *replaces* the whole object, so editing a label would have
+  flattened every per-collection window to one figure. The field has not been editable on that tab since it moved
+  to the Danger Zone, so the form no longer carries it at all.
+
+- **The retention resolver accepted a fractional day count** that its own write path rejects (`z.number().int()`).
+  Reachable from a hand-edited `config.json`, where it would have produced a window nothing else in the product
+  admits exists. Caught by a new assertion, not in the wild.
 
 - **Per-type retention only ever fired on chrono.** The tier is documented as reaching *"every record of that
   type, in any of the four typed collections"*, with `entity.ticket` as its worked example, and for entities,

@@ -26,6 +26,7 @@ import { proposedMetaFields } from '../sync/meta-round-merge.js';
 import type { SpaceMeta, KnowledgeType, TypeSchema } from '../config/types.js';
 import { DOC_EXTRACTION_MODES_IN, IMAGE_LEVELS, AUDIO_LEVELS, VIDEO_LEVELS, TEXT_LEVELS, normalizeDocExtractionMode } from '../config/types.js';
 import { writeFile as writeSpaceFile } from '../files/files.js';
+import { normaliseRecordTtl } from '../spaces/record-ttl.js';
 
 export const spacesRouter = Router();
 
@@ -149,6 +150,9 @@ const DupeActionRuleBody = z.object({
   webhookUrl: z.string().url().refine(isSsrfSafeUrl, { message: SSRF_SAFE_MESSAGE }).optional(),
 }).strict();
 
+/** One bucket's window: a positive day count, or 0/null to clear it. Same bounds as the legacy scalar. */
+const TtlWindowZ = z.number().int().nonnegative().max(36500).nullable().optional();
+
 const UpdateSpaceBody = z.object({
   label: z.string().min(1).max(200).optional(),
   description: z.string().max(SPACE_PURPOSE_MAX).optional(),
@@ -157,8 +161,23 @@ const UpdateSpaceBody = z.object({
   dupeRules: z.array(DupeActionRuleBody).max(20).optional(),
   dupeMergeSurvivor: z.enum(['older', 'newer']).optional(),
   dupeRulesOnInsert: z.boolean().optional(),
-  // F10: auto-TTL in days. 0/null clears it; a positive value stamps every new/updated record.
-  recordTtlDays: z.number().int().nonnegative().max(36500).nullable().optional(),
+  // F10: auto-TTL in days — the SPACE tier of record > schema > space. 0/null clears it; a positive value
+  // stamps every new/updated record with no closer window.
+  //
+  // TWO shapes. The scalar came first and is accepted forever, because a space that set one keeps working and
+  // this is local config a read-side widening can absorb. The object is per BUCKET, five of them: a space does
+  // not hold one kind of thing, and files share this tier while having no type for the schema tier to reach.
+  //
+  // A bucket set to 0 or null clears that bucket. `{}` is rejected: it says nothing, and accepting it would make
+  // "clear everything" and "change nothing" the same request.
+  recordTtlDays: z.union([
+    z.number().int().nonnegative().max(36500),
+    z.object({
+      entity: TtlWindowZ, memory: TtlWindowZ, edge: TtlWindowZ, chrono: TtlWindowZ, file: TtlWindowZ,
+    }).strict().refine(v => Object.values(v).some(x => x !== undefined), {
+      message: 'recordTtlDays needs at least one of entity, memory, edge, chrono or file',
+    }),
+  ]).nullable().optional(),
   // F11-c: per-space document-extraction mode override. null clears it (inherit the instance default).
   // `max` is accepted as the legacy spelling of `repair` and normalised on the way in.
   documentExtraction: z.enum(DOC_EXTRACTION_MODES_IN).nullable().optional(),
@@ -528,10 +547,14 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminMfaScoped('id'), async (
 
   // Record TTL (F10) is a local operational setting (like dupe rules) — apply immediately, never voted.
   // 0/null clears it. When enabled, ensure the sweep's `_expireAt` index (best-effort).
+  //
+  // A PARTIAL object MERGES over the stored windows, so `{"chrono":90}` does not silently clear the other four.
+  // That is the opposite of the `typeSchemas` rule one level down, and deliberately so: there a named type is a
+  // whole definition the caller holds, here each bucket is one independent number.
   if (parsed.data.recordTtlDays !== undefined) {
-    const ttl = parsed.data.recordTtlDays && parsed.data.recordTtlDays > 0 ? parsed.data.recordTtlDays : undefined;
+    const ttl = normaliseRecordTtl(space.recordTtlDays, parsed.data.recordTtlDays);
     updateSpace(id, { recordTtlDays: ttl });
-    if (ttl) void ensureTtlIndex(id).catch(err => log.warn(`ensureTtlIndex ${id}: ${err}`));
+    if (ttl !== undefined) void ensureTtlIndex(id).catch(err => log.warn(`ensureTtlIndex ${id}: ${err}`));
   }
 
 
@@ -633,7 +656,12 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminMfaScoped('id'), async (
 
   // Pull documentExtraction out of the spread: the parsed value may still be the legacy `max`,
   // and only the normalised, ceiling-capped spelling is ever stored (see `cappedDocExtraction` above).
-  const { documentExtraction: _rawMode, ...restPatch } = parsed.data;
+  //
+  // And pull `recordTtlDays` out for the same reason: it was already applied above, MERGED over what was
+  // stored and normalised. Letting the raw body through here overwrote that with itself — so a partial write
+  // cleared the four buckets it did not mention, and an all-cleared write stored five explicit nulls instead of
+  // nothing. Found by driving the UI; both paths returned 200 and looked like they had worked.
+  const { documentExtraction: _rawMode, recordTtlDays: _rawTtl, ...restPatch } = parsed.data;
   const updated = updateSpace(id, {
     ...restPatch,
     meta: mergedMeta,

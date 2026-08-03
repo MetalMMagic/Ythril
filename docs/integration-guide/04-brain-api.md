@@ -73,9 +73,10 @@ Two ways to set it, both usable together:
   - `ttlDays` omitted → the space's auto-TTL default is applied **only if the record has no expiry yet**
     (an existing expiry is never silently re-slid by an unrelated edit).
   - A present-but-invalid `ttlDays` (negative, non-integer, out of range) is rejected with `400`.
-- **Space-wide default** — set `recordTtlDays` on the space (`PATCH /api/spaces/:id`, or the Spaces
-  settings tab). Every new or updated record in that space that doesn't specify its own `ttlDays` expires
-  after that many days.
+- **Space-wide default** — set `recordTtlDays` on the space (`PATCH /api/spaces/:id`, or the Danger Zone in the
+  space's settings). Every new or updated record in that space that doesn't specify its own `ttlDays` expires
+  after that many days. It takes **one window per kind of record** — see
+  [The space tier is five windows](#the-space-tier-is-five-windows).
 
 ```json
 { "fact": "Temporary scratch note", "ttlDays": 7 }
@@ -108,7 +109,7 @@ Retention therefore resolves in three tiers:
 |---|---|---|
 | **record** | `ttlDays` on the write | that one record. Wins outright; `0`/`null` means never expire |
 | **schema** | `typeSchemas.<collection>.<type>.retention` | every record of that type, in any of the four typed collections |
-| **space** | `recordTtlDays` | everything else, including records with no type at all |
+| **space** | `recordTtlDays` | everything else of that KIND, including records with no type at all — one window per kind, see below |
 
 The middle tier lives **on the type**, beside `namingPattern` and `propertySchemas`, because retention is a
 per-type rule and that is where the per-type rules already are:
@@ -134,6 +135,27 @@ per-type rule and that is where the per-type rules already are:
 > it was ever in a tagged release, and it no longer exists — a per-type window on the space object would have
 > been a second place to configure one rule. Use `typeSchemas.<collection>.<type>.retention`.
 
+#### The space tier is five windows
+
+`recordTtlDays` takes **one window per kind of record**, because a space does not hold one kind of thing. A
+`tickets` space holds ticket *entities* that must outlive their status-change *chronos*; an `alerts` space holds
+durable `alert-rule` entities beside `episode` chronos that are pure telemetry. The schema tier cannot express
+either — it keys on a type *name*, and this is about a whole collection.
+
+```json
+{ "recordTtlDays": { "entity": null, "memory": null, "edge": null, "chrono": 90, "file": 30 } }
+```
+
+| | |
+|---|---|
+| buckets | `entity`, `memory`, `edge`, `chrono`, `file` — **five**, because files share this tier: they have no type, so the schema tier cannot reach them, and they are the largest and most obviously disposable of the five |
+| a bucket set to `0` or `null` | no window for that kind. Same as absent — there is no tier above the space for a bucket to inherit from |
+| **a partial object MERGES** | `{"chrono":90}` sets chrono and leaves the other four alone. **This is the opposite of the `typeSchemas` rule**, where a named type is replaced wholesale — there the value is a whole definition you are holding, here each bucket is one independent number |
+| a bare number | the **legacy shape**, accepted forever, and it means all five. It also *replaces* a stored object: someone sending `90` means all five, and merging that would invent an intent they did not express |
+| all five cleared | stored as no retention at all, so `{}`-vs-absent is never a distinction you have to reason about. An object mentioning **no** bucket is rejected with `400` — it would make "clear everything" and "change nothing" the same request |
+
+No migration is needed for a space that set the scalar: it is read as all five buckets, permanently.
+
 Two tiers per type, the same shape the audit log uses for its change payloads:
 
 | field | effect |
@@ -151,7 +173,7 @@ Rules worth knowing before you configure it:
 
 - **A per-record `ttlDays` still wins**, including `0`/`null` for "never expire". Someone said what they wanted
   for that record.
-- **A type with only `contentDays`** still deletes on the space's `recordTtlDays` schedule. Setting a content
+- **A type with only `contentDays`** still deletes on that collection's `recordTtlDays` window. Setting a content
   window means "redact sooner", not "exempt from deletion".
 - **A `contentDays` at or past the delete window is ignored**, because it could never fire, and a policy that
   silently does nothing is worse than a rejected one.

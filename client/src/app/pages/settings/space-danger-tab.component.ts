@@ -6,6 +6,7 @@
  * page provides — so this component just renders them and calls them.
  */
 import { Component, ChangeDetectionStrategy, inject, signal, computed, effect } from '@angular/core';
+import { firstValueFrom } from 'rxjs';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TranslocoPipe } from '@jsverse/transloco';
@@ -13,6 +14,7 @@ import { SPACE_DIALOG_STYLES } from './space-dialog.styles';
 import { SpaceSettingsState } from './space-settings-state.service';
 import { SpacesStore } from './spaces-store.service';
 import { SpacesApi } from '../../core/spaces-api.service';
+import { TTL_BUCKETS, recordTtlWindows, type RecordTtlWindows, type TtlBucket } from '../../core/api.types';
 import { NetworksApi } from '../../core/networks-api.service';
 import { ToastService } from '../../core/toast.service';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
@@ -37,12 +39,19 @@ import { TranslocoService } from '@jsverse/transloco';
   <div class="dz-section-title">{{ 'spaces.dangerZone.retentionTitle' | transloco }}</div>
   <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;">{{ 'spaces.dangerZone.retentionDescription' | transloco }}</p>
 
-  <div class="field" style="margin:0 0 14px;max-width:240px;">
-    <label>{{ 'spaces.dangerZone.retentionSpaceWide' | transloco }}</label>
-    <input type="number" [(ngModel)]="ttlDays" name="ttlDays" min="0" step="1"
-      [placeholder]="'spaces.dangerZone.retentionNever' | transloco" />
-    <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">{{ 'spaces.dangerZone.retentionSpaceWideHint' | transloco }}</div>
+  <!-- One field per bucket. It was ONE number for all five, which a space holding two kinds of thing cannot
+       use: a tickets space keeps ticket entities for a year and their status-change chronos for a month.
+       Files get their own because they share this tier and have no type for the Schema tab to reach. -->
+  <div class="ttl-grid">
+    @for (b of buckets; track b) {
+      <div class="field" style="margin:0;">
+        <label>{{ 'spaces.dangerZone.retentionBucket.' + b | transloco }}</label>
+        <input type="number" [(ngModel)]="ttl[b]" [name]="'ttl-' + b" min="0" step="1"
+          [placeholder]="'spaces.dangerZone.retentionNever' | transloco" />
+      </div>
+    }
   </div>
+  <div style="font-size:11px;color:var(--text-muted);margin:6px 0 14px;">{{ 'spaces.dangerZone.retentionSpaceWideHint' | transloco }}</div>
 
   <div style="margin-bottom:12px;">
     <button class="btn btn-secondary" type="button" [disabled]="savingRetention()" (click)="saveRetention()">
@@ -162,8 +171,20 @@ export class SpaceDangerTabComponent {
   // so it should not ride along in a footer save with a label edit — an operator must press a button that
   // says what it does.
 
-  /** Space-wide window in days. 0 / empty = never expire. */
-  ttlDays: number | null = null;
+  /**
+   * One window per bucket, in days. 0 / empty = never expire.
+   *
+   * FIVE fields, not one, because a space does not hold one kind of thing: a `tickets` space holds ticket
+   * entities that must outlive their status-change chronos, and a single number cannot express that. The schema
+   * tier does not help — it keys on a type NAME, while this is about a whole collection.
+   *
+   * `file` is the fifth and it earns its own: uploads share this tier (they have no type, so the schema tier
+   * cannot reach them), so folding them into one of the other four would have attached every file to whichever
+   * bucket was picked.
+   */
+  ttl: Record<TtlBucket, number | null> = { entity: null, memory: null, edge: null, chrono: null, file: null };
+
+  readonly buckets = TTL_BUCKETS;
 
   savingRetention = signal(false);
 
@@ -175,7 +196,9 @@ export class SpaceDangerTabComponent {
       const s = this.state.settingsSpace();
       if (!s || this.seeded === s.id) return;
       this.seeded = s.id;
-      this.ttlDays = s.recordTtlDays ?? null;
+      // `recordTtlWindows` widens a legacy scalar, so a space that set one number before the split shows it on
+      // all five fields — which is what it has always meant — rather than appearing to have no policy.
+      this.ttl = recordTtlWindows(s.recordTtlDays);
     });
   }
 
@@ -212,11 +235,24 @@ export class SpaceDangerTabComponent {
     if (!space) return;
     this.savingRetention.set(true);
     try {
-      await this.spacesApi.updateSpace(space.id, {
-        // `null` clears it, which is what an emptied field means. 0 is treated the same by the server.
-        recordTtlDays: this.ttlDays && this.ttlDays > 0 ? Number(this.ttlDays) : null,
-      });
-      await this.store.load();
+      // Every bucket is sent explicitly, including the empty ones as `null`. The server MERGES a partial object
+      // over what is stored, so omitting a cleared field would leave its old window in place — the operator
+      // emptied it and the save would look like it worked.
+      const windows: RecordTtlWindows = {};
+      for (const b of TTL_BUCKETS) {
+        const v = Number(this.ttl[b]);
+        windows[b] = Number.isInteger(v) && v > 0 ? v : null;
+      }
+      // Five nulls is a valid write and clears everything: the route only refuses an object that mentions no
+      // bucket at all, because THAT would make "clear everything" and "change nothing" the same request.
+      //
+      // `firstValueFrom`, NOT `await` on the Observable. `updateSpace` returns a cold Observable, and awaiting
+      // one resolves immediately with the Observable itself without ever subscribing — so no request is sent and
+      // the success toast fires anyway. That is what this button did: it reported "Retention saved." and saved
+      // nothing, from the moment retention moved to this tab. Every other call in this file uses `.subscribe`;
+      // this was the one that did not, and the one nobody could see failing.
+      await firstValueFrom(this.spacesApi.updateSpace(space.id, { recordTtlDays: windows }));
+      this.store.load();
       this.toast.success(this.transloco.translate('spaces.dangerZone.retentionSaved'));
     } catch (err) {
       this.toast.error(err instanceof Error ? err.message : String(err));

@@ -160,7 +160,7 @@ export class SpaceSettingsState {
   schemaCollTab = signal<KnowledgeType>('entity');
 
   // ── settings tab ───────────────────────────────────────────────────────────
-  stForm = { label: '', purpose: '', usageNotes: '', maxGiB: null as number | null, recordTtlDays: null as number | null, documentExtraction: '' as '' | 'off' | 'ocr' | 'vlm' | 'repair' | 'auto',
+  stForm = { label: '', purpose: '', usageNotes: '', maxGiB: null as number | null, documentExtraction: '' as '' | 'off' | 'ocr' | 'vlm' | 'repair' | 'auto',
     imageAnalysis: '' as '' | 'off' | 'caption' | 'recognition' | 'auto',
     audioAnalysis: '' as '' | 'off' | 'on' | 'auto',
     videoAnalysis: '' as '' | 'off' | 'audio' | 'full' | 'auto',
@@ -217,7 +217,7 @@ export class SpaceSettingsState {
     this.settingsError.set('');
     this.settingsNotice.set('');
     this.settingsSaving.set(false);
-    this.stForm = { label: s.label, purpose: s.meta?.purpose ?? '', usageNotes: s.meta?.usageNotes ?? '', maxGiB: s.maxGiB ?? null, recordTtlDays: s.recordTtlDays ?? null, documentExtraction: s.documentExtraction ?? '',
+    this.stForm = { label: s.label, purpose: s.meta?.purpose ?? '', usageNotes: s.meta?.usageNotes ?? '', maxGiB: s.maxGiB ?? null, documentExtraction: s.documentExtraction ?? '',
       imageAnalysis: s.imageAnalysis ?? '', audioAnalysis: s.audioAnalysis ?? '', videoAnalysis: s.videoAnalysis ?? '', textAnalysis: s.textAnalysis ?? '' };
     this.dupeRulesState = (s.dupeRules ?? []).map(r => ({ ...r }));
     this.dupeSurvivor = s.dupeMergeSurvivor ?? 'older';
@@ -282,7 +282,7 @@ export class SpaceSettingsState {
   private dupeInitialSnapshot = '';
 
   /**
-   * Serializes exactly what the footer save persists — label + maxGiB + recordTtlDays + `buildMeta()` —
+   * Serializes exactly what the footer save persists — label + maxGiB + `buildMeta()` —
    * so it ignores transient input buffers and UI state (the active tab, expanded rows, half-typed
    * new-property inputs) automatically. The duplicates tab persists through its OWN save button, so its
    * edits are snapshotted separately by `dupeSnapshot()` — but BOTH feed `isDirty()`, so unsaved dupe
@@ -292,7 +292,6 @@ export class SpaceSettingsState {
     return JSON.stringify({
       label: this.stForm.label.trim(),
       maxGiB: this.stForm.maxGiB,
-      recordTtlDays: this.stForm.recordTtlDays,
       documentExtraction: this.stForm.documentExtraction,
       imageAnalysis: this.stForm.imageAnalysis,
       audioAnalysis: this.stForm.audioAnalysis,

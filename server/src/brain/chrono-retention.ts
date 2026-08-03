@@ -35,7 +35,7 @@
  * `contentDays` is **chrono only** — the field names it removes are chrono's, and the write path rejects it on
  * other collections rather than accepting a setting that would do nothing.
  */
-import type { KnowledgeType, SpaceMeta } from '../config/types.js';
+import type { KnowledgeType, RecordTtlWindows, SpaceMeta, TtlBucket } from '../config/types.js';
 
 const DAY_MS = 86_400_000;
 
@@ -44,13 +44,37 @@ export const CONTENT_TIER_COLLECTIONS: readonly KnowledgeType[] = ['chrono'];
 
 /** The subset of a space this decision needs — so every branch is testable without a config. */
 export interface RetentionSpace {
-  recordTtlDays?: number;
+  recordTtlDays?: number | RecordTtlWindows;
   meta?: SpaceMeta;
 }
 
-/** A positive, finite day count, or undefined. Rejects 0 and negatives: those mean "no policy", not "instant". */
+/**
+ * A positive whole day count, or undefined.
+ *
+ * Rejects 0 and negatives — those mean "no policy", not "instant". Also rejects a FRACTION, which the API already
+ * refuses (`z.number().int()`): it can still arrive from a hand-edited `config.json`, and a resolver that is
+ * laxer than its own write path silently accepts a window nothing else in the product will admit exists.
+ */
 function days(v: unknown): number | undefined {
-  return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : undefined;
+  return typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : undefined;
+}
+
+/**
+ * The space-tier window for one bucket, widening the legacy scalar.
+ *
+ * **The one place the two shapes are reconciled.** A bare number was the original setting and is still written by
+ * every space that set one before the split, so it is read as "all five buckets" forever rather than migrated —
+ * this is local, non-synced config, so a read-side widening needs no boot migration and cannot half-apply across
+ * a network.
+ *
+ * A `file` bucket exists because uploads share this tier (they have no type, so no schema window); splitting the
+ * scalar four ways would have attached every file to whichever bucket was picked.
+ */
+export function spaceTtlDays(space: RetentionSpace, bucket: TtlBucket): number | undefined {
+  const v = space.recordTtlDays;
+  if (v === undefined || v === null) return undefined;
+  if (typeof v === 'number') return days(v);
+  return days(v[bucket]);
 }
 
 /** The type's own retention block, if the schema declares one. */
@@ -72,10 +96,11 @@ export function schemaRetention(
  */
 export function retentionDays(
   space: RetentionSpace,
-  collection: KnowledgeType,
+  collection: TtlBucket,
   type: string | undefined,
 ): number | undefined {
-  return days(schemaRetention(space, collection, type)?.days) ?? days(space.recordTtlDays);
+  const schema = collection === 'file' ? undefined : schemaRetention(space, collection, type);
+  return days(schema?.days) ?? spaceTtlDays(space, collection);
 }
 
 /**
@@ -90,10 +115,10 @@ export function retentionDays(
  */
 export function contentDays(
   space: RetentionSpace,
-  collection: KnowledgeType,
+  collection: TtlBucket,
   type: string | undefined,
 ): number | undefined {
-  if (!CONTENT_TIER_COLLECTIONS.includes(collection)) return undefined;
+  if (collection === 'file' || !CONTENT_TIER_COLLECTIONS.includes(collection)) return undefined;
   const content = days(schemaRetention(space, collection, type)?.contentDays);
   if (content === undefined) return undefined;
   const total = retentionDays(space, collection, type);
@@ -114,7 +139,7 @@ function plusDays(from: number, d: number | undefined): Date | undefined {
  */
 export function recordExpiry(
   space: RetentionSpace,
-  collection: KnowledgeType,
+  collection: TtlBucket,
   type: string | undefined,
   createdAtMs: number,
   ttlDays?: number | null,
@@ -128,7 +153,7 @@ export function recordExpiry(
 /** When this record's content should be dropped, or undefined if it never should. */
 export function recordContentExpiry(
   space: RetentionSpace,
-  collection: KnowledgeType,
+  collection: TtlBucket,
   type: string | undefined,
   createdAtMs: number,
 ): Date | undefined {

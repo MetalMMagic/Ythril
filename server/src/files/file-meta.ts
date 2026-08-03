@@ -78,7 +78,7 @@ export async function upsertFileMeta(
     // Only an EXPLICIT ttlDays on a re-upload touches expiry: >0 (re)stamps, 0/null clears it. A plain
     // overwrite (ttlDays omitted) leaves any existing TTL untouched — it must not silently reset.
     if (opts.ttlDays !== undefined) {
-      const expireAt = expiryForCreate(spaceId, opts.ttlDays);
+      const expireAt = expiryForCreate(spaceId, opts.ttlDays, { collection: 'file' });
       if (expireAt) $set['_expireAt'] = expireAt; else $unset['_expireAt'] = '';
     }
     await col<FileMetaDoc>(`${spaceId}_files`).updateOne(
@@ -86,8 +86,10 @@ export async function upsertFileMeta(
       asUpdate<FileMetaDoc>({ $set, $unset }),
     );
   } else {
-    // A per-record ttlDays wins; otherwise the space's recordTtlDays default applies (expiryForCreate).
-    const expireAt = expiryForCreate(spaceId, opts.ttlDays);
+    // A per-record ttlDays wins; otherwise the space's `file` retention bucket applies. Files have their OWN
+    // bucket rather than sharing one with a knowledge collection: they are the largest and most obviously
+    // disposable of the five, and they have no type, so the schema tier cannot reach them.
+    const expireAt = expiryForCreate(spaceId, opts.ttlDays, { collection: 'file' });
     const doc: FileMetaDoc = {
       _id: normalised,
       spaceId,

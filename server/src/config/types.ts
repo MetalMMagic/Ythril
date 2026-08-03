@@ -110,6 +110,29 @@ export type ValidationMode = 'off' | 'warn' | 'strict';
 /** Knowledge type keys used in typeSchemas. */
 export type KnowledgeType = 'entity' | 'memory' | 'edge' | 'chrono';
 
+/**
+ * What kind of thing a record is, for the purpose of the SPACE retention tier.
+ *
+ * `KnowledgeType` plus `file`, because files share the space-wide default but have no type and therefore no
+ * schema tier — the one asymmetry between the two concepts, and the reason they are separate names.
+ */
+export type TtlBucket = KnowledgeType | 'file';
+
+/**
+ * The space-wide retention window per bucket. Absent or `null` means no window for that bucket.
+ *
+ * `null` is accepted and means exactly what absent means. It exists because it is how an operator writes "not
+ * this one" explicitly in a JSON patch that sets the others, and rejecting it would make the obvious payload a
+ * 400.
+ */
+export interface RecordTtlWindows {
+  entity?: number | null;
+  memory?: number | null;
+  edge?:   number | null;
+  chrono?: number | null;
+  file?:   number | null;
+}
+
 // ── Schema library ─────────────────────────────────────────────────────────
 
 /**
@@ -255,10 +278,27 @@ export interface SpaceConfig {
   audioAnalysis?: AudioLevel;
   videoAnalysis?: VideoLevel;
   textAnalysis?: TextLevel;
-  /** Auto-TTL (F10): when set (> 0), every new/updated record in this space is stamped with an expiry
-   *  `now + recordTtlDays` and deleted by the TTL sweep once it lapses (through the normal delete path,
-   *  so it tombstones + syncs). A per-record `ttlDays` on a write overrides this. Absent = no auto-TTL. */
-  recordTtlDays?: number;
+  /**
+   * Auto-TTL (F10): the SPACE tier of `record > schema > space`. A record with no `ttlDays` of its own and no
+   * window on its type is stamped `createdAt + <this>` and deleted by the TTL sweep once it lapses — through the
+   * normal delete path, so it tombstones and syncs. Absent = no auto-TTL.
+   *
+   * **Two accepted shapes, and the object is the current one.** A space does not hold one kind of thing: a
+   * `tickets` space holds ticket *entities* that must outlive their status-change *chronos*, and a scalar cannot
+   * express that. The schema tier does not help — it keys on a type NAME, while this is about a whole collection.
+   *
+   *     recordTtlDays: 90                                   // legacy scalar: all five buckets
+   *     recordTtlDays: { chrono: 90, file: 30 }              // per bucket; absent/null = no window
+   *
+   * **FIVE buckets, not four.** `files` share this default (see `04-brain-api.md`), so splitting it four ways
+   * would silently attach uploads to whichever bucket was picked — and they are the largest and most obviously
+   * disposable of the five.
+   *
+   * The scalar is accepted **forever** on read (`spaceTtlDays()` widens it), because this is local,
+   * non-synced config: a lazy read-side widening is enough and no boot migration is needed. See
+   * `_REFERENCE.md → migration-strategy`.
+   */
+  recordTtlDays?: number | RecordTtlWindows;
   /** Vector-search index lifecycle for a newly created space (B1). Creation now
    *  returns immediately with 'building' and the (slow, up-to-minutes) Atlas index
    *  builds finish asynchronously — flipping this to 'ready', or 'failed' if a build

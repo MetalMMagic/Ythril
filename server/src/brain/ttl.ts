@@ -11,7 +11,7 @@ import { col } from '../db/mongo.js';
 import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
 import { recordExpiry, recordContentExpiry, type RetentionSpace } from './chrono-retention.js';
-import type { KnowledgeType } from '../config/types.js';
+import type { KnowledgeType, TtlBucket } from '../config/types.js';
 
 const DAY_MS = 86_400_000;
 
@@ -39,32 +39,26 @@ export const TYPE_FIELD: Record<KnowledgeType, 'type' | 'label'> = {
   entity: 'type', memory: 'type', edge: 'label', chrono: 'type',
 };
 
-function spaceRecordTtlDays(spaceId: string): number | undefined {
-  try { return getConfig().spaces.find(s => s.id === spaceId)?.recordTtlDays; } catch { return undefined; }
-}
-
-function spaceTtlExpiry(spaceId: string): Date | undefined {
-  const days = spaceRecordTtlDays(spaceId);
-  return days && days > 0 ? new Date(Date.now() + days * DAY_MS) : undefined;
-}
-
 /**
  * Expiry to stamp on **create**: a per-record `ttlDays > 0` wins; `ttlDays` 0/null means "never expire"
- * (no stamp even if the space has a default); omitted falls back to the space's `recordTtlDays`.
+ * (no stamp even if the space has a default); omitted falls back to the schema then the space window.
+ *
+ * `typed` is REQUIRED in practice — every caller has one, and every caller that lacked one silently lost both
+ * lower tiers. It stays optional only for the pre-setup/unknown-space path, where there is no config to read.
  */
 export function expiryForCreate(
   spaceId: string,
   ttlDays?: number | null,
-  typed?: { collection: KnowledgeType; type?: string },
+  typed?: { collection: TtlBucket; type?: string },
 ): Date | undefined {
   if (ttlDays === 0 || ttlDays === null) return undefined;
   if (typeof ttlDays === 'number' && ttlDays > 0) return new Date(Date.now() + ttlDays * DAY_MS);
   // record > schema > space (owner decision, 2026-08-02). The type's own schema may carry a window, which
-  // overrides the space default — a telemetry space wants deploy events pruned and health snapshots kept, and
-  // one space-wide number cannot express both. See `chrono-retention.ts`.
+  // overrides the space bucket — a telemetry space wants deploy events pruned and health snapshots kept, and
+  // one number cannot express both. See `chrono-retention.ts`.
   const space = typed ? retentionSpace(spaceId) : undefined;
   if (space && typed) return recordExpiry(space, typed.collection, typed.type, Date.now(), ttlDays);
-  return spaceTtlExpiry(spaceId);
+  return undefined;
 }
 
 /** Set `_expireAt` (and, for a chrono type with a content window, `_contentExpireAt`) on a create doc. */
@@ -72,7 +66,7 @@ export function stampExpiryOnCreate(
   spaceId: string,
   doc: { _expireAt?: Date; _contentExpireAt?: Date },
   ttlDays?: number | null,
-  typed?: { collection: KnowledgeType; type?: string },
+  typed?: { collection: TtlBucket; type?: string },
 ): void {
   const expireAt = expiryForCreate(spaceId, ttlDays, typed);
   if (expireAt) doc._expireAt = expireAt;
@@ -89,7 +83,7 @@ export function stampExpiryOnCreate(
  */
 export function contentExpiryForCreate(
   spaceId: string,
-  typed?: { collection: KnowledgeType; type?: string },
+  typed?: { collection: TtlBucket; type?: string },
 ): Date | undefined {
   if (!typed) return undefined;
   const space = retentionSpace(spaceId);

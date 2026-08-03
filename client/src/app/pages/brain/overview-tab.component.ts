@@ -18,7 +18,7 @@ import { StatusPillComponent, StatusVariant } from '../../shared/status-pill.com
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 import { DatePipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
-import { Space, SpaceStats, AboutInfo, EmbeddingQueue, VoteRound, TokenAccessEntry, CompletenessReport, CompletenessCheck, SpaceActivity } from '../../core/api.types';
+import { Space, SpaceStats, AboutInfo, EmbeddingQueue, VoteRound, TokenAccessEntry, CompletenessReport, CompletenessCheck, SpaceActivity, TTL_BUCKETS, recordTtlWindows } from '../../core/api.types';
 
 import { CollectionTab } from './brain-tabs';
 
@@ -579,12 +579,26 @@ export class OverviewTabComponent {
   failureReasons = computed<Array<{ reason: string | null; count: number }>>(
     () => this.embeddingQueue()?.failedByReason ?? [],
   );
-  /** The space-wide tier, in words. "No expiry" is a real answer and the one most spaces give. */
+  /**
+   * The space-wide tier, in words. "No expiry" is a real answer and the one most spaces give.
+   *
+   * Reads the buckets rather than the raw field, because the tier is five numbers now. When they all agree it
+   * still says the one sentence it always did — a space with one window should not be made to look complicated
+   * by an implementation detail — and only lists per bucket when they actually differ.
+   */
   retentionSummary = computed<string>(() => {
-    const days = this.space()?.recordTtlDays;
-    return days && days > 0
-      ? this.transloco.translate('brain.overview.retentionSpaceWide', { days })
-      : this.transloco.translate('brain.overview.retentionNone');
+    const w = recordTtlWindows(this.space()?.recordTtlDays);
+    const set = TTL_BUCKETS.filter(b => w[b] !== null);
+    const t = (k: string, p?: Record<string, unknown>) => this.transloco.translate(k, p);
+    if (set.length === 0) return t('brain.overview.retentionNone');
+    if (set.length === TTL_BUCKETS.length && new Set(set.map(b => w[b])).size === 1) {
+      return t('brain.overview.retentionSpaceWide', { days: w[set[0]] });
+    }
+    return t('brain.overview.retentionBuckets', {
+      list: set.map(b => t('brain.overview.retentionBucketOne', {
+        bucket: t(`spaces.dangerZone.retentionBucket.${b}`), days: w[b],
+      })).join(', '),
+    });
   });
 
   /**

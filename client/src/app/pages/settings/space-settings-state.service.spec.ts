@@ -61,7 +61,7 @@ describe('SpaceSettingsState — openSettings populates every tab', () => {
   it('copies the space into the settings form', () => {
     const c = make();
     c.openSettings(rich);
-    expect(c.stForm).toEqual({ label: 'Work', purpose: 'p', usageNotes: 'u', maxGiB: 7, recordTtlDays: 90, documentExtraction: '', imageAnalysis: '', audioAnalysis: '', videoAnalysis: '', textAnalysis: '' });
+    expect(c.stForm).toEqual({ label: 'Work', purpose: 'p', usageNotes: 'u', maxGiB: 7, documentExtraction: '', imageAnalysis: '', audioAnalysis: '', videoAnalysis: '', textAnalysis: '' });
   });
 
   it('copies duplicate rules by VALUE — editing the form must not mutate the space object', () => {
@@ -120,7 +120,7 @@ describe('SpaceSettingsState — openSettings populates every tab', () => {
     const bare = space({ id: 'bare', label: 'Bare' });
     const c = make();
     c.openSettings(bare);
-    expect(c.stForm).toEqual({ label: 'Bare', purpose: '', usageNotes: '', maxGiB: null, recordTtlDays: null, documentExtraction: '', imageAnalysis: '', audioAnalysis: '', videoAnalysis: '', textAnalysis: '' });
+    expect(c.stForm).toEqual({ label: 'Bare', purpose: '', usageNotes: '', maxGiB: null, documentExtraction: '', imageAnalysis: '', audioAnalysis: '', videoAnalysis: '', textAnalysis: '' });
     expect(c.schValidation).toBe('off');
     expect(c.schStrictLinkage).toBe(false);
     expect(c.schTagSuggestions).toEqual([]);
@@ -307,6 +307,16 @@ describe('SpaceSettingsState — per-type retention', () => {
     expect(c.isDirty()).toBe(false);
     c.typeState('chrono', 'event').retentionDays = 45;
     expect(c.isDirty()).toBe(true);
+  });
+
+  it('the settings form no longer carries the SPACE window at all', () => {
+    // It moved to the Danger Zone, which saves itself. Keeping a copy here was harmless while the tier was one
+    // number and is not now: the space tier is five buckets and a scalar write REPLACES the whole object, so a
+    // label edit going through the footer save would have flattened every per-collection window to one figure.
+    const c = make();
+    c.openSettings(space({ recordTtlDays: { entity: 365, chrono: 30 } } as unknown as Partial<Space>));
+    expect('recordTtlDays' in c.stForm).toBe(false);
+    expect(c.snapshot()).not.toContain('recordTtlDays');
   });
 });
 

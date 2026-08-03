@@ -388,7 +388,10 @@ export class SpacesComponent implements OnInit {
     this.spacesApi.updateSpace(target.id, {
       label:  this.state.stForm.label.trim() || target.label,
       maxGiB: this.state.stForm.maxGiB,
-      recordTtlDays: this.state.stForm.recordTtlDays, // F10 (null clears; 0/undefined = no auto-TTL)
+      // NO recordTtlDays. It moved to the Danger Zone, which saves itself; this tab has only a note pointing
+      // there. Echoing the stored value back was harmless while it was one number and is not now: the space
+      // tier is five buckets, and a scalar write REPLACES the whole object — so a label edit would have
+      // flattened every per-collection window to one figure.
       documentExtraction: this.state.stForm.documentExtraction || null, // F11-c ('' = inherit instance default)
       imageAnalysis: this.state.stForm.imageAnalysis || null,           // '' = inherit instance default
       audioAnalysis: this.state.stForm.audioAnalysis || null,

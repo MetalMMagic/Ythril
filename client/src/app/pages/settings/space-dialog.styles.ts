@@ -83,6 +83,12 @@ export const SPACE_DIALOG_STYLES = `
    NOT get a heading: a heading promises a control, and a reader who finds none cannot tell what the block is
    for (reported verbatim by an operator). */
 .dz-hint { font-size:12px; color:var(--text-muted); margin:2px 0 0; }
+/* The five retention buckets. auto-fit with a minimum rather than five fixed columns, so a narrow dialog wraps
+   to two rows instead of overflowing; the inputs are capped because a day count is three digits at most.
+   NO BACKTICKS in this file — it is one template string, and one backtick ends it.  */
+.ttl-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(128px,1fr)); gap:10px 12px; }
+.ttl-grid input { max-width:120px; }
+.ttl-grid label { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 /* ── schema: top-level collection tabs ── */
 .sch-coll-tabs { display:flex; border-bottom:2px solid var(--border); margin-bottom:0; overflow-x:auto; gap:0; flex-shrink:0; }
 .sch-coll-tab { background:none; border:none; border-bottom:2px solid transparent; margin-bottom:-2px; padding:10px 22px; cursor:pointer; font-size:13px; font-family:var(--font); color:var(--text-muted); display:inline-flex; align-items:center; gap:6px; transition:color .15s; white-space:nowrap; }

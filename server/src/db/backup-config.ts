@@ -37,6 +37,27 @@ const BackupConfigSchema = z
      */
     schedule: z.string().optional(),
 
+    /**
+     * Encrypt every record line in a backup with the configured master secret.
+     *
+     * **Default false — plaintext.** Chosen deliberately (owner, 2026-08-03) over encrypt-by-default: a backup
+     * you cannot restore is not a backup, and encrypting by default makes disaster recovery onto a *fresh*
+     * instance depend on having the old key to hand **before** the restore. Some operators also back up
+     * precisely so they can inspect or migrate the data with other tools.
+     *
+     * This ONE value is read by every path that produces a backup — the manual endpoint, the scheduled run and
+     * the offsite copy — because they all funnel through `dumpDatabase`. It is also the value the UI toggle
+     * writes, so "infra" and "in the UI" are the same setting rather than two that can disagree.
+     *
+     * Restore needs no equivalent: it detects an envelope per line, so an operator never has to remember how a
+     * backup was written.
+     *
+     * **Requires `YTHRIL_MASTER_KEY` or `YTHRIL_MASTER_PASSPHRASE`.** Enabling it without one fails the backup
+     * before writing anything, rather than producing a half-plaintext directory. Losing the secret makes the
+     * backup unrecoverable — by design; store it somewhere other than the instance it protects.
+     */
+    encrypt: z.boolean().optional(),
+
     retention: z
       .object({
         /**

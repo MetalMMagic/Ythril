@@ -470,7 +470,9 @@ dataRouter.post('/migrate', requireAdminMfa, async (req, res) => {
     // Step 3: dump current DB
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
     const backupDir = path.join(migrationBackupRoot(), ts);
-    const manifest = await dumpDatabase(getMongoUri(), backupDir);
+    // Same setting as the scheduled run — read here rather than defaulted, so the manual and automatic paths
+    // cannot disagree about whether a backup is encrypted.
+    const manifest = await dumpDatabase(getMongoUri(), backupDir, { encrypt: loadBackupConfig()?.encrypt === true });
 
     // Step 4: write migration marker (used by startup hook on next boot)
     const oldUri = getMongoUri();

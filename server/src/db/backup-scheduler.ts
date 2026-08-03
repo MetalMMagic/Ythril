@@ -62,7 +62,9 @@ export async function runBackupNow(): Promise<BackupResult> {
   const destDir = path.join(dataRoot, 'backups', ts);
 
   log.info(`Backup starting → ${destDir}`);
-  const manifest = await dumpDatabase(getMongoUri(), destDir);
+  // The one setting, reaching the one choke point. The offsite copy below copies whatever this wrote, so it
+  // inherits the choice rather than needing its own flag.
+  const manifest = await dumpDatabase(getMongoUri(), destDir, { encrypt: cfg?.encrypt === true });
   log.info(`Backup dump complete: ${ts}`);
 
   const result: BackupResult = {

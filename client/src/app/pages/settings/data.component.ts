@@ -18,6 +18,7 @@ type Frequency = 'never' | 'hourly' | 'daily' | 'weekly' | 'monthly';
 
 interface BackupConfig {
   schedule?: string;
+  encrypt?: boolean;
   retention?: { keepLocal?: number };
   offsite?: {
     destPath: string;
@@ -144,6 +145,32 @@ interface BackupConfig {
               <input class="form-control" type="number" [(ngModel)]="destForm.keepLocal" min="1" style="width:100px;" [placeholder]="'data.dest.keepUnlimitedPlaceholder' | transloco" />
               <span style="font-size:13px;color:var(--text-secondary);">{{ 'data.dest.keepSuffix' | transloco }}</span>
             </div>
+          </div>
+
+          <div class="form-group" style="margin-bottom:12px;">
+            <label class="form-label">{{ 'data.dest.encryptLabel' | transloco }}</label>
+            <label class="freq-opt" style="display:flex;align-items:flex-start;gap:8px;padding:10px 12px;">
+              <input type="checkbox" [(ngModel)]="destForm.encrypt" [attr.aria-describedby]="'data-encrypt-hint'" />
+              <span>
+                <strong style="font-size:13px;">{{ 'data.dest.encryptToggle' | transloco }}</strong>
+                <span id="data-encrypt-hint" class="muted" style="display:block;font-size:12px;margin-top:3px;">
+                  {{ 'data.dest.encryptHint' | transloco }}
+                </span>
+              </span>
+            </label>
+            @if (destForm.encrypt) {
+              <!-- Both consequences, stated where the choice is made rather than in a doc.
+                   The key one is not a nicety: an encrypted backup is unrecoverable without the secret, and
+                   the operator most likely to enable this is the one least likely to have thought about where
+                   that secret lives. The size one is measured - the fixed envelope wrapper dominates small
+                   records, so a dump of many small ones can more than double. -->
+              <div class="alert alert-warning" style="margin-top:10px;font-size:12.5px;">
+                {{ 'data.dest.encryptWarnKey' | transloco }}
+              </div>
+              <div class="muted" style="font-size:12px;margin-top:6px;">
+                {{ 'data.dest.encryptWarnSize' | transloco }}
+              </div>
+            }
           </div>
 
           @if (destSaveError()) { <div class="alert alert-error" style="margin-bottom:12px;">{{ destSaveError() }}</div> }
@@ -365,6 +392,7 @@ export class DataComponent implements OnInit {
     ythrilInternal: true,
     customPath: '',
     keepLocal: null as number | null,
+    encrypt: false,
   };
   savingDest = signal(false);
   destSaveSuccess = signal(false);
@@ -449,6 +477,8 @@ export class DataComponent implements OnInit {
         this.destForm.ythrilInternal = !config?.offsite;
         this.destForm.customPath     = config?.offsite?.destPath ?? '';
         this.destForm.keepLocal      = config?.offsite?.retention?.keepCount ?? config?.retention?.keepLocal ?? null;
+        // Absent means plaintext, matching the server: the schema leaves `encrypt` optional on purpose.
+        this.destForm.encrypt        = config?.encrypt === true;
         // Populate schedule form
         this.parseCron(config?.schedule);
         this.savedSnapshot.set(JSON.stringify(this.buildConfig()));
@@ -556,6 +586,9 @@ export class DataComponent implements OnInit {
     // Schedule
     const cron = this.buildCron();
     if (cron) cfg.schedule = cron;
+    // Emitted only when ON, so turning it off removes the key rather than writing `false`. Keeps an
+    // untouched backup.json byte-identical and keeps `absent === plaintext` the single source of truth.
+    if (this.destForm.encrypt) cfg.encrypt = true;
     const keep = this.destForm.keepLocal;
     if (keep != null && keep > 0) {
       cfg.retention = { keepLocal: keep };

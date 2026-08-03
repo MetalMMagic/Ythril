@@ -15,12 +15,15 @@ import { SummaryStripComponent, SummaryItem } from '../../shared/summary-strip.c
 import { StatusPillComponent } from '../../shared/status-pill.component';
 import { RelativeTimeComponent } from '../../shared/relative-time.component';
 import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
+import { ErrorStateComponent } from '../../shared/error-state.component';
+import { httpErrorReason } from '../../core/http-error';
 
 @Component({
   selector: 'app-tokens',
   standalone: true,
   imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, ModalDirective,
-            SummaryStripComponent, StatusPillComponent, RelativeTimeComponent, HscrollTopDirective],
+            SummaryStripComponent, StatusPillComponent, RelativeTimeComponent, HscrollTopDirective,
+            ErrorStateComponent],
   styles: [`
     .new-token-banner {
       background: var(--success-dim);
@@ -367,6 +370,8 @@ import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
 
       @if (loading()) {
         <div class="loading-overlay"><span class="spinner"></span></div>
+      } @else if (loadError() !== null) {
+        <app-error-state [message]="'tokens.loadError' | transloco" [reason]="loadError() ?? ''" (retry)="load()" />
       } @else {
         <div class="table-wrapper" hscrollTop>
           <table>
@@ -463,6 +468,8 @@ export class TokensComponent implements OnInit {
   selfToken = signal<TokenRecord | null>(null);
   availableSpaces = signal<Space[]>([]);
   loading = signal(true);
+  /** Null until the last load failed — checked before the empty state, so a failure never reads as "no tokens". */
+  loadError = signal<string | null>(null);
   creating = signal(false);
   createError = signal('');
   showCreateDialog = signal(false);
@@ -491,9 +498,10 @@ export class TokensComponent implements OnInit {
 
   load(): void {
     this.loading.set(true);
+    this.loadError.set(null);
     this.authApi.listTokens().subscribe({
       next: ({ tokens }) => { this.tokens.set(tokens); this.loading.set(false); },
-      error: () => this.loading.set(false),
+      error: (err) => { this.loadError.set(httpErrorReason(err)); this.loading.set(false); },
     });
   }
 

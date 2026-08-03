@@ -10,13 +10,15 @@ import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 import { ToastService } from '../../core/toast.service';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
+import { ErrorStateComponent } from '../../shared/error-state.component';
+import { httpErrorReason } from '../../core/http-error';
 
 type ResolveAction = 'keep-local' | 'keep-incoming' | 'keep-both' | 'save-to-space';
 
 @Component({
   selector: 'app-conflicts',
   standalone: true,
-  imports: [DatePipe, SlicePipe, RouterLink, FormsModule, PhIconComponent, TranslocoPipe, HscrollTopDirective],
+  imports: [DatePipe, SlicePipe, RouterLink, FormsModule, PhIconComponent, TranslocoPipe, HscrollTopDirective, ErrorStateComponent],
   template: `
     <div style="display:flex; justify-content:flex-end; margin-bottom:12px;">
       <a routerLink="/files" class="btn-secondary btn btn-sm"><ph-icon name="arrow-left" [size]="14"/> {{ 'conflicts.backToFiles' | transloco }}</a>
@@ -24,6 +26,10 @@ type ResolveAction = 'keep-local' | 'keep-incoming' | 'keep-both' | 'save-to-spa
 
     @if (loading()) {
       <div class="loading-overlay"><span class="spinner"></span></div>
+    } @else if (loadError() !== null) {
+      <!-- Before the empty state, and deliberately: that empty state is a green "All clear", which is the
+           worst possible thing to show when we do not actually know whether there are conflicts. -->
+      <app-error-state [message]="'conflicts.loadError' | transloco" [reason]="loadError() ?? ''" (retry)="reload()" />
     } @else if (conflicts().length === 0) {
       <div class="empty-state">
         <div class="empty-state-icon"><ph-icon name="check-circle" [size]="48"/></div>
@@ -140,6 +146,8 @@ export class ConflictsComponent implements OnInit {
   private confirmDialog = inject(ConfirmDialogService);
 
   loading = signal(true);
+  /** Null until the last load failed — checked before the empty state, so a failure never reads as "All clear". */
+  loadError = signal<string | null>(null);
   conflicts = signal<ConflictRecord[]>([]);
   /** True when the server capped the list — the user is NOT seeing every conflict (resolve some to see more). */
   truncated = signal(false);
@@ -178,8 +186,14 @@ export class ConflictsComponent implements OnInit {
     );
   }
 
+  /** Public so the error state's Retry can re-run the load. */
+  reload(): void {
+    this.load();
+  }
+
   private load(): void {
     this.loading.set(true);
+    this.loadError.set(null);
     this.filesApi.listConflicts().subscribe({
       next: ({ conflicts, truncated }) => {
         this.conflicts.set(conflicts);
@@ -189,7 +203,7 @@ export class ConflictsComponent implements OnInit {
         }
         this.loading.set(false);
       },
-      error: () => this.loading.set(false),
+      error: (err) => { this.loadError.set(httpErrorReason(err)); this.loading.set(false); },
     });
   }
 

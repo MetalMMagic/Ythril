@@ -14,8 +14,8 @@ import { Subscription } from 'rxjs';
 import { ToastService } from '../../core/toast.service';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 import { ErrorStateComponent } from '../../shared/error-state.component';
-import { StepProgressBarComponent } from '../../shared/step-progress-bar.component';
 import { httpErrorReason } from '../../core/http-error';
+import { StepProgressBarComponent } from '../../shared/step-progress-bar.component';
 import { MarkdownRenderService } from '../../shared/markdown-render.service';
 // The docked detail pane reuses the Brain's file-metadata edit fields. These are dumb, shared
 // ref-field widgets; they resolve chip labels via EntityRefPicker, which the Brain provides — so the
@@ -526,6 +526,13 @@ function xlsxCellText(v: unknown): string {
   template: `
     @if (loadingSpaces()) {
       <div class="loading-overlay"><span class="spinner"></span></div>
+    } @else if (spacesError() !== null) {
+      <!-- Reachable only when this component is routed standalone, which it currently is not: the sole call
+           site passes embeddedSpaceId, so ngOnInit returns before loadSpaces(). Kept correct rather than
+           deleted because the standalone /files route existed until recently and the branch is five lines;
+           without it a failed space list renders an empty selector and NO body, which reads as a broken
+           page rather than a failed request. -->
+      <app-error-state [message]="'files.loadSpacesError' | transloco" [reason]="spacesError() ?? ''" (retry)="retrySpaces()" />
     } @else {
 
       <!-- Space selector (hidden when embedded) -->
@@ -1115,6 +1122,8 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   /** Failure reason for the directory listing; null when it loaded (U3). */
   loadError = signal<string | null>(null);
   loadingSpaces = signal(true);
+  /** Null until the space list failed to load — else the page renders with no selector and no body. */
+  spacesError = signal<string | null>(null);
 
   // ── Upload queue (U12) ─────────────────────────────────────────────────────
   // One row per file, each with its own status/percent. Files upload one at a
@@ -1250,7 +1259,18 @@ export class FileManagerComponent implements OnInit, OnDestroy {
       this.selectSpace(this.embeddedSpaceId);
       return;
     }
+    this.loadSpaces();
+  }
+
+  /** Public so the error state's Retry re-runs the space list without a page reload. */
+  retrySpaces(): void {
+    this.loadSpaces();
+  }
+
+  private loadSpaces(): void {
     const requestedSpace = this.route.snapshot.queryParamMap.get('space') ?? '';
+    this.loadingSpaces.set(true);
+    this.spacesError.set(null);
     this.spacesApi.listSpaces().subscribe({
       next: ({ spaces }) => {
         this.spaces.set(spaces);
@@ -1262,7 +1282,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
           this.selectSpace(target.id);
         }
       },
-      error: () => this.loadingSpaces.set(false),
+      error: (err) => { this.spacesError.set(httpErrorReason(err)); this.loadingSpaces.set(false); },
     });
   }
 

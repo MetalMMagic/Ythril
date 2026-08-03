@@ -23,6 +23,8 @@ import { catchError } from 'rxjs/operators';
 import { GraphComponent } from '../graph/graph.component';
 import { FileManagerComponent } from '../files/file-manager.component';
 import { PhIconComponent } from '../../shared/ph-icon.component';
+import { ErrorStateComponent } from '../../shared/error-state.component';
+import { httpErrorReason } from '../../core/http-error';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
 import { BrainTab, CollectionTab } from './brain-tabs';
@@ -44,7 +46,7 @@ interface SpaceView {
   // or happens in a template event handler, both of which mark the view dirty. That coupling is
   // load-bearing and pinned by the specs (the drawer's own version lives in the drawer component).
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, GraphComponent, FileManagerComponent, PhIconComponent, RecordDrawerComponent, QueryTabComponent, MemoriesTabComponent, EntitiesTabComponent, EdgesTabComponent, ChronoTabComponent, OverviewTabComponent, ReviewTabComponent, TranslocoPipe],
+  imports: [CommonModule, FormsModule, GraphComponent, FileManagerComponent, PhIconComponent, RecordDrawerComponent, QueryTabComponent, MemoriesTabComponent, EntitiesTabComponent, EdgesTabComponent, ChronoTabComponent, OverviewTabComponent, ReviewTabComponent, ErrorStateComponent, TranslocoPipe],
   providers: [BrainStore, EntityRefPicker, RecordDrawerState, RecordListState],
   styles: [`
     .space-tabs {
@@ -167,6 +169,10 @@ interface SpaceView {
   template: `
     @if (loadingSpaces()) {
       <div class="loading-overlay"><span class="spinner"></span> {{ 'brain.loadingSpaces' | transloco }}</div>
+    } @else if (spacesError() !== null) {
+      <!-- The front door of the product. If this list fails and we fall through to the empty state, a user with a
+           full brain is told to create their first space — so the failure gets its own branch, ahead of it. -->
+      <app-error-state [message]="'brain.loadSpacesError' | transloco" [reason]="spacesError() ?? ''" (retry)="loadSpaces()" />
     } @else if (spaces().length === 0) {
       <div class="empty-state">
         <div class="empty-state-icon"><ph-icon name="package" [size]="48"/></div>
@@ -360,6 +366,8 @@ export class BrainComponent implements OnInit, OnDestroy {
   activeSpaceId = signal('');
   activeTab = signal<BrainTab>('overview');
   loadingSpaces = signal(true);
+  /** Null until the space list failed to load — checked before the empty state, so a failure never reads as "no spaces". */
+  spacesError = signal<string | null>(null);
   /** Instance identity/health for the Overview's Instance panel — fetched once (instance-wide, not per space). */
   aboutInfo = signal<AboutInfo | null>(null);
   /** Embedding-job backlog for the ACTIVE space (Overview embedding-queue panel); refreshed on space switch + live events. */
@@ -433,6 +441,15 @@ export class BrainComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
+    this.loadSpaces();
+    // Instance identity/health for the Overview's Instance panel — one instance-wide fetch, best-effort.
+    this.adminApi.getAbout().subscribe({ next: a => this.aboutInfo.set(a), error: () => {} });
+  }
+
+  /** Public so the error state's Retry can re-run it without a page reload. */
+  loadSpaces(): void {
+    this.loadingSpaces.set(true);
+    this.spacesError.set(null);
     this.spacesApi.listSpaces().subscribe({
       next: ({ spaces }) => {
         this.spaces.set(spaces.map(s => ({ space: s })));
@@ -443,10 +460,8 @@ export class BrainComponent implements OnInit, OnDestroy {
           spaces.slice(1).forEach(s => this.loadStats(s.id));
         }
       },
-      error: () => this.loadingSpaces.set(false),
+      error: (err) => { this.spacesError.set(httpErrorReason(err)); this.loadingSpaces.set(false); },
     });
-    // Instance identity/health for the Overview's Instance panel — one instance-wide fetch, best-effort.
-    this.adminApi.getAbout().subscribe({ next: a => this.aboutInfo.set(a), error: () => {} });
   }
 
   ngOnDestroy(): void {

@@ -110,22 +110,27 @@ describe('a translation that exists is actually used', () => {
   it('the schema-library validation messages use their keys', () => {
     // The sharpest version of this finding: `schemaLib.error.nameRequired` already existed in all three locales
     // while the component hard-coded the English two lines away. The translation was not missing — it was unused.
-    const src = readFileSync(join('client', 'src', 'app', 'pages', 'settings', 'schema-library.component.ts'), 'utf8');
-    // Anchored on the DECLARATION, not the first textual match: `(click)="submitDialog()"` appears in the inline
-    // template a hundred lines earlier, so `indexOf('submitDialog()')` sliced the template instead of the method.
-    // This is the recorded failure mode for slices in this repo, and it caught me again here.
-    const at = src.indexOf('submitDialog(): void {');
-    assert.ok(at > 0, 'submitDialog is gone — re-anchor this gate');
+    //
+    // Re-pointed from `pages/settings/schema-library.component.ts` to the LIVE page: that settings copy was
+    // unreachable dead code (no route, no importer) and has been deleted, which means this gate had been
+    // guarding a file nobody could open. `typeRequired` went with it — the live page derives typeName from the
+    // entry name, so there is no separate type field to validate.
+    const src = readFileSync(join('client', 'src', 'app', 'pages', 'schema-library', 'schema-library.component.ts'), 'utf8');
+    // Anchored on the DECLARATION, not the first textual match: `(click)="saveEntry()"` appears in the inline
+    // template hundreds of lines earlier, so `indexOf('saveEntry()')` would slice the template, not the method.
+    // This is the recorded failure mode for slices in this repo.
+    const at = src.indexOf('saveEntry(): void {');
+    assert.ok(at > 0, 'saveEntry is gone — re-anchor this gate');
     const body = src.slice(at, src.indexOf('\n  }', at));
-    for (const key of ['schemaLib.error.nameRequired', 'schemaLib.error.typeRequired']) {
-      assert.ok(body.includes(key), `${key} exists in every locale but submitDialog does not use it`);
+    for (const key of ['schemaLib.error.nameRequired', 'schemaLib.error.saveFailed']) {
+      assert.ok(body.includes(key), `${key} exists in every locale but saveEntry does not use it`);
     }
   });
 
   it('every key those two components reference exists in all three locales', () => {
     // A missing key renders as the raw key in the UI, which reads as a bug rather than a translation gap.
     const KEYS = [
-      'schemaLib.error.nameRequired', 'schemaLib.error.typeRequired', 'schemaLib.error.invalidJson',
+      'schemaLib.error.nameRequired', 'schemaLib.error.saveFailed',
       'oidcCallback.error.missingCode',
     ];
     for (const lang of ['en', 'de', 'pl']) {
@@ -139,9 +144,29 @@ describe('a translation that exists is actually used', () => {
   it('the German and Polish strings carry their diacritics', () => {
     // Not pedantry: the first pass at this batch's other strings wrote ASCII substitutes ("unvollstandig"), which
     // would have shipped. A translation that looks careless undermines the feature it describes.
+    //
+    // Scanned across EVERY value rather than asserted on one hand-picked key. The key-pinned version broke the
+    // moment that key was deleted, and — worse — it could only ever see the one string somebody remembered: a
+    // new ASCII-mangled translation anywhere else passed it. These patterns are the specific mistakes made.
     const de = JSON.parse(readFileSync(join('client', 'public', 'assets', 'i18n', 'de.json'), 'utf8'));
     const pl = JSON.parse(readFileSync(join('client', 'public', 'assets', 'i18n', 'pl.json'), 'utf8'));
-    assert.match(de['schemaLib.error.invalidJson'], /gültiges/, 'the German string lost its umlaut');
-    assert.match(pl['schemaLib.error.invalidJson'], /prawidłowym/, 'the Polish string lost its ł');
+
+    const MANGLED_DE = [/\bungultig/i, /\bgultig/i, /\bfur\b/i, /\bkonnen\b/i, /\bmoglich/i,
+      /\bunvollstandig/i, /\bmussen\b/i, /\bloschen/i, /\bzuruck/i];
+    const MANGLED_PL = [/\bzaladow/i, /\bnieprawidlow/i, /\bblad\b/i, /\bnastepn/i, /\bwiecej\b/i, /\bpolacz/i];
+
+    const hits = [];
+    for (const [locale, table, patterns] of [['de', de, MANGLED_DE], ['pl', pl, MANGLED_PL]]) {
+      for (const [key, value] of Object.entries(table)) {
+        if (typeof value !== 'string') continue;
+        for (const re of patterns) if (re.test(value)) hits.push(`${locale}.json ${key}: ${value}`);
+      }
+    }
+    assert.deepEqual(hits, [], 'these translations spell a diacritic word in ASCII:\n  ' + hits.join('\n  '));
+
+    // And the files must still be full of diacritics — if a build step ever mangles the encoding wholesale,
+    // the blocklist above would come back clean because every word would be unrecognisable.
+    assert.ok(Object.values(de).filter(v => /[äöüßÄÖÜ]/.test(v)).length > 300, 'de.json lost its umlauts');
+    assert.ok(Object.values(pl).filter(v => /[ąćęłńóśźż]/.test(v)).length > 600, 'pl.json lost its diacritics');
   });
 });

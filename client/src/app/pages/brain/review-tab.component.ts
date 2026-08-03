@@ -10,6 +10,8 @@ import { PhIconComponent } from '../../shared/ph-icon.component';
 import { SummaryStripComponent, type SummaryItem } from '../../shared/summary-strip.component';
 import { StatusPillComponent } from '../../shared/status-pill.component';
 import { RelativeTimeComponent } from '../../shared/relative-time.component';
+import { ErrorStateComponent } from '../../shared/error-state.component';
+import { httpErrorReason } from '../../core/http-error';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 import { ToastService } from '../../core/toast.service';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
@@ -17,7 +19,7 @@ import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 @Component({
   selector: 'app-review-tab',
   standalone: true,
-  imports: [FormsModule, PhIconComponent, TranslocoPipe, SummaryStripComponent, StatusPillComponent, RelativeTimeComponent],
+  imports: [FormsModule, PhIconComponent, TranslocoPipe, SummaryStripComponent, StatusPillComponent, RelativeTimeComponent, ErrorStateComponent],
   styles: [`
     .page-title { margin: 0 0 4px; font-size: 18px; }
     .intro { color: var(--text-muted); font-size: 13px; margin: 0 0 16px; }
@@ -220,6 +222,9 @@ import { ConfirmDialogService } from '../../core/confirm-dialog.service';
         <p class="intro">{{ 'review.contradictions.intro' | transloco }}</p>
         @if (conLoading()) {
           <div class="loading-overlay"><span class="spinner"></span></div>
+        } @else if (conError() !== null) {
+          <app-error-state [message]="'review.contradictions.loadError' | transloco" [reason]="conError() ?? ''"
+                           (retry)="loadContradictions()" />
         } @else if (conFilteredRows().length === 0) {
           <div class="empty-state">
             <div class="empty-state-icon"><ph-icon name="warning" [size]="48"/></div>
@@ -408,16 +413,27 @@ export class ReviewTabComponent implements OnInit, OnChanges {
   private contradictionsApi = inject(ContradictionsApi);
   readonly conRows = signal<ContradictionRecord[]>([]);
   readonly conLoading = signal(false);
+  /**
+   * Null until the contradictions load failed. The toast alone was not enough: it is transient, and
+   * on a FIRST load `conRows()` is empty, so the page settled on "no contradictions — your brain is
+   * consistent" while nobody had actually checked.
+   */
+  readonly conError = signal<string | null>(null);
   readonly conBusy = signal<string | null>(null);
 
   /** Load this space's contradictions. Called on init, on space switch, and after every action. */
   loadContradictions(): void {
     this.conLoading.set(true);
+    this.conError.set(null);
     this.contradictionsApi.listContradictions('open', this.spaceId).subscribe({
       next: r => { this.conRows.set(r.contradictions); this.conLoading.set(false); },
       // A load failure must not read as "no contradictions" — the empty state would be a lie. Surface it
       // and leave whatever was already on screen.
-      error: () => { this.conLoading.set(false); this.toast.error(this.transloco.translate('review.contradictions.loadError')); },
+      error: (err) => {
+        this.conError.set(httpErrorReason(err));
+        this.conLoading.set(false);
+        this.toast.error(this.transloco.translate('review.contradictions.loadError'));
+      },
     });
   }
 

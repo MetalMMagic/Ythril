@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Export the whole audit log as NDJSON** — `GET /api/admin/audit-log/export`, the same filters as the paged
+  endpoint with no row cap. The paged endpoint stops at 1,000 rows because a browser table has to stop somewhere,
+  and that ceiling is what made "produce everything you hold about this subject's activity" a paging script: the
+  filters (`oidcSubject`, `tokenId`, `ip`) were already there, only the way out was missing.
+  - **Requires the second factor**, not just an admin token. Paging through the log and taking a copy of the whole
+    who-did-what record are different acts, and the second is what somebody covering their tracks does first — so it
+    sits behind the same gate as a database backup.
+  - **And it is itself audited**, as `audit.export`. The middleware exempted `/api/admin/audit-log` by *prefix* so
+    that reading the log does not write to it on every page of every scroll — which meant the most sensitive read of
+    the audit log was the one read it never recorded. The skip is now an exact match on the paged path, and the new
+    rule is deliberately **not** marked as a read, so it is logged even with `logReads` off.
+  - Entries come out **oldest first**, so the file reads like a log and appending a later export to an earlier one
+    stays in order; the paged endpoint stays newest-first, because a screen wants the recent thing on top.
+  - Streamed with backpressure, and **a mid-stream failure destroys the connection** rather than ending cleanly: the
+    status and first bytes are already sent, so a graceful end would hand an operator a well-formed file silently
+    missing entries — for an audit record the worst failure, because it looks complete.
+  - Gate `audit-export-is-itself-audited`, mutation-tested **18/18**.
+
 - **The space retention tier is one window per kind of record — five, not one.** A canary operator's case, and it
   is unanswerable with a scalar: their `tickets` space holds ticket **entities** that must outlive their
   status-change **chronos**, and `alerts` holds durable `alert-rule` entities beside `episode` chronos that are
@@ -74,6 +92,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     exceeds the timeout it exists to describe.
 
 ### Fixed
+
+- **The audit page's "Export JSON" and "Export CSV" exported only the page on screen.** Up to 100 rows out of a
+  `total` that is routinely thousands, with nothing in the label to say so — an operator asked to produce someone's
+  activity record could hand over a truncated file believing it complete. They now say **"Export page"**, and
+  **"Export all matching"** sits beside them for the real thing.
+  - The full export goes through `HttpClient`, not an `<a download>`: only requests through Angular's HTTP stack
+    reach `mfaInterceptor`, so a plain link would simply 403 on any instance with MFA enabled.
+  - A failed export **says so**. A download that quietly does nothing is indistinguishable from an empty result, and
+    for an audit export those two must never look alike.
 
 - **Uploaded files were world-readable, and one sentence of the previous fix said otherwise.** Third finding from
   the Privacy audit lens, and it corrects the documentation shipped with the backup hardening: that text claimed

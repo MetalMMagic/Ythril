@@ -148,6 +148,7 @@ Audit entries are recorded for all write operations and (when `logReads` is enab
 | Webhook | `webhook.create`, `webhook.update`, `webhook.delete`, `webhook.test` |
 | Brain | `brain.recall`, `brain.recall_global`, `brain.query`, `brain.find_similar`, `brain.stats`, `brain.bulk_write`, `brain.traverse` |
 | Config | `config.reload` |
+| Audit | `audit.export` — taking a copy of the whole record. Logged even when `logReads` is off |
 | Auth | `auth.failed` (invalid or expired tokens on any endpoint) |
 
 ### Query audit log
@@ -198,6 +199,44 @@ All query params are optional:
   "hasMore": true
 }
 ```
+
+### Export the whole record (NDJSON)
+
+```http
+GET /api/admin/audit-log/export
+Authorization: Bearer <admin-token>
+X-TOTP-Code: <code>   # required when MFA is enabled
+```
+
+The **same filters** as the query above, streamed as [NDJSON](https://ndjson.org) — one entry per line — with **no
+row cap**. `limit` and `offset` are ignored. Entries come out **oldest first**, so the file reads like a log and
+appending a later export to an earlier one stays in order; the paged endpoint is newest-first, because a screen wants
+the recent thing at the top.
+
+This is what answers "produce everything you hold about this subject's activity" in one request rather than a paging
+script:
+
+```bash
+curl -fsS -H "Authorization: Bearer $TOKEN" -H "X-TOTP-Code: $CODE" \
+  "https://ythril.example.com/api/admin/audit-log/export?oidcSubject=user@example.com" \
+  -o subject-activity.ndjson
+
+# One JSON object per line, so it can be processed a line at a time however large it is.
+wc -l subject-activity.ndjson
+```
+
+**Requires the second factor**, not merely an admin token. Paging through the log on screen and taking a copy of the
+entire who-did-what record are different acts, and the second is what someone covering their tracks does first — so it
+sits behind the same gate as a database backup.
+
+**And it is itself audited**, as `audit.export`. Every other read of this log is exempt, so that reading it does not
+write to it on every page of every scroll. The export is the deliberate exception: otherwise the most sensitive read
+of the audit log would be the one read it never recorded. It is logged **regardless of** `audit.logReads`.
+
+**A failure mid-stream destroys the connection** instead of ending the response cleanly. The status and the first
+bytes are already sent by then, so a graceful end would hand you a well-formed file silently missing entries — for an
+audit record the worst possible failure, because it looks complete. Treat a truncated transfer as a failed export and
+retry; `curl -f` plus a line count is enough to notice.
 
 ### Audit entry fields
 

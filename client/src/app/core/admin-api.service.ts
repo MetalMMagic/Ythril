@@ -48,6 +48,31 @@ export class AdminApi {
     return this.http.get<AuditLogResponse>('/api/admin/audit-log', { params: p });
   }
 
+  /**
+   * Every entry matching the filters, as NDJSON — not just the page on screen.
+   *
+   * Fetched through `HttpClient` rather than an `<a download>` or `window.open`, deliberately: this endpoint
+   * requires the second factor, and `mfaInterceptor` can only prompt-and-retry for requests that pass through
+   * Angular's HTTP stack. A plain link would simply 403 on any instance with MFA enabled.
+   *
+   * That means the body is buffered in the browser before it is saved. Acceptable for a text record and
+   * unavoidable given the above — a very large export is better done with `curl`, which the API docs show.
+   *
+   * `limit`/`offset` are not sent: the server ignores them, and passing them would suggest they narrowed the file.
+   */
+  exportAuditLog(params: AuditLogParams = {}): Observable<Blob> {
+    let p = new HttpParams();
+    if (params.after) p = p.set('after', params.after);
+    if (params.before) p = p.set('before', params.before);
+    if (params.tokenId) p = p.set('tokenId', params.tokenId);
+    if (params.oidcSubject) p = p.set('oidcSubject', params.oidcSubject);
+    if (params.spaceId) p = p.set('spaceId', params.spaceId);
+    if (params.operation) p = p.set('operation', params.operation);
+    if (params.status !== undefined) p = p.set('status', String(params.status));
+    if (params.ip) p = p.set('ip', params.ip);
+    return this.http.get('/api/admin/audit-log/export', { params: p, responseType: 'blob' });
+  }
+
   // ── Data management ───────────────────────────────────────────────────────
 
   getDataConfig(): Observable<{ source: 'env' | 'config' | 'default'; mongoUriRedacted: string; migrationEnabled: boolean }> {

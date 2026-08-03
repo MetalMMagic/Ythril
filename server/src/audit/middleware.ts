@@ -127,6 +127,13 @@ const ROUTE_RULES: RouteRule[] = [
   { method: 'POST',   pattern: /^\/api\/mfa\/setup$/,                              operation: 'mfa.enable' },
   { method: 'DELETE', pattern: /^\/api\/mfa$/,                                     operation: 'mfa.disable' },
 
+  // ── Audit log export ─────────────────────────────────────────────────────
+  // NOT marked `read: true`. Every other read is gated behind `logReads`, which is off by default because one
+  // entry per list call would bury the record. Taking a COPY of the entire who-did-what history is not that kind
+  // of read: it is the act itself, and an instance that only logs it when an operator happens to have opted into
+  // logging reads would not record the one read that matters most.
+  { method: 'GET',    pattern: /^\/api\/admin\/audit-log\/export$/,                 operation: 'audit.export' },
+
   // ── Webhook operations ───────────────────────────────────────────────────
   // These rules used to point at `/api/notify/webhooks`, but the router is mounted at
   // `/api/admin/webhooks` — so webhook CRUD was entirely unaudited. A webhook exfiltrates
@@ -276,7 +283,15 @@ export function auditMiddleware(req: Request, res: Response, next: NextFunction)
 
     // Skip paths that are not API calls or are audit-log reads themselves
     if (!fullPath.startsWith('/api/') && !fullPath.startsWith('/mcp')) return;
-    if (fullPath.startsWith('/api/admin/audit-log')) return;
+    // Reading the log must not write to the log — one entry per page of every scroll is noise that would
+    // eventually crowd out the record it is describing.
+    //
+    // The EXPORT is deliberately excluded from that exemption. Paging through the log on screen and taking a
+    // copy of the entire who-did-what record are different acts, and the second is what someone covering their
+    // tracks does first; exempting it by prefix meant the single most sensitive read of the audit log was the one
+    // read it never recorded. A prefix skip also silently swallows any future sub-route added here, so it is now
+    // an exact match on the paged endpoint.
+    if (fullPath === '/api/admin/audit-log' || fullPath === '/api/admin/audit-log/') return;
     // Skip health / ready / metrics / theme / setup
     if (fullPath.startsWith('/api/theme') || fullPath.startsWith('/api/setup')) return;
 

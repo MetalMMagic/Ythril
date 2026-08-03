@@ -13,11 +13,20 @@ and [`client/package.json`](../client/package.json). The attribution-requiring p
 across both workspaces are reproduced in [NOTICE](../NOTICE). They are MIT, Apache 2.0,
 0BSD, BSD-3-Clause, or ISC licensed.
 
-**One package is dual-licensed with a copyleft arm:** `dompurify` is offered as `MPL-2.0 OR Apache-2.0`.
-Ythril **elects Apache 2.0**, which is recorded in its NOTICE entry rather than left to be inferred — a
-dual grant is a choice the distributor makes, and "no copyleft applies" is a conclusion a reader should be
-able to check rather than take on trust. With that election, no copyleft restrictions apply to any
-redistributed npm package.
+**Two packages are dual-licensed with a copyleft arm**, and Ythril elects the permissive arm in both. A dual grant
+is a choice the distributor makes, so each election is recorded in its NOTICE entry rather than left to be inferred
+— "no copyleft applies" is a conclusion a reader should be able to check rather than take on trust.
+
+| package | offered as | Ythril elects | reaches the user via |
+|---|---|---|---|
+| `dompurify` | `MPL-2.0 OR Apache-2.0` | Apache 2.0 | a direct client dependency |
+| `jszip` | `MIT OR GPL-3.0-or-later` | MIT | **transitively**, through `exceljs`, in the browser bundle |
+
+With those elections, no copyleft restrictions apply to any redistributed npm package.
+
+`jszip` is the reason the check below is not limited to direct dependencies. It was found by the Legal &
+Compliance audit lens, not by a gate: it is transitive, so the direct-attribution rule skipped it, and it ships in
+the browser bundle all the same.
 
 `testing/standalone/notice-coverage.test.js` asserts that every dependency shipped to a user — the
 `dependencies` of both workspaces, which land in the image and in the browser bundle — is attributed in

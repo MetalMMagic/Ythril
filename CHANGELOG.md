@@ -75,6 +75,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A GPL arm was being redistributed with no record of which arm applied.** `jszip` is offered as
+  `MIT OR GPL-3.0-or-later`, arrives transitively through `exceljs`, and **ships in the browser bundle**. Nothing was
+  broken — MIT is available and MIT is what applies — but `docs/dependencies.md` stated that exactly *one* package
+  was dual-licensed with a copyleft arm and concluded that "no copyleft restrictions apply to any redistributed npm
+  package". The conclusion held; the reasoning had not been checked. There were two.
+  - `NOTICE` now records the **MIT election** for `jszip`, in the same form the `dompurify` entry uses, and says why
+    a transitive package is listed at all. `docs/dependencies.md` carries a table of both dual grants, what each is
+    offered as, which arm Ythril elects, and how each reaches the user.
+  - **`notice-coverage.test.js` could not have found it, and says so in its own header**: transitive dependencies
+    are deliberately out of scope, because "the full transitive set is thousands of packages, and a gate nobody can
+    satisfy is a gate that gets deleted." That is right for *attribution* and wrong for *copyleft* — attributing
+    1,147 MIT packages would be unsatisfiable busywork, while the number with a restrictive licence is **two**.
+  - New gate `no-copyleft-in-the-shipped-tree` scans every installed package, flags copyleft and use-restricted
+    identifiers (excluding LGPL, which separate-process use satisfies — ffmpeg is the case in point), and requires
+    each hit to carry a NOTICE entry that names the elected arm. The classifier self-tests on nine restrictive and
+    eleven permissive identifiers before it judges anything.
+  - **Mutation-tested 6/6**, including the one that matters most: a **new AGPL package appearing in the installed
+    tree** is caught.
+
 - **The admin UI fetched its font from Google on every page load. It is now self-hosted.** Found by the Legal &
   Compliance audit lens, and the licence problem is the least of the three:
   - **It told a third party who was looking.** Every load of a *self-hosted* admin UI sent the operator's IP to a

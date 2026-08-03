@@ -112,6 +112,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A full-screen dialog with no focus trap: Tab walked out of it into the page behind.** Second finding of the
+  Accessibility lens. `ModalDirective` exists so no dialog hand-rolls this — `role="dialog"`, `aria-modal`, a CDK
+  focus trap, focus restore to the opener, Escape — and the file manager's full-screen preview overlay bypassed it.
+  - The overlay carried `tabindex="0"` and a `#fsOverlay` template ref, and **the ref was never referenced from
+    TypeScript**: focus had been thought about and never wired. So a screen reader announced nothing, the page
+    behind stayed in the accessibility tree, Tab left the dialog for content that is covered and invisible, and
+    focus was lost on close.
+  - **Escape already worked**, via the component's own document keydown listener, which is worth saying because it
+    made the gap narrower than it looked. One `appModal` attribute supplies the rest.
+  - Gate `dialogs-use-the-modal-directive`, mutation-tested **12/12**: every dialog-shaped overlay must carry
+    `appModal`, and the directive must keep providing what its callers rely on. The not-a-dialog allowlist is two
+    entries with stated reasons, and the gate fails if it grows.
+  - **Reduced motion was checked in the same pass and is clean** — recorded in `_REFERENCE.md`. Three components
+    declare a keyframe animation with no local guard, which looked like a finding until `styles.scss` was read: a
+    global `prefers-reduced-motion` block neutralises every animation and transition, exempting `.spinner` on
+    purpose. A per-component sweep was measuring the wrong thing. That global rule is now pinned by the same gate.
+
 - **Four English sentences reached the screen without going through transloco, and one of them already had a
   translation.** First finding of the Accessibility & Internationalization lens.
   - `schemaLib.error.nameRequired` existed in **all three locales** — `"Eintragsname ist erforderlich."` sat in the

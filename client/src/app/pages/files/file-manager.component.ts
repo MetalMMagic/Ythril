@@ -38,6 +38,7 @@ import python from 'highlight.js/lib/languages/python';
 import bash from 'highlight.js/lib/languages/bash';
 import plaintext from 'highlight.js/lib/languages/plaintext';
 import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
+import { ModalDirective } from '../../shared/modal.directive';
 
 hljs.registerLanguage('javascript', javascript);
 hljs.registerLanguage('typescript', typescript);
@@ -142,7 +143,7 @@ function xlsxCellText(v: unknown): string {
   // regardless of zone. Text fields (`newFolderName`, `renameValue`) are ngModel two-way bindings
   // whose input events mark the view dirty. So OnPush re-checks exactly when state changes.
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe, ErrorStateComponent, TagInputComponent, EntityRefFieldComponent, MemoryRefFieldComponent, ChronoRefFieldComponent, SortableHeaderComponent, StepProgressBarComponent, HscrollTopDirective],
+  imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe, ErrorStateComponent, TagInputComponent, EntityRefFieldComponent, MemoryRefFieldComponent, ChronoRefFieldComponent, SortableHeaderComponent, StepProgressBarComponent, HscrollTopDirective, ModalDirective],
   styles: [`
     /* A background refresh, as a 2px indeterminate hairline above the table. Deliberately NOT a spinner and
        deliberately not an overlay: the whole point is that nothing on screen moves or disappears while a poll
@@ -982,9 +983,16 @@ function xlsxCellText(v: unknown): string {
       }
     </ng-template>
 
-    <!-- Full-screen preview overlay (the one intentional fixed overlay — for the full-screen button). -->
+    <!-- Full-screen preview overlay (the one intentional fixed overlay — for the full-screen button).
+         NO BACKTICKS IN THIS TEMPLATE: one ends the string and the error points at @Component, never at the comment.
+         appModal supplies role=dialog, aria-modal, a CDK focus trap and focus restore on close. Escape was already
+         handled by this component's document keydown listener (full-screen collapses first, then the pane closes),
+         but the TRAP was not: Tab walked out of a full-screen overlay into the page behind it, which is covered and
+         invisible. The fsOverlay template ref that used to sit here was never referenced from TypeScript —
+         evidence that focus had been thought about and never wired.
+         No backdrop dismissal: this overlay IS the backdrop, and Escape or the close button already dismiss it. -->
     @if (previewFullscreen() && previewFile(); as pf) {
-      <div class="preview-fs-overlay" tabindex="0" #fsOverlay>
+      <div class="preview-fs-overlay" tabindex="0" [appModal]="'files.preview.fullscreenDialog' | transloco">
         <div class="preview-fs-bar">
           <span class="file-title" [title]="pf.name">{{ pf.name }}</span>
           <button class="icon-btn" (click)="previewFullscreen.set(false)" [attr.aria-label]="'files.preview.exitFullscreen' | transloco"><ph-icon name="x" [size]="18"/></button>

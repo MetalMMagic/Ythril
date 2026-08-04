@@ -1,105 +1,102 @@
 /**
- * The ffmpeg licensing claim and the shipped artefact must not drift apart — in EITHER direction.
+ * FFmpeg stays a SEPARATE PROCESS, and no bundled ffmpeg binary sneaks in through npm.
  *
- * ## The failure this exists for
+ * ## What this checks, and what it deliberately does not
  *
- * The Dockerfile asserted *"ffmpeg: LGPL-2.1+ core only (no GPL codecs)"* and instructed the reader to verify
- * that `--enable-gpl` must be absent. Running that one command disproves it: Debian builds ffmpeg **with**
- * `--enable-gpl`, so the shipped binary is GPL-2.0-or-later. It reported the same on the released 2.2.5 image,
- * so the stated verification cannot ever have been run.
+ * `NOTICE` documents Debian's ffmpeg as GPL-2.0-or-later and rests its position on one load-bearing fact: the
+ * executable is **invoked as a separate process and never linked into Ythril**. That is the same argument the
+ * file already makes for LibreOffice via `soffice`.
  *
- * Two documents that could not both be true, with the comment naming the command that settles it. The same
- * shape as every other finding in this audit round — and worse than most, because it was a **licensing** claim
- * on the primary distribution, and because ffmpeg was simultaneously the one bundled binary with **no NOTICE
- * entry at all** while every optional sidecar had a careful one.
+ * **That fact is the only thing here worth a test.** An earlier version of this file also asserted that the
+ * NOTICE section existed, that it named the right licence, that its source offer pointed somewhere, and that its
+ * wording matched the Dockerfile comment — seven assertions guarding static prose. Prose does not drift on its
+ * own, nothing regenerates that section, and "the paragraph is still in the file" is not a property worth
+ * running on every preflight. Cut, on the owner's standard: a check earns its place by catching something that
+ * can actually change.
  *
- * ## Why this gate is about the CLAIM, not the codecs
+ * What CAN change is the mechanism. If somebody swaps the subprocess for a native binding, a WASM build, or an
+ * npm package that ships its own ffmpeg binary, then:
  *
- * It cannot run ffmpeg — no Docker in the offline suite. What it can do is stop the two files from disagreeing:
- * if someone later builds an LGPL-only ffmpeg (a legitimate option), they must update NOTICE in the same
- * change, and if someone re-adds a "no GPL" claim without doing that work, this fails.
+ *   - the "separate process, not linked" claim in NOTICE becomes false, and
+ *   - a *different* ffmpeg binary is being redistributed through a channel NOTICE does not describe.
  *
- * Comments are NOT stripped here, unusually: the Dockerfile comment IS the claim under test.
+ * Neither would fail any other test. Both are one plausible refactor away — reaching for `fluent-ffmpeg` or
+ * `ffmpeg-static` is the obvious move for anyone tidying up the media pipeline.
+ *
+ * ## The other two levels, so nobody looks for them here
+ *
+ *   - **Is NOTICE actually in the image?** `notice-ships-in-the-image.test.js` (cause) and `publish.yml` (effect,
+ *     against the published artefact).
+ *   - **Is the binary the licence NOTICE claims?** `publish.yml` runs `ffmpeg -buildconf` in the published image
+ *     and compares. That one cannot run here — the standalone suite is the offline subset and has no Docker — and
+ *     release time is when the obligation attaches anyway.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 const ROOT = process.cwd();
-const dockerfile = readFileSync(join(ROOT, 'Dockerfile'), 'utf8');
-const notice = readFileSync(join(ROOT, 'NOTICE'), 'utf8');
 
-describe('the ffmpeg licensing claim matches what ships', () => {
-  it('found both documents (guards against a vacuous pass)', () => {
-    assert.match(dockerfile, /install[^\n]*ffmpeg/, 'the Dockerfile no longer installs ffmpeg — retire this gate');
-    assert.ok(notice.length > 5000, 'NOTICE looks truncated');
+/** Every server source file, walked rather than globbed so a new directory cannot slip past. */
+function sources(dir = join(ROOT, 'server', 'src'), out = []) {
+  for (const e of readdirSync(dir)) {
+    const p = join(dir, e);
+    if (statSync(p).isDirectory()) sources(p, out);
+    else if (p.endsWith('.ts')) out.push(p);
+  }
+  return out;
+}
+
+/** Comments stripped: a comment explaining the subprocess design is not an invocation of it. */
+const strip = src => src
+  .replace(/^[ \t]*\/\*[\s\S]*?\*\//gm, ' ')
+  .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+
+describe('ffmpeg is only ever a separate process', () => {
+  const files = sources().map(p => ({ p: p.slice(ROOT.length + 1).replace(/\\/g, '/'), src: strip(readFileSync(p, 'utf8')) }));
+  const touching = files.filter(f => /\bffmpeg\b|\bffprobe\b/i.test(f.src));
+
+  it('found the code that uses ffmpeg (guards against a vacuous pass)', () => {
+    // If a refactor reduced this to zero, every assertion below would pass by examining nothing.
+    assert.ok(touching.length >= 2, `expected ffmpeg use in at least 2 files, found ${touching.length}`);
   });
 
-  it('ffmpeg is attributed in NOTICE at all', () => {
-    // It was not, for the entire life of the feature. Every optional sidecar had an entry; the one GPL binary,
-    // in the MAIN image, had none.
-    assert.match(notice, /FFmpeg/i, 'ffmpeg ships in the image and must appear in NOTICE');
+  it('every invocation is a child process, never a linked module', () => {
+    // The claim NOTICE rests on. A native binding or a WASM build would make it false, and nothing else here
+    // would notice.
+    const bad = [];
+    for (const { p, src } of touching) {
+      for (const m of src.matchAll(/^\s*import\s[^\n]*?from\s*'([^']*ffmpeg[^']*)'/gmi)) {
+        bad.push(`${p} imports '${m[1]}' as a module`);
+      }
+      for (const m of src.matchAll(/require\(\s*'([^']*ffmpeg[^']*)'\s*\)/gi)) {
+        bad.push(`${p} requires '${m[1]}'`);
+      }
+    }
+    assert.deepEqual(bad, [],
+      'ffmpeg must be reached only as a child process. NOTICE states it is "invoked as a separate process; not '
+      + 'linked", and that statement is what keeps its GPL out of Ythril\'s own licensing:\n  ' + bad.join('\n  '));
   });
 
-  it('NOTICE names the licence Debian actually builds, not the one ffmpeg could have been', () => {
-    const at = notice.search(/###[^\n]*FFmpeg/i);
-    assert.ok(at > 0, 'no FFmpeg section heading in NOTICE');
-    const section = notice.slice(at, notice.indexOf('\n### ', at + 5));
-    assert.match(section, /General Public License v2\.0 or later|GPL-2\.0-or-later/,
-      'Debian builds ffmpeg with --enable-gpl, so the shipped binary is GPL-2.0-or-later');
-    assert.match(section, /--enable-gpl/, 'the section should name the flag, so a reader can verify it themselves');
+  it('the invocations that exist are spawn-shaped', () => {
+    // Positive form of the same property: at least one real subprocess call, so "no imports" cannot be satisfied
+    // by ffmpeg having quietly stopped being used the documented way.
+    const spawners = touching.filter(f => /spawn\(\s*'ffmpeg'|execFile\(\s*'ffmpeg'|spawn\(\s*'ffprobe'/.test(f.src));
+    assert.ok(spawners.length >= 1,
+      'no spawn(\'ffmpeg\') found — if the invocation mechanism changed, NOTICE\'s "separate process" claim and '
+      + 'the licensing position built on it both need revisiting');
   });
 
-  it('NOTICE offers corresponding source for the binary', () => {
-    // The separate-process argument covers Ythril's own code. It does not cover redistributing the binary.
-    const at = notice.search(/###[^\n]*FFmpeg/i);
-    const section = notice.slice(at, notice.indexOf('\n### ', at + 5));
-    assert.match(section, /[Cc]orresponding source/, 'a GPL binary needs a corresponding-source offer');
-    assert.match(section, /ffmpeg\.org|git\.ffmpeg\.org|sources\.debian\.org/,
-      'the source offer must point somewhere real');
-  });
-
-  it('NOTICE records that it is a separate process, not linked', () => {
-    const at = notice.search(/###[^\n]*FFmpeg/i);
-    const section = notice.slice(at, notice.indexOf('\n### ', at + 5));
-    assert.match(section, /separate process/i);
-    assert.match(section, /not linked/i);
-  });
-
-  it('the Dockerfile does not claim ffmpeg is LGPL-only', () => {
-    // The precise regression to prevent: re-asserting the comforting version without doing the work that would
-    // make it true. Scoped to the ffmpeg RUN's own comment block, since NOTICE-adjacent text elsewhere in the
-    // file legitimately discusses LGPL for other components.
-    const at = dockerfile.search(/# ffmpeg, for the|# ffmpeg:/);
-    assert.ok(at > 0, 'could not find the ffmpeg comment block — re-anchor this gate');
-    const block = dockerfile.slice(at, dockerfile.indexOf('RUN apt-get', at));
-
-    // QUOTED spans are removed before matching, and this gate had to learn it the hard way: the corrected
-    // comment necessarily *quotes* the false claim in order to record that it was false, and the first version
-    // of this assertion fired on that quotation. Stripping comments is not an option here — the comment IS the
-    // claim under test — so the distinction has to be assertion vs. quotation instead.
-    //
-    // Ninth gate in this repo to fire on the prose explaining its own subject. The tempting "fix" every time is
-    // to delete the explanation, which is precisely the wrong move.
-    const unquoted = block.replace(/"[^"]*"|“[^”]*”/g, ' ');
-
-    assert.doesNotMatch(unquoted, /LGPL-2\.1\+ core only|no GPL codecs/,
-      'this claim is false for Debian ffmpeg. If an LGPL-only build is introduced, update NOTICE in the same '
-      + 'change and then this assertion can be inverted. (Quoting the old claim to explain it is fine — put it '
-      + 'in quotes.)');
-    assert.match(block, /GPL-2\.0-or-later|General Public License/,
-      'the comment must state the licence that actually ships');
-  });
-
-  it('the two documents agree', () => {
-    // The invariant, stated once: whatever the Dockerfile says about ffmpeg's licence, NOTICE says the same.
-    const claimsGpl = /GPL-2\.0-or-later|General Public License/.test(dockerfile.slice(
-      dockerfile.search(/# ffmpeg, for the|# ffmpeg:/),
-      dockerfile.indexOf('RUN apt-get', dockerfile.search(/# ffmpeg, for the|# ffmpeg:/)),
-    ));
-    const noticeGpl = /General Public License v2\.0 or later|GPL-2\.0-or-later/.test(notice);
-    assert.equal(claimsGpl, noticeGpl,
-      'the Dockerfile and NOTICE disagree about ffmpeg\'s licence — that disagreement is the original bug');
+  it('no dependency ships its own ffmpeg binary', () => {
+    // A different redistribution channel for a different binary. `ffmpeg-static` and friends bundle an executable
+    // whose build flags — and therefore licence — are not the Debian ones NOTICE documents.
+    const pkgs = ['package.json', 'server/package.json']
+      .map(f => JSON.parse(readFileSync(join(ROOT, f), 'utf8')));
+    const names = pkgs.flatMap(p => [...Object.keys(p.dependencies ?? {}), ...Object.keys(p.optionalDependencies ?? {})]);
+    const bundlers = names.filter(n => /ffmpeg|ffprobe/i.test(n));
+    assert.deepEqual(bundlers, [],
+      'these dependencies ship or wrap an ffmpeg binary, which would redistribute a build NOTICE does not '
+      + `describe:\n  ${bundlers.join('\n  ')}`);
   });
 });

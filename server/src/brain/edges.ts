@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import { brainWriteSeqTotal } from '../metrics/registry.js';
 import { authorRef } from '../config/author.js';
 import { col, asFilter, asDoc, asUpdate, asBulk } from '../db/mongo.js';
 import { nextSeq, reserveSeqBlock } from '../util/seq.js';
@@ -329,7 +330,19 @@ export async function updateEdgeById(
     { collection: 'edge', existing: existing as unknown as Record<string, unknown> }); // F10
   const updateOp: Record<string, unknown> = { $set };
   if (Object.keys($unset).length > 0) updateOp['$unset'] = $unset;
-  await collection.updateOne(asFilter<EdgeDoc>({ _id: id }), asUpdate<EdgeDoc>(updateOp));
+  // Lost-update detection, identical to `updateMemory` and for the same reason: `returnDocument: "before"`
+  // hands back the record as it was at WRITE time, so comparing its seq with the one read at the top of this
+  // function is exactly the test for another writer landing in the window. Observation only — no write that
+  // previously succeeded is now rejected.
+  const beforeWrite = await collection.findOneAndUpdate(
+    asFilter<EdgeDoc>({ _id: id }),
+    asUpdate<EdgeDoc>(updateOp),
+    { returnDocument: 'before' },
+  ) as EdgeDoc | null;
+  brainWriteSeqTotal.labels({
+    collection: 'edges',
+    outcome: beforeWrite && beforeWrite.seq !== existing.seq ? 'collision' : 'clean',
+  }).inc();
 
   const result = {
     ...existing,

@@ -105,6 +105,75 @@ export function invalidateUsageCache(): void {
 }
 
 /**
+ * Read the cached usage WITHOUT measuring. Returns `null` if nothing has been measured yet.
+ *
+ * ## Why a read-only accessor exists
+ *
+ * `measureUsage()` walks the entire files tree. That is correct for a quota check, which must not admit a write
+ * on a stale number, and **wrong for a Prometheus gauge**, which is sampled and already stale by the time it is
+ * graphed. The canary proved the difference with numbers: on their platform instance the storage collector
+ * averaged **22.150 s** against ~8.6 s for every MongoDB-backed collector, its distribution was bimodal (6 of 19
+ * collections under 50 ms, 9 over 15 s — cold cache versus warm), and of 20 scrapes **10 failed** at exactly
+ * `10.0012 s` while this collector exceeded 10 s exactly **10 times**. Same number. Their four small instances
+ * completed every collector in 0.005–0.041 s, so it scales with stored volume, not with anything else.
+ *
+ * The argument against exactness here was already written in `metrics/registry.ts` for the brain totals — *"the
+ * exactness that buys does not survive contact with what a gauge IS"* — and #606 acted on it by switching those
+ * to `estimatedDocumentCount()`. It was simply never carried to the one collector where the cost was seconds
+ * rather than milliseconds. The cache comment above even lists `metrics` among the callers that deliberately
+ * re-measure; that line was the bug.
+ *
+ * So: the gauge reads this, reports what is known, and **never blocks a scrape on filesystem I/O**.
+ */
+export function peekUsage(): { usage: UsageGiB; ageMs: number } | null {
+  if (!usageCache) return null;
+  return { usage: usageCache.usage, ageMs: nowMs() - usageCache.at };
+}
+
+/** In-flight background refresh, so a slow walk cannot be started nine times over by nine scrapes. */
+let backgroundRefresh: Promise<void> | null = null;
+
+/**
+ * Completed background walks since process start.
+ *
+ * Exists because coalescing is only testable by **counting walks**. The first version of the test asserted
+ * "a refresh is in flight" before and after nine calls — which is true whether or not the guard exists, since
+ * nine unguarded calls each leave *a* promise in the slot. The mutation that removed the guard survived it.
+ *
+ * It is also worth exposing: on a large store this is "how often are we walking the disk", which is the number
+ * an operator wants when the answer is "more than you think".
+ */
+let usageMeasurements = 0;
+
+/** Completed background usage walks since process start. Surfaced as a metric; also the coalescing assertion. */
+export function usageMeasurementCount(): number {
+  return usageMeasurements;
+}
+
+/**
+ * Refresh the usage cache off the caller's critical path. Returns immediately.
+ *
+ * Coalesced: while a walk is running, further calls do nothing. That matters precisely because the walk can take
+ * 22 s — without the guard, a 15-second scrape interval would stack walks on a filesystem that is already the
+ * bottleneck, and on the canary's degraded RAID1 mid-rebuild that would be actively harmful.
+ *
+ * Never throws. A failed measurement leaves the previous value in place, which is the same contract every
+ * collector already has for an unreachable dependency.
+ */
+export function refreshUsageInBackground(): void {
+  if (backgroundRefresh) return;
+  backgroundRefresh = measureUsageUncached()
+    .then(usage => { usageCache = { usage, at: nowMs() }; })
+    .catch(() => { /* keep the previous value; an error is not "unknown" */ })
+    .finally(() => { usageMeasurements++; backgroundRefresh = null; });
+}
+
+/** True while a background walk is in flight — for tests, so they need not guess at timing. */
+export function usageRefreshInFlight(): boolean {
+  return backgroundRefresh !== null;
+}
+
+/**
  * Measure current storage usage.
  *
  * @param maxAgeMs  Reuse a cached measurement if it is younger than this many ms.

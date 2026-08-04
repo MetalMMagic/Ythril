@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import { brainWriteSeqTotal } from '../metrics/registry.js';
 import { authorRef } from '../config/author.js';
 import { col, asFilter, asDoc, asUpdate, asBulk } from '../db/mongo.js';
 import { nextSeq, reserveSeqBlock } from '../util/seq.js';
@@ -204,10 +205,19 @@ export async function updateChrono(
     { collection: 'chrono', existing: existing as unknown as Record<string, unknown> }); // F10
   const updateOp: Record<string, unknown> = { $set };
   if (Object.keys($unset).length > 0) updateOp['$unset'] = $unset;
-  await col<ChronoEntry>(`${spaceId}_chrono`).updateOne(
+  // Lost-update detection, identical to `updateMemory` and for the same reason: `returnDocument: "before"`
+  // hands back the record as it was at WRITE time, so comparing its seq with the one read at the top of this
+  // function is exactly the test for another writer landing in the window. Observation only — no write that
+  // previously succeeded is now rejected.
+  const beforeWrite = await col<ChronoEntry>(`${spaceId}_chrono`).findOneAndUpdate(
     asFilter<ChronoEntry>({ _id: id }),
     asUpdate<ChronoEntry>(updateOp),
-  );
+    { returnDocument: 'before' },
+  ) as ChronoEntry | null;
+  brainWriteSeqTotal.labels({
+    collection: 'chrono',
+    outcome: beforeWrite && beforeWrite.seq !== existing.seq ? 'collision' : 'clean',
+  }).inc();
   const updatedChrono = { ...existing, ...($set as Partial<ChronoEntry>) } as ChronoEntry;
   if ('_expireAt' in $unset) delete (updatedChrono as { _expireAt?: unknown })._expireAt;
   if (actor) emitWebhookEvent({ event: 'chrono.updated', spaceId, entry: { ...updatedChrono, embedding: undefined }, ...actor });

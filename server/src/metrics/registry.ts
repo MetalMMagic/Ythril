@@ -18,7 +18,7 @@ import {
 } from 'prom-client';
 import { col } from '../db/mongo.js';
 import { getConfig, getStorageConfig } from '../config/loader.js';
-import { measureUsage } from '../quota/quota.js';
+import { peekUsage, refreshUsageInBackground, usageMeasurementCount } from '../quota/quota.js';
 
 export const register = new Registry();
 
@@ -441,18 +441,80 @@ export const reindexInProgress = new Gauge({
 
 // ── Storage (collected at scrape time) ──────────────────────────────────────
 
+/**
+ * How stale the storage numbers are, in seconds.
+ *
+ * Shipped **with** the change that made the storage gauge read a cache instead of walking the disk, because a
+ * cached value with no visible age is the failure mode the abandoned-collector decision in #676 was about:
+ * numbers that look current and are not. An operator can alert on this if they care; nobody has to guess.
+ */
+export const storageUsageAgeSeconds = new Gauge({
+  name: 'ythril_storage_usage_age_seconds',
+  help: 'Age of the storage-usage measurement backing ythril_storage_used_bytes (it is cached, not re-walked)',
+  registers: [register],
+  // Reads the cache ITSELF rather than being written by the storage collector, and that is not a style choice.
+  // prom-client serialises each metric as soon as its own value is ready, so a gauge written by a *different*
+  // collector is emitted before that collector runs — the first version of this was set from
+  // `storageUsedBytes.collect()` and a poison-sentinel test caught it reporting the sentinel, not the age. Same
+  // trap as the timeout counter above, walked into a second time in the same file. Self-sufficient collectors are
+  // the only order-independent kind.
+  collect() {
+    const peek = peekUsage();
+    if (peek) this.set(peek.ageMs / 1000);
+  },
+});
+
+/**
+ * How many times the files tree has actually been walked.
+ *
+ * The operator-facing question this answers is "how often are we doing the expensive thing", and on a large
+ * store the answer used to be *every scrape*. It also makes the refresh coalescing testable: the number of walks
+ * is the only observable that distinguishes one guarded refresh from nine unguarded ones.
+ */
+export const storageUsageMeasurementsTotal = new Gauge({
+  name: 'ythril_storage_usage_measurements_total',
+  help: 'Completed walks of the files tree to measure storage usage since process start',
+  registers: [register],
+  collect() { this.set(usageMeasurementCount()); },
+});
+
+/**
+ * Maximum age before a scrape kicks a background re-walk. Default 5 minutes.
+ *
+ * Generous on purpose. Stored volume is a slow-moving quantity, and during actual activity `checkQuota()`
+ * refreshes the cache for free on every write — so this only governs how fresh the number is while the instance
+ * is *idle*, which is exactly when it is least likely to have changed.
+ */
+const STORAGE_USAGE_MAX_AGE_MS = (() => {
+  const raw = process.env['METRICS_STORAGE_USAGE_MAX_AGE_MS']?.trim();
+  if (!raw) return 300_000;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return 300_000;
+  return n;
+})();
+
 export const storageUsedBytes = new Gauge({
   name: 'ythril_storage_used_bytes',
-  help: 'Storage used in bytes by area (brain, files, total)',
+  help: 'Storage used in bytes by area (brain, files, total) — from a cached measurement, see the age gauge',
   labelNames: ['area'] as const,
   registers: [register],
   async collect() {
     await withCollectBudget('storage_used_bytes', async () => {
-      const usage = await measureUsage();
-      const GiB = 1024 ** 3;
-      this.set({ area: 'files' }, usage.files * GiB);
-      this.set({ area: 'brain' }, usage.brain * GiB);
-      this.set({ area: 'total' }, usage.total * GiB);
+      // Deliberately NOT `measureUsage()`. That walks the whole files tree, and the canary measured it at 22.150 s
+      // mean against ~8.6 s for every MongoDB collector, taking down 10 of 20 scrapes on its own. See `peekUsage`
+      // in quota.ts for the full numbers and why exactness is the wrong goal for a sampled gauge.
+      const peek = peekUsage();
+      if (peek) {
+        const GiB = 1024 ** 3;
+        this.set({ area: 'files' }, peek.usage.files * GiB);
+        this.set({ area: 'brain' }, peek.usage.brain * GiB);
+        this.set({ area: 'total' }, peek.usage.total * GiB);
+        // the age gauge reads the cache itself — see its collect()
+      }
+      // Kick the walk, never await it: a scrape must not be able to block on filesystem I/O. On a cold instance
+      // the first scrape carries no storage series and the second one does, which is honest — an absent series
+      // says "not measured yet" where a zero would have claimed "empty".
+      if (!peek || peek.ageMs > STORAGE_USAGE_MAX_AGE_MS) refreshUsageInBackground();
     }, () => this.reset());
   },
 });
@@ -777,7 +839,13 @@ export const brainWriteSeqTotal = new Counter({
   registers: [register],
 });
 // Pre-declared for the same reason as above: absent and zero look identical in a graph and mean opposites.
-for (const collection of ['memories']) {
+//
+// All FOUR record types, because all four are now instrumented. #674 shipped `memories` alone while the
+// metric was named for brain records generally, and the canary spotted the gap from the outside — they saw
+// only `collection="memories"` and reasonably guessed the labels were lazy. Pre-declaring the other three
+// without instrumenting them would have been the worse fix: a permanent 0 on entities reads as "no
+// collisions here", which is the exact confusion pre-declaring exists to prevent.
+for (const collection of ['memories', 'entities', 'edges', 'chrono']) {
   for (const outcome of ['clean', 'collision']) {
     brainWriteSeqTotal.labels({ collection, outcome }).inc(0);
   }

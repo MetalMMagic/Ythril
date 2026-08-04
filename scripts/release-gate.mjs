@@ -168,6 +168,7 @@ const DOC_GATES = [
   ['docs-tables-render', 'no docs table is malformed'],
   ['error-shape-is-json', 'the documented error shape holds'],
   ['rollback-is-documented', 'every boot migration has a documented way back'],
+  ['webhook-docs-are-safe', 'the webhook verification example is safe to copy'],
 ];
 
 const NOTICE_GATES = [

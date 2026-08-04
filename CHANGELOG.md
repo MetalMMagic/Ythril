@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+
+- **The webhook signature-verification example we hand integrators used `===` on the HMAC.** Our own code
+  reaches for `crypto.timingSafeEqual` in three places (the metrics token, TOTP twice) — so we wrote
+  constant-time comparison for ourselves and recommended a timing-unsafe one to everybody integrating with us.
+  A receiver copying the example exactly gets a timing oracle on a value derived from their own secret.
+  - The example is now constant-time, **and says why**, because the next person editing the page will otherwise
+    simplify it back. It also warns to sign over the **raw** body — the failure every integrator hits second,
+    since a parse/stringify round trip preserves neither key order nor whitespace.
+- **At-least-once delivery was documented, `X-Ythril-Delivery` was listed, and the two were never joined.**
+  "At-least-once" is a term of art; *"you will receive the same event twice, dedupe on this header"* is the
+  sentence that changes what an integrator builds. Both are now in the same paragraph.
+  - And it states plainly that **the signature covers the body only, not a timestamp**, so a delivery captured
+    off the wire verifies indefinitely. The dedupe key is the mitigation, which a reader cannot judge without
+    knowing the property exists.
+
+### Testing
+
+- A gate holds both, and checks the **code still matches the description** in the other direction — a docs gate
+  that only reads docs will happily hold a description of code that changed underneath it. 8 mutations, 8 caught.
+  - **Its own first run passed two assertions VACUOUSLY.** The code-block parser used `\n` where the repo
+    checks out `CRLF`, so it returned zero blocks, and the constant-time checks iterated an empty list on a
+    doc that still contained the `===`. **Only the floor assertion caught it** — which is precisely what a floor
+    is for, and the third time today that a check was the broken thing rather than the code.
+
+### Verified clean, and recorded so it is not re-derived
+
+- Webhooks are HMAC-SHA256 signed per subscription, retries are bounded by a real ceiling with the subscription
+  moving to `failing` on exhaustion, the queue survives restarts, and delivery targets are SSRF-validated with
+  the connection pinned to the resolved IP. The lens red flag — *"a webhook with no signature and no bounded
+  retry"* — does not apply.
+
 ### Added
 
 - **The documentation lens is now a release gate** (owner rule): `npm run release:gate`, which also runs

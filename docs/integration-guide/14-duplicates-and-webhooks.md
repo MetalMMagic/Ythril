@@ -373,17 +373,37 @@ X-Ythril-Delivery: <unique delivery UUID>
 
 ### Signature Verification
 
-Verify the `X-Ythril-Signature` header using your shared secret:
+Verify the `X-Ythril-Signature` header using your shared secret. **Compare in constant time** — a
+`===` on an HMAC leaks the digest a byte at a time to anyone who can measure your response latency, and the
+thing it leaks is derived from your secret:
 
 ```js
 const crypto = require('crypto');
-const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
-const valid = signature === `sha256=${expected}`;
+
+function verify(rawBody, headerValue, secret) {
+  const expected = `sha256=${crypto.createHmac('sha256', secret).update(rawBody).digest('hex')}`;
+  const a = Buffer.from(headerValue ?? '', 'utf8');
+  const b = Buffer.from(expected, 'utf8');
+  // timingSafeEqual throws on a length mismatch, so check length first — and note that doing so leaks only
+  // the LENGTH, which is fixed and public for a sha256 hex digest.
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
 ```
+
+**Sign over the RAW body**, before any JSON parsing. A re-serialised body will not match — key order and
+whitespace are not preserved by a parse/stringify round trip.
 
 ### Delivery Guarantees
 
 - **At-least-once delivery.** On HTTP 2xx the delivery is marked successful. On timeout (10 s) or non-2xx, Ythril retries with exponential backoff: 10 s → 30 s → 1 m → 5 m → 30 m → 1 h.
+- **So you WILL receive the same event more than once, and you must deduplicate on `X-Ythril-Delivery`.**
+  That header is a unique id per delivery attempt-chain, and it is the same across every retry of one event —
+  which is what makes it usable as an idempotency key. At-least-once without a dedupe key would mean duplicate
+  records in your data on any transient failure of your own endpoint, including one you never noticed.
+- **The signature covers the body only, not a timestamp**, so a delivery captured off the wire stays valid
+  indefinitely. Deduplicating on the delivery id is what bounds that: a replay of an id you have already
+  processed is a no-op. If you need a hard time bound as well, reject deliveries whose `X-Ythril-Delivery`
+  you have not seen **and** whose payload timestamp is older than your own tolerance.
 - After all retries are exhausted, the subscription status changes to `failing`.
 - Re-enabling a failing subscription (`PATCH` with `enabled: true`) resets the failure counter.
 

@@ -35,7 +35,14 @@ on:
 
 permissions:
   actions: write
-  contents: read # the PAT does the writing, not this token
+  # contents: WRITE, and the comment that used to sit here was wrong.
+  #
+  # It said "the PAT does the writing, not this token" — an assumption I never verified. The action creates the
+  # `cla-signatures` branch and the signatures file through the GITHUB_TOKEN, so with `contents: read` it failed
+  # with "Resource not accessible by integration. Make sure the branch where signatures are stored is NOT
+  # protected." That message points at branch protection, which sent me looking in the wrong place: the repository
+  # ruleset covers `refs/heads/main` only, so `cla-signatures` was never protected. The permission was the cause.
+  contents: write
   pull-requests: write
   statuses: write
 

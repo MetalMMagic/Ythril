@@ -734,7 +734,23 @@ see the egress table above. You can optionally point a **bigger, external model*
 > target, the address it resolved to, and the setting that would permit it — so a blocked endpoint is
 > diagnosable from the container log, not only from whatever a dialog happened to show. The line is
 > redacted like any other, so a key in a query string is not echoed into the log.
-
+>
+> **`YTHRIL_MAX_UPSTREAM_RESPONSE_BYTES` — how large a response any of these providers may return.**
+>
+> Default **268435456** (256 MiB). Every response body from a sidecar, model endpoint or sync peer is read
+> with this ceiling; a body that exceeds it is refused rather than buffered, and the error names which
+> upstream and this variable.
+>
+> **Raise it if you have raised render quality.** The one path that can legitimately approach the default is
+> document rendering: `renderDpi` accepts up to 600 and `maxPages` up to 2000, and the sidecar
+> returns each page as a base64 image in one JSON body. 50 pages at 600 DPI sits comfortably under 256 MiB;
+> 2000 does not.
+>
+> **A malformed value falls back to the default rather than removing the ceiling**, so a typo cannot silently
+> unbound these reads.
+>
+> Note what this is *not*: the per-provider timeouts bound how **long** a call may take and say nothing about
+> how **much** it may return. A fast endpoint streaming gigabytes finishes well inside any timeout.
 ⚠️ **This is the only setting that sends document content off the instance.** When a task is assigned, the
 external model receives OCR-extracted text and draft transcriptions (and, for future image-based tasks,
 rendered page images). Settings → Media Processing surfaces an **acknowledgment dialog** on save that states exactly

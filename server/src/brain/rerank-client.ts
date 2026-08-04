@@ -18,6 +18,7 @@
  * vector order. A reranker that is down must degrade search quality, never break search.
  */
 import { getMediaEmbeddingConfig } from '../config/loader.js';
+import { boundedJson } from '../util/bounded-read.js';
 import { allowPrivateForSlot, isLocalModelEndpoint } from '../config/model-egress-policy.js';
 import { ssrfSafeFetch } from '../util/ssrf.js';
 import { log } from '../util/log.js';
@@ -163,7 +164,7 @@ export async function rerank(
       log.warn(`Rerank: HTTP ${res.status} from the reranker — keeping the vector order`);
       return null;
     }
-    const scores = parseScores(await res.json(), passages.length);
+    const scores = parseScores(await boundedJson(res, 'reranker'), passages.length);
     if (!scores) {
       log.warn('Rerank: unreadable response shape — keeping the vector order');
       return null;

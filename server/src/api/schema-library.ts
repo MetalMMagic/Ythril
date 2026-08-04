@@ -28,6 +28,7 @@
  */
 
 import { Router } from 'express';
+import { boundedJson } from '../util/bounded-read.js';
 import { requireAuth, requireAdminMfa, acceptSchemaLibraryToken } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { getSchemaLibrary, saveSchemaLibrary, getConfig, getSchemaCatalogs, saveSchemaCatalogs } from '../config/loader.js';
@@ -637,7 +638,7 @@ async function proxyCatalogFetch(url: string, accessToken?: string): Promise<{ o
     // External catalogs must never reach private space, so allowPrivate stays false (the default).
     const resp = await ssrfSafeFetch(url, { headers, signal: controller.signal });
     clearTimeout(timer);
-    const body = await resp.json().catch(() => null);
+    const body = await boundedJson<unknown>(resp, 'schema library peer').catch(() => null);
     return { ok: resp.ok, status: resp.status, body };
   } catch (err: unknown) {
     clearTimeout(timer);

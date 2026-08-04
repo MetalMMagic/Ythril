@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { boundedJson } from '../util/bounded-read.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -329,7 +330,7 @@ localAgentRouter.get('/status', globalRateLimit, requireAdminMfa, async (_req, r
       return;
     }
 
-    const body = await r.json().catch(() => ({}));
+    const body = await boundedJson<Record<string, unknown>>(r, 'local agent').catch(() => ({} as Record<string, unknown>));
     res.json({
       configured: true,
       reachable: true,
@@ -380,8 +381,9 @@ localAgentRouter.post('/enable-networks/execute', globalRateLimit, requireAdminM
       body: JSON.stringify(bodyWithOrigin),
     }, 5 * 60 * 1_000);
 
-    const raw = await response.text();
-    const body = raw ? JSON.parse(raw) : {};
+    // Bounded like every other upstream read. The local agent is operator-run, so this is the runaway
+    // case rather than the hostile one — but a runaway agent should not be able to take the server with it.
+    const body = await boundedJson<Record<string, unknown>>(response, 'local agent').catch(() => ({} as Record<string, unknown>));
 
     if (!response.ok) {
       res.status(502).json({

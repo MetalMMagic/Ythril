@@ -11,6 +11,7 @@
  */
 
 import type { FileConverter } from './types.js';
+import { boundedJson, boundedErrorText } from '../../util/bounded-read.js';
 import { ConversionUnavailableError } from './types.js';
 import { getDocumentProcessingConfig } from '../../config/loader.js';
 
@@ -152,14 +153,16 @@ export class UnstructuredConverter implements FileConverter {
     }
 
     if (!response.ok) {
-      const body = await response.text().catch(() => '');
+      // Truncated like the other four sites. Untruncated, a multi-megabyte upstream body lands in a log
+      // line and buries the error it was supposed to explain.
+      const body = await boundedErrorText(response);
       throw new ConversionUnavailableError(
         'sidecar_error',
         `Unstructured sidecar returned HTTP ${response.status}: ${body}`,
       );
     }
 
-    const partitions = await response.json() as Partition[];
+    const partitions = await boundedJson<Partition[]>(response, 'Unstructured sidecar');
     if (!Array.isArray(partitions) || partitions.length === 0) {
       throw new ConversionUnavailableError('no_content', 'Unstructured returned no partitions');
     }

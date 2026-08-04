@@ -12,6 +12,7 @@
  */
 
 import { createRemoteJWKSet, customFetch, jwtVerify } from 'jose';
+import { boundedJson } from '../util/bounded-read.js';
 import type { JWTPayload } from 'jose';
 import { getConfig } from '../config/loader.js';
 import { allowPrivateOidcIssuer } from '../config/oidc-egress-policy.js';
@@ -254,7 +255,7 @@ export async function getDiscoveryDoc(issuerUrl: string): Promise<DiscoveryDoc> 
   if (!res.ok) {
     throw new Error(`OIDC discovery failed: ${res.status} ${res.statusText} for ${url}`);
   }
-  const doc = await res.json() as DiscoveryDoc;
+  const doc = await boundedJson<DiscoveryDoc>(res, 'OIDC discovery');
 
   validateDiscoveryDocument(doc, issuerUrl, endpointsMayBePrivate);
 

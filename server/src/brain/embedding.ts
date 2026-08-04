@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { boundedJson, boundedErrorText } from '../util/bounded-read.js';
 import path from 'node:path';
 import { getDataRoot, getEmbeddingConfig } from '../config/loader.js';
 import { ssrfSafeFetch } from '../util/ssrf.js';
@@ -220,13 +221,13 @@ async function embedViaHttp(
     );
   }
   if (!response.ok) {
-    const body = await response.text().catch(() => '');
+    const body = await boundedErrorText(response);
     throw new Error(`Embedding request failed (HTTP ${response.status}): ${body}`);
   }
-  const json = await response.json() as {
+  const json = await boundedJson<{
     data?: { embedding?: number[] }[];
     error?: { message?: string };
-  };
+  }>(response, 'embedding provider');
   if (json.error) throw new Error(`Embedding API error: ${json.error.message ?? JSON.stringify(json.error)}`);
   const vector = json.data?.[0]?.embedding;
   if (!vector || vector.length === 0) throw new Error('Embedding API returned empty vector');

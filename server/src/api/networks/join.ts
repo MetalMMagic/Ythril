@@ -4,6 +4,7 @@
  * Split out of the api/networks.ts monolith (A17.5); handlers are unchanged.
  */
 import { Router } from 'express';
+import { boundedJson } from '../../util/bounded-read.js';
 import { v4 as uuidv4 } from 'uuid';
 import bcrypt from 'bcrypt';
 import { z } from 'zod';
@@ -98,12 +99,12 @@ joinRouter.post('/join-remote', globalRateLimit, requireAdmin, async (req, res) 
     }
 
     if (!applyRes.ok) {
-      const errBody = await applyRes.json().catch(() => ({}));
+      const errBody = await boundedJson<unknown>(applyRes, 'network peer').catch(() => ({}));
       res.status(applyRes.status).json(errBody);
       return;
     }
 
-    const applyData = await applyRes.json() as {
+    const applyData = await boundedJson<{
       encryptedTokenForB: string;
       rsaPublicKeyPem: string;
       instanceId: string;
@@ -112,7 +113,7 @@ joinRouter.post('/join-remote', globalRateLimit, requireAdmin, async (req, res) 
       networkLabel: string;
       networkType: string;
       spaces: string[];
-    };
+    }>(applyRes, 'network peer');
 
     // Decrypt tokenForB — the PAT Brain A created on its own server for Brain B to use
     let tokenForB: string;
@@ -194,12 +195,12 @@ joinRouter.post('/join-remote', globalRateLimit, requireAdmin, async (req, res) 
 
     if (!finalizeRes.ok) {
       await revokeToken(tokenForARecord.id);
-      const errBody = await finalizeRes.json().catch(() => ({}));
+      const errBody = await boundedJson<unknown>(finalizeRes, 'network peer').catch(() => ({}));
       res.status(finalizeRes.status).json(errBody);
       return;
     }
 
-    const finalizeData = await finalizeRes.json() as { status: string };
+    const finalizeData = await boundedJson<{ status: string }>(finalizeRes, 'network peer');
 
     // ── Register network and peer locally ────────────────────────────────────
     // Store tokenForB so this brain can call Brain A's sync endpoints.

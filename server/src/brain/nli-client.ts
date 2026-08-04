@@ -16,6 +16,7 @@
  * attacker-supplied endpoint cannot be used to reach cluster-internal services.
  */
 import { getMediaEmbeddingConfig } from '../config/loader.js';
+import { boundedJson } from '../util/bounded-read.js';
 import { allowPrivateForSlot, isLocalModelEndpoint as isLocalEndpoint } from '../config/model-egress-policy.js';
 import { ssrfSafeFetch } from '../util/ssrf.js';
 import { log } from '../util/log.js';
@@ -103,7 +104,7 @@ export async function classify(premise: string, hypothesis: string): Promise<Nli
       log.warn(`NLI classify: ${res.status} from the judge endpoint — treating as no verdict`);
       return null;
     }
-    return parseVerdict(await res.json());
+    return parseVerdict(await boundedJson(res, 'NLI'));
   } catch (err) {
     // Deliberately does not include the pair text: it is record content, and this line goes to the log.
     log.warn(`NLI classify failed — treating as no verdict: ${err instanceof Error ? err.message : String(err)}`);

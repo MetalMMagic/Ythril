@@ -609,34 +609,20 @@
   "files.detail.tabsAriaLabel": "Detailansicht",
   "files.detail.previewTab": "Vorschau & Beschreibung",
   "files.detail.metaTab": "Datei-Metadaten",
-
   "files.detail.extractTab": "Extrakt",
-
   "files.extract.loading": "Lese, was die Pipeline erzeugt hat...",
-
   "files.extract.error": "Extraktion konnte nicht geladen werden.",
-
   "files.extract.chunks": "Chunks ({{shown}} von {{total}})",
-
   "files.extract.noChunks": "Keine Chunks. Aus dieser Datei ist noch nichts durchsuchbar.",
-
   "files.extract.images": "Extrahierte Bilder ({{count}})",
-
   "files.extract.noCaption": "Noch keine Bildbeschreibung.",
-
   "files.extract.converted": "Konvertiertes Markdown",
-
   "files.extract.truncated": "Bis 256 KB angezeigt. Den Rest über die konvertierte Datei herunterladen.",
-
   "files.extract.more": "Mehr Chunks anzeigen",
   "files.detail.description": "Beschreibung",
-
   "files.detail.descriptionSource.generated": "generiert",
-
   "files.detail.descriptionSource.generatedHint": "Vom konfigurierten Dokumentmodell aus dem Text der Datei geschrieben. Nicht von einer Person geprüft.",
-
   "files.detail.descriptionSource.extracted": "aus dem Dokument",
-
   "files.detail.descriptionSource.extractedHint": "Der Anfang des Dokumenttexts, wörtlich übernommen — es war kein Modell für Beschreibungen konfiguriert.",
   "files.detail.metaSaved": "Metadaten gespeichert.",
   "files.detail.retryQueued": "Neu-Einbettung eingereiht.",
@@ -869,9 +855,7 @@
   "spaces.popup.tab.settings": "Einstellungen",
   "spaces.schema.collTabsAriaLabel": "Datensatz-Sammlungen",
   "spaces.settings.tabsAriaLabel": "Bereiche der Space-Einstellungen",
-
   "spaces.popup.governed": "Verwaltet",
-
   "spaces.popup.governedHint": "Dieser Space gehört zu {{networks}}. Änderungen an Zweck, Nutzungshinweisen oder Schema starten in jedem Netzwerk eine Abstimmung, statt sofort zu greifen — die Änderung wird eingereicht, nicht angewendet.",
   "spaces.popup.tab.schema": "Schema",
   "spaces.popup.tab.dangerZone": "Gefahrenzone",
@@ -1549,7 +1533,6 @@
   "mediaProcessing.action.test": "Verbindung testen",
   "mediaProcessing.action.testing": "Wird getestet…",
   "mediaProcessing.test.unreachable": "Nicht erreichbar",
-
   "mediaProcessing.test.inProcess": "Modell läuft im Prozess — nichts zu prüfen",
   "mediaProcessing.test.reachable": "Erreichbar",
   "mediaProcessing.test.modelFound": "Erreichbar · Modell gefunden",
@@ -1804,5 +1787,8 @@
   "review.typeFilter.capped": "Es werden die ersten 500 Funde angezeigt — Filter gelten nur für diese.",
   "review.typeFilter.noneOfType": "Keine Funde dieses Typs",
   "review.typeFilter.noneOfTypeBody": "In dieser Liste gibt es Funde, aber keine des gewählten Datensatztyps. Wähle „Alle Typen“, um sie zu sehen.",
-  "about.components.pending": "Komponenten werden geprüft…"
+  "about.components.pending": "Komponenten werden geprüft…",
+  "spaces.badge.proxy": "Proxy-Space",
+  "spaces.badge.proxyTitle": "Proxy-Space — spiegelt {{ids}} auf dem Peer",
+  "spaces.badge.proxyAllTitle": "Proxy-Space — spiegelt alle Spaces auf dem Peer"
 }

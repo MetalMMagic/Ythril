@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A proxy space is now marked wherever a space appears** (owner UX request). A `globe` badge with a tooltip
+  naming *which* peer spaces it mirrors, on the Brain space strip, the Graph space strip, and the Spaces settings
+  table.
+  - **Why it is not cosmetic:** a proxy space looks identical to a local one, and its records live on a **peer**.
+    The server's metric collectors skip it (`cfg.spaces.filter(s => !s.proxyFor)`), so its storage and
+    record counts are **absent by design, not zero** — someone who cannot tell the two apart reads an absent
+    count as an empty space.
+  - **One shared component, not markup in three templates.** The `space-chip` strip is already duplicated
+    between the Brain and Graph pages, so inlining the badge would have made three copies of one meaning — the
+    exact finding filed as A-L2-1 in the same session. It ships as `app-proxy-space-badge`.
+  - `globe` deliberately: it is **registered** in `ph-icon.component.ts` (an unregistered name renders
+    blank with no error, which has bitten this repo twice), and it is distinct from the `link` icon already
+    on that chip for `networkStatus`. `link` says *participates in a network*; `globe` says *its data is
+    elsewhere*. A chip can carry both.
+
+### Fixed
+
+- **Two mistakes in that change, both caught by existing gates rather than by review:**
+  - the tooltip returned **hardcoded English** while the visible label went through transloco. A tooltip is
+    exactly where an untranslated string hides, and this repo already had that finding once.
+  - the three new keys were added **nested** (`spaces: { badge: { proxy } }`) when en/de/pl store **flat
+    dotted keys** at the top level. The i18n spec does `key in en` with no flattening, so the
+    *"de and pl carry the same keys as en"* test passed — all three were nested identically — while the
+    *"every used key exists"* test failed. **Two gates disagreeing was the signal**; one of them had to be
+    reading something different from what I thought.
+
 ## [2.4.0] — 2026-08-04
 
 ### Documentation

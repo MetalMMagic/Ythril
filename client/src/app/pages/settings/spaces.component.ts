@@ -1,5 +1,6 @@
 ﻿import { ChangeDetectionStrategy, Component, HostListener, inject, signal, computed, OnInit, ElementRef, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { ProxySpaceBadgeComponent } from '../../shared/proxy-space-badge.component';
 import { FormsModule } from '@angular/forms';
 import { finalize, timeout, TimeoutError } from 'rxjs';
 import {
@@ -32,7 +33,7 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
 @Component({
   selector: 'app-spaces',
   standalone: true,
-  imports: [CommonModule, FormsModule, TranslocoPipe, DragDropModule, PhIconComponent, SummaryStripComponent,
+  imports: [ProxySpaceBadgeComponent, CommonModule, FormsModule, TranslocoPipe, DragDropModule, PhIconComponent, SummaryStripComponent,
     SpaceSettingsTabComponent, SpaceDuplicatesTabComponent, SpaceDangerTabComponent, SpaceSchemaTabComponent,
     SpaceCreateDialogComponent, ModalDirective, HscrollTopDirective, StatusPillComponent],
   // Provided here (not root) so each mount gets its own settings state, with a lifetime tied to
@@ -226,8 +227,10 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
                   </td>
                   <td>
                     @if (s.proxyFor?.[0]==='*') {
-                      <span class="badge badge-blue" style="font-style:italic;">{{ 'spaces.badge.allSpaces' | transloco }}</span>
+                      <app-proxy-space-badge [proxyFor]="s.proxyFor" [size]="14" [showLabel]="true" />
+                      <span class="badge badge-blue" style="font-style:italic;margin-left:4px;">{{ 'spaces.badge.allSpaces' | transloco }}</span>
                     } @else if (s.proxyFor?.length) {
+                      <app-proxy-space-badge [proxyFor]="s.proxyFor" [size]="14" style="margin-right:4px" />
                       @for (pid of s.proxyFor; track pid) {
                         <span class="badge badge-blue" style="margin-right:4px">{{ pid }}</span>
                       }

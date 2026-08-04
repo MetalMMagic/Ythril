@@ -609,34 +609,20 @@
   "files.detail.tabsAriaLabel": "Widok szczegółów",
   "files.detail.previewTab": "Podgląd i opis",
   "files.detail.metaTab": "Metadane pliku",
-
   "files.detail.extractTab": "Ekstrakt",
-
   "files.extract.loading": "Czytanie tego, co wytworzył potok...",
-
   "files.extract.error": "Nie udało się wczytać ekstrakcji.",
-
   "files.extract.chunks": "Fragmenty ({{shown}} z {{total}})",
-
   "files.extract.noChunks": "Brak fragmentów. Nic z tego pliku nie jest jeszcze wyszukiwalne.",
-
   "files.extract.images": "Wyodrębnione obrazy ({{count}})",
-
   "files.extract.noCaption": "Brak opisu obrazu.",
-
   "files.extract.converted": "Przekonwertowany markdown",
-
   "files.extract.truncated": "Pokazano do 256 KB. Pobierz przekonwertowany plik, aby zobaczyć resztę.",
-
   "files.extract.more": "Pokaż więcej fragmentów",
   "files.detail.description": "Opis",
-
   "files.detail.descriptionSource.generated": "wygenerowany",
-
   "files.detail.descriptionSource.generatedHint": "Napisany przez model skonfigurowany dla dokumentów, na podstawie tekstu pliku. Nie został sprawdzony przez człowieka.",
-
   "files.detail.descriptionSource.extracted": "z dokumentu",
-
   "files.detail.descriptionSource.extractedHint": "Początek tekstu dokumentu, przepisany dosłownie — nie skonfigurowano modelu do pisania opisów.",
   "files.detail.metaSaved": "Zapisano metadane.",
   "files.detail.retryQueued": "Ponowne osadzanie w kolejce.",
@@ -869,9 +855,7 @@
   "spaces.popup.tab.settings": "Ustawienia",
   "spaces.schema.collTabsAriaLabel": "Kolekcje rekordów",
   "spaces.settings.tabsAriaLabel": "Sekcje ustawień przestrzeni",
-
   "spaces.popup.governed": "Zarządzany",
-
   "spaces.popup.governedHint": "Ta przestrzeń należy do {{networks}}. Zapisanie zmiany celu, wskazówek lub schematu otwiera głosowanie w każdej sieci, zamiast zastosować ją od razu — zmiana zostaje zgłoszona, nie zastosowana.",
   "spaces.popup.tab.schema": "Schemat",
   "spaces.popup.tab.dangerZone": "Strefa zagrożenia",
@@ -1549,7 +1533,6 @@
   "mediaProcessing.action.test": "Testuj połączenie",
   "mediaProcessing.action.testing": "Testowanie…",
   "mediaProcessing.test.unreachable": "Nieosiągalny",
-
   "mediaProcessing.test.inProcess": "Model działa w procesie — nie ma czego sprawdzać",
   "mediaProcessing.test.reachable": "Osiągalny",
   "mediaProcessing.test.modelFound": "Osiągalny · model znaleziony",
@@ -1804,5 +1787,8 @@
   "review.typeFilter.capped": "Pokazano pierwsze 500 wyników — filtry dotyczą tylko ich.",
   "review.typeFilter.noneOfType": "Brak wyników tego typu",
   "review.typeFilter.noneOfTypeBody": "W tej kolejce są wyniki, ale żaden nie jest wybranego typu rekordu. Wybierz „Wszystkie typy”, aby je zobaczyć.",
-  "about.components.pending": "Sprawdzanie komponentów…"
+  "about.components.pending": "Sprawdzanie komponentów…",
+  "spaces.badge.proxy": "Przestrzeń proxy",
+  "spaces.badge.proxyTitle": "Przestrzeń proxy — odzwierciedla {{ids}} na peerze",
+  "spaces.badge.proxyAllTitle": "Przestrzeń proxy — odzwierciedla wszystkie przestrzenie na peerze"
 }

@@ -20,10 +20,10 @@
  *
  * ## Why these tests need a real instance
  *
- * The whole behaviour is "what is in the collection after the second call", which is a database question. The
+ * The whole behaviour is "which record the second call landed on", which is a database question. The
  * offline gate (`idempotent-writes-contract.test.js`) holds the parts that can be checked from source — that the
  * routes validate the shape, that the MCP tools advertise it, that the docs describe all four behaviours. Only
- * this file can prove the record count.
+ * this file can prove where the second write actually went.
  *
  * Run: node --test testing/integration/idempotent-writes.test.js
  * (needs the Docker test stack: `npm run test:up`)
@@ -44,10 +44,19 @@ before(() => { tok = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8
 /** A fresh UUID v4 per test, so one test's id can never make another's assertion pass. */
 const uuid = () => crypto.randomUUID();
 
-const listMemories = async () => {
-  const r = await post(INSTANCES.a, tok, '/api/brain/spaces/general/memories/query', {});
-  return r.body?.memories ?? r.body?.results ?? [];
-};
+/**
+ * Identity, not count.
+ *
+ * The first version of these tests counted records through a list endpoint. It came back empty — the endpoint
+ * was a POST /memories/query I had invented; listing is a GET — and the assertion then reported "the retry
+ * created a second memory (0 records with this fact)", which is the opposite of the truth.
+ *
+ * **A count cannot tell "no duplicate" from "I looked in the wrong place."** Comparing the ids the API returns
+ * is the same property asserted directly: same id means one record, different ids mean two. It needs no list
+ * endpoint and cannot be fooled by pagination, which an existing test in this suite already warns about past
+ * 100 records.
+ */
+const idOf = (r) => r.body?._id ?? r.body?.entity?._id ?? r.body?.edge?._id;
 
 describe('memories: a retry with the same id converges', () => {
   it('two identical creates with one id produce ONE record', async () => {
@@ -63,10 +72,9 @@ describe('memories: a retry with the same id converges', () => {
     assert.equal(second.status, 201, `retry failed: ${JSON.stringify(second.body)}`);
     assert.equal(second.body._id, id, 'the retry produced a different id');
 
-    const mine = (await listMemories()).filter(m => m.fact === fact);
-    assert.equal(mine.length, 1,
-      `the retry created a second memory (${mine.length} records with this fact). This is the bug: an agent whose `
-      + 'request timed out and retried used to double every record it wrote.');
+    assert.equal(idOf(second), idOf(first),
+      `the retry produced a DIFFERENT record (${idOf(first)} then ${idOf(second)}). This is the bug: an agent `
+      + 'whose request timed out and retried used to double every record it wrote.');
   });
 
   it('the retry moves seq and updatedAt — it converges, it is not a no-op', async () => {
@@ -98,10 +106,11 @@ describe('memories: a retry with the same id converges', () => {
   it('omitting the id still creates a new record every time', async () => {
     // The default must not change. Every existing client omits the id and relies on this.
     const fact = `no-id probe ${uuid()}`;
-    await post(INSTANCES.a, tok, '/api/brain/spaces/general/memories', { fact });
-    await post(INSTANCES.a, tok, '/api/brain/spaces/general/memories', { fact });
-    const mine = (await listMemories()).filter(m => m.fact === fact);
-    assert.equal(mine.length, 2, 'omitting the id silently deduplicated, which would break every existing caller');
+    const a = await post(INSTANCES.a, tok, '/api/brain/spaces/general/memories', { fact });
+    const b = await post(INSTANCES.a, tok, '/api/brain/spaces/general/memories', { fact });
+    assert.ok(idOf(a) && idOf(b), `both creates must return an id (${idOf(a)}, ${idOf(b)})`);
+    assert.notEqual(idOf(b), idOf(a),
+      'omitting the id silently deduplicated, which would break every existing caller');
   });
 
   it('a malformed id is refused with 400, not stored', async () => {
@@ -127,10 +136,8 @@ describe('chrono: the same contract', () => {
     const second = await post(INSTANCES.a, tok, '/api/brain/spaces/general/chrono', body);
     assert.equal(second.status, 201, `retry failed: ${JSON.stringify(second.body)}`);
 
-    const r = await post(INSTANCES.a, tok, '/api/brain/spaces/general/chrono/query', {});
-    const entries = r.body?.entries ?? r.body?.chrono ?? r.body?.results ?? [];
-    const mine = entries.filter(e => e.title === title);
-    assert.equal(mine.length, 1, `the retry created a second chrono entry (${mine.length} with this title)`);
+    assert.equal(idOf(second), idOf(first),
+      `the retry produced a different chrono entry (${idOf(first)} then ${idOf(second)})`);
   });
 
   it('a malformed id is refused with 400', async () => {
@@ -150,24 +157,26 @@ describe('entities and edges: the behaviour that already existed still holds', (
     assert.equal(first.status, 201, `entity create failed: ${JSON.stringify(first.body)}`);
     const second = await post(INSTANCES.a, tok, '/api/brain/spaces/general/entities', { id, name, type: 'person' });
     assert.ok(second.status === 200 || second.status === 201, `entity retry failed: ${second.status}`);
-    assert.equal(second.body.entity?._id ?? second.body._id, id, 'the entity retry did not converge on the same id');
+    assert.equal(idOf(second), id, 'the entity retry did not converge on the same id');
   });
 
   it('an edge retry converges on its natural key without any id', async () => {
+    // `from`/`to` are entity IDs, not names — the API says so explicitly: "a name is not a reference". The first
+    // version passed names and got a 400 that had nothing to do with idempotency.
     const suffix = uuid().slice(0, 8);
-    const from = `edge-from-${suffix}`;
-    const to = `edge-to-${suffix}`;
-    for (const n of [from, to]) {
-      await post(INSTANCES.a, tok, '/api/brain/spaces/general/entities', { name: n, type: 'person' });
+    const ids = [];
+    for (const n of [`edge-from-${suffix}`, `edge-to-${suffix}`]) {
+      const e = await post(INSTANCES.a, tok, '/api/brain/spaces/general/entities', { name: n, type: 'person' });
+      assert.ok(idOf(e), `entity ${n} was not created: ${JSON.stringify(e.body)}`);
+      ids.push(idOf(e));
     }
-    const body = { from, to, label: 'knows' };
+    const body = { from: ids[0], to: ids[1], label: 'knows' };
     const first = await post(INSTANCES.a, tok, '/api/brain/spaces/general/edges', body);
     assert.ok(first.status === 200 || first.status === 201, `edge create failed: ${JSON.stringify(first.body)}`);
     const second = await post(INSTANCES.a, tok, '/api/brain/spaces/general/edges', body);
     assert.ok(second.status === 200 || second.status === 201, `edge retry failed: ${second.status}`);
-    const firstId = first.body.edge?._id ?? first.body._id;
-    const secondId = second.body.edge?._id ?? second.body._id;
-    assert.equal(secondId, firstId,
+    assert.ok(idOf(first), `the edge create returned no id: ${JSON.stringify(first.body)}`);
+    assert.equal(idOf(second), idOf(first),
       'the edge retry created a second edge — the (from, to, label) natural key stopped being idempotent');
   });
 });

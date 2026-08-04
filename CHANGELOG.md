@@ -49,6 +49,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An integration test proves the record count after a retry (the only thing that can), and an offline gate holds
   the contract: the docs describe all four types, the routes validate, the MCP schemas advertise it and do not
   make it required. **8 mutations, 8 caught.**
+- **The integration suite failed on its first real run, entirely on my test's plumbing — every feature assertion
+  passed.** The id landed, `seq` advanced, tags merged, a malformed id was refused, the entity path converged.
+  Two faults, and the fix for the first is strictly better than what it replaced:
+  - I counted records through a `POST /memories/query` I had invented; listing is a `GET`. The list
+    came back empty and the assertion announced *"the retry created a second memory (0 records with this fact)"*
+    — **the opposite of the truth.** A count cannot tell "no duplicate" from "I looked in the wrong place". It now
+    compares the ids the API returns, which asserts the same property directly, needs no list endpoint, and cannot
+    be fooled by pagination — a test already in that suite warns that scanning a paginated list gives a false pass
+    past 100 records.
+  - Edge `from`/`to` take entity **IDs**, not names — the API says so in as many words: *"a name is
+    not a reference"*. I passed names and got a 400 that had nothing to do with idempotency.
 - **Three of the first eight survived, and two were my assertions being unscoped.** Both checked that a string
   existed *anywhere in the file* — and both strings already appear elsewhere in the same file, from the separate
   update function and from the `entityIds` validation. So a mutation flipping the convergence event to

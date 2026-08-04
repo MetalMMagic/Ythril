@@ -77,26 +77,26 @@ ythril_http_requests_total{method="GET",route="/health",status_code="200"} 42
 | `ythril_embedding_duration_seconds` | histogram | Time to compute a single embedding |
 | `ythril_embedding_queue_depth` | gauge | Pending embedding operations |
 | `ythril_reindex_in_progress` | gauge | 1 if a reindex is running, 0 otherwise |
-| `ythril_storage_used_bytes` | gauge | Storage used in bytes by area (brain, files, total) |
+| `ythril_storage_used_bytes` | gauge | Storage used in bytes by area (brain, files, total). **From a cached measurement, not re-walked per scrape** — see `ythril_storage_usage_age_seconds` below and the note on why. |
 | `ythril_storage_limit_bytes` | gauge | Configured storage limits by area and tier (soft, hard) |
 | `ythril_auth_attempts_total` | counter | Auth attempts by result (success, invalid) |
 | `ythril_tokens_active` | gauge | Number of active (non-expired) tokens |
 | `ythril_mcp_connections_active` | gauge | Current SSE connections |
 | `ythril_mcp_tool_calls_total` | counter | Tool invocations by tool name and space |
-| `ythril_sync_cycles_total` | counter | Sync cycles by network and status |
-| `ythril_sync_items_pulled_total` | counter | Items received by type |
-| `ythril_sync_items_pushed_total` | counter | Items sent by type |
+| `ythril_sync_cycles_total` | counter | Sync cycles by `network` and `status` — `success`, `partial`, `error`. |
+| `ythril_sync_items_pulled_total` | counter | Items received by `type` — `memories`, `entities`, `edges`, `files`, `chrono`. |
+| `ythril_sync_items_pushed_total` | counter | Items sent by `type` — same set as pulled. |
 | `ythril_sync_duration_seconds` | histogram | Time per sync cycle |
 | `ythril_recall_degraded_total` | counter | Recalls answered with a **weaker pipeline than configured**, by `reason`. `rerank_unavailable` = the cross-encoder is configured but did not answer; `rerank_skipped_budget` = it was not attempted because the end-to-end `RECALL_BUDGET_MS` was already spent upstream. **This is the one to alert on**: these paths return HTTP 200 with a worse ranking, so they raise no error rate and barely move latency — a reranker down for a week is otherwise invisible. Both series report `0` from process start, so absent-vs-zero is never ambiguous. |
-| `ythril_media_jobs_pending` | gauge | Queued media/document embedding jobs by space |
-| `ythril_media_jobs_processing` | gauge | Jobs a worker is currently running, by space. **One long document shows as `1` here for its whole duration** — pair it with `ythril_embed_chunks_total` to tell slow from stuck |
+| `ythril_media_jobs_pending` | gauge | Queued media/document embedding jobs by space, counted **at scrape time** (so it is a sample, not a running total). |
+| `ythril_media_jobs_processing` | gauge | Jobs a worker is currently running, by space. Counted **at scrape time**, so it is a sample. **One long document shows as `1` here for its whole duration** — pair it with `ythril_embed_chunks_total` to tell slow from stuck |
 | `ythril_media_job_phase` | gauge | In-flight jobs by the pipeline step they are in (`render`, `vlm`, `embed`, `describe`, …, or `unknown` for a job that has not reported one). The known step names are **seeded at `0` from the first scrape**, so the series exists before any job has been in them; an unlisted step appears the moment it is seen |
 | `ythril_embed_chunks_total` | counter | Chunks put through the embedder, by space. Motion, not success: `rate(...[5m]) == 0` while `ythril_media_jobs_processing > 0` is a stuck job, a non-zero rate is a slow one — **but see the restart caveat below before alerting on it** |
 | `ythril_brain_write_seq_total` | counter | Brain record writes by whether the record **changed between read and write**, labelled `collection` and `outcome` (`clean` / `collision`). A `collision` is a **lost update**: two clients edited the same record, and because there is no `If-Match` on brain records yet, the second write silently overwrote the first with a `200` and no trace. Note the exposure is narrower than it sounds — a write `$set`s only the fields the caller supplied, so two clients editing *different* fields both succeed and lose nothing; a collision means the same field. **This is a measurement, not a guard.** It exists to answer how often it actually happens on an instance with several MCP agents against one space, before a 412 path is built. Both series report `0` from process start, so absent-vs-zero is never ambiguous, and `clean` is counted so the collision number has a denominator. |
 | `ythril_media_jobs_completed_total` | counter | Jobs that finished, by space and media type |
 | `ythril_media_jobs_failed_total` | counter | Jobs that exhausted their retries, by space and media type |
 | `ythril_media_jobs_retried_total` | counter | Attempts that failed and were re-queued, by space and media type — including a job whose claim was recovered while it was still running |
-| `ythril_media_jobs_failed` | gauge | Jobs sitting in the terminal `failed` state by space (a backlog, not a rate) |
+| `ythril_media_jobs_failed` | gauge | Jobs sitting in the terminal `failed` state by space, counted **at scrape time** (a backlog, not a rate) |
 | `ythril_media_job_duration_seconds` | histogram | End-to-end time per job by media type |
 | `ythril_metrics_collect_duration_seconds` | histogram | Time for one async collector to gather its values, by `collector` — one observation per collector per scrape. **This is how a slow `/metrics` names its own cause.** Several gauges here are collected at scrape time and walk every space, so on a many-space instance under write load a scrape can approach the Prometheus timeout; `topk(3, ythril_metrics_collect_duration_seconds_sum / ythril_metrics_collect_duration_seconds_count)` says which collector is responsible. **It is a histogram, so the bare metric name is not a series** — only `_bucket`, `_sum` and `_count` exist, and an instant query for `ythril_metrics_collect_duration_seconds` returns empty. That reads as "the metric is missing" rather than "wrong series name", which cost a canary operator a minute and would cost the next person longer. Buckets run to 15 s deliberately — a histogram whose top bucket sits below the failure cannot describe it. |
 | `ythril_metrics_scrape_degraded` | gauge | `1` if the scrape being served had to abandon at least one collector to stay inside its budget, else `0`. **This is the one to alert on**, because the degradation is otherwise invisible: the scrape succeeds, `up` stays 1, and only the abandoned series are missing. It describes the scrape you are reading, not the previous one. |

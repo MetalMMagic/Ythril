@@ -84,6 +84,7 @@ POST /api/brain/spaces/:spaceId/memories
 
 ```json
 {
+  "id": "3f2b1c9e-7d84-4a51-9e60-1b2c3d4e5f60",
   "fact": "Kubernetes pods are ephemeral by design",
   "type": "note",
   "tags": ["k8s", "architecture"],
@@ -112,7 +113,7 @@ POST /api/brain/spaces/:spaceId/memories
 }
 ```
 
-**Constraints**: `fact` max 50 000 chars. `type` optional string — stored on the document and validated against the space's `typeSchemas.memory` allowlist when set. `tags` must be an array of strings. `description` optional string. `properties` optional object; property values should be a string, number, or boolean (unlike the entity endpoint, the memory/edge/chrono write paths don't reject non-primitive values at the API layer — schema validation is the gate when the space defines the property). Every id in `entityIds` must be a UUID v4 **and** name an entity that exists — passing a name, a malformed id, or an id that resolves to nothing returns `400` and stores nothing. This is the default; a space can opt out with `meta.strictLinkage: false` (see [Reference integrity](12-admin-api.md#reference-integrity)). `ttlDays` optional — see [Record Expiry (TTL)](#record-expiry-ttl).
+**Constraints**: `id` optional — a **UUID v4** you supply to make the write idempotent (a retry with the same id converges on that record instead of creating a second one); anything else is a `400`, and omitting it generates one. See [Retry Safety](#retry-safety). **Constraints**: `fact` max 50 000 chars. `type` optional string — stored on the document and validated against the space's `typeSchemas.memory` allowlist when set. `tags` must be an array of strings. `description` optional string. `properties` optional object; property values should be a string, number, or boolean (unlike the entity endpoint, the memory/edge/chrono write paths don't reject non-primitive values at the API layer — schema validation is the gate when the space defines the property). Every id in `entityIds` must be a UUID v4 **and** name an entity that exists — passing a name, a malformed id, or an id that resolves to nothing returns `400` and stores nothing. This is the default; a space can opt out with `meta.strictLinkage: false` (see [Reference integrity](12-admin-api.md#reference-integrity)). `ttlDays` optional — see [Record Expiry (TTL)](#record-expiry-ttl).
 
 ---
 
@@ -1146,6 +1147,9 @@ POST /api/brain/spaces/:spaceId/chrono
 ```
 
 **Body**:
+
+`id` is optional here too — a **UUID v4** you supply to make the create idempotent, exactly as for a
+memory. See [Retry Safety](#retry-safety).
 
 ```json
 {

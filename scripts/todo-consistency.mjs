@@ -149,7 +149,52 @@ console.log(`\n${YELLOW}todo/ consistency${R}  ${DIM}(owner rules 2026-08-02 and
   }
 }
 
-// ── rule 3: the working plan must describe work that is still ahead
+// ── rule 3: every open item states how to verify it is still open
+{
+  /**
+   * The rule that replaces a title-matching check written and deleted in the same session.
+   *
+   * The problem it is really solving: **four of ten open items had already shipped**, none of them marked in any
+   * way — just `- [ ]` entries describing work that was done. No closure word, no checkbox, nothing to grep.
+   *
+   * The first attempt compared each item's title against released CHANGELOG sections. It **survived its own
+   * mutation**: a known-shipped item was restored and the check stayed green. The premise was wrong, not the
+   * implementation — a todo describes the PROBLEM ("Nothing detects an unreachable component") and a CHANGELOG
+   * describes the FIX ("The build now fails when a component becomes unreachable"). They share no phrase, so title
+   * matching could only ever catch coincidences. A green tick that proves nothing is worse than no tick.
+   *
+   * So the item carries its own evidence instead. **Every open item names what to look at to confirm it is still
+   * open** — a file, a symbol, a test name, a route. That turns "is this still open?" from a judgement call into a
+   * one-command answer, and unlike the prose comparison it is mechanically checkable.
+   */
+  const VERIFY = /(?:\*\*)?(?:Verify|Still open because|Evidence)(?:\*\*)?\s*:/i;
+  const OPEN_ITEM = /^[ \t]*[-*][ \t]*\[ \]/;
+  const missing = [];
+  for (const f of files) {
+    if (NOT_A_QUEUE.has(f)) continue;
+    const src = readFileSync(join(TODO, f), 'utf8');
+    // Split on top-level checkboxes so each item is checked together with its own body.
+    const parts = src.split(/(?=^[ \t]*[-*][ \t]*\[ \])/m).filter(p => OPEN_ITEM.test(p));
+    for (const p of parts) {
+      if (VERIFY.test(p)) continue;
+      const title = (p.match(/\*\*(.+?)\*\*/)?.[1] ?? p.split(/\r?\n/)[0]).replace(/[`*[\]]/g, '').trim();
+      missing.push(`${f} — "${title.slice(0, 66)}"`);
+    }
+  }
+  if (missing.length) {
+    fail(`${missing.length} open item(s) do not say how to verify they are still open:\n`
+      + missing.map(x => `      ${x}`).join('\n')
+      + '\n\n      Add a line like "Verify: `grep -c prod-deps Dockerfile` returns 0" — a file, a symbol, a test'
+      + '\n      name, anything runnable. Four of ten items were once found to have already shipped, with nothing'
+      + '\n      in the file to reveal it. This is the cheapest thing that would have.');
+    console.log(`${RED}  ✗${R} an open item does not say how to verify it is still open`);
+  } else {
+    console.log(`${GREEN}  ✓${R} every open item says how to verify it is still open`);
+  }
+}
+
+
+// ── rule 4: the working plan must describe work that is still ahead
 {
   /**
    * `_NEXT-PR-PLAN.md` is exempt from the queue rules because it is a working document — and that exemption is

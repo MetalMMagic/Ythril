@@ -18,6 +18,64 @@ GET /api/brain/spaces/general/memories
 
 > **Breaking change (2.0):** the old two-segment shape `/api/brain/:spaceId/memories` (e.g. `/api/brain/general/memories`) has been **removed**. It previously duplicated these handlers under a second URL; it now returns `404`. Update any client still using it to the `/spaces/:spaceId/` prefix.
 
+## Retry Safety
+
+**A request that times out has not necessarily failed.** If you retry a create, whether you get one record or
+two depends on the record type — so this is the first thing to read if anything you write is retried, and
+anything an agent writes is retried.
+
+| type | retried create | how |
+|---|---|---|
+| **memory** | idempotent **if you supply `id`** | a UUID v4 you generate; the retry converges on that record |
+| **chrono** | idempotent **if you supply `id`** | same |
+| **entity** | idempotent **if you supply `id`** | same |
+| **edge** | **always idempotent** | the natural key `(from, to, label)` — no id needed |
+
+### How to make a write retry-safe
+
+Generate the UUID **before your first attempt** and reuse it on every retry. That is the whole technique:
+
+```js
+const id = crypto.randomUUID();          // once, before the first attempt
+
+async function writeWithRetry(fact) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await post('/api/brain/spaces/general/memories', { id, fact });
+    } catch (err) {
+      // A timeout here may mean the write SUCCEEDED and the response was lost. Retrying with the same `id`
+      // converges on the same record instead of writing a second one.
+      if (attempt === 2) throw err;
+    }
+  }
+}
+```
+
+### What "idempotent" means here, precisely
+
+**It is not a no-op.** The second write really happens — it just lands on the same record:
+
+- `seq` and `updatedAt` advance, so the retry is a real write and appears in the audit log and in
+  `ythril_brain_write_seq_total`;
+- **tags union and properties shallow-merge**, they do not replace. A retry sends the identical payload so this
+  makes no difference to it, but reusing an id later with different content behaves as a merge;
+- the webhook event is `memory.updated` / `chrono.updated` / `entity.updated`, **not**
+  `*.created`, so a subscriber can tell a converged retry from a new record.
+
+What you get is the guarantee that matters: **the same content, in one record, however many times you send it.**
+
+### Rules
+
+- `id` must be a **UUID v4**. Anything else is a `400` — it becomes the record's identity across
+  every peer in every network the space belongs to, so it is held to a shape.
+- **Omitting `id` is unchanged**: every call creates a new record. Existing clients are unaffected.
+- An id that names nothing yet simply becomes the new record's id, so your *first* attempt does not need to know
+  whether it is the first.
+- The MCP tools `remember` and `create_chrono` take the same optional `id`, with the same
+  meaning.
+
+---
+
 ### Write a Memory
 
 ```http

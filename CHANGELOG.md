@@ -7,6 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A retried write no longer duplicates a memory or a chrono entry.** Both creates now accept an optional
+  caller-supplied `id` (UUID v4), and a retry that reuses it **converges on the same record** instead of
+  writing a second one. The MCP tools `remember` and `create_chrono` take the same parameter.
+  - **The finding was that three different answers already existed and none was documented.** An entity was
+    idempotent if you supplied an `id`; an edge was always idempotent via its `(from, to, label)`
+    natural key; **memory and chrono duplicated** — and they are the two highest-volume write types and the ones
+    an agent retries most. There is no `Idempotency-Key` support anywhere, so a timed-out request had no safe
+    retry for two of the four types.
+  - **The entity path was real retry safety that was invisible.** The only place the docs mentioned supplying an
+    id was inside a *warning string* about updating an existing entity — never as "this is how you make a write
+    retry-safe".
+  - **Owner chose this over an `Idempotency-Key` header** because it reuses a path already shipped and
+    tested on entities: no new collection, no TTL to expire, and an agent that generates one UUID before its
+    first attempt gets idempotency for free.
+
+### Documentation
+
+- **A `Retry Safety` section on the Brain API page**, documenting all four record types and their three
+  different mechanisms in one table — the thing that did not exist.
+  - It says plainly that **idempotent does not mean no-op**: the second write really happens, `seq` and
+    `updatedAt` advance, it appears in the audit log and in `ythril_brain_write_seq_total`. An integrator who
+    reads "idempotent" as "the second call does nothing" would be confused by their own audit log.
+  - It says to generate the UUID **before the first attempt**, which is the one detail that makes the technique
+    work and the natural thing to get wrong.
+  - It reassures that **omitting `id` is unchanged** — every existing client is unaffected.
+
+### Fixed
+
+- **Convergence emits `*.updated`, not `*.created`.** A webhook subscriber has to be able to tell a converged
+  retry from a new record, or it creates the duplicate downstream that was just prevented upstream.
+- **The new routes validate the supplied id as a UUID v4**; the entity route does **not** — `safeId` there is
+  `typeof id === 'string'`, so an arbitrary string can become the `_id` of a record that replicates across every
+  peer in every network. That is pre-existing and tightening it would be breaking, so it is filed rather than
+  changed here — but it is deliberately not copied onto the new paths.
+
+### Testing
+
+- An integration test proves the record count after a retry (the only thing that can), and an offline gate holds
+  the contract: the docs describe all four types, the routes validate, the MCP schemas advertise it and do not
+  make it required. **8 mutations, 8 caught.**
+- **The integration suite failed on its first real run, entirely on my test's plumbing — every feature assertion
+  passed.** The id landed, `seq` advanced, tags merged, a malformed id was refused, the entity path converged.
+  Two faults, and the fix for the first is strictly better than what it replaced:
+  - I counted records through a `POST /memories/query` I had invented; listing is a `GET`. The list
+    came back empty and the assertion announced *"the retry created a second memory (0 records with this fact)"*
+    — **the opposite of the truth.** A count cannot tell "no duplicate" from "I looked in the wrong place". It now
+    compares the ids the API returns, which asserts the same property directly, needs no list endpoint, and cannot
+    be fooled by pagination — a test already in that suite warns that scanning a paginated list gives a false pass
+    past 100 records.
+  - Edge `from`/`to` take entity **IDs**, not names — the API says so in as many words: *"a name is
+    not a reference"*. I passed names and got a 400 that had nothing to do with idempotency.
+- **Three of the first eight survived, and two were my assertions being unscoped.** Both checked that a string
+  existed *anywhere in the file* — and both strings already appear elsewhere in the same file, from the separate
+  update function and from the `entityIds` validation. So a mutation flipping the convergence event to
+  `*.created`, and one replacing the id check with `true`, both passed. Now scoped to the convergence branch and
+  to `UUID_V4_RE.test(rawId)` respectively. The third was a weak mutation rather than a weak test.
+
 ### Documentation
 
 - **The webhook signature-verification example we hand integrators used `===` on the HMAC.** Our own code

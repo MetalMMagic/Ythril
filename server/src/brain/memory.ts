@@ -45,7 +45,41 @@ export async function remember(
   opts?: DupeCheckOpts,
   actor?: WebhookActor,
   ttlDays?: number | null,
+  /**
+   * A caller-supplied UUID v4, which makes this write **idempotent**.
+   *
+   * ## Why it exists
+   *
+   * An MCP agent or an integrator whose request times out will retry — and before this, a retried memory create
+   * produced a **second memory**, silently. Entities already had this: a supplied `id` makes `upsertEntity` find
+   * by `_id` and update. Edges get it free from their `(from, to, label)` natural key. Memories and chrono had
+   * neither, and they are the two highest-volume write types.
+   *
+   * The owner chose this mechanism over an `Idempotency-Key` header specifically because it reuses a path already
+   * shipped and tested on entities: no new storage, no TTL to expire, and an agent that generates one UUID before
+   * its first attempt gets idempotency for free.
+   *
+   * ## What a retry actually does, stated precisely
+   *
+   * It is **not** a no-op. The record converges on the same content, but `updatedAt` and `seq` move, and tags and
+   * properties **merge** rather than replace — matching `upsertEntity` exactly, because one mental model across
+   * four record types is worth more than a marginally different rule per type. Converging on the same content is
+   * what retry safety means here; claiming "no effect" would be false, and it would also be visible as a `clean`
+   * write in `ythril_brain_write_seq_total`.
+   *
+   * The route validates the shape. An arbitrary string must never reach `_id`: it becomes the sync identity of a
+   * record that replicates across networks.
+   *
+   * NOTE: this is the twelfth positional parameter, which is one too many. The next addition should convert the
+   * tail to an options object rather than continue the pattern.
+   */
+  id?: string,
 ): Promise<MemoryDoc & { similar?: SimilarMatch[]; contradicts?: ContradictionWarning[] }> {
+  // When an id is supplied, look for the record it names first — the same shape as `upsertEntity`.
+  const existing: MemoryDoc | null = id
+    ? (await col<MemoryDoc>(`${spaceId}_memories`).findOne(asFilter<MemoryDoc>({ _id: id })) as MemoryDoc | null)
+    : null;
+
   const names = entityNames ?? await resolveEntityNames(spaceId, entityIds);
   const embedText = memoryEmbedText(fact, tags, names, description, properties);
   const embResult = await embed(embedText);
@@ -66,8 +100,49 @@ export async function remember(
 
   const seq = await nextSeq(spaceId);
   const now = new Date().toISOString();
+
+  // ── The idempotent branch: a supplied id that already names a record CONVERGES rather than duplicating.
+  //
+  // Merge semantics match `upsertEntity` deliberately — tags union, properties shallow-merge — so a caller has one
+  // rule to learn across all four record types. A retry sends the identical payload, so merge and replace are
+  // indistinguishable for the case this exists for; the difference only shows when the id is reused with different
+  // content, which is a deliberate update and behaves like the entity path does.
+  if (existing) {
+    const mergedTags = [...new Set([...(existing.tags ?? []), ...tags])];
+    const mergedProps = { ...(existing.properties ?? {}), ...(properties ?? {}) };
+    const $set: Record<string, unknown> = {
+      fact,
+      tags: mergedTags,
+      entityIds,
+      matchedText: embedText,
+      updatedAt: now,
+      seq,
+      embedding: embResult.vector,
+      embeddingModel: embResult.model,
+    };
+    if (type !== undefined) $set['type'] = type;
+    if (description !== undefined) $set['description'] = description;
+    if (properties !== undefined) $set['properties'] = mergedProps;
+    const $unset: Record<string, unknown> = {};
+    applyExpiryToUpdate(spaceId, ttlDays, existing._expireAt != null, $set, $unset,
+      { collection: 'memory', existing: existing as unknown as Record<string, unknown> });
+    const updateOp: Record<string, unknown> = { $set };
+    if (Object.keys($unset).length > 0) updateOp['$unset'] = $unset;
+    await col<MemoryDoc>(`${spaceId}_memories`).updateOne(
+      asFilter<MemoryDoc>({ _id: existing._id }), asUpdate<MemoryDoc>(updateOp),
+    );
+    const converged = { ...existing, ...($set as Partial<MemoryDoc>) } as MemoryDoc;
+    if ('_expireAt' in $unset) delete (converged as { _expireAt?: unknown })._expireAt;
+    // `memory.updated`, not `created` — a subscriber must be able to tell a converged retry from a new record.
+    if (actor) emitWebhookEvent({ event: 'memory.updated', spaceId, entry: { ...converged, embedding: undefined }, ...actor });
+    return (similar || contradicts)
+      ? { ...converged, ...(similar ? { similar } : {}), ...(contradicts ? { contradicts } : {}) }
+      : converged;
+  }
+
   const doc: MemoryDoc = {
-    _id: uuidv4(),
+    // A supplied id that named nothing becomes the record's identity, so the caller's retry finds it next time.
+    _id: id ?? uuidv4(),
     spaceId,
     fact,
     embedding: embResult.vector,

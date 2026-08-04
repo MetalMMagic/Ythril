@@ -105,9 +105,20 @@ chronoRouter.post('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, 
   const ttlErr = ttlDaysError(req.body);
   if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
 
+  // A caller-supplied id becomes the sync identity of a record that replicates across networks, so it is held
+  // to the same shape the rest of the API uses. (The entity route accepts any string here — pre-existing, and
+  // tightening it would be a breaking change, so it is filed rather than copied.)
+  const rawId: unknown = req.body?.['id'];
+  if (rawId !== undefined && (typeof rawId !== 'string' || !UUID_V4_RE.test(rawId))) {
+    res.status(400).json({ error: '`id` must be a UUID v4 when supplied. Omit it to have one generated, or reuse the same value to make a retry idempotent.' });
+    return;
+  }
+  const safeId: string | undefined = typeof rawId === 'string' ? rawId : undefined;
+
   const entry = await createChrono(wt.target, {
     title: title.trim(), type, startsAt, endsAt, status, confidence,
     tags, entityIds, memoryIds, description, properties: safeProps, recurrence: safeRecurrence,
+    id: safeId,
   }, webhookToken(req), ttlDaysFromBody(req.body));
   const result: Record<string, unknown> = { ...entry };
   if (validation.warnings.length > 0) result['warnings'] = validation.warnings;

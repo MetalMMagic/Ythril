@@ -96,9 +96,19 @@ memoriesRouter.post('/spaces/:spaceId/memories', globalRateLimit, requireSpaceAu
   const ttlErr = ttlDaysError(req.body);
   if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
 
+  // A caller-supplied id becomes the sync identity of a record that replicates across networks, so it is held
+  // to the same shape the rest of the API uses. (The entity route accepts any string here — pre-existing, and
+  // tightening it would be a breaking change, so it is filed rather than copied.)
+  const rawId: unknown = req.body?.['id'];
+  if (rawId !== undefined && (typeof rawId !== 'string' || !UUID_V4_RE.test(rawId))) {
+    res.status(400).json({ error: '`id` must be a UUID v4 when supplied. Omit it to have one generated, or reuse the same value to make a retry idempotent.' });
+    return;
+  }
+  const safeId: string | undefined = typeof rawId === 'string' ? rawId : undefined;
+
   const doc = await remember(
     targetSpace, fact, safeEntityIds, safeTags, safeDesc, safeProps,
-    undefined, safeMemoryType, undefined, webhookToken(req), ttlDaysFromBody(req.body),
+    undefined, safeMemoryType, undefined, webhookToken(req), ttlDaysFromBody(req.body), safeId,
   );
   const body: Record<string, unknown> = { ...doc };
   if (quotaResult?.softBreached) body['storageWarning'] = true;

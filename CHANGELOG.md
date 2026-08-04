@@ -24,10 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     already makes for LibreOffice), and offering corresponding source from ffmpeg.org and the Debian source
     packages. The separate-process argument covers Ythril’s own code; it does not cover redistributing the
     binary, which is what the attribution and source offer are for.
-  - Gate `ffmpeg-licensing-is-stated`: FFmpeg must be attributed, the licence named must be the one Debian
-    builds, the source offer must point somewhere real, and **the two documents must agree**. It cannot strip
-    comments — the comment *is* the claim under test — so it distinguishes asserting the false claim from
-    quoting it, which the ninth-in-a-row gate-fires-on-its-own-explanation incident forced it to learn.
+  - Gate `ffmpeg-licensing-is-stated` checks the **one claim that can actually break**: that ffmpeg is invoked
+    as a separate process and never linked, which is what keeps its GPL out of Ythril’s own licensing. No ffmpeg
+    module may be imported, a real `spawn('ffmpeg')` must exist, and no npm dependency may ship or wrap an
+    ffmpeg binary — `ffmpeg-static` and friends would redistribute a build whose licence is not the Debian one
+    NOTICE describes. Reaching for one of those is the obvious move for anyone tidying the media pipeline.
+  - It deliberately does **not** assert that the NOTICE paragraph still exists or still says the right words.
+    Prose does not drift on its own, nothing regenerates that section, and a check earns its place by catching
+    something that can change — not by restating a file back to itself.
   - **And the artefact is checked, not just the documents.**  now runs  in the
     published image, derives the licence from whether  is present, and compares it against the
      that ships *inside that same image*. Two documents agreeing is not the same as either being true —

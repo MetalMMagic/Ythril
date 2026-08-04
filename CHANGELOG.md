@@ -394,6 +394,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The CLA check had never run once.** An invalid `if:` expression made every run a *startup* failure — zero
+  jobs, conclusion `failure`, one per push. The owner noticed because of the emails; the real cost was that the
+  CLA was not being enforced at all from the day #665 added it, while the repository looked guarded.
+  - The expression was `if: ${{ secrets.CLA_SIGNATURES_TOKEN == '' }}`. **The `secrets` context is not available
+    in `if:`** — only in `env:` and `with:` — and GitHub rejects the whole workflow rather than the one line. The
+    secret is now read through `env:` and tested in the shell, which keeps the actionable error message.
+  - **Diagnosed by measuring, not guessing:** `gh run list --workflow=cla.yml` showed 12 runs, all
+    `event: push`, all `failure` — on a workflow whose `on:` block has no push trigger. That mismatch, plus "No
+    jobs were run", is the signature of a startup failure, which in the runs list looks almost exactly like a
+    check that ran and failed. That resemblance is why nothing here caught it.
+  - Gate `workflows-are-valid`: every workflow parses, declares a trigger and a job with `runs-on` or `uses`, and
+    **no `if:` anywhere reads the `secrets` context**. It cannot replace GitHub's own validation; it closes the
+    class of error whose cost is a silent outage rather than a red X.
+
 - **An embedded iframe narrower than 768px had no navigation at all.** Below that width the sidebar is an
   off-canvas drawer and the hamburger is the only thing that opens it — and the hamburger lived in the topbar,
   which `?embedded=1` removes because it duplicates the host portal's chrome. So a portal embedding Ythril in a

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import crypto from 'node:crypto';
-import { register } from '../metrics/registry.js';
+import { register, beginScrape, endScrape } from '../metrics/registry.js';
 import { requireAdmin } from '../auth/middleware.js';
 
 export const metricsRouter = Router();
@@ -58,7 +58,15 @@ function metricsTokenAuth(req: import('express').Request, res: import('express')
 // This avoids per-request branching and makes the auth path statically clear.
 const metricsAuth = METRICS_TOKEN ? metricsTokenAuth : requireAdmin;
 
+/**
+ * The scrape window exists so a slow collector cannot blind the whole target.
+ *
+ * `beginScrape()` opens the deadline every collector races against; `endScrape()` closes it in a
+ * `finally`, because a deadline left open would be inherited by the next scrape and expire it instantly.
+ * See the budget block in `metrics/registry.ts` for why partial beats all-or-nothing.
+ */
 metricsRouter.get('/', metricsAuth, async (_req, res) => {
+  beginScrape();
   try {
     const metrics = await register.metrics();
     res.setHeader('Content-Type', register.contentType);
@@ -66,5 +74,7 @@ metricsRouter.get('/', metricsAuth, async (_req, res) => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).send(`# Error collecting metrics: ${msg}\n`);
+  } finally {
+    endScrape();
   }
 });

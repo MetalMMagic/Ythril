@@ -63,9 +63,236 @@ const collectDuration = new Histogram({
   registers: [register],
 });
 
-/** Start timing one collector. The returned function records the elapsed time; call it on every exit path. */
-function collectTimer(collector: string): () => void {
-  return collectDuration.startTimer({ collector });
+/**
+ * Every collector that gathers asynchronously and is therefore subject to the budget below.
+ *
+ * Named in one place so the timeout counter can be pre-declared at zero for each of them — an absent series
+ * and a zero one look identical on a graph and mean opposite things — and so a test can assert that no
+ * `withCollectBudget` call site uses a name that is not on this list. A collector that timed out under a
+ * name nobody enumerated would be invisible in exactly the situation this exists to make visible.
+ */
+export const TIMED_COLLECTORS = [
+  'memories_total', 'entities_total', 'edges_total', 'chrono_entries_total', 'storage_used_bytes',
+  'media_jobs_pending', 'media_jobs_processing', 'media_jobs_failed', 'media_job_phase',
+] as const;
+
+/**
+ * ## Why these two carry a `collect()` that gathers nothing
+ *
+ * The same concurrency that makes one shared deadline correct breaks the *reporting* of a timeout, and it does
+ * so silently. prom-client serialises each metric as soon as **its own** value is ready — one synchronous pass
+ * starts every collector, then each is written out independently. So a counter that some *other* collector
+ * increments is serialised at 0, before the timeout it is meant to record has even happened. The first version
+ * of this change shipped that bug: the budget worked, the scrape returned fast, and both of these read 0.
+ *
+ * The fix is a barrier. `scrapeSettled()` holds these two until every budgeted collector in this scrape has
+ * finished or been abandoned — bounded, because each of them is bounded by the budget.
+ *
+ * **This is why the two are not simply set from `endScrape()`.** That runs after serialisation, so the flag
+ * would describe the *previous* scrape: an alert permanently one scrape behind, firing after recovery and
+ * silent during the incident.
+ */
+export const collectTimeoutsTotal = new Counter({
+  name: 'ythril_metrics_collect_timeouts_total',
+  help: 'Collectors abandoned mid-scrape because the scrape budget ran out, by collector',
+  labelNames: ['collector'] as const,
+  registers: [register],
+  async collect() { await scrapeSettled(); },
+});
+for (const name of TIMED_COLLECTORS) collectTimeoutsTotal.labels({ collector: name }).inc(0);
+
+/**
+ * Whether the scrape being served right now had to abandon anything.
+ *
+ * It exists because the degradation must be alertable: an operator who cannot tell a complete scrape from a
+ * partial one has traded a loud failure for a quiet wrong answer, which is worse.
+ */
+export const metricsScrapeDegraded = new Gauge({
+  name: 'ythril_metrics_scrape_degraded',
+  help: '1 if this scrape abandoned at least one collector to stay inside its budget, else 0',
+  registers: [register],
+  async collect() { await scrapeSettled(); },
+});
+metricsScrapeDegraded.set(0);
+
+/**
+ * ## The scrape budget
+ *
+ * The canary measured `/metrics` exceeding its **10 s Prometheus timeout** during an ingest, and the
+ * consequence is out of proportion to the cause: a slow scrape does not lose the slow collector, it sets
+ * `up=0` and **drops every series from the target** — HTTP latency, event-loop lag, embed throughput, all of
+ * it, including the series that would explain the outage. Their framing, and it is correct.
+ *
+ * So the scrape gets a deadline it is guaranteed to return inside. A collector that cannot finish in time is
+ * abandoned: its series are dropped for that scrape, the timeout is counted against its name, and
+ * `ythril_metrics_scrape_degraded` goes to 1. Everything else is served normally, and `up` stays 1.
+ *
+ * **Why the collector is abandoned rather than left holding its last values.** Stale numbers presented as
+ * current are indistinguishable from a healthy flat line — the operator would read "storage is steady" from a
+ * collector that has not answered in an hour. A gap is honest and a gap is what the canary explicitly asked
+ * for. Same reason the counters here are pre-declared at zero: absent must not be confusable with fine.
+ *
+ * **8 seconds by default**, under the Prometheus default of 10 with room for serialisation and transfer. Set
+ * `METRICS_SCRAPE_BUDGET_MS` to change it, or to `0` to disable the budget and restore the old
+ * all-or-nothing behaviour.
+ *
+ * **Concurrency is what makes one shared deadline correct.** prom-client 15 collects with `Promise.all`, so
+ * the nine collectors run at once and the scrape costs the slowest one, not the sum. A per-collector budget
+ * would have to be one-ninth as generous to give the same guarantee.
+ */
+export const DEFAULT_SCRAPE_BUDGET_MS = 8000;
+
+const SCRAPE_BUDGET_MS = (() => {
+  const raw = process.env['METRICS_SCRAPE_BUDGET_MS']?.trim();
+  if (!raw) return DEFAULT_SCRAPE_BUDGET_MS;
+  const n = Number(raw);
+  // A malformed value must not silently disable the guard, so it falls back rather than becoming 0.
+  if (!Number.isFinite(n) || n < 0) return DEFAULT_SCRAPE_BUDGET_MS;
+  return n;
+})();
+
+/**
+ * The budget this process resolved at load, in ms. `0` means disabled.
+ *
+ * Exported because the fallback is only testable as a **choice**, not as an effect: a malformed value falling
+ * back to 8000 and a malformed value becoming 0 both let a fast collector finish, so every effect-based
+ * assertion passes either way. A mutation that turned the fallback into `0` — silently disabling the guard on a
+ * typo'd env var — survived the first version of that test for exactly this reason.
+ */
+export function scrapeBudgetMs(): number {
+  return SCRAPE_BUDGET_MS;
+}
+
+/** Monotonic — `performance.now()` rather than `Date.now()`, so an NTP correction cannot expire a budget. */
+let scrapeDeadline = 0;
+let scrapesInFlight = 0;
+
+/**
+ * One entry per budgeted collector in the scrape being served, resolving when it finishes or is abandoned.
+ *
+ * `scrapeSettled()` waits on these so the two reporting metrics describe *this* scrape. Never rejects — each
+ * entry is resolved from a `finally`.
+ */
+let collectorsThisScrape: Array<Promise<void>> = [];
+
+/**
+ * Open a scrape window. Called by the `/metrics` handler; safe to nest.
+ *
+ * Overlapping scrapes are not what Prometheus does with one target, but a second Prometheus or a curl by hand
+ * can produce them. A later window therefore **extends** the deadline and never shortens it: a scrape already
+ * running must not have its budget cut by one that started after it.
+ *
+ * The window bookkeeping runs even when the budget is disabled, so the collector list cannot accumulate.
+ */
+export function beginScrape(): void {
+  if (scrapesInFlight === 0) {
+    metricsScrapeDegraded.set(0);
+    collectorsThisScrape = [];
+  }
+  scrapesInFlight++;
+  if (SCRAPE_BUDGET_MS === 0) return;
+  const deadline = performance.now() + SCRAPE_BUDGET_MS;
+  if (deadline > scrapeDeadline) scrapeDeadline = deadline;
+}
+
+/** Close a scrape window. Must run on the failure path too, or the deadline leaks into the next scrape. */
+export function endScrape(): void {
+  scrapesInFlight = Math.max(0, scrapesInFlight - 1);
+  if (scrapesInFlight === 0) {
+    scrapeDeadline = 0;
+    collectorsThisScrape = [];
+  }
+}
+
+/**
+ * Resolve once every budgeted collector in this scrape has finished or been abandoned.
+ *
+ * The single `await` before reading the list is load-bearing, not defensive. prom-client starts every metric's
+ * `collect()` in one synchronous pass, so yielding exactly one microtask is both necessary — the list is still
+ * being filled — and sufficient: the pass cannot still be running once microtasks get to run.
+ *
+ * `allSettled` rather than `all`: a reporting metric that rejects would turn a partial scrape into a 500, which
+ * is the failure this whole change exists to prevent.
+ */
+async function scrapeSettled(): Promise<void> {
+  await Promise.resolve();
+  await Promise.allSettled(collectorsThisScrape);
+}
+
+/** Milliseconds left in the current scrape, or Infinity when no budget applies. */
+function budgetRemaining(): number {
+  return scrapeDeadline === 0 ? Infinity : scrapeDeadline - performance.now();
+}
+
+const EXPIRED = Symbol('collector-budget-expired');
+
+/**
+ * Time one collector and hold it to the scrape budget.
+ *
+ * `work` keeps its own error handling contract: a collector that throws (MongoDB not ready at startup is the
+ * normal case) keeps its previous values, exactly as before this change. Only a **timeout** abandons them,
+ * because only a timeout means the value is unknown rather than momentarily unavailable.
+ *
+ * A query that lands after its budget still completes and still writes; those values simply belong to
+ * whichever scrape is serialising when they arrive. That is not worth machinery to prevent — late-but-real is
+ * a better outcome than dropped-and-refetched.
+ *
+ * **Every async collector in this file must go through this**, and `scrape-budget.test.js` fails the build if one
+ * does not. A collector that awaits outside the budget re-creates the exact `up=0` the canary reported, and it
+ * would do so silently — the scrape would simply get slow again with nothing naming the cause.
+ *
+ * Exported for that test, which needs a collector it can make arbitrarily slow. The nine real ones finish
+ * instantly without a database, so the mechanism is not otherwise reachable offline.
+ */
+export async function withCollectBudget(
+  collector: string,
+  work: () => Promise<void>,
+  abandon: () => void,
+): Promise<void> {
+  const done = collectDuration.startTimer({ collector });
+
+  // Register with this scrape SYNCHRONOUSLY, before the first await. The Promise executor runs immediately, so
+  // `release` is assigned during prom-client's synchronous collect() pass — which is what makes the one-microtask
+  // barrier in scrapeSettled() sound.
+  let release!: () => void;
+  collectorsThisScrape.push(new Promise<void>(resolve => { release = resolve; }));
+
+  try {
+    const remaining = budgetRemaining();
+    if (remaining === Infinity) {
+      await work().catch(() => { /* collector failure keeps last values, as before */ });
+      return;
+    }
+    if (remaining <= 0) {
+      // The budget was gone before this collector even started — still a timeout, still its own fault to own.
+      overBudget(collector, abandon);
+      return;
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expiry = new Promise<typeof EXPIRED>(resolve => {
+      timer = setTimeout(() => resolve(EXPIRED), remaining);
+      // Never let a metrics budget hold the process open on shutdown.
+      timer.unref?.();
+    });
+    try {
+      const outcome = await Promise.race([
+        work().then(() => null, () => null),
+        expiry,
+      ]);
+      if (outcome === EXPIRED) overBudget(collector, abandon);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  } finally {
+    done();
+    release();
+  }
+}
+
+function overBudget(collector: string, abandon: () => void): void {
+  collectTimeoutsTotal.labels({ collector }).inc();
+  metricsScrapeDegraded.set(1);
+  abandon();
 }
 
 // ── HTTP ────────────────────────────────────────────────────────────────────
@@ -121,15 +348,13 @@ export const memoriesTotal = new Gauge({
   labelNames: ['space'] as const,
   registers: [register],
   async collect() {
-    const done = collectTimer('memories_total');
-    try {
+    await withCollectBudget('memories_total', async () => {
       const cfg = getConfig();
       for (const space of cfg.spaces.filter(s => !s.proxyFor)) {
         const count = await col(`${space.id}_memories`).estimatedDocumentCount();
         this.set({ space: space.id }, count);
       }
-    } catch { /* MongoDB may not be ready at startup */ }
-    done();
+    }, () => this.reset());
   },
 });
 
@@ -139,15 +364,13 @@ export const entitiesTotal = new Gauge({
   labelNames: ['space'] as const,
   registers: [register],
   async collect() {
-    const done = collectTimer('entities_total');
-    try {
+    await withCollectBudget('entities_total', async () => {
       const cfg = getConfig();
       for (const space of cfg.spaces.filter(s => !s.proxyFor)) {
         const count = await col(`${space.id}_entities`).estimatedDocumentCount();
         this.set({ space: space.id }, count);
       }
-    } catch { /* ignore */ }
-    done();
+    }, () => this.reset());
   },
 });
 
@@ -157,15 +380,13 @@ export const edgesTotal = new Gauge({
   labelNames: ['space'] as const,
   registers: [register],
   async collect() {
-    const done = collectTimer('edges_total');
-    try {
+    await withCollectBudget('edges_total', async () => {
       const cfg = getConfig();
       for (const space of cfg.spaces.filter(s => !s.proxyFor)) {
         const count = await col(`${space.id}_edges`).estimatedDocumentCount();
         this.set({ space: space.id }, count);
       }
-    } catch { /* ignore */ }
-    done();
+    }, () => this.reset());
   },
 });
 
@@ -175,15 +396,13 @@ export const chronoEntriesTotal = new Gauge({
   labelNames: ['space'] as const,
   registers: [register],
   async collect() {
-    const done = collectTimer('chrono_entries_total');
-    try {
+    await withCollectBudget('chrono_entries_total', async () => {
       const cfg = getConfig();
       for (const space of cfg.spaces.filter(s => !s.proxyFor)) {
         const count = await col(`${space.id}_chrono`).estimatedDocumentCount();
         this.set({ space: space.id }, count);
       }
-    } catch { /* ignore */ }
-    done();
+    }, () => this.reset());
   },
 });
 
@@ -228,15 +447,13 @@ export const storageUsedBytes = new Gauge({
   labelNames: ['area'] as const,
   registers: [register],
   async collect() {
-    const done = collectTimer('storage_used_bytes');
-    try {
+    await withCollectBudget('storage_used_bytes', async () => {
       const usage = await measureUsage();
       const GiB = 1024 ** 3;
       this.set({ area: 'files' }, usage.files * GiB);
       this.set({ area: 'brain' }, usage.brain * GiB);
       this.set({ area: 'total' }, usage.total * GiB);
-    } catch { /* ignore */ }
-    done();
+    }, () => this.reset());
   },
 });
 
@@ -377,15 +594,13 @@ export const mediaJobsPending = new Gauge({
   labelNames: ['space'] as const,
   registers: [register],
   async collect() {
-    const done = collectTimer('media_jobs_pending');
-    try {
+    await withCollectBudget('media_jobs_pending', async () => {
       const cfg = getConfig();
       for (const space of cfg.spaces.filter(s => !s.proxyFor)) {
         const count = await col(`${space.id}_media_jobs`).countDocuments({ status: 'pending' });
         this.set({ space: space.id }, count);
       }
-    } catch { /* MongoDB may not be ready */ }
-    done();
+    }, () => this.reset());
   },
 });
 
@@ -395,15 +610,13 @@ export const mediaJobsProcessing = new Gauge({
   labelNames: ['space'] as const,
   registers: [register],
   async collect() {
-    const done = collectTimer('media_jobs_processing');
-    try {
+    await withCollectBudget('media_jobs_processing', async () => {
       const cfg = getConfig();
       for (const space of cfg.spaces.filter(s => !s.proxyFor)) {
         const count = await col(`${space.id}_media_jobs`).countDocuments({ status: 'processing' });
         this.set({ space: space.id }, count);
       }
-    } catch { /* ignore */ }
-    done();
+    }, () => this.reset());
   },
 });
 
@@ -413,15 +626,13 @@ export const mediaJobsFailed = new Gauge({
   labelNames: ['space'] as const,
   registers: [register],
   async collect() {
-    const done = collectTimer('media_jobs_failed');
-    try {
+    await withCollectBudget('media_jobs_failed', async () => {
       const cfg = getConfig();
       for (const space of cfg.spaces.filter(s => !s.proxyFor)) {
         const count = await col(`${space.id}_media_jobs`).countDocuments({ status: 'failed' });
         this.set({ space: space.id }, count);
       }
-    } catch { /* ignore */ }
-    done();
+    }, () => this.reset());
   },
 });
 
@@ -467,8 +678,7 @@ export const mediaJobPhase = new Gauge({
   labelNames: ['space', 'step'] as const,
   registers: [register],
   async collect() {
-    const done = collectTimer('media_job_phase');
-    try {
+    await withCollectBudget('media_job_phase', async () => {
       const cfg = getConfig();
       for (const space of cfg.spaces.filter(s => !s.proxyFor)) {
         const rows = await col(`${space.id}_media_jobs`)
@@ -484,8 +694,7 @@ export const mediaJobPhase = new Gauge({
         for (const step of counts.keys()) _seenJobSteps.add(step);
         for (const step of _seenJobSteps) this.set({ space: space.id, step }, counts.get(step) ?? 0);
       }
-    } catch { /* MongoDB may not be ready */ }
-    done();
+    }, () => this.reset());
   },
 });
 

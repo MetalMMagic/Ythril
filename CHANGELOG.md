@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A slow `/metrics` collector now degrades one graph instead of blinding the whole target** (canary
+  finding: the scrape hit its 10 s Prometheus timeout twice during an ingest, with `up=0` for both windows).
+  - **The consequence was out of all proportion to the cause**, which is the reason this is a fix and not a
+    performance item. A slow scrape does not lose the slow collector — Prometheus records `up=0` and **drops
+    every series from that target**: HTTP latency, event-loop lag, embed throughput, including the series that
+    would explain the outage. The canary put it exactly right, and it decided the shape of the fix: *"a missing
+    series is a gap in one graph; a failed scrape drops every series from that target."* So a partial scrape,
+    never "make it usually fast enough".
+  - The scrape now has a deadline (`METRICS_SCRAPE_BUDGET_MS`, default **8000** — under the Prometheus
+    default of 10 s with room for serialisation and transfer). A collector that cannot finish inside it is
+    abandoned: **its** series are dropped for that scrape, `ythril_metrics_collect_timeouts_total` counts
+    it by name, `ythril_metrics_scrape_degraded` reads `1`, and everything else is served normally
+    with `up` still 1.
+  - **This half needed none of the canary data the diagnosis needs**, which is why it did not wait for the
+    tag: the guard is collector-agnostic by construction. And the timeout counter turns out to *also* do the
+    diagnosis — it names the slow collector without anyone having to catch a scrape while it is happening,
+    which was otherwise the hard part, since the problem only appears under their load.
+  - **The abandoned collector is dropped rather than left holding its last values.** Stale numbers presented as
+    current are indistinguishable from a healthy flat line — an operator would read "storage steady" off a
+    collector that has not answered in an hour. Same principle as pre-declaring counters at zero: absent must
+    not be confusable with fine. An error, by contrast, keeps the previous values exactly as before — MongoDB
+    briefly unavailable at boot is the normal case, and "momentarily unavailable" is not "unknown".
+  - **One shared deadline is correct only because collection is concurrent.** prom-client 15 collects with
+    `Promise.all`, so the nine collectors run at once and the scrape costs the slowest, not the sum — verified
+    against the library rather than assumed, because a per-collector budget would have to be one-ninth as
+    generous to give the same guarantee.
+  - **A bug found and fixed inside this change, worth recording because the first version shipped it:** the
+    same concurrency that makes the deadline work broke the *reporting* of a timeout. prom-client serialises
+    each metric as soon as its own value is ready, so a counter that another collector increments was written
+    out at 0 before the timeout had happened. The budget worked, the scrape returned fast, and both new metrics
+    read 0 — a guard with no way to tell you it fired. Fixed with a one-microtask barrier, which the mutation
+    run confirms is load-bearing: removing that single `await` fails three tests.
+  - **9 tests, and all 9 mutations caught.** The last one only after a rewrite: the `METRICS_SCRAPE_BUDGET_MS`
+    fallback test asserted an *effect* (a fast collector still completes) that holds whether a malformed value
+    falls back to 8000 or to 0 — so a mutation silently disabling the guard on a typo'd env var passed it. The
+    parsed value is now asserted directly, as a **choice**.
+  - `collectors-are-timed` was **re-pointed, not appeased.** It pinned the mechanism — `collectTimer(` on the
+    first line of each collector and a matching `done()` count — and would now fail against strictly better
+    code, since the wrapper owns both and stops the clock in a `finally` where the old hand-rolled `done()` sat
+    after the try/catch and an early return would have skipped it. It now asserts the guarantee: every async
+    collector routes through the wrapper, and the wrapper times before it awaits and stops on every path.
+
 ## [2.3.0] — 2026-08-04
 
 ### Added

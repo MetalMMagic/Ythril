@@ -50,6 +50,12 @@ docs/docker-build-protocol.md
 # publish it before the fixes ship.)
 todo/
 
+# Correspondence with people outside the repo — never commit. Both directions of
+# every conversation with a customer or canary operator, including their
+# deployment details, their findings before the fixes ship, and quoted internals
+# of their own systems. Theirs to share, not ours.
+communication/
+
 # Local-only automation scaffolding — n8n auditor workflow drafts + prompts.
 # Not part of the shipped product; kept out of the repo by design.
 n8n/

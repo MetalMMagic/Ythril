@@ -48,9 +48,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - It deliberately does **not** assert that the NOTICE paragraph still exists or still says the right words.
     Prose does not drift on its own, nothing regenerates that section, and a check earns its place by catching
     something that can change — not by restating a file back to itself.
-  - **And the artefact is checked, not just the documents.**  now runs  in the
-    published image, derives the licence from whether  is present, and compares it against the
-     that ships *inside that same image*. Two documents agreeing is not the same as either being true —
+  - **And the artefact is checked, not just the documents.** `publish.yml` now runs `ffmpeg -buildconf` in the
+    published image, derives the licence from whether `--enable-gpl` is present, and compares it against the
+    `NOTICE` that ships *inside that same image*. Two documents agreeing is not the same as either being true —
     the original bug was precisely a pair of self-consistent documents that both described a different binary,
     and no document-level check could ever have caught it. If Debian switches builds, or somebody supplies a
     custom ffmpeg, the publish fails until NOTICE is updated in the same change.

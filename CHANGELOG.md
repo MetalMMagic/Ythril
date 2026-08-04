@@ -23,6 +23,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     stopped running"* rather than as an ordinary assertion failure — a renamed test is exactly the silent shrink
     the list exists to prevent.
 
+- **`todo:check` gained two rules after its first version missed three real problems**, all of which it
+  now catches:
+  - **closure announced in a HEADING**, not with a checkbox. Section 1 still listed an item shipped in #678, and
+    P1 sat in section 1b with `CLOSED` in its own heading — a checkbox-only check called the queue clean.
+    `SHIPPED|CLOSED|RESOLVED|DONE` in any heading of a queue file now fails, as does a struck-through open
+    item (I had left one myself as a breadcrumb when the CLA went green).
+  - **`_NEXT-PR-PLAN.md` must not name a PR already merged into main.** It is exempt from the queue rules
+    because it is a working document, and that exemption is precisely why it rotted unnoticed until the owner
+    opened it. A plan is about work ahead; a merged number in it means the file describes the past. Checkable
+    locally with no network, which matters for a gitignored folder.
+  - Both were **my own** leftovers from closing items earlier the same day, which is the argument for the check
+    rather than for more care.
 - **`npm run todo:check`** holds the other rule: `todo/` carries only actionable open items, and
   `_TODO-ORDERED.md` references every one of them in every other tracker.
   - **The index half is load-bearing rather than tidy.** The release cadence is *"cut the tag when the ordered

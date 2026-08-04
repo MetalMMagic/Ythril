@@ -27,6 +27,7 @@
  * Run: `npm run todo:check`
  */
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -57,7 +58,6 @@ const NOT_A_QUEUE = new Map([
   ['_THE_LOOP.md', 'the process description itself'],
   ['_CRYPTO-INVENTORY.md', 'a fact sheet kept for reference; its subject is closed'],
   ['_PARKED-DECISIONS.md', 'owner decisions, indexed by outcome rather than queued'],
-  ['_REFERENCE-ARCHIVE.md', 'archive'],
   ['_DEPRECATIONS.md', 'a removal checklist keyed to a future major, not the current queue'],
   ['_CLA-BOT-SETUP.md', 'setup instructions'],
   ['_NEXT-PR-PLAN.md', 'the working plan for the PR in flight; cleared on push'],
@@ -80,10 +80,16 @@ console.log(`\n${YELLOW}todo/ consistency${R}  ${DIM}(owner rules 2026-08-02 and
 {
   // A completed marker anywhere in todo/ means shipped work is being tracked twice — here and in the CHANGELOG —
   // and the two will disagree. Two survivors labelled OPEN had already shipped when this rule was made.
+  //
+  // The heading patterns were added after the first three missed all of this: section 1 still listed an item
+  // shipped in #678, and P1 sat in section 1b with "CLOSED" in its own heading. Both announced their closure in a
+  // *heading* rather than with a checkbox, so a checkbox-only check reported the queue clean. The rule is about
+  // closed work being tracked as work, not about one syntax for saying so.
   const CLOSED = [
     [/^\s*[-*]\s*\[x\]/im, 'a checked `[x]` item'],
     [/^\s*[-*]?\s*\*\*?SHIPPED/im, 'a SHIPPED marker'],
-    [/^\s*#{1,4}\s+.*\bSHIPPED\b/im, 'a SHIPPED heading'],
+    [/^\s*#{1,4}\s+.*\b(SHIPPED|CLOSED|RESOLVED|DONE)\b/im, 'a heading announcing the item is finished'],
+    [/^\s*[-*]\s*\[ \]\s*~~/im, 'a struck-through open item — delete it rather than crossing it out'],
   ];
   let clean = true;
   for (const f of files) {
@@ -140,6 +146,38 @@ console.log(`\n${YELLOW}todo/ consistency${R}  ${DIM}(owner rules 2026-08-02 and
     console.log(`${RED}  ✗${R} ${ORDERED} does not index every open item`);
   } else {
     console.log(`${GREEN}  ✓${R} ${ORDERED} references every open item in every tracker`);
+  }
+}
+
+// ── rule 3: the working plan must describe work that is still ahead
+{
+  /**
+   * `_NEXT-PR-PLAN.md` is exempt from the queue rules because it is a working document — and that exemption is
+   * exactly why it rotted unnoticed until the owner opened it and said "outdated again". It described the
+   * pre-2.3.0 world: an item that had shipped, a release that had happened, and layer figures I later corrected.
+   *
+   * The check that catches it without needing network: **it must not name a PR that is already merged into main.**
+   * A plan is about work ahead; a merged PR number in it is a plan describing the past. Context references belong
+   * in `_REFERENCE.md`, which is exempt from this for that reason.
+   */
+  const PLAN = '_NEXT-PR-PLAN.md';
+  if (files.includes(PLAN)) {
+    const src = readFileSync(join(TODO, PLAN), 'utf8');
+    const claimed = [...new Set([...src.matchAll(/#(\d{3,5})\b/g)].map(m => m[1]))];
+    let log = '';
+    try {
+      log = execFileSync('git', ['log', '--oneline', '-400'], { cwd: ROOT, encoding: 'utf8' });
+    } catch { /* no git history available — skip rather than guess */ }
+
+    const merged = log ? claimed.filter(n => log.includes(`(#${n})`)) : [];
+    if (merged.length) {
+      fail(`${PLAN} names PR(s) already merged into main: ${merged.map(n => `#${n}`).join(', ')}. A plan is about `
+        + 'work ahead — a merged number in it means the file describes the past. Rewrite it to the current state, '
+        + 'or move the context to `_REFERENCE.md`.');
+      console.log(`${RED}  ✗${R} ${PLAN} describes work that has already shipped`);
+    } else {
+      console.log(`${GREEN}  ✓${R} ${PLAN} describes work that is still ahead`);
+    }
   }
 }
 

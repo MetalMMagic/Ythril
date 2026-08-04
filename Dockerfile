@@ -82,8 +82,22 @@ LABEL org.opencontainers.image.licenses="PolyForm-Small-Business-1.0.0"
 # on every release for no reason anyone wanted: `apt-get update` is not reproducible, so it was re-downloaded on
 # every pull even when nothing about it had changed.
 #
-# ffmpeg: LGPL-2.1+ core only (no GPL codecs); used for audio/video media embedding pipeline.
-# Verify at build time: ffmpeg -buildconf | grep enable-gpl must be absent.
+# ffmpeg, for the audio/video media embedding pipeline.
+#
+# LICENSING, corrected 2026-08-04 — this comment used to claim "LGPL-2.1+ core only (no GPL codecs)" and told
+# the reader to verify that `--enable-gpl` was absent. Running that check disproves it: **Debian builds ffmpeg
+# WITH `--enable-gpl`**, so the binary shipped here is GPL-2.0-or-later. It reported the same in the released
+# 2.2.5 image, so the stated verification cannot ever have been run — the comment asserted the opposite of the
+# artefact while naming the command that would have caught it.
+#
+# Why it is still fine to ship, and it is the same argument NOTICE already makes for LibreOffice in the
+# doc-office sidecar: the executable is invoked as a SEPARATE PROCESS (`spawn('ffmpeg', …)` in
+# files/media/{audio,video}-embedder.ts), never linked into Ythril. What that argument does NOT cover is
+# redistribution of the binary itself, which needs attribution and a corresponding-source offer — now present
+# in NOTICE under "Bundled Binary: FFmpeg". It had been missing entirely.
+#
+# Asserted by `testing/standalone/ffmpeg-licensing-is-stated.test.js` so the claim and the artefact cannot drift
+# apart again in either direction.
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

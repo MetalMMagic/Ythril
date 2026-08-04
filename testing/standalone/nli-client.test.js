@@ -21,6 +21,18 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+/**
+ * A REAL Response, not a { ok, status, json } shape.
+ *
+ * The client under test reads its body through boundedJson, which bounds a read by inspecting content-length
+ * and streaming res.body — neither of which a hand-rolled double has. Making the helper fall back to res.json()
+ * for objects lacking them was rejected: that is a silent bypass reachable from anywhere, and a guard with a
+ * silent bypass is worse than none. Using the real thing also means these tests exercise the production path.
+ */
+function jsonResponse(body, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+}
+
 let classify, nliConfigured, _reloadConfig;
 let dir, cfgPath;
 const savedEnv = {};
@@ -69,7 +81,7 @@ describe('NLI client — the contradiction judge', () => {
     writeConfig({ nli: { baseUrl: 'http://nli:8080', model: 'm' } });
     globalThis.__realFetch ??= globalThis.fetch;
 
-    globalThis.fetch = async () => ({ ok: false, status: 503, json: async () => ({}) });
+    globalThis.fetch = async () => jsonResponse({}, 503);
     assert.equal(await classify('a', 'b'), null, 'a 503 is not "these records agree"');
 
     globalThis.fetch = async () => { throw new Error('ECONNREFUSED'); };
@@ -90,7 +102,7 @@ describe('NLI client — the contradiction judge', () => {
       [{ label: 'LABEL_2', score: 0.7 }, 'entailment'],
     ];
     for (const [body, expected] of cases) {
-      globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => body });
+      globalThis.fetch = async () => jsonResponse(body);
       const v = await classify('p', 'h');
       assert.equal(v?.label, expected, `${body.label} must normalise to ${expected}`);
       assert.equal(v?.score, body.score);
@@ -100,7 +112,7 @@ describe('NLI client — the contradiction judge', () => {
   it('accepts the HF array shape as well as a bare object', async () => {
     writeConfig({ nli: { baseUrl: 'http://nli:8080', model: 'm' } });
     globalThis.__realFetch ??= globalThis.fetch;
-    globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => [[{ label: 'contradiction', score: 0.95 }]] });
+    globalThis.fetch = async () => jsonResponse([[{ label: 'contradiction', score: 0.95 }]]);
     assert.deepEqual(await classify('p', 'h'), { label: 'contradiction', score: 0.95 });
   });
 
@@ -108,7 +120,7 @@ describe('NLI client — the contradiction judge', () => {
     writeConfig({ nli: { baseUrl: 'http://nli:8080', model: 'm' } });
     globalThis.__realFetch ??= globalThis.fetch;
     for (const body of [{}, { label: 'wat', score: 0.9 }, { label: 'neutral' }, null]) {
-      globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => body });
+      globalThis.fetch = async () => jsonResponse(body);
       assert.equal(await classify('p', 'h'), null, `unreadable body ${JSON.stringify(body)} must yield no verdict`);
     }
   });

@@ -16,6 +16,7 @@
  */
 
 import { getConfig, saveConfig, saveConfigSoon, getSecrets, getFaceRecognitionConfig } from '../config/loader.js';
+import { boundedJson } from '../util/bounded-read.js';
 import { toSafeRelPath } from '../util/paths.js';
 import { col, asFilter, asDoc, asBulk } from '../db/mongo.js';
 import { applyRemoteTombstone, listTombstones } from '../brain/tombstones.js';
@@ -593,7 +594,7 @@ async function gossipWithPeer(
     if (resp.ok) {
       // Peer may piggyback its own self-record in the response so we can update our entry for it
       try {
-        const body = await resp.json() as { status: string; self?: Partial<NetworkMember> & { signingKeyRotation?: import('../util/signing.js').SigningKeyRotation } };
+        const body = await boundedJson<{ status: string; self?: Partial<NetworkMember> & { signingKeyRotation?: import('../util/signing.js').SigningKeyRotation } }>(resp, 'sync peer');
         const peerSelf = body.self;
         if (peerSelf?.instanceId === member.instanceId) {
           const freshCfg = getConfig();
@@ -630,7 +631,7 @@ async function gossipWithPeer(
       log.warn(`Gossip pull from ${member.label}: HTTP ${resp.status}`);
       return;
     }
-    const { members: peerView } = await resp.json() as { members: Partial<NetworkMember>[] };
+    const { members: peerView } = await boundedJson<{ members: Partial<NetworkMember>[] }>(resp, 'sync peer');
     if (!Array.isArray(peerView)) return;
 
     const fresh = getConfig();
@@ -701,7 +702,7 @@ async function propagateVotesWithPeer(
       log.warn(`Vote pull from ${member.label}: HTTP ${resp.status}`);
       return;
     }
-    const { rounds: peerRounds } = await resp.json() as { rounds: (Omit<VoteRound, 'concluded'>)[] };
+    const { rounds: peerRounds } = await boundedJson<{ rounds: (Omit<VoteRound, 'concluded'>)[] }>(resp, 'sync peer');
     if (!Array.isArray(peerRounds)) return;
 
     const fresh = getConfig();
@@ -860,7 +861,7 @@ async function pullFromPeer(
     const tombsUrl = `${member.url}/api/sync/tombstones?spaceId=${encodeURIComponent(remoteSpaceId)}&networkId=${encodeURIComponent(networkId)}&sinceSeq=${sinceSeq}`;
     const resp = await peerSafeFetch(tombsUrl, opts());
     if (resp.ok) {
-      const data = await resp.json() as { memories?: TombstoneDoc[]; entities?: TombstoneDoc[]; edges?: TombstoneDoc[]; chrono?: TombstoneDoc[] };
+      const data = await boundedJson<{ memories?: TombstoneDoc[]; entities?: TombstoneDoc[]; edges?: TombstoneDoc[]; chrono?: TombstoneDoc[] }>(resp, 'sync peer');
       const all = [...(data.memories ?? []), ...(data.entities ?? []), ...(data.edges ?? []), ...(data.chrono ?? [])];
       // The peer we pulled from is the authenticated source. Its own tombstones
       // (issuer === member) are authorised; a tombstone it relays on behalf of a
@@ -891,9 +892,9 @@ async function pullFromPeer(
       });
       const resp = await peerSafeFetch(`${member.url}/api/sync/${urlSuffix}?${params}`, batchOpts());
       if (!resp.ok) { log.warn(`Pull ${urlSuffix} from ${member.label} returned ${resp.status}`); break; }
-      const { items, nextCursor } = await resp.json() as {
+      const { items, nextCursor } = await boundedJson<{
         items: (T | { _id: string; seq: number; deletedAt: string })[]; nextCursor: string | null;
-      };
+      }>(resp, 'sync peer');
       // Collect the applyable docs for this page, then upsert them in one batch (P3).
       const pageDocs: T[] = [];
       for (const item of items) {
@@ -1100,7 +1101,7 @@ async function syncFiles(
         opts(),
       );
       if (tsResp.ok) {
-        const { tombstones } = await tsResp.json() as { tombstones: { path: string }[] };
+        const { tombstones } = await boundedJson<{ tombstones: { path: string }[] }>(tsResp, 'sync peer');
         const spaceDataRoot = getDataRoot();
         const spaceFiles = path.resolve(spaceDataRoot, 'files', spaceId);
         for (const ts of tombstones) {
@@ -1160,7 +1161,7 @@ async function syncFiles(
     if (!doPull && !doPush) return { pulledFiles, pushedFiles, pulledPaths };
     const resp = await peerSafeFetch(`${member.url}/api/sync/manifest?spaceId=${encodeURIComponent(remoteSpaceId)}&networkId=${encodeURIComponent(networkId)}`, opts());
     if (!resp.ok) { log.warn(`File manifest from ${member.label}: ${resp.status}`); return { pulledFiles, pushedFiles, pulledPaths }; }
-    const { manifest } = await resp.json() as { manifest: { path: string; sha256: string; size: number; modifiedAt: string }[] };
+    const { manifest } = await boundedJson<{ manifest: { path: string; sha256: string; size: number; modifiedAt: string }[] }>(resp, 'sync peer');
 
     // Build our manifest for comparison
     const ours = await buildFileManifest(spaceId);
@@ -1346,7 +1347,7 @@ async function checkMerkleWithPeer(
       return;
     }
 
-    const peerResult = await peerResp.json() as { root?: string; leafCount?: number };
+    const peerResult = await boundedJson<{ root?: string; leafCount?: number }>(peerResp, 'sync peer');
     const peerRoot = peerResult.root;
 
     if (!peerRoot) {

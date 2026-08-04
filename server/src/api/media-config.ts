@@ -9,6 +9,7 @@
  */
 
 import { Router } from 'express';
+import { boundedJson } from '../util/bounded-read.js';
 import { z } from 'zod';
 import { getConfig, saveConfig, getMediaEmbeddingConfig, getSecrets, saveSecrets, getDocAssistApiKey, getNliApiKey, getEmbeddingConfig, getEmbeddingApiKey, getRerankApiKey } from '../config/loader.js';
 import { DOC_EXTRACTION_MODES_IN, IMAGE_LEVELS, AUDIO_LEVELS, VIDEO_LEVELS, TEXT_LEVELS, normalizeDocExtractionMode } from '../config/types.js';
@@ -766,7 +767,7 @@ export async function probeModelEndpoint(
     try {
       const res = await doFetch(a.url, { method: 'GET', headers, signal: AbortSignal.timeout(5_000) });
       if (res.ok) {
-        const json = await res.json().catch(() => ({}));
+        const json = await boundedJson<Record<string, unknown>>(res, 'model provider').catch(() => ({}));
         const models = a.parse(json);
         // Ollama tags carry a `:tag` suffix (e.g. `moondream:latest`); match exact or `<model>:*`.
         const modelEnumerated = opts.model

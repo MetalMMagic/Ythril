@@ -13,6 +13,7 @@
  */
 
 import type { MediaProviderConfig } from '../../config/types.js';
+import { boundedJson, boundedErrorText } from '../../util/bounded-read.js';
 import { log } from '../../util/log.js';
 import { ssrfSafeFetch } from '../../util/ssrf.js';
 import { allowPrivateForSlot, type EgressSlot } from '../../config/model-egress-policy.js';
@@ -57,46 +58,6 @@ const egressFetch = (external: boolean, slot: EgressSlot): typeof fetch => {
   return ((url: string, init?: RequestInit) =>
     ssrfSafeFetch(url, init ?? {}, { allowPrivate })) as unknown as typeof fetch;
 };
-
-// ── Bounded JSON response reader ──────────────────────────────────────────────────────
-//
-// fetch().json() reads the entire body without limit → a hostile or runaway
-// upstream could exhaust heap. We cap by streaming the body and aborting once
-// `maxBytes` is exceeded.
-//
-// Defaults are generous (100 MiB STT response, 50 MiB caption response) but
-// finite — enough headroom for legitimate Whisper verbose_json responses on
-// hour-long recordings, far below an OOM threshold.
-async function boundedJson<T>(res: Response, maxBytes: number, label: string): Promise<T> {
-  const declared = res.headers.get('content-length');
-  if (declared && Number(declared) > maxBytes) {
-    throw new Error(`${label} response too large: ${declared} bytes (max ${maxBytes})`);
-  }
-  if (!res.body) {
-    // Some runtimes buffer bodies; fall back to text() with a post-hoc size check.
-    const text = await res.text();
-    if (Buffer.byteLength(text, 'utf8') > maxBytes) {
-      throw new Error(`${label} response exceeded ${maxBytes} bytes`);
-    }
-    return JSON.parse(text) as T;
-  }
-  const reader = res.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    if (!value) continue;
-    total += value.byteLength;
-    if (total > maxBytes) {
-      try { await reader.cancel(); } catch { /* ignore */ }
-      throw new Error(`${label} response exceeded ${maxBytes} bytes`);
-    }
-    chunks.push(value);
-  }
-  const merged = Buffer.concat(chunks.map(c => Buffer.from(c.buffer, c.byteOffset, c.byteLength)));
-  return JSON.parse(merged.toString('utf8')) as T;
-}
 
 const MAX_VISION_RESPONSE_BYTES = 50 * 1024 * 1024;  // 50 MiB — caption JSON is small
 const MAX_STT_RESPONSE_BYTES    = 100 * 1024 * 1024; // 100 MiB — verbose_json with many segments
@@ -168,13 +129,11 @@ export class OllamaVisionProvider implements VisionProvider {
     }
 
     if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Ollama vision HTTP ${res.status}: ${body.slice(0, 200)}`);
+      const body = await boundedErrorText(res);
+      throw new Error(`Ollama vision HTTP ${res.status}: ${body}`);
     }
 
-    const json = await boundedJson<{ message?: { content?: string }; error?: string }>(
-      res, MAX_VISION_RESPONSE_BYTES, 'Ollama vision',
-    );
+    const json = await boundedJson<{ message?: { content?: string }; error?: string }>(res, 'Ollama vision', MAX_VISION_RESPONSE_BYTES);
     if (json.error) throw new Error(`Ollama vision error: ${json.error}`);
     const caption = json.message?.content?.trim();
     if (!caption) throw new Error('Ollama vision returned empty caption');
@@ -236,14 +195,14 @@ export class ExternalVisionProvider implements VisionProvider {
     }
 
     if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`External vision HTTP ${res.status}: ${body.slice(0, 200)}`);
+      const body = await boundedErrorText(res);
+      throw new Error(`External vision HTTP ${res.status}: ${body}`);
     }
 
     const json = await boundedJson<{
       choices?: { message?: { content?: string } }[];
       error?: { message?: string };
-    }>(res, MAX_VISION_RESPONSE_BYTES, 'External vision');
+    }>(res, 'External vision', MAX_VISION_RESPONSE_BYTES);
     if (json.error) throw new Error(`External vision error: ${json.error.message}`);
     const caption = json.choices?.[0]?.message?.content?.trim();
     if (!caption) throw new Error('External vision returned empty caption');
@@ -302,15 +261,15 @@ export class WhisperProvider implements SttProvider {
     }
 
     if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Whisper HTTP ${res.status}: ${body.slice(0, 200)}`);
+      const body = await boundedErrorText(res);
+      throw new Error(`Whisper HTTP ${res.status}: ${body}`);
     }
 
     const json = await boundedJson<{
       text?: string;
       segments?: { start?: number; end?: number; text?: string }[];
       error?: { message?: string };
-    }>(res, MAX_STT_RESPONSE_BYTES, 'Whisper');
+    }>(res, 'Whisper', MAX_STT_RESPONSE_BYTES);
     if (json.error) throw new Error(`Whisper error: ${json.error.message}`);
 
     const text = json.text?.trim() ?? '';

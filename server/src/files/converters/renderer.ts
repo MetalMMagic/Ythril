@@ -12,6 +12,7 @@
  * guard is for operator-supplied *external* model endpoints).
  */
 import { log } from '../../util/log.js';
+import { boundedJson, boundedErrorText } from '../../util/bounded-read.js';
 
 const RENDER_URL = (process.env['RENDER_SIDECAR_URL'] ?? 'http://localhost:8100').replace(/\/$/, '');
 const OFFICE_URL = (process.env['RENDER_OFFICE_SIDECAR_URL'] ?? 'http://localhost:8101').replace(/\/$/, '');
@@ -106,11 +107,14 @@ export async function renderDocumentPages(
     throw new Error(`${which} sidecar unreachable at ${base}: ${err instanceof Error ? err.message : String(err)}`);
   }
   if (!res.ok) {
-    const detail = await res.text().catch(() => '');
-    throw new Error(`${which} sidecar error ${res.status}: ${detail.slice(0, 200)}`);
+    const detail = await boundedErrorText(res);
+    throw new Error(`${which} sidecar error ${res.status}: ${detail}`);
   }
 
-  const body = await res.json() as { pages?: string[]; total?: number; truncated?: boolean; startPage?: number };
+  // The largest JSON body in the server: `pages` is an array of base64 PNGs, and every one of them is
+  // decoded below. Bounded because renderDpi accepts up to 600 and maxPages up to 2000 from the UI.
+  const body = await boundedJson<{ pages?: string[]; total?: number; truncated?: boolean; startPage?: number }>(
+    res, `${which} sidecar`);
   const pages = (body.pages ?? []).map(b64 => Buffer.from(b64, 'base64'));
   if (body.truncated) log.debug(`render: pages ${startPage}–${startPage + pages.length} of ${body.total}; more follow`);
   // `startPage` falls back to what we asked for: an older sidecar that does not echo it still windows

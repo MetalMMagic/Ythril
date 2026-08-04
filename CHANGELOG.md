@@ -9,6 +9,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **25 HTTP response bodies were read into memory with no size ceiling, while the helper that exists to
+  prevent exactly that was used at 3 call sites — all inside the file that defines it.** `boundedJson`
+  lived in `files/media/providers.ts` with the risk stated correctly in its own comment: *"
+  `fetch().json()` reads the entire body without limit → a hostile or runaway upstream could exhaust heap."*
+  Nothing about it was media-specific; it was private by accident.
+
+  - **Why nobody noticed, which is the reusable part: every one of those call sites already had a timeout.** An
+    audit sweep asked "is there a provider call with no timeout?", found none, and stopped. A timeout bounds
+    **duration** and says nothing about **size** — a fast upstream streaming gigabytes finishes well inside a
+    120-second budget. A guard on the wrong axis is more dangerous than no guard, because a satisfied check is
+    the strongest possible reason to stop looking.
+  - **The worst path needs no bug and no attacker.** `files/converters/renderer.ts` reads
+    `{ pages: string[] }` — base64 PNGs — and decodes each one, so the JSON string, the parsed strings and
+    the decoded buffers are live at once. `renderDpi` accepts up to **600** and `maxPages` up to
+    **2000** through the UI, both supported operator actions.
+  - `boundedJson` and a new `boundedErrorText` now live in `server/src/util/bounded-read.ts`
+    and every read goes through them. `YTHRIL_MAX_UPSTREAM_RESPONSE_BYTES` (default **256 MiB**) sets the
+    ceiling; the error names the upstream **and** the override, because "response too large" with neither is an
+    unactionable log line. A malformed value falls back to the default rather than removing the bound.
+  - **A gate fails the build on any `Response.json()` outside the helper**, with a floor assertion so a pattern
+    that stopped matching cannot pass by reporting zero offenders.
+
+- **The count in the original finding was 12. The real count was 25, and the miss is the more useful half.**
+  I scoped the sweep by grepping `await res.json()`, `await response.json()` and
+  `await r.json()` — variable names I had already seen — instead of `await <anything>.json()`. The
+  gate, written from the general shape, immediately found 13 more.
+  - **And they were the ones that mattered most.** All 13 were in `sync/engine.ts` and the network-join
+    handshake: paged record batches, file manifests, member lists and vote rounds read from **another operator’s
+    Ythril instance**, not from a sidecar the local operator runs. A checker whose scope comes from the code it
+    audits shares that code’s blind spot — the same failure as a drift sweep that reused the selector list of
+    the CSS it was auditing.
+
+- **Upstream error bodies were truncated at 3 of 5 sites and interpolated whole at the other 2**
+  (`unstructured.ts`, `embedding.ts`). One `boundedErrorText` now serves all five. The 200-char
+  limit was already the de-facto standard — three sites chose it independently — so the outliers were drift, not
+  a decision.
+  - **Checked rather than assumed: these do NOT reach an API client.** The global error middleware returns a
+    literal `'Internal server error'` and never `err.message`, and the four route handlers that do
+    return `err.message` wrap Mongo/config/keypair work no upstream body can reach. So this is log quality and a
+    double allocation, not an information leak. The tracker had it filed as possibly either, and guessing would
+    have justified a bigger change than the evidence supports.
+
+### Testing
+
+- **7 mutations, 7 caught**, including both directions of the gate (a peer read reverted to raw `.json()`, an
+  error body reverted to hand-rolled).
+- **Six fetch doubles shaped `{ ok, status, json }` became real `Response` objects.** They broke
+  because `boundedJson` reads the content-length header and streams `res.body` — the
+  only things that can actually bound a read. **Making the helper fall back to `res.json()` for objects lacking
+  them was rejected**: that is a silent bypass reachable from anywhere, and the gate would still have reported
+  zero offenders. This entry exists because that shape is the whole bug being fixed.
+- **The gate’s own first run failed on the file it points at.** `git ls-files` cannot see a file added in the
+  same change, so the scan missed `bounded-read.ts`. Now `ls-files` **plus** `--others --exclude-standard`,
+  which adds new files while still honouring .gitignore. Third time this repo has been bitten by treating
+  `git ls-files` as "what files does this project have".
+
+### Fixed
+
 - **The storage gauge walked the entire files tree on every scrape, and it was the whole cause of the canary's
   `/metrics` timeout.** They answered the diagnostic request from #676 with numbers that name one collector and
   a count that makes it a cause rather than a correlation:

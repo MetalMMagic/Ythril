@@ -1,4 +1,5 @@
 import { ssrfSafeFetch } from '../../util/ssrf.js';
+import { boundedJson } from '../../util/bounded-read.js';
 import { getConfig, getSecrets } from '../../config/loader.js';
 import { allowPrivateForSlot } from '../../config/model-egress-policy.js';
 import { log } from '../../util/log.js';
@@ -88,7 +89,7 @@ export async function detectFacesExternal(imageBytes: Buffer): Promise<ExternalF
       log.warn(`External face model: HTTP ${res.status} — falling back to in-process recognition`);
       return null;
     }
-    const body = await res.json() as ExternalFaceResponse;
+    const body = await boundedJson<ExternalFaceResponse>(res, 'external face provider');
     const raw = Array.isArray(body?.faces) ? body.faces.slice(0, MAX_FACES) : [];
 
     const faces: ExternalFace[] = [];

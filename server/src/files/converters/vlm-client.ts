@@ -12,6 +12,7 @@
  * acknowledgment (enforced at config-save time).
  */
 import { ssrfSafeFetch } from '../../util/ssrf.js';
+import { boundedJson, boundedErrorText } from '../../util/bounded-read.js';
 import { allowPrivateForSlot, type EgressSlot } from '../../config/model-egress-policy.js';
 import { chatUrlFor, type VlmWire } from './vlm-endpoint.js';
 
@@ -102,18 +103,19 @@ async function postChat(
     throw new Error(`VLM unreachable (${url}): ${err instanceof Error ? err.message : String(err)}`);
   }
   if (!res.ok) {
-    const body2 = await res.text().catch(() => '');
-    throw new Error(`VLM HTTP ${res.status}: ${body2.slice(0, 200)}`);
+    const body2 = await boundedErrorText(res);
+    throw new Error(`VLM HTTP ${res.status}: ${body2}`);
   }
 
   if (endpoint.wire === 'ollama') {
-    const json = await res.json() as { message?: { content?: string }; done_reason?: string; error?: string };
+    const json = await boundedJson<{ message?: { content?: string }; done_reason?: string; error?: string }>(
+      res, 'VLM');
     if (json.error) throw new Error(`VLM error: ${json.error}`);
     return { text: json.message?.content ?? '', truncated: json.done_reason === 'length' };
   }
-  const json = await res.json() as {
+  const json = await boundedJson<{
     choices?: Array<{ message?: { content?: string }; finish_reason?: string }>; error?: unknown;
-  };
+  }>(res, 'VLM');
   if (json.error) throw new Error(`VLM error: ${typeof json.error === 'string' ? json.error : JSON.stringify(json.error).slice(0, 200)}`);
   const choice = json.choices?.[0];
   return { text: choice?.message?.content ?? '', truncated: choice?.finish_reason === 'length' };
@@ -270,10 +272,11 @@ export async function repairMarkdownExternal(
     throw new Error(`assist model unreachable (${url}): ${err instanceof Error ? err.message : String(err)}`);
   }
   if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`assist model HTTP ${res.status}: ${body.slice(0, 200)}`);
+    const body = await boundedErrorText(res);
+    throw new Error(`assist model HTTP ${res.status}: ${body}`);
   }
-  const json = await res.json() as { choices?: Array<{ message?: { content?: string }; finish_reason?: string }>; error?: unknown };
+  const json = await boundedJson<{ choices?: Array<{ message?: { content?: string }; finish_reason?: string }>; error?: unknown }>(
+    res, 'assist model');
   if (json.error) throw new Error(`assist model error: ${typeof json.error === 'string' ? json.error : JSON.stringify(json.error).slice(0, 200)}`);
   const choice = json.choices?.[0];
   return { text: choice?.message?.content ?? '', truncated: choice?.finish_reason === 'length' };

@@ -23,6 +23,18 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+/**
+ * A REAL Response, not a { ok, status, json } shape.
+ *
+ * The client under test reads its body through boundedJson, which bounds a read by inspecting content-length
+ * and streaming res.body — neither of which a hand-rolled double has. Making the helper fall back to res.json()
+ * for objects lacking them was rejected: that is a silent bypass reachable from anywhere, and a guard with a
+ * silent bypass is worse than none. Using the real thing also means these tests exercise the production path.
+ */
+function jsonResponse(body, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+}
+
 let judgePair, findPropertyDisagreements, _reloadConfig;
 let cfgPath;
 const rec = (id, text, properties) => ({ id, text, ...(properties ? { properties } : {}) });
@@ -34,7 +46,7 @@ function configureNli(on) {
   }), 'utf8');
   _reloadConfig();
 }
-const stubNli = (body, ok = true) => { globalThis.fetch = async () => ({ ok, status: ok ? 200 : 503, json: async () => body }); };
+const stubNli = (body, ok = true) => { globalThis.fetch = async () => jsonResponse(body, ok ? 200 : 503); };
 
 describe('contradiction judge', () => {
   before(async () => {
@@ -69,7 +81,7 @@ describe('contradiction judge', () => {
     it('beats the NLI pass — a deterministic answer is preferred and costs nothing', async () => {
       configureNli(true);
       let called = false;
-      globalThis.fetch = async () => { called = true; return { ok: true, status: 200, json: async () => ({ label: 'entailment', score: 0.99 }) }; };
+      globalThis.fetch = async () => { called = true; return jsonResponse({ label: 'entailment', score: 0.99 }); };
       const v = await judgePair(rec('a', 'runs on 8080', { port: 8080 }), rec('b', 'runs on 9090', { port: 9090 }));
       assert.equal(v.kind, 'contradiction');
       assert.equal(v.basis, 'structured-field');

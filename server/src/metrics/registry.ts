@@ -546,6 +546,34 @@ for (const reason of ['rerank_unavailable', 'rerank_skipped_budget']) {
   recallDegradedTotal.labels({ reason }).inc(0);
 }
 
+/**
+ * Writes that overwrote a record another writer had changed since it was read — a LOST UPDATE.
+ *
+ * Brain records have no `If-Match` yet. `updateMemory` reads, awaits `nextSeq`, then `$set`s only the fields
+ * the caller supplied — so two clients editing DIFFERENT fields both succeed and lose nothing. What is exposed
+ * is two clients editing the SAME field: the loser’s value disappears with a 200 and no trace anywhere.
+ *
+ * This exists because nobody knows how often that happens. The owner’s call was to measure before building the
+ * mechanism, and it is the right order: several MCP agents against one space is the case that would produce
+ * collisions, and it is also the case nobody has instrumented. A week of this says whether a 412 path is
+ * urgent or theoretical.
+ *
+ * `collision` counts a detected overwrite; `clean` counts a write whose record had not moved. Both, so the
+ * numerator has a denominator — "12 collisions" means nothing without "of how many writes".
+ */
+export const brainWriteSeqTotal = new Counter({
+  name: 'ythril_brain_write_seq_total',
+  help: 'Brain record writes by whether the record changed between read and write (lost-update detection)',
+  labelNames: ['collection', 'outcome'] as const,
+  registers: [register],
+});
+// Pre-declared for the same reason as above: absent and zero look identical in a graph and mean opposites.
+for (const collection of ['memories']) {
+  for (const outcome of ['clean', 'collision']) {
+    brainWriteSeqTotal.labels({ collection, outcome }).inc(0);
+  }
+}
+
 // ── Security posture (observability audit, lens 9) ────────────────────────────
 
 /**

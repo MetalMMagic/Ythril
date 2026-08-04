@@ -10,6 +10,7 @@ import { authorRef } from '../config/author.js';
 import { findInsertContradictions, type ContradictionWarning } from './insert-contradictions.js';
 import { col, asFilter, asDoc, asUpdate, asBulk } from '../db/mongo.js';
 import { nextSeq, reserveSeqBlock } from '../util/seq.js';
+import { brainWriteSeqTotal } from '../metrics/registry.js';
 import { parseLimit, parseSkip } from '../util/pagination.js';
 import { toMongoSort, type SortSpec } from './list-sort.js';
 import { embed } from './embedding.js';
@@ -170,10 +171,24 @@ export async function updateMemory(
     { collection: 'memory', existing: existing as unknown as Record<string, unknown> }); // F10
   const updateOp: Record<string, unknown> = { $set };
   if (Object.keys($unset).length > 0) updateOp['$unset'] = $unset;
-  await col<MemoryDoc>(`${spaceId}_memories`).updateOne(
+  // findOneAndUpdate, not updateOne, so the PRE-image comes back in the same round trip.
+  //
+  // The update itself is unchanged — same filter, same operators, same result — but the returned document is
+  // the record as it was at WRITE time. Comparing its seq with the one read at the top of this function is
+  // exactly the lost-update test: if it moved, another writer landed in the window between our read and our
+  // write, and whatever they changed in a field we also set has just been overwritten with no trace.
+  //
+  // Observation only, deliberately. There is no `If-Match` on brain records yet, so this must not reject a
+  // write that would previously have succeeded; it counts, and the counter decides whether the 412 path is
+  // worth building.
+  const before = await col<MemoryDoc>(`${spaceId}_memories`).findOneAndUpdate(
     asFilter<MemoryDoc>({ _id: memoryId }),
     asUpdate<MemoryDoc>(updateOp),
-  );
+    { returnDocument: 'before' },
+  ) as MemoryDoc | null;
+  brainWriteSeqTotal
+    .labels({ collection: 'memories', outcome: before && before.seq !== existing.seq ? 'collision' : 'clean' })
+    .inc();
 
   const result = { ...existing, ...($set as Partial<MemoryDoc>) } as MemoryDoc;
   if ('_expireAt' in $unset) delete (result as { _expireAt?: unknown })._expireAt;

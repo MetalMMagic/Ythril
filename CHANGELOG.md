@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Lost updates on brain records are now counted**, ahead of building the `If-Match` path — the owner's
+  sequencing: *"ship the counter first, it says in a week whether the collision is common or theoretical."*
+  - **The exposure is narrower than the original item implied**, read from the code: a write `$set`s only the
+    fields the caller supplied, so two clients editing *different* fields both succeed and lose nothing. What is
+    exposed is two clients editing the **same** field — the loser's value disappears with a `200` and no trace.
+  - `ythril_brain_write_seq_total{collection,outcome}` counts `clean` and `collision`. Both, so the numerator has
+    a denominator — "12 collisions" means nothing without "of how many writes" — and both pre-declared at `0`
+    from process start, because absent and zero look identical in a graph and mean opposite things.
+  - **Detected without changing behaviour:** `findOneAndUpdate` with `returnDocument: 'before'` returns the record
+    as it was at *write* time in the same round trip, so comparing that `seq` with the one read at the top of the
+    function is exactly the lost-update test. Same filter, same operators, same result; no write that previously
+    succeeded is now rejected.
+  - It is a **measurement, not a guard**, and the docs say so, so a rising number is not mistaken for protection.
+
 - **FFmpeg is now attributed, and the Dockerfile no longer claims the opposite of what ships.** The image
   installs Debian’s `ffmpeg`, and **Debian builds it with `--enable-gpl`** — so the redistributed binary is
   GPL-2.0-or-later, not the LGPL-2.1+ that FFmpeg’s core alone would be.

@@ -99,8 +99,31 @@ ythril_http_requests_total{method="GET",route="/health",status_code="200"} 42
 | `ythril_media_jobs_failed` | gauge | Jobs sitting in the terminal `failed` state by space (a backlog, not a rate) |
 | `ythril_media_job_duration_seconds` | histogram | End-to-end time per job by media type |
 | `ythril_metrics_collect_duration_seconds` | histogram | Time for one async collector to gather its values, by `collector` — one observation per collector per scrape. **This is how a slow `/metrics` names its own cause.** Several gauges here are collected at scrape time and walk every space, so on a many-space instance under write load a scrape can approach the Prometheus timeout; `topk(3, ythril_metrics_collect_duration_seconds_sum / ythril_metrics_collect_duration_seconds_count)` says which collector is responsible. Buckets run to 15 s deliberately — a histogram whose top bucket sits below the failure cannot describe it. |
+| `ythril_metrics_scrape_degraded` | gauge | `1` if the scrape being served had to abandon at least one collector to stay inside its budget, else `0`. **This is the one to alert on**, because the degradation is otherwise invisible: the scrape succeeds, `up` stays 1, and only the abandoned series are missing. It describes the scrape you are reading, not the previous one. |
+| `ythril_metrics_collect_timeouts_total` | counter | Collectors abandoned mid-scrape because the scrape budget ran out, by `collector`. **This names a slow collector without anyone having to catch a scrape while it is happening** — which is otherwise the hard part, since the problem only appears under load. Every collector is pre-declared at `0`, so an absent series never has to be told apart from a healthy one. |
 | `ythril_security_posture_checks` | gauge | This instance's own PASS/WARN/FAIL posture, by `level` — the same findings the boot log prints and `GET /api/about/security` serves, computed per scrape from the same function. **Alert on `level="fail"` > 0**: the checks that matter most produce no runtime symptom at all (`requireEncryptedTransport` on *without* `trustProxy` rejects every request with a 403 that looks like a client problem), and the only other way to notice was somebody reading the boot log of each instance. All three levels report `0` from process start. |
 
+> **A slow scrape degrades one graph, not the whole target.**
+>
+> Several gauges above are collected at scrape time and walk every space, so a many-space instance under
+> write load can push `/metrics` toward the Prometheus timeout. Without a guard the consequence is out of all
+> proportion to the cause: the scrape fails, Prometheus records `up=0`, and **every series from that target
+> disappears** — HTTP latency, event-loop lag, embed throughput, including the ones that would explain the
+> outage.
+>
+> So the scrape has a deadline. A collector that cannot finish inside it is abandoned: **its** series are
+> dropped for that scrape, `ythril_metrics_collect_timeouts_total` counts it by name, and
+> `ythril_metrics_scrape_degraded` reads `1`. Everything else is served normally and `up` stays 1.
+>
+> The abandoned collector is **dropped rather than left holding its last values**, deliberately. Stale numbers
+> presented as current are indistinguishable from a healthy flat line — you would read "storage steady" off a
+> collector that has not answered in an hour. A gap is honest.
+>
+> `METRICS_SCRAPE_BUDGET_MS` sets the deadline. Default **8000**, chosen to sit under the Prometheus
+> default of 10 s with room for serialisation and transfer — if you have raised `scrape_timeout`, raise
+> this with it. Set it to `0` to disable the budget and restore all-or-nothing collection. A malformed
+> value falls back to the default rather than to `0`, so a typo cannot silently switch the guard off.
+>
 > **The stuck-job recipe needs a restart guard.** A counter **resets to zero on restart**, so
 > `rate(ythril_embed_chunks_total[5m])` is 0 for the first five minutes of a new process while jobs are
 > completing normally. A reporting operator built the alert exactly as recommended and it fired two minutes

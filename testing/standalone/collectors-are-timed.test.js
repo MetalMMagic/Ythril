@@ -1,5 +1,6 @@
 /**
- * Every async metric collector must be timed — because an untimed one is the one that will own the ten seconds.
+ * Every async metric collector must be timed AND bounded — because an untimed one is the one that will own the
+ * ten seconds, and an unbounded one will blind the whole target while doing it.
  *
  * ## The failure this exists for
  *
@@ -9,15 +10,23 @@
  * awaiting, not hogging — and the candidates are the gauges that gather at scrape time, each walking every
  * space, several of them querying the collection the embedding worker writes to continuously.
  *
- * We cannot reproduce their load, so the instance has to report it. `ythril_metrics_collect_duration_seconds`
- * does that — but only for collectors that actually call the timer, and the next collector somebody adds is the
- * one that will silently not.
+ * We cannot reproduce their load, so the instance has to report it.
  *
- * ## Why this gate is not just "grep for collectTimer"
+ * ## Why this file changed shape
  *
- * It enumerates the `async collect()` blocks from the source and requires each to have one, so the check scales
- * with the file instead of with a list somebody maintains. The floor matters as much: if the pattern stops
- * matching, an empty offender list would pass while checking nothing.
+ * It used to assert the **mechanism**: `collectTimer(` on the first line of each collector, and a `done()` count
+ * that matched. Both were hand-rolled per collector, and the timer stop sat *after* the try/catch rather than in
+ * a `finally` — so an early `return` would have silently skipped it.
+ *
+ * `withCollectBudget()` now owns both, plus the scrape budget. That makes the guarantee structural instead of
+ * remembered, so this gate asserts the guarantee:
+ *
+ *   1. every async collector routes through the wrapper;
+ *   2. the wrapper starts its timer before anything can await;
+ *   3. the wrapper stops it in a `finally`, so no path escapes measurement.
+ *
+ * The old assertions would now FAIL against strictly better code, which is the signature of a gate pinned to an
+ * implementation. Re-pointed rather than appeased.
  *
  * Run: node --test testing/standalone/collectors-are-timed.test.js
  */
@@ -31,44 +40,101 @@ const SRC = 'server/src/metrics/registry.ts';
 const src = readFileSync(join(ROOT, SRC), 'utf8');
 const lines = src.split(/\r?\n/);
 
-/** `{ line, metric, timed }` for every async collector in the registry. */
+/**
+ * Collectors that gather nothing and so are exempt from the budget wrapper, with the reason.
+ *
+ * These two report on the scrape itself and wait for the budgeted collectors to settle. Routing them through the
+ * wrapper would make them wait on themselves.
+ */
+const REPORTING_COLLECTORS = ['ythril_metrics_collect_timeouts_total', 'ythril_metrics_scrape_degraded'];
+
+/** `{ line, metric, body }` for every async collector in the registry, reporting ones excluded. */
 function collectors() {
   const found = [];
   for (let i = 0; i < lines.length; i++) {
-    if (lines[i].trim() !== 'async collect() {') continue;
+    if (!/^\s*async collect\(\)\s*\{/.test(lines[i])) continue;
+
     let metric = null;
-    for (let j = i; j >= 0 && j > i - 12; j--) {
+    for (let j = i; j >= 0 && j > i - 14; j--) {
       const m = lines[j].match(/name: '(ythril_[a-z_]+)'/);
       if (m) { metric = m[1]; break; }
     }
-    // The timer must be the FIRST statement: a collector that starts timing after its first await measures the
-    // wrong thing, and measuring the wrong thing is worse here than not measuring.
-    found.push({ line: i + 1, metric, timed: lines[i + 1]?.includes('collectTimer(') === true });
+    if (metric !== null && REPORTING_COLLECTORS.includes(metric)) continue;
+
+    // Body runs to the closing brace at the collector's own indent.
+    const indent = lines[i].match(/^\s*/)[0];
+    let end = i + 1;
+    while (end < lines.length && !new RegExp(`^${indent}\\},?$`).test(lines[end])) end++;
+    found.push({ line: i + 1, metric, body: lines.slice(i, end + 1).join('\n') });
   }
   return found;
 }
 
-describe('every async metric collector is timed', () => {
+describe('every async metric collector is timed and bounded', () => {
   it('found the collectors — the pattern still matches', () => {
     const all = collectors();
+    // The floor matters as much as the check: if the pattern stopped matching, an empty offender list would pass
+    // while verifying nothing.
     assert.ok(all.length >= 8, `only found ${all.length} async collectors in ${SRC}`);
     assert.ok(all.every(c => c.metric !== null), 'a collector has no metric name above it');
   });
 
-  it('each one starts a timer as its first statement', () => {
-    const untimed = collectors().filter(c => !c.timed).map(c => `${SRC}:${c.line} (${c.metric})`);
-    assert.deepEqual(untimed, [], 'these gather at scrape time without recording how long they took, so a slow '
-      + `scrape cannot name them:\n  ${untimed.join('\n  ')}\n\n`
-      + "Add `const done = collectTimer('<name>');` as the first line and `done();` before the closing brace.");
+  it('every reporting collector named exempt actually exists', () => {
+    // An exemption for something that is gone is an exemption that will one day cover something else. The old
+    // version of this gate had no exemptions and the new metrics would have silently widened its scope.
+    for (const name of REPORTING_COLLECTORS) {
+      assert.match(src, new RegExp(`name: '${name}'`), `${name} is exempted here but not in the registry`);
+    }
   });
 
-  it('each one records the elapsed time before returning', () => {
-    // A started timer that is never stopped observes nothing — the histogram would stay empty and look like a
-    // collector that is instantly fast.
-    const starts = (src.match(/collectTimer\(/g) ?? []).length;
-    const stops = (src.match(/^\s*done\(\);$/gm) ?? []).length;
-    assert.equal(stops, starts - 1, `${starts - 1} timer start(s) in collectors but ${stops} done() call(s) `
-      + '(one collectTimer occurrence is the helper definition itself)');
+  it('each one routes through withCollectBudget, which times it and bounds it', () => {
+    const loose = collectors()
+      .filter(c => !c.body.includes('withCollectBudget('))
+      .map(c => `${SRC}:${c.line} (${c.metric})`);
+    assert.deepEqual(loose, [], 'these gather at scrape time outside the budget wrapper, so they are neither '
+      + `timed nor bounded — a slow scrape cannot name them and cannot survive them:\n  ${loose.join('\n  ')}\n\n`
+      + "Wrap the body: `await withCollectBudget('<name>', async () => { ... }, () => this.reset());`");
+  });
+
+  it('the wrapper starts its timer before it can await', () => {
+    // A timer started after the first await measures the wrong thing, and measuring the wrong thing is worse
+    // here than not measuring.
+    const m = src.match(/export async function withCollectBudget\([\s\S]*?\n\) *: *Promise<void> *\{([\s\S]*?)\n\}/);
+    assert.ok(m, 'withCollectBudget not found — this gate needs re-pointing, not deleting');
+    const body = m[1];
+
+    const firstTimer = body.indexOf('collectDuration.startTimer(');
+    const firstAwait = body.indexOf('await ');
+    assert.ok(firstTimer >= 0, 'withCollectBudget no longer starts a timer');
+    assert.ok(
+      firstAwait === -1 || firstTimer < firstAwait,
+      'withCollectBudget awaits before it starts timing, so every collector under-reports its own duration',
+    );
+  });
+
+  it('the wrapper stops its timer in a finally, so no path escapes measurement', () => {
+    const m = src.match(/export async function withCollectBudget\([\s\S]*?\n\) *: *Promise<void> *\{([\s\S]*?)\n\}/);
+    const body = m[1];
+
+    // Strip comments line-first, so this cannot pass on the prose that explains it — and cannot be "fixed" by
+    // deleting that prose.
+    const code = body.split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+
+    // The wrapper has two finally blocks — the inner one clears the expiry timer, the outer one stops the clock.
+    // Anchor on the LAST, because a non-greedy match finds the inner one and then stops at the outer finally's
+    // own opening brace, capturing a region that never contains the stop. (It did exactly that on first run.)
+    const lastFinally = code.lastIndexOf('finally {');
+    assert.ok(lastFinally >= 0, 'the timer stop is not in a finally — an early return would skip it, which is the '
+      + 'exact hole the previous per-collector `done()` had');
+    assert.match(
+      code.slice(lastFinally), /done\(\);/,
+      'the last finally does not stop the timer; a started timer that never stops observes nothing, so the '
+      + 'histogram stays empty and reads as a collector that is instantly fast',
+    );
+    assert.equal(
+      (code.match(/\bdone\(\);/g) ?? []).length, 1,
+      'more than one done() call: if one of them is outside the finally, that is the path that escapes measurement',
+    );
   });
 
   it('the histogram can describe a scrape that timed out', () => {
@@ -84,5 +150,8 @@ describe('every async metric collector is timed', () => {
   it('is documented, like every other metric family', () => {
     const docs = readFileSync(join(ROOT, 'docs/integration-guide/11-setup-api.md'), 'utf8');
     assert.match(docs, /ythril_metrics_collect_duration_seconds/);
+    // The budget is operator-facing configuration: an undocumented knob is one nobody can turn.
+    assert.match(docs, /METRICS_SCRAPE_BUDGET_MS/,
+      'the scrape budget env var is not documented, so an operator whose scrape_timeout differs cannot adjust it');
   });
 });

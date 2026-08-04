@@ -44,6 +44,32 @@ COPY server/ ./server/
 # Compile TypeScript
 RUN npm run build --workspace=server
 
+# ── Stage 1b: Production dependencies, built WITH the toolchain ──────────────
+#
+# The production stage used to run `npm ci --omit=dev` itself, which meant it needed `python3 make g++` to
+# compile the bcrypt native addon — a compiler in the shipped image that nothing at runtime uses.
+#
+# MEASURED, because the first estimate here was wrong: that apt layer was 755 MB total, but ffmpeg is 472 MB of
+# it. Removing the toolchain takes the layer to **472 MB — a 283 MB saving**, not 755. The layer also changes
+# digest on every release regardless of the lockfile, because `apt-get update` is not reproducible, so it was
+# re-downloaded on every pull; that half of the problem is unchanged, since ffmpeg still needs apt.
+#
+# Its own stage rather than reusing `builder`: builder's `node_modules` includes devDependencies (it needs the
+# TypeScript compiler), so copying from there would ship those too. This installs the production tree only.
+#
+# ABI safety, which is the whole risk in moving a native addon between stages: same pinned base image, so the
+# same Node version and the same libc. The compiled `.node` binary is copied, not rebuilt — `docker-boot.test.js`
+# asserts bcrypt actually loads in the final image, because a broken native addon fails at REQUIRE time and
+# would otherwise show up as a login that 500s rather than as a build error.
+FROM node:22-slim@sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3 AS prod-deps
+
+RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY package.json package-lock.json* ./
+COPY server/package.json ./server/
+RUN npm ci --workspace=server --omit=dev
+
 # ── Stage 2: Production ──────────────────────────────────────────────────────
 FROM node:22-slim@sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3 AS production
 
@@ -51,10 +77,14 @@ LABEL org.opencontainers.image.source="https://github.com/ythril-network/Ythril"
 LABEL org.opencontainers.image.description="Ythril — self-hosted brain & knowledge management platform"
 LABEL org.opencontainers.image.licenses="PolyForm-Small-Business-1.0.0"
 
-# Build tools for bcrypt native addon (compiled during npm ci --omit=dev)
+# NO python3/make/g++ here any more — the toolchain lives in the `prod-deps` stage and the compiled addon is
+# copied in below. That removes a 755 MB layer from the shipped image, and with it a layer that changed digest
+# on every release for no reason anyone wanted: `apt-get update` is not reproducible, so it was re-downloaded on
+# every pull even when nothing about it had changed.
+#
 # ffmpeg: LGPL-2.1+ core only (no GPL codecs); used for audio/video media embedding pipeline.
 # Verify at build time: ffmpeg -buildconf | grep enable-gpl must be absent.
-RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ ffmpeg && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -62,8 +92,9 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 COPY server/package.json ./server/
 
-# Install production dependencies only
-RUN npm ci --workspace=server --omit=dev
+# The production dependency tree, already installed and already compiled, from a stage that had a compiler.
+COPY --from=prod-deps /app/node_modules ./node_modules
+COPY --from=prod-deps /app/server/node_modules ./server/node_modules
 
 # Pre-download & cache the embedding model so first startup is instant and fully offline.
 # The model is then copied into the image layer so the container starts offline.

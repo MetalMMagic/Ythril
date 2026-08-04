@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The shipped image no longer carries a C++ toolchain.** The production stage installed `python3 make g++`
+  purely so `npm ci --omit=dev` could compile the bcrypt native addon — a compiler in the image that nothing at
+  runtime uses. A `prod-deps` stage now installs the production tree with the toolchain and production copies the
+  result.
+  - **Measured, and it corrects an earlier estimate of mine.** "755 MB" is the whole apt layer; ffmpeg is 472 MB
+    of it. The real saving is that layer going **755 MB → 472 MB, i.e. 283 MB**. The figure now sits in the
+    Dockerfile beside the change, because this is the second size estimate this batch that was wrong until
+    something measured it.
+  - Verified against a **real build**, since a stage boundary either works or does not: bcrypt loads, hashes and
+    verifies inside the image with `--network=none`; `gcc`, `g++`, `cc`, `make` and `python3` are all absent; and
+    `server/dist/index.js` imports offline and reaches `connectMongo` before failing — so **every** dependency
+    resolved, not just bcrypt. That last check matters because a broken native addon fails at *require* time,
+    surfacing as a login that 500s rather than as a build error.
+  - The other half of the canary's complaint is unchanged and stated rather than implied: that layer still
+    changes digest every release, because `apt-get update` is not reproducible and ffmpeg still needs apt.
+
 - **The build now fails when a component becomes unreachable.** A component with no route, no importer and no
   template usage has exactly one reference — its own declaration — and is dead.
   - The argument for automating it is #662: `pages/settings/schema-library.component.ts` was dead **and had

@@ -68,14 +68,23 @@ describe('the licence and notices ship inside the image', () => {
     }
   });
 
-  it('they are copied AFTER the dependency install, so a licence edit does not rebuild the world', () => {
-    // Ordering is not pedantry here: NOTICE changes on most dependency changes, and putting it above `npm ci`
-    // would invalidate a 1.07 GB layer every time somebody corrected a copyright line.
-    const npmCi = stage.indexOf('npm ci');
+  it('they are copied AFTER the dependencies arrive, so a licence edit does not rebuild the world', () => {
+    // Ordering is not pedantry here: NOTICE changes on most dependency changes, and putting it above the
+    // node_modules layer would invalidate ~890 MB every time somebody corrected a copyright line.
+    //
+    // Anchored on "whatever brings node_modules in", not on `npm ci`. The production stage no longer runs the
+    // install — the toolchain moved to a `prod-deps` stage and the built tree is COPYed in, so this test asserted
+    // the presence of a mechanism rather than the guarantee, and reported "could not find the dependency install"
+    // for a change that kept the ordering perfectly intact.
+    const deps = Math.min(
+      ...[/npm ci/, /^COPY --from=prod-deps[^\n]*node_modules/m]
+        .map(re => stage.search(re)).filter(i => i >= 0),
+    );
     const copyNotice = stage.search(/^COPY[^\n]*\bNOTICE\b/m);
-    assert.ok(npmCi > 0, 'could not find the dependency install in the production stage');
-    assert.ok(copyNotice > npmCi,
-      'NOTICE is copied before the dependency install, so editing it invalidates the node_modules layer');
+    assert.ok(Number.isFinite(deps) && deps > 0,
+      'could not find where node_modules enters the production stage (neither an npm ci nor a COPY --from=prod-deps)');
+    assert.ok(copyNotice > deps,
+      'NOTICE is copied before the dependencies arrive, so editing it invalidates the node_modules layer');
   });
 
   it('the publish workflow asserts the EFFECT, not just the instruction', () => {

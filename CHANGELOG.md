@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.0] — 2026-08-04
+
+### Documentation
+
+- **The docs described the previous release's behaviour in five places, and every coverage gate passed.** Found
+  by the owner asking *"does that release gate not make you review docs?"* — it does not, and that was the point:
+  **coverage and accuracy are different axes.** Every gate asserted that a thing is *mentioned*. None could see
+  that what was said had stopped being true.
+  - `POST /memories` and `POST /chrono` **never mentioned `id`** — the parameter added hours
+    earlier in the same session. A *Retry Safety* section at the top of the page described it fully; the endpoints
+    that accept it said nothing, and an integrator reads the endpoint.
+  - `ythril_storage_used_bytes`'s row read *"Storage used in bytes by area"* while the metric's own
+    `help` had gained *"— from a cached measurement, see the age gauge"* when the collector stopped walking
+    the disk. The row described 2.3.0.
+  - Four more rows said strictly less than the help beside them: the help **enumerates** the label values
+    (`success, partial, error`; `memories, entities, edges, files, chrono`) and the row said "by status" / "by
+    type". An operator could not learn the values without scraping first.
+
+### Testing
+
+- **`metric-docs-are-accurate`** closes that axis: a metric's `help` is the **code's own description
+  of itself**, it ships to every scrape, and it is edited in the same commit as the behaviour. So when the help
+  carries a qualifier the docs row must carry that concept. Wording may differ; a whole missing concept fails.
+  - **Rows may defer to a sibling** (three brain totals say "same estimate as above"), and the exemption **names**
+    the row it defers to, so the pointer cannot rot silently.
+  - **The gate’s own self-test caught a real flaw in it.** The first version joined every qualifier into one
+    string; a help like *"…by area (brain, files, total) — from a cached measurement"* has one clause the row
+    legitimately repeats and one it dropped, and joined, the repeat diluted the omission to 50% — under the
+    threshold, on the exact row that shipped stale. Clauses are now scored independently.
+  - A numeric sweep of every documented default against the code came back **clean** — 13 candidates, all
+    heuristic noise, and one doc turned out more precise than the checker. The stale things were never the
+    numbers.
+
 ### Added
 
 - **A retried write no longer duplicates a memory or a chrono entry.** Both creates now accept an optional

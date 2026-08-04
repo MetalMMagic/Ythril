@@ -162,6 +162,7 @@ const DOC_GATES = [
   ['env-var-docs-coverage', 'every env var the code reads is documented'],
   ['config-key-docs-coverage', 'every config.json key is documented'],
   ['metric-docs-coverage', 'every metric on /metrics is documented'],
+  ['metric-docs-are-accurate', "every metric row says what the code's help says"],
   ['mcp-tool-docs-coverage', 'every MCP tool is documented'],
   ['route-path-docs-coverage', 'every API route path is documented'],
   ['help-docs-coverage', 'every in-product Help anchor resolves'],

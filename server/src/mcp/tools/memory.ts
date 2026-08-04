@@ -28,6 +28,10 @@ export const rememberTool: ToolHandler = {
   inputSchema: (s: ToolSchemas) => ({
           type: 'object',
           properties: {
+            id: {
+              type: 'string',
+              description: 'Optional UUID v4. Supply one to make this call IDEMPOTENT: retrying with the same id converges on the same record instead of creating a second one. Generate it before your first attempt and reuse it on every retry. Omit it and each call creates a new record.',
+            },
             space: s.requiredSpace,
             fact: { type: 'string', minLength: 1, maxLength: 50000, description: 'The fact, observation, or memory to store (1–50 000 characters).' },
             entityIds: {
@@ -112,7 +116,8 @@ export const rememberTool: ToolHandler = {
     const remDupeThreshold = typeof a['dupeThreshold'] === 'number' ? a['dupeThreshold'] : undefined;
     const remTtlDays = ttlDaysFromArgs(a);
     const mem = await remember(ts, fact, entityIds, tags, description, props, resolvedNames, memType,
-      { checkDuplicates: remDupeCheck, checkContradictions: remContraCheck, dupeThreshold: remDupeThreshold }, ctx.actor, remTtlDays);
+      { checkDuplicates: remDupeCheck, checkContradictions: remContraCheck, dupeThreshold: remDupeThreshold }, ctx.actor, remTtlDays,
+      typeof a['id'] === 'string' ? a['id'] : undefined);
     const warnings: string[] = [];
     if (mem.similar && mem.similar.length > 0) {
       warnings.push(`⚠️ Possible duplicate — ${mem.similar.length} existing memor${mem.similar.length === 1 ? 'y is' : 'ies are'} highly similar: ${mem.similar.map(s => `"${s.summary}" (ID ${s._id}, ${s.score.toFixed(2)})`).join('; ')}. This memory was still stored; pass checkDuplicates:false to skip this check, or update the existing one instead.`);

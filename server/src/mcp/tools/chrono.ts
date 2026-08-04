@@ -17,6 +17,7 @@ export const create_chronoTool: ToolHandler = {
           type: 'object',
           properties: {
             space: s.requiredSpace,
+            id: { type: 'string', description: 'Optional UUID v4. Supply one to make this call IDEMPOTENT: retrying with the same id converges on the same entry instead of creating a second one. Generate it before your first attempt and reuse it on every retry. Omit it and each call creates a new entry.' },
             title: { type: 'string', minLength: 1, description: 'Entry title.' },
             type: { type: 'string', minLength: 1, description: 'Entry type. Rejected unless it is one of the space\'s allowed chrono types: the defaults are event, deadline, plan, prediction, milestone, or the custom set declared in the space\'s typeSchemas.chrono.' },
             startsAt: { type: 'string', minLength: 1, description: 'ISO 8601 start date/time.' },
@@ -106,6 +107,7 @@ export const create_chronoTool: ToolHandler = {
     if (!rec.ok) throw new Error(rec.error);
 
     const entry = await createChrono(wt.target, {
+      id: typeof a['id'] === 'string' ? a['id'] : undefined,
       title,
       type: chronoType,
       startsAt,

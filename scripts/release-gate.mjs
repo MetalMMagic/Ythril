@@ -169,6 +169,7 @@ const DOC_GATES = [
   ['error-shape-is-json', 'the documented error shape holds'],
   ['rollback-is-documented', 'every boot migration has a documented way back'],
   ['webhook-docs-are-safe', 'the webhook verification example is safe to copy'],
+  ['idempotent-writes-contract', 'retry safety is documented for all four record types'],
 ];
 
 const NOTICE_GATES = [

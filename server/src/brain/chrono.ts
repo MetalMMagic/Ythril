@@ -94,11 +94,26 @@ export async function createChrono(
     memoryIds?: string[];
     properties?: Record<string, string | number | boolean>;
     recurrence?: ChronoEntry['recurrence'];
+    /**
+     * A caller-supplied UUID v4, which makes this write idempotent — see `remember()` for the full reasoning.
+     *
+     * A retried create that names an existing entry CONVERGES on the same content instead of producing a
+     * second calendar entry. Chrono is the type where the same thing most often gets logged twice even
+     * without a retry, which is why the opt-in duplicate check below exists; this closes the mechanical case.
+     */
+    id?: string;
   },
   actor?: WebhookActor,
   ttlDays?: number | null,
   opts?: DupeCheckOpts,
 ): Promise<ChronoEntry & { similar?: SimilarMatch[]; contradicts?: ContradictionWarning[] }> {
+  // When an id is supplied, look for the entry it names first — the same shape as `upsertEntity` and
+  // `remember`.
+  const existing: ChronoEntry | null = fields.id
+    ? (await col<ChronoEntry>(`${spaceId}_chrono`).findOne(
+      asFilter<ChronoEntry>({ _id: fields.id, spaceId })) as ChronoEntry | null)
+    : null;
+
   const seq = await nextSeq(spaceId);
   const now = new Date().toISOString();
   const status = fields.status ?? 'upcoming';
@@ -127,8 +142,47 @@ export async function createChrono(
     }
   }
 
+  // ── The idempotent branch: a supplied id that already names an entry converges rather than duplicating.
+  if (existing) {
+    const mergedTags = [...new Set([...(existing.tags ?? []), ...tags])];
+    const mergedProps = { ...(existing.properties ?? {}), ...(fields.properties ?? {}) };
+    const $set: Record<string, unknown> = {
+      title: fields.title,
+      type: fields.type,
+      startsAt: fields.startsAt,
+      status,
+      tags: mergedTags,
+      updatedAt: now,
+      seq,
+      ...embeddingFields,
+    };
+    if (fields.endsAt !== undefined) $set['endsAt'] = fields.endsAt;
+    if (fields.description !== undefined) $set['description'] = fields.description;
+    if (fields.confidence !== undefined) $set['confidence'] = fields.confidence;
+    if (fields.entityIds !== undefined) $set['entityIds'] = fields.entityIds;
+    if (fields.memoryIds !== undefined) $set['memoryIds'] = fields.memoryIds;
+    if (fields.properties !== undefined) $set['properties'] = mergedProps;
+    if (fields.recurrence !== undefined) $set['recurrence'] = fields.recurrence;
+    const $unset: Record<string, unknown> = {};
+    applyExpiryToUpdate(spaceId, ttlDays, existing._expireAt != null, $set, $unset,
+      { collection: 'chrono', existing: existing as unknown as Record<string, unknown> });
+    const updateOp: Record<string, unknown> = { $set };
+    if (Object.keys($unset).length > 0) updateOp['$unset'] = $unset;
+    await col<ChronoEntry>(`${spaceId}_chrono`).updateOne(
+      asFilter<ChronoEntry>({ _id: existing._id }), asUpdate<ChronoEntry>(updateOp),
+    );
+    const converged = { ...existing, ...($set as Partial<ChronoEntry>) } as ChronoEntry;
+    if ('_expireAt' in $unset) delete (converged as { _expireAt?: unknown })._expireAt;
+    // `chrono.updated`, not `created` — a subscriber must be able to tell a converged retry from a new entry.
+    if (actor) emitWebhookEvent({ event: 'chrono.updated', spaceId, entry: { ...converged, embedding: undefined }, ...actor });
+    return (similar || contradicts)
+      ? { ...converged, ...(similar ? { similar } : {}), ...(contradicts ? { contradicts } : {}) }
+      : converged;
+  }
+
   const doc: ChronoEntry = {
-    _id: uuidv4(),
+    // A supplied id that named nothing becomes the entry's identity, so the caller's retry finds it next time.
+    _id: fields.id ?? uuidv4(),
     spaceId,
     title: fields.title,
     type: fields.type,

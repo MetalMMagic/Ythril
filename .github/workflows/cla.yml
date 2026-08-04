@@ -48,13 +48,27 @@ jobs:
         && contains(github.event.comment.body, 'I have read the CLA Document'))
       || github.event_name == 'pull_request_target'
     steps:
+      # The secret is read through `env`, and the emptiness test happens in the SHELL.
+      #
+      # This step previously used `if: ${{ secrets.CLA_SIGNATURES_TOKEN == '' }}`. The `secrets` context is not
+      # available in an `if:` conditional — only in `env:` and `with:` — so the whole workflow was an invalid
+      # expression and every run was a STARTUP FAILURE: zero jobs, conclusion "failure", one per push, and an
+      # email each time. The workflow therefore never ran at all from the day it was added, so the CLA was not
+      # being enforced despite the check appearing to exist.
+      #
+      # That is a nastier shape than a broken step: a workflow that fails to start looks, in the runs list, much
+      # like a workflow that ran and failed. The tell is "No jobs were run".
       - name: Fail with a readable reason if the PAT is missing or expired
-        if: ${{ secrets.CLA_SIGNATURES_TOKEN == '' }}
+        env:
+          CLA_TOKEN: ${{ secrets.CLA_SIGNATURES_TOKEN }}
         run: |
-          echo "::error::CLA_SIGNATURES_TOKEN is not set. This check cannot record a signature without it."
-          echo "Create a fine-grained PAT (Contents: RW, Pull requests: RW, this repo only) and add it as a"
-          echo "repository secret named CLA_SIGNATURES_TOKEN. See todo/_CLA-BOT-SETUP.md."
-          exit 1
+          if [ -z "$CLA_TOKEN" ]; then
+            echo "::error::CLA_SIGNATURES_TOKEN is not set. This check cannot record a signature without it."
+            echo "Create a fine-grained PAT (Contents: RW, Pull requests: RW, this repo only) and add it as a"
+            echo "repository secret named CLA_SIGNATURES_TOKEN. See todo/_CLA-BOT-SETUP.md."
+            exit 1
+          fi
+          echo "CLA_SIGNATURES_TOKEN is present."
 
       - name: Check the CLA
         uses: contributor-assistant/github-action@v2.6.1

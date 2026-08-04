@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Testing
+
+- **The synced-data migration rule now has a gate. It had been enforced by discipline alone.**
+  `docs/contribution-guide.md` states it plainly — *"Synced data → self-healing (lazy), never a one-time boot
+  migration"* — because a per-space collection that replicates (memories, entities, edges, chrono,
+  `{space}_files`) can be **silently reverted by a mixed-version peer**: an older instance rewriting a record
+  with a higher `seq` replaces the whole document and undoes the migration.
+  - **The failure is invisible to every single-instance test.** A boot migration over `{space}_files` runs
+    perfectly on one instance, the field is right, every test passes. It breaks only in a network, only against
+    an older peer, and it breaks by **silently reverting data** — no error, no log line, nothing red. The one
+    place it would surface is a multi-version network, which nobody has in CI.
+  - **The rule is currently held, and this gate is to keep it that way rather than to fix anything.** Every
+    write to a synced collection sits on a user-action path (delete, wipe, the media pipeline, the face
+    embedder), and the one migration-shaped thing at boot — the token `prefix` backfill — is explicitly
+    self-healing on first use.
+  - Two populations checked: functions named `migrate*`, and every function `index.ts` calls in its startup
+    sequence. **Its blind spot is stated rather than implied:** a boot migration that is neither named
+    `migrate*` nor called directly from `index.ts` would slip through.
+  - **The detector is itself tested**, against a synthetic violation and against a synthetic READ that must NOT
+    fire — a gate whose detector is never exercised passes because it finds nothing, which is indistinguishable
+    from passing because there is nothing to find.
+  - **A last test asserts the guide still states the rule**, so a deliberate change to the rule fails here and
+    gets made in one commit instead of leaving a gate nobody can argue with.
+  - 3 mutations, 3 caught: a `migrate*` write, a startup-callee write, and the rule deleted from the guide.
+
 ### Fixed
 
 - **25 HTTP response bodies were read into memory with no size ceiling, while the helper that exists to

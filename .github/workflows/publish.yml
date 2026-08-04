@@ -71,6 +71,46 @@ jobs:
       # This exists because it once did not: 2.2.5 shipped with neither file. The image is the primary distribution,
       # so it was the one place Apache-2.0 §4(d) and the MIT notice clause actually applied, and the one place they
       # were unmet.
+      # The ffmpeg licence, verified against the BINARY rather than against our own documents.
+      #
+      # `ffmpeg-licensing-is-stated.test.js` asserts the Dockerfile comment and NOTICE agree with each other,
+      # because that check must run without Docker. Two documents agreeing is not the same as either being TRUE:
+      # the original bug was a Dockerfile that claimed LGPL-only while Debian shipped a GPL build, and no
+      # document-level check could ever have caught it.
+      #
+      # So the published image is asked what it actually contains. If Debian ever ships an LGPL build, or if
+      # somebody switches to a custom one, this fails and NOTICE has to be updated in the same change — which is
+      # the whole point: the artefact is what we redistribute, so the artefact is what has to match the notice.
+      - name: Verify ffmpeg is the licence NOTICE claims
+        run: |
+          IMAGE="$(echo '${{ steps.meta.outputs.tags }}' | head -n1)"
+          BUILD="$(docker run --rm --entrypoint ffmpeg "$IMAGE" -buildconf 2>/dev/null || true)"
+          if [ -z "$BUILD" ]; then
+            echo "  FAIL: could not run ffmpeg -buildconf in $IMAGE."
+            echo "  If ffmpeg was deliberately removed, drop this step AND its NOTICE section in the same change."
+            exit 1
+          fi
+          if echo "$BUILD" | grep -q -- "--enable-gpl"; then
+            ACTUAL="GPL-2.0-or-later"
+          else
+            ACTUAL="LGPL-2.1-or-later"
+          fi
+          echo "  ffmpeg as built: $ACTUAL"
+          # NOTICE ships inside the image, so the comparison is image-internal and cannot drift from the tag.
+          if docker run --rm --entrypoint sh "$IMAGE" -c "grep -q 'General Public License v2.0 or later' /app/NOTICE"; then
+            CLAIMED="GPL-2.0-or-later"
+          else
+            CLAIMED="LGPL-2.1-or-later"
+          fi
+          echo "  NOTICE claims:  $CLAIMED"
+          if [ "$ACTUAL" != "$CLAIMED" ]; then
+            echo "  FAIL: the shipped ffmpeg is $ACTUAL but NOTICE documents $CLAIMED."
+            echo "  Update the NOTICE section \"Runtime Dependency: FFmpeg\" and the Dockerfile comment to match"
+            echo "  the binary. This is the exact drift that shipped in 2.2.5 undetected."
+            exit 1
+          fi
+          echo "  ok: the binary and NOTICE agree"
+
       - name: Verify the licence and notices are in the published image
         run: |
           IMAGE="$(echo '${{ steps.meta.outputs.tags }}' | head -n1)"

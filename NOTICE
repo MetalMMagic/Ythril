@@ -207,6 +207,33 @@ Copyright (c) 2018 Filip Skokan
 License: Apache License 2.0
 Copyright (c) 2015 Simon Nyberg
 
+### Runtime Dependency: FFmpeg (Debian `ffmpeg`, inside the Ythril image)
+
+The Ythril production image installs Debian’s `ffmpeg` package. It is used by the audio and video embedding
+pipeline (`files/media/audio-embedder.ts`, `files/media/video-embedder.ts`), which invokes the `ffmpeg`
+executable as a **separate process** via `spawn()` — it is not linked into, or distributed as part of, Ythril’s
+own program. This is the same relationship Ythril has with LibreOffice in the optional `doc-office` sidecar,
+described below.
+
+**Debian builds FFmpeg with `--enable-gpl`**, so the binary Ythril redistributes is licensed under the GNU
+General Public License v2.0 or later, not the LGPL-2.1+ that FFmpeg’s core alone would be. Verify on any
+image with `ffmpeg -buildconf`.
+
+- FFmpeg (Debian `ffmpeg` and its dependencies) — GNU General Public License v2.0 or later, as built by
+  Debian. Copyright the FFmpeg developers. Invoked as a separate process; not linked. **Corresponding source
+  is available** from the FFmpeg project (https://ffmpeg.org/download.html, and
+  https://git.ffmpeg.org/ffmpeg.git) and from the Debian source packages for the exact versions shipped
+  (`apt-get source ffmpeg` against the image’s `bookworm` sources, or
+  https://sources.debian.org/src/ffmpeg/).
+
+The GPL-2.0-or-later license text ships inside the image at `/usr/share/doc/ffmpeg/copyright`, together with
+the per-component copyright records Debian installs for every package.
+
+> This entry was added on 2026-08-04. FFmpeg had been absent from this file while every optional sidecar was
+> documented — so the most restrictively-licensed binary in the product was the only one with no attribution,
+> and it ships in the main image rather than an opt-in one. The Dockerfile had also asserted the opposite
+> (“LGPL-2.1+ core only”) while naming the command that disproves it.
+
 ### Runtime Dependency: mongodb/mongodb-atlas-local (Docker image)
 
 Ythril's `docker-compose.yml` references the `mongodb/mongodb-atlas-local` container

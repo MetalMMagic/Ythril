@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **FFmpeg is now attributed, and the Dockerfile no longer claims the opposite of what ships.** The image
+  installs Debian’s `ffmpeg`, and **Debian builds it with `--enable-gpl`** — so the redistributed binary is
+  GPL-2.0-or-later, not the LGPL-2.1+ that FFmpeg’s core alone would be.
+  - The Dockerfile asserted *"LGPL-2.1+ core only (no GPL codecs)"* and told the reader to verify that
+    `--enable-gpl` must be absent. Running that one command disproves it — on a fresh build **and** on the
+    released 2.2.5 image, so the stated verification cannot ever have been run. Two documents that could not
+    both be true, with the comment naming the command that settles it.
+  - **The sharper half: FFmpeg appeared in `NOTICE` zero times.** Every optional sidecar had a careful
+    runtime-dependency entry — including LibreOffice’s MPL/LGPL with a corresponding-source offer — while the
+    one GPL binary, shipping in the *main* image, had no attribution at all.
+  - `NOTICE` gains a **Runtime Dependency: FFmpeg** section naming GPL-2.0-or-later as Debian builds it, recording
+    that the executable is invoked as a **separate process** and never linked (the same argument `NOTICE`
+    already makes for LibreOffice), and offering corresponding source from ffmpeg.org and the Debian source
+    packages. The separate-process argument covers Ythril’s own code; it does not cover redistributing the
+    binary, which is what the attribution and source offer are for.
+  - Gate `ffmpeg-licensing-is-stated`: FFmpeg must be attributed, the licence named must be the one Debian
+    builds, the source offer must point somewhere real, and **the two documents must agree**. It cannot strip
+    comments — the comment *is* the claim under test — so it distinguishes asserting the false claim from
+    quoting it, which the ninth-in-a-row gate-fires-on-its-own-explanation incident forced it to learn.
+  - **And the artefact is checked, not just the documents.**  now runs  in the
+    published image, derives the licence from whether  is present, and compares it against the
+     that ships *inside that same image*. Two documents agreeing is not the same as either being true —
+    the original bug was precisely a pair of self-consistent documents that both described a different binary,
+    and no document-level check could ever have caught it. If Debian switches builds, or somebody supplies a
+    custom ffmpeg, the publish fails until NOTICE is updated in the same change.
+  - Not asserted, deliberately: whether this attribution is legally *sufficient*, or how it interacts with
+    offering commercial terms later. That needs a qualified answer, alongside the export-notice question. What
+    is fixed here is two documents telling the truth about what is in the image.
+
 - **The shipped image no longer carries a C++ toolchain.** The production stage installed `python3 make g++`
   purely so `npm ci --omit=dev` could compile the bcrypt native addon — a compiler in the image that nothing at
   runtime uses. A `prod-deps` stage now installs the production tree with the toolchain and production copies the

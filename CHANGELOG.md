@@ -7,64 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Documentation
+### Added
 
-- **"All errors return JSON" was false, and it is the kind of false an integrator codes against.** The
-  integration guide stated it flat. Two surfaces deliberately answer otherwise: `GET /metrics` returns
-  Prometheus comment lines (a scraper does not parse JSON, and `#` is a comment in the exposition format, so the
-  error degrades into something readable instead of corrupting the parse), and the first-run `/setup` flow
-  returns text/HTML (it is server-rendered and exists *before* the SPA does; its consumer is a browser).
-  - Both were **correct**; the sentence was wrong. It now says every `/api/` error is JSON and names the
-    two exceptions with their reasons, so nobody learns them from a parse failure.
-  - The rest of the contract is genuinely held: every route handler, the `/api/` 404, all six rate limiters
-    (each with `message: { error }` and a handler that JSONs it), and the global middleware.
+- **The documentation lens is now a release gate** (owner rule): `npm run release:gate`, which also runs
+  inside `publish.yml` **before login and before the build** — so a bad tag fails in ~2 minutes instead of
+  publishing to two registries.
+  - **Three groups, in the terms the rule was given in:** every docs-coverage gate plus markdownlint · the
+    CHANGELOG carries a dated section for this version with real content and `[Unreleased]` emptied into it ·
+    NOTICE attributes every redistributed dependency, ships inside the image, and ffmpeg is accounted for.
+  - **Two of those checks can only exist at release time**, which is why this is not simply more CI: that the
+    four manifests agree on one version (including the lockfile, the one nobody edits by hand), and that
+    `[Unreleased]` was actually closed. No per-PR gate can see either. The rest is repeated at the tag because a
+    tag can be cut from a commit whose CI never ran.
+  - **The gate list is explicit, not globbed**, and a named gate whose file is missing reports as *"this gate
+    stopped running"* rather than as an ordinary assertion failure — a renamed test is exactly the silent shrink
+    the list exists to prevent.
 
-### Testing
-
-- **A gate holds the boundary**, with the two exceptions as explicit exemptions that must carry a written
-  reason. The exceptions themselves are fine; a **third** one appearing without anyone deciding it should is
-  how a contract erodes — each case defensible alone, nobody looking at the set.
-
-- **The gate passed on a planted violation, twice, for two different reasons. Both were the test.**
-  - **A shared module-level `/g` regex.** `assert.match` calls `RegExp.prototype.test`, which
-    advances `lastIndex`, and `String.matchAll` copies `lastIndex` into its clone. So the three
-    assertions in the detector self-test left the cursor mid-string, and the sweep that ran next started from
-    there and found nothing. **The self-test poisoned the very sweep it existed to validate.** The detector is
-    now a function returning a fresh regex.
-  - **One pathspec instead of two.** `server/src/**/*.ts` requires at least one directory level, so
-    `server/src/app.ts` and `server/src/index.ts` were never scanned — the global error middleware
-    and half the admin handlers. A mutation planting a violation in `app.ts` is now part of the suite.
-  - Neither was visible from a passing run. Only mutation found them, and the first mutation harness *also*
-    lied — it matched the failure marker immediately after the cross rather than anywhere on the line, and
-    replaced only the first occurrence, so three no-op mutations were reported as clean survivals. It now
-    distinguishes "nothing failed" from "the wrong test failed".
-
-### Testing
-
-- **The synced-data migration rule now has a gate. It had been enforced by discipline alone.**
-  `docs/contribution-guide.md` states it plainly — *"Synced data → self-healing (lazy), never a one-time boot
-  migration"* — because a per-space collection that replicates (memories, entities, edges, chrono,
-  `{space}_files`) can be **silently reverted by a mixed-version peer**: an older instance rewriting a record
-  with a higher `seq` replaces the whole document and undoes the migration.
-  - **The failure is invisible to every single-instance test.** A boot migration over `{space}_files` runs
-    perfectly on one instance, the field is right, every test passes. It breaks only in a network, only against
-    an older peer, and it breaks by **silently reverting data** — no error, no log line, nothing red. The one
-    place it would surface is a multi-version network, which nobody has in CI.
-  - **The rule is currently held, and this gate is to keep it that way rather than to fix anything.** Every
-    write to a synced collection sits on a user-action path (delete, wipe, the media pipeline, the face
-    embedder), and the one migration-shaped thing at boot — the token `prefix` backfill — is explicitly
-    self-healing on first use.
-  - Two populations checked: functions named `migrate*`, and every function `index.ts` calls in its startup
-    sequence. **Its blind spot is stated rather than implied:** a boot migration that is neither named
-    `migrate*` nor called directly from `index.ts` would slip through.
-  - **The detector is itself tested**, against a synthetic violation and against a synthetic READ that must NOT
-    fire — a gate whose detector is never exercised passes because it finds nothing, which is indistinguishable
-    from passing because there is nothing to find.
-  - **A last test asserts the guide still states the rule**, so a deliberate change to the rule fails here and
-    gets made in one commit instead of leaving a gate nobody can argue with.
-  - 3 mutations, 3 caught: a `migrate*` write, a startup-callee write, and the rule deleted from the guide.
+- **`npm run todo:check`** holds the other rule: `todo/` carries only actionable open items, and
+  `_TODO-ORDERED.md` references every one of them in every other tracker.
+  - **The index half is load-bearing rather than tidy.** The release cadence is *"cut the tag when the ordered
+    list is empty"*, so a tracker holding an item that list never mentions makes "empty" a claim about one file
+    rather than about the work.
+  - **Its first run found two orphans, and both were work that had already shipped and was still marked `[ ]`**
+    — the ordered list had correctly dropped them and the domain tracker never did. Retired after verifying each
+    against the code, because a checkbox is not evidence.
+  - `todo/` is gitignored, so this runs in preflight and exits 0 when the folder is absent. A check that
+    skips in the only place it runs automatically is not a check.
 
 ### Fixed
+
+- **Two defects in the release gate itself, both found by running it:**
+  - it demanded `[Unreleased]` be empty **unconditionally** and failed on a perfectly healthy mid-cycle tree.
+    Between releases a populated `[Unreleased]` is *correct*; release mode is now derived from
+    `git describe --exact-match --tags HEAD`, with `--releasing` for a pre-tag check. A gate that fires on a
+    healthy tree teaches everyone to ignore it.
+  - `fetch-depth: 0` was needed in `publish.yml`: a shallow clone has no tags, `git describe`
+    fails, that reads as "not releasing", and the release-only rules downgrade silently with nothing looking
+    wrong.
 
 - **25 HTTP response bodies were read into memory with no size ceiling, while the helper that exists to
   prevent exactly that was used at 3 call sites — all inside the file that defines it.** `boundedJson`
@@ -107,22 +86,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     return `err.message` wrap Mongo/config/keypair work no upstream body can reach. So this is log quality and a
     double allocation, not an information leak. The tracker had it filed as possibly either, and guessing would
     have justified a bigger change than the evidence supports.
-
-### Testing
-
-- **7 mutations, 7 caught**, including both directions of the gate (a peer read reverted to raw `.json()`, an
-  error body reverted to hand-rolled).
-- **Six fetch doubles shaped `{ ok, status, json }` became real `Response` objects.** They broke
-  because `boundedJson` reads the content-length header and streams `res.body` — the
-  only things that can actually bound a read. **Making the helper fall back to `res.json()` for objects lacking
-  them was rejected**: that is a silent bypass reachable from anywhere, and the gate would still have reported
-  zero offenders. This entry exists because that shape is the whole bug being fixed.
-- **The gate’s own first run failed on the file it points at.** `git ls-files` cannot see a file added in the
-  same change, so the scan missed `bounded-read.ts`. Now `ls-files` **plus** `--others --exclude-standard`,
-  which adds new files while still honouring .gitignore. Third time this repo has been bitten by treating
-  `git ls-files` as "what files does this project have".
-
-### Fixed
 
 - **The storage gauge walked the entire files tree on every scrape, and it was the whole cause of the canary's
   `/metrics` timeout.** They answered the diagnostic request from #676 with numbers that name one collector and
@@ -167,33 +130,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `0` on entities reads as "no collisions here" when the truth is "not measured", which is the exact confusion
     pre-declaring exists to prevent. A gate now fails if a pre-declared collection is not actually counted.
 
-### Documentation
-
-- **Two notes the canary asked for, one of which corrects a query we sent them.**
-  - `ythril_metrics_collect_duration_seconds` is a histogram, so **the bare name is not a series** — only
-    `_bucket`, `_sum` and `_count` exist. An instant query for the bare name returns empty, which reads as "the
-    metric is missing" rather than "wrong series". Our own request for a scrape told them to grep the bare name.
-  - **A collector Prometheus gave up on still finishes and still records its duration**, so a later successful
-    scrape delivers those buckets. That is why timing data exists for the scrapes that failed — and the
-    corollary is that an instance whose scrapes *all* time out looks silent while doing the work.
-
-### Testing
-
-- **9 mutations, 9 caught — but three of the first six survived, and all three were the test rather than the
-  code.** Recorded because the pattern repeats:
-  - the coalescing test asserted *"a refresh is in flight"* before and after nine calls, which is true either
-    way since nine unguarded calls each leave **a** promise in the slot. Now counts completed walks.
-  - the age test read a gauge an earlier test had already set. Adding `reset()` made it **worse** —
-    `reset()` on an unlabelled prom-client gauge re-initialises it to `0` rather than removing it, guaranteeing a
-    value inside the plausible range. A poison sentinel outside that range was the only preparation that fails
-    when nothing writes.
-  - **and that sentinel then found a real bug.** `storageUsageAgeSeconds` was written by the storage
-    collector, and prom-client serialises each metric as soon as **its own** value is ready — so the age was
-    emitted before the collector that set it. Identical to the barrier bug in #676, in the same file, two hours
-    later. It now reads the cache itself; a self-sufficient collector is the only order-independent kind.
-
-### Fixed
-
 - **A slow `/metrics` collector now degrades one graph instead of blinding the whole target** (canary
   finding: the scrape hit its 10 s Prometheus timeout twice during an ingest, with `up=0` for both windows).
   - **The consequence was out of all proportion to the cause**, which is the reason this is a fix and not a
@@ -235,6 +171,94 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     code, since the wrapper owns both and stops the clock in a `finally` where the old hand-rolled `done()` sat
     after the try/catch and an early return would have skipped it. It now asserts the guarantee: every async
     collector routes through the wrapper, and the wrapper times before it awaits and stops on every path.
+
+### Documentation
+
+- **"All errors return JSON" was false, and it is the kind of false an integrator codes against.** The
+  integration guide stated it flat. Two surfaces deliberately answer otherwise: `GET /metrics` returns
+  Prometheus comment lines (a scraper does not parse JSON, and `#` is a comment in the exposition format, so the
+  error degrades into something readable instead of corrupting the parse), and the first-run `/setup` flow
+  returns text/HTML (it is server-rendered and exists *before* the SPA does; its consumer is a browser).
+  - Both were **correct**; the sentence was wrong. It now says every `/api/` error is JSON and names the
+    two exceptions with their reasons, so nobody learns them from a parse failure.
+  - The rest of the contract is genuinely held: every route handler, the `/api/` 404, all six rate limiters
+    (each with `message: { error }` and a handler that JSONs it), and the global middleware.
+
+- **Two notes the canary asked for, one of which corrects a query we sent them.**
+  - `ythril_metrics_collect_duration_seconds` is a histogram, so **the bare name is not a series** — only
+    `_bucket`, `_sum` and `_count` exist. An instant query for the bare name returns empty, which reads as "the
+    metric is missing" rather than "wrong series". Our own request for a scrape told them to grep the bare name.
+  - **A collector Prometheus gave up on still finishes and still records its duration**, so a later successful
+    scrape delivers those buckets. That is why timing data exists for the scrapes that failed — and the
+    corollary is that an instance whose scrapes *all* time out looks silent while doing the work.
+
+### Testing
+
+- **A gate holds the boundary**, with the two exceptions as explicit exemptions that must carry a written
+  reason. The exceptions themselves are fine; a **third** one appearing without anyone deciding it should is
+  how a contract erodes — each case defensible alone, nobody looking at the set.
+
+- **The gate passed on a planted violation, twice, for two different reasons. Both were the test.**
+  - **A shared module-level `/g` regex.** `assert.match` calls `RegExp.prototype.test`, which
+    advances `lastIndex`, and `String.matchAll` copies `lastIndex` into its clone. So the three
+    assertions in the detector self-test left the cursor mid-string, and the sweep that ran next started from
+    there and found nothing. **The self-test poisoned the very sweep it existed to validate.** The detector is
+    now a function returning a fresh regex.
+  - **One pathspec instead of two.** `server/src/**/*.ts` requires at least one directory level, so
+    `server/src/app.ts` and `server/src/index.ts` were never scanned — the global error middleware
+    and half the admin handlers. A mutation planting a violation in `app.ts` is now part of the suite.
+  - Neither was visible from a passing run. Only mutation found them, and the first mutation harness *also*
+    lied — it matched the failure marker immediately after the cross rather than anywhere on the line, and
+    replaced only the first occurrence, so three no-op mutations were reported as clean survivals. It now
+    distinguishes "nothing failed" from "the wrong test failed".
+
+- **The synced-data migration rule now has a gate. It had been enforced by discipline alone.**
+  `docs/contribution-guide.md` states it plainly — *"Synced data → self-healing (lazy), never a one-time boot
+  migration"* — because a per-space collection that replicates (memories, entities, edges, chrono,
+  `{space}_files`) can be **silently reverted by a mixed-version peer**: an older instance rewriting a record
+  with a higher `seq` replaces the whole document and undoes the migration.
+  - **The failure is invisible to every single-instance test.** A boot migration over `{space}_files` runs
+    perfectly on one instance, the field is right, every test passes. It breaks only in a network, only against
+    an older peer, and it breaks by **silently reverting data** — no error, no log line, nothing red. The one
+    place it would surface is a multi-version network, which nobody has in CI.
+  - **The rule is currently held, and this gate is to keep it that way rather than to fix anything.** Every
+    write to a synced collection sits on a user-action path (delete, wipe, the media pipeline, the face
+    embedder), and the one migration-shaped thing at boot — the token `prefix` backfill — is explicitly
+    self-healing on first use.
+  - Two populations checked: functions named `migrate*`, and every function `index.ts` calls in its startup
+    sequence. **Its blind spot is stated rather than implied:** a boot migration that is neither named
+    `migrate*` nor called directly from `index.ts` would slip through.
+  - **The detector is itself tested**, against a synthetic violation and against a synthetic READ that must NOT
+    fire — a gate whose detector is never exercised passes because it finds nothing, which is indistinguishable
+    from passing because there is nothing to find.
+  - **A last test asserts the guide still states the rule**, so a deliberate change to the rule fails here and
+    gets made in one commit instead of leaving a gate nobody can argue with.
+  - 3 mutations, 3 caught: a `migrate*` write, a startup-callee write, and the rule deleted from the guide.
+
+- **7 mutations, 7 caught**, including both directions of the gate (a peer read reverted to raw `.json()`, an
+  error body reverted to hand-rolled).
+- **Six fetch doubles shaped `{ ok, status, json }` became real `Response` objects.** They broke
+  because `boundedJson` reads the content-length header and streams `res.body` — the
+  only things that can actually bound a read. **Making the helper fall back to `res.json()` for objects lacking
+  them was rejected**: that is a silent bypass reachable from anywhere, and the gate would still have reported
+  zero offenders. This entry exists because that shape is the whole bug being fixed.
+- **The gate’s own first run failed on the file it points at.** `git ls-files` cannot see a file added in the
+  same change, so the scan missed `bounded-read.ts`. Now `ls-files` **plus** `--others --exclude-standard`,
+  which adds new files while still honouring .gitignore. Third time this repo has been bitten by treating
+  `git ls-files` as "what files does this project have".
+
+- **9 mutations, 9 caught — but three of the first six survived, and all three were the test rather than the
+  code.** Recorded because the pattern repeats:
+  - the coalescing test asserted *"a refresh is in flight"* before and after nine calls, which is true either
+    way since nine unguarded calls each leave **a** promise in the slot. Now counts completed walks.
+  - the age test read a gauge an earlier test had already set. Adding `reset()` made it **worse** —
+    `reset()` on an unlabelled prom-client gauge re-initialises it to `0` rather than removing it, guaranteeing a
+    value inside the plausible range. A poison sentinel outside that range was the only preparation that fails
+    when nothing writes.
+  - **and that sentinel then found a real bug.** `storageUsageAgeSeconds` was written by the storage
+    collector, and prom-client serialises each metric as soon as **its own** value is ready — so the age was
+    emitted before the collector that set it. Identical to the barrier bug in #676, in the same file, two hours
+    later. It now reads the cache itself; a self-sufficient collector is the only order-independent kind.
 
 ## [2.3.0] — 2026-08-04
 

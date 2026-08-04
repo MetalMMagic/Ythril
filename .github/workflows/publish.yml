@@ -20,6 +20,35 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # The gate below reads git history to decide whether HEAD is a tag. A shallow clone with no tags
+          # answers "no", which would silently downgrade the release checks to their mid-cycle form.
+          fetch-depth: 0
+
+      # ── The documentation release gate ────────────────────────────────────
+      #
+      # Owner rule, 2026-08-04: the documentation lens is a release gate. It runs FIRST, before login and before
+      # the build, because the three things it checks are the three a published release can never take back:
+      # an image on two public registries, notes that do not describe it, and an attribution that was owed.
+      #
+      # Two of its checks are only true at release time and therefore cannot be enforced per PR: that the four
+      # manifests agree on one version, and that `[Unreleased]` has been closed into a dated section. The rest
+      # (docs coverage, NOTICE) also runs in CI, and repeating it here costs ~2 minutes against a ~30-minute
+      # multi-arch build — worth it, because it also catches a tag cut from a commit whose CI never ran.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build (the doc gates read server/dist)
+        run: npm run build
+
+      - name: Documentation release gate
+        run: npm run release:gate
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

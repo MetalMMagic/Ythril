@@ -50,9 +50,14 @@ jobs:
   cla:
     runs-on: ubuntu-latest
     # Act on a signing comment, or on a pull-request event — not on every issue comment in the repository.
+    # Both comment paths, not just the signing one. The action is configured with a `suggest-recheck` message
+    # telling contributors to comment "recheck" if the status has not updated — and this condition used to
+    # exclude exactly that comment, so the documented recovery path silently did nothing. Found by using the
+    # feature as its own message describes.
     if: >
       (github.event.issue.pull_request != null
-        && contains(github.event.comment.body, 'I have read the CLA Document'))
+        && (contains(github.event.comment.body, 'I have read the CLA Document')
+            || contains(github.event.comment.body, 'recheck')))
       || github.event_name == 'pull_request_target'
     steps:
       # The secret is read through `env`, and the emptiness test happens in the SHELL.

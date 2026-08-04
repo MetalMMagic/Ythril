@@ -26,6 +26,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The proxy badge now has a spec proving it renders something visible.** It does not replace a screenshot of
+  the live space strip, which is still owed — what it closes is the failure this repo has been bitten by twice:
+  an **unregistered `ph-icon` name renders a blank SVG with no error and no failing test**. Every
+  measurement passes, the markup is present, and the user sees nothing.
+  - Asserts the icon path is non-empty, the tooltip came through transloco with interpolation applied (not the
+    raw key, not `{{ids}}`), the wildcard case reads "every space" rather than `*`, and
+    `aria-label` mirrors the tooltip so the marker is not sighted-only.
+  - **Mutation-verified:** pointing the icon at an unregistered name fails the spec.
 - **Two mistakes in that change, both caught by existing gates rather than by review:**
   - the tooltip returned **hardcoded English** while the visible label went through transloco. A tooltip is
     exactly where an untranslated string hides, and this repo already had that finding once.

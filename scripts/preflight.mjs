@@ -142,6 +142,15 @@ if (standaloneFailed) {
 console.log('\n── docs lint ──');
 try { run('npm run lint:docs'); } catch { failures.push({ name: 'lint:docs', why: 'markdown that will fail CI' }); }
 
+// The owner reads todo/ directly, and the release cadence is "cut the tag when _TODO-ORDERED.md is empty" — so a
+// domain tracker holding an item the ordered list never mentions makes "empty" a claim about one file rather than
+// about the work. todo/ is gitignored, so this can only ever run here; the script exits 0 when the folder is
+// absent, which is what makes it safe in a clean checkout.
+console.log('\n── todo/ is open items only, all indexed ──');
+try { run('npm run todo:check'); } catch {
+  failures.push({ name: 'todo:check', why: 'a tracker holds closed work, or an open item the ordered list never references' });
+}
+
 console.log('\n── client unit tests (includes i18n key coverage) ──');
 try { run('npm run test:client'); } catch {
   failures.push({ name: 'test:client', why: 'component behaviour, and translation keys missing from de/pl' });

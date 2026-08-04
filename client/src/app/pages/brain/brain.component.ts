@@ -1,5 +1,6 @@
 ﻿import { ChangeDetectionStrategy, Component, inject, signal, computed, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { ProxySpaceBadgeComponent } from '../../shared/proxy-space-badge.component';
 import { BrainStore } from './brain-store.service';
 import { EntityRefPicker } from './entity-ref-picker.service';
 import { RecordDrawerState } from './record-drawer-state.service';
@@ -46,7 +47,7 @@ interface SpaceView {
   // or happens in a template event handler, both of which mark the view dirty. That coupling is
   // load-bearing and pinned by the specs (the drawer's own version lives in the drawer component).
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, GraphComponent, FileManagerComponent, PhIconComponent, RecordDrawerComponent, QueryTabComponent, MemoriesTabComponent, EntitiesTabComponent, EdgesTabComponent, ChronoTabComponent, OverviewTabComponent, ReviewTabComponent, ErrorStateComponent, TranslocoPipe],
+  imports: [ProxySpaceBadgeComponent, CommonModule, FormsModule, GraphComponent, FileManagerComponent, PhIconComponent, RecordDrawerComponent, QueryTabComponent, MemoriesTabComponent, EntitiesTabComponent, EdgesTabComponent, ChronoTabComponent, OverviewTabComponent, ReviewTabComponent, ErrorStateComponent, TranslocoPipe],
   providers: [BrainStore, EntityRefPicker, RecordDrawerState, RecordListState],
   styles: [`
     .space-tabs {
@@ -192,6 +193,9 @@ interface SpaceView {
           >
             <span class="space-chip-label">{{ sv.space.label }}</span>
             <span class="space-chip-id">{{ sv.space.id }}</span>
+            @if (sv.space.proxyFor?.length) {
+              <app-proxy-space-badge [proxyFor]="sv.space.proxyFor" [size]="12" />
+            }
             @if (sv.space.networkStatus) {
               <span class="space-chip-net" [class]="'net-' + sv.space.networkStatus" [title]="networkChipTitle(sv.space)">
                 <ph-icon name="link" [size]="12"/>

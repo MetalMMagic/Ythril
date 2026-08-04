@@ -13,6 +13,7 @@
   ElementRef,
 } from '@angular/core';
 import { CommonModule, Location } from '@angular/common';
+import { ProxySpaceBadgeComponent } from '../../shared/proxy-space-badge.component';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import { Subscription, forkJoin, of } from 'rxjs';
@@ -70,7 +71,7 @@ import { GRAPH_STYLES } from './graph.styles';
   // `openBrainDrawer` alongside the `drawerRecord` signal that guards the drawer's `@if`, the same
   // load-bearing coupling pinned by the brain spec.
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, EntryPopupComponent, EntitySearchComponent, PropertiesViewComponent, PhIconComponent, ErrorStateComponent, TranslocoPipe, RecordDrawerComponent, GraphLinkedRecordsComponent],
+  imports: [ProxySpaceBadgeComponent, CommonModule, FormsModule, EntryPopupComponent, EntitySearchComponent, PropertiesViewComponent, PhIconComponent, ErrorStateComponent, TranslocoPipe, RecordDrawerComponent, GraphLinkedRecordsComponent],
   // Its own drawer collaborators, so the standalone `/graph` route works with nothing above it. When
   // this page is embedded as Brain's Graph tab these SHADOW Brain's instances, which is deliberate:
   // the drawer then patches this page's per-node lists, exactly as the forked drawer did. The cost is
@@ -83,7 +84,7 @@ import { GRAPH_STYLES } from './graph.styles';
     @if (!isEmbedded() && spaces().length > 0) {
       <div class="space-tabs">
         @for (s of spaces(); track s.id) {
-          <button class="space-chip" type="button" [class.active]="activeSpaceId() === s.id" [attr.aria-current]="activeSpaceId() === s.id ? 'true' : null" (click)="onSpaceChange(s.id)">{{ s.label }}</button>
+          <button class="space-chip" type="button" [class.active]="activeSpaceId() === s.id" [attr.aria-current]="activeSpaceId() === s.id ? 'true' : null" (click)="onSpaceChange(s.id)">{{ s.label }}@if (s.proxyFor?.length) { <app-proxy-space-badge [proxyFor]="s.proxyFor" [size]="12" /> }</button>
         }
       </div>
     }

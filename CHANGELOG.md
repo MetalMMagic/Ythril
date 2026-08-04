@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+
+- **"All errors return JSON" was false, and it is the kind of false an integrator codes against.** The
+  integration guide stated it flat. Two surfaces deliberately answer otherwise: `GET /metrics` returns
+  Prometheus comment lines (a scraper does not parse JSON, and `#` is a comment in the exposition format, so the
+  error degrades into something readable instead of corrupting the parse), and the first-run `/setup` flow
+  returns text/HTML (it is server-rendered and exists *before* the SPA does; its consumer is a browser).
+  - Both were **correct**; the sentence was wrong. It now says every `/api/` error is JSON and names the
+    two exceptions with their reasons, so nobody learns them from a parse failure.
+  - The rest of the contract is genuinely held: every route handler, the `/api/` 404, all six rate limiters
+    (each with `message: { error }` and a handler that JSONs it), and the global middleware.
+
+### Testing
+
+- **A gate holds the boundary**, with the two exceptions as explicit exemptions that must carry a written
+  reason. The exceptions themselves are fine; a **third** one appearing without anyone deciding it should is
+  how a contract erodes — each case defensible alone, nobody looking at the set.
+
+- **The gate passed on a planted violation, twice, for two different reasons. Both were the test.**
+  - **A shared module-level `/g` regex.** `assert.match` calls `RegExp.prototype.test`, which
+    advances `lastIndex`, and `String.matchAll` copies `lastIndex` into its clone. So the three
+    assertions in the detector self-test left the cursor mid-string, and the sweep that ran next started from
+    there and found nothing. **The self-test poisoned the very sweep it existed to validate.** The detector is
+    now a function returning a fresh regex.
+  - **One pathspec instead of two.** `server/src/**/*.ts` requires at least one directory level, so
+    `server/src/app.ts` and `server/src/index.ts` were never scanned — the global error middleware
+    and half the admin handlers. A mutation planting a violation in `app.ts` is now part of the suite.
+  - Neither was visible from a passing run. Only mutation found them, and the first mutation harness *also*
+    lied — it matched the failure marker immediately after the cross rather than anywhere on the line, and
+    replaced only the first occurrence, so three no-op mutations were reported as clean survivals. It now
+    distinguishes "nothing failed" from "the wrong test failed".
+
 ### Testing
 
 - **The synced-data migration rule now has a gate. It had been enforced by discipline alone.**

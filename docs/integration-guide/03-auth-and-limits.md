@@ -39,11 +39,26 @@ Tokens are created during first-run setup or via `POST /api/tokens`. The plainte
 
 ## Error Format
 
-All errors return JSON:
+**Every JSON API route** — everything under `/api/` — answers an error with:
 
 ```json
 { "error": "Human-readable message" }
 ```
+
+That holds for handler errors, validation failures, the `404` on an unknown `/api/` path, all rate
+limiters, and anything unhandled (which returns a generic message rather than the internal one).
+
+**Two surfaces deliberately answer in another format, because their consumer does not parse JSON.** Both are
+listed here rather than left for you to discover from a parse failure:
+
+| surface | error format | why |
+|---|---|---|
+| `GET /metrics` | Prometheus comment lines (`# Unauthorized: …`) | A scraper does not parse JSON, and `#` is a comment in the exposition format, so the error degrades into something readable rather than corrupting the parse. |
+| the first-run `/setup` flow | text or HTML | Setup is server-rendered and exists *before* the SPA does; its consumer is a browser, which would render a JSON body as raw text. |
+
+So: **do not treat a non-JSON error body as a bug**, and do not code against "all errors are JSON" — code
+against "every `/api/` error is JSON". A gate holds that boundary and requires a written reason before
+anything is added to the exception list.
 
 Extended errors may include:
 

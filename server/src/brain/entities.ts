@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import { brainWriteSeqTotal } from '../metrics/registry.js';
 import { authorRef } from '../config/author.js';
 import { findInsertContradictions, type ContradictionWarning } from './insert-contradictions.js';
 import { col, asFilter, asDoc, asUpdate, asBulk } from '../db/mongo.js';
@@ -312,7 +313,19 @@ export async function updateEntityById(
     { collection: 'entity', existing: existing as unknown as Record<string, unknown> }); // F10
   const updateOp: Record<string, unknown> = { $set };
   if (Object.keys($unset).length > 0) updateOp['$unset'] = $unset;
-  await collection.updateOne(asFilter<EntityDoc>({ _id: id }), asUpdate<EntityDoc>(updateOp));
+  // Lost-update detection, identical to `updateMemory` and for the same reason: `returnDocument: "before"`
+  // hands back the record as it was at WRITE time, so comparing its seq with the one read at the top of this
+  // function is exactly the test for another writer landing in the window. Observation only — no write that
+  // previously succeeded is now rejected.
+  const beforeWrite = await collection.findOneAndUpdate(
+    asFilter<EntityDoc>({ _id: id }),
+    asUpdate<EntityDoc>(updateOp),
+    { returnDocument: 'before' },
+  ) as EntityDoc | null;
+  brainWriteSeqTotal.labels({
+    collection: 'entities',
+    outcome: beforeWrite && beforeWrite.seq !== existing.seq ? 'collision' : 'clean',
+  }).inc();
 
   const result = {
     ...existing,

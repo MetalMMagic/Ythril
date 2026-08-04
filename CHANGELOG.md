@@ -9,6 +9,76 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The storage gauge walked the entire files tree on every scrape, and it was the whole cause of the canary's
+  `/metrics` timeout.** They answered the diagnostic request from #676 with numbers that name one collector and
+  a count that makes it a cause rather than a correlation:
+
+  | collector | mean seconds |
+  |---|---|
+  | `storage_used_bytes` | **22.150** |
+  | every MongoDB-backed collector | 8.57 – 8.61 |
+
+  Of **20 scrapes, 10 failed** with `scrape_duration_seconds` pinned at exactly `10.0012 s`; of the 19
+  collections the histogram recorded, `storage_used_bytes` exceeded 10 s **exactly 10 times**. The other eight
+  collectors exceeded it 7 times between them, so they are not the determinant. Its distribution was bimodal —
+  6 of 19 under 50 ms, 9 over 15 s — which is a cold-versus-warm filesystem cache rather than "slow". Their
+  four small instances completed every collector in 0.005–0.041 s, so it scales with stored volume.
+
+  - **The cache already existed and this collector was the one caller that opted out of it.** `measureUsage()`
+    takes a `maxAgeMs`, and the comment above that cache listed `metrics` among the callers that
+    deliberately re-measure. That line was the bug. Worse, the argument against exactness was **already written**
+    in the registry for the brain totals — *"the exactness that buys does not survive contact with what a gauge
+    IS"* — and #606 acted on it there, for the collectors costing milliseconds, while leaving the one costing
+    seconds.
+  - The gauge now reads a cache (`peekUsage()`) and **never blocks a scrape on filesystem I/O**. A
+    background walk refreshes it, coalesced so nine scrapes cannot start nine walks — which matters because the
+    canary's array is a degraded RAID1 mid-rebuild, where stacking 22-second walks is actively harmful.
+  - `METRICS_STORAGE_USAGE_MAX_AGE_MS` (default **300000**) governs staleness while the instance is idle.
+    During real activity every write already refreshes the cache as part of its quota check.
+  - **Two new series, and the age one is not optional.** `ythril_storage_usage_age_seconds` publishes how
+    stale the numbers are, because a cached value with no visible age is the failure #676 rejected;
+    `ythril_storage_usage_measurements_total` answers "how often are we doing the expensive thing", which
+    used to be *every scrape*.
+  - **A cold instance reports no storage series at all** rather than a zero. Absent says "not measured yet"; a
+    zero would say "empty".
+
+- **Lost-update detection covered 1 of the 4 brain record types while being named for all of them.** #674
+  shipped `ythril_brain_write_seq_total` — help text *"Brain record writes"* — measuring `memories`
+  alone. `entities`, `edges` and `chrono` have the identical read → nextSeq → updateOne shape
+  and the identical exposure. All four are now instrumented and all four pre-declared.
+  - **The canary spotted it from the outside** and proposed the wrong fix, for the right reason: they saw only
+    `collection="memories"` and reasonably guessed the label set was lazy, so they suggested pre-declaring
+    the others. Pre-declaring an uninstrumented collection would have been worse than omitting it — a permanent
+    `0` on entities reads as "no collisions here" when the truth is "not measured", which is the exact confusion
+    pre-declaring exists to prevent. A gate now fails if a pre-declared collection is not actually counted.
+
+### Documentation
+
+- **Two notes the canary asked for, one of which corrects a query we sent them.**
+  - `ythril_metrics_collect_duration_seconds` is a histogram, so **the bare name is not a series** — only
+    `_bucket`, `_sum` and `_count` exist. An instant query for the bare name returns empty, which reads as "the
+    metric is missing" rather than "wrong series". Our own request for a scrape told them to grep the bare name.
+  - **A collector Prometheus gave up on still finishes and still records its duration**, so a later successful
+    scrape delivers those buckets. That is why timing data exists for the scrapes that failed — and the
+    corollary is that an instance whose scrapes *all* time out looks silent while doing the work.
+
+### Testing
+
+- **9 mutations, 9 caught — but three of the first six survived, and all three were the test rather than the
+  code.** Recorded because the pattern repeats:
+  - the coalescing test asserted *"a refresh is in flight"* before and after nine calls, which is true either
+    way since nine unguarded calls each leave **a** promise in the slot. Now counts completed walks.
+  - the age test read a gauge an earlier test had already set. Adding `reset()` made it **worse** —
+    `reset()` on an unlabelled prom-client gauge re-initialises it to `0` rather than removing it, guaranteeing a
+    value inside the plausible range. A poison sentinel outside that range was the only preparation that fails
+    when nothing writes.
+  - **and that sentinel then found a real bug.** `storageUsageAgeSeconds` was written by the storage
+    collector, and prom-client serialises each metric as soon as **its own** value is ready — so the age was
+    emitted before the collector that set it. Identical to the barrier bug in #676, in the same file, two hours
+    later. It now reads the cache itself; a self-sufficient collector is the only order-independent kind.
+
+### Fixed
+
 - **A slow `/metrics` collector now degrades one graph instead of blinding the whole target** (canary
   finding: the scrape hit its 10 s Prometheus timeout twice during an ingest, with `up=0` for both windows).
   - **The consequence was out of all proportion to the cause**, which is the reason this is a fix and not a

@@ -98,11 +98,43 @@ ythril_http_requests_total{method="GET",route="/health",status_code="200"} 42
 | `ythril_media_jobs_retried_total` | counter | Attempts that failed and were re-queued, by space and media type — including a job whose claim was recovered while it was still running |
 | `ythril_media_jobs_failed` | gauge | Jobs sitting in the terminal `failed` state by space (a backlog, not a rate) |
 | `ythril_media_job_duration_seconds` | histogram | End-to-end time per job by media type |
-| `ythril_metrics_collect_duration_seconds` | histogram | Time for one async collector to gather its values, by `collector` — one observation per collector per scrape. **This is how a slow `/metrics` names its own cause.** Several gauges here are collected at scrape time and walk every space, so on a many-space instance under write load a scrape can approach the Prometheus timeout; `topk(3, ythril_metrics_collect_duration_seconds_sum / ythril_metrics_collect_duration_seconds_count)` says which collector is responsible. Buckets run to 15 s deliberately — a histogram whose top bucket sits below the failure cannot describe it. |
+| `ythril_metrics_collect_duration_seconds` | histogram | Time for one async collector to gather its values, by `collector` — one observation per collector per scrape. **This is how a slow `/metrics` names its own cause.** Several gauges here are collected at scrape time and walk every space, so on a many-space instance under write load a scrape can approach the Prometheus timeout; `topk(3, ythril_metrics_collect_duration_seconds_sum / ythril_metrics_collect_duration_seconds_count)` says which collector is responsible. **It is a histogram, so the bare metric name is not a series** — only `_bucket`, `_sum` and `_count` exist, and an instant query for `ythril_metrics_collect_duration_seconds` returns empty. That reads as "the metric is missing" rather than "wrong series name", which cost a canary operator a minute and would cost the next person longer. Buckets run to 15 s deliberately — a histogram whose top bucket sits below the failure cannot describe it. |
 | `ythril_metrics_scrape_degraded` | gauge | `1` if the scrape being served had to abandon at least one collector to stay inside its budget, else `0`. **This is the one to alert on**, because the degradation is otherwise invisible: the scrape succeeds, `up` stays 1, and only the abandoned series are missing. It describes the scrape you are reading, not the previous one. |
 | `ythril_metrics_collect_timeouts_total` | counter | Collectors abandoned mid-scrape because the scrape budget ran out, by `collector`. **This names a slow collector without anyone having to catch a scrape while it is happening** — which is otherwise the hard part, since the problem only appears under load. Every collector is pre-declared at `0`, so an absent series never has to be told apart from a healthy one. |
+| `ythril_storage_usage_age_seconds` | gauge | How old the measurement behind `ythril_storage_used_bytes` is. **Those numbers are cached, not re-measured per scrape** — see the note below for why. Absent until the first measurement completes, which is deliberate: a `0` would claim "just measured". |
+| `ythril_storage_usage_measurements_total` | gauge | Completed walks of the files tree since process start. Answers "how often are we doing the expensive thing"; on a large store the answer used to be *every scrape*. |
 | `ythril_security_posture_checks` | gauge | This instance's own PASS/WARN/FAIL posture, by `level` — the same findings the boot log prints and `GET /api/about/security` serves, computed per scrape from the same function. **Alert on `level="fail"` > 0**: the checks that matter most produce no runtime symptom at all (`requireEncryptedTransport` on *without* `trustProxy` rejects every request with a 403 that looks like a client problem), and the only other way to notice was somebody reading the boot log of each instance. All three levels report `0` from process start. |
 
+> **Storage usage is measured out of band, and the age is published with it.**
+>
+> `ythril_storage_used_bytes` used to walk the entire files tree on every scrape. On an instance with a
+> real corpus that took **22 s** against ~8.6 s for every MongoDB-backed collector, and it was the sole cause
+> of half the scrapes on that target failing outright. It is now read from a cache that a **background** walk
+> refreshes; a scrape never blocks on filesystem I/O.
+>
+> `METRICS_SCRAPE_BUDGET_MS`'s sibling `METRICS_STORAGE_USAGE_MAX_AGE_MS` sets how stale the
+> cached value may get before a scrape kicks a refresh. Default **300000** (5 minutes), generous on purpose:
+> stored volume moves slowly, and during real activity every write already refreshes the cache as part of its
+> quota check — so this only governs freshness while the instance is idle, which is when it is least likely to
+> have changed.
+>
+> **Watch `ythril_storage_usage_age_seconds` if you care about freshness.** A cached number with no
+> visible age is worse than a missing one, so the age is a first-class series rather than something you have
+> to infer.
+>
+> **The first scrape after a cold start carries no storage series.** The walk is kicked, not awaited, so the
+> value arrives on the next scrape. An absent series says "not measured yet"; a zero would have said "empty".
+>
+> **A collector Prometheus gave up on still finishes, and still records its duration.**
+>
+> Worth stating because it is useful and not obvious: if a scrape exceeds your `scrape_timeout`,
+> Prometheus discards the *response*, but the server does not abandon the work — the collection completes and
+> its observation lands in the histogram, which a later successful scrape then delivers. That is why timing
+> data exists at all for the scrapes that failed.
+>
+> The corollary matters too: an instance whose scrapes **all** time out looks silent while doing the work. If
+> you see `up=0` with no timing data, the histogram is not empty — nothing has managed to carry it to
+> you yet.
 > **A slow scrape degrades one graph, not the whole target.**
 >
 > Several gauges above are collected at scrape time and walk every space, so a many-space instance under

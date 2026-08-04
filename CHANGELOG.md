@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The build now fails when a component becomes unreachable.** A component with no route, no importer and no
+  template usage has exactly one reference — its own declaration — and is dead.
+  - The argument for automating it is #662: `pages/settings/schema-library.component.ts` was dead **and had
+    already made four other things wrong** before anyone noticed. A Help anchor written for the URL it implied,
+    so the **live** Schema Library page resolved to no guide section while the anchor table looked complete; a
+    standalone gate pinning it, so that gate had been guarding a file nobody could open; two i18n keys whose
+    only consumer it was; and an hour of work on a component no user can reach.
+  - An unreachable file still reads as documentation. The next reader — or the next gate, or the next anchor
+    table — takes its existence as evidence that its route, its keys and its behaviour are real.
+  - It also forbids **two components exporting the same class name**, which is exactly what let the dead file
+    pass for the live page: a reader could not tell which `SchemaLibraryComponent` was the routed one.
+  - Two scope corrections found while writing it, both the same shape — **a checker narrower than reality
+    reports the gap as a defect**: scanning only `*.component.ts` called `ConfirmDialogComponent` dead (it is
+    instantiated dynamically by a service), and the first local verification was invalid rather than the gate
+    being wrong — an unreachable probe went undetected because `git ls-files` does not see an untracked file.
+
 - **The Overview's last two cards no longer make the page jump on a cold load** (canary B). Four of the six
   self-gating cards already had a skeleton; these two did not, and the framing in the original report — "add
   skeletons" — was wrong because most of them were already there.

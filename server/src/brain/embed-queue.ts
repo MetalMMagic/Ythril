@@ -270,3 +270,32 @@ export const resetEmbedPendingHint = (): void => _signal.reset();
 
 /** Exported for the job doc's own sake — see `asDoc` usage in tests that seed jobs directly. */
 export const _asEmbedJobDoc = asDoc<BrainEmbedJobDoc>;
+
+/**
+ * Enqueue a record that arrived from a peer, if it needs a vector.
+ *
+ * ## The bug this closes
+ *
+ * `embedding` is a DERIVED field, deliberately excluded from replication (`merkle.ts` `DERIVED_FIELDS`)
+ * because two peers may run different models. Sync ingest is a plain `replaceOne` of the incoming
+ * document. Put those together and a record replicated from a peer arrives with **no vector on the
+ * receiving instance** — and nothing ever gave it one.
+ *
+ * A vectorless record is invisible to recall on that instance: the vector search never returns it, and
+ * the lexical channel needs an embedding to compute a real similarity and skips what it cannot score. So
+ * an instance could hold a peer's entire knowledge base and answer nothing from it, silently, until an
+ * operator happened to run a manual whole-space `POST /reindex`. Nothing measured it and nothing
+ * reported it.
+ *
+ * Guarded on the vector rather than enqueued unconditionally: a peer that DOES send one (an older build,
+ * or a future change of mind about derived fields) should not have it thrown away and recomputed.
+ */
+export async function enqueueIngestedRecord(
+  spaceId: string,
+  recordType: BrainEmbedRecordType,
+  doc: { _id: string; embedding?: number[] },
+): Promise<void> {
+  const vec = doc.embedding;
+  if (Array.isArray(vec) && vec.length > 0) return;
+  await enqueueEmbedJob(spaceId, recordType, doc._id);
+}

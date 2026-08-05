@@ -116,11 +116,20 @@ chronoRouter.post('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, 
   }
   const safeId: string | undefined = typeof rawId === 'string' ? rawId : undefined;
 
+  // `waitForEmbedding` (default false): the vector is normally computed by the embedding queue
+  // moments after this returns. Pass true when the caller will search for, scan, or compare what it
+  // just wrote — none of those can see a record that has no vector yet.
+  const waitForEmbedding = req.body?.waitForEmbedding;
+  if (waitForEmbedding !== undefined && typeof waitForEmbedding !== 'boolean') {
+    res.status(400).json({ error: '`waitForEmbedding` must be a boolean' });
+    return;
+  }
+  const embedOpts = waitForEmbedding === true ? { waitForEmbedding: true } : undefined;
   const entry = await createChrono(wt.target, {
     title: title.trim(), type, startsAt, endsAt, status, confidence,
     tags, entityIds, memoryIds, description, properties: safeProps, recurrence: safeRecurrence,
     id: safeId,
-  }, webhookToken(req), ttlDaysFromBody(req.body));
+  }, webhookToken(req), ttlDaysFromBody(req.body), embedOpts);
   const result: Record<string, unknown> = { ...entry };
   if (validation.warnings.length > 0) result['warnings'] = validation.warnings;
   res.status(201).json(result);

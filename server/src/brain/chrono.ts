@@ -15,6 +15,7 @@ import { deriveChronoStatus } from './chrono-status.js';
 import { getConfig } from '../config/loader.js';
 import { stampExpiryOnCreate, applyExpiryToUpdate } from './ttl.js';
 import { mergeTags, mergeProperties, mergePropertiesOrKeep } from './merge-fields.js';
+import { enqueueEmbedJob } from './embed-queue.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { ChronoEntry, ChronoType, ChronoStatus, TombstoneDoc } from '../config/types.js';
 
@@ -121,12 +122,13 @@ export async function createChrono(
   const tags = fields.tags ?? [];
 
   // Embed kind + status + title + description + tags + properties (best-effort)
-  let embeddingFields: { embedding?: number[]; embeddingModel?: string; matchedText?: string } = {};
-  try {
-    const embedText = chronoEmbedText(fields.title, fields.type, status, fields.description, tags, fields.properties);
+  // Queued by default — see the note in `upsertEntity`. `matchedText` is stored either way.
+  const embedText = chronoEmbedText(fields.title, fields.type, status, fields.description, tags, fields.properties);
+  let embeddingFields: { embedding?: number[]; embeddingModel?: string; matchedText?: string } = { matchedText: embedText };
+  if (opts?.waitForEmbedding === true) {
     const embResult = await embed(embedText);
     embeddingFields = { embedding: embResult.vector, embeddingModel: embResult.model, matchedText: embedText };
-  } catch { /* embedding unavailable — chrono stored without vector */ }
+  }
 
   // Opt-in insert-time duplicate / contradiction checks, using the freshly computed vector BEFORE insert so
   // it can never self-match. ONE neighbour search serves both flags. A calendar is where the same thing most
@@ -209,6 +211,7 @@ export async function createChrono(
   // space-wide TTL cannot express.
   stampExpiryOnCreate(spaceId, doc, ttlDays, { collection: 'chrono', type: doc.type });
   await col<ChronoEntry>(`${spaceId}_chrono`).insertOne(asDoc<ChronoEntry>(doc));
+  if (!embeddingFields.embedding) await enqueueEmbedJob(spaceId, 'chrono', doc._id);
   if (actor) emitWebhookEvent({ event: 'chrono.created', spaceId, entry: { ...doc, embedding: undefined }, ...actor });
   // Advisory only — the entry is stored either way.
   return (similar || contradicts) ? { ...doc, ...(similar ? { similar } : {}), ...(contradicts ? { contradicts } : {}) } : doc;

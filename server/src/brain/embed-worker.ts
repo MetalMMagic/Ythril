@@ -51,6 +51,15 @@ export async function runOneEmbedJob(): Promise<boolean> {
     // owed. Retrying would keep a job alive for a document that will never come back.
     await embedStoredRecord(job.spaceId, job.recordType, job.recordId);
     await completeEmbedJob(job.spaceId, job.recordType, job.recordId);
+
+    // The space-level insert rule runs HERE, not at the write, because it evaluates the STORED record
+    // against its neighbours and a stored record has no vector until this job gives it one. Firing it at
+    // insert time would compare nothing and find nothing, silently. It is internally gated on
+    // `dupeRulesOnInsert`, so this is a no-op for every space that has not enabled it, and it writes
+    // candidates to the Review surface rather than returning them — no caller is waiting on it.
+    void import('./dupe-scanner.js')
+      .then(m => m.evaluateRecordForDuplicates(job.spaceId, job.recordType, job.recordId))
+      .catch(() => { /* best-effort, exactly as it was on the write path */ });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     await failEmbedJob(job.spaceId, job.recordType, job.recordId, job.attempts, msg);

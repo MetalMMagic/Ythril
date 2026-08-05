@@ -12,6 +12,7 @@ import { getConfig } from '../config/loader.js';
 import { stampExpiryOnCreate, applyExpiryToUpdate } from './ttl.js';
 import { applyDeleteFields } from './delete-fields.js';
 import { mergePropertiesOrKeep, mergeTagsOrKeep } from './merge-fields.js';
+import { enqueueEmbedJob } from './embed-queue.js';
 import { getEntityById } from './entities.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { EdgeDoc, EntityDoc, TombstoneDoc } from '../config/types.js';
@@ -76,6 +77,11 @@ export async function upsertEdge(
   tags?: string[],
   actor?: WebhookActor,
   ttlDays?: number | null,
+  /**
+   * Write options. An object rather than a twelfth positional — `remember` already carries a note saying
+   * its twelfth was one too many, and this is the same signature growing the same way.
+   */
+  opts?: { waitForEmbedding?: boolean },
 ): Promise<EdgeDoc> {
   const collection = col<EdgeDoc>(`${spaceId}_edges`);
   const existing = await findEdgeByTriplet(spaceId, from, to, label);
@@ -89,13 +95,15 @@ export async function upsertEdge(
   const effectiveProps = mergePropertiesOrKeep((existing as EdgeDoc | null)?.properties, properties);
 
   // Embed the edge text (best-effort) — resolve entity names so the vector captures semantics
+  // Queued by default — see the note in `upsertEntity`. Resolving the endpoint NAMES is a database read,
+  // so it happens only on the inline path; the queued job resolves them itself from the stored edge.
   let embeddingFields: { embedding?: number[]; embeddingModel?: string; matchedText?: string } = {};
-  try {
+  if (opts?.waitForEmbedding === true) {
     const [fromName, toName] = await resolveEdgeEntityNames(spaceId, from, to);
     const embedText = edgeEmbedText(fromName, label, toName, effectiveTags, effectiveType, effectiveDesc, effectiveProps);
     const embResult = await embed(embedText);
     embeddingFields = { embedding: embResult.vector, embeddingModel: embResult.model, matchedText: embedText };
-  } catch { /* embedding unavailable — edge stored without vector */ }
+  }
 
   if (existing) {
     const $set: Record<string, unknown> = { updatedAt: now, seq, ...embeddingFields };
@@ -127,6 +135,7 @@ export async function upsertEdge(
     };
     if ('_expireAt' in $set) updatedEdge._expireAt = $set['_expireAt'] as Date;
     else if ('_expireAt' in $unset) delete (updatedEdge as { _expireAt?: unknown })._expireAt;
+    if (!embeddingFields.embedding) await enqueueEmbedJob(spaceId, 'edge', updatedEdge._id);
     if (actor) emitWebhookEvent({ event: 'edge.created', spaceId, entry: { ...updatedEdge, embedding: undefined }, ...actor });
     return updatedEdge;
   }
@@ -152,6 +161,7 @@ export async function upsertEdge(
   // Passing `type` here would look right and read a schema that is never there.
   stampExpiryOnCreate(spaceId, doc, ttlDays, { collection: 'edge', type: doc.label });
   await collection.insertOne(asDoc<EdgeDoc>(doc));
+  if (!embeddingFields.embedding) await enqueueEmbedJob(spaceId, 'edge', doc._id);
   if (actor) emitWebhookEvent({ event: 'edge.created', spaceId, entry: { ...doc, embedding: undefined }, ...actor });
   return doc;
 }

@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **All four brain creators now queue their embedding instead of waiting for the model.** `upsertEntity`,
+  `upsertEdge` and `createChrono` join `remember`: the write returns as soon as the record is durable and a
+  worker embeds it moments later, with `waitForEmbedding: true` keeping the inline path for callers who
+  need the record searchable the instant the call returns.
+  - The three never *failed* without an embedder — they caught the error and stored the record anyway — so
+    what changes is the latency, and that a record which missed its vector is now repaired instead of
+    staying permanently unsearchable.
+  - `upsertEdge` gained an options object rather than a twelfth positional parameter.
+  - The queued edge job resolves its endpoint NAMES itself from the stored edge, so the write path no
+    longer pays two entity reads just to build embedding text it is not going to use.
+  - Pinned as ONE table over all four types, not four tests: the failure mode being guarded against is
+    exactly that the types are wired in four places and nobody compares them.
+
 - **A record replicated from a peer is now embedded on arrival.** It never was, and the consequence was
   invisible: `embedding` is a DERIVED field excluded from replication (`merkle.ts` `DERIVED_FIELDS`,
   because two peers may run different models), and sync ingest is a plain `replaceOne` of the incoming

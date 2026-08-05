@@ -93,6 +93,7 @@ const NOT_A_SETTING = new Map([
   ['DOCKERHUB_USERNAME', 'a GitHub Actions secret, not read by the app'],
   ['DOCKERHUB_TOKEN', 'a GitHub Actions secret, not read by the app'],
   ['NUMBA_CACHE_DIR', "a third-party library's env, set in a sidecar image"],
+  ['YTHRIL_MCP_TOKEN', 'the MCP CLIENT\'s variable, expanded by the assistant when it builds the Authorization header — the server never reads it. Named in the userguide\'s scoped-token example. The YTHRIL_ prefix is what real operators use (one per instance, e.g. YTHRIL_<INSTANCE>_MCP_TOKEN), which is exactly why this gate flagged it: in a doc, that prefix reads as a setting of ours'],
   // `HF_HUB_OFFLINE` used to sit here, exempted as "a third-party library's env, set in a sidecar image".
   // That was true and became false: the Node process reads it now, because transformers.js does NOT (it is
   // Python's variable) and an operator who sets it stack-wide has every right to expect the embedding model

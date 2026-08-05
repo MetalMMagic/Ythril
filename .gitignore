@@ -98,3 +98,32 @@ bench-data/
 # with the repository is not protection.
 .claude/settings.local.json
 **/.claude/settings.local.json
+
+# The rule the note above DESCRIBES but did not add. `.mcp.json` names a live instance
+# (`https://ythril.breituai.com/mcp`) and the env var holding its bearer token, and it was still
+# covered only by `.git/info/exclude`. The paragraph above explaining why that is not protection
+# was committed without the line that fixes it — so the explanation travelled and the protection
+# did not. It holds no literal secret today; the point is that it is one paste away from holding
+# one, on a public repo.
+.mcp.json
+**/.mcp.json
+
+# Everything else that was load-bearing in `.git/info/exclude` and therefore one machine deep.
+# Checked by `testing/standalone/ignore-rules-travel.test.js`, which fails when a path on this list
+# is protected by nothing a clone would receive.
+#
+# `ideas/` is the owner's own product notes — not loop fodder, and not ours to publish. The
+# `.claude/` entries are agent-session runtime state; `mailbox/`, `checkpoints/` and
+# `agent-memory-local` can carry conversation text, which is the same disclosure class as a token
+# even though it does not look like a credential.
+ideas/
+**/.claude/scheduled_tasks.lock
+**/.claude/scheduled_tasks.json
+**/.claude/routines/.state/
+**/.claude/worktrees/
+**/.claude/checkpoints/
+**/.claude/mailbox/
+**/.claude/agent-registry.json
+**/.claude/agent-memory-local
+**/.claude/first-run
+**/.claude/assistant-daemon-state.json

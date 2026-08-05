@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Memory writes no longer wait for the embedding model, and a record that misses its vector now gets one
+  later.** A new per-space embedding queue (`<space>_embed_jobs`) takes the work: the write returns as soon as
+  the record is durable, a worker embeds it moments later, and a failure retries with jittered backoff instead
+  of being final.
+  - **`remember` used to FAIL outright when the embedder was down**, alone among the four creators. The cause
+    was in the type: `MemoryDoc.embedding` was the only one of the four declared **required**, so that path had
+    no choice but to throw while `upsertEntity`/`upsertEdge`/`createChrono` caught and stored anyway. It is
+    optional now, and the asymmetry is gone.
+  - **A record with no vector is invisible to recall, not merely ranked lower.** Both channels drop it — the
+    vector search never returns it, and the lexical channel's `introduceLexicalOnly` needs an embedding to
+    compute a real similarity and skips what it cannot score. Before this, the only route back was a manual
+    whole-space `POST /reindex` that re-embeds *everything*.
+  - **`waitForEmbedding: true`** (REST body and the MCP `remember` schema, default false) keeps the old
+    behaviour reachable: embed inline, so the record is searchable the moment the call returns — and fail the
+    write if it cannot be. `checkDuplicates`/`checkContradictions` **imply** it, since a duplicate check needs
+    the vector before the insert so the new record cannot self-match.
+  - **Note:** the MCP `remember` tool defaults `checkDuplicates: true`, so MCP writes still embed inline unless
+    the caller passes `checkDuplicates: false`. REST writes go async today.
+  - One job per record (`_id` = `<type>:<recordId>`), so a record written five times has one job holding its
+    latest content rather than five queued embeddings of stale text. Rewriting a record resets a job that had
+    already exhausted its attempts, which is the escape hatch from a permanent failure.
+  - Embedding does **not** advance `seq`. It is a derived field excluded from replication, so bumping `seq`
+    would broadcast a no-op change to every peer in every network, on every embedding, forever.
 - **A proxy space is now marked wherever a space appears** (owner UX request). A `globe` badge with a tooltip
   naming *which* peer spaces it mirrors, on the Brain space strip, the Graph space strip, and the Spaces settings
   table.

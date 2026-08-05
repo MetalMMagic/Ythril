@@ -1431,7 +1431,13 @@ export interface MemoryDoc {
   fact: string;
   /** Optional memory type — used to look up typeSchemas.memory for schema validation. */
   type?: string;
-  embedding: number[];
+  /**
+   * Optional since the embedding queue landed — and it is the reason `remember` used to be the one
+   * creator of four whose write FAILED when the embedder was down. `EntityDoc`, `EdgeDoc` and
+   * `ChronoEntry` have always declared this optional and stored the record regardless; only this type
+   * demanded a vector, so only this path had no choice but to throw. The asymmetry was in the type.
+   */
+  embedding?: number[];
   tags: string[];
   entityIds: string[];
   description?: string;
@@ -1442,7 +1448,7 @@ export interface MemoryDoc {
   createdAt: string;
   updatedAt: string;
   seq: number;
-  embeddingModel: string;
+  embeddingModel?: string;
   forkOf?: string;
   /** Absolute expiry (F10). Set when a per-record `ttlDays` or the space's `recordTtlDays` applies;
    *  the TTL sweep deletes the record (through the normal delete path) once it passes. */
@@ -1838,3 +1844,45 @@ export interface MediaJobDoc {
   updatedAt: string;          // ISO8601
 }
 
+
+/**
+ * The brain record types that carry their own embedding and therefore their own embedding job.
+ *
+ * `file` is deliberately absent: file and media embedding already has its own queue
+ * (`files/media/job-queue.ts`) with a richer job shape — per-page progress, chunking, a provider
+ * signature. Folding it in here would replace a working, more capable mechanism with a simpler one.
+ */
+export type BrainEmbedRecordType = 'memory' | 'entity' | 'edge' | 'chrono';
+
+/**
+ * One queued embedding job. `_id` is `<recordType>:<recordId>`, so a record rewritten five times has
+ * ONE job holding its latest content rather than five queued deep.
+ *
+ * A completed job is deleted rather than kept — the record itself carries `embeddingStatus`, so a
+ * retained job would be a second copy of one fact, and brain records outnumber files by orders of
+ * magnitude.
+ */
+export interface BrainEmbedJobDoc {
+  /** `<recordType>:<recordId>` — see `embedJobId`. */
+  _id: string;
+  spaceId: string;
+  recordType: BrainEmbedRecordType;
+  recordId: string;
+  status: 'pending' | 'processing' | 'failed';
+  attempts: number;
+  maxAttempts: number;
+  lastError: string | null;
+  /** ISO8601 — set when a worker claims this job. */
+  claimedAt: string | null;
+  /**
+   * ISO8601 — last sign of life. Stall detection reads THIS, not `claimedAt`: a deadline measured from
+   * the claim cannot tell "wedged" from "slow", and a cold model load is slow.
+   */
+  progressAt?: string | null;
+  /** ISO8601 — retry backoff; the job is `pending` but not claimable until this passes. */
+  claimableAfter?: string | null;
+  /** Identifies THIS run of THIS job, so a recovered job's old holder learns it was replaced. */
+  claimToken?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}

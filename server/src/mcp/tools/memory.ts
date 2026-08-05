@@ -54,6 +54,7 @@ export const rememberTool: ToolHandler = {
             },
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
             checkDuplicates: { type: 'boolean', default: true, description: 'Run a semantic near-duplicate check before storing (default true). When a highly similar memory already exists, the response flags it (id + summary + score) so you can update it instead of creating a redundant one. The memory is still stored regardless. Set false to skip the check.' },
+            waitForEmbedding: { type: 'boolean', default: false, description: 'Block until this memory is embedded, so it is searchable the moment this returns (default false). Normally the vector is computed moments later by the embedding queue and the write does not pay the model latency. Set true when you will immediately search for what you just wrote, or when a failure to embed should fail the write rather than be repaired in the background. Note: checkDuplicates (default true) already requires the vector up front, so it implies this.' },
             checkContradictions: { type: 'boolean', default: false, description: 'Also flag existing memories that CONTRADICT this one — a near-neighbour that sets the same single-valued property to a different value (e.g. status="active" vs status="retired"). Different question from checkDuplicates: "is this redundant?" vs "does this conflict with what we already believe?". Deterministic only (no model call, no added latency). The memory is still stored regardless — if you are correcting an outdated fact, that is expected; consider updating or superseding the record named in the warning.' },
             dupeThreshold: unitScoreSchema('Cosine-similarity threshold for the duplicate check (0-1, default ~0.92). Lower to flag looser matches.'),
             ttlDays: TTL_DAYS_SCHEMA,
@@ -112,12 +113,19 @@ export const rememberTool: ToolHandler = {
     // are now derived FROM the ids rather than being the input.
     const resolvedNames = (await findEntitiesByIds(ts, entityIds)).map(e => e.name);
     // Insert-time duplicate check defaults ON for the interactive remember tool.
+    // NOTE: `checkDuplicates` defaults to TRUE on this tool, and a duplicate check needs the vector
+    // before the insert — so an MCP remember still embeds inline unless the caller passes
+    // `checkDuplicates: false`. The queue's latency win therefore reaches REST today and MCP only on
+    // request. Whether that default should flip is a product call, not one to make inside this change.
     const remDupeCheck = a['checkDuplicates'] !== false;
     const remContraCheck = a['checkContradictions'] === true;
     const remDupeThreshold = typeof a['dupeThreshold'] === 'number' ? a['dupeThreshold'] : undefined;
     const remTtlDays = ttlDaysFromArgs(a);
     const mem = await remember(ts, fact, entityIds, tags, description, props, resolvedNames, memType,
-      { checkDuplicates: remDupeCheck, checkContradictions: remContraCheck, dupeThreshold: remDupeThreshold }, ctx.actor, remTtlDays,
+      {
+        checkDuplicates: remDupeCheck, checkContradictions: remContraCheck, dupeThreshold: remDupeThreshold,
+        ...(a['waitForEmbedding'] === true ? { waitForEmbedding: true } : {}),
+      }, ctx.actor, remTtlDays,
       typeof a['id'] === 'string' ? a['id'] : undefined);
     const warnings: string[] = [];
     if (mem.similar && mem.similar.length > 0) {

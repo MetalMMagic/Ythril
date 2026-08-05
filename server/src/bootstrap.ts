@@ -94,4 +94,7 @@ export async function startConfiguredInstanceServices(): Promise<void> {
 
   const { startMediaEmbeddingWorker } = await import('./files/media/worker.js');
   startMediaEmbeddingWorker();
+
+  const { startBrainEmbeddingWorker } = await import('./brain/embed-worker.js');
+  startBrainEmbeddingWorker();
 }

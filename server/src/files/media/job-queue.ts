@@ -13,6 +13,7 @@ import type { MediaJobDoc, FileMetaDoc } from '../../config/types.js';
 import { log } from '../../util/log.js';
 import { withJitter } from '../../util/backoff.js';
 import { newClaimToken, stalledJobWarning } from './lease.js';
+import { createWorkSignal } from '../../util/work-signal.js';
 
 const MAX_ATTEMPTS = 3;
 
@@ -307,9 +308,11 @@ export async function enqueueTextJob(
 // backoff (`claimableAfter`) has not yet elapsed is `pending` but not claimable, so the claim
 // returns null and the hint is dropped — and when the backoff DOES elapse, nothing would
 // re-add it. The full scan bounds how long such a job can sit unnoticed.
-const _pendingHint = new Set<string>();
-let _lastFullScan = 0;
-const FULL_SCAN_INTERVAL_MS = 30_000;
+//
+// Both concerns now live in `util/work-signal.ts` — they are properties of "a per-space queue with a
+// sleeping worker", not of media, and the brain embedding queue needs the identical answer. This module
+// keeps its own instance, so a brain enqueue never wakes the media worker.
+const _signal = createWorkSignal();
 
 // ── Worker wake-up ──────────────────────────────────────────────────────────
 //
@@ -323,12 +326,9 @@ const FULL_SCAN_INTERVAL_MS = 30_000;
 // *between* the worker's failed claim and the start of its sleep would otherwise be missed and
 // wait out the full backoff anyway. The worker samples the epoch BEFORE claiming and passes it
 // to waitForWork(), which returns immediately if it has since moved.
-let _workEpoch = 0;
-let _wakeWaiters: Array<() => void> = [];
-
 /** Monotonic counter bumped every time claimable work is announced. */
 export function currentWorkEpoch(): number {
-  return _workEpoch;
+  return _signal.currentEpoch();
 }
 
 /**
@@ -338,43 +338,22 @@ export function currentWorkEpoch(): number {
  * `sinceEpoch` must be sampled BEFORE the caller's claim attempt.
  */
 export function waitForWork(ms: number, sinceEpoch: number): Promise<boolean> {
-  // Work already arrived while the caller was claiming — do not sleep at all.
-  if (_workEpoch !== sinceEpoch) return Promise.resolve(true);
-
-  return new Promise<boolean>(resolve => {
-    let settled = false;
-    const finish = (woken: boolean) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      _wakeWaiters = _wakeWaiters.filter(w => w !== wake);
-      resolve(woken);
-    };
-    const wake = () => finish(true);
-    const timer = setTimeout(() => finish(false), ms);
-    if (typeof timer.unref === 'function') timer.unref();
-    _wakeWaiters.push(wake);
-  });
+  return _signal.wait(ms, sinceEpoch);
 }
 
 /** Wake every waiter — used on announcement, and on shutdown so stopping is not delayed. */
 export function wakeWorkers(): void {
-  const waiters = _wakeWaiters;
-  _wakeWaiters = [];
-  for (const w of waiters) w();
+  _signal.wake();
 }
 
 /** Record that a space may have claimable work (enqueue, requeue-on-failure, stall reset). */
 export function markSpaceMayHaveWork(spaceId: string): void {
-  _pendingHint.add(spaceId);
-  _workEpoch++;
-  wakeWorkers();
+  _signal.markSpaceMayHaveWork(spaceId);
 }
 
 /** Test seam: forget everything the hint knows, forcing the next claim to do a full scan. */
 export function resetPendingHint(): void {
-  _pendingHint.clear();
-  _lastFullScan = 0;
+  _signal.reset();
 }
 
 export async function claimNextJob(
@@ -382,12 +361,10 @@ export async function claimNextJob(
 ): Promise<MediaJobDoc | null> {
   const now = new Date().toISOString();
 
-  const dueFullScan = Date.now() - _lastFullScan >= FULL_SCAN_INTERVAL_MS;
-  if (dueFullScan) _lastFullScan = Date.now();
-
   // On a full scan, probe every space (authoritative). Otherwise probe only the spaces the
-  // hint says are worth probing — which, on an idle queue, is none.
-  const candidates = dueFullScan ? spaceIds : spaceIds.filter(s => _pendingHint.has(s));
+  // hint says are worth probing — which, on an idle queue, is none. Consumes the full-scan slot,
+  // so it is called exactly once per claim.
+  const candidates = _signal.spacesToProbe(spaceIds);
 
   for (const spaceId of candidates) {
     const claimed = await jobCollection(spaceId).findOneAndUpdate(
@@ -414,12 +391,12 @@ export async function claimNextJob(
 
     if (claimed) {
       // There may be MORE work in this space — keep probing it on the next claim.
-      _pendingHint.add(spaceId);
+      _signal.noteClaimed(spaceId);
       return claimed;
     }
     // Nothing claimable here right now. Drop the hint; a future enqueue, a requeue, or the
     // periodic full scan will put it back.
-    _pendingHint.delete(spaceId);
+    _signal.noteEmpty(spaceId);
   }
   return null;
 }

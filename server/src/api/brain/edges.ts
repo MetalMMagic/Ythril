@@ -89,10 +89,19 @@ edgesRouter.post('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, de
   const ttlErr = ttlDaysError(req.body);
   if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
 
+  // `waitForEmbedding` (default false): the vector is normally computed by the embedding queue
+  // moments after this returns. Pass true when the caller will search for, scan, or compare what it
+  // just wrote — none of those can see a record that has no vector yet.
+  const waitForEmbedding = req.body?.waitForEmbedding;
+  if (waitForEmbedding !== undefined && typeof waitForEmbedding !== 'boolean') {
+    res.status(400).json({ error: '`waitForEmbedding` must be a boolean' });
+    return;
+  }
+  const embedOpts = waitForEmbedding === true ? { waitForEmbedding: true } : undefined;
   const edge = await upsertEdge(
     wt.target, from.trim(), to.trim(), label.trim(), weight, type?.trim(),
     typeof description === 'string' ? description : undefined, safeProps, safeTags,
-    webhookToken(req), ttlDaysFromBody(req.body),
+    webhookToken(req), ttlDaysFromBody(req.body), embedOpts,
   );
   const result: Record<string, unknown> = { ...edge };
   if (check.warnings.length > 0) result['warnings'] = check.warnings;

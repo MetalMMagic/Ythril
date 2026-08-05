@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+### Fixed
+
+- **`waitForEmbedding` is now reachable over REST for all four brain types.** The option was added to every
+  creator function in one change while only ONE of the four routes forwarded it, so an HTTP caller writing
+  an entity, edge or chrono entry could not ask for a synchronous embedding at all — a write-then-search or
+  write-then-scan flow had no correct form for those types.
+  - Invisible from the code, because each route looks complete on its own. It surfaced as seven
+    duplicate-scanner failures: those tests create entities and then scan, and a scan cannot pair records
+    that have no vector yet.
+  - **Gated on CONSISTENCY, not on presence** — the check fails when the four routes disagree, so it holds
+    whichever way a future change moves, and it also requires each route to validate the flag rather than
+    trust the body. Mutation-verified.
+
+
 ### Documentation
 
 - **The one POST-as-update route is now documented as legacy, and gated.** A chrono entry can be updated by

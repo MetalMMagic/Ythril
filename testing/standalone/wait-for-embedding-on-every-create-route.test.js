@@ -61,6 +61,25 @@ describe('waitForEmbedding is reachable on every brain create route', () => {
       + 'seven duplicate-scanner failures. Add it to the rest, or remove it from all four deliberately.');
   });
 
+  it('excludeFromVectorSearch is reachable on every PATCH handler that has one, or none', () => {
+    // Same rule, same gate. It shipped wired into the four update FUNCTIONS and into no PATCH handler at
+    // all, so a caller sending it alone was told they had sent no fields — reported by an integrator
+    // against a live instance. Fourth time in one session that one rule reached some surfaces and not
+    // others, so it is gated the same way: consistency, not presence.
+    const has = {};
+    for (const [type, file] of Object.entries(ROUTES)) {
+      const src = code(file);
+      if (!/At least one field must be provided/.test(src)) continue;   // no PATCH handler here
+      has[type] = /excludeFromVectorSearch/.test(src);
+    }
+    const yes = Object.entries(has).filter(([, v]) => v).map(([k]) => k);
+    const no = Object.entries(has).filter(([, v]) => !v).map(([k]) => k);
+    assert.ok(yes.length === 0 || no.length === 0,
+      `excludeFromVectorSearch is settable over REST for [${yes.join(', ')}] but not [${no.join(', ')}]. `
+      + 'A flag wired into the update function and not into the handler ships UNREACHABLE on the surface '
+      + 'most integrators use.');
+  });
+
   it('each route VALIDATES it rather than trusting the body', () => {
     // A boolean read straight out of a request body and passed to a writer is how a string "false" turns
     // into a truthy synchronous embed. Every route that reads it must also reject a non-boolean.

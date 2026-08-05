@@ -10,6 +10,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`excludeFromVectorSearch` was not settable over REST.** It was wired into the four update functions
+  and into none of the PATCH handlers, so `PATCH /memories/<id>` with only that field answered *"At least
+  one field must be provided"* — the flag shipped unreachable on the surface most integrators use. Found
+  by an integrator probing the feature rather than trusting the changelog.
+  - Each handler builds its own allowlisted `updates` object with its own inline type, so an addition to
+    the writer beneath them is invisible from where the request is parsed.
+  - It may be the **only** field in a request: retiring a record from vector search is a complete edit in
+    itself, not a modifier on some other change.
+
+
+### Fixed
+
 - **A wrong-shaped NLI model no longer impersonates a dead endpoint** (canary report). A 2-class head —
   `{entailment, not_entailment}`, which most *zeroshot* variants are — emits a label `parseVerdict` maps
   to nothing, so every pair was recorded `judge-unavailable` and the scanner parked its cursor: **exactly**

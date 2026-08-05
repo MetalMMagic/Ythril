@@ -1283,9 +1283,26 @@ GET /api/brain/spaces/:spaceId/stats
   "entities": 156,
   "edges": 89,
   "chrono": 23,
-  "files": 31
+  "files": 31,
+  "embedQueue": { "pending": 0, "processing": 0, "failed": 0 }
 }
 ```
+
+**`embedQueue` — how much of this space is not searchable yet.** Writes do not wait for the embedding
+model; a background worker embeds each record moments later. Until it does, the record exists but is
+**absent from recall** rather than ranked lower, because both retrieval channels need the vector.
+
+| field | meaning |
+|---|---|
+| `pending` | queued, not started. Normally 0, briefly non-zero after a burst of writes or a sync pull |
+| `processing` | in flight right now |
+| `failed` | gave up after retrying with backoff. **A non-zero value that does not clear is the signal that something is wrong** — usually an unreachable or misconfigured embedding endpoint |
+
+Use it to answer "is this space ready to search". A steady `pending` that never drains, or any lasting
+`failed`, means recall is quietly returning less than the space contains. Rewriting a record requeues it,
+which is the way back from `failed` without an operator touching the queue.
+
+For a proxy space the numbers are its **members'**, summed — matching the record counts above.
 
 ---
 

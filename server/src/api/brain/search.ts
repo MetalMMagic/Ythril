@@ -9,6 +9,7 @@ import { summariseActivity } from '../../metrics/space-activity-store.js';
 import { globalRateLimit } from '../../rate-limit/middleware.js';
 import { NotFoundError } from '../../util/errors.js';
 import { countMemories } from '../../brain/memory.js';
+import { getEmbedJobCounts } from '../../brain/embed-queue.js';
 import { queryBrain } from '../../brain/query.js';
 import { findSimilar, recall, rankOf, type RecallKnowledgeType } from '../../brain/recall.js';
 import { validateFilterExpression, type FilterExpression } from '../../brain/filter.js';
@@ -46,13 +47,25 @@ searchRouter.get('/spaces/:spaceId/stats', globalRateLimit, requireSpaceAuth, as
     chrono: await col(`${mid}_chrono`).countDocuments(),
     // Exclude chunk records (parentFileId set) — count only top-level file records
     files: await col(`${mid}_files`).countDocuments({ parentFileId: { $exists: false } }),
+    // How much of the above is not searchable YET. Writes no longer wait for the embedding model, so a
+    // record can exist and be absent from recall for a moment — and a caller asking "is this space ready"
+    // could not tell that from "the model is down and nothing has embedded for an hour". Same shape as the
+    // defect the queue fixed: a state the system knew about and never reported.
+    embedQueue: await getEmbedJobCounts(mid),
   })));
   const memories = counts.reduce((s, c) => s + c.memories, 0);
   const entities = counts.reduce((s, c) => s + c.entities, 0);
   const edges = counts.reduce((s, c) => s + c.edges, 0);
   const chrono = counts.reduce((s, c) => s + c.chrono, 0);
   const files = counts.reduce((s, c) => s + c.files, 0);
-  res.json({ spaceId, memories, entities, edges, chrono, files });
+  // Summed across members like everything else here, so a proxy space reports its members' backlog rather
+  // than a zero that would read as "nothing pending".
+  const embedQueue = {
+    pending: counts.reduce((s, c) => s + c.embedQueue.pending, 0),
+    processing: counts.reduce((s, c) => s + c.embedQueue.processing, 0),
+    failed: counts.reduce((s, c) => s + c.embedQueue.failed, 0),
+  };
+  res.json({ spaceId, memories, entities, edges, chrono, files, embedQueue });
 });
 
 

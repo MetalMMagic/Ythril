@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Testing
+
+- **`npm run todo:check` printed a ✓ for a rule it did not enforce.** Its third line claims
+  *"`_TODO-ORDERED.md` references every open item in every tracker"*. For an item without an `X-LN-N` id the
+  matcher asked `words.some(w => ordered.includes(w))` over the first four long words of the title — so **any
+  single ordinary word was enough**, and the index is a long document containing "client", "search", "probe"
+  and a hundred others somewhere.
+  - Found by experiment rather than by reading: appending `- [ ] **ZZZ deliberately unreferenced probe item.**`
+    to a tracker and running the check produced *"todo/ is consistent — all of them indexed"*. It matched on
+    "probe". A second hole in the same branch skipped any item with fewer than two long words outright.
+  - Load-bearing because the release cadence is *"cut the tag when `_TODO-ORDERED.md` is empty"*: an item the
+    index never mentions makes "the queue is empty" a claim about one file rather than about the work — which
+    is what the script's own header says it exists to prevent.
+  - Reference now means **a contiguous three-word run of the item's own wording**, extracted into
+    `scripts/todo-index-match.mjs` so it can be tested with fixtures. The old matcher lived inside a script
+    that does its work at module scope and exits, so nothing could call it — a matcher nobody can invoke with
+    a fixture is a matcher nobody checks.
+  - **The obvious fallback was cut after being tested rather than reasoned about.** Accepting "every
+    distinctive word appears somewhere" sounds like tolerance for paraphrase; on the real trackers *no* item
+    needed it, and it still admitted the known orphan, because the index now documents that probe and
+    therefore contains every one of its words. Phrase-only can produce a false orphan when an index line is
+    rewritten past recognition — loud, and fixed by quoting three words. The fallback's failure was silent.
+  - Proved in both directions, which the predecessor never was: zero orphans across the real trackers, and a
+    planted orphan now fails the gate and is named in the output.
+
 ### Added
 
 - **"View in graph" on the Entities and Edges tables** (owner request). Next to each row's *View details*

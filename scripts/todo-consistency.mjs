@@ -30,6 +30,7 @@ import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { matchIndexReference } from './todo-index-match.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const TODO = join(ROOT, 'todo');
@@ -127,15 +128,16 @@ console.log(`\n${YELLOW}todo/ consistency${R}  ${DIM}(owner rules 2026-08-02 and
       if (!ordered.includes(id)) orphans.push(`${f} → ${id}`);
     }
 
-    // Checkboxes with no ID: match on a distinctive phrase (the longest run of words in the first 12).
+    // Checkboxes with no ID: match on a contiguous phrase from the item's own wording.
+    //
+    // This used to be `words.some(w => ordered.includes(w))` over the first four long words, which any ONE
+    // ordinary word satisfied — so this check reported a rule it did not enforce, and said "✓" while doing it.
+    // See `todo-index-match.mjs` for what replaced it and for the two fixtures that prove it discriminates.
     const plain = [...src.matchAll(/^\s*[-*]\s*\[ \]\s*(.{16,120})$/gim)]
       .map(m => m[1].replace(/[*`_]/g, '').trim())
       .filter(t => !/^[A-Z]+-[A-Z0-9-]+/.test(t));
     for (const t of plain) {
-      const words = t.split(/\s+/).filter(w => w.length > 4).slice(0, 4);
-      if (words.length < 2) continue;
-      const referenced = words.some(w => ordered.toLowerCase().includes(w.toLowerCase()));
-      if (!referenced) orphans.push(`${f} → "${t.slice(0, 70)}"`);
+      if (!matchIndexReference(t, ordered).referenced) orphans.push(`${f} → "${t.slice(0, 70)}"`);
     }
   }
   if (orphans.length) {

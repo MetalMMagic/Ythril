@@ -153,6 +153,13 @@ export async function recall(
   minPerType?: Partial<Record<RecallKnowledgeType, number>>,
   minScore?: number,
   filter?: FilterExpression,
+  /**
+   * Options added after this signature was already eight parameters long.
+   *
+   * A ninth positional argument would make every call site a row of undefineds to count through, and the
+   * next option after it a tenth. New options go here instead; existing callers are untouched.
+   */
+  opts?: { maxPerType?: Partial<Record<RecallKnowledgeType, number>> },
 ): Promise<RecallResult[]> {
   if (!isVectorSearchAvailable()) {
     throw new Error(
@@ -232,7 +239,7 @@ export async function recall(
     await applyRerank(query, guaranteed, allResults, remaining);
   }
 
-  const final = mergeRecallResults(guaranteed, allResults, topK, minScore);
+  const final = mergeRecallResults(guaranteed, allResults, topK, minScore, opts?.maxPerType);
 
   // Enrich file chunk results with inline parent metadata.
   //
@@ -258,19 +265,59 @@ export async function recall(
  *   3. the combined list is sorted by score — a floor result may legitimately outrank a global one;
  *   4. `minScore` filters LAST, so it can drop a guaranteed result. That is deliberate: a floor is a
  *      request for coverage, not a licence to return matches the caller called too weak to want.
+ *
+ * `maxPerType` is the CEILING to `minPerType`'s floor, and it is applied here rather than by fetching less.
+ * Phase 2 over-fetches on purpose so a cross-encoder has something to reorder; capping the fetch instead
+ * would hand the reranker the top-N by vector similarity rather than the best N after reranking — a worse
+ * answer for the same cost. The cap's whole value is in step 2: a candidate whose type is already full is
+ * SKIPPED and the walk continues, so the slot it would have taken goes to another type. Without that, a
+ * ceiling would only shorten the list, and the caller's actual complaint — one long chunk crowding out four
+ * one-line principles — would be unaddressed.
+ *
+ * A ceiling never drops a floor result: `minPerType.x > maxPerType.x` is refused at both API surfaces, so
+ * the two cannot contradict by the time they reach here. Guaranteed results still COUNT toward the ceiling,
+ * or a floor of 2 plus a ceiling of 2 would return four.
  */
 export function mergeRecallResults(
   guaranteed: RecallResult[],
   allResults: RecallResult[],
   topK: number,
   minScore?: number | null,
+  maxPerType?: Partial<Record<RecallKnowledgeType, number>>,
 ): RecallResult[] {
   const guaranteedIds = new Set(guaranteed.map(r => r._id));
   const fillSlots = Math.max(0, topK - guaranteed.length);
+
+  // Per-type usage starts from the floor results, which are already in the output.
+  const used = new Map<RecallKnowledgeType, number>();
+  if (maxPerType) for (const r of guaranteed) used.set(r.type, (used.get(r.type) ?? 0) + 1);
+  const capOf = (t: RecallKnowledgeType): number =>
+    maxPerType?.[t] ?? Number.POSITIVE_INFINITY;
+
+  // Rank BEFORE selecting, not after.
+  //
+  // This function used to walk `allResults` in the order it was handed and sort only at the end, which was
+  // harmless while selection was "take the first `fillSlots`" — the sort fixed the order of whatever came
+  // out. It stops being harmless the moment a ceiling exists: with `{file: 1}`, the cap keeps the FIRST file
+  // it walks past and skips the rest, so an unranked walk keeps a 0.1 hit and discards a 0.99 one. Its own
+  // test caught exactly that.
+  //
+  // It also fixes the same latent problem in plain `topK` truncation, which picked the first N of the input
+  // rather than the best N. Both were masked by every production caller sorting first — and `applyRerank`
+  // and `applyLexicalFusion` mutate the scores AFTER that sort, so "the caller sorted" was not even reliably
+  // true. A copy, because reordering an argument is a side effect a caller cannot see.
+  const ranked = [...allResults].sort((a, b) => rankOf(b) - rankOf(a));
+
   const fill: RecallResult[] = [];
-  for (const r of allResults) {
+  for (const r of ranked) {
     if (fill.length >= fillSlots) break;
-    if (!guaranteedIds.has(r._id)) fill.push(r);
+    if (guaranteedIds.has(r._id)) continue;
+    if (maxPerType) {
+      const seen = used.get(r.type) ?? 0;
+      if (seen >= capOf(r.type)) continue;   // full — keep walking, do not stop
+      used.set(r.type, seen + 1);
+    }
+    fill.push(r);
   }
 
   const final = [...guaranteed, ...fill];
@@ -891,8 +938,9 @@ export async function recallGlobal(
   minPerType?: Partial<Record<RecallKnowledgeType, number>>,
   minScore?: number,
   filter?: FilterExpression,
+  opts?: { maxPerType?: Partial<Record<RecallKnowledgeType, number>> },
 ): Promise<RecallResult[]> {
-  const results = await Promise.all(spaceIds.map(id => recall(id, query, topK, tags, types, minPerType, minScore, filter)));
+  const results = await Promise.all(spaceIds.map(id => recall(id, query, topK, tags, types, minPerType, minScore, filter, opts)));
   const flat = results.flat();
   // Sort by score descending, deduplicate by _id
   const seen = new Set<string>();
@@ -906,7 +954,17 @@ export async function recallGlobal(
       deduped.push(r);
     }
   }
-  return deduped.slice(0, topK);
+  // The ceiling has to be re-applied to the MERGED set, not left to the per-space calls.
+  //
+  // Each `recall` above already honoured it for its own space, which is what shapes each space's ranking —
+  // but three spaces capped at 2 entities each would return six. `maxPerType` is a statement about the
+  // answer the caller receives, so it is enforced where the answer is assembled. Reusing
+  // `mergeRecallResults` with no floor rather than writing a second cap loop: two implementations of one
+  // rule is the shape that has cost this repo four bugs, and `minScore` is deliberately not re-applied here
+  // because each space already filtered on it.
+  return opts?.maxPerType
+    ? mergeRecallResults([], deduped, topK, undefined, opts.maxPerType)
+    : deduped.slice(0, topK);
 }
 
 /** Retrieve the stored embedding vector for an entry by its ID and knowledge type. */

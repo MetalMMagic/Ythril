@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`maxPerType` on recall — a ceiling to match `minPerType`'s floor** (an integrator's top ask). Optional, on
+  both `POST /api/brain/spaces/:id/recall` and the MCP `recall` tool; absent, nothing changes.
+  `{ "maxPerType": { "file": 2 } }` caps how many results of a type come back.
+  - **A slot the cap frees goes to another type**, rather than shortening the list. That is the whole feature:
+    the reported problem is one long file passage that scores well taking space several one-line records would
+    have answered more cheaply, so a capped candidate is skipped and the walk continues.
+  - **A contradictory pair is refused, not resolved.** `minPerType.entity: 5` with `maxPerType.entity: 2`
+    answers `400` naming both numbers. Floor-wins and ceiling-wins are both defensible, which is exactly why
+    the caller has to say which they meant. `0` is refused too — it would be a second, less obvious way to
+    spell `types` without that type.
+  - Floor results **count toward** the ceiling, so `min: 2` with `max: 2` returns two rather than four. The cap
+    is applied where the answer is assembled, which is **three** places: the per-space merge and, because a
+    proxy space or a cross-space recall fans out, again after each merge — otherwise three members capped at 2
+    would return 6.
+  - It caps at merge time rather than by fetching less on purpose: recall over-fetches so a cross-encoder has
+    something to reorder, and capping the fetch would hand the reranker the top-N by vector similarity instead
+    of the best N after reranking.
+
+### Fixed
+
+- **Recall's result selection ranked *after* it selected.** `mergeRecallResults` walked its candidates in the
+  order it received them and sorted at the end, so `topK` truncation kept the first N rather than the best N.
+  Harmless in practice only because every caller sorted first — and `applyRerank`/`applyLexicalFusion` mutate
+  scores *after* that sort, so even that was not reliably true. Found by a `maxPerType` test: with a ceiling,
+  selection order decides which results survive, and an unranked walk kept a 0.10 hit while discarding a 0.99
+  one. The list is now ranked before selection, which fixes both.
+
 ### Testing
 
 - **`npm run todo:check` printed a ✓ for a rule it did not enforce.** Its third line claims

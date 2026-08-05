@@ -12,7 +12,7 @@ import { UUID_V4_RE, entityDocToRecord, formatRecallSummary, toRecallRecord, uui
 import { MAX_RECALL_TRAVERSE, traverseRecallSeeds } from '../../brain/edges.js';
 import { type FilterExpression, validateFilterExpression } from '../../brain/filter.js';
 import { queryBrain } from '../../brain/query.js';
-import { type RecallKnowledgeType, type RecallResult, findSimilar, recall, recallGlobal, rankOf } from '../../brain/recall.js';
+import { type RecallKnowledgeType, type RecallResult, findSimilar, recall, recallGlobal, rankOf, mergeRecallResults } from '../../brain/recall.js';
 import { resolveMemberSpaces, collectAcrossMembers } from '../../spaces/proxy.js';
 import { NotFoundError } from '../../util/errors.js';
 
@@ -58,6 +58,11 @@ export const recallTool: ToolHandler = {
               type: 'object',
               description: 'Optional minimum result count per type. Guarantees at least that many results of each type if available (e.g. {"entity": 2, "edge": 1}). Omit to use pure score ranking.',
               additionalProperties: { type: 'number' },
+            },
+            maxPerType: {
+              type: 'object',
+              description: 'Optional MAXIMUM result count per type — the ceiling to minPerType\'s floor (e.g. {"file": 2, "memory": 4}). A slot freed by the cap goes to another type, so this is how you stop one long file chunk from crowding out several one-line records that would answer the query more cheaply. At least 1 per type; use `types` to exclude a type entirely. Must not be below minPerType for the same type — a contradictory pair is refused rather than silently resolved.',
+              additionalProperties: { type: 'number', minimum: 1 },
             },
             minScore: unitScoreSchema('Minimum cosine similarity score (0.0–1.0). Results below this threshold are excluded.'),
             includeContent: {
@@ -107,6 +112,34 @@ export const recallTool: ToolHandler = {
     const minScore = typeof a['minScore'] === 'number' ? a['minScore'] : undefined;
     const includeContent = a['includeContent'] !== false;
 
+    // The ceiling to minPerType's floor. Validated here as well as in the schema, because
+    // `additionalProperties: { minimum: 1 }` cannot express "not below minPerType for the same type" — and
+    // the REST route enforces both, so leaving MCP with only half is exactly the two-surfaces-one-rule gap
+    // that #695, #697 and #700 were.
+    let maxPerType: Partial<Record<RecallKnowledgeType, number>> | undefined;
+    if (a['maxPerType'] != null) {
+      if (typeof a['maxPerType'] !== 'object' || Array.isArray(a['maxPerType'])) {
+        throw new Error('maxPerType must be an object mapping knowledge type -> maximum count');
+      }
+      const acc: Partial<Record<RecallKnowledgeType, number>> = {};
+      for (const [key, raw] of Object.entries(a['maxPerType'] as Record<string, unknown>)) {
+        if (typeof raw !== 'number' || !Number.isInteger(raw) || raw < 1) {
+          throw new Error(`maxPerType.${key} must be an integer of at least 1 (use \`types\` to exclude a knowledge type entirely)`);
+        }
+        acc[key as RecallKnowledgeType] = Math.min(raw, topK);
+      }
+      if (Object.keys(acc).length > 0) maxPerType = acc;
+    }
+    // A floor above its own ceiling is refused, not resolved. Same message as REST.
+    if (minPerType && maxPerType) {
+      for (const [t, floor] of Object.entries(minPerType) as [RecallKnowledgeType, number][]) {
+        const ceiling = maxPerType[t];
+        if (ceiling !== undefined && floor > ceiling) {
+          throw new Error(`minPerType.${t} (${floor}) is greater than maxPerType.${t} (${ceiling}) — the two contradict, so neither can be applied`);
+        }
+      }
+    }
+
     // Graph-traversal expansion depth. 0 (default) = classic recall, unchanged.
     let traverse = 0;
     if (a['traverse'] != null) {
@@ -131,13 +164,17 @@ export const recallTool: ToolHandler = {
     let traverseSpaces: string[];
     if (callSpace) {
       const memberIds = resolveMemberSpaces(callSpace);
-      const all = (await Promise.all(memberIds.map(mid => recall(mid, query, topK, tags, types, minPerType, minScore, filter)))).flat();
+      const all = (await Promise.all(memberIds.map(mid => recall(mid, query, topK, tags, types, minPerType, minScore, filter, { maxPerType })))).flat();
       // Same rule as everywhere else: rankOf, not `.score`. See the note on the REST recall route.
       all.sort((x, y) => rankOf(y) - rankOf(x));
-      seeds = all.slice(0, topK);
+      // And the ceiling is re-applied to the merged set for the same reason it is on the REST route: each
+      // member honoured it alone, so N members would multiply it.
+      seeds = maxPerType
+        ? mergeRecallResults([], all, topK, undefined, maxPerType)
+        : all.slice(0, topK);
       traverseSpaces = memberIds;
     } else {
-      seeds = await recallGlobal(accessibleSpaceIds, query, topK, tags, types, minPerType, minScore, filter);
+      seeds = await recallGlobal(accessibleSpaceIds, query, topK, tags, types, minPerType, minScore, filter, { maxPerType });
       traverseSpaces = accessibleSpaceIds;
     }
 

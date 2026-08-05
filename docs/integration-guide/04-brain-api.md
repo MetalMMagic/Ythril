@@ -414,6 +414,7 @@ Available as both:
 | `filter` | — | none | Property equality/comparison filter (see below) |
 | `tags` | — | none | Array of strings — restrict to records carrying these tags |
 | `minPerType` | — | none | Object mapping knowledge type → minimum hits, e.g. `{ "entity": 2 }`. Guarantees at least that many results of the type; each value is clamped to `topK` |
+| `maxPerType` | — | none | Object mapping knowledge type → **maximum** hits, e.g. `{ "file": 2 }` — the ceiling to `minPerType`'s floor. A slot the cap frees goes to another type. Each value must be at least `1` and is clamped to `topK`; a value below `minPerType` for the same type is a `400` (see below) |
 | `traverse` | — | `0` | Graph-expansion depth (integer 0–5). `0` = classic recall; > 0 follows edges from each match (see [Graph-Augmented Recall](#graph-augmented-recall-traverse-parameter)) |
 
 **Response** `200`:
@@ -426,6 +427,17 @@ Available as both:
   "count": 1
 }
 ```
+
+**A contradictory floor/ceiling pair is refused, not resolved.** `minPerType.entity: 5` with
+`maxPerType.entity: 2` answers `400`, naming both values:
+
+```json
+{ "error": "minPerType.entity (5) is greater than maxPerType.entity (2) — the two contradict, so neither can be applied" }
+```
+
+Floor-wins and ceiling-wins are both defensible, which is exactly why the request has to say which it meant.
+A `maxPerType` value of `0` is refused for the same kind of reason — it would be a second, less obvious way to
+spell `types` without that type.
 
 Searches **all knowledge types** (memories, entities, edges, chrono entries, and files) and includes a
 `type` discriminator field on every result. No configuration needed — the defaults below are what a
@@ -545,6 +557,7 @@ Read in the order the server applies them:
 | `tags` | Hard filter, **AND** semantics — a record must carry *both* `auth` and `postmortem`. |
 | `filter` | Hard filter. Keys must start with `properties.`, `tags`, `type`, `name`, `status` or `label`; any other key is rejected. Operators: `eq`, `ne`, `in`, `exists`, `gt`, `gte`, `lt`, `lte`. All conditions must match. |
 | `minPerType` | Guarantees a floor per type *if that many exist*, so a flood of file passages cannot crowd out every entity. Each value is clamped to `topK`. |
+| `maxPerType` | The ceiling to that floor, and the other half of the same problem: one long file passage that scores well can take slots several one-line records would have answered more cheaply. A candidate whose type is already at its cap is **skipped and the walk continues**, so the freed slot goes to another type rather than shortening the list. |
 | `minScore` | Applied **last**, on the vector score, and it can drop a `minPerType`-guaranteed result — a floor is a request for coverage, not a licence to return matches you called too weak. |
 | `topK` | The final cut. |
 | `traverse` | After the cut, follows knowledge-graph edges outward from every match (both directions) and returns the connected entities alongside them. |

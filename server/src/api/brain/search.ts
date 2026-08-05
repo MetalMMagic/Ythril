@@ -11,7 +11,7 @@ import { NotFoundError } from '../../util/errors.js';
 import { countMemories } from '../../brain/memory.js';
 import { getEmbedJobCounts } from '../../brain/embed-queue.js';
 import { queryBrain } from '../../brain/query.js';
-import { findSimilar, recall, rankOf, type RecallKnowledgeType } from '../../brain/recall.js';
+import { findSimilar, recall, rankOf, mergeRecallResults, type RecallKnowledgeType } from '../../brain/recall.js';
 import { validateFilterExpression, type FilterExpression } from '../../brain/filter.js';
 import { traverseGraph, traverseRecallSeeds, MAX_RECALL_TRAVERSE, resolveEdgeEntityNames } from '../../brain/edges.js';
 import { memoryEmbedText, entityEmbedText, edgeEmbedText, chronoEmbedText, fileEmbedText } from '../../brain/embed-text.js';
@@ -202,7 +202,7 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
     res.status(404).json({ error: `Space '${spaceId}' not found` });
     return;
   }
-  const { query, topK, types, minScore, filter, traverse, tags, minPerType } = req.body ?? {};
+  const { query, topK, types, minScore, filter, traverse, tags, minPerType, maxPerType } = req.body ?? {};
   if (!query || typeof query !== 'string' || !query.trim()) {
     res.status(400).json({ error: 'query must be a non-empty string' });
     return;
@@ -243,6 +243,45 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
     if (Object.keys(acc).length > 0) safeMinPerType = acc;
   }
 
+  // Per-type MAXIMUMS: the ceiling to the floor above (their top ask, A-L6-1). One long file chunk should
+  // not be able to crowd out four one-line principles that would have answered the query more cheaply.
+  //
+  // A ceiling of 0 is REFUSED rather than accepted as "none of this type". It would work, and it would be a
+  // second confusing way to spell `types` — with the difference that `types` says so in the parameter name.
+  let safeMaxPerType: Partial<Record<RecallKnowledgeType, number>> | undefined;
+  if (maxPerType != null) {
+    if (typeof maxPerType !== 'object' || Array.isArray(maxPerType)) {
+      res.status(400).json({ error: 'maxPerType must be an object mapping knowledge type -> maximum count' });
+      return;
+    }
+    const acc: Partial<Record<RecallKnowledgeType, number>> = {};
+    for (const [key, raw] of Object.entries(maxPerType as Record<string, unknown>)) {
+      if (typeof raw !== 'number' || !Number.isInteger(raw) || raw < 1) {
+        res.status(400).json({ error: `maxPerType.${key} must be an integer of at least 1 (use \`types\` to exclude a knowledge type entirely)` });
+        return;
+      }
+      acc[key as RecallKnowledgeType] = Math.min(raw, safeTopK);
+    }
+    if (Object.keys(acc).length > 0) safeMaxPerType = acc;
+  }
+
+  // A floor above its own ceiling is REFUSED, not silently resolved.
+  //
+  // Floor-wins and ceiling-wins are both defensible, which is exactly why the caller has to say which they
+  // meant. Picking one here would answer 200 to a request that cannot be satisfied as written — the failure
+  // shape this release spent four fixes on, in config form.
+  if (safeMinPerType && safeMaxPerType) {
+    for (const [t, floor] of Object.entries(safeMinPerType) as [RecallKnowledgeType, number][]) {
+      const ceiling = safeMaxPerType[t];
+      if (ceiling !== undefined && floor > ceiling) {
+        res.status(400).json({
+          error: `minPerType.${t} (${floor}) is greater than maxPerType.${t} (${ceiling}) — the two contradict, so neither can be applied`,
+        });
+        return;
+      }
+    }
+  }
+
   // Graph-traversal expansion depth. 0 (default) = classic recall, unchanged.
   // Rejected rather than clamped past the cap so an obviously-wrong depth surfaces.
   let safeTraverse = 0;
@@ -271,7 +310,7 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
   try {
     const memberIds = resolveMemberSpaces(spaceId);
     const all = (await Promise.all(
-      memberIds.map(mid => recall(mid, query.trim(), safeTopK, safeTags, safeTypes, safeMinPerType, safeMinScore, safeFilter)),
+      memberIds.map(mid => recall(mid, query.trim(), safeTopK, safeTags, safeTypes, safeMinPerType, safeMinScore, safeFilter, { maxPerType: safeMaxPerType })),
     )).flat();
     // rankOf, NOT `.score`. `recall()` has already ordered each space's results by the best signal it
     // has — cross-encoder, then RRF fusion, then vector similarity. Re-sorting the merged list by raw
@@ -279,7 +318,13 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
     // last step on every REST recall — including a single-space one, which still passes through this
     // merge with one member.
     all.sort((x, y) => rankOf(y) - rankOf(x));
-    const seeds = all.slice(0, safeTopK);
+    // A proxy space fans out to N members, and each one honoured `maxPerType` for itself — so without this
+    // second pass a ceiling of 2 across three members would return six. The ceiling describes the ANSWER,
+    // so it is enforced where the answer is assembled, using the same function rather than a second cap
+    // loop. `minScore` is not re-applied: each member already filtered on it.
+    const seeds = safeMaxPerType
+      ? mergeRecallResults([], all, safeTopK, undefined, safeMaxPerType)
+      : all.slice(0, safeTopK);
 
     // Tell the per-space counters whether this recall actually answered, and how good the best hit was.
     //

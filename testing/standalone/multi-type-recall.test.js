@@ -217,3 +217,77 @@ describe('mergeRecallResults — floors, topK and minScore', () => {
     assert.deepEqual(mergeRecallResults([], [], 10), []);
   });
 });
+
+describe('mergeRecallResults — maxPerType, the ceiling to minPerType\'s floor', () => {
+  /** Ten file chunks that would take every slot on score alone — the integrator's actual complaint. */
+  const tenFiles = () => Array.from({ length: 10 }, (_, i) => file({ _id: `f${i}`, score: 0.99 - i * 0.001 }));
+
+  it('absent maxPerType is byte-identical to before — no default ceiling', () => {
+    const all = [...tenFiles(), memory({ score: 0.5 })];
+    const before = mergeRecallResults([], all, 5).map(r => r._id);
+    const withUndefined = mergeRecallResults([], all, 5, undefined, undefined).map(r => r._id);
+    assert.deepEqual(withUndefined, before);
+    assert.deepEqual(before, ['f0', 'f1', 'f2', 'f3', 'f4'], 'the unfiltered behaviour must be the old one');
+  });
+
+  it('caps a type at its ceiling', () => {
+    const out = mergeRecallResults([], tenFiles(), 5, undefined, { file: 2 });
+    assert.equal(out.filter(r => r.type === 'file').length, 2);
+  });
+
+  it('THE POINT: a slot freed by the ceiling goes to another type', () => {
+    // Without the skip-and-continue, a ceiling would only SHORTEN the list, and the reported problem — one
+    // long chunk crowding out several one-line records — would be untouched. Ten high-scoring files plus
+    // four low-scoring memories, five slots, files capped at 1: the four memories must get in.
+    const all = [...tenFiles(), ...Array.from({ length: 4 }, (_, i) => memory({ _id: `m${i}`, score: 0.2 - i * 0.01 }))];
+    const out = mergeRecallResults([], all, 5, undefined, { file: 1 });
+    assert.equal(out.length, 5, 'the freed slots must be filled, not dropped');
+    assert.equal(out.filter(r => r.type === 'file').length, 1);
+    assert.equal(out.filter(r => r.type === 'memory').length, 4);
+  });
+
+  it('the capped result kept is the best one, not the first one walked', () => {
+    // The walk is over an already-ranked list, so "first past the cap" must also mean "highest ranked".
+    const all = [file({ _id: 'low', score: 0.10 }), file({ _id: 'high', score: 0.99 })];
+    const out = mergeRecallResults([], all, 5, undefined, { file: 1 });
+    assert.deepEqual(out.map(r => r._id), ['high']);
+  });
+
+  it('an uncapped type is untouched by another type\'s ceiling', () => {
+    const all = [...tenFiles(), ...Array.from({ length: 3 }, (_, i) => entity({ _id: `e${i}`, score: 0.4 }))];
+    const out = mergeRecallResults([], all, 6, undefined, { file: 2 });
+    assert.equal(out.filter(r => r.type === 'file').length, 2);
+    assert.equal(out.filter(r => r.type === 'entity').length, 3);
+  });
+
+  it('guaranteed floor results COUNT toward the ceiling', () => {
+    // Or a floor of 2 with a ceiling of 2 would return four of the type. The API refuses floor > ceiling,
+    // so floor == ceiling is the tightest legal pair and it must produce exactly that many.
+    const guaranteed = [file({ _id: 'g1', score: 0.3 }), file({ _id: 'g2', score: 0.2 })];
+    const out = mergeRecallResults(guaranteed, tenFiles(), 10, undefined, { file: 2 });
+    assert.equal(out.filter(r => r.type === 'file').length, 2);
+    assert.deepEqual(out.map(r => r._id).sort(), ['g1', 'g2']);
+  });
+
+  it('a ceiling never truncates the floor itself', () => {
+    // The floor is already in the output before the cap is consulted; the cap only governs the fill. This is
+    // safe only because floor > ceiling is refused at both API surfaces — asserted here so that if someone
+    // ever relaxes that validation, this test says what breaks.
+    const guaranteed = [file({ _id: 'g1' }), file({ _id: 'g2' }), file({ _id: 'g3' })];
+    const out = mergeRecallResults(guaranteed, [], 10, undefined, { file: 1 });
+    assert.equal(out.length, 3, 'a contradictory pair must not silently drop floor results here');
+  });
+
+  it('minScore still filters last, after the ceiling', () => {
+    const all = [file({ _id: 'strong', score: 0.9 }), file({ _id: 'weak', score: 0.1 }), memory({ score: 0.8 })];
+    const out = mergeRecallResults([], all, 10, 0.5, { file: 1 });
+    assert.deepEqual(out.map(r => r._id).sort(), ['m1', 'strong']);
+  });
+
+  it('a ceiling of zero would empty the type — which is why the API refuses it', () => {
+    // Documented rather than supported: the merge honours 0 literally, and `types` is the parameter that
+    // says "not this kind" in a name a reader understands. Both surfaces reject 0 before it gets here.
+    const out = mergeRecallResults([], tenFiles(), 5, undefined, { file: 0 });
+    assert.equal(out.length, 0);
+  });
+});

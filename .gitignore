@@ -87,3 +87,14 @@ config/_preview_mint.mjs
 bench-data/
 *.private.md
 *.production.json
+
+# Agent-session secrets. .claude/settings.local.json carries the `env` block supplying the
+# bearer token that .mcp.json sends to a live Ythril instance. THIS REPO IS PUBLIC, so an
+# unignored credential here would not be a private mistake — it would be a disclosure.
+#
+# Added 2026-08-05. Before this, nothing in a COMMITTED file ignored the agent config at all:
+# .mcp.json was covered only by .git/info/exclude, which lives inside .git, is never committed,
+# and so protects exactly one working copy and no clone. An ignore rule that does not travel
+# with the repository is not protection.
+.claude/settings.local.json
+**/.claude/settings.local.json

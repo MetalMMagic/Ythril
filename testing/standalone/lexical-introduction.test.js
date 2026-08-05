@@ -185,6 +185,37 @@ describe('the agreement check', () => {
 
 // ── The wiring, so the refusals cannot be dropped without a test failing ─────
 
+/**
+ * The fresh-write scan is an ADDITION to the duplicate check, and must never be able to subtract.
+ *
+ * `checkDuplicates` runs both halves under one `Promise.all`, which rejects as a unit — so a throw from the
+ * collection scan would reach the outer catch and return `[]` for the whole check, discarding index results
+ * that were already in hand. That is strictly worse than not having the scan at all, and it is invisible:
+ * an empty duplicate list reads as "no duplicates".
+ */
+describe('the fresh-write scan cannot take the index half down with it', () => {
+  const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const recallSrc = strip(readFileSync(RECALL_SRC, 'utf8'));
+  const freshSrc = strip(readFileSync('server/src/brain/fresh-writes.ts', 'utf8'));
+
+  it('the call site catches, because Promise.all rejects as a unit', () => {
+    assert.match(recallSrc, /matchFreshWrites\([^)]*\)\.catch\(\(\) => \[\]\)/);
+  });
+
+  it('the scan reads its own config INSIDE the try', () => {
+    // getEmbeddingConfig() above the try was the one way this could throw past its own handler.
+    const body = freshSrc.slice(freshSrc.indexOf('export async function matchFreshWrites'));
+    const tryAt = body.indexOf('try {');
+    const cfgAt = body.indexOf('getEmbeddingConfig()');
+    assert.ok(tryAt > 0 && cfgAt > tryAt,
+      'getEmbeddingConfig() must be inside the try, or a config failure discards the index results too');
+  });
+
+  it('every exit from the scan is a value, never a throw', () => {
+    assert.match(freshSrc, /catch \(err\) \{[\s\S]*?return \[\];\s*\}/);
+  });
+});
+
 describe('introduction is gated on evidence', () => {
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   const src = strip(readFileSync(RECALL_SRC, 'utf8'));

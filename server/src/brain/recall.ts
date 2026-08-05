@@ -638,7 +638,11 @@ export async function checkDuplicates(
     // In parallel: the two halves are independent, and the check sits on a write path.
     const [hits, fresh] = await Promise.all([
       recallByType(spaceId, type, vector, topK),
-      matchFreshWrites(collName, vector),
+      // `.catch` here as well as inside, because the property being protected belongs to this composition
+      // rather than to the callee: `Promise.all` rejects as a unit, so a throw from the fresh half would
+      // reach the catch below and discard the index results too — turning a best-effort addition into a
+      // way to lose the half that worked.
+      matchFreshWrites(collName, vector).catch(() => []),
     ]);
 
     const matches = new Map<string, SimilarMatch>();

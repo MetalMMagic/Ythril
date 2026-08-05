@@ -96,11 +96,17 @@ export async function matchFreshWrites(
 ): Promise<FreshMatch[]> {
   if (queryVector.length === 0) return [];
 
-  const similarity = getEmbeddingConfig().similarity;
-  const queryNorm = norm(queryVector);
-  const cutoff = new Date(now - FRESH_WINDOW_MS).toISOString();
-
+  // Everything, including reading the config, is inside the try.
+  //
+  // `getEmbeddingConfig()` throwing here would propagate into `checkDuplicates`, whose own catch returns
+  // `[]` for the WHOLE check — discarding the index results it had already collected. A best-effort
+  // addition that can take the working half down with it is not best-effort, and the two lines that used
+  // to sit above this were the only way that could happen.
   try {
+    const similarity = getEmbeddingConfig().similarity;
+    const queryNorm = norm(queryVector);
+    const cutoff = new Date(now - FRESH_WINDOW_MS).toISOString();
+
     const rows = await col(collName).aggregate<{ _id: string; dot: number; norm: number }>([
       // Newest first, capped, BEFORE anything expensive. This is the index walk that keeps the cost flat.
       { $sort: { seq: -1 } },

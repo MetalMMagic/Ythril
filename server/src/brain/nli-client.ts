@@ -54,7 +54,27 @@ export function nliIsLocal(): boolean {
 // of a security predicate is how they drift.
 
 /** Normalise whatever shape the server returned into a verdict, or null when it is unreadable. */
-function parseVerdict(body: unknown): NliVerdict | null {
+/**
+ * Warn once per distinct unrecognised label.
+ *
+ * Once per label, not once per call: a wrong-shaped model produces one of these for every pair in a sweep,
+ * and a thousand identical lines say nothing the first one did not while burying everything else.
+ */
+const _warnedLabels = new Set<string>();
+function logUnknownLabel(rawLabel: string): void {
+  const key = rawLabel || '<missing>';
+  if (_warnedLabels.has(key)) return;
+  _warnedLabels.add(key);
+  log.warn(
+    `NLI judge returned the label '${key}', which is not one of entailment / neutral / contradiction ` +
+    '(or LABEL_0..2). The contradiction scanner will treat every pair as unjudged, which looks identical ' +
+    'to an unreachable endpoint. The most common cause is a 2-class head such as a zeroshot/NLI model ' +
+    "emitting 'not_entailment' — this feature needs a 3-class MNLI head.",
+  );
+}
+
+/** Exported for the tests: the pure label decision, which is where the wrong-shape trap lives. */
+export function parseVerdict(body: unknown): NliVerdict | null {
   // Two shapes are common: {label, score} and HF-style [{label, score}, …] sorted by score.
   const first = Array.isArray(body) ? (Array.isArray(body[0]) ? body[0][0] : body[0]) : body;
   if (!first || typeof first !== 'object') return null;
@@ -69,7 +89,16 @@ function parseVerdict(body: unknown): NliVerdict | null {
     label_0: 'contradiction', label_1: 'neutral', label_2: 'entailment',
   };
   const label = map[rawLabel];
-  if (!label) return null;
+  if (!label) {
+    // Say WHICH label was not understood. Returning a bare null here made a wrong-shaped model
+    // indistinguishable from an unreachable one: a 2-class head ({0: entailment, 1: not_entailment}) emits
+    // `not_entailment`, which maps to nothing, so the scanner recorded `judge-unavailable` and parked its
+    // cursor exactly as it would for a dead endpoint. A reporter lost a rebuild to that silence.
+    //
+    // Still null, and still fail-open: this changes what the operator can SEE, not what the caller gets.
+    logUnknownLabel(rawLabel);
+    return null;
+  }
   return { label, score };
 }
 

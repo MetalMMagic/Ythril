@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+### Fixed
+
+- **A wrong-shaped NLI model no longer impersonates a dead endpoint** (canary report). A 2-class head —
+  `{entailment, not_entailment}`, which most *zeroshot* variants are — emits a label `parseVerdict` maps
+  to nothing, so every pair was recorded `judge-unavailable` and the scanner parked its cursor: **exactly**
+  what an unreachable judge looks like. It cost the reporter a container rebuild to find.
+  - The verdict contract is unchanged and deliberately so — an unrecognised label still means "no verdict",
+    never "they agree". Downgrading an unusable judge to agreement would empty the review queue and look
+    like a clean instance. What changed is that the log now names the label it did not understand, once
+    per distinct label rather than once per pair.
+  - The `nli.model` config row now states that a 3-class MNLI head is required, and names the `LABEL_<n>`
+    ordering trap: standard MNLI is `0=contradiction, 1=neutral, 2=entailment`, but
+    `cross-encoder/nli-deberta-v3-base` is `0=contradiction, 1=entailment, 2=neutral`, so an
+    index-emitting server is misread as agreeing for two labels in three.
+
+
 ### Added
 
 - **`GET /stats` now reports the embedding backlog** as `embedQueue: { pending, processing, failed }`.

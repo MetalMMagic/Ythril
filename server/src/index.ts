@@ -215,6 +215,10 @@ async function main(): Promise<void> {
     // `processing` with a live token, so the next boot waited out the full stall timeout before re-queuing it.
     const { stopMediaEmbeddingWorker } = await import('./files/media/worker.js');
     stopMediaEmbeddingWorker();
+    // Same reasoning for the brain embedding worker: a job claimed while the process drains dies
+    // `processing`, and the next boot waits out a stall timeout to rediscover it.
+    const { stopBrainEmbeddingWorker } = await import('./brain/embed-worker.js');
+    stopBrainEmbeddingWorker();
     const { stopRetryWorker } = await import('./webhooks/dispatcher.js');
     stopRetryWorker();
 

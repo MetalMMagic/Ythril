@@ -572,6 +572,26 @@ export interface DupeCheckOpts {
   checkContradictions?: boolean;
   dupeThreshold?: number;
   dupeTopK?: number;
+  /**
+   * Block the write until this record is embedded, so it is searchable the moment the call returns.
+   *
+   * Default false: the vector is computed by the embedding queue moments later, and the write no longer
+   * pays the model's latency. Set true when the caller will search for what it just wrote, or when a
+   * failure to embed should fail the write rather than be repaired in the background.
+   *
+   * Two consequences worth stating rather than discovering. With this true, a write **fails** when the
+   * embedder is unavailable — that was `remember`'s unconditional behaviour before the queue, now named
+   * and opt-in. With it false, the write **succeeds** and the record is briefly unrecallable: a vectorless
+   * record is invisible to BOTH recall channels, since the lexical one needs an embedding to compute a
+   * real similarity and skips what it cannot score.
+   *
+   * `checkDuplicates` and `checkContradictions` IMPLY this — they need the vector before the insert so the
+   * new record cannot self-match, and that is a question which cannot be answered later.
+   *
+   * It lives here, in the options object the write paths already take, rather than as another positional
+   * parameter: `remember` carries a note saying its twelfth was one too many.
+   */
+  waitForEmbedding?: boolean;
 }
 
 /** One-line human summary of a recall result, for duplicate feedback. */
@@ -837,7 +857,7 @@ async function getEntryEmbedding(
   spaceId: string,
   entryId: string,
   entryType: RecallKnowledgeType,
-): Promise<{ vector: number[]; doc: Record<string, unknown> } | null> {
+): Promise<{ vector: number[]; doc: Record<string, unknown> } | 'no-embedding' | null> {
   const collSuffix = KNOWLEDGE_COLLECTION[entryType];
   const collName = `${spaceId}_${collSuffix}`;
   const doc = await col(collName).findOne(
@@ -846,7 +866,10 @@ async function getEntryEmbedding(
   ) as Record<string, unknown> | null;
   if (!doc) return null;
   const vector = doc['embedding'] as number[] | undefined;
-  if (!vector || !Array.isArray(vector) || vector.length === 0) return null;
+  // Told apart from `null` deliberately. Since writes stopped waiting for the embedding model, "exists but
+  // has no vector yet" is a routine state lasting milliseconds — not an anomaly — and reporting it as "not
+  // found" sends an operator hunting for a record that is sitting right there.
+  if (!vector || !Array.isArray(vector) || vector.length === 0) return 'no-embedding';
   return { vector, doc };
 }
 
@@ -877,8 +900,15 @@ export async function findSimilar(
 
   // Fetch the source entry's stored embedding
   const entry = await getEntryEmbedding(spaceId, entryId, entryType);
+  if (entry === 'no-embedding') {
+    throw new NotFoundError(
+      `Entry '${entryId}' exists in space '${spaceId}' (type: ${entryType}) but is not embedded yet, so ` +
+      'there is nothing to compare it against. Embedding is queued and normally completes in milliseconds — ' +
+      'retry, or write with waitForEmbedding: true when you need the record searchable the moment the write returns.',
+    );
+  }
   if (!entry) {
-    throw new NotFoundError(`Entry '${entryId}' not found in space '${spaceId}' (type: ${entryType}), or has no embedding.`);
+    throw new NotFoundError(`Entry '${entryId}' not found in space '${spaceId}' (type: ${entryType}).`);
   }
 
   const activeTypes: RecallKnowledgeType[] = (targetTypes && targetTypes.length > 0)

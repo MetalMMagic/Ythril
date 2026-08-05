@@ -2389,10 +2389,16 @@ describe('Brain — find-similar', () => {
     // Write two similar memories
     const w1 = await post(INSTANCES.a, token(), '/api/brain/spaces/general/memories', {
       fact: `FindSimilar test: authentication and authorization ${RUN}`,
+      // find-similar compares VECTORS, so the source must be embedded before it is searched.
+      // Without this the test races the embedding worker — it lost that race on CI once already.
+      waitForEmbedding: true,
       tags: ['find-similar-test'],
     });
     const w2 = await post(INSTANCES.a, token(), '/api/brain/spaces/general/memories', {
       fact: `FindSimilar test: auth and authz security ${RUN}`,
+      // find-similar compares VECTORS, so the source must be embedded before it is searched.
+      // Without this the test races the embedding worker — it lost that race on CI once already.
+      waitForEmbedding: true,
       tags: ['find-similar-test'],
     });
     assert.equal(w1.status, 201, JSON.stringify(w1.body));
@@ -2419,6 +2425,9 @@ describe('Brain — find-similar', () => {
   it('POST /find-similar respects targetTypes filter', async () => {
     const w = await post(INSTANCES.a, token(), '/api/brain/spaces/general/memories', {
       fact: `FindSimilar targetTypes test ${RUN}`,
+      // find-similar compares VECTORS, so the source must be embedded before it is searched.
+      // Without this the test races the embedding worker — it lost that race on CI once already.
+      waitForEmbedding: true,
     });
     const sourceId = w.body._id ?? w.body.id;
 

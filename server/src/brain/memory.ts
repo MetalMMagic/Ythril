@@ -19,6 +19,7 @@ import { getConfig } from '../config/loader.js';
 import { stampExpiryOnCreate, applyExpiryToUpdate } from './ttl.js';
 import { applyDeleteFields } from './delete-fields.js';
 import { mergeTags, mergeProperties, mergePropertiesOrKeep } from './merge-fields.js';
+import { enqueueEmbedJob } from './embed-queue.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { MemoryDoc, EntityDoc, TombstoneDoc } from '../config/types.js';
 import { SimilarMatch, DupeCheckOpts, checkDuplicates } from './recall.js';
@@ -83,14 +84,29 @@ export async function remember(
 
   const names = entityNames ?? await resolveEntityNames(spaceId, entityIds);
   const embedText = memoryEmbedText(fact, tags, names, description, properties);
-  const embResult = await embed(embedText);
+
+  // ── Embed now, or hand it to the queue?
+  //
+  // An insert-time duplicate/contradiction check needs the vector BEFORE the insert — that is the whole
+  // reason it is computed here rather than after, so the new record cannot self-match. So those flags
+  // IMPLY waiting. Implied rather than rejected as an invalid combination: a caller asking "is this a
+  // duplicate?" is asking a question that cannot be answered later, so refusing it would be a puzzle
+  // where an answer was available.
+  const needsVectorNow = opts?.waitForEmbedding === true || opts?.checkDuplicates === true || opts?.checkContradictions === true;
+
+  let embResult: { vector: number[]; model: string } | null = null;
+  if (needsVectorNow) {
+    // Unguarded on purpose: the caller asked for a record that is searchable when this returns. A
+    // silent fallback to "stored, not searchable" would answer a different question than the one asked.
+    embResult = await embed(embedText);
+  }
 
   // Opt-in insert-time duplicate / contradiction checks, using the freshly computed vector BEFORE insert
   // so it can never self-match. ONE neighbour search serves both flags — the second question is free once
   // the first has paid for the vector search.
   let similar: SimilarMatch[] | undefined;
   let contradicts: ContradictionWarning[] | undefined;
-  if (opts?.checkDuplicates || opts?.checkContradictions) {
+  if (embResult && (opts?.checkDuplicates || opts?.checkContradictions)) {
     const hits = await checkDuplicates(spaceId, 'memory', embResult.vector, opts.dupeThreshold, opts.dupeTopK);
     if (opts.checkDuplicates && hits.length > 0) similar = hits;
     if (opts.checkContradictions && hits.length > 0) {
@@ -118,9 +134,14 @@ export async function remember(
       matchedText: embedText,
       updatedAt: now,
       seq,
-      embedding: embResult.vector,
-      embeddingModel: embResult.model,
     };
+    // Only when a vector was actually computed. When it was not, the PREVIOUS vector stays: it
+    // describes the record as it was a moment ago, which is a better answer than none while the
+    // queued job catches up. `matchedText` above is always current, so the two can be compared.
+    if (embResult) {
+      $set['embedding'] = embResult.vector;
+      $set['embeddingModel'] = embResult.model;
+    }
     if (type !== undefined) $set['type'] = type;
     if (description !== undefined) $set['description'] = description;
     if (properties !== undefined) $set['properties'] = mergedProps;
@@ -134,6 +155,10 @@ export async function remember(
     );
     const converged = { ...existing, ...($set as Partial<MemoryDoc>) } as MemoryDoc;
     if ('_expireAt' in $unset) delete (converged as { _expireAt?: unknown })._expireAt;
+    // After the write, never before: a job for a record that failed to store would be a job for
+    // nothing. Enqueued even when the vector is already current — the content just changed, so the
+    // stored vector is now stale, and the queue is what makes it catch up.
+    if (!embResult) await enqueueEmbedJob(spaceId, 'memory', converged._id);
     // `memory.updated`, not `created` — a subscriber must be able to tell a converged retry from a new record.
     if (actor) emitWebhookEvent({ event: 'memory.updated', spaceId, entry: { ...converged, embedding: undefined }, ...actor });
     return (similar || contradicts)
@@ -146,7 +171,6 @@ export async function remember(
     _id: id ?? uuidv4(),
     spaceId,
     fact,
-    embedding: embResult.vector,
     tags,
     entityIds,
     matchedText: embedText,
@@ -154,7 +178,7 @@ export async function remember(
     createdAt: now,
     updatedAt: now,
     seq,
-    embeddingModel: embResult.model,
+    ...(embResult ? { embedding: embResult.vector, embeddingModel: embResult.model } : {}),
   };
   if (type !== undefined) doc.type = type;
   if (description !== undefined) doc.description = description;
@@ -162,6 +186,7 @@ export async function remember(
   // See entities.ts: without `typed` the schema tier is unreachable and the space default applies instead.
   stampExpiryOnCreate(spaceId, doc, ttlDays, { collection: 'memory', type: doc.type });
   await col<MemoryDoc>(`${spaceId}_memories`).insertOne(asDoc<MemoryDoc>(doc));
+  if (!embResult) await enqueueEmbedJob(spaceId, 'memory', doc._id);
   // Real-time duplicate-rule evaluation (opt-in per space). Fire-and-forget; the
   // dynamic import avoids a static cycle with dupe-scanner.js.
   if (getConfig().spaces.find(s => s.id === spaceId)?.dupeRulesOnInsert) {

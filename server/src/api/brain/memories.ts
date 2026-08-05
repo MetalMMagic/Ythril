@@ -107,9 +107,18 @@ memoriesRouter.post('/spaces/:spaceId/memories', globalRateLimit, requireSpaceAu
   }
   const safeId: string | undefined = typeof rawId === 'string' ? rawId : undefined;
 
+  // `waitForEmbedding` (default false): the vector is normally computed by the embedding queue moments
+  // after this returns, so the write no longer pays the model latency. Pass true when the caller will
+  // search for what it just wrote, or when a failure to embed should fail the write.
+  const waitForEmbedding = req.body?.waitForEmbedding;
+  if (waitForEmbedding !== undefined && typeof waitForEmbedding !== 'boolean') {
+    res.status(400).json({ error: '`waitForEmbedding` must be a boolean' });
+    return;
+  }
   const doc = await remember(
     targetSpace, fact, safeEntityIds, safeTags, safeDesc, safeProps,
-    undefined, safeMemoryType, undefined, webhookToken(req), ttlDaysFromBody(req.body), safeId,
+    undefined, safeMemoryType, waitForEmbedding === true ? { waitForEmbedding: true } : undefined,
+    webhookToken(req), ttlDaysFromBody(req.body), safeId,
   );
   const body: Record<string, unknown> = { ...doc };
   if (quotaResult?.softBreached) body['storageWarning'] = true;

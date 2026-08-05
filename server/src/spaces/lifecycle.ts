@@ -17,6 +17,7 @@ import { VECTOR_INDEXED_COLLECTIONS, buildSpaceVectorIndexes, finalizeSpaceIndex
 import { SPACE_COLLECTIONS, repairStaleSpaceIds, dropLegacyPrefixedIndexes, pendingOpConflictMessage , setReindexNeeded, beginSpaceOp, endSpaceOp, spaceOpInFlight } from './_shared.js';
 import { moveSpaceData, applySpaceRenameToConfig } from './rename.js';
 import { ensureMediaJobIndexes } from '../files/media/job-queue.js';
+import { ensureEmbedJobIndexes } from '../brain/embed-queue.js';
 import { envInt } from '../config/env-num.js';
 
 export async function initSpace(
@@ -122,6 +123,7 @@ export async function initSpace(
   // The key patterns are declared next to the queries they serve, in job-queue.ts, and created by its own
   // function — so this cannot drift from them and the database-level test exercises the same call.
   await ensureMediaJobIndexes(spaceId);
+  await ensureEmbedJobIndexes(spaceId);
 
   // Lexical retrieval index — the BM25-family half of hybrid search (`brain/lexical-search.ts`).
   //

@@ -113,7 +113,33 @@ POST /api/brain/spaces/:spaceId/memories
 }
 ```
 
-**Constraints**: `id` optional — a **UUID v4** you supply to make the write idempotent (a retry with the same id converges on that record instead of creating a second one); anything else is a `400`, and omitting it generates one. See [Retry Safety](#retry-safety). **Constraints**: `fact` max 50 000 chars. `type` optional string — stored on the document and validated against the space's `typeSchemas.memory` allowlist when set. `tags` must be an array of strings. `description` optional string. `properties` optional object; property values should be a string, number, or boolean (unlike the entity endpoint, the memory/edge/chrono write paths don't reject non-primitive values at the API layer — schema validation is the gate when the space defines the property). Every id in `entityIds` must be a UUID v4 **and** name an entity that exists — passing a name, a malformed id, or an id that resolves to nothing returns `400` and stores nothing. This is the default; a space can opt out with `meta.strictLinkage: false` (see [Reference integrity](12-admin-api.md#reference-integrity)). `ttlDays` optional — see [Record Expiry (TTL)](#record-expiry-ttl).
+**Constraints**: `id` optional — a **UUID v4** you supply to make the write idempotent (a retry with the same id converges on that record instead of creating a second one); anything else is a `400`, and omitting it generates one. See [Retry Safety](#retry-safety). **Constraints**: `fact` max 50 000 chars. `type` optional string — stored on the document and validated against the space's `typeSchemas.memory` allowlist when set. `tags` must be an array of strings. `description` optional string. `properties` optional object; property values should be a string, number, or boolean (unlike the entity endpoint, the memory/edge/chrono write paths don't reject non-primitive values at the API layer — schema validation is the gate when the space defines the property). Every id in `entityIds` must be a UUID v4 **and** name an entity that exists — passing a name, a malformed id, or an id that resolves to nothing returns `400` and stores nothing. This is the default; a space can opt out with `meta.strictLinkage: false` (see [Reference integrity](12-admin-api.md#reference-integrity)). `ttlDays` optional — see [Record Expiry (TTL)](#record-expiry-ttl). `waitForEmbedding` optional boolean — see below.
+
+#### When does a memory become searchable? (`waitForEmbedding`)
+
+**By default, a moment after the write returns.** The write stores the record and hands the embedding to a
+background queue, so it no longer pays the model's latency. A worker embeds it immediately afterwards, and a
+failure retries with backoff rather than being final.
+
+Until that lands, the record **is not returned by `recall`** — not ranked lower, absent. Both retrieval
+channels need the vector: the semantic one obviously, and the lexical one because it computes a real
+similarity for the records it introduces rather than inventing a score. The gap is normally milliseconds.
+
+Send `"waitForEmbedding": true` when that gap matters:
+
+```json
+{ "fact": "Kubernetes pods are ephemeral by design", "waitForEmbedding": true }
+```
+
+| | `waitForEmbedding: false` (default) | `waitForEmbedding: true` |
+|---|---|---|
+| write latency | does not include the model | includes the model |
+| searchable when the call returns | not yet | yes |
+| embedder unavailable | write **succeeds**; the queue retries | write **fails** |
+
+Use it when you will search for what you just wrote in the same flow, or when a record that cannot be embedded
+should be a visible error rather than a background repair. `checkDuplicates` and `checkContradictions` imply
+it — a duplicate check needs the vector before the insert so the new record cannot match itself.
 
 ---
 

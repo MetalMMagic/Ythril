@@ -118,8 +118,16 @@ export async function upsertEntity(
   // lets the stored vector be checked against the text it came from.
   const forEmbed = mergeTagsAndProperties(existing, { tags, properties });
   const embedText = entityEmbedText(name, type, forEmbed.tags, description ?? existing?.description, forEmbed.properties);
+  //
+  // The duplicate/contradiction checks below compare THIS record's vector against its neighbours, so they
+  // cannot run without one — and unlike the embedding itself, that question cannot be deferred and
+  // answered later in a response that has already been sent. So they imply the wait, exactly as they do
+  // in `remember`. Implied rather than rejected as an invalid combination: a caller asking "is this a
+  // duplicate?" would otherwise get a silent "no".
+  const needsVectorNow = opts?.waitForEmbedding === true
+    || opts?.checkDuplicates === true || opts?.checkContradictions === true;
   let embeddingFields: { embedding?: number[]; embeddingModel?: string; matchedText?: string } = { matchedText: embedText };
-  if (opts?.waitForEmbedding === true) {
+  if (needsVectorNow) {
     // Unguarded on purpose: the caller asked for a record searchable when this returns, so falling back
     // to "stored, not searchable" would answer a different question than the one asked.
     const embResult = await embed(embedText);
@@ -191,7 +199,14 @@ export async function upsertEntity(
   if (!embeddingFields.embedding) await enqueueEmbedJob(spaceId, 'entity', doc._id);
   // Real-time duplicate-rule evaluation (opt-in per space). Fire-and-forget; the
   // dynamic import avoids a static cycle with dupe-scanner.js.
-  if (getConfig().spaces.find(s => s.id === spaceId)?.dupeRulesOnInsert) {
+  //
+  // Behind the embedding, not beside it. This evaluates the STORED record against its neighbours, and a
+  // stored record has no vector until the queue gets to it — firing here would compare nothing and find
+  // nothing, silently. Nothing is lost by the wait: this path is fire-and-forget and writes candidates to
+  // the Review surface rather than returning them, so no caller is holding a response open for it.
+  // Only when we embedded INLINE — otherwise the embed worker runs it once the vector exists, so this
+  // guard is what stops it running twice rather than what stops it running at all.
+  if (embeddingFields.embedding && getConfig().spaces.find(s => s.id === spaceId)?.dupeRulesOnInsert) {
     import('./dupe-scanner.js').then(m => m.evaluateRecordForDuplicates(spaceId, 'entity', doc._id)).catch(() => { /* best-effort */ });
   }
   if (actor) emitWebhookEvent({ event: 'entity.created', spaceId, entry: { ...doc, embedding: undefined }, ...actor });

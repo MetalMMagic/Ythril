@@ -45,9 +45,14 @@ Flow and selectors that work (verified 2026-08-01 against the built bundle on :3
 - Served from the bundle, the **server itself** redirects `/` → `/setup` on a first run. There is no `/login`
   hop to click through, so wait for `/(setup|login)` and branch.
 - Setup is **label-only**: `#label` then `#submitBtn`. There are no `#pw`/`#pw2` fields and no
-  `.alert-success` — the token lands in an input, readable as `input#token`'s `value` (or from the page text,
-  `ythril_…`). **Save it: it is shown once.** Behind the dev proxy the older flow (`.code-block span`,
-  "Continue to sign in") may still apply.
+  `.alert-success`.
+- **Read the new token from the page TEXT, not from `input#token`** (corrected 2026-08-05, against the built
+  bundle on :3260). After submit the page has **no inputs at all**, so `waitForSelector('input#token')` burns
+  its full timeout and the run dies having already consumed the one-time token — the next attempt then lands
+  on `/login` with no way in. Match `/ythril_[A-Za-z0-9_-]+/` against `page.textContent('body')` after a short
+  wait, and **write it to a file immediately**. If you do lose it: stop the server, delete the scratch config,
+  drop the scratch DB, restart — that is the only way back to `/setup`.
+  Behind the dev proxy the older flow (`.code-block span`, "Continue to sign in") may still apply.
 - Login: `#token` + submit; bad token → "Invalid or expired token.".
 - **`/files` redirects to `/brain`.** The file manager is a Brain **tab** ("Files", with a count badge), not
   its own route. Its upload `<input type=file>` is `hidden` inside a label — `setInputFiles` works on it, but

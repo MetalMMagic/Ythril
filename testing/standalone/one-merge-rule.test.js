@@ -1,0 +1,200 @@
+/**
+ * There is ONE merge rule for `tags` and `properties`, and every write path uses it.
+ *
+ * ## The finding
+ *
+ * The rule is two lines — a de-duplicated tag union and a shallow property merge — and it was written
+ * **eleven times** across six files. A canonical version existed (`mergedEntityWrite`) and was already
+ * generic: its signature never mentioned an entity. It had two call sites. Everyone else re-derived it,
+ * because a helper named and placed for its first caller is invisible to the second — nobody reaches
+ * into `brain/entities.ts` to merge a chrono entry's properties.
+ *
+ * ## Why it is correctness rather than tidiness
+ *
+ * The docs promise the copies agree. 2.4.0's *Retry Safety* section says a converged retry does
+ * "tags union and properties shallow-merge" for all four record types; the `deleteFields` section says
+ * it is "applied **after** the normal merge" for entities, edges **and memories**; and
+ * `update_memory`'s own tool schema said `properties` were "to merge".
+ *
+ * They did not agree. `updateMemory` and `updateChrono` **replaced** the properties map, so an agent
+ * patching one key silently destroyed every other property on the record — no error, no warning, and
+ * the REST validation simulation mirrored the same replace, so the schema check could not see it either.
+ *
+ * ## What this file pins
+ *
+ * 1. the rule itself, as pure functions;
+ * 2. that no write path hand-rolls it again — enumerated from the SHAPE (`{ ...x.properties }`,
+ *    `new Set([...tags])`), not from a list of file names, because a name list is what let the eleventh
+ *    copy be added by the same person who wrote the promise;
+ * 3. the one divergence that is deliberate and documented: `update_memory` REPLACES tags
+ *    ("New tags (replaces existing)") while `update_entity`/`update_edge` union them. Both halves are
+ *    stated, so the test states them too rather than letting a future sweep quietly unify them.
+ *
+ * The behavioural half — that the four writers really do agree against a real MongoDB — is
+ * `merge-rule-db.test.js`. A source gate cannot tell live code from dead code.
+ *
+ * Run: node --test testing/standalone/one-merge-rule.test.js
+ * (requires a prior `npm run build` in server/)
+ */
+import { describe, it, before } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
+
+const ROOT = process.cwd();
+
+/** The module that is allowed to contain the rule. Everything else must call it. */
+const HOME = 'server/src/brain/merge-fields.ts';
+
+let merge;
+
+/**
+ * Tracked AND newly-added sources. `git ls-files` alone misses a file a contributor has just written,
+ * which is precisely when a fresh copy of the rule gets introduced.
+ *
+ * Two pathspecs, not one: `server/src/*.ts` does not descend in git's glob, so a single pattern would
+ * silently skip every subdirectory — which is all of them.
+ */
+function sourceFiles() {
+  const run = (args) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' });
+  const specs = ['server/src/*.ts', 'server/src/**/*.ts'];
+  const tracked = run(['ls-files', ...specs]);
+  const fresh = run(['ls-files', '--others', '--exclude-standard', ...specs]);
+  return [...new Set(`${tracked}\n${fresh}`.split(/\r?\n/))]
+    .filter(Boolean)
+    .map(p => p.replace(/\\/g, '/'));
+}
+
+/**
+ * Comments stripped, so the gate cannot fire on the prose that documents the rule — including this
+ * file's own explanation of the pattern it bans, and the block comment at the top of `merge-fields.ts`.
+ */
+function code(path) {
+  return readFileSync(join(ROOT, path), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split(/\r?\n/)
+    .filter(l => !/^\s*\/\//.test(l))
+    .join('\n');
+}
+
+/**
+ * Built fresh per call, never shared. A `/g` regex carries `lastIndex` between uses, and
+ * `assert.match` advances it — a shared instance makes the NEXT file in the sweep come back clean on a
+ * planted violation.
+ */
+const patterns = () => [
+  // A MERGE, not a copy: the second spread is what makes it the rule. `{ ...(x.properties ?? {}) }`
+  // on its own is a defensive copy — legitimate, and several validation paths take one before handing
+  // it to `deleteFields`. Matching those too would make the gate noise that gets suppressed.
+  { name: 'properties spread-merge', re: /\{\s*\.\.\.\([^)]*\.properties\s*\?\?\s*\{\}\)\s*,\s*\.\.\./g },
+  { name: 'tags Set-union', re: /new Set\(\[\s*\.\.\.\([^)]*\.tags\s*\?\?\s*\[\]\)/g },
+];
+
+describe('one merge rule', () => {
+  before(async () => {
+    merge = await import('../../server/dist/brain/merge-fields.js');
+  });
+
+  describe('the rule', () => {
+    it('unions tags, stored order first, de-duplicated', () => {
+      assert.deepEqual(merge.mergeTags(['a', 'b'], ['b', 'c']), ['a', 'b', 'c']);
+    });
+
+    it('shallow-merges properties, incoming wins per key', () => {
+      assert.deepEqual(merge.mergeProperties({ x: 1, y: 2 }, { y: 3 }), { x: 1, y: 3 });
+    });
+
+    it('is the identity on an insert', () => {
+      assert.deepEqual(merge.mergeTagsAndProperties(null, { tags: ['b'], properties: { y: 3 } }),
+        { tags: ['b'], properties: { y: 3 } });
+    });
+
+    it('treats an ABSENT incoming map as "do not touch", not "clear"', () => {
+      // The distinction the whole PATCH surface rests on: `undefined` is the caller saying nothing.
+      // Collapsing it to `{}` would wipe a required property on any patch that only sets a weight.
+      assert.deepEqual(merge.mergePropertiesOrKeep({ owner: 'platform' }, undefined), { owner: 'platform' });
+      assert.equal(merge.mergePropertiesOrKeep(undefined, undefined), undefined,
+        'nothing stored and nothing supplied must stay undefined, so a writer can leave it out of the $set');
+      assert.deepEqual(merge.mergeTagsOrKeep(['prod'], undefined), ['prod']);
+    });
+
+    it('never hands back the stored object itself', () => {
+      // deleteFields mutates what it is given. Aliasing the document just read from the driver is a
+      // defect waiting for the first caller that merges and deletes in one request.
+      const stored = { owner: 'platform' };
+      const kept = merge.mergePropertiesOrKeep(stored, undefined);
+      assert.notEqual(kept, stored, 'a copy, not the stored reference');
+      kept.owner = 'mutated';
+      assert.equal(stored.owner, 'platform');
+    });
+
+    it('an empty incoming map is a no-op, not a wipe', () => {
+      assert.deepEqual(merge.mergeProperties({ x: 1 }, {}), { x: 1 });
+    });
+  });
+
+  describe('nobody hand-rolls it', () => {
+    it('the detector fires on the pattern it is meant to catch', () => {
+      // Mutation-check the gate before believing a clean sweep. Three gates in this repo have passed on
+      // planted bugs; a detector that matches nothing reports "clean" for every codebase on earth.
+      const planted = 'const p = { ...(existing.properties ?? {}), ...incoming };\n'
+        + 'const t = Array.from(new Set([...(existing.tags ?? []), ...incoming]));';
+      const hits = patterns().filter(p => p.re.test(planted)).map(p => p.name);
+      assert.deepEqual(hits.sort(), ['properties spread-merge', 'tags Set-union']);
+    });
+
+    it('the sweep reaches the files that used to hold the copies', () => {
+      // Scope check. The eleven copies lived in these six; if the pathspec stops reaching them the
+      // gate below passes vacuously and reads like coverage it does not have.
+      const files = sourceFiles();
+      for (const f of [
+        'server/src/brain/entities.ts', 'server/src/brain/edges.ts', 'server/src/brain/memory.ts',
+        'server/src/brain/chrono.ts', 'server/src/api/brain/entities.ts', 'server/src/mcp/tools/entity.ts',
+      ]) {
+        assert.ok(files.includes(f), `${f} must be in the swept set`);
+      }
+      assert.ok(files.length > 100, `expected the whole server tree, swept ${files.length}`);
+    });
+
+    it('no file outside brain/merge-fields.ts contains the rule', () => {
+      const offenders = [];
+      for (const file of sourceFiles()) {
+        if (file === HOME) continue;
+        const src = code(file);
+        for (const { name, re } of patterns()) {
+          for (const m of src.matchAll(re)) {
+            offenders.push(`${file} — ${name}: ${m[0].slice(0, 60)}`);
+          }
+        }
+      }
+      assert.deepEqual(offenders, [],
+        'the tag union and the property merge live in brain/merge-fields.ts. Import mergeTags / '
+        + 'mergeProperties / mergeTagsAndProperties / mergePropertiesOrKeep / mergeTagsOrKeep instead of '
+        + 'writing the two lines again — eleven copies is how a documented guarantee stopped being true.');
+    });
+  });
+
+  describe('the one divergence is deliberate, and stated in both places', () => {
+    const schema = (file) => readFileSync(join(ROOT, file), 'utf8');
+
+    it('update_memory documents tags as a REPLACE and update_entity as a union', () => {
+      // Not an oversight to be tidied away: both halves are written down, so a future sweep that
+      // "unifies" them is changing documented behaviour and has to say so.
+      assert.match(schema('server/src/mcp/tools/memory.ts'), /New tags \(replaces existing\)/,
+        'update_memory still documents replace semantics for tags');
+      assert.match(schema('server/src/mcp/tools/entity.ts'), /Tags to merge with existing tags/,
+        'update_entity still documents union semantics for tags');
+    });
+
+    it('every update tool that merges properties says so in its schema', () => {
+      // The defect was a schema promising "to merge" over code that replaced. The promise is now true;
+      // this keeps the two moving together.
+      for (const f of ['memory', 'entity', 'edge', 'chrono']) {
+        const src = schema(`server/src/mcp/tools/${f}.ts`);
+        assert.match(src, /properties to merge|properties to merge into the stored map/i,
+          `update_${f}'s properties description must state the merge — the code does it`);
+      }
+    });
+  });
+});

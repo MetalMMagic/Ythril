@@ -20,6 +20,7 @@ import type { MemoryDoc } from '../../config/types.js';
 import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, buildMemoryFilter, ttlDaysFromBody, ttlDaysError } from './_shared.js';
 import { classifyUpdateViolations } from '../../brain/write-validation.js';
 import { resolveEntityIdsByName } from '../../brain/entities.js';
+import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
 
 export const memoriesRouter = Router();
 
@@ -233,7 +234,7 @@ memoriesRouter.patch('/spaces/:spaceId/memories/:id', globalRateLimit, requireSp
     {
       const mem = existing[0]!;
       const priorProps = mem.properties != null ? { ...mem.properties } : {};
-      const resultProps = updates.properties ?? { ...priorProps };
+      const resultProps = mergePropertiesOrKeep(mem.properties, updates.properties) ?? {};
       const sim: Record<string, unknown> = { properties: resultProps };
       if (dfPaths) applyDeleteFieldsPaths(sim, dfPaths);
       const simProps = (sim['properties'] ?? {}) as Record<string, unknown>;

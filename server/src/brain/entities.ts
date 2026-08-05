@@ -11,6 +11,7 @@ import { entityEmbedText } from './embed-text.js';
 import { getConfig } from '../config/loader.js';
 import { stampExpiryOnCreate, applyExpiryToUpdate } from './ttl.js';
 import { applyDeleteFields } from './delete-fields.js';
+import { mergeTagsAndProperties, mergePropertiesOrKeep, mergeTagsOrKeep } from './merge-fields.js';
 import { checkDuplicates, type SimilarMatch, type DupeCheckOpts } from './recall.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import { log } from '../util/log.js';
@@ -87,26 +88,6 @@ export interface UpsertResult {
  *
  * Callers that need name-based lookup should use `findEntitiesByName`.
  */
-/**
- * The tags and properties an upsert will actually store, given the record it lands on.
- *
- * Both are MERGES, not replacements: an upsert that mentions one property keeps the rest. That rule
- * belongs to this function so that schema validation can ask what the stored record will look like
- * instead of guessing. It used to guess, and it guessed the payload — so a partial upsert against a
- * complete record was refused for missing required properties the record already had and kept.
- *
- * `existing` is null for an insert, where the merge is the identity function.
- */
-export function mergedEntityWrite(
-  existing: { tags?: string[]; properties?: Record<string, string | number | boolean> } | null | undefined,
-  incoming: { tags?: string[]; properties?: Record<string, string | number | boolean> },
-): { tags: string[]; properties: Record<string, string | number | boolean> } {
-  return {
-    tags: Array.from(new Set([...(existing?.tags ?? []), ...(incoming.tags ?? [])])),
-    properties: { ...(existing?.properties ?? {}), ...(incoming.properties ?? {}) },
-  };
-}
-
 export async function upsertEntity(
   spaceId: string,
   name: string,
@@ -132,7 +113,7 @@ export async function upsertEntity(
   // Embed the entity text (best-effort — if embedding fails we still store the entity)
   let embeddingFields: { embedding?: number[]; embeddingModel?: string; matchedText?: string } = {};
   try {
-    const { tags: mergedTags, properties: mergedProps } = mergedEntityWrite(existing, { tags, properties });
+    const { tags: mergedTags, properties: mergedProps } = mergeTagsAndProperties(existing, { tags, properties });
     const effectiveDesc = description ?? existing?.description;
     const embedText = entityEmbedText(name, type, mergedTags, effectiveDesc, mergedProps);
     const embResult = await embed(embedText);
@@ -140,7 +121,7 @@ export async function upsertEntity(
   } catch { /* embedding unavailable — entity stored without vector */ }
 
   if (existing) {
-    const { tags: updatedTags, properties: mergedProps } = mergedEntityWrite(existing, { tags, properties });
+    const { tags: updatedTags, properties: mergedProps } = mergeTagsAndProperties(existing, { tags, properties });
     const $set: Record<string, unknown> = { name, type, tags: updatedTags, properties: mergedProps, updatedAt: now, seq, ...embeddingFields };
     if (description !== undefined) $set['description'] = description;
     const $unset: Record<string, unknown> = {};
@@ -260,12 +241,8 @@ export async function updateEntityById(
   const newName = updates.name ?? existing.name;
   const newType = updates.type ?? existing.type;
   const newDesc = updates.description !== undefined ? updates.description : existing.description;
-  let newTags = updates.tags !== undefined
-    ? Array.from(new Set([...(existing.tags ?? []), ...updates.tags]))
-    : existing.tags ?? [];
-  let newProps = updates.properties !== undefined
-    ? { ...(existing.properties ?? {}), ...updates.properties }
-    : { ...(existing.properties ?? {}) };
+  let newTags = mergeTagsOrKeep(existing.tags, updates.tags);
+  let newProps = mergePropertiesOrKeep(existing.properties, updates.properties) ?? {};
 
   // Apply deleteFields after merge
   if (deleteFieldsPaths && deleteFieldsPaths.length > 0) {

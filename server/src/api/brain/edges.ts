@@ -18,6 +18,7 @@ import { validateEdge } from '../../spaces/schema-validation.js';
 import { UUID_V4_RE, webhookToken, getSpaceMeta, ttlDaysFromBody, ttlDaysError } from './_shared.js';
 import { classifyEdgeUpsert, classifyUpdateViolations } from '../../brain/write-validation.js';
 import { resolveEntityIdsByName } from '../../brain/entities.js';
+import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
 
 export const edgesRouter = Router();
 
@@ -222,9 +223,7 @@ edgesRouter.patch('/spaces/:spaceId/edges/:id', globalRateLimit, requireSpaceAut
     const existing = await getEdgeById(mid, id);
     if (!existing) continue;
     {
-      const resultProps = updates.properties !== undefined
-        ? { ...(existing.properties ?? {}), ...updates.properties }
-        : { ...(existing.properties ?? {}) };
+      const resultProps = mergePropertiesOrKeep(existing.properties, updates.properties) ?? {};
       const sim: Record<string, unknown> = { properties: resultProps };
       if (dfPaths) applyDeleteFieldsPaths(sim, dfPaths);
       const simProps = (sim['properties'] ?? {}) as Record<string, unknown>;

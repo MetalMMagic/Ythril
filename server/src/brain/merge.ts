@@ -16,6 +16,7 @@ import { entityEmbedText } from './embed-text.js';
 import { getEntityById } from './entities.js';
 import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
+import { mergeTags } from './merge-fields.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { EntityDoc, EdgeDoc, MemoryDoc, ChronoEntry, TombstoneDoc, SpaceMeta, PropertySchema } from '../config/types.js';
 
@@ -430,7 +431,7 @@ export async function executeMerge(
       }
 
       // ── 4. Update survivor entity ──────────────────────────────────────
-      const mergedTags = Array.from(new Set([...(survivor.tags ?? []), ...(absorbed.tags ?? [])]));
+      const mergedTags = mergeTags(survivor.tags, absorbed.tags);
       const entityColl = col<EntityDoc>(`${spaceId}_entities`);
 
       let embeddingFields: { embedding?: number[]; embeddingModel?: string } = {};

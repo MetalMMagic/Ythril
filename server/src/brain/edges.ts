@@ -11,6 +11,7 @@ import { edgeEmbedText } from './embed-text.js';
 import { getConfig } from '../config/loader.js';
 import { stampExpiryOnCreate, applyExpiryToUpdate } from './ttl.js';
 import { applyDeleteFields } from './delete-fields.js';
+import { mergePropertiesOrKeep, mergeTagsOrKeep } from './merge-fields.js';
 import { getEntityById } from './entities.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { EdgeDoc, EntityDoc, TombstoneDoc } from '../config/types.js';
@@ -63,25 +64,6 @@ export async function findEdgeByTriplet(
   return await col<EdgeDoc>(`${spaceId}_edges`).findOne(asFilter<EdgeDoc>({ spaceId, from, to, label })) as EdgeDoc | null;
 }
 
-/**
- * The properties an upsert will actually store: the stored ones with the incoming ones laid over.
- *
- * Exported because schema validation has to run against the record that will EXIST, and until this was
- * shared it re-derived the rule from the outside — badly. An edge's identity is `(from, to, label)`, so
- * every repeat upsert of an existing edge merges, with no id involved and nothing in the caller's payload
- * to hint at it. Validating the payload alone refused patches whose merged result was perfectly valid.
- *
- * `undefined` properties mean "do not touch", which is why that case returns the stored value rather than
- * an empty object — the difference between "no properties supplied" and "properties cleared".
- */
-export function mergedEdgeProperties(
-  existing: { properties?: Record<string, string | number | boolean> } | null | undefined,
-  incoming: Record<string, string | number | boolean> | undefined,
-): Record<string, string | number | boolean> | undefined {
-  if (incoming === undefined) return existing?.properties;
-  return { ...(existing?.properties ?? {}), ...incoming };
-}
-
 export async function upsertEdge(
   spaceId: string,
   from: string,
@@ -103,10 +85,8 @@ export async function upsertEdge(
 
   const effectiveDesc = description ?? (existing as EdgeDoc | null)?.description;
   const effectiveType = type ?? (existing as EdgeDoc | null)?.type;
-  const effectiveTags = tags !== undefined
-    ? Array.from(new Set([...((existing as EdgeDoc | null)?.tags ?? []), ...tags]))
-    : ((existing as EdgeDoc | null)?.tags ?? []);
-  const effectiveProps = mergedEdgeProperties(existing as EdgeDoc | null, properties);
+  const effectiveTags = mergeTagsOrKeep((existing as EdgeDoc | null)?.tags, tags);
+  const effectiveProps = mergePropertiesOrKeep((existing as EdgeDoc | null)?.properties, properties);
 
   // Embed the edge text (best-effort) — resolve entity names so the vector captures semantics
   let embeddingFields: { embedding?: number[]; embeddingModel?: string; matchedText?: string } = {};
@@ -124,7 +104,7 @@ export async function upsertEdge(
     if (description !== undefined) $set['description'] = description;
     // When tags are provided, persist the merged result; otherwise leave existing tags unchanged
     if (tags !== undefined) $set['tags'] = effectiveTags;
-    if (properties !== undefined) $set['properties'] = mergedEdgeProperties(existing as EdgeDoc, properties);
+    if (properties !== undefined) $set['properties'] = effectiveProps;
     const $unset: Record<string, unknown> = {};
     applyExpiryToUpdate(spaceId, ttlDays, (existing as EdgeDoc)._expireAt != null, $set, $unset,
       { collection: 'edge', existing: existing as unknown as Record<string, unknown> }); // F10
@@ -142,7 +122,7 @@ export async function upsertEdge(
       ...(type !== undefined ? { type } : {}),
       ...(description !== undefined ? { description } : {}),
       ...(tags !== undefined ? { tags: effectiveTags } : {}),
-      ...(properties !== undefined ? { properties: { ...((existing as EdgeDoc).properties ?? {}), ...properties } } : {}),
+      ...(properties !== undefined ? { properties: effectiveProps } : {}),
       ...embeddingFields,
     };
     if ('_expireAt' in $set) updatedEdge._expireAt = $set['_expireAt'] as Date;
@@ -264,12 +244,9 @@ export async function updateEdgeById(
 
   const newLabel = updates.label ?? existing.label;
   let newDesc = updates.description !== undefined ? updates.description : existing.description;
-  let newTags = updates.tags !== undefined
-    ? Array.from(new Set([...(existing.tags ?? []), ...updates.tags]))
-    : existing.tags ?? [];
-  let newProps: Record<string, string | number | boolean> | undefined = updates.properties !== undefined
-    ? { ...(existing.properties ?? {}), ...updates.properties }
-    : existing.properties != null ? { ...existing.properties } : {};
+  let newTags = mergeTagsOrKeep(existing.tags, updates.tags);
+  let newProps: Record<string, string | number | boolean> | undefined =
+    mergePropertiesOrKeep(existing.properties, updates.properties) ?? {};
   let newType = updates.type !== undefined ? updates.type : existing.type;
   let newWeight: number | undefined = updates.weight !== undefined ? updates.weight : existing.weight;
 

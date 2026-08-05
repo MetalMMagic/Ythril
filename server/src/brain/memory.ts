@@ -18,6 +18,7 @@ import { memoryEmbedText } from './embed-text.js';
 import { getConfig } from '../config/loader.js';
 import { stampExpiryOnCreate, applyExpiryToUpdate } from './ttl.js';
 import { applyDeleteFields } from './delete-fields.js';
+import { mergeTags, mergeProperties, mergePropertiesOrKeep } from './merge-fields.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { MemoryDoc, EntityDoc, TombstoneDoc } from '../config/types.js';
 import { SimilarMatch, DupeCheckOpts, checkDuplicates } from './recall.js';
@@ -108,8 +109,8 @@ export async function remember(
   // indistinguishable for the case this exists for; the difference only shows when the id is reused with different
   // content, which is a deliberate update and behaves like the entity path does.
   if (existing) {
-    const mergedTags = [...new Set([...(existing.tags ?? []), ...tags])];
-    const mergedProps = { ...(existing.properties ?? {}), ...(properties ?? {}) };
+    const mergedTags = mergeTags(existing.tags, tags);
+    const mergedProps = mergeProperties(existing.properties, properties);
     const $set: Record<string, unknown> = {
       fact,
       tags: mergedTags,
@@ -188,11 +189,21 @@ export async function updateMemory(
   const $set: Record<string, unknown> = { updatedAt: now, seq };
   const $unset: Record<string, unknown> = {};
 
+  // `properties` MERGES into the stored map. It used to replace it, which contradicted this tool's own
+  // schema ("Key-value properties to merge"), the `deleteFields` contract ("applied AFTER the normal
+  // merge"), the entity and edge update paths, and `remember`'s own converge branch above. An agent
+  // patching one key silently destroyed every other property on the record, with no error anywhere.
+  // Removing a key is `deleteFields`' job — an absence never means "delete".
+  //
+  // `tags` deliberately still REPLACE here, and that is not an oversight: `update_memory` documents them
+  // as "New tags (replaces existing)" while `update_entity`/`update_edge` document a union. Both halves
+  // are stated, so both are kept and pinned by a test rather than silently unified.
+  const mergedUpdateProps = mergePropertiesOrKeep(existing.properties, updates.properties);
   if (updates.fact !== undefined) $set['fact'] = updates.fact;
   if (updates.tags !== undefined) $set['tags'] = updates.tags;
   if (updates.entityIds !== undefined) $set['entityIds'] = updates.entityIds;
   if (updates.description !== undefined) $set['description'] = updates.description;
-  if (updates.properties !== undefined) $set['properties'] = updates.properties;
+  if (updates.properties !== undefined) $set['properties'] = mergedUpdateProps;
   if (updates.type !== undefined) $set['type'] = updates.type;
 
   // Apply deleteFields after merge
@@ -203,7 +214,7 @@ export async function updateMemory(
       tags: updates.tags ?? existing.tags,
       entityIds: updates.entityIds ?? existing.entityIds,
       description: updates.description !== undefined ? updates.description : existing.description,
-      properties: updates.properties ?? (existing.properties != null ? { ...existing.properties } : {}),
+      properties: mergedUpdateProps ?? {},
     };
     applyDeleteFields(merged, deleteFieldsPaths);
 

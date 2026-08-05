@@ -42,7 +42,7 @@ let seen = [];
 /** Flip to make the endpoint fail, without tearing the server down. */
 let failNext = false;
 
-let server, mongo, memory, entities, queue, worker;
+let server, mongo, memory, entities, edges, chrono, queue, worker;
 
 const jobs = () => mongo.col(`${SPACE}_embed_jobs`);
 const memories = () => mongo.col(`${SPACE}_memories`);
@@ -78,6 +78,8 @@ describe('brain embedding queue drains (real MongoDB, real embed() over a stub e
     loader.loadConfig();
     memory = await import('../../server/dist/brain/memory.js');
     entities = await import('../../server/dist/brain/entities.js');
+    edges = await import('../../server/dist/brain/edges.js');
+    chrono = await import('../../server/dist/brain/chrono.js');
     queue = await import('../../server/dist/brain/embed-queue.js');
     worker = await import('../../server/dist/brain/embed-worker.js');
   });
@@ -92,6 +94,8 @@ describe('brain embedding queue drains (real MongoDB, real embed() over a stub e
     await jobs().deleteMany({});
     await memories().deleteMany({});
     await mongo.col(`${SPACE}_entities`).deleteMany({});
+    await mongo.col(`${SPACE}_edges`).deleteMany({});
+    await mongo.col(`${SPACE}_chrono`).deleteMany({});
     seen = [];
     failNext = false;
     queue.resetEmbedPendingHint();
@@ -169,13 +173,65 @@ describe('brain embedding queue drains (real MongoDB, real embed() over a stub e
     assert.equal(seen.length, 1);
   });
 
-  it('an entity written inline still embeds, and queues nothing', async () => {
-    // upsertEntity has always embedded inline and tolerated failure. This pins that the queue's arrival
-    // did not change it — the other three creators are wired in a follow-up, and until then their
-    // behaviour must be exactly what it was.
-    const { entity } = await entities.upsertEntity(SPACE, 'node-7', 'machine', ['prod'], { rack: 'B12' });
-    const stored = await mongo.col(`${SPACE}_entities`).findOne({ _id: entity._id });
-    assert.ok(Array.isArray(stored.embedding), 'entities still embed on the write path');
-    assert.equal(await jobs().countDocuments({}), 0);
+  // ── All four creators, as one table ─────────────────────────────────────────
+  //
+  // One table rather than four tests, for the reason the merge-rule suite is one table: the failure mode
+  // being guarded against is precisely that the four types are wired in four places and nobody compares
+  // them. A per-type test can be updated to match whatever that type does.
+  const CREATORS = [
+    {
+      name: 'memory', collection: 'memories',
+      create: (opts) => memory.remember(SPACE, 'creator table memory', [], ['prod'], undefined, undefined,
+        undefined, undefined, opts),
+    },
+    {
+      name: 'entity', collection: 'entities',
+      create: async (opts) => (await entities.upsertEntity(SPACE, 'node-9', 'machine', ['prod'],
+        { rack: 'B12' }, undefined, undefined, opts)).entity,
+    },
+    {
+      name: 'edge', collection: 'edges',
+      create: (opts) => edges.upsertEdge(SPACE, 'a-9', 'b-9', 'runs-on', undefined, undefined, undefined,
+        { since: '2026' }, ['prod'], undefined, undefined, opts),
+    },
+    {
+      name: 'chrono', collection: 'chrono',
+      create: (opts) => chrono.createChrono(SPACE, {
+        title: 'creator table chrono', type: 'event', startsAt: '2026-08-05T09:00:00Z', tags: ['prod'],
+      }, undefined, undefined, opts),
+    },
+  ];
+
+  for (const c of CREATORS) {
+    it(`${c.name}: the write queues, the worker embeds`, async () => {
+      const doc = await c.create(undefined);
+      const stored = await mongo.col(`${SPACE}_${c.collection}`).findOne({ _id: doc._id });
+      assert.equal(stored.embedding, undefined, `${c.name} must not embed on the write path by default`);
+      assert.equal(await jobs().countDocuments({}), 1, `${c.name} enqueued exactly one job`);
+
+      assert.equal(await worker.runOneEmbedJob(), true);
+      const after = await mongo.col(`${SPACE}_${c.collection}`).findOne({ _id: doc._id });
+      assert.ok(Array.isArray(after.embedding), `${c.name} got its vector from the queue`);
+      assert.equal(await jobs().countDocuments({}), 0);
+    });
+
+    it(`${c.name}: waitForEmbedding embeds inline and queues nothing`, async () => {
+      const doc = await c.create({ waitForEmbedding: true });
+      const stored = await mongo.col(`${SPACE}_${c.collection}`).findOne({ _id: doc._id });
+      assert.ok(Array.isArray(stored.embedding), `${c.name} is searchable the moment the call returns`);
+      assert.equal(await jobs().countDocuments({}), 0, `${c.name} has no work left to queue`);
+    });
+  }
+
+  it('all four creators agree — none embeds inline by default', async () => {
+    // Stated as one comparison so a type drifting away fails here even if its own rows above were
+    // updated to match it.
+    const inline = {};
+    for (const c of CREATORS) {
+      const doc = await c.create(undefined);
+      const stored = await mongo.col(`${SPACE}_${c.collection}`).findOne({ _id: doc._id });
+      inline[c.name] = stored.embedding !== undefined;
+    }
+    assert.deepEqual(inline, { memory: false, entity: false, edge: false, chrono: false });
   });
 });

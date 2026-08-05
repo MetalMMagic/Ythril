@@ -12,6 +12,7 @@ import { getConfig } from '../config/loader.js';
 import { stampExpiryOnCreate, applyExpiryToUpdate } from './ttl.js';
 import { applyDeleteFields } from './delete-fields.js';
 import { mergeTagsAndProperties, mergePropertiesOrKeep, mergeTagsOrKeep } from './merge-fields.js';
+import { enqueueEmbedJob } from './embed-queue.js';
 import { checkDuplicates, type SimilarMatch, type DupeCheckOpts } from './recall.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import { log } from '../util/log.js';
@@ -111,14 +112,19 @@ export async function upsertEntity(
   const now = new Date().toISOString();
 
   // Embed the entity text (best-effort — if embedding fails we still store the entity)
-  let embeddingFields: { embedding?: number[]; embeddingModel?: string; matchedText?: string } = {};
-  try {
-    const { tags: mergedTags, properties: mergedProps } = mergeTagsAndProperties(existing, { tags, properties });
-    const effectiveDesc = description ?? existing?.description;
-    const embedText = entityEmbedText(name, type, mergedTags, effectiveDesc, mergedProps);
+  //
+  // Queued by default, so the write does not pay the model's latency. `matchedText` is stored either
+  // way: it is a pure string, it is exactly what the queued job will embed, and recording it now is what
+  // lets the stored vector be checked against the text it came from.
+  const forEmbed = mergeTagsAndProperties(existing, { tags, properties });
+  const embedText = entityEmbedText(name, type, forEmbed.tags, description ?? existing?.description, forEmbed.properties);
+  let embeddingFields: { embedding?: number[]; embeddingModel?: string; matchedText?: string } = { matchedText: embedText };
+  if (opts?.waitForEmbedding === true) {
+    // Unguarded on purpose: the caller asked for a record searchable when this returns, so falling back
+    // to "stored, not searchable" would answer a different question than the one asked.
     const embResult = await embed(embedText);
     embeddingFields = { embedding: embResult.vector, embeddingModel: embResult.model, matchedText: embedText };
-  } catch { /* embedding unavailable — entity stored without vector */ }
+  }
 
   if (existing) {
     const { tags: updatedTags, properties: mergedProps } = mergeTagsAndProperties(existing, { tags, properties });
@@ -136,6 +142,8 @@ export async function upsertEntity(
     const entity: EntityDoc = { ...existing, name, type, tags: updatedTags, properties: mergedProps, updatedAt: now, seq, ...embeddingFields, ...(description !== undefined ? { description } : {}) };
     if ('_expireAt' in $set) entity._expireAt = $set['_expireAt'] as Date;
     else if ('_expireAt' in $unset) delete (entity as { _expireAt?: unknown })._expireAt;
+    // After the write, never before: a job for a record that failed to store would be a job for nothing.
+    if (!embeddingFields.embedding) await enqueueEmbedJob(spaceId, 'entity', entity._id);
     if (actor) emitWebhookEvent({ event: 'entity.updated', spaceId, entry: { ...entity, embedding: undefined }, ...actor });
     return { entity };
   }
@@ -180,6 +188,7 @@ export async function upsertEntity(
   // space default, so a window set on `typeSchemas.entity.<type>.retention` does nothing at all.
   stampExpiryOnCreate(spaceId, doc, ttlDays, { collection: 'entity', type: doc.type });
   await collection.insertOne(asDoc<EntityDoc>(doc));
+  if (!embeddingFields.embedding) await enqueueEmbedJob(spaceId, 'entity', doc._id);
   // Real-time duplicate-rule evaluation (opt-in per space). Fire-and-forget; the
   // dynamic import avoids a static cycle with dupe-scanner.js.
   if (getConfig().spaces.find(s => s.id === spaceId)?.dupeRulesOnInsert) {

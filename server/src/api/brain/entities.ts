@@ -229,7 +229,7 @@ entitiesRouter.patch('/spaces/:spaceId/entities/:id', globalRateLimit, requireSp
   if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
   const ttlDaysProvided = !!req.body && typeof req.body === 'object' && 'ttlDays' in req.body;
   const dfPaths: string[] | undefined = Array.isArray(deleteFields) && deleteFields.length > 0 ? deleteFields : undefined;
-  const updates: { name?: string; type?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean> } = {};
+  const updates: { name?: string; type?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; excludeFromVectorSearch?: boolean } = {};
   if (name !== undefined) {
     if (typeof name !== 'string' || !name.trim()) { res.status(400).json({ error: '`name` must be a non-empty string' }); return; }
     updates.name = name.trim();
@@ -249,6 +249,16 @@ entitiesRouter.patch('/spaces/:spaceId/entities/:id', globalRateLimit, requireSp
   if (properties !== undefined) {
     if (typeof properties !== 'object' || properties === null || Array.isArray(properties)) { res.status(400).json({ error: '`properties` must be a plain object' }); return; }
     updates.properties = properties as Record<string, string | number | boolean>;
+  }
+  // A boolean, and the ONLY field a caller may send on its own — retiring a record from vector search is a
+  // complete edit in itself. It was wired into the update functions and into no PATCH handler, so it
+  // shipped unreachable over REST; a caller sending it alone was told they had sent no fields at all.
+  if (req.body?.excludeFromVectorSearch !== undefined) {
+    if (typeof req.body.excludeFromVectorSearch !== 'boolean') {
+      res.status(400).json({ error: '`excludeFromVectorSearch` must be a boolean' });
+      return;
+    }
+    updates.excludeFromVectorSearch = req.body.excludeFromVectorSearch;
   }
   if (Object.keys(updates).length === 0 && !dfPaths && !ttlDaysProvided) { res.status(400).json({ error: 'At least one field must be provided' }); return; }
   const memberIds = resolveMemberSpaces(wt.target);

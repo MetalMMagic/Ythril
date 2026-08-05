@@ -197,7 +197,7 @@ edgesRouter.patch('/spaces/:spaceId/edges/:id', globalRateLimit, requireSpaceAut
   if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
   const ttlDaysProvided = !!req.body && typeof req.body === 'object' && 'ttlDays' in req.body;
   const dfPaths: string[] | undefined = Array.isArray(deleteFields) && deleteFields.length > 0 ? deleteFields : undefined;
-  const updates: { label?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; weight?: number; type?: string } = {};
+  const updates: { label?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; weight?: number; type?: string; excludeFromVectorSearch?: boolean } = {};
   if (label !== undefined) {
     if (typeof label !== 'string' || !label.trim()) { res.status(400).json({ error: '`label` must be a non-empty string' }); return; }
     updates.label = label.trim();
@@ -221,6 +221,16 @@ edgesRouter.patch('/spaces/:spaceId/edges/:id', globalRateLimit, requireSpaceAut
   if (type !== undefined) {
     if (typeof type !== 'string') { res.status(400).json({ error: '`type` must be a string' }); return; }
     updates.type = type.trim();
+  }
+  // A boolean, and the ONLY field a caller may send on its own — retiring a record from vector search is a
+  // complete edit in itself. It was wired into the update functions and into no PATCH handler, so it
+  // shipped unreachable over REST; a caller sending it alone was told they had sent no fields at all.
+  if (req.body?.excludeFromVectorSearch !== undefined) {
+    if (typeof req.body.excludeFromVectorSearch !== 'boolean') {
+      res.status(400).json({ error: '`excludeFromVectorSearch` must be a boolean' });
+      return;
+    }
+    updates.excludeFromVectorSearch = req.body.excludeFromVectorSearch;
   }
   if (Object.keys(updates).length === 0 && !dfPaths && !ttlDaysProvided) { res.status(400).json({ error: 'At least one field must be provided' }); return; }
   const memberIds = resolveMemberSpaces(wt.target);

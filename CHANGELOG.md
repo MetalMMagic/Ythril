@@ -23,6 +23,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`upsert_edge` over MCP returned an id for a link that did not exist** (reported by the canary, their
+  top-ranked ask). In a space with `strictLinkage: true`, an edge whose `to` named a **chrono** was
+  accepted: 201, an edge id back, stored fine — and then absent from `traverse` and `recall(traverse: 1)`
+  alike, missing from `nodes` AND `edges`, because both hydrate neighbours out of the entity collection.
+  - **Shape is not existence.** The MCP tool checked `UUID_V4_RE` and stopped; a chrono's `_id` is a
+    perfectly good UUID v4. The REST route has always called `assertRefsResolve`, which asks the database
+    whether the id names an entity. Two surfaces onto one rule, one enforcing a weaker version, each
+    reading as complete on its own.
+  - It cost the reporter a 33-day incident timeline, reassembled by name regex instead of by traversal —
+    and they could not clean up the dead edge, since no `delete_edge` is exposed over MCP; it had to be
+    parked with `ttlDays: 1`.
+  - Gated across **both** write surfaces, not just the one that broke.
+
+
+### Added
+
+- **`GET /stats` now reports the embedding backlog** as `embedQueue: { pending, processing, failed }`.
+  Since writes stopped waiting for the model, a record can exist and be absent from recall for a moment —
+  and nothing anywhere said how much of a space was in that state, or whether it was draining.
+  - `getEmbedJobCounts` had existed since the queue landed with **no caller**: the system held the number
+    and never reported it, which is the same shape as the defect the queue itself fixed.
+  - A lasting `failed` count is the signal that an embedding endpoint is unreachable or misconfigured.
+    Rewriting a record requeues it, so there is a way back without touching the queue.
+  - Summed across members for a proxy space, matching the record counts beside it — a zero there would
+    read as "nothing pending" rather than "not counted".
+
+
+### Fixed
+
 - **`waitForEmbedding` is now reachable over REST for all four brain types.** The option was added to every
   creator function in one change while only ONE of the four routes forwarded it, so an HTTP caller writing
   an entity, edge or chrono entry could not ask for a synchronous embedding at all — a write-then-search or

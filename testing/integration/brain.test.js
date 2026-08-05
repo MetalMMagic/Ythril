@@ -805,6 +805,60 @@ describe('Brain -- chrono CRUD (/api/brain/spaces/:spaceId/chrono)', () => {
     assert.equal(r.status, 404);
   });
 
+  // The source-level gate proves the field is FORWARDED. These prove it LANDS — the previous version of
+  // this feature was consistent in the source of three route files and unreachable on the fourth, and the
+  // report that found it came from reading code, not from a response. Assert on the stored record.
+  it('PATCH chrono with ONLY excludeFromVectorSearch returns 200 and persists it', async () => {
+    const r = await patch(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`, {
+      excludeFromVectorSearch: true,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.excludeFromVectorSearch, true, 'the response must reflect the flag');
+    // Read it back: a handler can echo a field it never wrote, which is the shape of the defect this
+    // covers — a 200 carrying the request's own values while the store was never touched.
+    const back = await get(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`);
+    assert.equal(back.status, 200);
+    assert.equal(back.body.excludeFromVectorSearch, true, 'the STORED record must carry the flag');
+  });
+
+  it('PATCH chrono clears excludeFromVectorSearch again', async () => {
+    const r = await patch(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`, {
+      excludeFromVectorSearch: false,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const back = await get(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`);
+    assert.equal(back.body.excludeFromVectorSearch, false, 'false must be stored, not treated as absent');
+  });
+
+  it('PATCH chrono rejects a non-boolean excludeFromVectorSearch', async () => {
+    const r = await patch(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`, {
+      excludeFromVectorSearch: 'true',
+    });
+    assert.equal(r.status, 400, JSON.stringify(r.body));
+  });
+
+  it('PATCH chrono naming no recognised field returns 400, not a 200 no-op', async () => {
+    // It answered 200 with an unchanged record, so a client could not tell a dropped field from an applied
+    // one — which is how the missing flag above stayed invisible for a release.
+    const r = await patch(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`, {
+      notAFieldWeKnow: 1,
+    });
+    assert.equal(r.status, 400, JSON.stringify(r.body));
+    assert.match(r.body.error, /At least one field must be provided/);
+  });
+
+  it('legacy POST-as-update REFUSES excludeFromVectorSearch and names PATCH', async () => {
+    // That route runs no property validation and writes no audit snapshot, so it gets no new capability —
+    // and refusing beats dropping, which is the bug being fixed one route over.
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`, {
+      excludeFromVectorSearch: true,
+    });
+    assert.equal(r.status, 400, JSON.stringify(r.body));
+    assert.match(r.body.error, /PATCH/);
+    const back = await get(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`);
+    assert.equal(back.body.excludeFromVectorSearch, false, 'the refused request must not have written');
+  });
+
   it('Create chrono with optional fields', async () => {
     // Real ids: linkage is validated now, and a placeholder only ever proved that an unchecked
     // string survives a round-trip.

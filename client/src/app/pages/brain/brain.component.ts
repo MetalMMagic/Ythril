@@ -282,7 +282,7 @@ interface SpaceView {
              the moment the tab first renders, and the browser-cached chunk re-instantiates fast. -->
         @if (activeTab() === 'graph') {
           @defer (on immediate) {
-            <app-graph-view [embeddedSpaceId]="activeSpaceId()" />
+            <app-graph-view [embeddedSpaceId]="activeSpaceId()" [focusEntityId]="graphFocusId() ?? undefined" />
           } @loading (minimum 200ms) {
             <div class="loading-overlay loading-overlay--float" data-tab-defer="graph"><span class="spinner"></span></div>
           }
@@ -301,10 +301,10 @@ interface SpaceView {
         @if (activeTab() === 'memories') { <app-memories-tab [spaceId]="activeSpaceId()" (mutated)="loadStats(activeSpaceId())" /> }
 
         <!-- Entities -->
-        @if (activeTab() === 'entities') { <app-entities-tab [spaceId]="activeSpaceId()" (mutated)="loadStats(activeSpaceId())" /> }
+        @if (activeTab() === 'entities') { <app-entities-tab [spaceId]="activeSpaceId()" (mutated)="loadStats(activeSpaceId())" (viewInGraph)="viewInGraph($event)" /> }
 
         <!-- Edges -->
-        @if (activeTab() === 'edges') { <app-edges-tab [spaceId]="activeSpaceId()" (mutated)="loadStats(activeSpaceId())" /> }
+        @if (activeTab() === 'edges') { <app-edges-tab [spaceId]="activeSpaceId()" (mutated)="loadStats(activeSpaceId())" (viewInGraph)="viewInGraph($event)" /> }
 
         <!-- Chrono -->
         @if (activeTab() === 'chrono') { <app-chrono-tab [spaceId]="activeSpaceId()" /> }
@@ -369,6 +369,12 @@ export class BrainComponent implements OnInit, OnDestroy {
   spaces = signal<SpaceView[]>([]);
   activeSpaceId = signal('');
   activeTab = signal<BrainTab>('overview');
+
+  /**
+   * The entity the Graph tab should open rooted at, set by a record table's "view in graph" button and
+   * consumed by the graph on mount. Null means "the graph opens as it always did, with no root".
+   */
+  graphFocusId = signal<string | null>(null);
   loadingSpaces = signal(true);
   /** Null until the space list failed to load — checked before the empty state, so a failure never reads as "no spaces". */
   spacesError = signal<string | null>(null);
@@ -681,12 +687,29 @@ export class BrainComponent implements OnInit, OnDestroy {
   }
 
   setTab(tab: BrainTab): void {
+    // Clearing the pending graph focus here (rather than only when leaving the Graph tab) is what stops
+    // it becoming sticky: the Graph tab UNMOUNTS on leave and re-reads the input on every remount, so a
+    // focus left in place would silently re-root the graph the next time the tab is opened by hand.
+    // `viewInGraph()` sets it AFTER calling this, which is why the order there matters.
+    this.graphFocusId.set(null);
     this.activeTab.set(tab);
     this.store.memorySearch.set('');
     this.store.edgeSearch.set('');
     this.store.chronoSearch.set('');
     this.store.fileMetaSearch.set('');
     this.recordList.confirmDeleteId.set('');
+  }
+
+  /**
+   * A record table's "view in graph" action: open the Graph tab rooted at that entity.
+   *
+   * The id goes into a signal on the SHELL rather than into the graph component, because the graph is
+   * behind `@if (activeTab() === 'graph')` and does not exist yet at the moment the button is clicked.
+   * Setting it after `setTab` is deliberate — `setTab` clears it (see above).
+   */
+  viewInGraph(entityId: string): void {
+    this.setTab('graph');
+    this.graphFocusId.set(entityId);
   }
 
   loadStats(spaceId: string): void {

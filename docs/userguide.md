@@ -261,6 +261,16 @@ The Graph view lets you explore how entities relate to each other visually.
 2. Select a space from the tab's toolbar.
 3. Type an entity name in the search bar and click the result to load its graph.
 
+**Or jump straight there from a table.** The **Entities** and **Edges** tables carry a graph button beside
+each row's *View details* eye. It opens this tab rooted at that node with **both directions at depth 2**, so
+you land on the neighbourhood rather than on a lone node — then adjust with the toolbar as usual. From the
+Edges table the view is centred on the edge's **from** endpoint; the `to` endpoint is one hop away, so the
+edge itself is always on the canvas.
+
+The Memories, Chrono and Files tables have no such button, because those records are not nodes in this graph:
+a memory reaches it only through the entities it links, and a chrono entry is not reachable by traversal at
+all. Use the **Entities** column in those tables to find the entity you want, then open the graph from there.
+
 **Toolbar controls:**
 
 | Control | What it does |
@@ -1159,6 +1169,88 @@ Add the following to your MCP client's config file:
 ```
 
 Replace `localhost:3200` with your instance URL and `ythril_yourTokenHere` with a valid token.
+
+**If that config file lives inside a git repository, do not paste the token into it.** Most clients expand
+`${VAR}` inside the `headers` block, so keep the reference in the shared file and the value in a per-workspace
+one that is ignored:
+
+```json
+{
+  "mcpServers": {
+    "ythril": {
+      "type": "http",
+      "url": "https://your-instance.example/mcp",
+      "headers": { "Authorization": "Bearer ${YTHRIL_MCP_TOKEN}" }
+    }
+  }
+}
+```
+
+`YTHRIL_MCP_TOKEN` here is **your MCP client's** variable, not a Ythril setting — the client expands it when
+it builds the header, and the server never sees the name. Set it wherever that client keeps per-workspace
+values (for Claude Code, the `env` block of `.claude/settings.local.json`), and use a **distinct name per
+instance** if one window talks to two Ythril instances. Your editor may flag `${YTHRIL_MCP_TOKEN}` as unknown;
+that warning comes from the editor's own variable resolver, not from the MCP client.
+
+### Several clients on one machine: one scoped token each
+
+This section is written from a real failure on a live instance, contributed by an operator who hit it. If you
+run more than one assistant window — one per project, say — read it before you rely on OAuth.
+
+**What goes wrong.** Three editor windows each pointed at the same `https://…/mcp` URL with no auth header,
+relying on interactive OAuth. Authenticating two of them collapsed the third to a single space: fourteen
+spaces began refusing with *"token does not have access to space 'X'"*. Two causes, and the second is the one
+that matters:
+
+1. **The OAuth grant is keyed by server URL, not by workspace.** The same URL from three project folders is
+   one credential slot, and the last authentication wins. The server *definition* is per-workspace; the
+   credential is not.
+2. **Interactive OAuth takes its identity from whoever completes the browser flow.** There is one human, so
+   all three windows authenticate *as that person*, carrying that person's roles. Per-window rights cannot be
+   expressed this way at all, however the token is stored — and every write lands under the same subject, so
+   the audit log cannot tell the human from an assistant acting on their behalf.
+
+**That failure was the lucky direction.** Everybody lost access, loudly. The same collision resolving the
+other way — the widest-scoped window authenticating last — silently grants every other window that scope,
+with no error and nothing to notice.
+
+**The fix: mint one API token per client window,** scoped to exactly the spaces that window needs, and send it
+as a static `Authorization` header as shown above. An explicit header means the client never enters the OAuth
+flow, so it cannot be overwritten by a later authentication against the same URL. It is also the correct
+reading of per-caller attribution: one token per caller *is* each caller authenticating as itself. Do not
+grant admin unless the window genuinely administers the instance — an assistant has no use for `wipe_space`.
+
+**Verify by reading the token's own view, not by the absence of an error.** Call the **`help`** tool: it
+prints the spaces accessible to this token, and when the token is restricted it says so explicitly
+(*"some tools are hidden from this token by its scope"*) — admin-only tools such as `wipe_space` and
+`update_space` disappear from the tool list. A cross-space `recall` will **not** reveal a collapsed scope: it
+happily returns results from the one space still reachable, which reads like a successful search.
+
+**Attribution, once you are on per-caller tokens.** Every audited request records `tokenId`, `tokenLabel` and
+`authMethod` (`pat` or `oidc`), over both the REST API and MCP, and the log view shows the token label. The
+`oidcSubject` field is populated only for OAuth sessions — for an API token it is `null` by design, and it is
+not the field that identifies the caller. Filter the audit log by `?tokenId=…` to see exactly what one window
+did. See [Settings — Audit Log](#settings--audit-log).
+
+#### Two traps
+
+**An ignore rule that does not travel is not protection.** `git check-ignore` reports success whether the
+matching rule is in the repository's own `.gitignore`, in `.git/info/exclude`, or in a machine-wide
+`core.excludesFile` — and only the first is committed. The other two protect exactly one working copy and no
+clone, which on a public repository is the difference between a private mistake and a disclosure. Check with:
+
+```bash
+git -c core.excludesFile=/dev/null check-ignore -v .mcp.json
+```
+
+If that prints nothing, or names a source under `.git/`, the protection is not in the repository. Add the rule
+to the committed `.gitignore`.
+
+**There may be a second MCP client you are not thinking about.** VS Code ships its own MCP host with its own
+registry (`.vscode/mcp.json`, plus a user-level `mcp.json` that applies to every window) and its own
+credential store — a second, invisible route to the same collision, and its auto-discovery can pull in server
+definitions written for other tools. If you want MCP from one client only, turn the other off outright
+(`chat.mcp.enabled: false` and `chat.mcp.discovery.enabled: false`).
 
 One connection entry is all you need — every space the token can access is available. On connect, the AI receives instructions naming the spaces it can reach and is told to call **`list_spaces`** (and `get_space_meta`) to learn the schema, purpose, and record counts of each — so it can orient itself before reading or writing. It can also call the **`help`** tool for a guided overview of the whole system (the knowledge model, when to use `query` vs. `recall`, and the tools available to its token).
 

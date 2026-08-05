@@ -1629,6 +1629,49 @@ to make a create idempotent is a client-supplied UUID v4 in the **collection** P
 the same record for every type (see [Retry Safety](#retry-safety)). The chrono route is kept for existing
 callers and is listed for removal in a future major.
 
+**It is not only a scheduling concern — the legacy verb behaves differently today.** "Deprecated" is easy to
+plan around; these two consequences are not, and an integrator with nine flows on this route asked us to say
+so here rather than leave it to be read off the handlers:
+
+| | legacy `POST .../chrono/:id` | `PATCH .../chrono/:id` |
+|---|---|---|
+| property validation | **none** — the `type` allowlist is the whole of it, so under strict validation this verb can write a record the same space would **reject at create time** | validates the record **as it will be**, merging the patch onto stored properties first |
+| audit snapshot | **none** | stores before **and** after, so the change appears in the audit trail |
+| `excludeFromVectorSearch` | **refused** with `400` — a field that reaches the writer only where validation and the audit trail exist | accepted |
+
+If you are on the legacy form, the migration is the verb alone: both reach the same writer, `properties`
+merges on both, and no other field changes meaning. A `PATCH` that names no recognised field is a `400`
+(`At least one field must be provided`) where the legacy verb answered `200` with an unchanged record.
+
+### Retiring a record from semantic search
+
+`excludeFromVectorSearch` is a boolean on **all four** record types (`memories`, `entities`, `edges`,
+`chrono`), settable on the `PATCH` route and on the matching MCP `update_*` tool:
+
+```http
+PATCH /api/brain/spaces/:spaceId/chrono/:id
+{ "excludeFromVectorSearch": true }
+```
+
+It **may be the only field in the request** — retiring a record is a complete edit, not a modifier on some
+other change.
+
+**It is implemented as the absence of a vector, not as a query-time filter.** Setting it enqueues an embed
+job that unsets the embedding; clearing it enqueues one that computes a fresh embedding. The job handles both
+directions, so the flag is enforced once in the store rather than remembered at every call site.
+
+The consequence is worth stating plainly, because it is the reason to choose this over a filter of your own:
+
+| reader | sees an excluded record? |
+|---|---|
+| `recall`, `find_similar`, duplicate/contradiction scans | **no**, and there is no parameter that asks for it back |
+| `GET`/`PATCH` by id, `query`, `list`, `traverse`, exports | **yes**, unchanged and complete |
+
+So an audit that must include retired records has to be a **structured read**, not a recall. If you point a
+semantic search at retired records today by applying a filter you control, the flag will not reproduce that
+behaviour — it removes the vector the search ranks on, and the result is a quietly shorter answer with no
+error. Nothing in the record's own data is lost.
+
 ### Partial Update with deleteFields
 
 All `PATCH` update endpoints — entities, edges, and memories — accept an optional `deleteFields` array of dot-notation paths. This allows callers to remove specific fields from a document in the same atomic operation as normal property/tag updates.

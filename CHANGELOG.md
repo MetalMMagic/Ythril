@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **"View in graph" on the Entities and Edges tables** (owner request). Next to each row's *View details*
+  eye, a graph button opens the Graph tab rooted at that node with **both directions at depth 2** — the
+  neighbourhood, not just the node.
+  - **Both settings are written explicitly** rather than left to the two signal defaults they happen to
+    match. "Arriving from a table shows depth 2, bidirectional" is the requested behaviour, and a behaviour
+    that holds only because two unrelated defaults agree is one that a later change to either breaks
+    silently.
+  - **The Edges table sends the `from` endpoint**, because a graph is rooted at a node and an edge is not
+    one. At depth 2 in both directions the `to` endpoint is one hop away, so the edge is always on the
+    canvas; the choice only decides which end the view is centred on. Passing the edge's own id would hand
+    the graph an id no entity has.
+  - **Memories, Chrono and Files deliberately have no such button.** They are not nodes in the entity
+    graph — a memory reaches it only through `entityIds`, and a chrono is not reachable by `traverse` at
+    all. A button that quietly retargeted to some linked entity would be a control that does not do what
+    it says, which is the exact failure shape the rest of this release is about.
+  - The focus is applied **after** cytoscape exists, not when the input is set: `renderGraph` returns early
+    while the canvas is absent, so rooting from the setter would fetch, traverse, fill the cache and draw
+    nothing — and an empty canvas reads as "this node has no connections". A failed lookup now reports the
+    id instead of rendering an empty graph.
+  - Leaving the Graph tab clears the pending focus, so opening the tab by hand later does not silently
+    re-root it at a stale node.
 
 ### Fixed
 
@@ -32,6 +55,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   field values as well as the summaries — "the one about `port`" appears in neither summary.
   - A scan that finishes with the judge unreachable now says so, instead of letting `0 found` read as
     "nothing disagrees".
+
+- **`excludeFromVectorSearch` reached three record types over REST and none over MCP** (reported by an
+  integrator reading the published source, not from a probe). The previous fix swept "all three PATCH
+  handlers that carry the validator" — chrono is the fourth type, and the surface an agent actually holds
+  was never in the sweep at all.
+  - **chrono, over REST.** `updateChrono` has accepted the field from the start and ends every toggle in an
+    embed job that handles both directions; the two by-id handlers above it destructured a fixed list that
+    never contained it. Because they destructure rather than allowlist, a `PATCH` carrying only this flag was
+    not refused — it answered `200` with an unchanged record. The reporter's motivating case was a superseded
+    plan competing with the current one on wording alone, and a plan **is** a chrono entry, so the one type
+    the feature existed for was the one type it could not reach.
+  - **All four types, over MCP.** `update_memory`, `update_entity`, `update_edge` and `update_chrono` now
+    accept it. MCP schemas are `additionalProperties: false`, so this was a hard rejection rather than a
+    silent drop — clearer, but still unreachable, and MCP is where agents write.
+  - **A chrono `PATCH` that names no recognised field is now `400 At least one field must be provided`**,
+    matching the other three types, where it previously answered `200` with an unchanged record. Unknown keys
+    are still dropped rather than named back; what is no longer possible is dropping all of them and calling
+    it success.
+  - **The legacy `POST .../chrono/:id` refuses the flag** with a `400` pointing at `PATCH`, rather than
+    dropping it. That route performs no property validation and writes no audit snapshot, so it gains no new
+    capability.
+  - **The gate that existed to prevent exactly this had certified it.** It decided whether a route file was
+    in scope by testing for the string `At least one field must be provided` — a message that only existed in
+    the handlers already fixed — so the unfixed file was read as "no PATCH handler here" and skipped: three of
+    three consistent, green, fourth type unreachable. It also treated the field name appearing anywhere in a
+    file as reachability, so deleting the forward from the writer call survived it. Renamed to
+    `record-flags-reachable-on-every-surface.test.js`, it now detects the handler itself, asserts all four
+    types are in scope before comparing them, checks REST against MCP rather than each against itself, and
+    carries a mutation-check that fails if a detector is ever reduced to mere presence. Nine planted defects,
+    nine caught.
+
+- **Chrono updates from the UI skipped property validation and the audit trail.** The client was the last
+  caller in this repo on the legacy `POST`-to-an-id form our own integration guide tells integrators not to
+  build on, so every chrono edit made in the app was absent from the before/after audit trail that entities,
+  memories and edges all leave, and bypassed the property validation the same space applies on create. Now
+  `PATCH`, like the other three types. Both verbs reach the same writer, so records are unaffected.
 
 
 ### Fixed
@@ -60,6 +119,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Reaches the duplicate **and** contradiction checks on memories, entities and chrono entries, since all
     three write paths already funnelled through this one function. `recall` itself is unchanged — the same
     lag on the read path is a different cost trade and is tracked separately.
+
+### Documentation
+
+- **The legacy chrono `POST`-as-update form is documented by what it does, not only by its status**
+  (requested by an integrator who had nine flows on it). "Legacy, listed for removal" reads as a timing
+  concern; a table now names the two consequences that apply today — no property validation, no audit
+  snapshot — plus the migration, which is the verb alone.
+- **`excludeFromVectorSearch` is documented at all.** It appeared in no guide. The new section states which
+  types carry it, that it may be the only field in a request, and the semantics that are easy to guess wrong:
+  it is the **absence of a vector**, not a query-time filter, so `recall` and the similarity scans cannot
+  reach an excluded record even deliberately, while `query`, `list`, `traverse` and reads by id return it
+  unchanged. An audit that must include retired records has to be a structured read.
 
 
 ### Fixed

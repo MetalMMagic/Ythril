@@ -131,4 +131,23 @@ describe('EdgesTabComponent', () => {
     expect(c.edgeForm.toDisplay).toBe('Bob');
     expect(c.picker.entityNameCache()['e1']).toBeUndefined();
   });
+
+  it('view-in-graph emits the edge\'s FROM endpoint, not the edge id', () => {
+    // A graph is rooted at a node and an edge is not one, so `from` is the deliberate choice: passing
+    // `edge._id` would send the graph an id no entity has, and it would resolve to nothing.
+    const fixture = make();
+    const c = fixture.componentInstance;
+    TestBed.inject(BrainStore).edges.set([
+      { _id: 'edge-1', from: 'ent-from', to: 'ent-to', label: 'knows' } as Edge,
+    ]);
+    fixture.detectChanges();
+
+    const seen: string[] = [];
+    c.viewInGraph.subscribe(id => seen.push(id));
+    // Test transloco echoes the key back.
+    const btn = fixture.nativeElement.querySelector('button[aria-label="common.viewInGraph"]');
+    expect(btn, 'the button must render in the row').toBeTruthy();
+    btn.click();
+    expect(seen).toEqual(['ent-from']);
+  });
 });

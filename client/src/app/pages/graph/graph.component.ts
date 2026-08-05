@@ -409,6 +409,21 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
+  /**
+   * An entity to open as the root on mount — the embedded equivalent of the `?entity=` query param,
+   * set by the record tables' "view in graph" action.
+   *
+   * It is REMEMBERED rather than applied here. This setter runs during construction, and `renderGraph`
+   * begins `if (!this.cy) return` — cytoscape does not exist until `ngAfterViewInit`. Rooting the graph
+   * from the setter therefore fetches, traverses, caches the result and draws nothing, with no error:
+   * the empty canvas reads as "this node has no connections". So the id is parked and consumed after
+   * `initCytoscape()`.
+   */
+  @Input() set focusEntityId(v: string | undefined) {
+    if (v) this.pendingFocusId = v;
+  }
+  private pendingFocusId: string | null = null;
+
   // â”€â”€ State signals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   isEmbedded = signal(false);
 
@@ -556,6 +571,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
   ngAfterViewInit(): void {
     this.theme = readGraphTheme();   // CSS vars resolve only once the view exists
     this.initCytoscape();
+    this.applyPendingFocus();
 
     // Watch direction / depth / hideLabels changes via effect
     // Using effect in AfterViewInit requires the injection context to still be active
@@ -569,6 +585,31 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
       this.cy.destroy();
       this.cy = null;
     }
+  }
+
+  /**
+   * Root the graph at the entity a record table sent us, with the whole neighbourhood in view:
+   * **both directions, depth 2**. Called once, after cytoscape exists.
+   *
+   * The two settings are written explicitly rather than left to the signal initialisers they happen to
+   * match. "Arriving from a table shows n=2 bidirectional" is the requested behaviour, and a behaviour
+   * that holds only because two unrelated defaults agree is one a later change to either default breaks
+   * silently.
+   *
+   * A failed lookup sets `loadError` rather than leaving an empty canvas: a deleted or cross-space id
+   * must not render as a node with no connections.
+   */
+  private applyPendingFocus(): void {
+    const id = this.pendingFocusId;
+    const spaceId = this.activeSpaceId();
+    if (!id || !spaceId) return;
+    this.pendingFocusId = null;
+    this.direction.set('both');
+    this.depth.set(2);
+    this.brainApi.getEntity(spaceId, id).pipe(catchError(() => of(null))).subscribe(ent => {
+      if (ent) this.selectRoot(ent);
+      else this.loadError.set(`Entity '${id}' could not be loaded in this space.`);
+    });
   }
 
   // â”€â”€ Cytoscape init â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

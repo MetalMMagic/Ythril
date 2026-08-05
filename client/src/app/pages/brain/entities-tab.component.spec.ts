@@ -295,4 +295,26 @@ describe('EntitiesTabComponent — description column filter', () => {
     c.setDescriptionFilter('x');
     expect(c.skip()).toBe(0);
   });
+
+  it('the view-in-graph button emits THAT row\'s entity id', async () => {
+    // The row-level part of the wiring: the button must carry the id of the row it sits in. A single
+    // emitted event proves nothing on its own — a button bound to the wrong loop variable emits too.
+    const fixture = make();
+    const c = fixture.componentInstance;
+    const store = TestBed.inject(BrainStore);
+    store.entities.set([
+      { _id: 'ent-a', name: 'Ada', type: 'person' } as Entity,
+      { _id: 'ent-b', name: 'Bob', type: 'person' } as Entity,
+    ]);
+    fixture.detectChanges();
+
+    const seen: string[] = [];
+    c.viewInGraph.subscribe(id => seen.push(id));
+
+    // The test transloco echoes the KEY back, which is the convention this suite asserts on.
+    const buttons = fixture.nativeElement.querySelectorAll('button[aria-label="common.viewInGraph"]');
+    expect(buttons.length, 'one button per row').toBe(2);
+    buttons[1].click();
+    expect(seen).toEqual(['ent-b']);
+  });
 });

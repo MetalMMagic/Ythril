@@ -200,4 +200,77 @@ describe('GraphComponent (OnPush)', () => {
 
     expect(c.nodeMemories()[0].fact).toBe('after');
   });
+
+  describe('focusEntityId — arriving from a record table', () => {
+    /** Same embedded setup, plus the focus input and a traversal-capable api. */
+    function createWithFocus(focusId: string | undefined, entity: any = { _id: 'ent-1', name: 'Ada', type: 'person' }) {
+      const traverseGraph = vi.fn(() => of({ nodes: [], edges: [], truncated: false } as any));
+      const getEntity = vi.fn(() => of(entity));
+      TestBed.configureTestingModule({
+        imports: [GraphComponent, getTranslocoModule()],
+        providers: [
+          { provide: SpacesApi, useValue: makeApi() },
+          { provide: BrainApi, useValue: { ...makeApi(), getEntity, traverseGraph } },
+          { provide: AuthApi, useValue: makeApi() },
+          { provide: ActivatedRoute, useValue: { snapshot: { queryParams: {} } } },
+        ],
+      });
+      const fixture = TestBed.createComponent(GraphComponent);
+      fixture.componentRef.setInput('embeddedSpaceId', 'work');
+      if (focusId !== undefined) fixture.componentRef.setInput('focusEntityId', focusId);
+      fixture.detectChanges();
+      return { fixture, c: fixture.componentInstance, traverseGraph, getEntity };
+    }
+
+    it('roots the graph at the given entity with BOTH directions at depth 2', () => {
+      const { c, traverseGraph } = createWithFocus('ent-1');
+      expect(c.rootEntity()?._id).toBe('ent-1');
+      expect(c.direction()).toBe('both');
+      expect(c.depth()).toBe(2);
+      // The request is the assertion that matters — the toolbar could read "both / 2" while the
+      // traversal that actually populated the canvas asked for something else.
+      expect(traverseGraph).toHaveBeenCalledWith('work', expect.objectContaining({
+        startId: 'ent-1', direction: 'both', maxDepth: 2,
+      }));
+    });
+
+    it('applies the focus only AFTER cytoscape exists, so the result is drawn rather than cached', () => {
+      // The trap this pins: `renderGraph` opens with `if (!this.cy) return`, and the input setter runs
+      // during construction — before ngAfterViewInit. Rooting from the setter fetches, traverses, fills
+      // the cache and draws NOTHING, with no error, and an empty canvas reads as "no connections".
+      // Asserting the traversal has not fired before detectChanges() is what keeps that ordering.
+      const traverseGraph = vi.fn(() => of({ nodes: [], edges: [], truncated: false } as any));
+      TestBed.configureTestingModule({
+        imports: [GraphComponent, getTranslocoModule()],
+        providers: [
+          { provide: SpacesApi, useValue: makeApi() },
+          { provide: BrainApi, useValue: { ...makeApi(), getEntity: () => of({ _id: 'ent-1', name: 'Ada', type: 'person' }), traverseGraph } },
+          { provide: AuthApi, useValue: makeApi() },
+          { provide: ActivatedRoute, useValue: { snapshot: { queryParams: {} } } },
+        ],
+      });
+      const fixture = TestBed.createComponent(GraphComponent);
+      fixture.componentRef.setInput('embeddedSpaceId', 'work');
+      fixture.componentRef.setInput('focusEntityId', 'ent-1');
+      expect(traverseGraph, 'nothing may traverse before the view exists').not.toHaveBeenCalled();
+      fixture.detectChanges();
+      expect(traverseGraph).toHaveBeenCalled();
+    });
+
+    it('reports a lookup failure instead of leaving an empty canvas', () => {
+      // A deleted or cross-space id must not render as a node with no connections.
+      const { c, traverseGraph } = createWithFocus('gone', null);
+      expect(c.rootEntity()).toBeNull();
+      expect(c.loadError()).toContain('gone');
+      expect(traverseGraph).not.toHaveBeenCalled();
+    });
+
+    it('opens unrooted when no focus is passed — the tab-bar path is unchanged', () => {
+      const { c, traverseGraph, getEntity } = createWithFocus(undefined);
+      expect(c.rootEntity()).toBeNull();
+      expect(getEntity).not.toHaveBeenCalled();
+      expect(traverseGraph).not.toHaveBeenCalled();
+      expect(c.loadError()).toBeNull();
+    });
+  });
 });

@@ -23,6 +23,7 @@ import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
 import { pairContentHash } from '../brain/dupe-scanner.js';
 import { scanSpace } from '../brain/contradiction-scanner.js';
+import { nliConfigured } from '../brain/nli-client.js';
 import type { ContradictionCandidateDoc } from '../config/types.js';
 
 export const contradictionsRouter = Router();
@@ -82,7 +83,19 @@ contradictionsRouter.get('/', globalRateLimit, requireAuth, async (req, res) => 
     results.sort((a, b) => (b.confidence - a.confidence) || b.detectedAt.localeCompare(a.detectedAt));
     // Cap the merged cross-space result, as duplicates does — a many-space token must not materialise
     // 500 x spaces rows.
-    res.json({ contradictions: results.slice(0, 500).map(toRecord) });
+    // `nliConfigured` rides along because the client has to explain an EMPTY list, and it cannot tell
+    // "nothing disagrees" from "the judge never ran" without knowing this. It used to guess, and always
+    // guessed the alarming answer: the empty state asserted "contradiction detection is not running yet —
+    // it needs an NLI model" unconditionally, so a genuinely clean space was told it was broken.
+    //
+    // Reported here rather than fetched separately: this is the request the view already makes, the
+    // media-processing config endpoint is admin-scoped (a reviewer would get a 403 and be back to
+    // guessing), and a second source could disagree with this one.
+    //
+    // Note it is NOT "is detection running". The structured pass runs with no model at all — see
+    // `scanSpace`, which uses `['structured']` when nothing is configured. This says only whether the
+    // model-judged pass is among the ones that run.
+    res.json({ contradictions: results.slice(0, 500).map(toRecord), nliConfigured: nliConfigured() });
   } catch (err) {
     log.error(`GET /api/contradictions: ${err}`);
     res.status(500).json({ error: 'Internal error' });

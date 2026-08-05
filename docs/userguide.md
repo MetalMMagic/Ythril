@@ -1060,6 +1060,16 @@ opinion. Contradictions are never merged: both records are real and which one is
 either **dismiss** it (sticky, like a duplicate dismissal), mark it **resolved by edit** after correcting a
 record, or **link** the two as a contradiction instead.
 
+The view carries the same controls as Duplicates: a **search box** (which matches the disagreeing field
+values as well as the record summaries, so "the one about `port`" finds it), a **status filter**, and a
+**Scan now** button. The status filter matters more here than on Duplicates, because there are three piles
+rather than two — **open**, **dismissed** and **resolved** — and dismissing or resolving a pair moves it out
+of the default view. Switch the filter to find it again. If a scan finishes while the entailment model is
+unreachable, it says so: nothing was judged, which is not the same answer as nothing disagreeing.
+
+An empty list tells you *which* empty it is. With no entailment model configured it says so and names what
+still ran — the deterministic field check runs regardless, so contradiction detection is never simply off.
+
 Memories, entities and **chrono entries** are reviewed. For a chrono pair, a field conflict includes its
 **status** — the same event logged twice, once as *completed* and once as *cancelled*, is exactly the kind of
 disagreement worth your attention. The **dates** are deliberately left out: two hand-logged occurrences of a

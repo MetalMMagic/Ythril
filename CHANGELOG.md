@@ -10,6 +10,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Dismissing a contradiction was a one-way delete** (canary report C-L5-4, and this part they did not
+  report). The Review tab asked the API for `open` contradictions with the status **hardcoded**, so the
+  `dismissed` and `resolved` piles the API has always served were unreachable from the UI. `Dismiss` and
+  both `Resolve` buttons wrote a record into a state with no path back, and the card simply vanished on the
+  next reload.
+  - Three other pieces of UI were dead because of it: the status pill (rendered only when the status is not
+    `open`), the `re-rate` button (only when `dismissed`), and any chance of undoing a mis-click.
+  - There is now a status filter offering every pile the API serves.
+- **The Contradictions view told working instances they were broken.** Its empty state said *"Contradiction
+  detection is not running yet — it needs an NLI (entailment) model"* for **any** empty list. Nothing
+  checked whether one was configured, and the claim is false either way: the deterministic structured pass
+  runs with no model at all. A genuinely clean space was told its detection was broken.
+  - Four causes now read differently: no search matches, no records of that type, an empty non-open pile,
+    no judge configured (naming what still ran), and nothing found. The list response carries whether the
+    model-judged pass is among those that run, so the view no longer guesses — and when the server does not
+    say, it claims nothing rather than assuming the strongest answer.
+- **The Contradictions view had no `Scan now` and no search**, while its sibling Duplicates tab had both.
+  `scanContradictions()` had existed in the client API service since the feature shipped, with no caller.
+  The search box is shared with Duplicates so a query survives a tab switch, and it matches the disagreeing
+  field values as well as the summaries — "the one about `port`" appears in neither summary.
+  - A scan that finishes with the judge unreachable now says so, instead of letting `0 found` read as
+    "nothing disagrees".
+
+
+### Fixed
+
 - **The duplicate check could not see the batch you were writing** (reported by two integrators
   independently). `checkDuplicates` read the vector index, which is eventually consistent — a record
   committed a moment ago is not in it. So the one check whose entire job is to compare against the

@@ -485,5 +485,119 @@ describe('ReviewTabComponent', () => {
       f.detectChanges();
       expect(toastErrors.length).toBeGreaterThan(0);
     });
+
+    /**
+     * C-L5-4. The sub-tab shipped without the toolbar its sibling has, and with the list status wired
+     * shut. Each case below is one of the six ways that was visible to a reviewer.
+     */
+    describe('the review controls Duplicates always had', () => {
+      it('asks the server for the status the operator picked, not always "open"', () => {
+        // THE severe one. It was hardcoded, so Dismiss and both Resolve buttons wrote records into a pile
+        // with no way back — and the API had supported all four values the whole time.
+        const asked: string[] = [];
+        const { f, c } = setup({}, true, {
+          listContradictions: (status: string) => { asked.push(status); return of({ contradictions: [], nliConfigured: true }); },
+        });
+        c.sub.set('contradictions');
+        c.conStatusFilter = 'dismissed';
+        c.loadContradictions();
+        f.detectChanges();
+        expect(asked[0]).toBe('open');          // the default is unchanged
+        expect(asked).toContain('dismissed');   // and it is no longer the only thing askable
+      });
+
+      it('offers every pile the API serves, so nothing written is unreachable', () => {
+        const { f, c } = setup({}, true, { listContradictions: () => of({ contradictions: [], nliConfigured: true }) });
+        c.sub.set('contradictions');
+        f.detectChanges();
+        const el = f.nativeElement as HTMLElement;
+        const opts = [...el.querySelectorAll('#review-panel-contradictions select option')]
+          .map(o => (o as HTMLOptionElement).value);
+        for (const v of ['open', 'dismissed', 'resolved', 'all']) {
+          expect(opts).toContain(v);
+        }
+      });
+
+      it('runs the scan, which had an API method and no caller at all', () => {
+        let scanned = 0;
+        const { f, c } = setup({}, true, {
+          listContradictions: () => of({ contradictions: [], nliConfigured: true }),
+          scanContradictions: () => { scanned++; return of({ scannedSpaces: 1, scanned: 3, found: 0, nliStalled: false }); },
+        });
+        c.sub.set('contradictions');
+        f.detectChanges();
+        c.scanContradictions();
+        expect(scanned).toBe(1);
+      });
+
+      it('says so when the scan finished but the judge was unreachable', () => {
+        // "0 found" and "nothing was judged" are opposite answers; silence would render them the same.
+        const { f, c, toastErrors } = setup({}, true, {
+          listContradictions: () => of({ contradictions: [], nliConfigured: true }),
+          scanContradictions: () => of({ scannedSpaces: 1, scanned: 3, found: 0, nliStalled: true }),
+        });
+        c.sub.set('contradictions');
+        f.detectChanges();
+        c.scanContradictions();
+        expect(toastErrors.length).toBeGreaterThan(0);
+      });
+
+      it('searches the disagreeing field values, not only the two summaries', () => {
+        // What a reviewer actually remembers about a structured finding is "the one about port", and that
+        // word appears in neither summary.
+        const { f, c } = setup({}, true, { listContradictions: () => of({ contradictions: [con()], nliConfigured: true }) });
+        c.sub.set('contradictions');
+        f.detectChanges();
+        c.query.set('port');
+        expect(c.conFilteredRows().length).toBe(1);
+        c.query.set('nothing-matches-this');
+        expect(c.conFilteredRows().length).toBe(0);
+      });
+    });
+
+    describe('the empty state says which empty it is', () => {
+      const emptyText = (f: { nativeElement: unknown }) =>
+        ((f.nativeElement as HTMLElement).querySelector('#review-panel-contradictions .empty-state')?.textContent ?? '');
+
+      it('a configured judge and nothing found reads as clean, not as broken', () => {
+        // The defect: this said "Contradiction detection is not running yet — it needs an NLI model" for
+        // ANY empty list, so a working, clean space was told it was broken.
+        const { f, c } = setup({}, true, { listContradictions: () => of({ contradictions: [], nliConfigured: true }) });
+        c.sub.set('contradictions');
+        f.detectChanges();
+        // The harness renders KEYS rather than copy, which makes this sharper than a wording check: it
+        // pins exactly which branch rendered. `pendingTitle` is the old unconditional claim.
+        expect(emptyText(f)).toContain('review.contradictions.cleanTitle');
+        expect(emptyText(f)).not.toContain('pendingTitle');
+      });
+
+      it('no judge configured says what still ran, rather than that nothing did', () => {
+        // The structured pass runs with no model at all — scanSpace uses ['structured'] when none is set.
+        const { f, c } = setup({}, true, { listContradictions: () => of({ contradictions: [], nliConfigured: false }) });
+        c.sub.set('contradictions');
+        f.detectChanges();
+        expect(emptyText(f)).toContain('review.contradictions.structuredOnlyTitle');
+      });
+
+      it('claims BOTH passes ran only when the server actually said so', () => {
+        // A server that does not report the field leaves this unknown, and unknown must not become the
+        // strongest claim available — that substitution is the whole bug, one level down.
+        const { f, c } = setup({}, true, { listContradictions: () => of({ contradictions: [] }) });
+        c.sub.set('contradictions');
+        f.detectChanges();
+        expect(c.conNliConfigured()).toBeNull();
+        expect(emptyText(f)).toContain('review.contradictions.cleanTitle');
+        expect(emptyText(f)).not.toContain('review.contradictions.judgeRan');
+      });
+
+      it('an empty dismissed pile is not a statement about the space', () => {
+        const { f, c } = setup({}, true, { listContradictions: () => of({ contradictions: [], nliConfigured: true }) });
+        c.sub.set('contradictions');
+        c.conStatusFilter = 'dismissed';
+        c.loadContradictions();
+        f.detectChanges();
+        expect(emptyText(f)).toContain('review.contradictions.noneWithStatus');
+      });
+    });
   });
 });

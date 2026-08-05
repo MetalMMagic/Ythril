@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+### Added
+
+- **`GET /stats` now reports the embedding backlog** as `embedQueue: { pending, processing, failed }`.
+  Since writes stopped waiting for the model, a record can exist and be absent from recall for a moment —
+  and nothing anywhere said how much of a space was in that state, or whether it was draining.
+  - `getEmbedJobCounts` had existed since the queue landed with **no caller**: the system held the number
+    and never reported it, which is the same shape as the defect the queue itself fixed.
+  - A lasting `failed` count is the signal that an embedding endpoint is unreachable or misconfigured.
+    Rewriting a record requeues it, so there is a way back without touching the queue.
+  - Summed across members for a proxy space, matching the record counts beside it — a zero there would
+    read as "nothing pending" rather than "not counted".
+
+
 ### Fixed
 
 - **`waitForEmbedding` is now reachable over REST for all four brain types.** The option was added to every

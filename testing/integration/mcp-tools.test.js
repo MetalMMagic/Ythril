@@ -1608,6 +1608,53 @@ describe('MCP brain tools � recall and recall_global with minPerType', () => {
     assert.ok(!withMinPerType?.isError, 'recall with empty minPerType must not error');
     assert.ok(!withoutMinPerType?.isError, 'recall without minPerType must not error');
   });
+
+  // -- maxPerType, the ceiling ------------------------------------------------
+  //
+  // The unit tests cover the selection logic on the pure function. These cover the thing a unit test cannot:
+  // that the parameter is REACHABLE over MCP and enforced on a live instance. A capability wired into the
+  // function and not into the surface is the exact defect the last brain-API sweep was.
+
+  it('recall enforces maxPerType against a live instance', async (t) => {
+    if (!embeddingAvailable) return t.skip('Embedding server not configured in test stack � skipping');
+    const result = await session.callTool('recall', {
+      space: 'general', query: entityName, topK: 10, maxPerType: { entity: 1 },
+    });
+    assert.ok(!result?.isError, `recall with maxPerType returned isError: ${JSON.stringify(result)}`);
+    const parsed = JSON.parse(result?.content?.[0]?.text ?? '{}');
+    const entities = (parsed.results ?? []).filter(r => r.type === 'entity');
+    assert.ok(entities.length <= 1, `maxPerType={entity:1} returned ${entities.length} entities`);
+  });
+
+  it('recall REFUSES a maxPerType below minPerType for the same type', async (t) => {
+    if (!embeddingAvailable) return t.skip('Embedding server not configured in test stack � skipping');
+    const result = await session.callTool('recall', {
+      space: 'general', query: entityName, topK: 10,
+      minPerType: { entity: 3 }, maxPerType: { entity: 1 },
+    });
+    assert.ok(result?.isError, 'a contradictory floor/ceiling pair must be refused, not resolved');
+    const text = JSON.stringify(result);
+    assert.match(text, /contradict/, `the error should name the contradiction: ${text}`);
+  });
+
+  it('recall REFUSES a maxPerType of 0 rather than treating it as an exclusion', async (t) => {
+    if (!embeddingAvailable) return t.skip('Embedding server not configured in test stack � skipping');
+    const result = await session.callTool('recall', {
+      space: 'general', query: entityName, topK: 5, maxPerType: { entity: 0 },
+    });
+    assert.ok(result?.isError, '0 must be refused — `types` is the parameter that excludes a type');
+  });
+
+  it('recall_global accepts maxPerType — the ceiling survives the cross-space merge', async (t) => {
+    if (!embeddingAvailable) return t.skip('Embedding server not configured in test stack � skipping');
+    // No `space`, so this is the global path, where each space caps itself and the merged answer must be
+    // capped again. Without the second pass, N spaces at 1 each would return N.
+    const result = await session.callTool('recall', { query: entityName, topK: 10, maxPerType: { entity: 1 } });
+    assert.ok(!result?.isError, `recall_global with maxPerType returned isError: ${JSON.stringify(result)}`);
+    const parsed = JSON.parse(result?.content?.[0]?.text ?? '{}');
+    const entities = (parsed.results ?? []).filter(r => r.type === 'entity');
+    assert.ok(entities.length <= 1, `global maxPerType={entity:1} returned ${entities.length} entities`);
+  });
 });
 
 // -- recall / recall_global with minScore ----------------------------------

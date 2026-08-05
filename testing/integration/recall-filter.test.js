@@ -210,6 +210,60 @@ async function waitForIndexed(ids, types = ['entity', 'memory'], timeoutMs = 30_
 
 // ── Validation tests (no embedding required) ─────────────────────────────
 
+describe('Recall maxPerType — input validation over REST', () => {
+  // The REST half of the ceiling's validation. No embedding needed: every case below is refused before the
+  // vector search runs, which is the point — a contradictory or nonsensical ceiling must not reach the store.
+  // The MCP half is covered in mcp-tools.test.js; both surfaces enforce the same rules, because a rule that
+  // reaches one door and not the other is the defect the last brain-API sweep was.
+
+  it('a non-object maxPerType returns 400', async () => {
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/recall`, {
+      query: 'test', maxPerType: 3,
+    });
+    assert.equal(r.status, 400, `Expected 400, got ${r.status}: ${JSON.stringify(r.body)}`);
+  });
+
+  it('a non-integer ceiling returns 400', async () => {
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/recall`, {
+      query: 'test', maxPerType: { entity: 1.5 },
+    });
+    assert.equal(r.status, 400, `Expected 400, got ${r.status}: ${JSON.stringify(r.body)}`);
+  });
+
+  it('a ceiling of 0 returns 400 and points at `types`', async () => {
+    // Deliberate: 0 would work, and it would be a second confusing way to spell "not this type".
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/recall`, {
+      query: 'test', maxPerType: { entity: 0 },
+    });
+    assert.equal(r.status, 400, `Expected 400, got ${r.status}: ${JSON.stringify(r.body)}`);
+    assert.match(r.body.error, /types/, `the error should point at \`types\`: ${r.body.error}`);
+  });
+
+  it('minPerType above maxPerType for the same type returns 400 naming both values', async () => {
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/recall`, {
+      query: 'test', minPerType: { entity: 5 }, maxPerType: { entity: 2 },
+    });
+    assert.equal(r.status, 400, `Expected 400, got ${r.status}: ${JSON.stringify(r.body)}`);
+    assert.match(r.body.error, /contradict/, `the error should name the contradiction: ${r.body.error}`);
+    assert.match(r.body.error, /5/, 'the error should quote the floor');
+    assert.match(r.body.error, /2/, 'the error should quote the ceiling');
+  });
+
+  it('a floor EQUAL to its ceiling is accepted — the tightest legal pair', async () => {
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/recall`, {
+      query: 'test', minPerType: { entity: 2 }, maxPerType: { entity: 2 },
+    });
+    assert.notEqual(r.status, 400, `min == max must be allowed: ${JSON.stringify(r.body)}`);
+  });
+
+  it('floors and ceilings on DIFFERENT types never contradict', async () => {
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/recall`, {
+      query: 'test', minPerType: { entity: 3 }, maxPerType: { file: 1 },
+    });
+    assert.notEqual(r.status, 400, `unrelated types must not be compared: ${JSON.stringify(r.body)}`);
+  });
+});
+
 describe('Recall filter — input validation', () => {
   it('filter key not starting with properties./tags/type/name returns 400', async () => {
     const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/recall`, {

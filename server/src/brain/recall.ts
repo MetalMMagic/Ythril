@@ -16,6 +16,7 @@ import { deriveChronoStatus } from './chrono-status.js';
 import { rerank, rerankConfigured, candidateMultiplier, MAX_CANDIDATES } from './rerank-client.js';
 import { lexicalSearch, rrfFuse, hybridSearchEnabled, LEXICAL_LIMIT_MULTIPLIER, type LexicalHit } from './lexical-search.js';
 import { atlasVectorScore, scoresAgree } from './vector-score.js';
+import { matchFreshWrites } from './fresh-writes.js';
 import type { ChronoStatus } from '../config/types.js';
 import { log } from '../util/log.js';
 import { recallDegradedTotal } from '../metrics/registry.js';
@@ -606,12 +607,21 @@ export function summariseRecall(r: RecallResult): string {
 }
 
 /**
- * Insert-time near-duplicate check: run an ANN vector search with a freshly
- * computed embedding and return existing records of the same type scoring at or
- * above `threshold`. Best-effort — returns `[]` (never throws) when vector
- * search is unavailable, the space needs reindexing, or the search fails, so it
- * can never block a write. Passes no tags/filter, keeping the search on the fast
- * ANN path. Supply `excludeId` to drop a self-match when called post-insert.
+ * Insert-time near-duplicate check: return existing records of the same type scoring at or above
+ * `threshold`. Best-effort — returns `[]` (never throws) when vector search is unavailable, the space
+ * needs reindexing, or the search fails, so it can never block a write. Supply `excludeId` to drop a
+ * self-match when called post-insert.
+ *
+ * Reads **two** sources, because neither alone can answer the question:
+ *
+ *  - the ANN index, which knows the whole space but not the last few seconds of it;
+ *  - the collection's newest records ({@link matchFreshWrites}), which is exactly the set the index has
+ *    not ingested yet — and exactly where a duplicate of a record being written right now would be.
+ *
+ * The second half is the fix for C-L5-3. Before it, an agent writing a batch of related records could not
+ * be warned about the batch it was writing: every duplicate warning named an older record, and none ever
+ * named a sibling. `exact: true` looks like the fix and is not — it scans the index exhaustively rather
+ * than the collection, and measures the same lag to the millisecond.
  */
 export async function checkDuplicates(
   spaceId: string,
@@ -623,11 +633,54 @@ export async function checkDuplicates(
 ): Promise<SimilarMatch[]> {
   if (!vector || vector.length === 0) return [];
   if (!isVectorSearchAvailable() || needsReindex(spaceId)) return [];
+  const collName = `${spaceId}_${KNOWLEDGE_COLLECTION[type]}`;
   try {
-    const hits = await recallByType(spaceId, type, vector, topK);
-    return hits
-      .filter(h => h._id !== excludeId && (h.score ?? 0) >= threshold)
-      .map(h => ({ _id: h._id, type: h.type, score: h.score, summary: summariseRecall(h) }));
+    // In parallel: the two halves are independent, and the check sits on a write path.
+    const [hits, fresh] = await Promise.all([
+      recallByType(spaceId, type, vector, topK),
+      matchFreshWrites(collName, vector),
+    ]);
+
+    const matches = new Map<string, SimilarMatch>();
+    for (const h of hits) {
+      if (h._id === excludeId || (h.score ?? 0) < threshold) continue;
+      matches.set(h._id, { _id: h._id, type: h.type, score: h.score, summary: summariseRecall(h) });
+    }
+
+    // Free verification, taken whenever it is available. A record in BOTH channels carries a score the
+    // search engine reported and one computed here, so every check that overlaps supplies its own sample
+    // — the same self-check `introduceLexicalOnly` runs, for the same reason. Disagreement means the
+    // local reproduction is wrong, and a wrong score is worse than a missing one on a threshold.
+    const reported = new Map(hits.map(h => [h._id, h.score]));
+    for (const f of fresh) {
+      const known = reported.get(f._id);
+      if (typeof known === 'number' && !scoresAgree(f.score, known)) {
+        log.warn(
+          `Duplicate check: fresh-write score disagrees with the search engine for ${collName} ` +
+          `(local ${f.score.toFixed(6)} vs reported ${known.toFixed(6)}). Using the index alone.`,
+        );
+        return [...matches.values()];
+      }
+    }
+
+    const unseen = fresh.filter(f => f._id !== excludeId && f.score >= threshold && !matches.has(f._id));
+    if (unseen.length > 0) {
+      // Only now fetch the records themselves, and only the ones that actually cleared the threshold —
+      // usually none. The scan deliberately returns ids and scores so it never carries record bodies.
+      const { commonProject, typeProject } = recallProjection(type);
+      const docs = await col(collName).aggregate<Record<string, unknown>>([
+        { $match: { _id: { $in: unseen.map(f => f._id) } } },
+        { $project: { ...commonProject, ...typeProject } },
+      ]).toArray();
+      const scoreById = new Map(unseen.map(f => [f._id, f.score]));
+      for (const doc of docs) {
+        doc['score'] = scoreById.get(doc['_id'] as string);
+        const rec = mapToRecallResult(doc, type);
+        matches.set(rec._id, { _id: rec._id, type: rec.type, score: rec.score, summary: summariseRecall(rec) });
+      }
+    }
+
+    return [...matches.values()].sort((a, b) => b.score - a.score);
   } catch {
     return [];
   }

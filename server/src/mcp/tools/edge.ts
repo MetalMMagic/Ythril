@@ -6,6 +6,7 @@ import { getEdgeById, traverseGraph, updateEdgeById, upsertEdge } from '../../br
 import { assertUpdateAllowed, classifyEdgeUpsert, classifyUpdateViolations, locateForUpdate } from '../../brain/write-validation.js';
 import { getConfig } from '../../config/loader.js';
 import { isStrictLinkage, resolveMemberSpaces, resolveWriteTarget, findFirstAcrossMembers } from '../../spaces/proxy.js';
+import { assertRefsResolve } from '../../brain/entity-refs.js';
 import { resolveMetaRefs, validateEdge } from '../../spaces/schema-validation.js';
 import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
 
@@ -56,6 +57,15 @@ export const upsert_edgeTool: ToolHandler = {
     if (isStrictLinkage(wt.target)) {
       if (!UUID_V4_RE.test(from)) throw new Error('from must be a valid UUID v4 (entity ID), not a name');
       if (!UUID_V4_RE.test(to)) throw new Error('to must be a valid UUID v4 (entity ID), not a name');
+      // Shape is not existence. A UUID v4 that names a CHRONO passes both checks above, and the edge then
+      // stores fine and is invisible to every graph query — `traverse` and `recall(traverse:1)` hydrate
+      // neighbours from the entity collection, so a non-entity endpoint yields no node and no edge. The
+      // caller gets an id back for a link that does not exist.
+      //
+      // Reported by the canary, who lost a 33-day incident timeline to it. The REST route has always
+      // called this; only the MCP surface checked the shape and stopped there.
+      await assertRefsResolve(wt.target, 'from', 'entity', [from]);
+      await assertRefsResolve(wt.target, 'to', 'entity', [to]);
     }
 
     // Schema validation of the record this upsert will PRODUCE. An edge's identity is (from, to, label)

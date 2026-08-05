@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+### Fixed
+
+- **`upsert_edge` over MCP returned an id for a link that did not exist** (reported by the canary, their
+  top-ranked ask). In a space with `strictLinkage: true`, an edge whose `to` named a **chrono** was
+  accepted: 201, an edge id back, stored fine — and then absent from `traverse` and `recall(traverse: 1)`
+  alike, missing from `nodes` AND `edges`, because both hydrate neighbours out of the entity collection.
+  - **Shape is not existence.** The MCP tool checked `UUID_V4_RE` and stopped; a chrono's `_id` is a
+    perfectly good UUID v4. The REST route has always called `assertRefsResolve`, which asks the database
+    whether the id names an entity. Two surfaces onto one rule, one enforcing a weaker version, each
+    reading as complete on its own.
+  - It cost the reporter a 33-day incident timeline, reassembled by name regex instead of by traversal —
+    and they could not clean up the dead edge, since no `delete_edge` is exposed over MCP; it had to be
+    parked with `ttlDays: 1`.
+  - Gated across **both** write surfaces, not just the one that broke.
+
+
 ### Added
 
 - **`GET /stats` now reports the embedding backlog** as `embedQueue: { pending, processing, failed }`.

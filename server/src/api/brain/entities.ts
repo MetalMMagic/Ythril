@@ -19,6 +19,7 @@ import { validateEntity } from '../../spaces/schema-validation.js';
 import { UUID_V4_RE, webhookToken, getSpaceMeta, ttlDaysFromBody, ttlDaysError } from './_shared.js';
 import { classifyEntityUpsert, classifyUpdateViolations } from '../../brain/write-validation.js';
 import { tagContains, textContains, propertiesValueContains } from '../../brain/tag-filter.js';
+import { mergePropertiesOrKeep, mergeTagsOrKeep } from '../../brain/merge-fields.js';
 
 export const entitiesRouter = Router();
 
@@ -253,12 +254,8 @@ entitiesRouter.patch('/spaces/:spaceId/entities/:id', globalRateLimit, requireSp
       // Build the resulting entity state to validate against schema
       const resultName = updates.name ?? existing.name;
       const resultType = updates.type ?? existing.type;
-      const resultTags = updates.tags !== undefined
-        ? Array.from(new Set([...(existing.tags ?? []), ...updates.tags]))
-        : existing.tags ?? [];
-      const resultProps = updates.properties !== undefined
-        ? { ...(existing.properties ?? {}), ...updates.properties }
-        : { ...(existing.properties ?? {}) };
+      const resultTags = mergeTagsOrKeep(existing.tags, updates.tags);
+      const resultProps = mergePropertiesOrKeep(existing.properties, updates.properties) ?? {};
       // Build a simulation and apply deleteFields for schema check
       const sim: Record<string, unknown> = { properties: resultProps, tags: resultTags, description: updates.description !== undefined ? updates.description : existing.description };
       if (dfPaths) applyDeleteFieldsPaths(sim, dfPaths);

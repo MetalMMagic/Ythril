@@ -1544,6 +1544,30 @@ would turn that into a burst of sidecar traffic for a column nobody is reading.
 
 ---
 
+### What a `PATCH` does to `tags` and `properties`
+
+**`properties` MERGE on every record type.** A patch that names one key keeps the others — the stored map with
+your keys laid over it, one level deep. This is the same rule as an upsert and the same rule a converged retry
+follows, so there is one thing to know across memories, entities, edges and chrono entries.
+
+**`tags` differ by type, deliberately:**
+
+| Endpoint / tool | `properties` | `tags` |
+|---|---|---|
+| `PATCH .../entities/:id`, `update_entity` | merge | **union** with the stored tags |
+| `PATCH .../edges/:id`, `update_edge` | merge | **union** with the stored tags |
+| `PATCH .../memories/:id`, `update_memory` | merge | **replaces** the stored tags |
+| `PATCH .../chrono/:id`, `update_chrono` | merge | **replaces** the stored tags |
+
+**Removing a key is `deleteFields`' job, never an absence.** Omitting a property does not delete it, and sending
+an empty `properties: {}` is a no-op rather than a wipe. If you need a key gone, name it:
+`deleteFields: ["properties.oldKey"]`.
+
+> **Changed in 2.4.1.** `PATCH .../memories/:id` and chrono updates previously **replaced** the whole
+> `properties` map, so a patch naming one key silently dropped the rest — while `update_memory`'s own schema
+> described the field as "properties to merge". If you were relying on the replace to clear keys, switch to
+> `deleteFields`.
+
 ### Partial Update with deleteFields
 
 All `PATCH` update endpoints — entities, edges, and memories — accept an optional `deleteFields` array of dot-notation paths. This allows callers to remove specific fields from a document in the same atomic operation as normal property/tag updates.

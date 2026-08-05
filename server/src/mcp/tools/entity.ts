@@ -8,6 +8,7 @@ import { type PropertyResolution, applyResolutions, computeMergePlan, executeMer
 import { getConfig } from '../../config/loader.js';
 import { isProxySpace, resolveWriteTarget, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { resolveMetaRefs, validateEntity } from '../../spaces/schema-validation.js';
+import { mergePropertiesOrKeep, mergeTagsOrKeep } from '../../brain/merge-fields.js';
 
 export const upsert_entityTool: ToolHandler = {
   name: 'upsert_entity',
@@ -152,13 +153,9 @@ export const update_entityTool: ToolHandler = {
     const found = await locateForUpdate(wt.target, mid => getEntityById(mid, id));
     if (found) {
       const prior = found.record;
-      const resultTags = updates.tags !== undefined
-        ? Array.from(new Set([...(prior.tags ?? []), ...updates.tags]))
-        : prior.tags ?? [];
+      const resultTags = mergeTagsOrKeep(prior.tags, updates.tags);
       const sim: Record<string, unknown> = {
-        properties: updates.properties !== undefined
-          ? { ...(prior.properties ?? {}), ...updates.properties }
-          : { ...(prior.properties ?? {}) },
+        properties: mergePropertiesOrKeep(prior.properties, updates.properties) ?? {},
         tags: resultTags,
       };
       if (dfPaths) applyDeleteFieldsPaths(sim, dfPaths);

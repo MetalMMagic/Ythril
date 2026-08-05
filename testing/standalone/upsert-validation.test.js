@@ -35,8 +35,8 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 
 let classifyEntityUpsertAgainst;
 let classifyEdgeUpsertAgainst;
-let mergedEntityWrite;
-let mergedEdgeProperties;
+let mergeTagsAndProperties;
+let mergePropertiesOrKeep;
 
 /** A space that requires `owner` on every `machine` entity, and `since` on every edge. */
 const STRICT_ENTITY = {
@@ -77,8 +77,9 @@ describe('upsert validation', () => {
   before(async () => {
     ({ classifyEntityUpsertAgainst, classifyEdgeUpsertAgainst } =
       await import('../../server/dist/brain/write-validation.js'));
-    ({ mergedEntityWrite } = await import('../../server/dist/brain/entities.js'));
-    ({ mergedEdgeProperties } = await import('../../server/dist/brain/edges.js'));
+    // Both merge rules now live in one module — see brain/merge-fields.ts. They used to live with the
+    // entity writer and the edge writer respectively, which is exactly why nine other sites re-derived them.
+    ({ mergeTagsAndProperties, mergePropertiesOrKeep } = await import('../../server/dist/brain/merge-fields.js'));
   });
 
   describe('the reported case', () => {
@@ -149,7 +150,7 @@ describe('upsert validation', () => {
       // wipe a required field and refuse an upsert that only sets, say, a weight.
       const out = classifyEdgeUpsertAgainst(STRICT_EDGE, STORED_EDGE, { label: 'runs-on' });
       assert.equal(out.blocked, false);
-      assert.deepEqual(mergedEdgeProperties(STORED_EDGE, undefined), STORED_EDGE.properties);
+      assert.deepEqual(mergePropertiesOrKeep(STORED_EDGE.properties, undefined), STORED_EDGE.properties);
     });
   });
 
@@ -174,13 +175,13 @@ describe('upsert validation', () => {
 
   describe('the merge rule lives with the writer', () => {
     it('merges properties and unions tags', () => {
-      const out = mergedEntityWrite({ tags: ['a'], properties: { x: 1, y: 2 } }, { tags: ['b'], properties: { y: 3 } });
+      const out = mergeTagsAndProperties({ tags: ['a'], properties: { x: 1, y: 2 } }, { tags: ['b'], properties: { y: 3 } });
       assert.deepEqual(out.properties, { x: 1, y: 3 });
       assert.deepEqual(out.tags.sort(), ['a', 'b']);
     });
 
     it('is the identity on an insert', () => {
-      const out = mergedEntityWrite(null, { tags: ['b'], properties: { y: 3 } });
+      const out = mergeTagsAndProperties(null, { tags: ['b'], properties: { y: 3 } });
       assert.deepEqual(out, { tags: ['b'], properties: { y: 3 } });
     });
   });
@@ -233,7 +234,7 @@ describe('upsert validation', () => {
         // bulk.ts composes the merge itself (it needs the prior record for its own counters), so it is
         // allowed to call the validator directly — as long as what it hands over came from the writer's
         // merge helper and not from the request.
-        const usesMergeHelper = /merged(EntityWrite|EdgeProperties)\(/.test(src);
+        const usesMergeHelper = /merge(TagsAndProperties|PropertiesOrKeep|Properties)\(/.test(src);
         if (!usesClassifier && !usesMergeHelper) offenders.push(p);
       }
       assert.deepEqual(offenders, [],

@@ -7,6 +7,7 @@ import { assertUpdateAllowed, classifyEdgeUpsert, classifyUpdateViolations, loca
 import { getConfig } from '../../config/loader.js';
 import { isStrictLinkage, resolveMemberSpaces, resolveWriteTarget, findFirstAcrossMembers } from '../../spaces/proxy.js';
 import { resolveMetaRefs, validateEdge } from '../../spaces/schema-validation.js';
+import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
 
 export const upsert_edgeTool: ToolHandler = {
   name: 'upsert_edge',
@@ -143,9 +144,7 @@ export const update_edgeTool: ToolHandler = {
     if (found) {
       const prior = found.record;
       const sim: Record<string, unknown> = {
-        properties: updates.properties !== undefined
-          ? { ...(prior.properties ?? {}), ...updates.properties }
-          : { ...(prior.properties ?? {}) },
+        properties: mergePropertiesOrKeep(prior.properties, updates.properties) ?? {},
       };
       if (dfPaths) applyDeleteFieldsPaths(sim, dfPaths);
       assertUpdateAllowed(classifyUpdateViolations(

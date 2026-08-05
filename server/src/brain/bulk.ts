@@ -18,8 +18,9 @@ import {
 } from '../spaces/schema-validation.js';
 import { isStrictLinkage } from '../spaces/proxy.js';
 import { remember } from './memory.js';
-import { upsertEntity, mergedEntityWrite } from './entities.js';
-import { upsertEdge, findEdgeByTriplet, mergedEdgeProperties } from './edges.js';
+import { upsertEntity } from './entities.js';
+import { upsertEdge, findEdgeByTriplet } from './edges.js';
+import { mergeTagsAndProperties, mergePropertiesOrKeep } from './merge-fields.js';
 import { createChrono } from './chrono.js';
 import type { EntityDoc, ChronoType, ChronoStatus } from '../config/types.js';
 
@@ -140,7 +141,7 @@ export async function bulkWrite(spaceId: string, input: BulkInput): Promise<Bulk
       const existing = rawId
         ? await col<EntityDoc>(`${spaceId}_entities`).findOne(asFilter<EntityDoc>({ _id: rawId, spaceId }))
         : null;
-      const mergedEnt = mergedEntityWrite(existing as EntityDoc | null, { tags: strArray(item['tags']), properties });
+      const mergedEnt = mergeTagsAndProperties(existing as EntityDoc | null, { tags: strArray(item['tags']), properties });
       if (schemaFails('entity', i, validateEntity(meta ?? {}, { name, type, properties: mergedEnt.properties, tags: mergedEnt.tags }))) continue;
       const result = await upsertEntity(spaceId, name, type, strArray(item['tags']), properties,
         typeof item['description'] === 'string' ? item['description'] : undefined, rawId, undefined, undefined, ttlDays);
@@ -166,7 +167,7 @@ export async function bulkWrite(spaceId: string, input: BulkInput): Promise<Bulk
     if (ttlDays === TTL_INVALID) { errors.push({ type: 'edge', index: i, reason: TTL_INVALID_MSG }); continue; }
     try {
       const existing = await findEdgeByTriplet(spaceId, from, to, label);
-      if (schemaFails('edge', i, validateEdge(meta ?? {}, { label, properties: mergedEdgeProperties(existing, properties) ?? {} }))) continue;
+      if (schemaFails('edge', i, validateEdge(meta ?? {}, { label, properties: mergePropertiesOrKeep(existing?.properties, properties) ?? {} }))) continue;
       await upsertEdge(spaceId, from, to, label,
         typeof item['weight'] === 'number' ? item['weight'] : undefined,
         typeof item['type'] === 'string' ? item['type'] : undefined,

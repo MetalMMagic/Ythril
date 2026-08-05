@@ -36,8 +36,9 @@ import { validateEntity, validateEdge, type SchemaViolation } from '../spaces/sc
 import type { SpaceMeta } from '../config/types.js';
 import { resolveMemberSpaces } from '../spaces/proxy.js';
 import { applyValidation, getSpaceMeta } from '../spaces/schema-validation.js';
-import { getEntityById, mergedEntityWrite } from './entities.js';
-import { findEdgeByTriplet, mergedEdgeProperties } from './edges.js';
+import { getEntityById } from './entities.js';
+import { findEdgeByTriplet } from './edges.js';
+import { mergeTagsAndProperties, mergePropertiesOrKeep } from './merge-fields.js';
 
 /**
  * Identity of a violation for before/after comparison.
@@ -227,7 +228,7 @@ export function classifyEntityUpsertAgainst(
   existing: { name: string; type: string; properties?: Record<string, string | number | boolean>; tags?: string[] } | null,
   incoming: { name: string; type: string; properties?: Record<string, string | number | boolean>; tags?: string[] },
 ): UpdateValidation {
-  const merged = mergedEntityWrite(existing, incoming);
+  const merged = mergeTagsAndProperties(existing, incoming);
   const after = validateEntity(meta ?? {}, {
     name: incoming.name, type: incoming.type, properties: merged.properties, tags: merged.tags,
   });
@@ -246,7 +247,7 @@ export function classifyEdgeUpsertAgainst(
   incoming: { label: string; properties?: Record<string, string | number | boolean> },
 ): UpdateValidation {
   const after = validateEdge(meta ?? {}, {
-    label: incoming.label, properties: mergedEdgeProperties(existing, incoming.properties) ?? {},
+    label: incoming.label, properties: mergePropertiesOrKeep(existing?.properties, incoming.properties) ?? {},
   });
   const before = existing
     ? validateEdge(meta ?? {}, { label: existing.label, properties: existing.properties ?? {} })

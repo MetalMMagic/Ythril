@@ -26,6 +26,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A `properties` patch no longer destroys the keys it did not mention** (memories and chrono entries). This is
+  data loss, and it was silent: no error, no warning, nothing in the audit log to distinguish it from an intended
+  overwrite.
+  - `update_memory`'s own tool schema said `properties` were *"to merge"*; `updateMemory` did
+    `$set['properties'] = updates.properties`, a whole-map **replace**. An agent patching one key wiped every
+    other property on the record. `updateChrono` had the same defect through a generic
+    `Object.entries(updates)` loop that treated `properties` like a scalar field.
+  - Three other statements said it should merge and none of them was enforced: the *Retry Safety* section
+    promises "tags union and properties shallow-merge" for all four record types, the `deleteFields` section
+    says deletions are "applied **after** the normal merge" for entities, edges **and memories**, and the
+    entity and edge update paths already merged.
+  - **The REST validation simulation mirrored the replace**, so the schema check could not see the loss either —
+    a `required` property could be dropped by a patch the validator had just approved.
+  - Removing a key remains `deleteFields`' job. An absence never means "delete".
+- **The tag/property merge rule now exists once, not eleven times** (`server/src/brain/merge-fields.ts`). Two
+  lines — a de-duplicated tag union and a shallow property merge — were hand-rolled across six files: the entity,
+  edge, memory and chrono writers, three REST handlers, two MCP tools, and the entity-dedupe merge.
+  - A canonical version already existed (`mergedEntityWrite`) and was already generic — its signature never
+    mentioned an entity. It had **two** call sites. **A helper named and placed for its first caller is invisible
+    to the second:** nobody reaches into `brain/entities.ts` to merge a chrono entry's properties. This is the
+    same shape as `boundedJson` sitting unused in `providers.ts` while 25 upstream reads went unbounded.
+  - Gated by `one-merge-rule.test.js` (source: nobody re-derives the rule) and `merge-rule-db.test.js`
+    (behaviour: all four writers produce the same merged map, against a real MongoDB). **Both halves
+    mutation-verified** — reverting either the memory or the chrono fix turns three tests red.
+  - **One divergence is kept deliberately and is now stated in both places:** `update_memory` documents tags as
+    *"New tags (replaces existing)"* while `update_entity`/`update_edge` document a union. Both halves are
+    written down, so the test pins both rather than letting a later sweep quietly unify them.
 - **The proxy badge now has a spec proving it renders something visible.** It does not replace a screenshot of
   the live space strip, which is still owed — what it closes is the failure this repo has been bitten by twice:
   an **unregistered `ph-icon` name renders a blank SVG with no error and no failing test**. Every

@@ -16,6 +16,7 @@ import type { ChronoStatus } from '../../config/types.js';
 import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, ttlDaysFromBody, ttlDaysError } from './_shared.js';
 import { classifyUpdateViolations } from '../../brain/write-validation.js';
 import { resolveEntityIdsByName } from '../../brain/entities.js';
+import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
 
 export const chronoRouter = Router();
 
@@ -249,7 +250,10 @@ chronoRouter.patch('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceA
     const check = classifyUpdateViolations(
       meta,
       validateChrono(meta ?? {}, { type: prior.type, properties: priorProps }),
-      validateChrono(meta ?? {}, { type: type ?? prior.type, properties: safeProps ?? priorProps }),
+      validateChrono(meta ?? {}, {
+        type: type ?? prior.type,
+        properties: mergePropertiesOrKeep(prior.properties, safeProps) ?? {},
+      }),
     );
     if (check.blocked) {
       res.status(422).json({

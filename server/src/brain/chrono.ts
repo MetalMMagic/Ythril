@@ -14,6 +14,7 @@ import { findInsertContradictions, type ContradictionWarning } from './insert-co
 import { deriveChronoStatus } from './chrono-status.js';
 import { getConfig } from '../config/loader.js';
 import { stampExpiryOnCreate, applyExpiryToUpdate } from './ttl.js';
+import { mergeTags, mergeProperties, mergePropertiesOrKeep } from './merge-fields.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { ChronoEntry, ChronoType, ChronoStatus, TombstoneDoc } from '../config/types.js';
 
@@ -144,8 +145,8 @@ export async function createChrono(
 
   // ── The idempotent branch: a supplied id that already names an entry converges rather than duplicating.
   if (existing) {
-    const mergedTags = [...new Set([...(existing.tags ?? []), ...tags])];
-    const mergedProps = { ...(existing.properties ?? {}), ...(fields.properties ?? {}) };
+    const mergedTags = mergeTags(existing.tags, tags);
+    const mergedProps = mergeProperties(existing.properties, fields.properties);
     const $set: Record<string, unknown> = {
       title: fields.title,
       type: fields.type,
@@ -230,6 +231,12 @@ export async function updateChrono(
   for (const [k, v] of Object.entries(updates)) {
     if (v !== undefined) $set[k] = v;
   }
+  // `properties` MERGES, like every other write path: `createChrono`'s converge branch above, the entity
+  // and edge updates, and the retry-safety guarantee the integration guide states for all four record
+  // types. The generic loop overhead has been REPLACING it — patch one key, lose the rest, no error.
+  // Removing a key is `deleteFields`' job on the surfaces that offer it, never an absence here.
+  const mergedUpdateProps = mergePropertiesOrKeep(existing.properties, updates.properties);
+  if (updates.properties !== undefined) $set['properties'] = mergedUpdateProps;
 
   // Re-embed if any embedding-relevant field changes
   if (
@@ -245,7 +252,7 @@ export async function updateChrono(
     const newStatus = updates.status ?? existing.status;
     const newDesc = updates.description !== undefined ? updates.description : existing.description;
     const newTags = updates.tags ?? existing.tags;
-    const newProps = updates.properties !== undefined ? updates.properties : existing.properties;
+    const newProps = mergedUpdateProps ?? existing.properties;
     try {
       const embedText = chronoEmbedText(newTitle, newKind, newStatus, newDesc, newTags, newProps);
       const embResult = await embed(embedText);

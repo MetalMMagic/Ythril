@@ -7,6 +7,7 @@ import { getConfig } from '../../config/loader.js';
 import { checkQuota } from '../../quota/quota.js';
 import { isStrictLinkage, resolveMemberSpaces, resolveWriteTarget } from '../../spaces/proxy.js';
 import { getAllowedChronoTypes, resolveMetaRefs, validateChrono } from '../../spaces/schema-validation.js';
+import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
 
 export const create_chronoTool: ToolHandler = {
   name: 'create_chrono',
@@ -181,7 +182,7 @@ export const update_chronoTool: ToolHandler = {
             description: { type: 'string' },
             properties: {
               type: 'object',
-              description: 'Optional structured key-value metadata for this entry.',
+              description: 'Key-value properties to merge into the stored map — keys you do not name are kept.',
               additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] },
             },
             recurrence: {
@@ -264,7 +265,9 @@ export const update_chronoTool: ToolHandler = {
         validateChrono(found.meta ?? {}, { type: prior.type, properties: priorProps }),
         validateChrono(found.meta ?? {}, {
           type: (updates['type'] as string | undefined) ?? prior.type,
-          properties: (updates['properties'] as Record<string, unknown> | undefined) ?? priorProps,
+          properties: mergePropertiesOrKeep(
+            prior.properties, updates['properties'] as Record<string, string | number | boolean> | undefined,
+          ) ?? {},
         }),
       ));
     }

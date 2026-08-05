@@ -19,6 +19,7 @@ import { checkQuota } from '../../quota/quota.js';
 import { resolveWriteTarget, findFirstAcrossMembers, isStrictLinkage } from '../../spaces/proxy.js';
 import { resolveMetaRefs, validateMemory } from '../../spaces/schema-validation.js';
 import { TTL_DAYS_SCHEMA, ttlDaysFromArgs, unitScoreSchema } from './shared.js';
+import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
 
 export const rememberTool: ToolHandler = {
   name: 'remember',
@@ -160,7 +161,7 @@ export const update_memoryTool: ToolHandler = {
             description: { type: 'string', description: 'New prose description or context.' },
             properties: {
               type: 'object',
-              description: 'Key-value properties to merge (e.g. {"source": "manual"}). Values must be string, number, or boolean.',
+              description: 'Key-value properties to merge into the stored map (e.g. {"source": "manual"}) — keys you do not name are kept. Use deleteFields to remove one. Values must be string, number, or boolean.',
               additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] },
             },
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
@@ -212,7 +213,7 @@ export const update_memoryTool: ToolHandler = {
     const found = await locateForUpdate(wt.target, async mid => (await listMemories(mid, { _id: id }, 1, 0))[0]);
     if (found) {
       const priorProps = (found.record.properties ?? {}) as Record<string, unknown>;
-      const sim: Record<string, unknown> = { properties: updates.properties ?? { ...priorProps } };
+      const sim: Record<string, unknown> = { properties: mergePropertiesOrKeep(found.record.properties, updates.properties) ?? {} };
       if (dfPaths) applyDeleteFieldsPaths(sim, dfPaths);
       assertUpdateAllowed(classifyUpdateViolations(
         found.meta,

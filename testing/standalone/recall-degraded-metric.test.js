@@ -27,7 +27,7 @@ before(async () => {
   ({ register, recallDegradedTotal } = await import('../../server/dist/metrics/registry.js'));
 });
 
-const REASONS = ['rerank_unavailable', 'rerank_skipped_budget'];
+const REASONS = ['rerank_unavailable', 'rerank_skipped_budget', 'search_timeout'];
 
 describe('ythril_recall_degraded_total', () => {
   it('exposes every reason at zero before anything has degraded', async () => {
@@ -49,10 +49,31 @@ describe('ythril_recall_degraded_total', () => {
   it('every declared reason is incremented somewhere in the source', () => {
     // A label that can only ever read 0 tells an operator "this never happens", which is a stronger and
     // more misleading claim than saying nothing at all.
+    //
+    // Two accepted spellings, and the second is why this comment exists: the direct
+    // `recallDegradedTotal.labels({ reason: 'x' })`, and `noteDegraded('x')` — the helper introduced with
+    // the per-call deadline, which increments the counter AND records the reason on the response so a
+    // partial answer can say so. When that helper replaced the direct calls this gate failed, correctly
+    // noticing the literal was gone and wrongly concluding the reason was uncounted. Matching both keeps it
+    // honest without forcing the code back into a shape that serves the test rather than the caller.
     const recall = readFileSync('server/src/brain/recall.ts', 'utf8');
     for (const reason of REASONS) {
-      assert.ok(recall.includes(`reason: '${reason}'`), `${reason} is declared but never incremented`);
+      const direct = recall.includes(`reason: '${reason}'`);
+      const viaHelper = recall.includes(`noteDegraded('${reason}')`);
+      assert.ok(direct || viaHelper, `${reason} is declared but never incremented`);
     }
+  });
+
+  it('the helper that records a reason also increments the counter', () => {
+    // The failure this forecloses: `noteDegraded` gains a caller for a new reason, the response reports it,
+    // and the metric never moves — so the dashboard says a degradation that operators are reading about in
+    // API responses never happens. One helper, both jobs, asserted rather than assumed.
+    const recall = readFileSync('server/src/brain/recall.ts', 'utf8');
+    const helper = recall.slice(recall.indexOf('const noteDegraded'), recall.indexOf('const searchDeadline'));
+    assert.ok(helper.length > 0, 'noteDegraded not found — this gate is measuring nothing');
+    assert.match(helper, /recallDegradedTotal\.labels\(\{ reason \}\)\.inc\(\)/,
+      'noteDegraded must increment the metric, not only collect the reason for the response');
+    assert.match(helper, /opts\?\.degraded/, 'noteDegraded must also record the reason for the caller');
   });
 
   it('the lexical channel is deliberately NOT counted, and the reason is recorded', () => {

@@ -76,11 +76,47 @@ describe('the deadline is threaded through the pipeline', () => {
     assert.match(client, /Number\.isFinite\(budgetMs\) && budgetMs! > 0 \? .* : TIMEOUT_MS/);
   });
 
-  it('the vector and lexical hops are NOT cancelled by the budget', () => {
-    // Deliberate: they produce the results themselves. Cutting them returns nothing, which is worse
-    // than returning an imperfectly ordered something.
+  it('the searches DO carry a deadline now, and a partial answer says so', () => {
+    // ── This test used to assert the OPPOSITE, and it kept passing after the code changed ──
+    //
+    // It was: "the vector and lexical hops are NOT cancelled by the budget", checked by asserting that
+    // Phase 2's source slice does not contain the literal `RECALL_BUDGET_MS`. When the per-call `maxTimeMS`
+    // landed, the searches started carrying a deadline derived from `effectiveBudgetMs` — a different
+    // identifier — so the assertion stayed green while the property it described became false. A test that
+    // pins a NAME rather than a BEHAVIOUR cannot notice the behaviour changing, which is the whole failure
+    // this suite exists to prevent.
+    //
+    // The original reasoning was sound on its own terms — cutting the hop that produces the results returns
+    // nothing, which is worse than an imperfect order — and it is superseded rather than wrong. Two things
+    // changed it: a per-call deadline whose largest hop is unbounded cannot be honoured at all, and
+    // returning nothing is no longer the alternative. A timed-out collection is dropped, the ones that
+    // answered are returned, and the response carries `search_timeout` so the caller knows the answer is
+    // thin. Partial and labelled beats unbounded.
     const phase2 = recall.slice(recall.indexOf('// Phase 2:'), recall.indexOf('// Phase 3'));
-    assert.ok(!phase2.includes('RECALL_BUDGET_MS'),
-      'the budget must not be able to cancel the searches that produce the results');
+    assert.match(phase2, /searchDeadline\(\)/,
+      'the per-type searches must receive a deadline, or a per-call maxTimeMS bounds nothing that matters');
+
+    assert.match(recall, /\.maxTimeMS\(maxTimeMS\)/,
+      'the deadline must reach the Mongo aggregation, not merely be computed');
+    assert.match(recall, /settleSearches/,
+      'a timed-out collection must not discard the collections that answered');
+    assert.match(recall, /search_timeout/,
+      'a partial answer must be labelled — an unlabelled short answer is indistinguishable from an empty corpus');
+  });
+
+  it('a per-call deadline can only LOWER the instance budget', () => {
+    // Letting a request body raise the ceiling hands any caller a denial-of-service lever, and how long the
+    // server may spend is the operator's decision. Asserted on the arithmetic rather than on prose.
+    assert.match(recall, /Math\.min\(opts\?\.maxTimeMS \?\? RECALL_BUDGET_MS, RECALL_BUDGET_MS\)/,
+      'the effective budget must be a min() against the instance ceiling');
+    assert.match(recall, /MIN_RECALL_BUDGET_MS/,
+      'a floor must exist, or maxTimeMS: 1 is a guaranteed empty answer that reads as a broken parameter');
+  });
+
+  it('the rerank skip uses the CALL budget, not the instance one', () => {
+    // Otherwise a caller asking for 5s would still have a 20s cross-encoder started at 22s, and the
+    // parameter would bound nothing the caller can feel.
+    assert.match(recall, /const remaining = effectiveBudgetMs - \(Date\.now\(\) - startedAt\)/,
+      'the remaining-budget arithmetic must be against the effective (per-call) budget');
   });
 });

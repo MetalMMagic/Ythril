@@ -46,6 +46,52 @@ export const RECALL_BUDGET_MS = envInt('RECALL_BUDGET_MS', 25_000);
  */
 export const RERANK_MIN_BUDGET_MS = envInt('RERANK_MIN_BUDGET_MS', 3_000);
 
+/**
+ * The floor a per-call `maxTimeMS` is clamped to.
+ *
+ * A caller sending `maxTimeMS: 1` has asked for a deadline, not for a guaranteed empty answer — and an empty
+ * answer is exactly what an unclamped 1 ms would produce on every call, which reads as a broken parameter
+ * rather than as an honoured one. 250 ms is short enough that nobody who wanted "fail fast" is surprised.
+ */
+export const MIN_RECALL_BUDGET_MS = 250;
+
+/**
+ * The smallest deadline handed to a single collection search.
+ *
+ * The budget is consumed by the hops before this one, so late in a slow call the remainder can be near zero
+ * or negative. Passing that through would abort searches that had time to answer, turning a nearly-spent
+ * budget into a guaranteed timeout. A small floor means the last hop still gets a real chance.
+ */
+export const MIN_SEARCH_DEADLINE_MS = 100;
+
+/**
+ * Await per-type searches, keeping what answered and flagging what timed out.
+ *
+ * `Promise.all` was correct while a search could only succeed or fail the whole recall. With a deadline that
+ * is no longer the right shape: the integrator's stated preference is **partial results plus a truthful flag
+ * over an error over hanging**, so one collection running out of time must not discard the four that
+ * answered. Every other rejection still propagates — a real error is not degradation, and swallowing it here
+ * would turn a broken index into a quietly shorter answer, which is the failure mode this release exists to
+ * remove.
+ */
+async function settleSearches(
+  searches: Promise<RecallResult[]>[],
+  noteDegraded: (reason: string) => void,
+): Promise<RecallResult[][]> {
+  const settled = await Promise.allSettled(searches);
+  const kept: RecallResult[][] = [];
+  for (const s of settled) {
+    if (s.status === 'fulfilled') { kept.push(s.value); continue; }
+    if (s.reason instanceof RecallSearchTimeout) {
+      log.warn(`Recall: ${s.reason.message} — returning a partial answer`);
+      noteDegraded('search_timeout');
+      continue;
+    }
+    throw s.reason;
+  }
+  return kept;
+}
+
 export type RecallKnowledgeType = 'memory' | 'entity' | 'edge' | 'chrono' | 'file';
 
 /** Fields shared by every knowledge-type recall result. */
@@ -159,7 +205,25 @@ export async function recall(
    * A ninth positional argument would make every call site a row of undefineds to count through, and the
    * next option after it a tenth. New options go here instead; existing callers are untouched.
    */
-  opts?: { maxPerType?: Partial<Record<RecallKnowledgeType, number>> },
+  opts?: {
+    maxPerType?: Partial<Record<RecallKnowledgeType, number>>;
+    /**
+     * Per-call deadline in ms. It can only ever LOWER the instance's `RECALL_BUDGET_MS`, never raise it —
+     * extending an operator's ceiling from a request body is a denial-of-service lever, and the ceiling is
+     * the operator's call.
+     */
+    maxTimeMS?: number;
+    /**
+     * Collector for degradation reasons, so the caller can tell the requester the answer is partial.
+     *
+     * A mutable array rather than a changed return type: `recall` is called from four places and its
+     * `RecallResult[]` return flows into traverse, findSimilar and two response builders, so widening it to
+     * an envelope would ripple through paths that have nothing to do with deadlines. The reasons are the
+     * same closed vocabulary as `ythril_recall_degraded_total` — an unbounded set here would become an
+     * unbounded metric label there.
+     */
+    degraded?: string[];
+  },
 ): Promise<RecallResult[]> {
   if (!isVectorSearchAvailable()) {
     throw new Error(
@@ -179,6 +243,22 @@ export async function recall(
   // total. Worst case that is 30 s of embedding plus Mongo plus 20 s of reranking, well past the point
   // where the MCP client or the browser has given up and thrown the answer away. See RECALL_BUDGET_MS.
   const startedAt = Date.now();
+
+  // The effective budget for THIS call: the caller may lower the instance ceiling, never raise it. A floor
+  // keeps `maxTimeMS: 1` from being a guaranteed empty answer that reads as a bug — the caller asked for a
+  // deadline, not for nothing, and 250 ms is short enough to honour the intent.
+  const effectiveBudgetMs = Math.max(
+    MIN_RECALL_BUDGET_MS,
+    Math.min(opts?.maxTimeMS ?? RECALL_BUDGET_MS, RECALL_BUDGET_MS),
+  );
+  const noteDegraded = (reason: string): void => {
+    recallDegradedTotal.labels({ reason }).inc();
+    if (opts?.degraded && !opts.degraded.includes(reason)) opts.degraded.push(reason);
+  };
+  /** What is left of the budget, as a Mongo deadline. Never below a floor, or the search cannot start. */
+  const searchDeadline = (): number =>
+    Math.max(MIN_SEARCH_DEADLINE_MS, effectiveBudgetMs - (Date.now() - startedAt));
+
   const embResult = await embed(query, 'query');
 
   const activeTypes: RecallKnowledgeType[] = (types && types.length > 0)
@@ -192,9 +272,9 @@ export async function recall(
     const floorSearches = Object.entries(minPerType)
       .filter(([t, floor]) => activeTypes.includes(t as RecallKnowledgeType) && (floor ?? 0) > 0)
       .map(([t, floor]) =>
-        recallByType(spaceId, t as RecallKnowledgeType, embResult.vector, floor!, tags, filter),
+        recallByType(spaceId, t as RecallKnowledgeType, embResult.vector, floor!, tags, filter, searchDeadline()),
       );
-    const floorResults = (await Promise.all(floorSearches)).flat();
+    const floorResults = (await settleSearches(floorSearches, noteDegraded)).flat();
     for (const r of floorResults) {
       if (!guaranteedIds.has(r._id)) {
         guaranteedIds.add(r._id);
@@ -210,8 +290,8 @@ export async function recall(
   // nothing — the over-fetch is the whole mechanism.
   const reranking = rerankConfigured();
   const perTypeK = Math.ceil(topK * (reranking ? candidateMultiplier() : 1.5));
-  const searches = activeTypes.map(t => recallByType(spaceId, t, embResult.vector, perTypeK, tags, filter));
-  const allResults = (await Promise.all(searches)).flat();
+  const searches = activeTypes.map(t => recallByType(spaceId, t, embResult.vector, perTypeK, tags, filter, searchDeadline()));
+  const allResults = (await settleSearches(searches, noteDegraded)).flat();
   allResults.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
 
   // Phase 2b: the LEXICAL channel, fused into the vector order by RRF.
@@ -231,10 +311,12 @@ export async function recall(
   // one, so it is where a deadline should bite: starting a 20-second cross-encoder pass with three
   // seconds left guarantees the caller times out and gets NOTHING, where skipping it returns the fused
   // order — slightly worse ranking, delivered. Degrading beats being right too late.
-  const remaining = RECALL_BUDGET_MS - (Date.now() - startedAt);
+  // The per-call budget, not the instance one: a caller who asked for 5 s must have the reranker skipped at
+  // 5 s, or the parameter bounds nothing that matters. `RECALL_BUDGET_MS` remains the ceiling.
+  const remaining = effectiveBudgetMs - (Date.now() - startedAt);
   if (reranking && remaining < RERANK_MIN_BUDGET_MS) {
-    recallDegradedTotal.labels({ reason: 'rerank_skipped_budget' }).inc();
-    log.warn(`Recall: ${remaining}ms of the ${RECALL_BUDGET_MS}ms budget left — skipping the reranker and returning the fused order`);
+    noteDegraded('rerank_skipped_budget');
+    log.warn(`Recall: ${remaining}ms of the ${effectiveBudgetMs}ms budget left — skipping the reranker and returning the fused order`);
   } else if (reranking) {
     await applyRerank(query, guaranteed, allResults, remaining);
   }
@@ -781,6 +863,15 @@ async function recallByType(
   topK: number,
   tags?: string[],
   filter?: FilterExpression,
+  /**
+   * Server-side deadline for this collection's search, in ms.
+   *
+   * The vector aggregations carried NO time limit at all, which made the end-to-end budget decorative
+   * for the hop most likely to be slow: `RECALL_BUDGET_MS` could only ever cancel the reranker, so a slow
+   * `$vectorSearch` blew past any deadline and the caller had already given up. A per-call `maxTimeMS`
+   * that cannot cut this is a promise the server cannot keep.
+   */
+  maxTimeMS?: number,
 ): Promise<RecallResult[]> {
   const collSuffix = KNOWLEDGE_COLLECTION[knowledgeType];
   const collName = `${spaceId}_${collSuffix}`;
@@ -849,23 +940,64 @@ async function recallByType(
     throw err;
   };
 
+  /** Apply the deadline only when there is one, so an unbounded call behaves exactly as before. */
+  const run = (pipeline: object[]) => {
+    const cursor = col(collName).aggregate<Record<string, unknown>>(pipeline);
+    return (maxTimeMS != null ? cursor.maxTimeMS(maxTimeMS) : cursor).toArray();
+  };
+
   try {
-    const docs = await col(collName).aggregate<Record<string, unknown>>(primary).toArray();
+    const docs = await run(primary);
     return docs.map(d => mapToRecallResult(d, knowledgeType));
   } catch (err) {
+    // A deadline that expired is NOT an index error and must not be swallowed as an empty collection —
+    // that is the difference between "this space holds nothing matching" and "we ran out of time", and
+    // reporting the first when the second happened is the failure this whole release has been about. It is
+    // rethrown so `recall` can count it and flag the answer as partial.
+    if (isMaxTimeExpired(err)) throw new RecallSearchTimeout(knowledgeType);
     // If the native-filter query failed — e.g. the index has not yet been rebuilt with a
     // just-added filter field — retry on the exhaustive path, which needs no declared fields. This
     // keeps recall correct through the brief window after a schema change while the index rebuilds.
     if (usedNativeFilter) {
       try {
-        const docs = await col(collName).aggregate<Record<string, unknown>>(exhaustivePipeline()).toArray();
+        const docs = await run(exhaustivePipeline());
         return docs.map(d => mapToRecallResult(d, knowledgeType));
       } catch (err2) {
+        if (isMaxTimeExpired(err2)) throw new RecallSearchTimeout(knowledgeType);
         return swallowIndexError(err2);
       }
     }
     return swallowIndexError(err);
   }
+}
+
+/**
+ * One collection's search hit the deadline.
+ *
+ * A named error rather than an empty array, because those two mean opposite things and the caller has to be
+ * able to tell them apart: an empty result is an answer, a timeout is an admission. `recall` turns this into
+ * a `search_timeout` flag on a partial answer instead of letting it fail the whole call.
+ */
+class RecallSearchTimeout extends Error {
+  constructor(public readonly knowledgeType: RecallKnowledgeType) {
+    super(`recall: the ${knowledgeType} search exceeded its deadline`);
+    this.name = 'RecallSearchTimeout';
+  }
+}
+
+/**
+ * Did MongoDB abort this operation because `maxTimeMS` expired?
+ *
+ * Keyed on **error code 50** (`MaxTimeMSExpired`) first, because a code is stable where a message is not.
+ * The message check is a fallback for drivers or proxies that wrap the error and lose the code — without it,
+ * a wrapped timeout would fall through to `swallowIndexError`, fail its regex, and surface as a 500 for what
+ * is a deliberate deadline.
+ */
+function isMaxTimeExpired(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  if (code === 50) return true;
+  const msg = err instanceof Error ? err.message : String(err);
+  return /maxtimems|operation exceeded time limit|exceeded time limit/i.test(msg);
 }
 
 function mapToRecallResult(doc: Record<string, unknown>, knowledgeType: RecallKnowledgeType): RecallResult {
@@ -938,7 +1070,11 @@ export async function recallGlobal(
   minPerType?: Partial<Record<RecallKnowledgeType, number>>,
   minScore?: number,
   filter?: FilterExpression,
-  opts?: { maxPerType?: Partial<Record<RecallKnowledgeType, number>> },
+  opts?: {
+    maxPerType?: Partial<Record<RecallKnowledgeType, number>>;
+    maxTimeMS?: number;
+    degraded?: string[];
+  },
 ): Promise<RecallResult[]> {
   const results = await Promise.all(spaceIds.map(id => recall(id, query, topK, tags, types, minPerType, minScore, filter, opts)));
   const flat = results.flat();

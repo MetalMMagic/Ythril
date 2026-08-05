@@ -9,6 +9,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`maxTimeMS` on recall — a per-call deadline, and a `degraded` flag when the answer is partial** (an
+  integrator's second ask). They were enforcing a 5 s bound at **twelve** call sites with client-side HTTP
+  timeouts, each degrading to "no context": the right behaviour in the wrong place, since a convention loses
+  to the thirteenth caller.
+  - **It can only lower the instance's `RECALL_BUDGET_MS`, never raise it.** Extending an operator's ceiling
+    from a request body is a denial-of-service lever. A larger value clamps down to the ceiling; a value under
+    250 ms clamps up to that floor, because `maxTimeMS: 1` would otherwise be a guaranteed empty answer that
+    reads as a broken parameter rather than an honoured one.
+  - **On expiry you get what finished.** Their stated preference was partial results > an error > hanging, so
+    collections that answered are returned, the ones that timed out contribute nothing, and the response
+    carries `degraded: ["search_timeout"]` — in the **body**, as asked, because a `200` that is quietly short
+    is indistinguishable from a `200` that found everything. `degraded` also surfaces the two rerank
+    degradations that until now were only visible in a metric and a log line, and it is **absent** when
+    nothing degraded rather than an empty array on every healthy response.
+  - **`ythril_recall_degraded_total` gains `search_timeout`.** It clears the bar that registry sets for a new
+    reason: it is keyed on MongoDB error **code 50** (`MaxTimeMSExpired`), so unlike a missing lexical channel
+    it cannot fire for "this collection held nothing".
+
+### Fixed
+
+- **The per-collection vector searches had no time limit at all**, which made the end-to-end recall budget
+  decorative for the hop most likely to be slow: `RECALL_BUDGET_MS` documents itself as able to cancel only the
+  reranker, so a slow `$vectorSearch` ran as long as it liked and the caller had already given up. The
+  aggregations now carry a deadline derived from the remaining budget.
+- **A per-type search failure no longer discards the searches that succeeded.** `Promise.all` was correct while
+  any failure meant the whole recall failed; with a deadline it would throw away four good collections because
+  a fifth ran late. Timeouts are collected and flagged; every other rejection still propagates, because a real
+  error is not degradation and swallowing it would turn a broken index into a quietly shorter answer.
+- **The rerank-skip decision used the instance budget rather than the call's.** A caller asking for 5 s would
+  still have had the cross-encoder started at 22 s, so the parameter would have bounded nothing that mattered.
+
 - **`maxPerType` on recall — a ceiling to match `minPerType`'s floor** (an integrator's top ask). Optional, on
   both `POST /api/brain/spaces/:id/recall` and the MCP `recall` tool; absent, nothing changes.
   `{ "maxPerType": { "file": 2 } }` caps how many results of a type come back.

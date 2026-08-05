@@ -415,6 +415,7 @@ Available as both:
 | `tags` | — | none | Array of strings — restrict to records carrying these tags |
 | `minPerType` | — | none | Object mapping knowledge type → minimum hits, e.g. `{ "entity": 2 }`. Guarantees at least that many results of the type; each value is clamped to `topK` |
 | `maxPerType` | — | none | Object mapping knowledge type → **maximum** hits, e.g. `{ "file": 2 }` — the ceiling to `minPerType`'s floor. A slot the cap frees goes to another type. Each value must be at least `1` and is clamped to `topK`; a value below `minPerType` for the same type is a `400` (see below) |
+| `maxTimeMS` | — | the instance budget | Deadline for this recall, in ms. **Can only lower the instance's `RECALL_BUDGET_MS`, never raise it** — a larger value is clamped to it, and a very small one is clamped up to a 250 ms floor. On expiry you get a **partial** answer with a `degraded` field, not an error and not a hang |
 | `traverse` | — | `0` | Graph-expansion depth (integer 0–5). `0` = classic recall; > 0 follows edges from each match (see [Graph-Augmented Recall](#graph-augmented-recall-traverse-parameter)) |
 
 **Response** `200`:
@@ -427,6 +428,42 @@ Available as both:
   "count": 1
 }
 ```
+
+### Bounding a recall in time: `maxTimeMS` and `degraded`
+
+A recall runs its hops in series — embed the query, search each collection, fuse the lexical channel, rerank —
+and a slow one can outlast the client waiting for it. `maxTimeMS` puts the bound where the work is instead of
+in each caller's HTTP timeout, which is the difference between a rule and a convention.
+
+**What happens on expiry is the useful part: you get what finished.** Collections that answered are returned;
+one that ran out of time contributes nothing and the response gains a `degraded` array:
+
+```json
+{
+  "results": [ { "_id": "...", "type": "memory", "score": 0.83 } ],
+  "count": 1,
+  "degraded": ["search_timeout"]
+}
+```
+
+| reason | meaning |
+|---|---|
+| `search_timeout` | at least one collection's vector search hit the deadline, so the answer is **partial** — fewer results than the corpus holds, not fewer results because the corpus is empty |
+| `rerank_skipped_budget` | the cross-encoder was configured but not run: too little budget was left. The order is the hybrid-fusion order, which is a slightly worse ranking, delivered |
+| `rerank_unavailable` | the cross-encoder was configured and did not answer (unreachable, non-2xx, unreadable body) |
+
+**`degraded` is absent when nothing degraded** — it is not an empty array on every healthy response, because a
+field that is almost always empty is one readers stop looking at. Treat its presence as "this answer is
+thinner than it could have been", and note that the status is still `200`: partial results beat an error, and
+both beat hanging.
+
+**The clamps are deliberate.** `maxTimeMS` can only lower the instance's budget: letting a request body
+extend it would hand any caller a denial-of-service lever, and how long the server may spend is the operator's
+decision. A value below 250 ms is clamped up, because `maxTimeMS: 1` would otherwise be a guaranteed empty
+answer, which reads as a broken parameter rather than an honoured one.
+
+The same `degraded` field appears on `traverse > 0` responses, since seeds that were partial produce a partial
+expansion and a longer list would otherwise hide it.
 
 **A contradictory floor/ceiling pair is refused, not resolved.** `minPerType.entity: 5` with
 `maxPerType.entity: 2` answers `400`, naming both values:

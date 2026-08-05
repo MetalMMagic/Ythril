@@ -1645,6 +1645,41 @@ describe('MCP brain tools � recall and recall_global with minPerType', () => {
     assert.ok(result?.isError, '0 must be refused — `types` is the parameter that excludes a type');
   });
 
+  it('recall accepts maxTimeMS and answers rather than hanging', async (t) => {
+    if (!embeddingAvailable) return t.skip('Embedding server not configured in test stack � skipping');
+    // Not asserting that `degraded` appears: against a fast local Mongo the searches may finish inside the
+    // 250 ms floor, and an assertion that depends on losing a race is a flake. The contract that holds
+    // either way is asserted instead.
+    const result = await session.callTool('recall', {
+      space: 'general', query: entityName, topK: 5, maxTimeMS: 1,
+    });
+    assert.ok(!result?.isError, `recall with maxTimeMS returned isError: ${JSON.stringify(result)}`);
+    const parsed = JSON.parse(result?.content?.[0]?.text ?? '{}');
+    assert.ok(Array.isArray(parsed.results), 'results must be an array even on a partial answer');
+    if (parsed.degraded !== undefined) {
+      for (const reason of parsed.degraded) {
+        assert.ok(['search_timeout', 'rerank_skipped_budget', 'rerank_unavailable'].includes(reason),
+          `unknown degraded reason "${reason}"`);
+      }
+    }
+  });
+
+  it('recall REFUSES a non-integer or zero maxTimeMS', async (t) => {
+    if (!embeddingAvailable) return t.skip('Embedding server not configured in test stack � skipping');
+    for (const v of [0, -5, 12.5]) {
+      const result = await session.callTool('recall', { space: 'general', query: entityName, maxTimeMS: v });
+      assert.ok(result?.isError, `maxTimeMS=${v} must be refused`);
+    }
+  });
+
+  it('a healthy recall omits the degraded key entirely', async (t) => {
+    if (!embeddingAvailable) return t.skip('Embedding server not configured in test stack � skipping');
+    const result = await session.callTool('recall', { space: 'general', query: entityName, topK: 5 });
+    assert.ok(!result?.isError, JSON.stringify(result));
+    const parsed = JSON.parse(result?.content?.[0]?.text ?? '{}');
+    assert.equal('degraded' in parsed, false, `a healthy recall must omit the key: ${JSON.stringify(parsed)}`);
+  });
+
   it('recall_global accepts maxPerType — the ceiling survives the cross-space merge', async (t) => {
     if (!embeddingAvailable) return t.skip('Embedding server not configured in test stack � skipping');
     // No `space`, so this is the global path, where each space caps itself and the merged answer must be

@@ -201,7 +201,7 @@ export async function remember(
 export async function updateMemory(
   spaceId: string,
   memoryId: string,
-  updates: { fact?: string; tags?: string[]; entityIds?: string[]; description?: string; properties?: Record<string, string | number | boolean>; type?: string },
+  updates: { fact?: string; tags?: string[]; entityIds?: string[]; description?: string; properties?: Record<string, string | number | boolean>; type?: string; excludeFromVectorSearch?: boolean },
   deleteFieldsPaths?: string[],
   actor?: WebhookActor,
   ttlDays?: number | null,
@@ -230,6 +230,10 @@ export async function updateMemory(
   if (updates.description !== undefined) $set['description'] = updates.description;
   if (updates.properties !== undefined) $set['properties'] = mergedUpdateProps;
   if (updates.type !== undefined) $set['type'] = updates.type;
+  // Toggling exclusion always ends in an embed job, and the job handles BOTH directions — it unsets the
+  // vector when the flag is on and computes one when it is off. So this path never needs to know which
+  // way the toggle went.
+  if (updates.excludeFromVectorSearch !== undefined) $set['excludeFromVectorSearch'] = updates.excludeFromVectorSearch;
 
   // Apply deleteFields after merge
   if (deleteFieldsPaths && deleteFieldsPaths.length > 0) {
@@ -309,6 +313,10 @@ export async function updateMemory(
     applyDeleteFields(result as unknown as Record<string, unknown>, deleteFieldsPaths);
   }
 
+  // Toggling exclusion always ends in an embed job, and the job handles BOTH directions — it unsets
+  // the vector when the flag is on and computes one when it is off. So this path never has to know
+  // which way the toggle went, which is what keeps the rule in one place.
+  if (updates.excludeFromVectorSearch !== undefined) await enqueueEmbedJob(spaceId, 'memory', result._id);
   if (actor) emitWebhookEvent({ event: 'memory.updated', spaceId, entry: { ...result, embedding: undefined }, ...actor });
   return result;
 }

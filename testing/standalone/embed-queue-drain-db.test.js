@@ -223,6 +223,56 @@ describe('brain embedding queue drains (real MongoDB, real embed() over a stub e
     });
   }
 
+  it('excludeFromVectorSearch: the job UNSETS the vector instead of computing one', async () => {
+    // The flag is implemented AS the absence of a vector, not as a query filter. A filter was the obvious
+    // design and does not work: `ne` is not natively pushable (`brain/filter.ts:74`), so it would force
+    // every recall onto an exhaustive scan, and the positive form would need a backfill of a synced
+    // collection. No vector means no vector hit, natively, at zero query cost.
+    const doc = await memory.remember(SPACE, 'retired fact', [], [], undefined, undefined, undefined,
+      undefined, { waitForEmbedding: true });
+    const coll = mongo.col(`${SPACE}_memories`);
+    assert.ok(Array.isArray((await coll.findOne({ _id: doc._id })).embedding),
+      'precondition: it starts searchable');
+
+    await memory.updateMemory(SPACE, doc._id, { excludeFromVectorSearch: true });
+    assert.equal(await jobs().countDocuments({}), 1, 'the toggle queued a job');
+    assert.equal(await worker.runOneEmbedJob(), true);
+
+    const after = await coll.findOne({ _id: doc._id });
+    assert.equal(after.embedding, undefined, 'the stale vector is UNSET, not left behind');
+    assert.equal(after.embeddingModel, undefined);
+    assert.equal(after.excludeFromVectorSearch, true, 'and the record itself is still there');
+    assert.ok(after.fact, 'excluded is not deleted — an operator must still be able to find it by listing');
+  });
+
+  it('clearing the flag gives the vector back', async () => {
+    // The escape hatch that makes unsetting safe: re-including is one queued job away. That is only true
+    // because the embedding queue exists — this design was not available before it.
+    const doc = await memory.remember(SPACE, 'temporarily retired', [], []);
+    const coll = mongo.col(`${SPACE}_memories`);
+
+    await memory.updateMemory(SPACE, doc._id, { excludeFromVectorSearch: true });
+    await worker.runOneEmbedJob();
+    assert.equal((await coll.findOne({ _id: doc._id })).embedding, undefined);
+
+    await memory.updateMemory(SPACE, doc._id, { excludeFromVectorSearch: false });
+    assert.equal(await worker.runOneEmbedJob(), true);
+    assert.ok(Array.isArray((await coll.findOne({ _id: doc._id })).embedding),
+      'clearing the flag re-embeds — the job handles both directions, so no caller has to know which');
+  });
+
+  it('an excluded record is never given a vector in the first place', async () => {
+    // Not only "unset later": a record created already-excluded must not be embedded at all, or every
+    // creator would burn a model call to produce a vector the next job deletes.
+    const doc = await memory.remember(SPACE, 'born retired', [], []);
+    await mongo.col(`${SPACE}_memories`).updateOne({ _id: doc._id },
+      { $set: { excludeFromVectorSearch: true } });
+
+    assert.equal(await worker.runOneEmbedJob(), true);
+    assert.equal((await mongo.col(`${SPACE}_memories`).findOne({ _id: doc._id })).embedding, undefined);
+    assert.equal(await jobs().countDocuments({}), 0, 'and the job retires rather than retrying forever');
+  });
+
   it('all four creators agree — none embeds inline by default', async () => {
     // Stated as one comparison so a type drifting away fails here even if its own rows above were
     // updated to match it.

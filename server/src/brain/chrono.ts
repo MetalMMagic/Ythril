@@ -220,7 +220,7 @@ export async function createChrono(
 export async function updateChrono(
   spaceId: string,
   id: string,
-  updates: Partial<Pick<ChronoEntry, 'title' | 'description' | 'type' | 'startsAt' | 'endsAt' | 'status' | 'confidence' | 'tags' | 'entityIds' | 'memoryIds' | 'properties' | 'recurrence'>>,
+  updates: Partial<Pick<ChronoEntry, 'title' | 'description' | 'type' | 'startsAt' | 'endsAt' | 'status' | 'confidence' | 'tags' | 'entityIds' | 'memoryIds' | 'properties' | 'recurrence' | 'excludeFromVectorSearch'>>,
   actor?: WebhookActor,
   ttlDays?: number | null,
 ): Promise<ChronoEntry | null> {
@@ -284,6 +284,10 @@ export async function updateChrono(
   }).inc();
   const updatedChrono = { ...existing, ...($set as Partial<ChronoEntry>) } as ChronoEntry;
   if ('_expireAt' in $unset) delete (updatedChrono as { _expireAt?: unknown })._expireAt;
+  // Toggling exclusion always ends in an embed job, and the job handles BOTH directions — it unsets
+  // the vector when the flag is on and computes one when it is off. So this path never has to know
+  // which way the toggle went, which is what keeps the rule in one place.
+  if (updates.excludeFromVectorSearch !== undefined) await enqueueEmbedJob(spaceId, 'chrono', updatedChrono._id);
   if (actor) emitWebhookEvent({ event: 'chrono.updated', spaceId, entry: { ...updatedChrono, embedding: undefined }, ...actor });
   return updatedChrono;
 }

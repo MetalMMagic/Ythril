@@ -248,7 +248,7 @@ export async function getEntityById(spaceId: string, id: string): Promise<Entity
 export async function updateEntityById(
   spaceId: string,
   id: string,
-  updates: { name?: string; type?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean> },
+  updates: { name?: string; type?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; excludeFromVectorSearch?: boolean },
   deleteFieldsPaths?: string[],
   actor?: WebhookActor,
   ttlDays?: number | null,
@@ -295,6 +295,7 @@ export async function updateEntityById(
     }
   }
 
+  if (updates.excludeFromVectorSearch !== undefined) $set['excludeFromVectorSearch'] = updates.excludeFromVectorSearch;
   if (updates.name !== undefined) $set['name'] = newName;
   if (updates.type !== undefined) $set['type'] = newType;
   if (updates.description !== undefined || (deleteFieldsPaths && !$unset['description'])) $set['description'] = newDesc;
@@ -347,6 +348,10 @@ export async function updateEntityById(
     applyDeleteFields(result as unknown as Record<string, unknown>, deleteFieldsPaths);
   }
 
+  // Toggling exclusion always ends in an embed job, and the job handles BOTH directions — it unsets
+  // the vector when the flag is on and computes one when it is off. So this path never has to know
+  // which way the toggle went, which is what keeps the rule in one place.
+  if (updates.excludeFromVectorSearch !== undefined) await enqueueEmbedJob(spaceId, 'entity', result._id);
   if (actor) emitWebhookEvent({ event: 'entity.updated', spaceId, entry: { ...result, embedding: undefined }, ...actor });
   return result;
 }

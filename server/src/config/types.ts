@@ -1426,6 +1426,18 @@ export interface AuthorRef {
 }
 
 export interface MemoryDoc {
+  /**
+   * Keep this record stored, but stop it being found by vector search.
+   *
+   * Implemented by having NO embedding rather than by a query filter: a vectorless record cannot be
+   * returned by $vectorSearch at all, at zero query cost, and it also drops out of the lexical channel
+   * because `introduceLexicalOnly` skips what it cannot score. A filter was the obvious design and does
+   * not work — `ne` is not natively pushable (`brain/filter.ts:74`), so it would force every recall onto
+   * an exhaustive scan, and the positive form would need a backfill of a synced collection.
+   *
+   * Absent means included, so no existing record changes. Clearing the flag re-queues an embedding.
+   */
+  excludeFromVectorSearch?: boolean;
   _id: string;
   spaceId: string;
   fact: string;
@@ -1456,6 +1468,18 @@ export interface MemoryDoc {
 }
 
 export interface EntityDoc {
+  /**
+   * Keep this record stored, but stop it being found by vector search.
+   *
+   * Implemented by having NO embedding rather than by a query filter: a vectorless record cannot be
+   * returned by $vectorSearch at all, at zero query cost, and it also drops out of the lexical channel
+   * because `introduceLexicalOnly` skips what it cannot score. A filter was the obvious design and does
+   * not work — `ne` is not natively pushable (`brain/filter.ts:74`), so it would force every recall onto
+   * an exhaustive scan, and the positive form would need a backfill of a synced collection.
+   *
+   * Absent means included, so no existing record changes. Clearing the flag re-queues an embedding.
+   */
+  excludeFromVectorSearch?: boolean;
   _id: string;
   spaceId: string;
   name: string;
@@ -1476,6 +1500,18 @@ export interface EntityDoc {
 }
 
 export interface EdgeDoc {
+  /**
+   * Keep this record stored, but stop it being found by vector search.
+   *
+   * Implemented by having NO embedding rather than by a query filter: a vectorless record cannot be
+   * returned by $vectorSearch at all, at zero query cost, and it also drops out of the lexical channel
+   * because `introduceLexicalOnly` skips what it cannot score. A filter was the obvious design and does
+   * not work — `ne` is not natively pushable (`brain/filter.ts:74`), so it would force every recall onto
+   * an exhaustive scan, and the positive form would need a backfill of a synced collection.
+   *
+   * Absent means included, so no existing record changes. Clearing the flag re-queues an embedding.
+   */
+  excludeFromVectorSearch?: boolean;
   _id: string;
   spaceId: string;
   from: string;
@@ -1504,6 +1540,18 @@ export type ChronoKind = ChronoType;
 export type ChronoStatus = 'upcoming' | 'active' | 'completed' | 'overdue' | 'cancelled';
 
 export interface ChronoEntry {
+  /**
+   * Keep this record stored, but stop it being found by vector search.
+   *
+   * Implemented by having NO embedding rather than by a query filter: a vectorless record cannot be
+   * returned by $vectorSearch at all, at zero query cost, and it also drops out of the lexical channel
+   * because `introduceLexicalOnly` skips what it cannot score. A filter was the obvious design and does
+   * not work — `ne` is not natively pushable (`brain/filter.ts:74`), so it would force every recall onto
+   * an exhaustive scan, and the positive form would need a backfill of a synced collection.
+   *
+   * Absent means included, so no existing record changes. Clearing the flag re-queues an embedding.
+   */
+  excludeFromVectorSearch?: boolean;
   _id: string;
   spaceId: string;
   title: string;

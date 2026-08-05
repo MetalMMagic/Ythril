@@ -238,7 +238,7 @@ export async function getEdgeById(spaceId: string, id: string): Promise<EdgeDoc 
 export async function updateEdgeById(
   spaceId: string,
   id: string,
-  updates: { label?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; weight?: number; type?: string },
+  updates: { label?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; weight?: number; type?: string; excludeFromVectorSearch?: boolean },
   deleteFieldsPaths?: string[],
   actor?: WebhookActor,
   ttlDays?: number | null,
@@ -252,6 +252,7 @@ export async function updateEdgeById(
   const $set: Record<string, unknown> = { updatedAt: now, seq };
   const $unset: Record<string, unknown> = {};
 
+  if (updates.excludeFromVectorSearch !== undefined) $set['excludeFromVectorSearch'] = updates.excludeFromVectorSearch;
   const newLabel = updates.label ?? existing.label;
   let newDesc = updates.description !== undefined ? updates.description : existing.description;
   let newTags = mergeTagsOrKeep(existing.tags, updates.tags);
@@ -351,6 +352,10 @@ export async function updateEdgeById(
     applyDeleteFields(result as unknown as Record<string, unknown>, deleteFieldsPaths);
   }
 
+  // Toggling exclusion always ends in an embed job, and the job handles BOTH directions — it unsets
+  // the vector when the flag is on and computes one when it is off. So this path never has to know
+  // which way the toggle went, which is what keeps the rule in one place.
+  if (updates.excludeFromVectorSearch !== undefined) await enqueueEmbedJob(spaceId, 'edge', result._id);
   if (actor) emitWebhookEvent({ event: 'edge.updated', spaceId, entry: { ...result, embedding: undefined }, ...actor });
   return result;
 }

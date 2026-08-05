@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`excludeFromVectorSearch` — a record that stays stored but stops being found** (owner request). Set it
+  on a memory, entity, edge or chrono entry and it drops out of recall, find-similar and duplicate
+  detection; clear it and it comes back. It is not a delete: the record still lists, still exports, still
+  syncs.
+  - **Implemented as the ABSENCE of a vector, not as a query filter.** A filter was the obvious design and
+    does not work — `ne` is not natively pushable to `$vectorSearch` (`brain/filter.ts:74`), so every
+    recall on the space would fall back to an exhaustive scan, and the positive `eq: false` form would
+    need the field backfilled onto every existing record in a **synced** collection, which the
+    synced-data rule forbids. No vector means no vector hit: natively, at zero query cost, with no index
+    change and no migration.
+  - Absent means included, so nothing existing changes.
+  - **Only possible because the embedding queue landed first.** Unsetting a vector is safe precisely
+    because clearing the flag queues a re-embed and the record is back in milliseconds.
+
 - **All four brain creators now queue their embedding instead of waiting for the model.** `upsertEntity`,
   `upsertEdge` and `createChrono` join `remember`: the write returns as soon as the record is durable and a
   worker embeds it moments later, with `waitForEmbedding: true` keeping the inline path for callers who

@@ -70,8 +70,14 @@ export async function buildEmbedText(
   }
 }
 
-/** What became of an embedding attempt. `gone` is a success: the record was deleted, so there is nothing owed. */
-export type EmbedOutcome = 'embedded' | 'gone';
+/**
+ * What became of an embedding attempt.
+ *
+ * `gone` and `excluded` are both successes — the record was deleted, or its owner asked for it not to be
+ * findable. Neither is owed a vector, so neither may be retried: a retry would keep a job alive forever for
+ * work that must never happen.
+ */
+export type EmbedOutcome = 'embedded' | 'gone' | 'excluded';
 
 /**
  * Load the record, build its text, embed it, store the vector.
@@ -89,6 +95,20 @@ export async function embedStoredRecord(
   const collName = `${spaceId}_${COLLECTION[recordType]}`;
   const doc = await col(collName).findOne(asFilter({ _id: recordId })) as Record<string, unknown> | null;
   if (!doc) return 'gone';
+
+  // `excludeFromVectorSearch` is implemented AS the absence of a vector — there is no query-time filter to
+  // honour, so this is the single place the flag has any effect. Every writer of a vector reaches this
+  // function, which is why one check covers the four creators and sync ingest alike.
+  //
+  // The stale vector is UNSET rather than left behind. Leaving it would keep the record findable by the
+  // exact mechanism the flag exists to switch off, which is the whole bug.
+  if (doc['excludeFromVectorSearch'] === true) {
+    await col(collName).updateOne(
+      asFilter({ _id: recordId }),
+      { $unset: { embedding: '', embeddingModel: '' } },
+    );
+    return 'excluded';
+  }
 
   const text = await buildEmbedText(spaceId, recordType, doc);
   const result = await embed(text);

@@ -57,7 +57,7 @@ async function raw(method, urlPath, body) {
 }
 
 async function createEntity(space, name, description) {
-  const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${space}/entities`, { name, type: 'service', description, tags: [] });
+  const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${space}/entities`, { name, type: 'service', description, tags: [], waitForEmbedding: true });
   return r.status === 201 ? r.body._id : null;
 }
 

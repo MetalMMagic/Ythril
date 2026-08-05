@@ -1594,6 +1594,24 @@ an empty `properties: {}` is a no-op rather than a wipe. If you need a key gone,
 > described the field as "properties to merge". If you were relying on the replace to clear keys, switch to
 > `deleteFields`.
 
+### Updating by id: use PATCH
+
+`PATCH` is the update verb for every brain record type. There is **one exception, and it is a legacy one**:
+a POST to a chrono **id** also updates (`.../chrono/:id`). No other type has an equivalent: posting
+to a memory id is a **404**, not an update.
+
+| type | update by id | POST-as-update |
+|---|---|---|
+| memory | `PATCH .../memories/:id` | **no** (404) |
+| entity | `PATCH .../entities/:id` | no — but a collection POST with a matching `id` upserts |
+| edge | `PATCH .../edges/:id` | no — a collection POST upserts on `(from, to, label)` |
+| chrono | `PATCH .../chrono/:id` | **yes**, legacy |
+
+**Do not build on the chrono form.** It predates the retry-safety design and duplicates it: the supported way
+to make a create idempotent is a client-supplied UUID v4 in the **collection** POST body, which converges on
+the same record for every type (see [Retry Safety](#retry-safety)). The chrono route is kept for existing
+callers and is listed for removal in a future major.
+
 ### Partial Update with deleteFields
 
 All `PATCH` update endpoints — entities, edges, and memories — accept an optional `deleteFields` array of dot-notation paths. This allows callers to remove specific fields from a document in the same atomic operation as normal property/tag updates.

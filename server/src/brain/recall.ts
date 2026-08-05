@@ -857,7 +857,7 @@ async function getEntryEmbedding(
   spaceId: string,
   entryId: string,
   entryType: RecallKnowledgeType,
-): Promise<{ vector: number[]; doc: Record<string, unknown> } | null> {
+): Promise<{ vector: number[]; doc: Record<string, unknown> } | 'no-embedding' | null> {
   const collSuffix = KNOWLEDGE_COLLECTION[entryType];
   const collName = `${spaceId}_${collSuffix}`;
   const doc = await col(collName).findOne(
@@ -866,7 +866,10 @@ async function getEntryEmbedding(
   ) as Record<string, unknown> | null;
   if (!doc) return null;
   const vector = doc['embedding'] as number[] | undefined;
-  if (!vector || !Array.isArray(vector) || vector.length === 0) return null;
+  // Told apart from `null` deliberately. Since writes stopped waiting for the embedding model, "exists but
+  // has no vector yet" is a routine state lasting milliseconds — not an anomaly — and reporting it as "not
+  // found" sends an operator hunting for a record that is sitting right there.
+  if (!vector || !Array.isArray(vector) || vector.length === 0) return 'no-embedding';
   return { vector, doc };
 }
 
@@ -897,8 +900,15 @@ export async function findSimilar(
 
   // Fetch the source entry's stored embedding
   const entry = await getEntryEmbedding(spaceId, entryId, entryType);
+  if (entry === 'no-embedding') {
+    throw new NotFoundError(
+      `Entry '${entryId}' exists in space '${spaceId}' (type: ${entryType}) but is not embedded yet, so ` +
+      'there is nothing to compare it against. Embedding is queued and normally completes in milliseconds — ' +
+      'retry, or write with waitForEmbedding: true when you need the record searchable the moment the write returns.',
+    );
+  }
   if (!entry) {
-    throw new NotFoundError(`Entry '${entryId}' not found in space '${spaceId}' (type: ${entryType}), or has no embedding.`);
+    throw new NotFoundError(`Entry '${entryId}' not found in space '${spaceId}' (type: ${entryType}).`);
   }
 
   const activeTypes: RecallKnowledgeType[] = (targetTypes && targetTypes.length > 0)

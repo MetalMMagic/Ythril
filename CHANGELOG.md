@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A record replicated from a peer is now embedded on arrival.** It never was, and the consequence was
+  invisible: `embedding` is a DERIVED field excluded from replication (`merkle.ts` `DERIVED_FIELDS`,
+  because two peers may run different models), and sync ingest is a plain `replaceOne` of the incoming
+  document. So a record arriving from a peer had **no vector on the receiving instance and nothing ever
+  gave it one**.
+  - A vectorless record is not ranked lower, it is **absent**: the vector search never returns it, and the
+    lexical channel needs an embedding to compute a real similarity and skips what it cannot score. An
+    instance could hold a peer's entire knowledge base and answer nothing from it, until an operator
+    happened to run a manual whole-space `POST /reindex`.
+  - All twelve ingest write sites now enqueue. A record that arrives *with* a vector is left alone rather
+    than recomputed — an older peer, or a future change of mind about derived fields, should not be undone.
+  - Gated by a coverage check scoped from the **shape** of a write rather than a list of route names, and
+    mutation-verified: deleting one enqueue turns it red.
+
 - **Memory writes no longer wait for the embedding model, and a record that misses its vector now gets one
   later.** A new per-space embedding queue (`<space>_embed_jobs`) takes the work: the write returns as soon as
   the record is durable, a worker embeds it moments later, and a failure retries with jittered backoff instead

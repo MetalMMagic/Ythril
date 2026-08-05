@@ -10,6 +10,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The duplicate check could not see the batch you were writing** (reported by two integrators
+  independently). `checkDuplicates` read the vector index, which is eventually consistent — a record
+  committed a moment ago is not in it. So the one check whose entire job is to compare against the
+  neighbourhood of a record being written *now* was the one check guaranteed not to see it: every warning
+  named an older record, and none ever named a sibling from the same batch. That is precisely when
+  duplicates get created.
+  - Diagnosed by the reporter's own measurement: a 0.98-similar record missed at ~14 s and caught at
+    ~2 min on the **same** threshold, which is what proves elapsed time was the variable rather than
+    `dupeThreshold`.
+  - **`exact: true` is not the fix**, though it looks like one. It is an exhaustive scan of the *index*,
+    not of the collection. Measured by inserting a document and polling both paths: ANN first saw it after
+    1088 ms, ENN after 1083 ms — identical. Anything routed through search inherits the lag.
+  - The check now also scores the space's newest records straight from the **collection**, bounded by a
+    time window (`DUPE_FRESH_WINDOW_MS`, default 180 s) and a document cap (`DUPE_FRESH_SCAN_CAP`, default
+    200). Cost tracks how much the space is churning rather than how large it is: ~9 ms with an empty
+    window and ~52 ms with a full one, at 20,000 records and 768 dimensions. A truncated scan logs the cap
+    it hit rather than reading as a complete one.
+  - The mapping from similarity to the score Atlas reports now has one implementation
+    (`atlasScoreFromParts`), reached both by callers holding two vectors and by the aggregation pipeline,
+    which computes only `dot` and the document's norm. Restating the formula in MQL would have been the
+    two-implementations-of-one-rule shape that has cost this repo four bugs.
+  - Reaches the duplicate **and** contradiction checks on memories, entities and chrono entries, since all
+    three write paths already funnelled through this one function. `recall` itself is unchanged — the same
+    lag on the read path is a different cost trade and is tracked separately.
+
+
+### Fixed
+
 - **`excludeFromVectorSearch` was not settable over REST.** It was wired into the four update functions
   and into none of the PATCH handlers, so `PATCH /memories/<id>` with only that field answered *"At least
   one field must be provided"* — the flag shipped unreachable on the surface most integrators use. Found

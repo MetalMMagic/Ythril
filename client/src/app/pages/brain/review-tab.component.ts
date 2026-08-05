@@ -220,6 +220,33 @@ import { ConfirmDialogService } from '../../core/confirm-dialog.service';
     } @else if (sub() === 'contradictions') {
       <section role="tabpanel" id="review-panel-contradictions" aria-labelledby="review-tab-contradictions">
         <p class="intro">{{ 'review.contradictions.intro' | transloco }}</p>
+
+        <!-- Its own strip rather than one lifted above the tabs: the search box IS shared (same signal as
+             Duplicates), but the status piles are not the same set — contradictions have a resolved pile
+             and duplicates do not — so a single control would have to offer an option meaning nothing on
+             one side. Sharing it would be a worse lie than repeating fifteen lines of markup. -->
+        <app-summary-strip [items]="conSummaryItems()">
+          <div class="strip-ctl">
+            <label class="dup-search">
+              <ph-icon name="magnifying-glass" [size]="14"/>
+              <input type="search" [ngModel]="query()" (ngModelChange)="query.set($event)"
+                [placeholder]="'duplicates.searchPlaceholder' | transloco"
+                [attr.aria-label]="'duplicates.searchPlaceholder' | transloco" />
+            </label>
+            <select [(ngModel)]="conStatusFilter" (change)="loadContradictions()"
+              [attr.aria-label]="'duplicates.statusFilterAria' | transloco">
+              <option value="open">{{ 'duplicates.status.open' | transloco }}</option>
+              <option value="dismissed">{{ 'duplicates.status.dismissed' | transloco }}</option>
+              <option value="resolved">{{ 'duplicates.status.resolved' | transloco }}</option>
+              <option value="all">{{ 'duplicates.status.all' | transloco }}</option>
+            </select>
+            <button class="btn btn-sm btn-secondary" (click)="scanContradictions()" [disabled]="conScanning()">
+              @if (conScanning()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
+              {{ 'duplicates.scanNow' | transloco }}
+            </button>
+          </div>
+        </app-summary-strip>
+
         @if (conLoading()) {
           <div class="loading-overlay"><span class="spinner"></span></div>
         } @else if (conError() !== null) {
@@ -228,13 +255,32 @@ import { ConfirmDialogService } from '../../core/confirm-dialog.service';
         } @else if (conFilteredRows().length === 0) {
           <div class="empty-state">
             <div class="empty-state-icon"><ph-icon name="warning" [size]="48"/></div>
-            @if (typeFilter() !== 'all' && conRows().length) {
+            <!-- Four different reasons for an empty list, and they used to share one message which
+                 asserted the most alarming of them. Narrowest cause first. -->
+            @if (query().trim() && conRows().length) {
+              <h3>{{ 'duplicates.noMatches.title' | transloco }}</h3>
+              <p>{{ 'duplicates.noMatches.body' | transloco }}</p>
+            } @else if (typeFilter() !== 'all' && conRows().length) {
               <!-- Distinct from "nothing to review": the queue is not empty, this filter is. -->
               <h3>{{ 'review.typeFilter.noneOfType' | transloco }}</h3>
               <p>{{ 'review.typeFilter.noneOfTypeBody' | transloco }}</p>
+            } @else if (conStatusFilter !== 'open') {
+              <!-- An empty dismissed or resolved pile is not a finding about the space at all. -->
+              <h3>{{ 'review.contradictions.noneWithStatus' | transloco }}</h3>
+              <p>{{ 'review.contradictions.noneWithStatusBody' | transloco }}</p>
+            } @else if (conNliConfigured() === false) {
+              <!-- No judge configured — so say what that costs and what still runs, rather than "detection
+                   is not running". The deterministic pass runs with no model at all. -->
+              <h3>{{ 'review.contradictions.structuredOnlyTitle' | transloco }}</h3>
+              <p>{{ 'review.contradictions.structuredOnlyBody' | transloco }}</p>
             } @else {
-              <h3>{{ 'review.contradictions.pendingTitle' | transloco }}</h3>
-              <p>{{ 'review.contradictions.pendingBody' | transloco }}</p>
+              <!-- Nothing found. The body states only that; the extra line claiming BOTH passes ran is
+                   added only when the server actually said so, never on an unknown. -->
+              <h3>{{ 'review.contradictions.cleanTitle' | transloco }}</h3>
+              <p>{{ 'review.contradictions.cleanBody' | transloco }}</p>
+              @if (conNliConfigured() === true) {
+                <p>{{ 'review.contradictions.judgeRan' | transloco }}</p>
+              }
             }
           </div>
         } @else {
@@ -420,13 +466,36 @@ export class ReviewTabComponent implements OnInit, OnChanges {
    */
   readonly conError = signal<string | null>(null);
   readonly conBusy = signal<string | null>(null);
+  readonly conScanning = signal(false);
+
+  /**
+   * Which pile to show. Was **hardcoded to `open`**, which made `Dismiss` and both `Resolve` buttons
+   * one-way: the API has supported `dismissed` / `resolved` / `all` all along, the UI simply never asked.
+   * Three things were dead because of it — the status pill (rendered only when `status !== 'open'`), the
+   * `re-rate` button (rendered only when `status === 'dismissed'`), and any chance of undoing a mis-click.
+   */
+  conStatusFilter: 'open' | 'dismissed' | 'resolved' | 'all' = 'open';
+
+  /**
+   * Whether the model-judged pass is among the ones that run, as reported by the server.
+   *
+   * `null` means NOT KNOWN, and is deliberately a third state rather than a default of `true`. Defaulting
+   * would make the strongest available claim — "both passes have run and found nothing" — on the weakest
+   * available evidence, which is the exact move that produced the bug this whole item is about. When it is
+   * unknown the empty state says only what it can see: nothing was found.
+   */
+  readonly conNliConfigured = signal<boolean | null>(null);
 
   /** Load this space's contradictions. Called on init, on space switch, and after every action. */
   loadContradictions(): void {
     this.conLoading.set(true);
     this.conError.set(null);
-    this.contradictionsApi.listContradictions('open', this.spaceId).subscribe({
-      next: r => { this.conRows.set(r.contradictions); this.conLoading.set(false); },
+    this.contradictionsApi.listContradictions(this.conStatusFilter, this.spaceId).subscribe({
+      next: r => {
+        this.conRows.set(r.contradictions);
+        this.conNliConfigured.set(typeof r.nliConfigured === 'boolean' ? r.nliConfigured : null);
+        this.conLoading.set(false);
+      },
       // A load failure must not read as "no contradictions" — the empty state would be a lie. Surface it
       // and leave whatever was already on screen.
       error: (err) => {
@@ -613,12 +682,57 @@ export class ReviewTabComponent implements OnInit, OnChanges {
       `${r.aSummary} ${r.bSummary} ${r.type} ${r.spaceId}`.toLowerCase().includes(q));
   });
 
-  /** Contradictions narrowed by the same type filter. No search box on this side yet. */
+  /**
+   * Contradictions narrowed by the shared type filter and the shared search box.
+   *
+   * `query` is shared with Duplicates on purpose, exactly as `typeFilter` is: both are questions about
+   * WHICH RECORDS, not about which kind of finding, so "I am looking at the Vault records" should survive
+   * a tab switch. The status filters are NOT shared — contradictions have a `resolved` pile and duplicates
+   * do not, so one control would have to offer an option that means nothing on one side.
+   *
+   * The searched text includes the disagreeing field values, which is what a reviewer actually remembers
+   * about a structured finding — "the one about `region`" — and it is not in either summary.
+   */
   conFilteredRows = computed<ContradictionRecord[]>(() => {
+    const q = this.query().trim().toLowerCase();
     const type = this.typeFilter();
-    const list = this.conRows();
-    return type === 'all' ? list : list.filter(r => r.type === type);
+    let list = this.conRows();
+    if (type !== 'all') list = list.filter(r => r.type === type);
+    if (!q) return list;
+    return list.filter(r => {
+      const fields = (r.fields ?? []).map(f => `${f.key} ${f.aValue} ${f.bValue}`).join(' ');
+      return `${r.aSummary} ${r.bSummary} ${r.type} ${r.spaceId} ${fields}`.toLowerCase().includes(q);
+    });
   });
+
+  /** The same rollup Duplicates gets: what still needs attention, and how much of it is on screen. */
+  conSummaryItems = computed<SummaryItem[]>(() => {
+    const list = this.conRows();
+    const open = list.filter(r => r.status === 'open').length;
+    return [
+      { label: this.transloco.translate('duplicates.summary.open'), value: String(open), variant: open ? 'warn' : 'ok' },
+      { label: this.transloco.translate('duplicates.summary.shown'), value: String(this.conFilteredRows().length) },
+    ];
+  });
+
+  /** Run the contradiction scan now. The API method existed from the start with no caller. */
+  scanContradictions(): void {
+    this.conScanning.set(true);
+    this.contradictionsApi.scanContradictions(this.spaceId).subscribe({
+      next: (r) => {
+        this.conScanning.set(false);
+        // `nliStalled` means the judge was unreachable, so the NLI pass settled nothing and its cursor is
+        // parked. Silence here would leave "0 found" reading as "nothing disagrees" — the same conflation
+        // the empty state used to make, one layer up.
+        if (r.nliStalled) this.toast.error(this.transloco.translate('review.contradictions.scanStalled'));
+        this.loadContradictions();
+      },
+      error: (e) => {
+        this.conScanning.set(false);
+        this.toast.error(this.transloco.translate(e?.status === 403 ? 'duplicates.scanForbidden' : 'duplicates.scanError'));
+      },
+    });
+  }
 
   /**
    * True when the server's per-space cap was reached, so the list on screen is not the whole story.

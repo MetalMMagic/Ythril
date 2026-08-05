@@ -8,10 +8,14 @@ import type { ContradictionRecord } from './api.types';
 export class ContradictionsApi {
   private http = inject(HttpClient);
 
-  listContradictions(status: 'open' | 'dismissed' | 'resolved' | 'all' = 'open', space?: string): Observable<{ contradictions: ContradictionRecord[] }> {
+  /**
+   * `nliConfigured` comes back with the list because an empty list has more than one meaning, and the
+   * view cannot tell them apart on its own — see the note on the server route.
+   */
+  listContradictions(status: 'open' | 'dismissed' | 'resolved' | 'all' = 'open', space?: string): Observable<{ contradictions: ContradictionRecord[]; nliConfigured: boolean }> {
     const params = new URLSearchParams({ status });
     if (space) params.set('space', space);
-    return this.http.get<{ contradictions: ContradictionRecord[] }>(`/api/contradictions?${params.toString()}`);
+    return this.http.get<{ contradictions: ContradictionRecord[]; nliConfigured: boolean }>(`/api/contradictions?${params.toString()}`);
   }
 
   dismissContradiction(id: string): Observable<{ status: string }> {

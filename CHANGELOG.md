@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+### Documentation
+
+- **The one POST-as-update route is now documented as legacy, and gated.** A chrono entry can be updated by
+  posting to its id; no other type can, and posting to a memory id is a 404. Nothing said so, which reads as
+  a bug from either direction depending on which type you met first.
+  - **Resolved by documenting, not by adding the missing route.** Adding it to memories would spread a
+    deprecated shape to a second type to make it look symmetrical. The supported idempotent create is a
+    client-supplied UUID v4 in the COLLECTION post, which already covers every type — the chrono route
+    predates that design and duplicates it. Listed for removal in `_DEPRECATIONS.md`.
+  - Investigated after a report that posting to a memory id returned **200 and changed nothing**. That did
+    not reproduce: both the current and the legacy path shapes answer 404. The asymmetry underneath it was
+    real, so that is what got fixed.
+
 ### Added
 
 - **`excludeFromVectorSearch` — a record that stays stored but stops being found** (owner request). Set it

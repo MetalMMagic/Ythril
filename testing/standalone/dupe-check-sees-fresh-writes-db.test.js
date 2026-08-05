@@ -45,6 +45,10 @@ const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ythril-dupe-fresh-'));
 const CONFIG_PATH = path.join(tmpDir, 'config.json');
 process.env['CONFIG_PATH'] = CONFIG_PATH;
 process.env['EMBEDDING_DIMENSIONS'] = String(DIMS);
+// Deliberately NOT setting DATA_ROOT. It defaults to `/data`, which a CI runner cannot create — so if this
+// suite ever reaches the filesystem again it fails here, loudly, the way it did when `initSpace` pulled in
+// `ensureSpaceFilesDir`. Pointing DATA_ROOT at somewhere writable would absorb exactly the regression this
+// is now the only test positioned to catch.
 
 let server, mongo, entities, recall, vectorIndex;
 
@@ -88,15 +92,19 @@ describe('the duplicate check sees a record written a moment ago', { skip }, () 
     // matches nothing and this suite would measure "no index" while claiming to measure index LAG — it
     // would fail identically whether the fix works or not.
     //
-    // Production's own `initSpace` builds them, so call that rather than hand-rolling `createSearchIndex`
-    // here. A hand-rolled version has to be kept in step with the real definition, and it also has to know
-    // that the collection must exist FIRST — mongot answers `NamespaceNotFound`, not "I made you one".
-    const lifecycle = await import('../../server/dist/spaces/lifecycle.js');
-    await lifecycle.initSpace(SPACE);
+    // Production's own `ensureVectorSearchIndex`, so a change to the real definition cannot leave a
+    // hand-rolled copy here behind. The collection is created first on purpose: mongot answers
+    // `NamespaceNotFound` rather than making one.
+    //
+    // NOT `initSpace`, which is the obvious call and fails in CI with `EACCES: mkdir '/data'` — it also
+    // creates the space's FILE directory, and the runner cannot write there. Nothing in this suite touches
+    // a file; reaching for the broad helper pulled in a filesystem dependency the test never needed.
+    await mongo.getDb().createCollection(`${SPACE}_entities`);
+    vectorIndex = await import('../../server/dist/spaces/vector-index.js');
+    await vectorIndex.ensureVectorSearchIndex(SPACE, 'entities', DIMS, 'cosine');
 
     // And then check that it is actually usable, because `ensureVectorSearchIndex` reports failure by
     // logging and returning: a backend without search leaves this suite green-but-meaningless otherwise.
-    vectorIndex = await import('../../server/dist/spaces/vector-index.js');
     const ready = await vectorIndex.pollVectorIndexReady(SPACE, 'entities', `${SPACE}_entities_embedding`);
     assert.ok(ready,
       `no queryable vector index on ${SPACE}_entities — this suite compares the ANN index against `

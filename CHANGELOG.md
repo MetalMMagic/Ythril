@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **"View in graph" on the Entities and Edges tables** (owner request). Next to each row's *View details*
+  eye, a graph button opens the Graph tab rooted at that node with **both directions at depth 2** — the
+  neighbourhood, not just the node.
+  - **Both settings are written explicitly** rather than left to the two signal defaults they happen to
+    match. "Arriving from a table shows depth 2, bidirectional" is the requested behaviour, and a behaviour
+    that holds only because two unrelated defaults agree is one that a later change to either breaks
+    silently.
+  - **The Edges table sends the `from` endpoint**, because a graph is rooted at a node and an edge is not
+    one. At depth 2 in both directions the `to` endpoint is one hop away, so the edge is always on the
+    canvas; the choice only decides which end the view is centred on. Passing the edge's own id would hand
+    the graph an id no entity has.
+  - **Memories, Chrono and Files deliberately have no such button.** They are not nodes in the entity
+    graph — a memory reaches it only through `entityIds`, and a chrono is not reachable by `traverse` at
+    all. A button that quietly retargeted to some linked entity would be a control that does not do what
+    it says, which is the exact failure shape the rest of this release is about.
+  - The focus is applied **after** cytoscape exists, not when the input is set: `renderGraph` returns early
+    while the canvas is absent, so rooting from the setter would fetch, traverse, fill the cache and draw
+    nothing — and an empty canvas reads as "this node has no connections". A failed lookup now reports the
+    id instead of rendering an empty graph.
+  - Leaving the Graph tab clears the pending focus, so opening the tab by hand later does not silently
+    re-root it at a stale node.
 
 ### Fixed
 

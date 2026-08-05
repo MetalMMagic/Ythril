@@ -201,6 +201,7 @@ import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
                       <td style="color:var(--text-muted)">{{ ent.createdAt | date:'dd.MM.yyyy' }}</td>
                       <td style="white-space:nowrap;">
                         <button class="icon-btn" [attr.title]="'common.viewDetails' | transloco" [attr.aria-label]="'common.viewDetails' | transloco" (click)="drawerState.open('entity', ent)"><ph-icon name="eye" [size]="16"/></button>
+                        <button class="icon-btn" [attr.title]="'common.viewInGraph' | transloco" [attr.aria-label]="'common.viewInGraph' | transloco" (click)="viewInGraph.emit(ent._id)"><ph-icon name="graph" [size]="16"/></button>
                         @if (recordList.confirmDeleteId() === ent._id) {
                           <span class="inline-confirm">
                             Delete?
@@ -241,6 +242,14 @@ export class EntitiesTabComponent extends RecordTabBase {
 
   /** Emitted after a create/delete so the shell can refresh the space's tab-count stats. */
   readonly mutated = output<void>();
+
+  /**
+   * "View in graph" — emits the entity id for the shell to open on the Graph tab.
+   *
+   * An output rather than a direct tab switch because this component does not own the tab strip, and
+   * an event is what the Overview tiles and the Review tab already use to move the shell.
+   */
+  readonly viewInGraph = output<string>();
 
   showEntityForm = signal(false);
   creatingEntity = signal(false);

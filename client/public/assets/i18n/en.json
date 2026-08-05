@@ -235,6 +235,7 @@
   "common.prevArrow": "← Previous",
   "common.nextArrow": "Next →",
   "common.viewDetails": "View details",
+  "common.viewInGraph": "View in graph",
   "common.deleteConfirm": "Delete?",
   "common.clearAll": "Clear all",
   "common.filters": "Filters",

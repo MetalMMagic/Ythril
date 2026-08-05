@@ -252,4 +252,32 @@ describe('BrainComponent (OnPush)', () => {
   });
 
   // The edge from/to endpoint pickers moved to edges-tab.component.spec.ts with the Edges tab (A17.9b-6f).
+
+  describe('view in graph (from a record table)', () => {
+    it('switches to the Graph tab and carries the entity id', () => {
+      const fixture = create();
+      const c = fixture.componentInstance;
+      c.viewInGraph('ent-42');
+      expect(c.activeTab()).toBe('graph');
+      expect(c.graphFocusId()).toBe('ent-42');
+    });
+
+    it('does NOT survive a later manual visit to the Graph tab', () => {
+      // The graph tab UNMOUNTS on leave and re-reads its input on every remount, so a focus left behind
+      // would silently re-root the graph the next time the tab is opened by hand — a stale node
+      // presented as the thing you asked for. `setTab` clears it, and the order inside `viewInGraph`
+      // (set AFTER setTab) is what makes both true at once.
+      const fixture = create();
+      const c = fixture.componentInstance;
+      c.viewInGraph('ent-42');
+      expect(c.graphFocusId()).toBe('ent-42');
+
+      c.setTab('entities');
+      expect(c.graphFocusId()).toBeNull();
+
+      c.setTab('graph');                       // opened by hand this time
+      expect(c.graphFocusId()).toBeNull();
+      expect(c.activeTab()).toBe('graph');
+    });
+  });
 });

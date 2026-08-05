@@ -261,6 +261,16 @@ The Graph view lets you explore how entities relate to each other visually.
 2. Select a space from the tab's toolbar.
 3. Type an entity name in the search bar and click the result to load its graph.
 
+**Or jump straight there from a table.** The **Entities** and **Edges** tables carry a graph button beside
+each row's *View details* eye. It opens this tab rooted at that node with **both directions at depth 2**, so
+you land on the neighbourhood rather than on a lone node — then adjust with the toolbar as usual. From the
+Edges table the view is centred on the edge's **from** endpoint; the `to` endpoint is one hop away, so the
+edge itself is always on the canvas.
+
+The Memories, Chrono and Files tables have no such button, because those records are not nodes in this graph:
+a memory reaches it only through the entities it links, and a chrono entry is not reachable by traversal at
+all. Use the **Entities** column in those tables to find the entity you want, then open the graph from there.
+
 **Toolbar controls:**
 
 | Control | What it does |

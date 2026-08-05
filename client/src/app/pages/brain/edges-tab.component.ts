@@ -215,6 +215,7 @@ import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
                       <td><app-properties-view [properties]="edge.properties" [schema]="store.edgeSchema(edge.label)" /></td>
                       <td style="color:var(--text-muted); white-space:nowrap;">{{ edge.createdAt | date:'dd.MM.yyyy' }}</td>
                       <td style="white-space:nowrap;">
+                        <button class="icon-btn" [attr.title]="'common.viewInGraph' | transloco" [attr.aria-label]="'common.viewInGraph' | transloco" (click)="viewInGraph.emit(edge.from)"><ph-icon name="graph" [size]="16"/></button>
                         <button class="icon-btn" [attr.title]="'common.viewDetails' | transloco" [attr.aria-label]="'common.viewDetails' | transloco" (click)="drawerState.open('edge', edge)"><ph-icon name="eye" [size]="16"/></button>
                         @if (recordList.confirmDeleteId() === edge._id) {
                           <span class="inline-confirm">
@@ -263,6 +264,13 @@ export class EdgesTabComponent extends RecordTabBase {
 
   /** Emitted after a create so the shell can refresh the space's tab-count stats. (Delete does NOT — matches the shell's original edge behaviour.) */
   readonly mutated = output<void>();
+
+  /**
+   * "View in graph" — emits the **`from`** endpoint, because a graph is rooted at a node and an edge is
+   * not one. At depth 2 with both directions the `to` endpoint is one hop away, so the edge itself is
+   * always on the canvas; rooting at `from` just picks which end the view is centred on.
+   */
+  readonly viewInGraph = output<string>();
 
   showEdgeForm = signal(false);
   creatingEdge = signal(false);

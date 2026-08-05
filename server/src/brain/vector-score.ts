@@ -101,7 +101,16 @@ export function atlasScoreFromParts(
     case 'dotProduct':
       return (1 + dotProduct) / 2;
     case 'euclidean': {
-      // Float error can push this a hair below zero for identical vectors; clamp before the root.
+      // Float error can push this a hair below zero for identical vectors; clamp before the root, or the
+      // most obvious duplicate there is scores NaN — and `NaN >= threshold` is false, so it would be
+      // dropped silently.
+      //
+      // Reconstructing the distance this way is less precise than subtracting the vectors directly: the
+      // squares are formed before the cancellation rather than after, so identical vectors land about
+      // 1.5e-8 below 1 instead of exactly on it. That is four orders of magnitude inside
+      // SCORE_AGREEMENT_EPSILON and far inside any threshold anyone sets, and it buys a single
+      // implementation of the mapping. Stated because the alternative is someone re-deriving it later and
+      // reasonably assuming exactness.
       const sq = Math.max(0, normA * normA + normB * normB - 2 * dotProduct);
       return 1 / (1 + Math.sqrt(sq));
     }

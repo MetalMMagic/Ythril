@@ -77,7 +77,16 @@ entitiesRouter.post('/spaces/:spaceId/entities', globalRateLimit, requireSpaceAu
   if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
 
   try {
-    const { entity, warning } = await upsertEntity(wt.target, name.trim(), type.trim(), tags, properties, safeDesc, safeId, undefined, webhookToken(req), ttlDaysFromBody(req.body));
+    // `waitForEmbedding` (default false): the vector is normally computed by the embedding queue moments
+    // after this returns. Pass true when the caller will search for, scan, or compare what it just wrote —
+    // a duplicate scan cannot pair records that have no vector yet.
+    const waitForEmbedding = req.body?.waitForEmbedding;
+    if (waitForEmbedding !== undefined && typeof waitForEmbedding !== 'boolean') {
+      res.status(400).json({ error: '`waitForEmbedding` must be a boolean' });
+      return;
+    }
+    const embedOpts = waitForEmbedding === true ? { waitForEmbedding: true } : undefined;
+    const { entity, warning } = await upsertEntity(wt.target, name.trim(), type.trim(), tags, properties, safeDesc, safeId, embedOpts, webhookToken(req), ttlDaysFromBody(req.body));
     const result: Record<string, unknown> = { ...entity };
     if (warning) result['warning'] = warning;
     if (check.warnings.length > 0) result['warnings'] = check.warnings;

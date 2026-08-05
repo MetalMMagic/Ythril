@@ -61,6 +61,11 @@ export const NUMERIC_SETTINGS: readonly NumericSetting[] = [
   { name: 'INDEX_READY_TIMEOUT_MS', min: 0, max: 3_600_000, what: 'how long boot waits for vector indexes' },
   { name: 'MCP_OAUTH_TOKEN_TTL_DAYS', min: 0, max: 3_650, what: 'the lifetime of a connector token (0 = never expires)' },
   { name: 'YTHRIL_CONNECTOR_PORT', min: 1, max: 65535, what: "the local agent connector's listen port" },
+  // Both bound the same scan, and the ceilings are the point rather than the defaults. The scan runs on a
+  // write path: 30 minutes of window or 5,000 documents would make a duplicate check cost seconds, which
+  // is a slower way to fail than not checking at all.
+  { name: 'DUPE_FRESH_WINDOW_MS', min: 0, max: 600_000, what: 'how far back the duplicate check reads the collection (0 = index only)' },
+  { name: 'DUPE_FRESH_SCAN_CAP', min: 0, max: 5_000, what: 'the most records one duplicate check scores outside the index' },
 ] as const;
 
 const BY_NAME = new Map(NUMERIC_SETTINGS.map(s => [s.name, s]));

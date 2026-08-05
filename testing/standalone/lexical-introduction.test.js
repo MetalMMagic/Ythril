@@ -42,7 +42,7 @@ const vs = await (async () => {
   return import(`data:text/javascript;base64,${Buffer.from(js, 'utf8').toString('base64')}`);
 })();
 
-const { dot, norm, cosineSimilarity, euclideanDistance, atlasVectorScore, scoresAgree, SCORE_AGREEMENT_EPSILON } = vs;
+const { dot, norm, cosineSimilarity, euclideanDistance, atlasVectorScore, atlasScoreFromParts, scoresAgree, SCORE_AGREEMENT_EPSILON } = vs;
 
 describe('the arithmetic', () => {
   it('dot product', () => assert.equal(dot([1, 2, 3], [4, 5, 6]), 32));
@@ -95,6 +95,67 @@ describe('reproducing the engine score', () => {
   });
 });
 
+/**
+ * The mapping is used by a caller that never holds both vectors.
+ *
+ * `matchFreshWrites` scores a few hundred documents inside an aggregation pipeline, because shipping that
+ * many 768-dimension embeddings over the wire on every duplicate check is not a thing to do. It therefore
+ * computes only `dot` and the document's norm, and maps them through `atlasScoreFromParts`.
+ *
+ * That split is only safe while the two entry points cannot disagree — the "one rule, two implementations"
+ * shape this repo has been bitten by four times. These pin them together for every metric, including the
+ * degenerate inputs where a shortcut would look right on ordinary vectors.
+ */
+describe('the mapping has one implementation, reachable two ways', () => {
+  const PAIRS = [
+    [[1, 0], [1, 0]], [[1, 0], [-1, 0]], [[1, 0], [0, 1]], [[0.6, 0.8], [0.8, 0.6]],
+    [[3, 0], [1, 0]],          // unequal magnitudes — cosine must divide by the real norms
+    [[0.1, -0.2, 0.3], [-0.4, 0.5, -0.6]],
+  ];
+
+  it('atlasVectorScore and atlasScoreFromParts agree on every metric', () => {
+    // Currently true by construction — atlasVectorScore delegates. That is the point: this fails the day
+    // someone reintroduces a second implementation, which is exactly when it needs to.
+    for (const sim of ['cosine', 'dotProduct', 'euclidean']) {
+      for (const [a, b] of PAIRS) {
+        const whole = atlasVectorScore(a, b, sim);
+        const parts = atlasScoreFromParts(dot(a, b), norm(a), norm(b), sim);
+        assert.ok(Math.abs(whole - parts) < 1e-12, `${sim} ${JSON.stringify([a, b])}: ${whole} vs ${parts}`);
+      }
+    }
+  });
+
+  it('euclidean reconstructs the distance from the primitives', () => {
+    // |a-b|² = |a|² + |b|² - 2·dot. Worth its own case: it is the one metric whose identity is not
+    // obvious, and getting it wrong yields plausible numbers rather than absurd ones.
+    //
+    // Held to 1e-7, not 1e-12, and that is the measurement rather than a shrug: forming the squares
+    // before the cancellation instead of after costs about 1.5e-8. Four orders of magnitude inside
+    // SCORE_AGREEMENT_EPSILON, and the price of one implementation instead of two.
+    for (const [a, b] of PAIRS) {
+      const viaParts = atlasScoreFromParts(dot(a, b), norm(a), norm(b), 'euclidean');
+      assert.ok(Math.abs(viaParts - 1 / (1 + euclideanDistance(a, b))) < 1e-7);
+    }
+  });
+
+  it('identical vectors do not fall through a negative square root', () => {
+    // Float error pushes |a|² + |b|² - 2·dot below zero when a === b; unclamped that is NaN, and
+    // `NaN >= threshold` is false, so the most obvious duplicate there is would be silently dropped.
+    const v = [0.37, -0.91, 0.18];
+    const s = atlasScoreFromParts(dot(v, v), norm(v), norm(v), 'euclidean');
+    assert.ok(Number.isFinite(s), 'must not be NaN');
+    assert.ok(s <= 1 && Math.abs(s - 1) < 1e-7, `identical vectors should score ~1, got ${s}`);
+  });
+
+  it('a zero norm yields the same score both ways rather than NaN', () => {
+    assert.equal(atlasScoreFromParts(0, 0, 1, 'cosine'), atlasVectorScore([0, 0], [1, 1], 'cosine'));
+  });
+
+  it('an unrecognised metric yields null from the parts entry point too', () => {
+    assert.equal(atlasScoreFromParts(1, 1, 1, 'jaccard'), null);
+  });
+});
+
 describe('refusing to score rather than scoring wrongly', () => {
   it('mismatched dimensions yield null, not a truncated comparison', () => {
     // A corpus mid-migration between embedding models holds both shapes. A dot product over the
@@ -123,6 +184,37 @@ describe('the agreement check', () => {
 });
 
 // ── The wiring, so the refusals cannot be dropped without a test failing ─────
+
+/**
+ * The fresh-write scan is an ADDITION to the duplicate check, and must never be able to subtract.
+ *
+ * `checkDuplicates` runs both halves under one `Promise.all`, which rejects as a unit — so a throw from the
+ * collection scan would reach the outer catch and return `[]` for the whole check, discarding index results
+ * that were already in hand. That is strictly worse than not having the scan at all, and it is invisible:
+ * an empty duplicate list reads as "no duplicates".
+ */
+describe('the fresh-write scan cannot take the index half down with it', () => {
+  const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const recallSrc = strip(readFileSync(RECALL_SRC, 'utf8'));
+  const freshSrc = strip(readFileSync('server/src/brain/fresh-writes.ts', 'utf8'));
+
+  it('the call site catches, because Promise.all rejects as a unit', () => {
+    assert.match(recallSrc, /matchFreshWrites\([^)]*\)\.catch\(\(\) => \[\]\)/);
+  });
+
+  it('the scan reads its own config INSIDE the try', () => {
+    // getEmbeddingConfig() above the try was the one way this could throw past its own handler.
+    const body = freshSrc.slice(freshSrc.indexOf('export async function matchFreshWrites'));
+    const tryAt = body.indexOf('try {');
+    const cfgAt = body.indexOf('getEmbeddingConfig()');
+    assert.ok(tryAt > 0 && cfgAt > tryAt,
+      'getEmbeddingConfig() must be inside the try, or a config failure discards the index results too');
+  });
+
+  it('every exit from the scan is a value, never a throw', () => {
+    assert.match(freshSrc, /catch \(err\) \{[\s\S]*?return \[\];\s*\}/);
+  });
+});
 
 describe('introduction is gated on evidence', () => {
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');

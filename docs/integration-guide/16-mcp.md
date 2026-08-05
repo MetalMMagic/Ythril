@@ -174,12 +174,33 @@ Content-Type: application/json
 
 ### Duplicate Detection on Insert
 
-The `remember`, `upsert_entity` and `create_chrono` tools run a **semantic near-duplicate check** before storing, using the same embedding the new record is stored with — so it costs one extra ANN vector search, not a re-embed. When a highly similar record already exists, the tool's response flags it (id, a short summary, and the cosine score) so an agent can update or merge the existing record instead of accumulating redundant ones:
+The `remember`, `upsert_entity` and `create_chrono` tools run a **semantic near-duplicate check** before storing, using the same embedding the new record is stored with — so it costs a vector search, not a re-embed. When a highly similar record already exists, the tool's response flags it (id, a short summary, and the cosine score) so an agent can update or merge the existing record instead of accumulating redundant ones:
 
 ```text
 Stored memory (seq 1284, ID 7f3c…).
 ⚠️ Possible duplicate — 1 existing memory is highly similar: "The Vault service stores secrets and rotates auth tokens" (ID 9a1b…, 0.97). This memory was still stored; pass checkDuplicates:false to skip this check, or update the existing one instead.
 ```
+
+#### It sees the batch you are writing
+
+The check reads **two** places, and the second one matters if your agent writes several related records in
+one turn. The vector index is eventually consistent — a record committed a second ago is not in it yet — so
+a check that read only the index could never warn you about a sibling from the same batch. Every duplicate
+warning named an older record, and none ever named the one you had just written, which is precisely when
+duplicates get created.
+
+So the check also scores the space's **most recently written records straight from the collection**. Two
+bounds keep that off your latency budget, both settable if your write rate needs different ones:
+
+| variable | default | what it bounds |
+|---|---|---|
+| `DUPE_FRESH_WINDOW_MS` | `180000` | how far back it reads. `0` disables this half — index only, the pre-2.5 behaviour |
+| `DUPE_FRESH_SCAN_CAP` | `200` | the most records one check scores this way, whatever the window says |
+
+The cost is proportional to how much the space is actually churning, not to how large it is: measured on
+20,000 records at 768 dimensions, **~9 ms** when nothing was written recently and **~52 ms** when the window
+is full. A space sustaining more writes than the cap covers logs a warning naming the cap, so a truncated
+scan never quietly reads as a complete one.
 
 #### Contradiction warning on insert
 

@@ -72,6 +72,54 @@ export function euclideanDistance(a: number[], b: number[]): number {
 }
 
 /**
+ * The score Atlas would report, from the three numbers every metric can be derived from.
+ *
+ * Split out of {@link atlasVectorScore} so a caller that cannot hold both vectors in memory still shares
+ * this mapping rather than restating it. `matchFreshWrites` is the case: it computes `dot` and the
+ * document's norm **inside an aggregation pipeline**, because shipping a few hundred 768-dimension
+ * embeddings over the wire on every duplicate check is not a thing to do. Expressing the score itself in
+ * MQL as well would have put Atlas's formula in two places in two languages, with no way to keep them in
+ * step — the failure shape this repo has hit four times and now gates against.
+ *
+ * Primitives only, so the split holds for every metric. Euclidean needs no extra input either:
+ * `|a-b|² = |a|² + |b|² - 2·dot`, which is why `normA`/`normB` are taken rather than a distance.
+ *
+ * Returns null for an unrecognised metric — "no opinion", and the caller drops the candidate rather than
+ * scoring it wrongly.
+ */
+export function atlasScoreFromParts(
+  dotProduct: number,
+  normA: number,
+  normB: number,
+  similarity: string,
+): number | null {
+  switch (similarity) {
+    case 'cosine': {
+      if (normA === 0 || normB === 0) return 0.5;   // cosineSimilarity() returns 0 here; (1+0)/2
+      return (1 + dotProduct / (normA * normB)) / 2;
+    }
+    case 'dotProduct':
+      return (1 + dotProduct) / 2;
+    case 'euclidean': {
+      // Float error can push this a hair below zero for identical vectors; clamp before the root, or the
+      // most obvious duplicate there is scores NaN — and `NaN >= threshold` is false, so it would be
+      // dropped silently.
+      //
+      // Reconstructing the distance this way is less precise than subtracting the vectors directly: the
+      // squares are formed before the cancellation rather than after, so identical vectors land about
+      // 1.5e-8 below 1 instead of exactly on it. That is four orders of magnitude inside
+      // SCORE_AGREEMENT_EPSILON and far inside any threshold anyone sets, and it buys a single
+      // implementation of the mapping. Stated because the alternative is someone re-deriving it later and
+      // reasonably assuming exactness.
+      const sq = Math.max(0, normA * normA + normB * normB - 2 * dotProduct);
+      return 1 / (1 + Math.sqrt(sq));
+    }
+    default:
+      return null;
+  }
+}
+
+/**
  * The score Atlas would report for this pair under the configured metric.
  *
  * Returns null when the vectors cannot be compared — differing dimensions (a corpus mid-migration
@@ -80,16 +128,7 @@ export function euclideanDistance(a: number[], b: number[]): number {
  */
 export function atlasVectorScore(a: number[], b: number[], similarity: string): number | null {
   if (a.length === 0 || b.length === 0 || a.length !== b.length) return null;
-  switch (similarity) {
-    case 'cosine':
-      return (1 + cosineSimilarity(a, b)) / 2;
-    case 'dotProduct':
-      return (1 + dot(a, b)) / 2;
-    case 'euclidean':
-      return 1 / (1 + euclideanDistance(a, b));
-    default:
-      return null;
-  }
+  return atlasScoreFromParts(dot(a, b), norm(a), norm(b), similarity);
 }
 
 /**

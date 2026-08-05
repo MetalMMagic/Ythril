@@ -121,7 +121,7 @@ Content-Type: application/json
 | `help` | Self-documenting system guide — the knowledge model, how to choose between `query` / `recall` / filtered recall, schema authoring, and the tools available to the calling token. Read-only, no `space` needed; scoped to the token so it never lists tools the token can't call |
 | `list_spaces` | List accessible space IDs with purposes and entry counts (memories, entities, edges, chrono). `purpose` is the space-level directive; `description` is returned alongside as its deprecated alias, always the same text |
 | `remember` | Store a memory with optional tags and entity links |
-| `update_memory` | Update an existing memory's fact, tags, entity links, or delete specific fields via `deleteFields` |
+| `update_memory` | Update an existing memory's fact, tags, entity links, or delete specific fields via `deleteFields`; `excludeFromVectorSearch` retires it from semantic search |
 | `delete_memory` | Delete a memory by ID |
 | `recall` | Semantic search across all knowledge types (memories, entities, edges, chrono entries, files). Searches the specified `space`; omit `space` to search across all accessible spaces |
 | `query` | Structured MongoDB filter query (read-only) — supports `memories`, `entities`, `edges`, `chrono`, and `files` collections |
@@ -129,14 +129,14 @@ Content-Type: application/json
 | `get_stats` | Return counts of memories, entities, edges, chrono entries, and files |
 | `get_space_meta` | Return the full space schema definition, purpose, usage notes, and stats |
 | `upsert_entity` | Create or update a named entity (with optional properties) |
-| `update_entity` | Update an existing entity by ID (name, type, description, tags, properties); supports `deleteFields` for field removal |
+| `update_entity` | Update an existing entity by ID (name, type, description, tags, properties, `excludeFromVectorSearch`); supports `deleteFields` for field removal |
 | `merge_entities` | Merge two entities — relink all references and resolve per-property conflicts |
 | `find_entities_by_name` | Find all entities with an exact name match (returns list regardless of type) |
 | `upsert_edge` | Create or update a directed relationship |
-| `update_edge` | Update an existing edge by ID (label, type, weight, description, tags, properties); supports `deleteFields` for field removal |
+| `update_edge` | Update an existing edge by ID (label, type, weight, description, tags, properties, `excludeFromVectorSearch`); supports `deleteFields` for field removal |
 | `traverse` | BFS graph traversal — follow edges from a starting entity up to `maxDepth` hops |
 | `create_chrono` | Create a chrono entry (event, deadline, plan, prediction, milestone) |
-| `update_chrono` | Update an existing chrono entry |
+| `update_chrono` | Update an existing chrono entry, including `excludeFromVectorSearch`. Requires at least one field beyond `id` |
 | `list_chrono` | List chrono entries, optionally filtered by status, type, tags, date range, or text search |
 | `bulk_write` | Batch-upsert memories, entities, edges, and/or chrono entries in a single call (schema-validated) |
 | `read_file` | Read a text file from the space file store |

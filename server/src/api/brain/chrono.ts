@@ -186,6 +186,15 @@ chronoRouter.post('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceAu
   const ttlErr = ttlDaysError(req.body);
   if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
 
+  // This legacy POST-as-update form does NOT gain `excludeFromVectorSearch`: it is listed for removal, and
+  // it skips both the property validation and the audit snapshot that PATCH performs. REFUSING the field is
+  // the point — silently dropping it here would recreate, on the deprecated route, the exact bug this
+  // change fixes on the supported one. A caller that can send the flag is a caller that can send PATCH.
+  if (req.body?.excludeFromVectorSearch !== undefined) {
+    res.status(400).json({ error: '`excludeFromVectorSearch` is not supported on the legacy POST-as-update form (it performs no property validation and writes no audit snapshot). Use `PATCH /api/brain/spaces/:spaceId/chrono/:id`.' });
+    return;
+  }
+
   const updated = await updateChrono(wt.target, id, {
     title, type, startsAt, endsAt, status, confidence,
     tags, entityIds, memoryIds, description, properties: safeProps, recurrence: safeRecurrence,
@@ -245,6 +254,36 @@ chronoRouter.patch('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceA
   const ttlErr = ttlDaysError(req.body);
   if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
 
+  // A boolean, and the ONLY field a caller may send on its own — retiring a record from vector search is a
+  // complete edit in itself. Chrono is the FOURTH type, and it was missed when the other three were swept:
+  // the writer beneath has accepted the field from the start (and ends every toggle in an embed job that
+  // handles both directions), while this handler destructured a fixed list that never contained it. So a
+  // patch carrying only this flag was not refused — it answered 200 with an unchanged record, which is the
+  // worse half of the same defect: the other three at least said "At least one field must be provided".
+  let excludeFromVectorSearch: boolean | undefined;
+  if (req.body?.excludeFromVectorSearch !== undefined) {
+    if (typeof req.body.excludeFromVectorSearch !== 'boolean') {
+      res.status(400).json({ error: '`excludeFromVectorSearch` must be a boolean' });
+      return;
+    }
+    excludeFromVectorSearch = req.body.excludeFromVectorSearch;
+  }
+
+  // Nothing this handler recognises is an ERROR, not a 200 with an unchanged record. The three sibling
+  // PATCH handlers have always answered `At least one field must be provided`; chrono answered success,
+  // so a client could not tell a no-op from an applied change — which is exactly how the missing flag
+  // above stayed invisible. Unknown keys are still dropped rather than named back (documented in the
+  // integration guide); what is no longer possible is dropping ALL of them and calling it success.
+  const PATCHABLE_FIELDS = [
+    'title', 'type', 'startsAt', 'endsAt', 'status', 'confidence', 'tags', 'entityIds', 'memoryIds',
+    'description', 'properties', 'recurrence', 'excludeFromVectorSearch', 'ttlDays',
+  ];
+  const body = req.body != null && typeof req.body === 'object' ? req.body as Record<string, unknown> : {};
+  if (!PATCHABLE_FIELDS.some(f => f in body)) {
+    res.status(400).json({ error: 'At least one field must be provided' });
+    return;
+  }
+
   // Snapshot for the audit change list — see the note in memories.ts. Read before the write, since
   // `updateChrono` returns only the new document.
   const prior = await findFirstAcrossMembers(wt.target, mid => getChronoById(mid, id));
@@ -279,6 +318,7 @@ chronoRouter.patch('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceA
   const updated = await findFirstAcrossMembers(wt.target, mid => updateChrono(mid, id, {
     title, type, startsAt, endsAt, status, confidence,
     tags, entityIds, memoryIds, description, properties: safeProps, recurrence: safeRecurrence,
+    excludeFromVectorSearch,
   }, webhookToken(req), ttlDaysFromBody(req.body)));
   if (updated) {
     req.auditSnapshots = { before: prior ?? {}, after: updated };

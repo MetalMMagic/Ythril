@@ -1,5 +1,5 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
-import { UUID_V4_RE, TTL_DAYS_SCHEMA, ttlDaysFromArgs, unitScoreSchema } from './shared.js';
+import { UUID_V4_RE, TTL_DAYS_SCHEMA, EXCLUDE_FROM_VECTOR_SEARCH_SCHEMA, ttlDaysFromArgs, unitScoreSchema } from './shared.js';
 import { ChronoFilter, createChrono, getChronoById, listChrono, updateChrono, parseRecurrence } from '../../brain/chrono.js';
 // The API layer's write gate, imported rather than reimplemented — see the note in memory.ts.
 import { assertUpdateAllowed, classifyUpdateViolations, locateForUpdate } from '../../brain/write-validation.js';
@@ -196,6 +196,7 @@ export const update_chronoTool: ToolHandler = {
               required: ['freq'],
               additionalProperties: false,
             },
+            excludeFromVectorSearch: EXCLUDE_FROM_VECTOR_SEARCH_SCHEMA,
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
             ttlDays: TTL_DAYS_SCHEMA,
           },
@@ -210,6 +211,7 @@ export const update_chronoTool: ToolHandler = {
     if (!wt.ok) throw new Error(wt.error);
 
     const updates: Record<string, unknown> = {};
+    if (typeof a['excludeFromVectorSearch'] === 'boolean') updates['excludeFromVectorSearch'] = a['excludeFromVectorSearch'];
     if (typeof a['title'] === 'string') updates['title'] = a['title'];
     if (typeof a['type'] === 'string') {
       // Same allowlist check `create_chrono` runs, and the same one the REST PATCH already runs.
@@ -251,6 +253,13 @@ export const update_chronoTool: ToolHandler = {
       const rec = parseRecurrence(a['recurrence']);
       if (!rec.ok) throw new Error(rec.error);
       updates['recurrence'] = rec.value;
+    }
+
+    // The three sibling update tools refuse a call that names no field; this one accepted it and answered
+    // "updated (seq N)" for a write that changed nothing but the seq. Same asymmetry as the REST handler
+    // this mirrors, and the same fix — an agent cannot tell a dropped argument from an applied one otherwise.
+    if (Object.keys(updates).length === 0 && ttlDaysFromArgs(a) === undefined) {
+      throw new Error('At least one of title, type, startsAt, endsAt, status, confidence, tags, entityIds, memoryIds, description, properties, recurrence, excludeFromVectorSearch, or ttlDays must be provided');
     }
 
     // Validate the entry AS IT WILL BE, against the meta of the member space it actually lives in. The

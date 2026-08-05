@@ -225,8 +225,15 @@ export class BrainApi {
     return this.http.post<ChronoEntry>(`/api/brain/spaces/${spaceId}/chrono`, body);
   }
 
-  updateChrono(spaceId: string, id: string, body: Partial<{ title: string; type: ChronoType; startsAt: string; endsAt: string; status: ChronoStatus; confidence: number; tags: string[]; entityIds: string[]; memoryIds: string[]; description: string; properties: Record<string, string | number | boolean> }>): Observable<ChronoEntry> {
-    return this.http.post<ChronoEntry>(`/api/brain/spaces/${spaceId}/chrono/${id}`, body);
+  // PATCH, like the other three record types — this was the ONE update in the client still on the legacy
+  // POST-to-an-id form, which our own integration guide tells integrators not to build on. Both verbs reach
+  // the same writer, so the record comes out identical; what the legacy verb skips is the two things a
+  // multi-client operator cannot do without. It runs NO property validation (so the UI could write a record
+  // the same space would reject on the create form next to it), and it stores NO audit snapshot (so every
+  // chrono edit made in this app was absent from the before/after trail that entities, memories and edges
+  // all leave). An integrator found nine of their own flows on this route before we found one of ours.
+  updateChrono(spaceId: string, id: string, body: Partial<{ title: string; type: ChronoType; startsAt: string; endsAt: string; status: ChronoStatus; confidence: number; tags: string[]; entityIds: string[]; memoryIds: string[]; description: string; properties: Record<string, string | number | boolean>; excludeFromVectorSearch: boolean }>): Observable<ChronoEntry> {
+    return this.http.patch<ChronoEntry>(`/api/brain/spaces/${spaceId}/chrono/${id}`, body);
   }
 
   deleteChrono(spaceId: string, id: string): Observable<void> {

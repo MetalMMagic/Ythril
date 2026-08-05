@@ -1,5 +1,5 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
-import { UUID_V4_RE, TTL_DAYS_SCHEMA, ttlDaysFromArgs, unitScoreSchema } from './shared.js';
+import { UUID_V4_RE, TTL_DAYS_SCHEMA, EXCLUDE_FROM_VECTOR_SEARCH_SCHEMA, ttlDaysFromArgs, unitScoreSchema } from './shared.js';
 import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } from '../../brain/delete-fields.js';
 import { getEdgeById, traverseGraph, updateEdgeById, upsertEdge } from '../../brain/edges.js';
 // The shared write gate, imported rather than reimplemented — see the note in memory.ts.
@@ -118,6 +118,7 @@ export const update_edgeTool: ToolHandler = {
               description: 'Key-value properties to merge with existing. Values must be string, number, or boolean.',
               additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] },
             },
+            excludeFromVectorSearch: EXCLUDE_FROM_VECTOR_SEARCH_SCHEMA,
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
             deleteFields: { type: 'array', items: { type: 'string' }, description: 'Dot-notation paths to delete from the edge (e.g. ["properties.oldKey", "description"]). System fields (id, name, type, spaceId, createdAt, updatedAt) cannot be deleted. Deletions are permanent.' },
             ttlDays: TTL_DAYS_SCHEMA,
@@ -135,7 +136,8 @@ export const update_edgeTool: ToolHandler = {
     const dfResult = validateDeleteFields(a['deleteFields']);
     if (!dfResult.ok) throw new Error(dfResult.error);
     const dfPaths: string[] | undefined = Array.isArray(a['deleteFields']) && (a['deleteFields'] as string[]).length > 0 ? a['deleteFields'] as string[] : undefined;
-    const updates: { label?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; weight?: number; type?: string } = {};
+    const updates: { label?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; weight?: number; type?: string; excludeFromVectorSearch?: boolean } = {};
+    if (typeof a['excludeFromVectorSearch'] === 'boolean') updates.excludeFromVectorSearch = a['excludeFromVectorSearch'];
     if (typeof a['label'] === 'string') updates.label = (a['label'] as string).trim();
     if (typeof a['description'] === 'string') updates.description = a['description'] as string;
     if (Array.isArray(a['tags'])) updates.tags = a['tags'] as string[];
@@ -145,7 +147,7 @@ export const update_edgeTool: ToolHandler = {
     if (typeof a['weight'] === 'number') updates.weight = a['weight'] as number;
     if (typeof a['type'] === 'string') updates.type = (a['type'] as string).trim();
     const ttlDays = ttlDaysFromArgs(a);
-    if (Object.keys(updates).length === 0 && !dfPaths && ttlDays === undefined) throw new Error('At least one of label, description, tags, properties, weight, type, deleteFields, or ttlDays must be provided');
+    if (Object.keys(updates).length === 0 && !dfPaths && ttlDays === undefined) throw new Error('At least one of label, description, tags, properties, weight, type, excludeFromVectorSearch, deleteFields, or ttlDays must be provided');
 
     // Validate the edge AS IT WILL BE, against the meta of the member space it actually lives in. This
     // path had no schema validation at all, so `label` could be moved outside the allowlist that

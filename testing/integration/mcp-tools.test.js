@@ -925,6 +925,29 @@ describe('MCP brain tools � update_memory / delete_memory / get_stats', () => 
     assert.equal(reread.body.fact, factText, 'untouched fields must survive the update');
   });
 
+  it('update_memory sets excludeFromVectorSearch as the only field', async (t) => {
+    if (!storedMemoryId) return t.skip('No storedMemoryId � prior test failed');
+    // The flag reached three REST handlers and zero MCP tools, so it was documented, implemented and
+    // unusable from the surface an agent holds — and `additionalProperties: false` made sending it a hard
+    // rejection. Both halves are covered here: the call is accepted, and the value is persisted.
+    const result = await session.callTool('update_memory', {
+      space: 'general',
+      id: storedMemoryId,
+      excludeFromVectorSearch: true,
+    });
+    assert.ok(!result?.isError, `update_memory rejected excludeFromVectorSearch: ${JSON.stringify(result)}`);
+    const reread = await get(INSTANCES.a, tokenA, `/api/brain/spaces/general/memories/${storedMemoryId}`);
+    assert.equal(reread.status, 200, JSON.stringify(reread.body));
+    assert.equal(reread.body.excludeFromVectorSearch, true, 'the flag must be persisted, not accepted and dropped');
+    assert.deepEqual(reread.body.tags, ['mcp-updated-tag'], 'untouched fields must survive');
+
+    // And back off again, so the suite does not leave a record excluded for whatever runs next.
+    const undo = await session.callTool('update_memory', {
+      space: 'general', id: storedMemoryId, excludeFromVectorSearch: false,
+    });
+    assert.ok(!undo?.isError, JSON.stringify(undo));
+  });
+
   it('update_memory on non-existent id returns isError', async () => {
     const result = await session.callTool('update_memory', {
       space: 'general',

@@ -21,6 +21,26 @@ export const TTL_DAYS_SCHEMA = {
 } as const;
 
 /**
+ * JSON-schema fragment for `excludeFromVectorSearch`, shared by all four MCP update tools.
+ *
+ * One copy because the four types had already diverged on it once: the flag was wired into all four update
+ * FUNCTIONS and then reached the REST handlers for three types and the MCP handlers for none, so the same
+ * capability existed, was documented, and could not be used from the surface an agent actually holds.
+ *
+ * The semantics are stated in the description rather than left to the field name, because "excluded from
+ * vector search" reads like a query-time filter and is not one: the vector is REMOVED. Recall cannot reach
+ * the record even deliberately; structured reads still return it in full.
+ */
+export const EXCLUDE_FROM_VECTOR_SEARCH_SCHEMA = {
+  type: 'boolean',
+  description:
+    'Retire this record from semantic search (true), or return it to it (false). Implemented as the ABSENCE '
+    + 'of a vector, NOT a query-time filter: an excluded record cannot be reached by recall even '
+    + 'deliberately, while query, traverse, list and get still return it unchanged. Toggling back to false '
+    + 're-embeds it. May be the only field you send — retiring a record is a complete edit in itself.',
+} as const;
+
+/**
  * Parse + validate `ttlDays` from MCP tool args (F10): a non-negative integer ≤ 36500 sets an expiry,
  * `null` clears it, and absent → `undefined` (inherit the space default). Throws on a present-but-invalid
  * value so the MCP surface fails loud like REST rather than silently dropping the intent.

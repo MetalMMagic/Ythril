@@ -130,8 +130,17 @@ searchRouter.post('/spaces/:spaceId/traverse', globalRateLimit, requireSpaceAuth
   const rawLimit = typeof limit === 'number' ? limit : 100;
   const effectiveLimit = Math.min(Math.max(1, rawLimit), 1000);
 
+  // Chrono entries are reachable by default; a client that assumed every node is an entity opts out.
+  // Rejected rather than coerced, so `includeChrono: "false"` cannot silently mean true.
+  const includeChronoRaw = (req.body as { includeChrono?: unknown }).includeChrono;
+  if (includeChronoRaw !== undefined && typeof includeChronoRaw !== 'boolean') {
+    res.status(400).json({ error: '`includeChrono` must be a boolean' });
+    return;
+  }
+
   const memberIds = resolveMemberSpaces(spaceId);
-  const result = await traverseGraph(memberIds, startId.trim(), effectiveDirection, effectiveEdgeLabels, effectiveDepth, effectiveLimit);
+  const result = await traverseGraph(memberIds, startId.trim(), effectiveDirection, effectiveEdgeLabels, effectiveDepth, effectiveLimit,
+    includeChronoRaw !== false);
   res.json(result);
 });
 

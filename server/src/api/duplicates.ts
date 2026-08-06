@@ -16,7 +16,8 @@ import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
 import { scanSpace, pairContentHash } from '../brain/dupe-scanner.js';
 import { computeMergePlan, applyResolutions, executeMerge } from '../brain/merge.js';
-import type { DupeCandidateDoc } from '../config/types.js';
+import { nliConfigured } from '../brain/nli-client.js';
+import type { DupeCandidateDoc, ContradictionCandidateDoc } from '../config/types.js';
 
 /** Find a candidate across the caller's accessible spaces. */
 async function findCandidate(id: string, tokenSpaces?: string[]): Promise<{ doc: DupeCandidateDoc; spaceId: string } | null> {
@@ -30,6 +31,72 @@ async function findCandidate(id: string, tokenSpaces?: string[]): Promise<{ doc:
   return null;
 }
 
+/**
+ * The canonical key both candidate collections use for a pair: the two ids, lower first.
+ *
+ * `{space}_dupe_candidates` keys rows `${type}:${aId}:${bId}` and `{space}_contradiction_candidates` keys them
+ * `${aId}:${bId}`, both with `aId < bId` already enforced by the scanners. Deriving the key here rather than
+ * trusting field order means a pair found in either order joins the same way — and a row written before that
+ * ordering was enforced still joins.
+ */
+function pairKey(c: Pick<DupeCandidateDoc, 'aId' | 'bId'>): string {
+  return c.aId < c.bId ? `${c.aId}:${c.bId}` : `${c.bId}:${c.aId}`;
+}
+
+/**
+ * For one space's duplicate pairs, what is known about each pair being a CONTRADICTION.
+ *
+ * The two lists have always held this between them and never been joined: a pair can sit in `open` on both,
+ * and only the duplicates list is what a nightly merge pass reads. So a reversal of opinion arrives labelled
+ * as redundancy, and merging it destroys the fact that someone changed their mind — the most valuable thing a
+ * memory store holds.
+ *
+ * One batched `$in` per space, not a query per pair: the contradiction rows are keyed by exactly the pair key,
+ * so this is an indexed lookup over at most 500 ids.
+ *
+ * **When nothing has judged the pair, that is reported rather than omitted.** Returning "no contradiction
+ * record" for a space whose scanner has never run would be a claim the data cannot support; the caller must be
+ * able to tell "checked, they do not disagree" from "nobody has looked".
+ */
+async function contradictionSignalsFor(
+  spaceId: string,
+  pairs: DupeCandidateDoc[],
+): Promise<Map<string, ContradictionSignal>> {
+  const out = new Map<string, ContradictionSignal>();
+  if (pairs.length === 0) return out;
+
+  // Without a judge there is no NLI pass at all, so a clean contradiction list says nothing about semantics —
+  // only that no structured field conflicted. Say so instead of implying agreement.
+  if (!nliConfigured()) {
+    for (const p of pairs) out.set(pairKey(p), { checked: false, reason: 'no-judge-configured' });
+    return out;
+  }
+
+  const keys = [...new Set(pairs.map(pairKey))];
+  const found = await col<ContradictionCandidateDoc>(`${spaceId}_contradiction_candidates`)
+    .find(asFilter<ContradictionCandidateDoc>({ _id: { $in: keys } }))
+    .toArray() as ContradictionCandidateDoc[];
+  const byKey = new Map(found.map(f => [f._id, f]));
+
+  // "The collection is empty" is not "these pairs are clean" — an unscanned space and a clean space look
+  // identical from a per-pair lookup, and only one of them licenses a merge.
+  const everScanned = await col(`${spaceId}_contradiction_candidates`).estimatedDocumentCount() > 0;
+
+  for (const p of pairs) {
+    const key = pairKey(p);
+    const hit = byKey.get(key);
+    if (hit) {
+      out.set(key, {
+        checked: true, found: true,
+        basis: hit.basis, confidence: hit.confidence, status: hit.status, id: hit._id,
+      });
+    } else {
+      out.set(key, everScanned ? { checked: true, found: false } : { checked: false, reason: 'never-scanned' });
+    }
+  }
+  return out;
+}
+
 export const duplicatesRouter = Router();
 
 /** Return the space IDs the authenticated token is allowed to access. */
@@ -40,7 +107,70 @@ function accessibleSpaces(tokenSpaces?: string[]): string[] {
   return all.filter(id => tokenSpaces.includes(id));
 }
 
-function toRecord(c: DupeCandidateDoc) {
+/**
+ * Negation tokens, for the lexical asymmetry cue.
+ *
+ * Deliberately short and English-only. This is not a semantic analyser and must not grow into one that looks
+ * like a judgement: it answers "does one side say a not-word the other does not?", which is a reason to READ
+ * the pair, never a verdict on it.
+ */
+const NEGATION_TOKENS = [
+  'not', 'never', 'no', 'none', 'cannot', "can't", 'cant', "won't", 'wont', "don't", 'dont',
+  "doesn't", 'doesnt', "didn't", 'didnt', "shouldn't", 'shouldnt', "isn't", 'isnt', "aren't", 'arent',
+  'without', 'avoid', 'stop', 'refuse', 'reject', 'neither', 'nor',
+];
+
+/** The negation tokens present in a summary, as a set. */
+function negationsIn(text: string): Set<string> {
+  const words = new Set(text.toLowerCase().split(/[^a-z']+/).filter(Boolean));
+  return new Set(NEGATION_TOKENS.filter(t => words.has(t)));
+}
+
+/**
+ * Does exactly one side of the pair carry negation the other lacks?
+ *
+ * Their own example is the case: *"ship the rough version today"* vs *"take the extra days and **never** ship
+ * a rough version"* — 0.97 similar, opposite meaning, and no structured property in conflict. A lexical
+ * asymmetry is the cheapest thing that separates those two from ordinary redundancy.
+ *
+ * **What it is not:** semantic. Two records can disagree with no negation word at all ("approved" vs
+ * "rejected"), and two can share a negation and agree completely. So this is reported as a cue with a name
+ * that says what it measured, absent when false so it cannot read as a per-pair verdict, and documented as
+ * "a reason to look". A hint that fires on ordinary pairs is worse than no hint — the same standard the
+ * metrics registry applies when it refuses to count a missing lexical channel.
+ */
+function negationAsymmetry(a: string, b: string): boolean {
+  const na = negationsIn(a);
+  const nb = negationsIn(b);
+  if (na.size === 0 && nb.size === 0) return false;
+  // Asymmetry, not mere presence: both sides negating is not a signal.
+  return (na.size === 0) !== (nb.size === 0);
+}
+
+/**
+ * Exported for the standalone test only.
+ *
+ * The cue is a pure function of two strings and is the one part of this file worth testing directly — the rest
+ * needs a database. Named `…ForTest` rather than exporting the internal, so nothing outside imports it by
+ * accident and starts depending on a heuristic as if it were an API.
+ */
+export const negationAsymmetryForTest = negationAsymmetry;
+
+/**
+ * How the contradiction question was answered for this pair — never a bare absence.
+ *
+ * `not-checked` and `none-found` are different facts and the caller cannot act on the first as if it were the
+ * second. This correspondent reported that exact confusion against our own settings page in their §6b: an
+ * unconfigured optional endpoint looks identical to "checked, nothing found" from outside. An optional
+ * `contradiction` field alone would have reproduced it here, on the endpoint whose whole purpose is telling a
+ * merge pass what NOT to merge.
+ */
+type ContradictionSignal =
+  | { checked: false; reason: 'no-judge-configured' | 'never-scanned' }
+  | { checked: true; found: false }
+  | { checked: true; found: true; basis: 'structured-field' | 'nli'; confidence: number; status: string; id: string };
+
+function toRecord(c: DupeCandidateDoc, contradiction?: ContradictionSignal) {
   return {
     id: c._id,
     spaceId: c.spaceId,
@@ -52,6 +182,9 @@ function toRecord(c: DupeCandidateDoc) {
     score: c.score,
     status: c.status,
     ...(c.resolution ? { resolution: c.resolution } : {}),
+    // A cue, not a verdict — absent when false so it cannot be read as a judgement on every pair.
+    ...(negationAsymmetry(c.aSummary, c.bSummary) ? { negationAsymmetry: true } : {}),
+    ...(contradiction ? { contradiction } : {}),
     detectedAt: c.detectedAt,
     updatedAt: c.updatedAt,
   };
@@ -68,6 +201,8 @@ duplicatesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
     if (spaceFilter) spaces = spaces.filter(id => id === spaceFilter);
 
     const results: DupeCandidateDoc[] = [];
+    /** Per space, the contradiction signal for each pair — see `contradictionSignalsFor`. */
+    const signals = new Map<string, Map<string, ContradictionSignal>>();
     for (const spaceId of spaces) {
       // Served by the {status, score, detectedAt} index (de-prefixed in P10): `status` is the
       // leading equality field and the sort by (score desc, detectedAt desc) follows it. The
@@ -79,10 +214,13 @@ duplicatesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
         .limit(500)
         .toArray() as DupeCandidateDoc[];
       results.push(...docs);
+      signals.set(spaceId, await contradictionSignalsFor(spaceId, docs));
     }
     results.sort((a, b) => (b.score - a.score) || b.detectedAt.localeCompare(a.detectedAt));
     // Cap the merged cross-space result so a many-space token can't materialise 500×spaces rows.
-    res.json({ duplicates: results.slice(0, 500).map(toRecord) });
+    res.json({
+      duplicates: results.slice(0, 500).map(c => toRecord(c, signals.get(c.spaceId)?.get(pairKey(c)))),
+    });
   } catch (err) {
     log.error(`GET /api/duplicates: ${err}`);
     res.status(500).json({ error: 'Internal error' });

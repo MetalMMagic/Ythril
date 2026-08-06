@@ -130,6 +130,31 @@ describe('Duplicate scanner — flag + review', () => {
     assert.ok(v.aSummary && v.bSummary, 'both summaries present');
   });
 
+  it('every candidate answers the same-or-opposite question, never with a bare absence', async (t) => {
+    if (!embeddingAvailable) return t.skip('embedding unavailable');
+    // The reported harm: a reversal of opinion arriving labelled as redundancy, and an automated pass merging
+    // it. So the payload must always say what is KNOWN about the pair disagreeing — and crucially must
+    // distinguish "checked and clean" from "nobody looked", because those license opposite actions.
+    const open = await listDupes(SPACE, 'open');
+    assert.ok(open.length > 0, 'need at least one candidate to inspect');
+    for (const c of open) {
+      assert.ok(c.contradiction, `every candidate must carry a contradiction signal: ${JSON.stringify(c)}`);
+      assert.equal(typeof c.contradiction.checked, 'boolean');
+      if (c.contradiction.checked === false) {
+        assert.ok(['no-judge-configured', 'never-scanned'].includes(c.contradiction.reason),
+          `unknown not-checked reason: ${JSON.stringify(c.contradiction)}`);
+      } else {
+        assert.equal(typeof c.contradiction.found, 'boolean');
+        if (c.contradiction.found) {
+          assert.ok(['structured-field', 'nli'].includes(c.contradiction.basis));
+          assert.equal(typeof c.contradiction.confidence, 'number');
+        }
+      }
+      // The cue is present only when true — never `false` on every pair, which would train readers to skip it.
+      if ('negationAsymmetry' in c) assert.equal(c.negationAsymmetry, true);
+    }
+  });
+
   it('dismiss removes a pair from the open list', async (t) => {
     if (!embeddingAvailable) return t.skip('embedding unavailable');
     const open = await listDupes(SPACE, 'open');

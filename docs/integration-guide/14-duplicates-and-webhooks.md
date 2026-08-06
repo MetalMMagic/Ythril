@@ -67,7 +67,34 @@ Base path: `/api/duplicates`.
 | `POST` | `/api/duplicates/:id/merge` | non-read-only | Merge an entity candidate losslessly. `409` with the merge plan if there is a value conflict. |
 | `POST` | `/api/duplicates/scan?space=<id>` | admin + MFA | Trigger an on-demand full re-scan (all accessible spaces, or one). Requires `X-TOTP-Code` when MFA is enabled. |
 
-A candidate is `{ id, spaceId, type, aId, aSummary, bId, bSummary, score, status, resolution?, detectedAt, updatedAt }`. The web UI (a space's **Brain → Review** tab) lists that space's candidates with dismiss / merge / re-rate actions, a **search box** (handy for a large dismissed pile), and a "Scan now" button.
+A candidate is `{ id, spaceId, type, aId, aSummary, bId, bSummary, score, status, resolution?, contradiction, negationAsymmetry?, detectedAt, updatedAt }`. The web UI (a space's **Brain → Review** tab) lists that space's candidates with dismiss / merge / re-rate actions, a **search box** (handy for a large dismissed pile), and a "Scan now" button.
+
+#### Is the pair the same, or the opposite? (`contradiction`, `negationAsymmetry`)
+
+A high similarity score means the two records are **about** the same thing. It does not say they **agree**.
+*"Ship the rough version today"* and *"take the extra days and never ship a rough version"* score ~0.97 and
+mean opposite things, and neither sets a conflicting property, so the structured contradiction check has
+nothing to fire on. If an automated pass merges that pair, it destroys the fact that someone changed their
+mind — so every candidate now carries what is known about the disagreement question.
+
+**`contradiction` is a tri-state, never a bare absence**, because "checked, they do not disagree" and "nobody
+has looked" license opposite actions:
+
+| value | meaning | safe to merge automatically? |
+|---|---|---|
+| `{ "checked": true, "found": true, "basis": …, "confidence": …, "status": …, "id": … }` | this exact pair is a known contradiction — the same record you would get from `/api/contradictions` | **No** |
+| `{ "checked": true, "found": false }` | the contradiction scanner has run over this space and did not flag this pair | Yes, as far as this signal goes |
+| `{ "checked": false, "reason": "no-judge-configured" }` | no NLI judge is configured, so only the structured field check ever ran. Nothing here has looked at meaning | **Unknown — do not treat as clean** |
+| `{ "checked": false, "reason": "never-scanned" }` | the contradiction scanner has never produced a row for this space | **Unknown — do not treat as clean** |
+
+**`negationAsymmetry: true`** is a cheap **lexical** cue: one summary contains negation words ("not",
+"never", "cannot", "without", …) that the other does not. It is present only when true.
+
+> **It is a reason to read the pair, not a verdict on it.** It is not semantic: `"approved"` versus
+> `"rejected"` contradict with no negation word at all and will not raise it, and two records that both say
+> "do not ship on Friday" agree while both negating — which is why the cue requires the negation to be
+> *asymmetric* rather than merely present. Use it to decide what a human or a model should look at; use
+> `contradiction` to decide what not to merge.
 
 ### Contradictions API
 

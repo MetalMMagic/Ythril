@@ -11,7 +11,7 @@ import { NotFoundError } from '../../util/errors.js';
 import { countMemories } from '../../brain/memory.js';
 import { getEmbedJobCounts } from '../../brain/embed-queue.js';
 import { queryBrain } from '../../brain/query.js';
-import { findSimilar, recall, rankOf, mergeRecallResults, type RecallKnowledgeType } from '../../brain/recall.js';
+import { findSimilar, recall, rankOf, mergeRecallResults, type RecallKnowledgeType, type RecallResult } from '../../brain/recall.js';
 import { validateFilterExpression, type FilterExpression } from '../../brain/filter.js';
 import { traverseGraph, traverseRecallSeeds, MAX_RECALL_TRAVERSE, resolveEdgeEntityNames } from '../../brain/edges.js';
 import { memoryEmbedText, entityEmbedText, edgeEmbedText, chronoEmbedText, fileEmbedText } from '../../brain/embed-text.js';
@@ -98,6 +98,26 @@ searchRouter.get('/spaces/:spaceId/activity', globalRateLimit, requireSpaceAuth,
   res.json({ spaceId, hours, spaces: rows });
 });
 
+
+/**
+ * Drop the passage body from file chunks when the caller asked not to receive it.
+ *
+ * A file result's `content` is the largest field a recall returns, and it is returned `topK` times. Omitting
+ * it leaves everything a caller needs to decide WHICH passage to fetch — path, heading, chunk index, tags —
+ * which is the two-phase flow MCP callers have had all along.
+ *
+ * Only `content`, and only on file results: the flag is about the passage body, not about thinning a result.
+ * Copies rather than mutating, because `seeds` is also handed to the traverse builder and to the audit
+ * outcome — deleting a field in place would change what those saw.
+ */
+function stripContentIfAsked(results: RecallResult[], includeContent: boolean): RecallResult[] {
+  if (includeContent) return results;
+  return results.map(r => {
+    if (r.type !== 'file' || r.content === undefined) return r;
+    const { content: _dropped, ...rest } = r;
+    return rest as RecallResult;
+  });
+}
 
 // POST /api/brain/spaces/:spaceId/traverse — graph traversal (BFS)
 searchRouter.post('/spaces/:spaceId/traverse', globalRateLimit, requireSpaceAuth, async (req, res) => {
@@ -342,6 +362,21 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
     }
     const safeIncludeFresh = includeFreshRaw === true;
 
+    // `includeContent: false` drops the passage BODY from file chunks, leaving where they are and what they
+    // are about. MCP `recall` has had this since it shipped; REST had no way to ask for it, and an integrator
+    // pointed out the asymmetry — the same two-surfaces-one-rule shape as four defects fixed the day before.
+    //
+    // Why it is worth a flag: a passage body is by far the largest field a result carries, and every field is
+    // paid for `topK` times. Dropping it turns one expensive call into a cheap two-phase flow — recall to
+    // find WHERE something is, then read only the chunk you chose. Default true, so no existing caller
+    // changes; only an explicit `false` opts out, and a non-boolean is refused rather than coerced.
+    const includeContentRaw = (req.body as { includeContent?: unknown }).includeContent;
+    if (includeContentRaw !== undefined && typeof includeContentRaw !== 'boolean') {
+      res.status(400).json({ error: '`includeContent` must be a boolean' });
+      return;
+    }
+    const safeIncludeContent = includeContentRaw !== false;
+
     const degraded: string[] = [];
     const all = (await Promise.all(
       memberIds.map(mid => recall(mid, query.trim(), safeTopK, safeTags, safeTypes, safeMinPerType, safeMinScore, safeFilter, { maxPerType: safeMaxPerType, maxTimeMS: safeMaxTimeMS, degraded, includeFreshWrites: safeIncludeFresh })),
@@ -379,7 +414,7 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
       // noise, and a field that is almost always empty is a field readers learn to skip — which is exactly
       // when it needs to be noticed. The requester asked for the flag in the BODY rather than only a status,
       // because a 200 that is quietly short is indistinguishable from a 200 that found everything.
-      res.json({ results: seeds, count: seeds.length, ...(degraded.length > 0 ? { degraded } : {}) });
+      res.json({ results: stripContentIfAsked(seeds, safeIncludeContent), count: seeds.length, ...(degraded.length > 0 ? { degraded } : {}) });
       return;
     }
 
@@ -392,7 +427,10 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
       Math.max(0, totalCap - seeds.length),
     );
     const results: RecallTraverseItem[] = [
-      ...seeds.map(s => ({ score: s.score, source: 'recall' as const, hops: 0, path: [], spaceId: s.spaceId, type: s.type, record: s })),
+      // The flag applies here too. A caller who asked not to be sent passage bodies did not stop meaning it
+      // because they also asked for graph expansion — and an option that silently lapses on one code path is
+      // the same shape of defect as one that reaches only one surface.
+      ...stripContentIfAsked(seeds, safeIncludeContent).map(s => ({ score: s.score, source: 'recall' as const, hops: 0, path: [], spaceId: s.spaceId, type: s.type, record: s })),
       ...neighbours.map(n => ({ score: null, source: 'traverse' as const, hops: n.hops, path: n.path, spaceId: n.spaceId, type: 'entity' as const, record: n.record })),
     ];
     // The traverse shape carries the flag too — the seeds it expanded may already have been partial, and a

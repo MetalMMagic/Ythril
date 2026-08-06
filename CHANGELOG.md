@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Internal
+
+- **A gate against runtime import cycles in the server** — the deliverable from an architecture angle that
+  otherwise found nothing. Quantified over 232 modules: **2 cycles in the TypeScript source, 0 in the emitted
+  JavaScript**, because each pair is one value import with an `import type` back and the type import is erased
+  (confirmed in `dist`, not inferred from compiler flags). Fourteen "upward" imports turned out to be ten
+  cases of a naive directory ranking being wrong plus four that survive reading — an OAuth-spec header URL, a
+  tombstone prune that must respect the peer watermark or records resurrect, and a config report reusing the
+  real endpoint resolver instead of copying it.
+  - The gate checks cycles among imports that **survive type erasure**, not source-level cycles. A cycle
+    broken by `import type` evaluates nothing and can leave nothing `undefined`; forbidding it would mean
+    rewriting two honest type imports to satisfy a rule about a problem that does not exist, and the first
+    person to hit that would work around the gate rather than the code.
+  - It floors its own walk, and proves the erasure rule is load-bearing rather than a claim in a comment: a
+    third test asserts the source-level graph still HAS cycles, so if that ever stops being true the second
+    test is known to be vacuous.
+
 ### Added
 
 - **REST `recall` takes `includeContent`, closing the last two-surfaces gap from that letter** (owner-approved

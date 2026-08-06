@@ -188,6 +188,14 @@ const ROUTE_RULES: RouteRule[] = [
   { method: 'POST',   pattern: /^\/api\/schema-library$/,                           operation: 'schema_library.create' },
   { method: 'PUT',    pattern: /^\/api\/schema-library\/([^/]+)$/,                  operation: 'schema_library.update' },
   { method: 'DELETE', pattern: /^\/api\/schema-library\/([^/]+)$/,                  operation: 'schema_library.delete' },
+  // The merge verb shares `schema_library.update` with PUT: both change what every space that `$ref`s the
+  // entry validates against, which is the fact an auditor is looking for, and a reader filtering the log for
+  // "who changed this schema" must not have to know which verb the caller happened to use. The change list
+  // records what actually moved either way.
+  //
+  // `/publish` stays a separate operation because it changes visibility rather than content. The two patterns
+  // cannot collide — `([^/]+)$` excludes a slash — so their order here is not load-bearing.
+  { method: 'PATCH',  pattern: /^\/api\/schema-library\/([^/]+)$/,                  operation: 'schema_library.update' },
   { method: 'PATCH',  pattern: /^\/api\/schema-library\/([^/]+)\/publish$/,         operation: 'schema_library.publish' },
   { method: 'POST',   pattern: /^\/api\/schema-library\/catalogs$/,                 operation: 'schema_library.catalog.add' },
   { method: 'DELETE', pattern: /^\/api\/schema-library\/catalogs\/([^/]+)$/,        operation: 'schema_library.catalog.remove' },

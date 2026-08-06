@@ -125,6 +125,32 @@ const LibraryEntryPutBodyZ = z.object({
   sourceCatalog: z.string().max(200).nullable().optional(),
 });
 
+/**
+ * Body for `PATCH /:name` — every field optional, and `schema` MERGES.
+ *
+ * The gap this closes, reported by an integrator: `PUT` requires `knowledgeType`, `typeName` and the whole
+ * `schema`, and replaces `schema` wholesale. So adding one optional property meant resending the type name,
+ * the description and **every pre-existing property** — precisely the shape in which a property gets dropped
+ * by accident. They had resorted to asserting afterwards that nothing was lost and no enum had narrowed,
+ * which is a workaround for a missing merge.
+ *
+ * `deleteFields` rather than a new convention: the brain record routes already use dot-notation paths for
+ * removal, so an integrator who has used `PATCH .../memories/:id` already knows this. Two vocabularies for
+ * one operation is how they diverge.
+ */
+const LibraryEntryPatchBodyZ = z.object({
+  knowledgeType: z.enum(['entity', 'memory', 'edge', 'chrono']).optional(),
+  typeName: z.string().min(1).max(200).optional(),
+  schema: LibraryTypeSchemaZ.optional(),
+  description: z.string().max(1000).nullable().optional(),
+  schemaGroup: z.string().min(1).max(200).nullable().optional(),
+  published: z.boolean().optional(),
+  sourceUrl: z.string().url().max(2048).nullable().optional(),
+  sourceCatalog: z.string().max(200).nullable().optional(),
+  /** Dot paths inside `schema`: `propertySchemas.<key>`, `namingPattern`, `tagSuggestions`, `propertySchemas`. */
+  deleteFields: z.array(z.string().min(1).max(300)).max(100).optional(),
+}).strict();
+
 /** Body for PATCH /:name/publish */
 const PublishPatchZ = z.object({
   published: z.boolean(),
@@ -505,6 +531,104 @@ schemaLibraryRouter.put('/:name', globalRateLimit, requireAdminMfa, (req, res) =
     req.auditSnapshots = { before: existing, after: updatedEntry };
     res.json({ entry: updatedEntry });
   }
+});
+
+// ── PATCH /:name — merge into an existing entry ───────────────────────────────
+//
+// `PUT` remains the full replace, and is still the right verb when you hold the whole entry. This is for the
+// case that produced the report: change one thing without restating everything else.
+//
+// It does NOT create. A `404` here means "no such entry", which is a different fact from the `404` an
+// integrator used to get — that one was Express refusing an unrouted method, and it read as "PATCH is not
+// supported" because it was.
+
+schemaLibraryRouter.patch('/:name', globalRateLimit, requireAdminMfa, (req, res) => {
+  const name = req.params['name'] as string;
+
+  if (!LIBRARY_NAME_RE.test(name)) {
+    res.status(400).json({ error: 'Invalid library entry name. Must be lowercase alphanumeric with optional dashes/underscores.' });
+    return;
+  }
+
+  const parsed = LibraryEntryPatchBodyZ.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const patch = parsed.data;
+
+  // A patch that names nothing is a request that cannot be carried out, and answering 200 to it would make a
+  // no-op indistinguishable from an applied change — the same trap the brain PATCH handlers now refuse.
+  const named = Object.keys(patch).filter(k => patch[k as keyof typeof patch] !== undefined);
+  if (named.length === 0) {
+    res.status(400).json({ error: 'At least one field must be provided' });
+    return;
+  }
+
+  const library = getSchemaLibrary();
+  const idx = library.findIndex(e => e.name === name);
+  if (idx === -1) {
+    res.status(404).json({ error: `Library entry '${name}' not found. Use PUT to create one.` });
+    return;
+  }
+  const existing = library[idx]!;
+
+  // Merge the schema: named properties are added or replaced, unnamed ones survive. `namingPattern` and
+  // `tagSuggestions` replace when present — they are a single value and a whole list, and merging a list
+  // would make removing one tag impossible without a second mechanism.
+  const mergedSchema: SchemaLibraryEntry['schema'] = { ...(existing.schema ?? {}) };
+  if (patch.schema) {
+    if (patch.schema.namingPattern !== undefined) mergedSchema.namingPattern = patch.schema.namingPattern;
+    if (patch.schema.tagSuggestions !== undefined) mergedSchema.tagSuggestions = patch.schema.tagSuggestions;
+    if (patch.schema.propertySchemas !== undefined) {
+      mergedSchema.propertySchemas = { ...(existing.schema?.propertySchemas ?? {}), ...patch.schema.propertySchemas };
+    }
+  }
+
+  // Removals, applied AFTER the merge so a single request can replace one property and drop another without
+  // the order mattering to the caller.
+  const unknownPaths: string[] = [];
+  for (const path of patch.deleteFields ?? []) {
+    if (path === 'namingPattern') { delete mergedSchema.namingPattern; continue; }
+    if (path === 'tagSuggestions') { delete mergedSchema.tagSuggestions; continue; }
+    if (path === 'propertySchemas') { delete mergedSchema.propertySchemas; continue; }
+    const prop = /^propertySchemas\.(.+)$/.exec(path);
+    if (prop && mergedSchema.propertySchemas) { delete mergedSchema.propertySchemas[prop[1]!]; continue; }
+    if (prop) continue;   // nothing to delete from, but the path is valid
+    unknownPaths.push(path);
+  }
+  if (unknownPaths.length > 0) {
+    // Refused rather than ignored: a typo'd path that is silently dropped leaves the caller believing a
+    // property was removed when it is still validating records.
+    res.status(400).json({
+      error: `deleteFields paths must be 'namingPattern', 'tagSuggestions', 'propertySchemas', or 'propertySchemas.<key>' — unrecognised: ${unknownPaths.join(', ')}`,
+    });
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const updated: SchemaLibraryEntry = {
+    ...existing,
+    ...(patch.knowledgeType !== undefined ? { knowledgeType: patch.knowledgeType } : {}),
+    ...(patch.typeName !== undefined ? { typeName: patch.typeName } : {}),
+    schema: mergedSchema,
+    // null clears, a value sets, absent preserves — the same three-way contract PUT already honours for these.
+    ...(patch.description === null ? { description: undefined } : patch.description !== undefined ? { description: patch.description } : {}),
+    ...(patch.schemaGroup === null ? { schemaGroup: undefined } : patch.schemaGroup !== undefined ? { schemaGroup: patch.schemaGroup } : {}),
+    ...(patch.published !== undefined ? { published: patch.published } : {}),
+    ...(patch.sourceUrl === null ? { sourceUrl: undefined } : patch.sourceUrl !== undefined ? { sourceUrl: patch.sourceUrl } : {}),
+    ...(patch.sourceCatalog === null ? { sourceCatalog: undefined } : patch.sourceCatalog !== undefined ? { sourceCatalog: patch.sourceCatalog } : {}),
+    updatedAt: now,
+  };
+
+  const next = [...library];
+  next[idx] = updated;
+  saveSchemaLibrary(next);
+  // Same reasoning as PUT: this entry is `$ref`d from any number of spaces, so editing it changes what all of
+  // them validate against. The audit layer records the scalar metadata and which property KEYS changed, never
+  // the property schemas themselves, which can carry example values.
+  req.auditSnapshots = { before: existing, after: updated };
+  res.json({ entry: updated });
 });
 
 // ── GET /:name/usages — list all spaces that $ref this library entry ─────────

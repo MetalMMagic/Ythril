@@ -119,6 +119,34 @@ const SpaceMetaBody = z.object({
   strictLinkage: z.boolean().optional(),
 }).strict();
 
+/**
+ * The three fields the server OWNS: it writes them, `GET` returns them, and a caller may not set them.
+ *
+ * They are stripped from an incoming `meta` rather than rejected by `.strict()`. Reported by an integrator
+ * doing the obvious thing — `GET` a space, edit one field of `meta.typeSchemas`, `PATCH` it back — and getting
+ * `unrecognized_keys` for three fields they never wrote and cannot omit without knowing to. Their ask was
+ * *"either merge, or do not return what you will not accept"*, and this is the second half; the merge half
+ * already shipped as `mergeSpaceMeta`.
+ *
+ * **Only these three, and `.strict()` still rejects everything else.** That distinction is the whole design:
+ * a key the server itself emitted is echo-back noise and dropping it costs the caller nothing, while an
+ * unknown key is a typo — and silently ignoring `validationMdoe` would let someone believe they had turned
+ * validation on. Stripping everything would trade a real diagnostic for a convenience.
+ *
+ * The dry-run endpoint at the bottom of this file has stripped exactly these three since it was written, so
+ * before this the two endpoints disagreed about whether a round-tripped body was acceptable. One of them had
+ * to be wrong; the one that accepted it was right.
+ */
+const SERVER_OWNED_META_FIELDS = ['version', 'updatedAt', 'previousVersions'] as const;
+
+/** Drop the server-owned housekeeping fields from an incoming `meta`, leaving everything else to Zod. */
+function stripServerOwnedMeta(meta: unknown): unknown {
+  if (meta == null || typeof meta !== 'object' || Array.isArray(meta)) return meta;
+  const copy: Record<string, unknown> = { ...(meta as Record<string, unknown>) };
+  for (const f of SERVER_OWNED_META_FIELDS) delete copy[f];
+  return copy;
+}
+
 // proxyFor accepts either the wildcard sentinel ['*'] or a list of specific space IDs
 const ProxyForZ = z.union([
   z.tuple([z.literal('*')]),
@@ -503,7 +531,15 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminMfaScoped('id'), async (
     return;
   }
 
-  const parsed = UpdateSpaceBody.safeParse(req.body);
+  // Accept what we emit: a caller who GETs a space, edits one field and PATCHes it back is doing the obvious
+  // thing, and `version`/`updatedAt`/`previousVersions` come straight out of our own response. Stripped, not
+  // rejected — and ONLY these three, so `.strict()` still catches a typo like `validationMdoe`, which someone
+  // would otherwise believe had turned validation on. See SERVER_OWNED_META_FIELDS.
+  const bodyForParse = req.body != null && typeof req.body === 'object' && !Array.isArray(req.body)
+    ? { ...(req.body as Record<string, unknown>), ...('meta' in (req.body as object) ? { meta: stripServerOwnedMeta((req.body as { meta?: unknown }).meta) } : {}) }
+    : req.body;
+
+  const parsed = UpdateSpaceBody.safeParse(bodyForParse);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
@@ -997,11 +1033,13 @@ spacesRouter.post('/:id/validate-schema', globalRateLimit, requireAdminMfaScoped
     return;
   }
 
-  // Use the provided meta for dry-run, or fall back to the space's current meta
-  // Strip internal-only fields (version, updatedAt, previousVersions) before Zod validation
-  const rawMeta = req.body?.meta ?? space.meta ?? {};
-  const { version: _v, updatedAt: _u, previousVersions: _pv, ...metaForParse } = rawMeta;
-  const parsedMeta = SpaceMetaBody.safeParse(metaForParse);
+  // Use the provided meta for dry-run, or fall back to the space's current meta.
+  //
+  // This endpoint has stripped the server-owned housekeeping fields since it was written — which is why it
+  // accepted a round-tripped `GET` body while the PATCH above rejected it. Now both use the one helper, so
+  // the two cannot drift apart again: a future field added to SERVER_OWNED_META_FIELDS reaches both, where
+  // this inline destructure would have needed remembering.
+  const parsedMeta = SpaceMetaBody.safeParse(stripServerOwnedMeta(req.body?.meta ?? space.meta ?? {}));
   if (!parsedMeta.success) {
     res.status(400).json({ error: parsedMeta.error.message });
     return;

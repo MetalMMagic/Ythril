@@ -422,3 +422,59 @@ describe('Round-trip: GET then PUT (export/import snippet)', () => {
     assert.deepEqual(final.body.schema, exported.body.schema, 'Schema should be identical after round-trip');
   });
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  Round-trip the WHOLE space: GET /api/spaces/:id then PATCH meta back
+//
+//  The reported gap (A-L6-5): `GET` returns `version`, `updatedAt` and
+//  `previousVersions` inside `meta`, and `PATCH` refused them with
+//  `unrecognized_keys` — three fields the caller never wrote and could not know
+//  to strip. Their ask was "either merge, or do not return what you will not
+//  accept". The merge half shipped earlier as `mergeSpaceMeta`; this is the
+//  other half.
+//
+//  Our own dry-run endpoint had stripped exactly those three since it was
+//  written, so two endpoints in one file disagreed about whether a round-tripped
+//  body was acceptable. One of them was wrong, and it was not the one that
+//  accepted it.
+// ═════════════════════════════════════════════════════════════════════════════
+describe('Round-trip: GET a space, then PATCH its meta back', () => {
+  it('accepts a meta carrying the server-owned housekeeping fields verbatim', async () => {
+    const got = await get(INSTANCES.a, token(), `/api/spaces/${TEST_SPACE}`);
+    assert.equal(got.status, 200, JSON.stringify(got.body));
+    const meta = got.body.space?.meta ?? got.body.meta;
+    assert.ok(meta, `the GET must return meta to round-trip: ${JSON.stringify(got.body).slice(0, 300)}`);
+    // The premise of the whole item — if the GET stopped returning these, this test would be vacuous.
+    assert.ok('version' in meta || 'updatedAt' in meta,
+      `GET must emit at least one server-owned field, or there is nothing to strip: ${JSON.stringify(meta).slice(0, 200)}`);
+
+    const r = await patch(INSTANCES.a, token(), `/api/spaces/${TEST_SPACE}`, { meta });
+    assert.notEqual(r.status, 400,
+      `a body straight out of GET must be accepted, got ${r.status}: ${JSON.stringify(r.body)}`);
+  });
+
+  it('still rejects an actual unknown key — the strip is three fields, not a free-for-all', async () => {
+    // The distinction that makes the fix safe: silently ignoring `validationMdoe` would let someone believe
+    // they had turned validation on. A typo must stay loud.
+    const r = await patch(INSTANCES.a, token(), `/api/spaces/${TEST_SPACE}`, {
+      meta: { validationMdoe: 'strict' },
+    });
+    assert.equal(r.status, 400, `an unknown key must still be refused: ${JSON.stringify(r.body)}`);
+  });
+
+  it('the housekeeping fields are not writable through the strip', async () => {
+    // Stripping must DROP them, never apply them: a caller must not be able to set the version the
+    // optimistic-concurrency check reads.
+    const before = await get(INSTANCES.a, token(), `/api/spaces/${TEST_SPACE}`);
+    const beforeMeta = before.body.space?.meta ?? before.body.meta;
+    const r = await patch(INSTANCES.a, token(), `/api/spaces/${TEST_SPACE}`, {
+      meta: { version: 999_999, purpose: 'round-trip probe' },
+    });
+    assert.notEqual(r.status, 400, JSON.stringify(r.body));
+    const after = await get(INSTANCES.a, token(), `/api/spaces/${TEST_SPACE}`);
+    const afterMeta = after.body.space?.meta ?? after.body.meta;
+    assert.notEqual(afterMeta.version, 999_999, 'a caller must not be able to set the meta version');
+    assert.ok((afterMeta.version ?? 0) >= (beforeMeta.version ?? 0), 'the server still bumps it');
+    assert.equal(afterMeta.purpose, 'round-trip probe', 'and the real field in the same body applied');
+  });
+});

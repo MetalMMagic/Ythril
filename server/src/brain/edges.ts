@@ -15,7 +15,7 @@ import { mergePropertiesOrKeep, mergeTagsOrKeep } from './merge-fields.js';
 import { enqueueEmbedJob } from './embed-queue.js';
 import { getEntityById } from './entities.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
-import type { EdgeDoc, EntityDoc, TombstoneDoc } from '../config/types.js';
+import type { EdgeDoc, EntityDoc, TombstoneDoc, ChronoEntry } from '../config/types.js';
 import { tagContains, textContains, propertiesValueContains, PROPERTIES_SCAN_MAX_MS } from './tag-filter.js';
 
 export interface TraverseNode {
@@ -23,6 +23,16 @@ export interface TraverseNode {
   name: string;
   type: string;
   depth: number;
+  /**
+   * WHICH collection this node lives in.
+   *
+   * Absent on an entity — every node was one until chrono entries became reachable, so absence keeps every
+   * existing response byte-identical. Present and `'chrono'` on a chrono entry, because the two are looked
+   * up in different collections and a caller that follows `_id` needs to know where to look. Guessing from
+   * `type` does not work: a chrono's `type` is `event`/`deadline`/…, and an entity's is whatever the space
+   * calls it.
+   */
+  kind?: 'chrono';
 }
 
 export interface TraverseEdge {
@@ -398,12 +408,42 @@ export async function bulkDeleteEdges(spaceId: string): Promise<number> {
 }
 
 /**
+ * The label the synthetic chrono link carries.
+ *
+ * A real value rather than an empty string so `edgeLabels` can include or exclude it like any other, and so a
+ * reader of a traverse result can tell a modelled relationship from a derived one.
+ */
+export const CHRONO_LINK_LABEL = 'chrono.entityIds';
+
+/**
  * BFS graph traversal from a starting entity.
+ *
+ * ── Chrono entries are nodes ──────────────────────────────────────────────────────────────────────────────
+ *
+ * `chrono.entityIds` is the only thing linking a chrono to the graph, and until now it was legible to
+ * `query()` and invisible to `traverse` — which is the retrieval path an agent reaches for first. An
+ * integrator measured the cost: reconstructing a 33-day hardware-RMA timeline took four `query()` calls plus
+ * two repo greps, and the first pass still missed the actual carrier ticket, which had to be found by a name
+ * regex instead of by traversal from the incident.
+ *
+ * So a chrono whose `entityIds` contains a frontier node is reached as though it were joined by an INBOUND
+ * edge — which is what that field is. No schema change and no migration: the link already exists, it simply
+ * had no reader here.
+ *
+ * **On by default, because the defect was discoverability.** A flag defaulting to off leaves the graph
+ * looking the same to everyone who does not already know the answer. What that costs is a response that can
+ * now contain a node from another collection, so every chrono node carries `kind: 'chrono'` and entity nodes
+ * are unchanged down to the byte. `includeChrono: false` restores the old shape for a client that assumed
+ * one collection.
+ *
+ * The synthetic edge is labelled `chrono.entityIds` and its `_id` is the chrono's, so nothing has to invent
+ * an edge id that does not exist — a caller looking it up finds the chrono, not a 404.
  *
  * @param memberIds  Space IDs to search for edges and entities (supports proxy spaces).
  * @param startId    UUID of the starting entity.
  * @param direction  Follow edges from the node (outbound), to the node (inbound), or both.
- * @param edgeLabels If provided, only traverse edges with one of these labels.
+ * @param edgeLabels If provided, only traverse edges with one of these labels. Also filters the synthetic
+ *                   chrono link, which is labelled `chrono.entityIds`.
  * @param maxDepth   Maximum hop count from startId (hard cap enforced by caller).
  * @param limit      Maximum total nodes to return.
  */
@@ -414,6 +454,11 @@ export async function traverseGraph(
   edgeLabels?: string[],
   maxDepth = 3,
   limit = 100,
+  /**
+   * Follow `chrono.entityIds` as inbound links, so a chrono entry is reachable from the entities it is
+   * about. Default ON — see the note above the function.
+   */
+  includeChrono = true,
 ): Promise<TraverseResult> {
   const visited = new Set<string>([startId]);
   // frontier: nodes whose outgoing edges we need to explore at the current depth
@@ -426,6 +471,9 @@ export async function traverseGraph(
   const labelFilter = edgeLabels && edgeLabels.length > 0
     ? { label: { $in: edgeLabels } }
     : {};
+  // An explicit label filter excludes the chrono link unless it names it — otherwise asking for `depends_on`
+  // would quietly return chrono entries too, and a filter that cannot exclude something is not a filter.
+  const wantsChronoLabel = !edgeLabels || edgeLabels.length === 0 || edgeLabels.includes(CHRONO_LINK_LABEL);
 
   while (frontier.length > 0 && currentDepth < maxDepth) {
     // Batch-fetch all edges for the current frontier across all member spaces
@@ -463,7 +511,31 @@ export async function traverseGraph(
       edgesForNewNeighbors.push(edge);
     }
 
-    if (newNeighborIds.length === 0) break;
+    // Chrono entries that point AT the current frontier. `entityIds` is an inbound link in everything but
+    // name, so this reads it as one — see the note above the function.
+    //
+    // Collected BEFORE the early break, and counted by it. Keying the break on entity neighbours alone meant
+    // an entity whose only link is a timeline returned nothing at all — which is the reported scenario, not
+    // an edge case: an incident with ten chrono entries and no edges is exactly what someone traverses from.
+    // Verified against a running server; the source-level gate passed happily either way.
+    const chronoHere: { doc: ChronoEntry; via: string }[] = [];
+    if (includeChrono && wantsChronoLabel) {
+      for (const mid of memberIds) {
+        const linked = await col<ChronoEntry>(`${mid}_chrono`)
+          .find(asFilter<ChronoEntry>({ spaceId: mid, entityIds: { $in: frontier } }),
+                { projection: { title: 1, type: 1, entityIds: 1 } })
+          .toArray() as ChronoEntry[];
+        for (const c of linked) {
+          if (visited.has(c._id)) continue;
+          visited.add(c._id);
+          // The frontier entity it hangs off — the `from` of the synthetic edge.
+          const via = c.entityIds.find(id => frontierSet.has(id)) ?? frontier[0];
+          chronoHere.push({ doc: c, via });
+        }
+      }
+    }
+
+    if (newNeighborIds.length === 0 && chronoHere.length === 0) break;
 
     // Batch-fetch entity docs for all new neighbors
     const entityMap = new Map<string, EntityDoc>();
@@ -473,6 +545,7 @@ export async function traverseGraph(
         .toArray() as EntityDoc[];
       for (const e of entities) entityMap.set(e._id, e);
     }
+
 
     // Build results for this depth level
     const nextFrontier: string[] = [];
@@ -490,6 +563,16 @@ export async function traverseGraph(
       }
 
       nextFrontier.push(neighborId);
+    }
+
+    // Chrono nodes are emitted at this depth but do NOT join the next frontier: a chrono links to entities,
+    // not to other chrono entries, so expanding from one would only walk back to entities already visited.
+    for (const { doc, via } of chronoHere) {
+      resultEdges.push({ _id: doc._id, from: via, to: doc._id, label: CHRONO_LINK_LABEL });
+      resultNodes.push({ _id: doc._id, name: doc.title, type: doc.type, depth: currentDepth + 1, kind: 'chrono' });
+      if (resultNodes.length >= limit) {
+        return { nodes: resultNodes, edges: resultEdges, truncated: true };
+      }
     }
 
     frontier = nextFrontier;

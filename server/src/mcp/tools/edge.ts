@@ -179,7 +179,7 @@ export const update_edgeTool: ToolHandler = {
 
 export const traverseTool: ToolHandler = {
   name: 'traverse',
-  description: 'Follow edges from a starting entity and return reachable nodes up to maxDepth hops. Useful for dependency analysis, impact assessment, and lineage queries.',
+  description: 'Follow edges from a starting entity and return reachable nodes up to maxDepth hops. Chrono entries that reference a reached node come back too (kind:"chrono"), so a timeline can be walked from the entity it is about. Useful for dependency analysis, impact assessment, and lineage queries.',
   spaceRequired: true,
   inputSchema: (s: ToolSchemas) => ({
           type: 'object',
@@ -199,6 +199,7 @@ export const traverseTool: ToolHandler = {
             },
             maxDepth: { type: 'number', minimum: 1, maximum: 10, default: 3, description: 'Maximum hops from startId (clamped to 1–10). Default 3.' },
             limit: { type: 'number', minimum: 1, maximum: 1000, default: 100, description: 'Maximum total nodes returned (clamped to 1–1000). Default 100.' },
+            includeChrono: { type: 'boolean', default: true, description: 'Follow chrono.entityIds as inbound links, so chrono entries about a node are reached too. Chrono nodes carry kind:"chrono"; entity nodes are unchanged. Set false for entity-only results.' },
           },
           required: ['space', 'startId'],
           additionalProperties: false,
@@ -219,7 +220,10 @@ export const traverseTool: ToolHandler = {
     const limit = typeof a['limit'] === 'number' ? Math.min(Math.max(1, a['limit']), 1000) : 100;
 
     const memberIds = resolveMemberSpaces(callSpace);
-    const result = await traverseGraph(memberIds, startId, direction, edgeLabels, maxDepth, limit);
+    // Same default and same opt-out as REST — a rule that reaches one door and not the other is the defect
+    // four brain-API fixes were about.
+    const result = await traverseGraph(memberIds, startId, direction, edgeLabels, maxDepth, limit,
+      a['includeChrono'] !== false);
     return {
       content: [{
         type: 'text' as const,

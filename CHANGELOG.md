@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`traverse` reaches chrono entries, so a timeline is walkable from the entity it is about** (a canary ask).
+  `chrono.entityIds` was the only thing linking a chrono to the graph, legible to `query()` and invisible to
+  `traverse` — the retrieval path an agent reaches for first. The reporter measured the cost: reconstructing a
+  **33-day hardware-RMA timeline took four `query()` calls plus two repository greps**, and the first pass
+  still missed the carrier ticket, which had to be found by a name regex rather than by traversal from the
+  incident. No schema change and no migration: the link already existed and had no reader here.
+  - **On by default, because the defect was discoverability.** A flag defaulting to off leaves the graph
+    looking the same to everyone who does not already know the answer. What it costs is a response that can
+    contain a node from another collection — so **a chrono node carries `kind: "chrono"` and an entity node
+    carries no `kind` at all**, leaving every response you were already parsing unchanged. `includeChrono:
+    false` restores the entity-only shape, on both REST and MCP.
+  - The synthetic edge is labelled **`chrono.entityIds`** and its `_id` is the chrono's own, so looking it up
+    resolves rather than 404ing on an invented edge. Being a real label, `edgeLabels` filters it like any
+    other: a filter that does not name it excludes chrono entries — a filter that cannot exclude something is
+    not a filter.
+  - A chrono is a leaf: traversal does not expand outward from one, because a chrono links to entities and
+    would only walk back to entities already visited.
+  - **The first version returned nothing for the commonest case in the report** — an entity whose only link is
+    a timeline. The BFS breaks out when a frontier yields no entity neighbours, and the chrono lookup sat after
+    that break. Nothing about the source read wrong and the source-level gate passed; only running it against a
+    server found it. That case is now the first assertion in the integration test.
+
 ### Added
 
 - **MCP can delete an entity, an edge and a chrono entry** (`delete_entity`, `delete_edge`, `delete_chrono` — a

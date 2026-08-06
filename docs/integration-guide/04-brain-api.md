@@ -1209,6 +1209,7 @@ POST /api/brain/spaces/:spaceId/traverse
 | `edgeLabels` | — | all labels | Filter traversal to specific edge labels only |
 | `maxDepth` | — | `3` | Maximum hops from `startId`; hard-capped at `10` |
 | `limit` | — | `100` | Maximum total nodes returned |
+| `includeChrono` | — | `true` | Also reach chrono entries whose `entityIds` reference a traversed node. Set `false` for entity-only results. A non-boolean is a `400`, never coerced |
 
 **Response** `200`:
 
@@ -1216,20 +1217,43 @@ POST /api/brain/spaces/:spaceId/traverse
 {
   "nodes": [
     { "_id": "...", "name": "auth-service", "type": "service", "depth": 1 },
-    { "_id": "...", "name": "user-service",  "type": "service", "depth": 2 }
+    { "_id": "...", "name": "user-service",  "type": "service", "depth": 2 },
+    { "_id": "...", "name": "Unit collected by carrier", "type": "event", "depth": 1, "kind": "chrono" }
   ],
   "edges": [
-    { "_id": "...", "from": "...", "to": "...", "label": "depends_on" }
+    { "_id": "...", "from": "...", "to": "...", "label": "depends_on" },
+    { "_id": "...", "from": "...", "to": "...", "label": "chrono.entityIds" }
   ],
   "truncated": false
 }
 ```
 
-- `nodes` — entities discovered during traversal, excluding the start entity itself; each node includes a `depth` field indicating the hop count from `startId`
+- `nodes` — records discovered during traversal, excluding the start entity itself; each node includes a `depth` field indicating the hop count from `startId`
 - `edges` — only the edges actually traversed (not all edges of the returned nodes)
 - `truncated: true` if `limit` was reached before exhausting the graph
 
-Server-side cycle detection ensures each entity is visited at most once, so cyclic graphs are handled safely.
+Server-side cycle detection ensures each record is visited at most once, so cyclic graphs are handled safely.
+
+#### Chrono entries are nodes
+
+`chrono.entityIds` is the link between a timeline and the graph, and traversal follows it — a chrono entry
+that references a traversed node is returned as though joined by an **inbound** edge, which is what that
+field is. No schema change was needed; the link already existed and simply had no reader here.
+
+- **A chrono node carries `kind: "chrono"`. An entity node carries no `kind` at all**, so every response you
+  were already parsing is unchanged. Read `kind` before following an `_id`: the two live in different
+  collections, and `type` cannot tell you which (a chrono's is `event`/`deadline`/…, an entity's is whatever
+  the space calls it).
+- **The synthetic edge is labelled `chrono.entityIds`** and its `_id` is the chrono's own, so looking it up
+  resolves to the chrono rather than 404ing on an invented edge. Because it is a real label, `edgeLabels`
+  filters it like any other: an explicit filter that does not name it **excludes** chrono entries.
+- **A chrono is a leaf.** Traversal does not expand outward from one — a chrono links to entities, not to
+  other chrono entries, so expanding would only walk back to entities already visited.
+- Set `includeChrono: false` for the previous entity-only behaviour.
+
+This closes a gap an integrator measured: reconstructing a 33-day hardware-RMA timeline took four `query()`
+calls plus two repository greps, and the first pass still missed the carrier ticket — it had to be found by a
+name regex instead of by traversal from the incident.
 
 ---
 

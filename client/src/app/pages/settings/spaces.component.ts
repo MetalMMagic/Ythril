@@ -401,6 +401,10 @@ export class SpacesComponent implements OnInit {
       videoAnalysis: this.state.stForm.videoAnalysis || null,
       textAnalysis: this.state.stForm.textAnalysis || null,
       meta:   this.state.buildMeta(),
+      // Save persists the state the editor is showing. Without this the PATCH merges, so a type deleted in
+      // the UI is simply not mentioned and the server keeps it — the delete appears to work, survives the
+      // save, and is still there on reload.
+      typeSchemasMode: 'replace',
     }).subscribe({
       next: (result) => {
         this.state.settingsSaving.set(false);

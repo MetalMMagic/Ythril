@@ -217,7 +217,21 @@ the server still bumps it.
   believing you had turned validation on. The tolerance covers only the fields that genuinely belong to `meta`
   and that we ourselves emit.
 
-**Removing a type schema.** `PATCH` deep-merges, so omitting a type does not delete it — a merge that could delete would make every PATCH potentially destructive, and a client that round-trips a space would silently drop schemas whenever its serialiser emitted `null` for an unset field. Deletion is explicit instead: `DELETE /api/spaces/:id/meta/typeSchemas/:knowledgeType/:typeName` for one type (404 if it does not exist), or `PUT /api/spaces/:id/schema` to replace the whole map.
+**Removing a type schema.** `PATCH` deep-merges by default, so omitting a type does not delete it — a merge that could delete would make every PATCH potentially destructive, and a client that round-trips a space would silently drop schemas whenever its serialiser emitted `null` for an unset field. There are three ways to delete:
+
+- `DELETE /api/spaces/:id/meta/typeSchemas/:knowledgeType/:typeName` for one type (404 if it does not exist).
+- `PUT /api/spaces/:id/schema` to replace the whole map. It writes a timestamped backup of the previous schema into the space first. Note it applies **directly**, so on a networked space it does not open a vote round — use the PATCH form below if the change should go to consensus.
+- `PATCH /api/spaces/:id` with `"typeSchemasMode": "replace"` alongside `meta.typeSchemas`. The payload becomes authoritative: types absent from it are removed. This is the same request as any other meta change, so it takes the same network-vote path.
+
+```jsonc
+// Authoritative: the space ends up declaring exactly `flow`, and nothing else of any kind.
+PATCH /api/spaces/flows
+{ "typeSchemasMode": "replace",
+  "meta": { "typeSchemas": { "entity": { "flow": { "namingPattern": "^f-" } },
+                             "memory": {}, "edge": {}, "chrono": {} } } }
+```
+
+`typeSchemasMode` defaults to `merge`, which is the behaviour this endpoint has always had. Under `replace`, a knowledge type sent as `{}` clears it, and omitting a knowledge type entirely also clears it — so send all four keys unless you mean to empty the ones you leave out. Omitting `meta.typeSchemas` altogether still changes nothing, in either mode; `replace` says how to apply schemas that are present, not that absent ones should be erased.
 
 ```json
 {

@@ -150,7 +150,11 @@ describe('SpaceSettingsState — buildMeta (what actually gets saved)', () => {
   it('always emits validationMode, and omits blank purpose/usageNotes', () => {
     const c = make();
     c.openSettings(space());
-    expect(c.buildMeta()).toEqual({ validationMode: 'off' });
+    // `typeSchemas` is now always present (see the deletion test below), so the blank-field assertion is
+    // made against the other keys rather than the whole object.
+    expect(c.buildMeta()).toMatchObject({ validationMode: 'off' });
+    expect(c.buildMeta().purpose).toBeUndefined();
+    expect(c.buildMeta().usageNotes).toBeUndefined();
   });
 
   it('trims purpose and usageNotes', () => {
@@ -214,10 +218,16 @@ describe('SpaceSettingsState — buildMeta (what actually gets saved)', () => {
     expect(ps.enum).toBeUndefined();    // empty enum dropped
   });
 
-  it('omits typeSchemas entirely when no type is defined', () => {
+  it('emits an empty typeSchemas when no type is defined — it used to omit it, and that lost deletions', () => {
+    // Changed deliberately. This assertion previously read `toBeUndefined()`, pinning the behaviour that
+    // made a schema-type deletion impossible to save: an omitted key told the server nothing, so its
+    // merge kept what it had, and the delete survived the save only in the UI. An absent key and an empty
+    // object have to mean different things for "this space declares nothing" to be expressible at all.
     const c = make();
     c.openSettings(space());
-    expect(c.buildMeta().typeSchemas).toBeUndefined();
+    const ts = c.buildMeta().typeSchemas;
+    expect(ts).toBeDefined();
+    expect(ts!.entity).toEqual({});
   });
 });
 

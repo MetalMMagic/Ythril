@@ -202,7 +202,7 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
     res.status(404).json({ error: `Space '${spaceId}' not found` });
     return;
   }
-  const { query, topK, types, minScore, filter, traverse, tags, minPerType, maxPerType } = req.body ?? {};
+  const { query, topK, types, minScore, filter, traverse, tags, minPerType, maxPerType, maxTimeMS } = req.body ?? {};
   if (!query || typeof query !== 'string' || !query.trim()) {
     res.status(400).json({ error: 'query must be a non-empty string' });
     return;
@@ -265,6 +265,18 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
     if (Object.keys(acc).length > 0) safeMaxPerType = acc;
   }
 
+  // Per-call deadline. It can only LOWER `RECALL_BUDGET_MS`, never raise it — letting a request body extend
+  // the operator's ceiling is a denial-of-service lever. Clamped rather than refused, because a caller asking
+  // for 60 s on a 25 s instance wants "as long as you allow", and an error there teaches nothing.
+  let safeMaxTimeMS: number | undefined;
+  if (maxTimeMS != null) {
+    if (typeof maxTimeMS !== 'number' || !Number.isInteger(maxTimeMS) || maxTimeMS < 1) {
+      res.status(400).json({ error: '`maxTimeMS` must be a positive integer (milliseconds)' });
+      return;
+    }
+    safeMaxTimeMS = maxTimeMS;
+  }
+
   // A floor above its own ceiling is REFUSED, not silently resolved.
   //
   // Floor-wins and ceiling-wins are both defensible, which is exactly why the caller has to say which they
@@ -309,8 +321,11 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
 
   try {
     const memberIds = resolveMemberSpaces(spaceId);
+    // One collector across every member, deduped by `recall` itself, so a proxy space reports "the answer is
+    // partial" once rather than once per member.
+    const degraded: string[] = [];
     const all = (await Promise.all(
-      memberIds.map(mid => recall(mid, query.trim(), safeTopK, safeTags, safeTypes, safeMinPerType, safeMinScore, safeFilter, { maxPerType: safeMaxPerType })),
+      memberIds.map(mid => recall(mid, query.trim(), safeTopK, safeTags, safeTypes, safeMinPerType, safeMinScore, safeFilter, { maxPerType: safeMaxPerType, maxTimeMS: safeMaxTimeMS, degraded })),
     )).flat();
     // rankOf, NOT `.score`. `recall()` has already ordered each space's results by the best signal it
     // has — cross-encoder, then RRF fusion, then vector similarity. Re-sorting the merged list by raw
@@ -341,7 +356,11 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
     };
 
     if (safeTraverse === 0) {
-      res.json({ results: seeds, count: seeds.length });
+      // `degraded` is present only when something degraded. An empty array on every healthy response is
+      // noise, and a field that is almost always empty is a field readers learn to skip — which is exactly
+      // when it needs to be noticed. The requester asked for the flag in the BODY rather than only a status,
+      // because a 200 that is quietly short is indistinguishable from a 200 that found everything.
+      res.json({ results: seeds, count: seeds.length, ...(degraded.length > 0 ? { degraded } : {}) });
       return;
     }
 
@@ -357,7 +376,9 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
       ...seeds.map(s => ({ score: s.score, source: 'recall' as const, hops: 0, path: [], spaceId: s.spaceId, type: s.type, record: s })),
       ...neighbours.map(n => ({ score: null, source: 'traverse' as const, hops: n.hops, path: n.path, spaceId: n.spaceId, type: 'entity' as const, record: n.record })),
     ];
-    res.json({ results, count: results.length, traverseDepth: safeTraverse });
+    // The traverse shape carries the flag too — the seeds it expanded may already have been partial, and a
+    // caller cannot infer that from a longer list.
+    res.json({ results, count: results.length, traverseDepth: safeTraverse, ...(degraded.length > 0 ? { degraded } : {}) });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(400).json({ error: msg });

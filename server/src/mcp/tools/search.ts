@@ -64,6 +64,11 @@ export const recallTool: ToolHandler = {
               description: 'Optional MAXIMUM result count per type — the ceiling to minPerType\'s floor (e.g. {"file": 2, "memory": 4}). A slot freed by the cap goes to another type, so this is how you stop one long file chunk from crowding out several one-line records that would answer the query more cheaply. At least 1 per type; use `types` to exclude a type entirely. Must not be below minPerType for the same type — a contradictory pair is refused rather than silently resolved.',
               additionalProperties: { type: 'number', minimum: 1 },
             },
+            maxTimeMS: {
+              type: 'number',
+              minimum: 1,
+              description: 'Optional deadline for this recall, in milliseconds. It can only LOWER the instance budget, never raise it, and is clamped to a small floor so a tiny value is not a guaranteed empty answer. On expiry you get a PARTIAL answer rather than an error or a hang: whichever collections finished are returned, and the response says it degraded. Use it when a slow recall would cost more than a thin one — a memory that can only ever delay you by a known amount is one you can put in a workflow.',
+            },
             minScore: unitScoreSchema('Minimum cosine similarity score (0.0–1.0). Results below this threshold are excluded.'),
             includeContent: {
               type: 'boolean',
@@ -130,6 +135,18 @@ export const recallTool: ToolHandler = {
       }
       if (Object.keys(acc).length > 0) maxPerType = acc;
     }
+    // Per-call deadline — lowers the instance budget, never raises it. Clamped in `recall` rather than
+    // refused here: a caller asking for longer than the operator allows means "as long as you allow".
+    let recallMaxTimeMS: number | undefined;
+    if (a['maxTimeMS'] != null) {
+      if (typeof a['maxTimeMS'] !== 'number' || !Number.isInteger(a['maxTimeMS']) || a['maxTimeMS'] < 1) {
+        throw new Error('maxTimeMS must be a positive integer (milliseconds)');
+      }
+      recallMaxTimeMS = a['maxTimeMS'];
+    }
+    /** Collected across every member/space so a partial answer is declared once, not per space. */
+    const degraded: string[] = [];
+
     // A floor above its own ceiling is refused, not resolved. Same message as REST.
     if (minPerType && maxPerType) {
       for (const [t, floor] of Object.entries(minPerType) as [RecallKnowledgeType, number][]) {
@@ -164,7 +181,7 @@ export const recallTool: ToolHandler = {
     let traverseSpaces: string[];
     if (callSpace) {
       const memberIds = resolveMemberSpaces(callSpace);
-      const all = (await Promise.all(memberIds.map(mid => recall(mid, query, topK, tags, types, minPerType, minScore, filter, { maxPerType })))).flat();
+      const all = (await Promise.all(memberIds.map(mid => recall(mid, query, topK, tags, types, minPerType, minScore, filter, { maxPerType, maxTimeMS: recallMaxTimeMS, degraded })))).flat();
       // Same rule as everywhere else: rankOf, not `.score`. See the note on the REST recall route.
       all.sort((x, y) => rankOf(y) - rankOf(x));
       // And the ceiling is re-applied to the merged set for the same reason it is on the REST route: each
@@ -174,7 +191,7 @@ export const recallTool: ToolHandler = {
         : all.slice(0, topK);
       traverseSpaces = memberIds;
     } else {
-      seeds = await recallGlobal(accessibleSpaceIds, query, topK, tags, types, minPerType, minScore, filter, { maxPerType });
+      seeds = await recallGlobal(accessibleSpaceIds, query, topK, tags, types, minPerType, minScore, filter, { maxPerType, maxTimeMS: recallMaxTimeMS, degraded });
       traverseSpaces = accessibleSpaceIds;
     }
 
@@ -187,6 +204,9 @@ export const recallTool: ToolHandler = {
           record: toRecallRecord(r, { includeContent }),
         })),
         count: seeds.length,
+        // Only when something degraded — an always-present field that is almost always empty is one an agent
+        // learns to skip, and this is the field that matters on the call where the answer came back thin.
+        ...(degraded.length > 0 ? { degraded } : {}),
       };
       return { content: [{ type: 'text' as const, text: JSON.stringify(output) }] };
     }
@@ -203,7 +223,10 @@ export const recallTool: ToolHandler = {
       ...seeds.map(r => ({ score: r.score, source: 'recall' as const, hops: 0, path: [], spaceId: r.spaceId, type: r.type, record: toRecallRecord(r, { includeContent }) })),
       ...neighbours.map(n => ({ score: null, source: 'traverse' as const, hops: n.hops, path: n.path, spaceId: n.spaceId, type: 'entity', record: entityDocToRecord(n.record) })),
     ];
-    const output = { results, count: results.length, traverseDepth: traverse };
+    const output = {
+      results, count: results.length, traverseDepth: traverse,
+      ...(degraded.length > 0 ? { degraded } : {}),
+    };
     return { content: [{ type: 'text' as const, text: JSON.stringify(output) }] };
   },
 };

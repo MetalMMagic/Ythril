@@ -264,6 +264,61 @@ describe('Recall maxPerType — input validation over REST', () => {
   });
 });
 
+describe('Recall maxTimeMS — the per-call deadline over REST', () => {
+  /** The closed set of degradation reasons. An unknown value here means the metric label set drifted too. */
+  const KNOWN_REASONS = new Set(['search_timeout', 'rerank_skipped_budget', 'rerank_unavailable']);
+
+  it('a non-integer maxTimeMS returns 400', async () => {
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/recall`, {
+      query: 'test', maxTimeMS: 12.5,
+    });
+    assert.equal(r.status, 400, `Expected 400, got ${r.status}: ${JSON.stringify(r.body)}`);
+  });
+
+  it('a zero or negative maxTimeMS returns 400', async () => {
+    for (const v of [0, -1]) {
+      const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/recall`, {
+        query: 'test', maxTimeMS: v,
+      });
+      assert.equal(r.status, 400, `Expected 400 for maxTimeMS=${v}, got ${r.status}`);
+    }
+  });
+
+  it('a value ABOVE the instance budget is clamped, not refused', async () => {
+    // A caller asking for longer than the operator allows means "as long as you allow". Refusing would
+    // teach them nothing and break a reasonable request.
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/recall`, {
+      query: 'test', maxTimeMS: 999_999,
+    });
+    assert.notEqual(r.status, 400, `a large maxTimeMS must be clamped: ${JSON.stringify(r.body)}`);
+  });
+
+  it('a tiny deadline returns a well-formed 200 rather than hanging or erroring', async () => {
+    // Deliberately NOT asserting that `degraded` is present: against a fast local Mongo the searches may
+    // finish inside the 250 ms floor, and an assertion that depends on losing a race is a flake. What is
+    // asserted is the contract that holds either way — a 200, a results array, and if the flag IS there,
+    // only reasons from the closed set.
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/recall`, {
+      query: 'test', maxTimeMS: 1,
+    });
+    assert.equal(r.status, 200, `Expected 200, got ${r.status}: ${JSON.stringify(r.body)}`);
+    assert.ok(Array.isArray(r.body.results), 'results must be an array even on a partial answer');
+    if (r.body.degraded !== undefined) {
+      assert.ok(Array.isArray(r.body.degraded), 'degraded must be an array when present');
+      for (const reason of r.body.degraded) {
+        assert.ok(KNOWN_REASONS.has(reason), `unknown degraded reason "${reason}"`);
+      }
+    }
+  });
+
+  it('a normal recall carries NO degraded key', async () => {
+    // The field's value is in its absence: an empty array on every healthy response is one readers skip.
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/recall`, { query: 'test' });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal('degraded' in r.body, false, `a healthy recall must omit the key: ${JSON.stringify(r.body)}`);
+  });
+});
+
 describe('Recall filter — input validation', () => {
   it('filter key not starting with properties./tags/type/name returns 400', async () => {
     const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/recall`, {

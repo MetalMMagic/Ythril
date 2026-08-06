@@ -798,6 +798,12 @@ embedChunksTotal.labels({ space: '' }).inc(0);
  * `reason` is a closed set, deliberately: an unbounded label is a cardinality bomb.
  *  - `rerank_unavailable`    — configured, but it did not answer (unreachable, non-2xx, unreadable body)
  *  - `rerank_skipped_budget` — not attempted; the end-to-end budget was already spent (see RECALL_BUDGET_MS)
+ *  - `search_timeout`        — one collection's vector search hit its `maxTimeMS` deadline, so the answer is
+ *    partial. This one clears the bar the paragraph below sets: it is keyed on MongoDB error **code 50**
+ *    (`MaxTimeMSExpired`), so it cannot fire for "this collection held nothing" the way a missing lexical
+ *    channel would. A deadline the caller set is still degradation — they got less than the pipeline could
+ *    have found — and it is counted so an operator can see a client's 5 s bound biting in aggregate rather
+ *    than one warning line at a time.
  *
  * **A missing lexical channel is deliberately NOT counted here.** `applyLexicalFusion` cannot currently
  * tell "this space has no text index" from "the query matched nothing lexically" — both surface as an
@@ -813,7 +819,7 @@ export const recallDegradedTotal = new Counter({
 });
 // Pre-declare every series so a scrape before the first degradation reports 0 rather than nothing at
 // all — "absent" and "zero" look identical in a graph and mean opposite things.
-for (const reason of ['rerank_unavailable', 'rerank_skipped_budget']) {
+for (const reason of ['rerank_unavailable', 'rerank_skipped_budget', 'search_timeout']) {
   recallDegradedTotal.labels({ reason }).inc(0);
 }
 

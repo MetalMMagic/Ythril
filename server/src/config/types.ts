@@ -1785,6 +1785,13 @@ export interface ContradictionCandidateDoc {
   confidence: number;
   /** The disagreeing single-valued properties — present only when `basis` is `structured-field`. */
   fields?: { key: string; aValue: string | number | boolean; bValue: string | number | boolean }[];
+  /**
+   * The judged text was long enough that the model's window probably cut it — so this verdict may describe
+   * the OPENING of a record rather than the record. A proxy, never a measurement: we do not truncate, the
+   * encoder does, invisibly and without changing the confidence. Absent means "not long enough to worry
+   * about", not "the whole text was read". See `NLI_LIKELY_TRUNCATED_CHARS`.
+   */
+  truncated?: true;
   status: 'open' | 'dismissed' | 'resolved';
   /** How a resolved candidate was actioned. `edited` = a record was corrected; `linked` = a
    *  contradicts/supersedes edge was drawn instead of changing either record. */

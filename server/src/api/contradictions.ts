@@ -51,6 +51,9 @@ function toRecord(c: ContradictionCandidateDoc) {
     // Present only for a structured verdict — this is what lets the UI name the disagreement instead of
     // just asserting one.
     ...(c.fields ? { fields: c.fields } : {}),
+    // A confident verdict on the first page of a long record reads exactly like a confident verdict on the
+    // record, so the reviewer is told which one they are looking at.
+    ...(c.truncated ? { truncated: true } : {}),
     status: c.status,
     ...(c.resolution ? { resolution: c.resolution } : {}),
     detectedAt: c.detectedAt,
@@ -177,18 +180,23 @@ contradictionsRouter.post('/scan', globalRateLimit, requireAdminMfa, denyReadOnl
   try {
     const spaceFilter = typeof req.query['space'] === 'string' ? req.query['space'] : undefined;
     const spaces = accessibleSpaces(req.authToken?.spaces).filter(id => !spaceFilter || id === spaceFilter);
-    let scanned = 0, found = 0, nliStalled = false, judgedPairs = 0, budgetExhausted = false;
+    let scanned = 0, found = 0, nliStalled = false, judgedPairs = 0, modelCalls = 0, budgetExhausted = false;
     for (const spaceId of spaces) {
       const r = await scanSpace(spaceId);
-      scanned += r.scanned; found += r.found; judgedPairs += r.judgedPairs;
+      scanned += r.scanned; found += r.found; judgedPairs += r.judgedPairs; modelCalls += r.modelCalls;
       nliStalled = nliStalled || r.nliStalled;
       budgetExhausted = budgetExhausted || r.budgetExhausted;
     }
-    // Three different reasons the list may be incomplete, and they are NOT interchangeable:
+    // Two different reasons the list may be incomplete, and they are NOT interchangeable:
     //   nliStalled       the judge was unreachable — nothing was settled, the cursor is parked.
     //   budgetExhausted  the pair budget ran out — what was judged IS settled; the next run continues.
-    // Neither may read as a clean result. `judgedPairs` is what a remote endpoint actually spent.
-    res.json({ scannedSpaces: spaces.length, scanned, found, judgedPairs, nliStalled, budgetExhausted });
+    // Neither may read as a clean result.
+    //
+    // Two counts, because they answer different questions and an operator needs both: `judgedPairs` is what
+    // the sweep SETTLED, `modelCalls` is what it SPENT — the number their endpoint's own request log shows,
+    // and the one `maxJudgedPairsPerRun` bounds. Reporting only the first is what made our report look 2×
+    // short of a judge's own counter.
+    res.json({ scannedSpaces: spaces.length, scanned, found, judgedPairs, modelCalls, nliStalled, budgetExhausted });
   } catch (err) {
     log.error(`POST /api/contradictions/scan: ${err}`);
     res.status(500).json({ error: 'Internal error' });

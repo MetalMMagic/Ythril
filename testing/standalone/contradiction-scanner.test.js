@@ -21,12 +21,14 @@
  */
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 
-let cursorKey, toJudgeable, DEFAULT_TYPES;
+let cursorKey, toJudgeable, DEFAULT_TYPES, unjudgedNeighbours;
 
 describe('contradiction scanner — cursor separation', () => {
   before(async () => {
-    ({ cursorKey, toJudgeable, DEFAULT_TYPES } = await import('../../server/dist/brain/contradiction-scanner.js'));
+    ({ cursorKey, toJudgeable, DEFAULT_TYPES, unjudgedNeighbours } =
+      await import('../../server/dist/brain/contradiction-scanner.js'));
   });
 
   it('gives the structured and NLI passes DIFFERENT cursors', () => {
@@ -93,5 +95,74 @@ describe('contradiction scanner — swept types', () => {
     // Chrono was in neither scanner's defaults, so a calendar's contradictions were found by nothing.
     assert.ok(DEFAULT_TYPES.includes('chrono'));
     assert.ok(DEFAULT_TYPES.includes('memory') && DEFAULT_TYPES.includes('entity'));
+  });
+});
+
+/**
+ * One pair, one judgement per sweep.
+ *
+ * Reported by an operator: our scan said `judgedPairs: 6` while their own judge's request counter said 12.
+ * Similarity is symmetric, so as the sweep walks by `seq` a mutually-near pair is met from BOTH sides, and
+ * both judgements write the same row — the second one paid for a model call to overwrite the first.
+ */
+describe('contradiction scanner — a pair is judged once per sweep', () => {
+  before(async () => {
+    ({ unjudgedNeighbours } = await import('../../server/dist/brain/contradiction-scanner.js'));
+  });
+  const hit = (id) => ({ _id: id, type: 'memory', score: 0.97 });
+
+  it('drops the neighbour whose pair was settled from the other side', () => {
+    const seen = new Set(['mem-1:mem-2']);
+    const out = unjudgedNeighbours('mem-2', [hit('mem-1'), hit('mem-3')], seen);
+    assert.deepEqual(out.map(m => m._id), ['mem-3']);
+  });
+
+  it('matches regardless of which side seeded it — the id is order-independent', () => {
+    // The pair key is canonical, so `mem-2` as the seed must recognise the row `mem-1:mem-2`. Keying on
+    // `${seed}:${match}` instead would recognise nothing and the dedupe would be a no-op that still passed
+    // a naive test seeded in the same direction.
+    const seen = new Set(['mem-1:mem-2']);
+    assert.equal(unjudgedNeighbours('mem-1', [hit('mem-2')], seen).length, 0);
+    assert.equal(unjudgedNeighbours('mem-2', [hit('mem-1')], seen).length, 0);
+  });
+
+  it('keeps everything on the first visit', () => {
+    const out = unjudgedNeighbours('mem-1', [hit('mem-2'), hit('mem-3')], new Set());
+    assert.equal(out.length, 2);
+  });
+
+  it('is a no-op without a set, so a caller that does not dedupe behaves as before', () => {
+    const matches = [hit('mem-2')];
+    assert.equal(unjudgedNeighbours('mem-1', matches, undefined), matches);
+  });
+});
+
+/**
+ * The structured pass must reach NO endpoint.
+ *
+ * It used to enforce that with `minConfidence: 2` — an unreachable floor. But the floor is applied to the
+ * RESPONSE: the request went out, the record text left the instance, the endpoint served and billed it, and
+ * only then was the answer discarded. That is the other half of the operator's 2×, and it is invisible from
+ * every angle except the call itself. `judgePair`'s own tests pin the behaviour (`structuredOnly` → zero
+ * fetches, `minConfidence: 2` → one); this pins that the scanner is the caller that uses it.
+ */
+describe('contradiction scanner — the free pass is actually free', () => {
+  const src = fs.readFileSync(new URL('../../server/src/brain/contradiction-scanner.ts', import.meta.url), 'utf8');
+  // Comments explain the trap by name, so they must not satisfy the check that guards it.
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
+
+  it('asks the judge for the deterministic pass only', () => {
+    assert.match(code, /pass === 'structured'[\s\S]{0,160}structuredOnly:\s*true/);
+  });
+
+  it('does not try to buy silence with an unreachable confidence floor', () => {
+    assert.doesNotMatch(code, /minConfidence:\s*2/,
+      'a threshold gates the ANSWER, not the request — the call is made and paid for either way');
+  });
+
+  it('bounds the per-run budget on calls served, not on pairs settled', () => {
+    // A low-confidence answer is a served request that settles nothing. Gating on `judgedPairs` let a space
+    // with weak verdicts run indefinitely past a budget whose whole purpose is to bound spend.
+    assert.match(code, /maxJudgedPairs\s*>\s*0\s*&&\s*modelCalls\s*>=\s*tune\.maxJudgedPairs/);
   });
 });

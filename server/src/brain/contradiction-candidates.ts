@@ -20,7 +20,7 @@
 import { col, asFilter, asDoc, asUpdate } from '../db/mongo.js';
 import { pairContentHash, decideDismissed } from './dupe-scanner.js';
 import type { ContradictionCandidateDoc, DupeScanType } from '../config/types.js';
-import type { Verdict } from './contradiction-judge.js';
+import type { Verdict, PropertyDisagreement } from './contradiction-judge.js';
 
 const collectionFor = (spaceId: string) => col<ContradictionCandidateDoc>(`${spaceId}_contradiction_candidates`);
 
@@ -83,6 +83,22 @@ export function decideCandidateAction(
 }
 
 /**
+ * Re-attribute a verdict's per-field values to the sides as they are STORED.
+ *
+ * `findPropertyDisagreements` reports `aValue` for its first argument; the row stores `aId` as the
+ * lexicographically lower of the two ids. Those coincide only when the caller happened to pass them in id
+ * order — a coin flip — so for half of all structured findings the stored row attributed each value to the
+ * wrong record, and the review card read "srv-a claims 8080" about the record claiming 443. Nothing errors,
+ * the finding is real, and only its evidence is inverted, which is the hardest kind of wrong to notice.
+ *
+ * Pure, and exported, so it can be enumerated without a database.
+ */
+export function fieldsInStoredOrder(fields: PropertyDisagreement[], swapped: boolean): PropertyDisagreement[] {
+  if (!swapped) return fields;
+  return fields.map(f => ({ key: f.key, aValue: f.bValue, bValue: f.aValue }));
+}
+
+/**
  * Record (or update) a judged pair.
  *
  * Returns what it did, so a scan can report honestly rather than counting every pair it looked at as a
@@ -97,7 +113,8 @@ export async function recordContradiction(
 ): Promise<RecordOutcome> {
   if (verdict.kind === 'unjudged') return 'skipped-unjudged';   // see the module note
 
-  const [lo, hi] = a.id < b.id ? [a, b] : [b, a];
+  const swapped = a.id >= b.id;
+  const [lo, hi] = swapped ? [b, a] : [a, b];
   const _id = contradictionPairId(a.id, b.id);
   const coll = collectionFor(spaceId);
   const existing = await coll.findOne(asFilter<ContradictionCandidateDoc>({ _id })) as ContradictionCandidateDoc | null;
@@ -122,7 +139,15 @@ export async function recordContradiction(
       ? {
           basis: verdict.basis,
           confidence: verdict.confidence,
-          ...(verdict.basis === 'structured-field' && verdict.fields ? { fields: verdict.fields } : {}),
+          // Re-attributed to the sides as stored — see `fieldsInStoredOrder`. The verdict names values by
+          // ARGUMENT position; `aId` above is the lower id.
+          ...(verdict.basis === 'structured-field' && verdict.fields
+            ? { fields: fieldsInStoredOrder(verdict.fields, swapped) }
+            : {}),
+          // Carried onto the stored finding, because the reviewer who has to act on it is the one who needs
+          // to know the judge may have read only the opening of a long record. Set only when true, so its
+          // absence is not a claim that the whole text fitted the model's window.
+          ...(verdict.truncated ? { truncated: true as const } : {}),
         }
       : {}),
     updatedAt: now,

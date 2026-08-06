@@ -25,8 +25,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - A gate matches the poll's SHAPE rather than any of its names, and immediately found a **fifth** copy that a
     grep for the others' error message could not: it said `Timed out indexing:` instead.
   - Nothing about the product changed; this is test infrastructure only.
+### Added
+
+- **A contradiction finding says when the judge probably did not read the whole record** (`truncated`, half of
+  a canary ask). Encoder NLI models cap at ~512 tokens, their entity descriptions run to thousands of
+  characters, so a pair is judged on its opening paragraphs — and the confidence comes back looking completely
+  normal. A confident verdict about the first page was indistinguishable from a confident verdict about the
+  record.
+  - **A proxy, and reported as one.** Ythril does not truncate; the model does, invisibly, and we cannot know
+    the configured model's tokenizer. The flag fires on a deliberately conservative character length so it
+    under-reports rather than crying wolf — a flag that fires on ordinary records is one reviewers learn to
+    ignore, which is the same warning this correspondent gave us about a different field.
+  - **Absent, not `false`, when the text is ordinary**, so its absence cannot be read as "the whole text was
+    seen". It never appears on a `structured-field` verdict either: that pass compares whole property values,
+    so a model-window caveat there would describe a mechanism that was never involved.
+  - Carried through to the stored finding and the `/api/contradictions` payload, because the person who needs
+    it is the reviewer deciding whether to act.
+
+- **`POST /api/contradictions/scan` reports `modelCalls` alongside `judgedPairs`** — what the sweep SPENT next
+  to what it SETTLED. The two legitimately differ (a below-threshold answer costs a call and settles nothing;
+  an unreachable judge still received the record text), and only the first can be reconciled against an NLI
+  endpoint's own request log. Reporting one number that was neither is what left an operator unable to explain
+  their bill. `maxJudgedPairsPerRun` now bounds `modelCalls`: gating on useful answers alone let a space full
+  of weak verdicts run indefinitely past a budget whose entire purpose is to bound spend.
 
 ### Fixed
+
+- **A contradiction sweep judged every pair twice, and the "free" deterministic pass was not free** (the other
+  half of that canary ask — reported as `judgedPairs: 6` against their own judge's counter of 12). Two
+  independent mechanisms, each doubling the model calls, each invisible from anywhere except the wire:
+  - **The deterministic pass called the model on every pair and threw the answer away.** It asked for
+    `minConfidence: 2` — an unreachable floor — on the theory that a verdict which can never clear it is a
+    verdict never taken. But a confidence floor is applied to the **response**. The request was made, the
+    record text left the instance, the endpoint served and billed it, and only then was the answer discarded.
+    Worse, the code carried a comment asserting "the structured pass reaches no endpoint", so the mechanism was
+    documented as impossible at the exact site where it happened. There is now an explicit `structuredOnly`
+    flag that returns before anything that could reach the endpoint, and a test that asserts on the CALL rather
+    than the verdict — the old code passes every verdict-shaped assertion.
+  - **A mutually-similar pair was judged from both sides.** Similarity is symmetric, so as the sweep walks by
+    `seq` the pair {A, B} is met once with A as the seed and again with B. Both judgements wrote the *same* row
+    (the pair id is order-independent), so the second only overwrote the first — having paid for another model
+    call and another egress of both records' text. A pair is now judged once per sweep, which also makes the
+    stored row deterministic: the side reached first wins, instead of whichever seed happened to come last.
+  - Net effect on a remote judge: a sweep of the same space costs substantially less than it did, and the
+    number we report is the number their endpoint counted.
+
+- **Half of all structured contradiction findings attributed each value to the wrong record.** A verdict names
+  values by argument position (`aValue` = first argument); the stored row names sides by id order (`aId` = the
+  lower id). Those coincide only when the sweep happened to meet the pair in id order — a coin flip — so for
+  the other half the review card read *"srv-a claims 8080"* about the record claiming 443. The disagreement was
+  genuine and the confidence was 1; only the evidence was inverted, which is the hardest kind of wrong to
+  notice. The values are now re-attributed to the sides as stored, by one pure exported helper with its own
+  enumerated tests (including the plausible near-miss of reversing the list instead of each entry — which
+  looks correct on the single-field findings that are the common case).
 
 - **`GET /api/spaces/:id` returned three fields that `PATCH` then refused** (an integrator's fifth ask, and the
   half of it that had not already shipped). A caller doing the obvious thing — `GET` a space, edit one field of

@@ -109,14 +109,35 @@ sticky dismissal — because the Review tab presents both under one vocabulary.
 | `POST` | `/api/contradictions/:id/resolve` | non-read-only | Body `{ "resolution": "edited" \| "linked" }`. Records HOW a human settled it. |
 | `POST` | `/api/contradictions/scan?space=<id>` | admin + MFA | Run the sweep now. Returns `nliStalled: true` if it stopped because the judge was unavailable. |
 
-A candidate is `{ id, spaceId, type, aId, aSummary, bId, bSummary, basis, confidence, fields?, status,
-resolution?, detectedAt, updatedAt }`.
+A candidate is `{ id, spaceId, type, aId, aSummary, bId, bSummary, basis, confidence, fields?, truncated?,
+status, resolution?, detectedAt, updatedAt }`.
+
+**`truncated: true` means the judge probably did not read the whole record.** Encoder NLI models cap at ~512
+tokens; a record whose text runs to thousands of characters is judged on its opening paragraphs, and the
+confidence comes back looking completely normal — so a confident verdict about the first page is otherwise
+indistinguishable from a confident verdict about the record. Treat such a finding as a prompt to read both
+records yourself rather than as a settled answer.
+
+Two things it deliberately is not:
+
+- **It is a proxy, not a measurement.** Ythril does not truncate anything; the model does, invisibly, and we
+  cannot know the configured model's tokenizer. The flag fires on a conservative character length, so it
+  under-reports rather than crying wolf.
+- **Its absence is not a guarantee.** No flag means "not long enough to be worth warning about", not "the
+  whole text was read". It never appears on a `structured-field` verdict, because that pass compares whole
+  property values and no model window is involved.
 
 **`basis` is the important field.** `structured-field` means the two records set the same single-valued
 property to different values — deterministic, `confidence` is 1, and `fields` names the offending keys and
 both values. `nli` means an entailment model judged the free text, and `confidence` is its score. A reviewer
 must be able to tell *"these disagree on `port`"* from *"a model thinks these disagree"*, so do not flatten
 the two into one number.
+
+Within `fields`, **`aValue` belongs to `aId` and `bValue` to `bId`** — the sides are named by the record ids
+on the candidate, never by the order the sweep happened to encounter them in. Earlier releases did not
+re-attribute them when a pair was met the other way round, so roughly half of all `structured-field` findings
+reported each value against the other record; the finding was real, only its evidence was inverted. If you
+have stored or forwarded findings from before this fix, re-scan rather than trusting their `fields`.
 
 **Contradictions are never merged.** Two records that disagree are both real, and which one is wrong is a
 judgement call — so `resolve` records the outcome (`edited`: a record was corrected; `linked`: a
@@ -136,7 +157,7 @@ external endpoint, sends record text off the instance:
     "schedule": "30 3 * * *",       // cron — 03:30 daily (default), half an hour after the dupe sweep
     "structuredThreshold": 0.92,    // similarity floor for the free deterministic pass (default)
     "nliThreshold": 0.92,           // floor for the model pass (default)
-    "maxJudgedPairsPerRun": 0,      // 0 = unlimited (the local default); 2000 for a remote judge
+    "maxJudgedPairsPerRun": 0,      // judge CALLS per run. 0 = unlimited (local default); 2000 for a remote judge
     "batchSize": 200,
     "maxPerRun": 5000
   }
@@ -164,10 +185,28 @@ cap, while a remote endpoint defaults to the strict floor plus a per-run budget.
 > These defaults are **reasoned, not benchmarked** — no NLI sidecar ships with the stack, so there was
 > nothing to time against. That is precisely why they are all configurable.
 
-`POST /scan` reports `judgedPairs` (what a remote judge was actually asked) plus two *distinct* incomplete
-endings: `nliStalled` means the judge was unreachable and **nothing** was settled (the cursor is parked),
-while `budgetExhausted` means the pairs it judged **are** settled and the next run continues from there.
-Neither should be read as a clean result.
+`POST /scan` reports **two** counts, because they answer different questions:
+
+| Field | Means |
+|-------|-------|
+| `modelCalls` | Requests the NLI endpoint actually served. This is what a remote judge bills you for and what its own request log shows — and it is what `maxJudgedPairsPerRun` bounds. |
+| `judgedPairs` | Unique pairs the judge answered *usefully* for. What the sweep **settled**. |
+
+They legitimately differ: a below-threshold answer costs a call and settles nothing, and an unreachable judge
+still received the record text. Compare your endpoint's counter against `modelCalls`, not `judgedPairs`.
+
+> **If you measured a 2× gap against your judge's counter on an earlier release, it was real** — and it was
+> not only a counting difference. Two mechanisms each doubled the calls. The deterministic pass tried to avoid
+> spending the model by demanding an impossible confidence, but a confidence floor is applied to the
+> *response*: the request went out, your text egressed, the endpoint billed it, and only then was the answer
+> discarded. And a mutually-similar pair was judged from both sides as the sweep walked the space, with the
+> second judgement only overwriting the first row. Both are fixed: the deterministic pass now reaches no
+> endpoint at all, and a pair is judged once per sweep. Expect a sweep of the same space to cost
+> substantially less than it used to.
+
+Plus two *distinct* incomplete endings: `nliStalled` means the judge was unreachable and **nothing** was
+settled (the cursor is parked), while `budgetExhausted` means the pairs it judged **are** settled and the next
+run continues from there. Neither should be read as a clean result.
 
 Until it is enabled, contradictions are found **only** when an admin runs `POST /api/contradictions/scan`
 by hand — so the Review tab's Contradictions view stays empty on an instance nobody has scanned manually.

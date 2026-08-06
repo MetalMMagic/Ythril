@@ -72,7 +72,10 @@ const FROZEN = {
   'server/src/sync/engine.ts': 966,
   'client/src/app/pages/settings/space-schema-tab.component.ts': 954,
   'server/src/api/spaces.ts': 839,
-  'client/src/app/pages/graph/graph.component.ts': 769,
+  // 769 -> 773: `openBrainDrawer` gained two overload signatures and its `lastSaved` effect reads the
+  // record inside each branch so the discriminant narrows it. Four lines of TYPES, no new behaviour —
+  // raised deliberately rather than worked around, which is what this list is for.
+  'client/src/app/pages/graph/graph.component.ts': 773,
   'server/src/config/loader.ts': 753,
   'client/src/app/pages/brain/review-tab.component.ts': 748,
   'server/src/brain/recall.ts': 739,

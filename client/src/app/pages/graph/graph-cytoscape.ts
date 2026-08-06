@@ -102,13 +102,27 @@ function glassShineSvg(color: string): string {
 /**
  * The cytoscape stylesheet.
  *
- * Node size, opacity and shadow all taper with `depth`, so distance from the root reads visually
+ * Node size, opacity and halo all taper with `depth`, so distance from the root reads visually
  * rather than only from the layout — that is why so many values are functions of the element.
+ *
+ * ## The halo is `underlay-*`, and it used to be `shadow-*`, which does not exist
+ *
+ * Cytoscape 2 had `shadow-blur` / `shadow-color` / `shadow-opacity` / `shadow-offset-*`. Cytoscape 3
+ * removed them: the string does not appear in `cytoscape.cjs.js` at all, and an unknown style property
+ * is silently discarded rather than warned about. So seven selectors here were setting a glow that had
+ * never once been painted — and the `as any` on each `style` block is precisely what let them compile.
+ * The comment above claimed depth tapered the shadow, and one of the two things it named was inert.
+ *
+ * `underlay-color` / `-opacity` / `-padding` are cytoscape 3's equivalent and are present in both the
+ * typings and the runtime. Opacities are lower than the old shadow figures because an underlay is a
+ * solid halo rather than a blur — 0.6 of a blur and 0.6 of a solid are not the same amount of light.
+ *
+ * Every block below is now typed, so the next property that stops existing fails the build instead.
  */
-function graphStylesheet(theme: GraphTheme): any[] {
-  const depthOf = (ele: any) => +ele.data('depth');
-  const colorOf = (ele: any) => typeColor(theme, ele.data('type') || 'default');
-  const nodeSize = (ele: any) => { const d = depthOf(ele); return d === 0 ? 68 : Math.max(36, 52 - d * 3); };
+function graphStylesheet(theme: GraphTheme): cytoscape.StylesheetJson {
+  const depthOf = (ele: cytoscape.NodeSingular) => +ele.data('depth');
+  const colorOf = (ele: cytoscape.NodeSingular) => typeColor(theme, ele.data('type') || 'default');
+  const nodeSize = (ele: cytoscape.NodeSingular) => { const d = depthOf(ele); return d === 0 ? 68 : Math.max(36, 52 - d * 3); };
 
   return [
     {
@@ -117,15 +131,15 @@ function graphStylesheet(theme: GraphTheme): any[] {
         'width': nodeSize,
         'height': nodeSize,
         'background-color': theme.nodeBg,
-        'background-image': (ele: any) => glassShineSvg(colorOf(ele)),
+        'background-image': (ele: cytoscape.NodeSingular) => glassShineSvg(colorOf(ele)),
         'background-fit': 'cover',
         'background-clip': 'node',
-        'border-width': (ele: any) => depthOf(ele) === 0 ? 2.5 : 1.5,
+        'border-width': (ele: cytoscape.NodeSingular) => depthOf(ele) === 0 ? 2.5 : 1.5,
         'border-color': colorOf,
         'border-opacity': 0.75,
         'label': 'data(label)',
-        'font-size': (ele: any) => depthOf(ele) === 0 ? 13 : 11,
-        'font-weight': (ele: any) => depthOf(ele) === 0 ? '600' : '400',
+        'font-size': (ele: cytoscape.NodeSingular) => depthOf(ele) === 0 ? 13 : 11,
+        'font-weight': (ele: cytoscape.NodeSingular) => depthOf(ele) === 0 ? 600 : 400,
         'color': theme.nodeText,
         'text-outline-color': theme.nodeBg,
         'text-outline-width': 2,
@@ -133,28 +147,32 @@ function graphStylesheet(theme: GraphTheme): any[] {
         'text-margin-y': 8,
         'text-max-width': '110px',
         'text-wrap': 'ellipsis',
-        'opacity': (ele: any) => { const d = depthOf(ele); return d === 0 ? 1 : Math.max(0.55, 1 - d * 0.1); },
-        'shadow-blur': (ele: any) => depthOf(ele) === 0 ? 28 : 14,
-        'shadow-color': colorOf,
-        'shadow-opacity': (ele: any) => depthOf(ele) === 0 ? 0.6 : 0.35,
-        'shadow-offset-x': 0,
-        'shadow-offset-y': 0,
-      } as any,
+        'opacity': (ele: cytoscape.NodeSingular) => { const d = depthOf(ele); return d === 0 ? 1 : Math.max(0.55, 1 - d * 0.1); },
+        // `underlay-shape` defaults to round-rectangle, which puts a visible BOX behind a circular
+        // node. Nodes here use cytoscape's default ellipse shape, so the halo has to say so too.
+        'underlay-shape': 'ellipse',
+        'underlay-color': colorOf,
+        'underlay-padding': (ele: cytoscape.NodeSingular) => depthOf(ele) === 0 ? 10 : 5,
+        'underlay-opacity': (ele: cytoscape.NodeSingular) => depthOf(ele) === 0 ? 0.35 : 0.18,
+      },
     },
     {
       selector: 'node.root',
-      style: { 'border-color': theme.nodeRoot, 'border-width': 3, 'border-opacity': 1 } as any,
+      style: { 'border-color': theme.nodeRoot, 'border-width': 3, 'border-opacity': 1 },
     },
     {
       selector: 'node.hovered',
-      style: { 'border-width': 2.5, 'border-opacity': 1, 'opacity': 1, 'shadow-blur': 30, 'shadow-opacity': 0.8 } as any,
+      style: {
+        'border-width': 2.5, 'border-opacity': 1, 'opacity': 1,
+        'underlay-padding': 11, 'underlay-opacity': 0.45,
+      },
     },
     {
       selector: 'node:selected',
       style: {
         'border-color': theme.nodeSelect, 'border-width': 3, 'border-opacity': 1, 'opacity': 1,
-        'shadow-blur': 36, 'shadow-color': theme.nodeSelect, 'shadow-opacity': 0.9,
-      } as any,
+        'underlay-padding': 13, 'underlay-color': theme.nodeSelect, 'underlay-opacity': 0.5,
+      },
     },
     {
       selector: 'edge',
@@ -173,26 +191,23 @@ function graphStylesheet(theme: GraphTheme): any[] {
         'text-background-opacity': 0.7,
         'text-background-padding': '2px',
         'opacity': 0.75,
-        'shadow-blur': 0,
-      } as any,
+      },
     },
     {
       selector: 'edge.hovered',
       style: {
         'line-color': theme.edgeHover, 'target-arrow-color': theme.edgeHover, 'opacity': 1, 'width': 2.5,
-        'shadow-blur': 12, 'shadow-color': theme.edgeHover, 'shadow-opacity': 0.6,
-        'shadow-offset-x': 0, 'shadow-offset-y': 0,
-      } as any,
+        'underlay-padding': 4, 'underlay-color': theme.edgeHover, 'underlay-opacity': 0.35,
+      },
     },
     {
       selector: 'edge:selected',
       style: {
         'line-color': theme.edgeSelect, 'target-arrow-color': theme.edgeSelect, 'opacity': 1, 'width': 2.5,
-        'shadow-blur': 16, 'shadow-color': theme.edgeSelect, 'shadow-opacity': 0.7,
-        'shadow-offset-x': 0, 'shadow-offset-y': 0,
-      } as any,
+        'underlay-padding': 5, 'underlay-color': theme.edgeSelect, 'underlay-opacity': 0.4,
+      },
     },
-    { selector: 'edge.hide-labels', style: { 'label': '' } as any },
+    { selector: 'edge.hide-labels', style: { 'label': '' } },
   ];
 }
 
@@ -212,8 +227,8 @@ export function buildElements(
   nodes: readonly TraverseNode[],
   edges: readonly TraverseEdge[],
   rootId: string,
-): any[] {
-  const elements: any[] = [];
+): cytoscape.ElementDefinition[] {
+  const elements: cytoscape.ElementDefinition[] = [];
 
   if (root) {
     elements.push({
@@ -238,6 +253,16 @@ export function buildElements(
   return elements;
 }
 
+/**
+ * The renderer instance, named so the component can hold one without importing cytoscape.
+ *
+ * The alias is the point: the component's field was `private cy: any`, which made the claim at the top
+ * of this file — "the component holds no `any`-typed renderer state" — untrue on the very line it was
+ * written about. An alias keeps the boundary (nothing outside this module names cytoscape) while still
+ * being a real type.
+ */
+export type GraphInstance = cytoscape.Core;
+
 /** What the component wants to know about, expressed without any cytoscape types. */
 export interface GraphHandlers {
   onNodeTap(id: string): void;
@@ -258,7 +283,7 @@ export function createGraphCytoscape(
   container: HTMLElement,
   theme: GraphTheme,
   handlers: GraphHandlers,
-): any {
+): cytoscape.Core {
   const cy = cytoscape({
     container,
     elements: [],
@@ -267,19 +292,21 @@ export function createGraphCytoscape(
     minZoom: 0.1,
     maxZoom: 5,
     wheelSensitivity: 0.25,
-  } as any);
+  });
 
-  cy.on('tap', 'node', (evt: any) => handlers.onNodeTap(evt.target.data('id')));
-  cy.on('tap', 'edge', (evt: any) => handlers.onEdgeTap(evt.target.data('id')));
-  cy.on('dbltap', 'node', (evt: any) => handlers.onNodeDoubleTap(evt.target.data('id')));
+  const idOf = (evt: cytoscape.EventObject): string => evt.target.data('id');
 
-  cy.on('mouseover', 'node', (evt: any) => { evt.target.addClass('hovered'); });
-  cy.on('mouseout',  'node', (evt: any) => { evt.target.removeClass('hovered'); });
-  cy.on('mouseover', 'edge', (evt: any) => { evt.target.addClass('hovered'); });
-  cy.on('mouseout',  'edge', (evt: any) => { evt.target.removeClass('hovered'); });
+  cy.on('tap', 'node', evt => handlers.onNodeTap(idOf(evt)));
+  cy.on('tap', 'edge', evt => handlers.onEdgeTap(idOf(evt)));
+  cy.on('dbltap', 'node', evt => handlers.onNodeDoubleTap(idOf(evt)));
+
+  cy.on('mouseover', 'node', evt => { evt.target.addClass('hovered'); });
+  cy.on('mouseout',  'node', evt => { evt.target.removeClass('hovered'); });
+  cy.on('mouseover', 'edge', evt => { evt.target.addClass('hovered'); });
+  cy.on('mouseout',  'edge', evt => { evt.target.removeClass('hovered'); });
 
   // Background tap — identified by the event target being the instance itself, not an element.
-  cy.on('tap', (evt: any) => { if (evt.target === cy) handlers.onBackgroundTap(); });
+  cy.on('tap', evt => { if (evt.target === cy) handlers.onBackgroundTap(); });
 
   return cy;
 }
@@ -292,8 +319,8 @@ export function createGraphCytoscape(
  * cytoscape knowing. Fitting against stale dimensions is what makes a graph render half off-screen.
  */
 export function renderElements(
-  cy: any,
-  elements: any[],
+  cy: cytoscape.Core,
+  elements: cytoscape.ElementDefinition[],
   rootId: string,
   hideLabels: boolean,
   onSettled: () => void,
@@ -306,16 +333,20 @@ export function renderElements(
   else cy.edges().removeClass('hide-labels');
 
   // breadthfirst keeps each node next to its direct edge-partner.
+  //
+  // `roots` takes an array of raw ids rather than the `#id` selector this used to pass. Both resolve the
+  // same element — cytoscape's selector grammar does accept an id beginning with a digit, which UUIDs
+  // often do — but the array form is what the typings describe, so it needs no cast to compile.
   const layout = cy.layout({
     name: 'breadthfirst',
-    roots: `#${rootId}`,
+    roots: [rootId],
     directed: false,
     spacingFactor: 1.1,
     padding: 40,
     avoidOverlap: true,
     animate: true,
     animationDuration: 400,
-  } as any);
+  });
 
   layout.on('layoutstop', onSettled);
   layout.run();

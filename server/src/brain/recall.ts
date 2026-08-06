@@ -19,7 +19,7 @@ import { atlasVectorScore, scoresAgree } from './vector-score.js';
 import { matchFreshWrites } from './fresh-writes.js';
 import type { ChronoStatus } from '../config/types.js';
 import { log } from '../util/log.js';
-import { recallDegradedTotal } from '../metrics/registry.js';
+import { recallDegradedTotal, recallFreshWritesFoundTotal } from '../metrics/registry.js';
 import { envInt } from '../config/env-num.js';
 
 /**
@@ -223,6 +223,31 @@ export async function recall(
      * unbounded metric label there.
      */
     degraded?: string[];
+    /**
+     * Also scan the newest records straight from each collection, so a record written seconds ago is
+     * findable before the index has ingested it.
+     *
+     * ## Why this is opt-in
+     *
+     * The lag is real and measured: an integrator's memory was not returned by `recall` for a distinctive
+     * nine-word phrase **within 150 seconds** of writing it, while insert-time duplicate detection saw the
+     * same record immediately. That asymmetry IS the diagnosis — the vector is on the document the moment it
+     * is written, and it is `$vectorSearch`'s index that lags. `exact: true` is not the fix and was measured
+     * not to be: it scans the INDEX exhaustively, not the collection, and reports the same lag to the
+     * millisecond (ANN 1088 ms, ENN 1083 ms on the same insert).
+     *
+     * `matchFreshWrites` reads the collection instead, which is the one place the missing record certainly
+     * is. It is bounded by a time window and a document cap, so its cost tracks churn rather than collection
+     * size — but `recall` searches every requested type, so a busy space pays it per type.
+     *
+     * Default OFF, by the project's own rule for this trade: **when a person is waiting, performance; when
+     * the work is in the background, accuracy.** Recall is the path someone waits on. The write half of this
+     * (duplicate detection) is not opt-in precisely because it is not — it runs while a write is being
+     * processed and correctness there is what stops a batch duplicating itself.
+     *
+     * Turn it on for the case it exists for: searching for something you just wrote.
+     */
+    includeFreshWrites?: boolean;
   },
 ): Promise<RecallResult[]> {
   if (!isVectorSearchAvailable()) {
@@ -292,6 +317,35 @@ export async function recall(
   const perTypeK = Math.ceil(topK * (reranking ? candidateMultiplier() : 1.5));
   const searches = activeTypes.map(t => recallByType(spaceId, t, embResult.vector, perTypeK, tags, filter, searchDeadline()));
   const allResults = (await settleSearches(searches, noteDegraded)).flat();
+
+  // Phase 2a: the records the INDEX has not ingested yet, read straight from each collection.
+  //
+  // Opt-in — see `includeFreshWrites`. Best-effort in the strongest sense: a failure here returns nothing
+  // rather than taking the index results down with it, because a search that answers less is a worse
+  // outcome than a search that answers without the newest few seconds.
+  if (opts?.includeFreshWrites) {
+    const seen = new Set(allResults.map(r => r._id));
+    const freshPerType = await Promise.all(activeTypes.map(async t => {
+      const collName = `${spaceId}_${KNOWLEDGE_COLLECTION[t]}`;
+      const matches = await matchFreshWrites(collName, embResult.vector).catch(() => []);
+      return { type: t, matches };
+    }));
+    const missingIds = freshPerType.flatMap(({ type, matches }) =>
+      matches.filter(m => !seen.has(m._id)).map(m => ({ type, id: m._id, score: m.score })));
+    if (missingIds.length > 0) {
+      // Hydrate through the same path the index results came from, so a fresh hit and an indexed hit are
+      // the same shape — a caller must not be able to tell which channel found a record.
+      const hydrated = await hydrateFreshHits(spaceId, missingIds);
+      allResults.push(...hydrated);
+      // Counted, NOT reported as `degraded`. This search found MORE than the index could offer, which is the
+      // opposite of degradation, and `ythril_recall_degraded_total` documents its own reason set as closed
+      // precisely so it does not accumulate labels that mean unrelated things. What the count is worth is
+      // turning "the index lags" from an anecdote into a measurement: every increment is a record a plain
+      // recall would have missed.
+      recallFreshWritesFoundTotal.inc(hydrated.length);
+    }
+  }
+
   allResults.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
 
   // Phase 2b: the LEXICAL channel, fused into the vector order by RRF.
@@ -969,6 +1023,49 @@ async function recallByType(
     }
     return swallowIndexError(err);
   }
+}
+
+/**
+ * Turn fresh-write hits into full `RecallResult`s.
+ *
+ * Hydrated through the SAME projection the index path uses, so a record found by scanning the collection is
+ * byte-identical in shape to one found by `$vectorSearch`. A caller must not be able to tell which channel
+ * found a record — the moment they can, the flag stops being "search harder" and becomes a second result
+ * type to handle.
+ *
+ * The score comes from `matchFreshWrites`, which computes it with `atlasVectorScore` — the same mapping the
+ * engine reports, and one the duplicate path already cross-checks against the engine on every overlap.
+ */
+async function hydrateFreshHits(
+  spaceId: string,
+  hits: { type: RecallKnowledgeType; id: string; score: number }[],
+): Promise<RecallResult[]> {
+  const byType = new Map<RecallKnowledgeType, { id: string; score: number }[]>();
+  for (const h of hits) {
+    const list = byType.get(h.type) ?? [];
+    list.push({ id: h.id, score: h.score });
+    byType.set(h.type, list);
+  }
+
+  const out: RecallResult[] = [];
+  for (const [type, entries] of byType) {
+    const { commonProject, typeProject } = recallProjection(type);
+    const collName = `${spaceId}_${KNOWLEDGE_COLLECTION[type]}`;
+    try {
+      const docs = await col(collName).aggregate<Record<string, unknown>>([
+        { $match: { _id: { $in: entries.map(e => e.id) } } },
+        { $project: { ...commonProject, ...typeProject } },
+      ]).toArray();
+      const scoreOf = new Map(entries.map(e => [e.id, e.score]));
+      for (const d of docs) {
+        out.push(mapToRecallResult({ ...d, score: scoreOf.get(d['_id'] as string) }, type));
+      }
+    } catch {
+      // Best-effort by design: a hydration failure drops the fresh half and keeps the index half, which is
+      // strictly better than failing a search that had already found something.
+    }
+  }
+  return out;
 }
 
 /**

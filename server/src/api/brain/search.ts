@@ -332,9 +332,19 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
     const memberIds = resolveMemberSpaces(spaceId);
     // One collector across every member, deduped by `recall` itself, so a proxy space reports "the answer is
     // partial" once rather than once per member.
+    // Opt-in scan of the newest records, for the case the index has not caught up yet. Rejected rather
+    // than coerced: `includeFreshWrites: "false"` is truthy, and an opt-in that silently turns itself on is
+    // worse than one that errors.
+    const includeFreshRaw = (req.body as { includeFreshWrites?: unknown }).includeFreshWrites;
+    if (includeFreshRaw !== undefined && typeof includeFreshRaw !== 'boolean') {
+      res.status(400).json({ error: '`includeFreshWrites` must be a boolean' });
+      return;
+    }
+    const safeIncludeFresh = includeFreshRaw === true;
+
     const degraded: string[] = [];
     const all = (await Promise.all(
-      memberIds.map(mid => recall(mid, query.trim(), safeTopK, safeTags, safeTypes, safeMinPerType, safeMinScore, safeFilter, { maxPerType: safeMaxPerType, maxTimeMS: safeMaxTimeMS, degraded })),
+      memberIds.map(mid => recall(mid, query.trim(), safeTopK, safeTags, safeTypes, safeMinPerType, safeMinScore, safeFilter, { maxPerType: safeMaxPerType, maxTimeMS: safeMaxTimeMS, degraded, includeFreshWrites: safeIncludeFresh })),
     )).flat();
     // rankOf, NOT `.score`. `recall()` has already ordered each space's results by the best signal it
     // has — cross-encoder, then RRF fusion, then vector similarity. Re-sorting the merged list by raw

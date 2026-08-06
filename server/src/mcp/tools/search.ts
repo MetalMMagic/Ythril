@@ -70,6 +70,7 @@ export const recallTool: ToolHandler = {
               description: 'Optional deadline for this recall, in milliseconds. It can only LOWER the instance budget, never raise it, and is clamped to a small floor so a tiny value is not a guaranteed empty answer. On expiry you get a PARTIAL answer rather than an error or a hang: whichever collections finished are returned, and the response says it degraded. Use it when a slow recall would cost more than a thin one — a memory that can only ever delay you by a known amount is one you can put in a workflow.',
             },
             minScore: unitScoreSchema('Minimum cosine similarity score (0.0–1.0). Results below this threshold are excluded.'),
+            includeFreshWrites: { type: 'boolean', default: false, description: 'Also scan the newest records straight from the collection, so a record written seconds ago is findable before the vector index has ingested it. Costs an extra scan per knowledge type — turn it on when searching for something you just wrote, not by default.' },
             includeContent: {
               type: 'boolean',
               default: true,
@@ -181,7 +182,7 @@ export const recallTool: ToolHandler = {
     let traverseSpaces: string[];
     if (callSpace) {
       const memberIds = resolveMemberSpaces(callSpace);
-      const all = (await Promise.all(memberIds.map(mid => recall(mid, query, topK, tags, types, minPerType, minScore, filter, { maxPerType, maxTimeMS: recallMaxTimeMS, degraded })))).flat();
+      const all = (await Promise.all(memberIds.map(mid => recall(mid, query, topK, tags, types, minPerType, minScore, filter, { maxPerType, maxTimeMS: recallMaxTimeMS, degraded, includeFreshWrites: a['includeFreshWrites'] === true })))).flat();
       // Same rule as everywhere else: rankOf, not `.score`. See the note on the REST recall route.
       all.sort((x, y) => rankOf(y) - rankOf(x));
       // And the ceiling is re-applied to the merged set for the same reason it is on the REST route: each

@@ -48,6 +48,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **A gate that an env-pinned model setting cannot be rendered as editable** — the deliverable from a third
+  architecture angle, on whether adding a provider means editing seven files. The Models settings tab writes
+  six provider blocks out by hand, so adding a seventh does mean copying one, and a copied block is where a
+  field loses its lock. When that happens nothing errors: the operator types a value, saves, and the
+  environment silently wins, which reads as a broken save rather than a field that was never theirs to set.
+  - The invariant is that an `ngModel`-bound control on that tab has a `[disabled]` binding — no provider
+    taxonomy at all. Two earlier drafts encoded one and both were wrong: discovering providers by
+    `Configured()` swept up internal predicates, and demanding a matching `<prefix>Locked()` reported a
+    correctly-guarded field as unguarded because its key belongs to a neighbouring block. The guards are not
+    uniform in shape either — six blocks use a helper, two call `isLocked(path)` directly, and both are
+    fine. A gate that knew about providers would have had to know that too.
+  - Also recorded: on the SERVER the seam is real and improved when the reranker arrived, which extracted a
+    shared endpoint predicate out of the NLI client rather than copying it. The finding is the UI only.
+
 - **A gate that reads the shipped cytoscape runtime, not its typings** — every style property the graph sets
   must exist in `cytoscape.cjs.js`, because a property present in the `.d.ts` and absent from the runtime is
   exactly the failure above and only the runtime can tell you. It carries a positive control: a property known

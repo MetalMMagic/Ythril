@@ -667,6 +667,18 @@ By default `recall` returns matches in isolation — the knowledge-graph edges b
 
 `traverse: 0` (the default) is behaviourally identical to classic recall and returns the classic response shape above. When `traverse > 0` the response shape changes: each result is annotated, and a `traverseDepth` field is added.
 
+> **This parameter and the [`/traverse` endpoint](#traverse-graph) are different tools that share a name.**
+> The difference is where the walk STARTS, and it decides which one you want:
+>
+> | | starts from | use it when |
+> |---|---|---|
+> | `recall` with `traverse: n` | whatever the query matched semantically | you can *describe* the starting point but do not know its id |
+> | `POST /traverse` | one entity id you supply (`startId`) | you already *have* the node and want its neighbourhood |
+>
+> Both walk edges in both directions, so neither is "the directional one". An integrator read this section,
+> concluded that graph expansion only ever radiates outward from semantic matches, and hand-walked the edge
+> list in two flows — the endpoint below does exactly what they were building by hand.
+
 ```json
 {
   "query": "authentication token scoping",
@@ -1168,6 +1180,11 @@ DELETE /api/brain/spaces/:spaceId/edges/:id
 ### Traverse Graph
 
 BFS traversal from a starting entity, following edges up to `maxDepth` hops.
+
+> **Not to be confused with `recall`'s `traverse` parameter**, which shares the name and does a different
+> job: it expands outward from whatever a *semantic query* matched, while this endpoint starts from an
+> **entity id you already hold**. Use this one when you have the node; use
+> [`recall` with `traverse`](#graph-augmented-recall-traverse-parameter) when you can only describe it.
 
 ```http
 POST /api/brain/spaces/:spaceId/traverse

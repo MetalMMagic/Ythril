@@ -55,8 +55,26 @@ import { ConfirmDialogService } from '../../core/confirm-dialog.service';
     .con-a, .con-b { font-weight: 600; color: var(--text-primary); }
     .con-sep { color: var(--text-muted); font-style: italic; font-size: 11px; }
 
-    .dup-actions { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
+    .dup-actions { display: flex; gap: 8px; justify-content: flex-end; align-items: center; flex-wrap: wrap; }
     .dup-resolved { font-size: 12px; color: var(--success); text-align: right; }
+
+    /* Keep A / Keep B. Deliberately NOT btn-danger: nothing is deleted — the loser stays, marked as
+       overtaken — so a destructive colour would misdescribe the action. */
+    .keep-group { display: flex; gap: 6px; margin-right: auto; }
+    .keep-hint { font-size: 11px; color: var(--text-muted); font-style: italic; }
+    /* The full records, expanded on demand. Collapsed by default because the summary is enough to triage
+       most pairs, and a wall of two full records per card is what stops a queue being read at all. */
+    /* An expanded card takes the whole row. Two full records inside a 340px grid cell wrap into a column of
+       three-word lines, which is technically "in full" and unreadable in practice. */
+    .dup-card.expanded { grid-column: 1 / -1; }
+    .rec-full { margin-top: 6px; border-top: 1px dashed var(--border-muted); padding-top: 6px; }
+    .rec-full pre { margin: 0; font-size: 11px; line-height: 1.45; white-space: pre-wrap; word-break: break-word;
+      color: var(--text-secondary); font-family: var(--font-mono, monospace); max-height: 260px; overflow: auto; }
+    .rec-full .rec-err { font-size: 11px; color: var(--danger); }
+    .superseded-note { font-size: 11px; color: var(--text-muted); }
+    .kept-badge { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+    .kept-badge.win { color: var(--success); }
+    .kept-badge.lose { color: var(--text-muted); }
 
     /* Record-type filter — sits under the sub-tabs because it applies to whichever one is open. */
     .type-filter { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 12px 0 0; font-size: 13px; }
@@ -286,7 +304,7 @@ import { ConfirmDialogService } from '../../core/confirm-dialog.service';
         } @else {
           <div class="dup-grid">
             @for (c of conFilteredRows(); track c.id) {
-              <div class="dup-card">
+              <div class="dup-card" [class.expanded]="expanded() === c.id">
                 <div class="dup-card-h">
                   <span class="dup-type">{{ c.type }}</span>
                   <!-- The basis, never a bare number: a deterministic field conflict and a model's opinion
@@ -320,15 +338,44 @@ import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 
                 <div class="dup-ab">
                   <div class="dup-rec">
-                    <div class="dup-rec-l">{{ 'duplicates.table.recordA' | transloco }}</div>
+                    <div class="dup-rec-l">
+                      {{ 'duplicates.table.recordA' | transloco }}
+                      <!-- On a settled pair, say which side won where the reviewer is already looking. -->
+                      @if (c.supersededId) {
+                        <span class="kept-badge" [class.win]="c.supersededId !== c.aId" [class.lose]="c.supersededId === c.aId">
+                          {{ (c.supersededId === c.aId ? 'review.contradictions.superseded' : 'review.contradictions.kept') | transloco }}
+                        </span>
+                      }
+                    </div>
                     <div class="dup-rec-txt">{{ c.aSummary }}</div>
+                    @if (expanded() === c.id) {
+                      <div class="rec-full">
+                        @if (fullA(); as full) { <pre>{{ full }}</pre> } @else { <span class="rec-err">{{ fullError() ?? ('common.loading' | transloco) }}</span> }
+                      </div>
+                    }
                   </div>
                   <div class="dup-vs">{{ 'review.contradictions.versus' | transloco }}</div>
                   <div class="dup-rec b">
-                    <div class="dup-rec-l">{{ 'duplicates.table.recordB' | transloco }}</div>
+                    <div class="dup-rec-l">
+                      {{ 'duplicates.table.recordB' | transloco }}
+                      @if (c.supersededId) {
+                        <span class="kept-badge" [class.win]="c.supersededId !== c.bId" [class.lose]="c.supersededId === c.bId">
+                          {{ (c.supersededId === c.bId ? 'review.contradictions.superseded' : 'review.contradictions.kept') | transloco }}
+                        </span>
+                      }
+                    </div>
                     <div class="dup-rec-txt">{{ c.bSummary }}</div>
+                    @if (expanded() === c.id) {
+                      <div class="rec-full">
+                        @if (fullB(); as full) { <pre>{{ full }}</pre> } @else { <span class="rec-err">{{ fullError() ?? ('common.loading' | transloco) }}</span> }
+                      </div>
+                    }
                   </div>
                 </div>
+
+                @if (c.resolution === 'superseded' && c.resolvedBy) {
+                  <div class="superseded-note">{{ 'review.contradictions.decidedBy' | transloco: { who: c.resolvedBy } }}</div>
+                }
 
                 <div class="dup-actions">
                   @if (c.status === 'dismissed') {
@@ -336,6 +383,24 @@ import { ConfirmDialogService } from '../../core/confirm-dialog.service';
                       {{ 'duplicates.reRate' | transloco }}
                     </button>
                   } @else if (c.status === 'open') {
+                    <!-- Keep A / Keep B — the decision a reviewer actually makes about two disagreeing
+                         records, which neither "resolved by edit" (nothing was corrected) nor "link as
+                         contradiction" (they drew an edge by hand) could express. NOTHING is deleted: the
+                         loser stays, marked as overtaken, which is why these are not destructive buttons.
+                         NO BACKTICKS in this template — one kills the whole string and the error points at
+                         the @Component decorator. -->
+                    <div class="keep-group">
+                      <button class="btn btn-sm btn-secondary" type="button" [disabled]="conBusy() === c.id" (click)="keepSide(c, 'a')">
+                        {{ 'review.contradictions.action.keepA' | transloco }}
+                      </button>
+                      <button class="btn btn-sm btn-secondary" type="button" [disabled]="conBusy() === c.id" (click)="keepSide(c, 'b')">
+                        {{ 'review.contradictions.action.keepB' | transloco }}
+                      </button>
+                      <button class="btn btn-sm btn-ghost" type="button" (click)="toggleFull(c)"
+                              [attr.aria-expanded]="expanded() === c.id">
+                        {{ (expanded() === c.id ? 'review.contradictions.action.hideFull' : 'review.contradictions.action.showFull') | transloco }}
+                      </button>
+                    </div>
                     <button class="btn btn-sm btn-secondary" type="button" [disabled]="conBusy() === c.id" (click)="dismissContradiction(c)">
                       {{ 'duplicates.dismiss' | transloco }}
                     </button>
@@ -528,6 +593,55 @@ export class ReviewTabComponent implements OnInit, OnChanges {
       next: () => { this.conBusy.set(null); this.loadContradictions(); },
       error: () => { this.conBusy.set(null); this.toast.error(this.transloco.translate('duplicates.dismissError')); },
     });
+  }
+
+  // ── Keep A / Keep B ────────────────────────────────────────────────────────────────────────────────────
+  //
+  // The reviewer's real decision about two disagreeing records is "this one is right, that one is stale".
+  // Neither existing resolution said it, so they were being recorded as `edited` (nothing was corrected) or
+  // `linked` (nobody drew an edge). This names the loser and lets the server draw `supersedes` for an entity
+  // pair — and nothing is deleted, which is the line between this and a duplicate merge.
+
+  /** Which card has its full records expanded. One at a time: two full records is already a lot to read. */
+  readonly expanded = signal<string | null>(null);
+  readonly fullA = signal<string | null>(null);
+  readonly fullB = signal<string | null>(null);
+  readonly fullError = signal<string | null>(null);
+
+  keepSide(c: ContradictionRecord, winner: 'a' | 'b'): void {
+    this.conBusy.set(c.id);
+    this.contradictionsApi.keepSide(c.id, winner).subscribe({
+      next: (r) => {
+        this.conBusy.set(null);
+        // The server reports when it recorded the decision WITHOUT drawing an edge — edges connect
+        // entities, so a memory or chrono pair gets the judgement and no link. Surfaced rather than
+        // swallowed: a reviewer who believes the graph changed when it did not will not go and fix it.
+        if (r.note) this.toast.info(this.transloco.translate('review.contradictions.noEdge'));
+        this.loadContradictions();
+      },
+      error: () => { this.conBusy.set(null); this.toast.error(this.transloco.translate('duplicates.dismissError')); },
+    });
+  }
+
+  /**
+   * Show both records IN FULL, fetched on demand.
+   *
+   * The card carries one-line summaries, which is enough to triage most pairs and not enough to decide one:
+   * picking a winner means reading both. Fetched on expand rather than with the list because a queue of
+   * fifty cards would otherwise pull a hundred records nobody opened.
+   */
+  toggleFull(c: ContradictionRecord): void {
+    if (this.expanded() === c.id) { this.expanded.set(null); return; }
+    this.expanded.set(c.id);
+    this.fullA.set(null); this.fullB.set(null); this.fullError.set(null);
+    for (const [id, sink] of [[c.aId, this.fullA], [c.bId, this.fullB]] as const) {
+      this.brainApi.getRecord(c.spaceId, c.type, id).subscribe({
+        next: (rec) => sink.set(JSON.stringify(rec, null, 2)),
+        // Named, not silent: a record that cannot be loaded is exactly the case where a reviewer must not
+        // decide from the summary alone.
+        error: () => this.fullError.set(this.transloco.translate('review.contradictions.fullError')),
+      });
+    }
   }
 
   /** Sub-views of the space's record-QA queue. Ordered as a reviewer meets them. */

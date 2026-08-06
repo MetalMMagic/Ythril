@@ -1793,9 +1793,27 @@ export interface ContradictionCandidateDoc {
    */
   truncated?: true;
   status: 'open' | 'dismissed' | 'resolved';
-  /** How a resolved candidate was actioned. `edited` = a record was corrected; `linked` = a
-   *  contradicts/supersedes edge was drawn instead of changing either record. */
-  resolution?: 'edited' | 'linked';
+  /**
+   * How a resolved candidate was actioned.
+   *
+   *   `edited`      a record was corrected.
+   *   `linked`      a contradicts/supersedes edge was drawn by hand instead of changing either record.
+   *   `superseded`  the reviewer picked a winner. Distinct from `linked` because the SYSTEM acted on it:
+   *                 `supersededId` names the loser, and for an entity pair a `supersedes` edge was drawn.
+   *                 Not a merge — neither record is deleted or absorbed; both are still real, and one is now
+   *                 marked as having been overtaken by the other.
+   */
+  resolution?: 'edited' | 'linked' | 'superseded';
+  /** The record the reviewer decided is out of date. Present only for `superseded`. */
+  supersededId?: string;
+  /**
+   * Who decided, as the token's NAME — never the token itself.
+   *
+   * A resolution is a judgement call between two real records, so "someone settled this" is not enough for
+   * the next reviewer to act on: they need to know whether to ask, and whom. The audit log records the actor
+   * too, but a reviewer reading the Review tab is not reading the audit log.
+   */
+  resolvedBy?: string;
   /** Same sticky-dismissal contract as duplicates — see `decideDismissed`. */
   dismissedContentHash?: string;
   detectedAt: string;

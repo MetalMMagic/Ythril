@@ -31,6 +31,7 @@ function setup(
   compApi: Partial<Record<string, unknown>> = {},
 ) {
   const toastErrors: string[] = [];
+  const toastInfos: string[] = [];
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     imports: [ReviewTabComponent, getTranslocoModule()],
@@ -39,7 +40,7 @@ function setup(
         getCompleteness: () => of({ spaceId: 'work', score: null, checks: [], truncated: false }),
         ...compApi,
       } },
-      { provide: BrainApi, useValue: { getEntitiesByIds: () => of({ entities: [] }), ...compApi } },
+      { provide: BrainApi, useValue: { getEntitiesByIds: () => of({ entities: [] }), getRecord: () => of({ _id: 'x', name: 'full record' }), ...compApi } },
       { provide: DuplicatesApi, useValue: {
         listDuplicates: () => of({ duplicates: [] }),
         scanDuplicates: () => of({}),
@@ -52,16 +53,17 @@ function setup(
         dismissContradiction: () => of({ status: 'ok' }),
         reopenContradiction: () => of({ status: 'ok' }),
         resolveContradiction: () => of({ status: 'resolved', resolution: 'edited' }),
+        keepSide: () => of({ status: 'resolved', resolution: 'superseded', supersededId: 'b', resolvedBy: 'Admin' }),
         ...conApi,
       } },
-      { provide: ToastService, useValue: { error: (m: string) => toastErrors.push(m), success: () => {}, show: () => {} } },
+      { provide: ToastService, useValue: { error: (m: string) => toastErrors.push(m), success: () => {}, info: (m: string) => toastInfos.push(m), show: () => {} } },
       { provide: ConfirmDialogService, useValue: { confirm: () => Promise.resolve(confirmResult) } },
     ],
   });
   const f = TestBed.createComponent(ReviewTabComponent);
   f.componentInstance.spaceId = 'work';   // per-space now: the tab always reviews one space
   f.detectChanges(); // ngOnInit → load()
-  return { f, c: f.componentInstance, toastErrors };
+  return { f, c: f.componentInstance, toastErrors, toastInfos };
 }
 
 describe('ReviewTabComponent', () => {
@@ -600,4 +602,92 @@ describe('ReviewTabComponent', () => {
       });
     });
   });
+
+  // ── Keep A / Keep B ──────────────────────────────────────────────────────────────────────────────────
+  //
+  // The reviewer's actual decision about two disagreeing records is "this one is right, that one is stale".
+  // Neither existing resolution said it, so those decisions were being recorded as something they were not.
+  describe('picking a winner', () => {
+    const con = (over: Record<string, unknown> = {}) => ({
+      id: 'c1', spaceId: 'work', type: 'entity', aId: 'a', aSummary: 'A says 8080',
+      bId: 'b', bSummary: 'B says 9090', basis: 'structured-field', confidence: 1,
+      status: 'open', detectedAt: '2026-01-01', updatedAt: '2026-01-01', ...over,
+    });
+
+    it('sends the winner the reviewer clicked, never a default', async () => {
+      const calls: Array<[string, string]> = [];
+      const { c } = setup({}, true, {
+        listContradictions: () => of({ contradictions: [con()], nliConfigured: true }),
+        keepSide: (id: string, winner: string) => { calls.push([id, winner]); return of({ status: 'resolved', resolution: 'superseded' }); },
+      });
+      c.sub.set('contradictions');
+      c.loadContradictions();
+      c.keepSide(c.conRows()[0], 'b');
+      expect(calls).toEqual([['c1', 'b']]);
+    });
+
+    it('says so when the decision was recorded but NO edge was drawn', () => {
+      // Edges connect entities, so a memory pair gets the judgement and no link. A reviewer who believes
+      // the graph changed when it did not will never go and fix it.
+      const { c, toastInfos } = setup({}, true, {
+        listContradictions: () => of({ contradictions: [con({ type: 'memory' })], nliConfigured: true }),
+        keepSide: () => of({ status: 'resolved', resolution: 'superseded', note: 'no edge drawn: ...' }),
+      });
+      c.sub.set('contradictions');
+      c.loadContradictions();
+      c.keepSide(c.conRows()[0], 'a');
+      expect(toastInfos.join(' ')).toContain('review.contradictions.noEdge');
+    });
+
+    it('stays quiet when an edge WAS drawn', () => {
+      const { c, toastInfos } = setup({}, true, {
+        listContradictions: () => of({ contradictions: [con()], nliConfigured: true }),
+        keepSide: () => of({ status: 'resolved', resolution: 'superseded', edge: { id: 'e', from: 'a', to: 'b', label: 'supersedes' } }),
+      });
+      c.sub.set('contradictions');
+      c.loadContradictions();
+      c.keepSide(c.conRows()[0], 'a');
+      expect(toastInfos).toEqual([]);
+    });
+
+    it('a failure surfaces an error and does not clear the busy row silently', () => {
+      const { c, toastErrors } = setup({}, true, {
+        listContradictions: () => of({ contradictions: [con()], nliConfigured: true }),
+        keepSide: () => throwError(() => new Error('nope')),
+      });
+      c.sub.set('contradictions');
+      c.loadContradictions();
+      c.keepSide(c.conRows()[0], 'a');
+      expect(toastErrors.length).toBe(1);
+      expect(c.conBusy()).toBeNull();
+    });
+
+    it('expands both records IN FULL on demand, and collapses again', () => {
+      const { c } = setup({}, true, {
+        listContradictions: () => of({ contradictions: [con()], nliConfigured: true }),
+      });
+      c.sub.set('contradictions');
+      c.loadContradictions();
+      expect(c.expanded()).toBeNull();
+      c.toggleFull(c.conRows()[0]);
+      expect(c.expanded()).toBe('c1');
+      expect(c.fullA()).toContain('full record');
+      expect(c.fullB()).toContain('full record');
+      c.toggleFull(c.conRows()[0]);
+      expect(c.expanded()).toBeNull();
+    });
+
+    it('names a record it could not load rather than showing an empty panel', () => {
+      // The one case where deciding from the summary alone is exactly wrong.
+      const { c } = setup({}, true, {
+        listContradictions: () => of({ contradictions: [con()], nliConfigured: true }),
+      }, { getRecord: () => throwError(() => new Error('gone')) });
+      c.sub.set('contradictions');
+      c.loadContradictions();
+      c.toggleFull(c.conRows()[0]);
+      expect(c.fullA()).toBeNull();
+      expect(c.fullError()).toContain('review.contradictions.fullError');
+    });
+  });
+
 });

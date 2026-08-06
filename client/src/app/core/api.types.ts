@@ -605,9 +605,22 @@ export interface ContradictionRecord {
   confidence: number;
   /** The disagreeing properties — present only for a `structured-field` basis. */
   fields?: { key: string; aValue: string | number | boolean; bValue: string | number | boolean }[];
+  /**
+   * The judged text was long enough that the model's window probably cut it, so this verdict may describe
+   * the OPENING of a record rather than the record. A proxy, not a measurement — absent means "not long
+   * enough to worry about", never "the whole text was read".
+   */
+  truncated?: true;
   status: 'open' | 'dismissed' | 'resolved';
-  /** `edited` = a record was corrected; `linked` = a contradicts/supersedes edge was drawn instead. */
-  resolution?: 'edited' | 'linked';
+  /**
+   * `edited` = a record was corrected; `linked` = a contradicts/supersedes edge was drawn by hand;
+   * `superseded` = the reviewer picked a winner and the system acted on it (see `supersededId`).
+   */
+  resolution?: 'edited' | 'linked' | 'superseded';
+  /** The record the reviewer judged out of date. Present only for `superseded`. Nothing was deleted. */
+  supersededId?: string;
+  /** Who settled it, as the token's name. A judgement call needs an attributable decider. */
+  resolvedBy?: string;
   detectedAt: string;
   updatedAt: string;
 }

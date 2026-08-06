@@ -24,9 +24,20 @@ import { log } from '../util/log.js';
 import { pairContentHash } from '../brain/dupe-scanner.js';
 import { scanSpace } from '../brain/contradiction-scanner.js';
 import { nliConfigured } from '../brain/nli-client.js';
+import { upsertEdge } from '../brain/edges.js';
+import { webhookToken } from './brain/_shared.js';
 import type { ContradictionCandidateDoc } from '../config/types.js';
 
 export const contradictionsRouter = Router();
+
+/**
+ * The edge label a `superseded` resolution draws.
+ *
+ * Their vocabulary, not a new one — `supersedes` was already how this codebase described "this record
+ * overtook that one" in prose, and the reviewer's alternative was to draw it by hand. A constant rather than
+ * a string literal because the client filters on it and a second spelling would be invisible.
+ */
+export const SUPERSEDES_LABEL = 'supersedes';
 
 const collectionFor = (spaceId: string) => col<ContradictionCandidateDoc>(`${spaceId}_contradiction_candidates`);
 
@@ -56,6 +67,11 @@ function toRecord(c: ContradictionCandidateDoc) {
     ...(c.truncated ? { truncated: true } : {}),
     status: c.status,
     ...(c.resolution ? { resolution: c.resolution } : {}),
+    // Who settled it and which record they judged stale. A resolution is a judgement between two real
+    // records, so the next reviewer needs to know whether to ask, and whom — the audit log has the actor,
+    // but nobody reading the Review tab is reading the audit log.
+    ...(c.resolvedBy ? { resolvedBy: c.resolvedBy } : {}),
+    ...(c.supersededId ? { supersededId: c.supersededId } : {}),
     detectedAt: c.detectedAt,
     updatedAt: c.updatedAt,
   };
@@ -149,23 +165,89 @@ contradictionsRouter.post('/:id/reopen', globalRateLimit, requireAuth, denyReadO
   }
 });
 
-// POST /api/contradictions/:id/resolve  { resolution: 'edited' | 'linked' }
+// POST /api/contradictions/:id/resolve  { resolution: 'edited' | 'linked' | 'superseded', winner?: 'a' | 'b' }
+//
 // Contradictions are NOT merged. Two records that disagree are both real and which one is wrong is a
 // judgement call, so this records HOW a human settled it and leaves the records to the normal edit paths.
+//
+// ── `superseded` — the reviewer picks a winner (their ask, and why it is not a merge) ──────────────────────
+//
+// The reviewer's most common actual decision is "this one is right, that one is stale", and neither `edited`
+// nor `linked` expresses it: `edited` says a record was corrected (it was not), `linked` says the reviewer
+// drew an edge by hand somewhere else. So `superseded` records the judgement AND acts on it — naming the
+// loser on the finding, and, for an entity pair, drawing the `supersedes` edge the reviewer would otherwise
+// have to draw themselves.
+//
+// **Nothing is deleted or absorbed.** That is the line between this and a duplicate merge: a duplicate merge
+// is lossless because the two records are the same thing, and a contradiction is not — the loser is a real
+// record that was true, or was believed, and its history is the point.
 contradictionsRouter.post('/:id/resolve', globalRateLimit, requireAuth, denyReadOnly, async (req, res) => {
   try {
     const id = req.params['id'] as string;
-    const resolution = (req.body as { resolution?: unknown } | undefined)?.resolution;
-    if (resolution !== 'edited' && resolution !== 'linked') {
-      res.status(400).json({ error: "resolution must be 'edited' or 'linked'" });
+    const body = (req.body ?? {}) as { resolution?: unknown; winner?: unknown };
+    const resolution = body.resolution;
+    if (resolution !== 'edited' && resolution !== 'linked' && resolution !== 'superseded') {
+      res.status(400).json({ error: "resolution must be 'edited', 'linked' or 'superseded'" });
       return;
     }
+    // A winner is meaningless without `superseded`, and REQUIRED with it. Refused rather than defaulted:
+    // guessing which record a reviewer meant to keep is the one mistake this endpoint must never make.
+    if (resolution === 'superseded' && body.winner !== 'a' && body.winner !== 'b') {
+      res.status(400).json({ error: "resolution 'superseded' requires winner: 'a' or 'b'" });
+      return;
+    }
+    if (resolution !== 'superseded' && body.winner !== undefined) {
+      res.status(400).json({ error: "`winner` applies only to resolution 'superseded'" });
+      return;
+    }
+
     for (const spaceId of accessibleSpaces(req.authToken?.spaces)) {
-      const r = await collectionFor(spaceId).updateOne(
-        asFilter<ContradictionCandidateDoc>({ _id: id }),
-        asUpdate<ContradictionCandidateDoc>({ $set: { status: 'resolved', resolution, updatedAt: new Date().toISOString() } }),
-      );
-      if (r.matchedCount > 0) { res.json({ status: 'resolved', resolution }); return; }
+      const coll = collectionFor(spaceId);
+      const doc = await coll.findOne(asFilter<ContradictionCandidateDoc>({ _id: id })) as ContradictionCandidateDoc | null;
+      if (!doc) continue;
+
+      const set: Partial<ContradictionCandidateDoc> = {
+        status: 'resolved', resolution, updatedAt: new Date().toISOString(),
+      };
+      // The token's NAME, never the token. Absent when the token is unnamed rather than stored as ''.
+      if (req.authToken?.name) set.resolvedBy = req.authToken.name;
+
+      let edge: { id: string; from: string; to: string; label: string } | null = null;
+      let edgeSkipped: string | undefined;
+
+      if (resolution === 'superseded') {
+        const winnerId = body.winner === 'a' ? doc.aId : doc.bId;
+        const loserId = body.winner === 'a' ? doc.bId : doc.aId;
+        set.supersededId = loserId;
+
+        if (doc.type === 'entity') {
+          // from → to reads "winner supersedes loser". `upsertEdge` is keyed on (from, to, label), so
+          // resolving the same pair twice lands on the same edge instead of accumulating duplicates.
+          const e = await upsertEdge(spaceId, winnerId, loserId, SUPERSEDES_LABEL,
+            undefined, undefined, undefined, undefined, undefined, webhookToken(req));
+          edge = { id: e._id, from: e.from, to: e.to, label: e.label };
+        } else {
+          // An edge in Ythril connects ENTITIES. Drawing one between two memories or two chrono entries
+          // would produce exactly the accepted-dead-edge an integrator reported (#695): a link that is
+          // stored, returned, and points at nothing traversable.
+          //
+          // So the decision is still recorded — it is the reviewer's judgement and it is worth keeping —
+          // and the response SAYS no edge was drawn. Silently recording a resolution the caller believes
+          // drew an edge is the failure this endpoint is meant to avoid.
+          edgeSkipped = `no edge drawn: edges connect entities, and this pair is of type '${doc.type}'`;
+        }
+      }
+
+      await coll.updateOne(asFilter<ContradictionCandidateDoc>({ _id: id }),
+        asUpdate<ContradictionCandidateDoc>({ $set: set }));
+      res.json({
+        status: 'resolved', resolution,
+        ...(set.resolvedBy ? { resolvedBy: set.resolvedBy } : {}),
+        ...(set.supersededId ? { supersededId: set.supersededId } : {}),
+        ...(edge ? { edge } : {}),
+        ...(edgeSkipped ? { note: edgeSkipped } : {}),
+      });
+      return;
     }
     res.status(404).json({ error: 'Contradiction candidate not found' });
   } catch (err) {

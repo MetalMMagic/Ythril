@@ -3,6 +3,22 @@ import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import type { ContradictionRecord } from './api.types';
 
+/**
+ * What a resolve call reports back.
+ *
+ * `note` is present when the decision was recorded but **no edge was drawn** — edges connect entities, so a
+ * `supersedes` between two memories would be a link pointing at nothing traversable. The server says so
+ * rather than letting a reviewer believe the graph changed.
+ */
+export interface ResolveResult {
+  status: string;
+  resolution: string;
+  resolvedBy?: string;
+  supersededId?: string;
+  edge?: { id: string; from: string; to: string; label: string };
+  note?: string;
+}
+
 /** Contradiction candidates: list, dismiss, re-open, resolve, and rescan. Mirrors DuplicatesApi. */
 @Injectable({ providedIn: 'root' })
 export class ContradictionsApi {
@@ -27,8 +43,21 @@ export class ContradictionsApi {
   }
 
   /** Contradictions are never merged — this records HOW a human settled it. */
-  resolveContradiction(id: string, resolution: 'edited' | 'linked'): Observable<{ status: string; resolution: string }> {
-    return this.http.post<{ status: string; resolution: string }>(`/api/contradictions/${encodeURIComponent(id)}/resolve`, { resolution });
+  resolveContradiction(id: string, resolution: 'edited' | 'linked'): Observable<ResolveResult> {
+    return this.http.post<ResolveResult>(`/api/contradictions/${encodeURIComponent(id)}/resolve`, { resolution });
+  }
+
+  /**
+   * The reviewer picked a winner: the other record is marked superseded, and for an entity pair the server
+   * draws the `supersedes` edge.
+   *
+   * Separate from `resolveContradiction` on purpose. The two calls hit one endpoint, but they are different
+   * decisions — this one names a loser and can change the graph, and folding it into a `resolution` argument
+   * would let a caller omit the winner and get a 400 that reads like a bug in the button.
+   */
+  keepSide(id: string, winner: 'a' | 'b'): Observable<ResolveResult> {
+    return this.http.post<ResolveResult>(`/api/contradictions/${encodeURIComponent(id)}/resolve`,
+      { resolution: 'superseded', winner });
   }
 
   scanContradictions(space?: string): Observable<{ scannedSpaces: number; scanned: number; found: number; nliStalled: boolean }> {

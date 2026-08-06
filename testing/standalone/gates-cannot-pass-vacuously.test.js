@@ -52,7 +52,19 @@ const EMPTY_ASSERT = [
  */
 const ENUMERATES = /readdirSync|execFileSync\('git', \['ls-files|execSync\('git ls-files|allDocsText\(|docFiles\(/;
 
-/** A lower bound proving the enumeration found something. `> 0` counts — it is the most natural way to write it. */
+/**
+ * A lower bound proving the enumeration found something. `> 0` counts — it is the most natural way to write it.
+ *
+ * **KNOWN FALSE NEGATIVE, found 2026-08-06.** The last pattern accepts any bare numeric comparison, so a floor
+ * on something entirely unrelated satisfies it: `index-lag-wait-is-shared` shipped with an unfloored `git
+ * ls-files` walk and passed this gate on the strength of `assert.ok(ms >= 240_000)`, a bound on a timeout
+ * constant. Both were fixed at the source, and the pattern is kept because its only other user
+ * (`ssrf-allow-private-coverage`) floors a genuine count with it.
+ *
+ * The real rule is "a floor over the SAME enumeration, in the same block", which needs per-`it()` analysis
+ * rather than a file-wide regex. Filed rather than bodged — a tightening that flags a gate whose floor is real
+ * teaches people to widen the allowlist.
+ */
 const HAS_FLOOR = [
   /assert\.ok\([^;]*\.length\s*>\s*0/,
   /assert\.ok\([^;]*\.length\s*>=?\s*[1-9]/,

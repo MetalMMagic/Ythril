@@ -12,6 +12,30 @@ export interface TokenRecord {
   peerInstanceId?: string; // set on tokens created for network peers — links this PAT to the peer that uses it inbound
   schemaLibrary?: boolean; // true = only valid on GET /api/schema-library/public*; no space access
   oauthClientId?: string;  // set on PATs minted by the MCP OAuth flow — links this token to the connector client that created it (for rotation, capping, and UI attribution)
+  /**
+   * This token's relationship to the second factor. Absent = `inherit`.
+   *
+   * ## Why this is per-token at all
+   *
+   * `/api/mfa` is a single instance-wide `{ enabled }`, so turning MFA on makes every admin route demand a
+   * TOTP code from every PAT — including the ones a scheduler holds. An operator reported the consequence:
+   * **MFA is mutually exclusive with automation, and the deployments most likely to want MFA are exactly the
+   * ones that have automation.** Their ask was to make it a token property, as read-only and space scoping
+   * already are.
+   *
+   * ## Why three states and not a boolean
+   *
+   *   `inherit`   (default, and what every existing token gets) — follow the instance switch. Absent means
+   *               this, so nothing about a current deployment changes.
+   *   `exempt`    skip MFA even when the instance switch is ON. This is the automation case, and it is a
+   *               deliberate hole in an instance-wide control: it may only be set by an admin who has
+   *               already satisfied MFA, it is reported on the token list, and it is audited.
+   *   `required`  demand MFA even when the instance switch is OFF. The mirror case, and the reason a plain
+   *               `mfaExempt` boolean was rejected: an operator who wants a second factor on the two human
+   *               admin tokens and nothing else currently has to turn it on for everything, which is the
+   *               same all-or-nothing trap from the other side.
+   */
+  mfa?: 'inherit' | 'exempt' | 'required';
 }
 
 // ── Space meta / schema types ──────────────────────────────────────────────

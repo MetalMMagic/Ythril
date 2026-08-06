@@ -593,6 +593,10 @@ Your current session token is marked **(current session)** in the list.
 
 MFA adds a one-time code requirement for admin actions (creating tokens, managing spaces). Normal data operations are not affected. There is no separate "MFA" page — the MFA panel lives inside **Settings → Preferences**, under the **Security** heading (the language switcher sits above it).
 
+**Automation does not have to lock you out of MFA.** The switch is instance-wide, so turning it on would otherwise demand a code from every token — including the ones a script or scheduler holds, which cannot type one. When you create a token under **Settings → Tokens** you can set its **Second factor** to *Never require a code* for exactly those, leaving MFA on for everyone else. The reverse also works: *Always require a code* on your own admin token even while the instance switch is off.
+
+An exempt token is marked **MFA exempt** in the token list, and creating one asks you for a code even if the token you are using is itself exempt — an exemption cannot quietly grant more of itself.
+
 ### Enrolling
 
 1. Open **Settings → Preferences** and click **Enable MFA**.

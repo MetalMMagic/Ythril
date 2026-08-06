@@ -30,6 +30,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     triage a pair, rarely enough to judge one — and a record that fails to load is named rather than shown as
     an empty panel, because that is precisely when deciding from the summary is wrong.
 
+- **MFA is now a token property, so it stops being mutually exclusive with automation** (a canary ask).
+  `/api/mfa` is a single instance-wide `{ enabled }`: turn it on and every admin-gated call demands a TOTP code
+  from every token, including the ones a scheduler holds. As the reporter put it, the deployments most likely
+  to want MFA are exactly the ones that have automation.
+  - A token carries `mfa`: **absent / `inherit`** (follow the instance switch — what every existing token does,
+    so no deployment changes), **`exempt`** (never demand a code, the automation case), **`required`** (always
+    demand one, even with the instance switch off).
+  - **Three states rather than a boolean**, because the all-or-nothing trap has two sides. An operator who
+    wants a second factor on their two human admin tokens and nothing else would otherwise have to enable it
+    for everything — the same problem mirrored.
+  - **An exemption cannot widen itself.** `POST /api/tokens` is gated by admin + MFA, which an admin token that
+    is *itself exempt* satisfies with no code at all — so one exemption could mint another until the switch
+    protected nothing. While MFA is enabled, creating an exempt token now requires a current `X-TOTP-Code` on
+    that request regardless of who is asking, checked before the token is minted. Someone holding the
+    automation token but not the authenticator cannot escalate.
+  - Exempt tokens are **badged in Settings → Tokens** and audited: a deliberate hole in an instance-wide
+    control that nobody can see is one nobody reviews.
+  - `inherit` is never written to the config — it is what absence already means, and storing it would make a
+    diff look like a policy change on tokens nobody touched.
+
 ### Internal
 
 - **The CI vector-index wait had a deadline shorter than the lag it waited for.** Five integration files had each

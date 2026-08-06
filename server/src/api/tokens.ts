@@ -1,7 +1,9 @@
 import { Router } from 'express';
+import type { Request, Response } from 'express';
 import { requireAuth, requireAdmin, requireAdminMfa } from '../auth/middleware.js';
 import { authRateLimit, globalRateLimit } from '../rate-limit/middleware.js';
 import { createToken, listTokens, revokeToken, regenerateToken, renameToken } from '../auth/tokens.js';
+import { isMfaEnabled, verifyMfaCode } from '../auth/totp.js';
 import { z } from 'zod';
 
 export const tokensRouter = Router();
@@ -19,7 +21,36 @@ const CreateTokenBody = z.object({
   readOnly: z.boolean().optional(),
   peerInstanceId: z.string().uuid().optional(),
   schemaLibrary: z.boolean().optional(),
+  /**
+   * This token's relationship to the second factor: `inherit` (default), `exempt`, or `required`.
+   * See `TokenRecord.mfa` for why it is three states.
+   */
+  mfa: z.enum(['inherit', 'exempt', 'required']).optional(),
 });
+
+/**
+ * Granting an MFA exemption always costs a live second factor.
+ *
+ * `requireAdminMfa` on this route is satisfied by an admin token that is ITSELF exempt — which is correct for
+ * ordinary work and catastrophic here: one exemption could mint another, and another, until the instance-wide
+ * switch protected nothing. Exemptions must not be able to widen themselves.
+ *
+ * So when the instance switch is on and the request is trying to create an exempt token, a valid TOTP code is
+ * demanded on THIS request regardless of who is asking. An operator who holds the exempt automation token and
+ * not the authenticator cannot escalate; the human who set it up can.
+ */
+function exemptionNeedsLiveCode(req: Request, res: Response, mfa: string | undefined): boolean {
+  if (mfa !== 'exempt' || !isMfaEnabled()) return true;
+  const code = (req.headers['x-totp-code'] as string | undefined ?? '').trim();
+  if (!code || !verifyMfaCode(code)) {
+    res.status(403).json({
+      error: 'MFA_REQUIRED',
+      message: 'Granting an MFA exemption requires a current TOTP code, even from a token that is itself exempt',
+    });
+    return false;
+  }
+  return true;
+}
 
 // GET /api/tokens — list tokens (hashes excluded) — admin only
 tokensRouter.get('/', requireAdmin, (_req, res) => {
@@ -34,7 +65,8 @@ tokensRouter.post('/', authRateLimit, requireAdminMfa, async (req, res) => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const { name, expiresAt, spaces, admin, readOnly, peerInstanceId, schemaLibrary } = parsed.data;
+  const { name, expiresAt, spaces, admin, readOnly, peerInstanceId, schemaLibrary, mfa } = parsed.data;
+  if (!exemptionNeedsLiveCode(req, res, mfa)) return;
   if (admin && readOnly) {
     res.status(400).json({ error: 'A token cannot be both admin and readOnly' });
     return;
@@ -68,7 +100,7 @@ tokensRouter.post('/', authRateLimit, requireAdminMfa, async (req, res) => {
   // schemaLibrary tokens are always read-only and have no space access
   const effectiveReadOnly = schemaLibrary ? true : (readOnly ?? false);
   const effectiveSpaces = schemaLibrary ? [] : spaces;
-  const { record, plaintext } = await createToken({ name, expiresAt: expiresAt ?? null, spaces: effectiveSpaces, admin, readOnly: effectiveReadOnly, peerInstanceId, schemaLibrary });
+  const { record, plaintext } = await createToken({ name, expiresAt: expiresAt ?? null, spaces: effectiveSpaces, admin, readOnly: effectiveReadOnly, peerInstanceId, schemaLibrary, mfa });
   // Return plaintext only on creation — never retrievable again
   const { hash: _h, ...safeRecord } = record;
   res.status(201).json({ token: safeRecord, plaintext });

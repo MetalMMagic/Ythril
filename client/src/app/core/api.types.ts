@@ -214,6 +214,12 @@ export interface TokenRecord {
   admin: boolean;
   readOnly?: boolean;
   schemaLibrary?: boolean;
+  /**
+   * This token's relationship to the second factor. Absent = `inherit` (follow the instance-wide switch),
+   * which is what every existing token does. `exempt` skips MFA even when the switch is on — the automation
+   * case, and a deliberate hole, so it is badged wherever the token is listed.
+   */
+  mfa?: 'inherit' | 'exempt' | 'required';
 }
 
 export interface Memory {

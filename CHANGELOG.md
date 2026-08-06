@@ -33,6 +33,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`recall` can reach past the vector index for records written seconds ago** (`includeFreshWrites`, the last
+  of a canary letter's asks). `$vectorSearch` reads an index, and that index lags: an integrator's memory was
+  **still invisible to recall 150 seconds after being written**, polled every 5 s for a distinctive nine-word
+  phrase — while insert-time duplicate detection saw the same record immediately. That asymmetry is the
+  diagnosis, not a curiosity: the vector is on the document the moment it is written, and it is mongot that is
+  behind.
+  - The flag also scans the newest records straight from each collection — the one place the missing record
+    certainly is. **A fresh hit is shaped exactly like an indexed one**: same fields, same `score`, hydrated
+    through the same projection, so a caller cannot tell which channel found a record and never has to.
+  - **Off by default, and that is a decision.** The scan is paid per knowledge type and recall is a path
+    somebody waits on — by this project's own rule, a person waiting means performance, background work means
+    accuracy. The write half of this (duplicate detection) is not opt-in for exactly that reason: it runs
+    while a write is processed, and correctness there is what stops a batch duplicating itself.
+  - **`exact: true` is not an alternative**, measured: it scans the INDEX exhaustively rather than the
+    collection, so it skips the approximate traversal and not mongot. On the same insert, ANN first saw the
+    record after 1088 ms and ENN after 1083 ms.
+  - **Reproduced and fixed against a real Atlas Local index**, not argued: immediately after a write, plain
+    recall did not return the record and `includeFreshWrites` did. Both halves are asserted in one integration
+    test, because either alone proves nothing.
+  - New counter `ythril_recall_fresh_writes_found_total` makes the lag measurable rather than anecdotal — one
+    increment per record the index had not yet ingested. Deliberately NOT a `reason` on
+    `ythril_recall_degraded_total`: finding more than the index could offer is the opposite of degradation,
+    and that counter's reason set is closed on purpose.
+
+### Added
+
 - **MCP can delete an entity, an edge and a chrono entry** (`delete_entity`, `delete_edge`, `delete_chrono` — a
   canary ask, in their words: *"an agent can `wipe_space` over MCP but cannot delete one edge"*). REST has
   deleted all four record types since it existed; MCP shipped `delete_memory` and nothing else, so the only

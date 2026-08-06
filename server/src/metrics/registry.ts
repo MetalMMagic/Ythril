@@ -811,6 +811,27 @@ embedChunksTotal.labels({ space: '' }).inc(0);
  * which is worse than not measuring it: a metric an operator learns to ignore is a metric that will not
  * be read on the day it matters. Wire it only once `lexicalSearch` distinguishes the two.
  */
+/**
+ * Records a recall returned that the vector index had NOT yet ingested.
+ *
+ * Only ever incremented when a caller asked for `includeFreshWrites`, and deliberately not a label on
+ * `ythril_recall_degraded_total`: finding more than the index could offer is the opposite of degradation,
+ * and that counter's reason set is closed on purpose.
+ *
+ * What it is for is making the index lag measurable instead of anecdotal. An integrator reported a record
+ * invisible to recall for 150 seconds after writing it; every increment here is one record a plain recall
+ * would have missed, so an operator can see whether that is happening on their instance and how often —
+ * rather than hearing about it once from someone who happened to look.
+ *
+ * Zero is meaningful: it means the index is keeping up with writes on this instance.
+ */
+export const recallFreshWritesFoundTotal = new Counter({
+  name: 'ythril_recall_fresh_writes_found_total',
+  help: 'Records returned by recall that the vector index had not yet ingested (includeFreshWrites only)',
+  registers: [register],
+});
+recallFreshWritesFoundTotal.inc(0);
+
 export const recallDegradedTotal = new Counter({
   name: 'ythril_recall_degraded_total',
   help: 'Recalls answered with a weaker pipeline than configured, by reason',

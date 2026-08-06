@@ -417,6 +417,7 @@ Available as both:
 | `maxPerType` | — | none | Object mapping knowledge type → **maximum** hits, e.g. `{ "file": 2 }` — the ceiling to `minPerType`'s floor. A slot the cap frees goes to another type. Each value must be at least `1` and is clamped to `topK`; a value below `minPerType` for the same type is a `400` (see below) |
 | `maxTimeMS` | — | the instance budget | Deadline for this recall, in ms. **Can only lower the instance's `RECALL_BUDGET_MS`, never raise it** — a larger value is clamped to it, and a very small one is clamped up to a 250 ms floor. On expiry you get a **partial** answer with a `degraded` field, not an error and not a hang |
 | `traverse` | — | `0` | Graph-expansion depth (integer 0–5). `0` = classic recall; > 0 follows edges from each match (see [Graph-Augmented Recall](#graph-augmented-recall-traverse-parameter)) |
+| `includeFreshWrites` | — | `false` | Also scan the newest records straight from each collection, so a record written seconds ago is findable before the vector index has ingested it. See below. A non-boolean is a `400`, never coerced |
 
 **Response** `200`:
 
@@ -735,6 +736,34 @@ Per-result annotations:
 - Only **entities** are returned by traversal (edges connect entities); memories, chrono entries, and files still appear as seeds when they match semantically.
 
 **Performance:** traversal issues roughly two batched (`$in`) MongoDB queries per hop, not one query per node. Even so, `traverse > 2` on a densely-connected graph can fan out quickly — pair it with `filter`, `tags`, or a low `topK` to keep the seed set (and therefore the traversal frontier) tight.
+
+#### Searching for something you just wrote (`includeFreshWrites`)
+
+`$vectorSearch` reads an index, and that index lags behind the collection. The vector is on the document the
+moment it is written — insert-time duplicate detection sees a brand-new record immediately — but recall does
+not see it until mongot has ingested it. **An integrator measured a memory still invisible to recall 150
+seconds after writing it**, polled every 5 s, for a distinctive nine-word phrase.
+
+`includeFreshWrites: true` also scans the newest records straight from each collection, which is exactly the
+set the index has not caught up with:
+
+```json
+{ "query": "the phrase I just stored", "includeFreshWrites": true }
+```
+
+- **A fresh hit is indistinguishable from an indexed one** — same shape, same `score`, same per-type fields.
+  You cannot tell which channel found a record, and should not need to.
+- **It is off by default**, and that is a decision rather than an omission. The scan is paid per knowledge
+  type, and recall is a path somebody is waiting on. Turn it on for the case it exists for: searching for
+  something you just wrote. Bounded by a time window and a document cap, so its cost tracks how much has been
+  written recently rather than how large the space is (~9 ms with an empty window, ~52 ms with a full one, at
+  20k records).
+- **`exact: true` is not an alternative** and was measured not to be. It scans the index exhaustively rather
+  than the collection, so it skips the approximate traversal, not mongot: on the same insert, ANN first saw
+  the record after 1088 ms and ENN after 1083 ms.
+
+Operators can see whether the lag is biting on their instance: `ythril_recall_fresh_writes_found_total`
+counts records returned that the index had not yet ingested. Zero means the index is keeping up with writes.
 
 #### Prefiltered Recall (`filter` parameter)
 

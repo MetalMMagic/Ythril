@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **MCP can delete an entity, an edge and a chrono entry** (`delete_entity`, `delete_edge`, `delete_chrono` — a
+  canary ask, in their words: *"an agent can `wipe_space` over MCP but cannot delete one edge"*). REST has
+  deleted all four record types since it existed; MCP shipped `delete_memory` and nothing else, so the only
+  edge-removal an agent could reach was **destroying the entire space** — the most destructive operation
+  available standing in for the least.
+  - **`delete_entity` carries the REST route's referential guard, not a weaker version of it.** The REST
+    delete refuses when `strictLinkage` is on and something still points at the entity; a tool without that
+    check would have closed the reported gap while opening a worse one — an agent able to leave dangling
+    references that a REST client is refused. Face labels are unlabelled in the same operation rather than
+    blocking, exactly as in REST, because they cannot dangle and blocking on them would make "delete this
+    person" the one thing an operator cannot do for the subject whose data is biometric.
+  - All three are `mutating`, so a `readOnly` token neither sees them in `tools/list` nor may call them.
+  - **A gate now derives the requirement from the REST routers** rather than from a list of tool names: this
+    asymmetry was not introduced deliberately, it accumulated, and a hardcoded list would have been written to
+    match today's tools and agreed with itself forever.
+
+### Added
+
 - **Keep A / Keep B on a contradiction card** (a canary ask). The commonest real decision about two disagreeing
   records is *"this one is right, that one is stale"*, and neither existing resolution said it: `edited` claims
   a record was corrected, `linked` claims the reviewer went and drew an edge by hand. Those decisions were

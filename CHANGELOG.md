@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`PATCH /api/schema-library/:name` — change one property without restating the entry** (an integrator's
+  fourth ask). `PUT` requires `knowledgeType`, `typeName` and the whole `schema`, and replaces `schema`
+  wholesale, so adding one optional property meant resending the type name, the description and **every
+  pre-existing property** — precisely the shape in which a property gets dropped by accident. They had
+  resorted to asserting afterwards that nothing was lost and no enum had narrowed, which is a workaround for a
+  missing merge.
+  - **`schema.propertySchemas` merges by key.** Named properties are added or replaced; unnamed ones survive.
+    A named property is replaced as a whole definition, because deep-merging into it would leave no way to
+    remove a constraint.
+  - `namingPattern` and `tagSuggestions` replace when present and are preserved when absent — one value and
+    one whole list, where merging the list would leave no way to remove a single tag.
+  - `deleteFields` takes dot paths (`propertySchemas.<key>`, `propertySchemas`, `namingPattern`,
+    `tagSuggestions`), reusing the vocabulary the brain record routes already use rather than inventing a
+    second one. Applied **after** the merge, so one request can replace one property and drop another.
+  - **An unrecognised `deleteFields` path is a `400`, not a silent no-op** — a dropped typo would leave the
+    caller believing a property was removed while it is still validating records. A body naming no field at
+    all is also a `400`, so a no-op cannot be mistaken for an applied change.
+  - **`PATCH` does not create:** a missing entry is a `404` that says to use `PUT`. Note the difference from
+    before — an integrator's `PATCH` used to get a `404` from the router itself, which read as "not supported"
+    because it was.
+  - `PUT` is unchanged and remains correct when you hold the whole entry.
+
 - **A duplicate pair now says whether it is the SAME or the OPPOSITE** (an integrator's third ask, and the one
   with the worst failure mode). Two memories meaning opposite things — *"ship the rough version today"* vs
   *"take the extra days and never ship a rough version"* — score ~0.97 and arrived from `/api/duplicates` as a

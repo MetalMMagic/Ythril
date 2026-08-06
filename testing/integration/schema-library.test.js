@@ -262,6 +262,109 @@ describe('PUT /api/schema-library/:name — create-or-replace', () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
+//  PATCH /:name — merge into an existing entry
+//
+//  The reported gap: PUT requires knowledgeType, typeName and the whole schema, and REPLACES the schema. So
+//  adding one optional property meant resending the type name, the description and every pre-existing
+//  property — the shape in which a property gets dropped by accident. The integrator had resorted to
+//  asserting afterwards that nothing was lost and no enum had narrowed.
+//
+//  So the assertion that matters here is not "the patch applied" — it is WHAT SURVIVED it.
+// ═════════════════════════════════════════════════════════════════════════════
+describe('PATCH /api/schema-library/:name — merge', () => {
+  const patchName = `lib-test-${RUN}-patch`;
+  const patchEntry = (name, body) => patch(INSTANCES.a, token(), `/api/schema-library/${encodeURIComponent(name)}`, body);
+
+  before(async () => {
+    const r = await putEntry(patchName, {
+      knowledgeType: 'entity',
+      typeName: 'service',
+      description: 'the original description',
+      schema: {
+        namingPattern: '^svc-',
+        tagSuggestions: ['infra', 'owned'],
+        propertySchemas: {
+          tier: { type: 'string', enum: ['gold', 'silver'] },
+          owner: { type: 'string' },
+        },
+      },
+    });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+  });
+  after(async () => { await deleteEntry(patchName).catch(() => {}); });
+
+  it('adds ONE property without resending the others — the whole point', async () => {
+    const r = await patchEntry(patchName, {
+      schema: { propertySchemas: { region: { type: 'string' } } },
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const ps = r.body.entry.schema.propertySchemas;
+    assert.ok(ps.region, 'the new property must be added');
+    assert.ok(ps.tier, 'a property not mentioned must SURVIVE — this is the bug being fixed');
+    assert.ok(ps.owner, 'and so must the other one');
+    // Nothing else may be collateral damage either.
+    assert.equal(r.body.entry.typeName, 'service', 'typeName must survive a schema-only patch');
+    assert.equal(r.body.entry.description, 'the original description');
+    assert.equal(r.body.entry.schema.namingPattern, '^svc-');
+    assert.deepEqual(r.body.entry.schema.tagSuggestions, ['infra', 'owned']);
+  });
+
+  it('does not narrow an enum it was not asked to touch', async () => {
+    // Their exact after-the-fact assertion, made unnecessary: they were checking that a round-tripped PUT
+    // had not silently dropped enum members.
+    const r = await getEntry(patchName);
+    assert.deepEqual(r.body.entry.schema.propertySchemas.tier.enum, ['gold', 'silver']);
+  });
+
+  it('replaces a named property rather than deep-merging it', async () => {
+    // A property schema is one definition, so naming it means replacing it. Merging INTO it would make
+    // removing a constraint impossible without a second mechanism.
+    const r = await patchEntry(patchName, {
+      schema: { propertySchemas: { tier: { type: 'string' } } },
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.entry.schema.propertySchemas.tier.enum, undefined,
+      'naming a property replaces its definition');
+    assert.ok(r.body.entry.schema.propertySchemas.region, 'other properties still survive');
+  });
+
+  it('deleteFields removes one property and leaves the rest', async () => {
+    const r = await patchEntry(patchName, { deleteFields: ['propertySchemas.region'] });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.entry.schema.propertySchemas.region, undefined);
+    assert.ok(r.body.entry.schema.propertySchemas.owner, 'the others survive the removal');
+  });
+
+  it('refuses an unrecognised deleteFields path instead of ignoring it', async () => {
+    // A silently dropped typo leaves the caller believing a property was removed while it is still
+    // validating records.
+    const r = await patchEntry(patchName, { deleteFields: ['propertySchemasss.owner'] });
+    assert.equal(r.status, 400, JSON.stringify(r.body));
+    assert.match(r.body.error, /unrecognised/i);
+  });
+
+  it('a patch naming nothing is a 400, not a 200 no-op', async () => {
+    const r = await patchEntry(patchName, {});
+    assert.equal(r.status, 400, JSON.stringify(r.body));
+    assert.match(r.body.error, /At least one field/);
+  });
+
+  it('PATCH does not create — a missing entry is 404 and says to use PUT', async () => {
+    const r = await patchEntry(`lib-test-${RUN}-does-not-exist`, { typeName: 'x' });
+    assert.equal(r.status, 404, JSON.stringify(r.body));
+    assert.match(r.body.error, /PUT/, 'the 404 should say how to create one');
+  });
+
+  it('null clears a scalar, absent preserves it', async () => {
+    const cleared = await patchEntry(patchName, { description: null });
+    assert.equal(cleared.status, 200, JSON.stringify(cleared.body));
+    assert.equal(cleared.body.entry.description, undefined, 'null must clear');
+    const after = await patchEntry(patchName, { typeName: 'service' });
+    assert.equal(after.body.entry.description, undefined, 'and absent must not resurrect it');
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
 //  DELETE — remove an entry
 // ═════════════════════════════════════════════════════════════════════════════
 describe('DELETE /api/schema-library/:name — remove', () => {

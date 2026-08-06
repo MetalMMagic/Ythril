@@ -844,6 +844,47 @@ Content-Type: application/json
 
 **Response** `201` (created) or `200` (replaced). Returns `400` for invalid name format or payload.
 
+**`PUT` replaces the `schema` wholesale**, and requires `knowledgeType`, `typeName` and `schema` every time.
+That is the right verb when you are holding the whole entry — and the wrong one for changing a single
+property, because it means resending every pre-existing property, which is how one gets dropped by accident.
+Use `PATCH` for that.
+
+#### Change part of an entry (merge)
+
+```http
+PATCH /api/schema-library/:name
+Authorization: Bearer <admin-token>
+Content-Type: application/json
+
+{
+  "schema": { "propertySchemas": { "region": { "type": "string" } } }
+}
+```
+
+Every field is optional and **`schema.propertySchemas` merges by key**: the properties you name are added or
+replaced, and the ones you do not name survive untouched. So the request above adds `region` without
+restating `tier`, `owner`, the `namingPattern`, the description or the type name.
+
+| field | behaviour |
+|---|---|
+| `schema.propertySchemas` | **merged per key.** A named property is REPLACED as a whole definition — naming it is how you change it, and deep-merging into it would make removing a constraint impossible |
+| `schema.namingPattern`, `schema.tagSuggestions` | replaced when present, preserved when absent. One value and one whole list; merging a list would leave no way to remove a single tag |
+| `knowledgeType`, `typeName`, `published` | replaced when present |
+| `description`, `schemaGroup`, `sourceUrl`, `sourceCatalog` | `null` clears, a value sets, absent preserves — the same three-way contract `PUT` honours |
+| `deleteFields` | dot paths to remove: `propertySchemas.<key>`, `propertySchemas`, `namingPattern`, `tagSuggestions`. Applied **after** the merge, so one request can replace one property and drop another |
+
+**Response** `200 { "entry": { ... } }`.
+
+- `404` if the entry does not exist — **`PATCH` does not create**; use `PUT` for that. (Before this endpoint
+  existed, a `PATCH` here returned a `404` from the router itself, which read as "not supported" because it
+  was.)
+- `400` if the body names no field at all, so a no-op cannot be mistaken for an applied change.
+- `400` for an unrecognised `deleteFields` path, rather than ignoring it — a silently dropped typo would leave
+  you believing a property was removed while it is still validating records.
+
+Editing a library entry changes what **every space that `$ref`s it** validates against; use
+`GET /api/schema-library/:name/usages` first if you need to know who that is.
+
 #### Delete an entry
 
 ```http

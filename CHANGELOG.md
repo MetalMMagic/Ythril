@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The space settings form silently truncated `usageNotes` at 2 000 characters while the API accepts 50 000.**
+  Reported by an operator who authored 2,377 characters, imported them, and read the field back to find it
+  ending mid-word — two rules after that sentence gone, no error and no warning on either side. The cause was
+  one attribute: `maxlength="2000"` on the textarea. A browser does not warn at `maxlength`; it silently
+  refuses the rest of a paste, so the operator's copy and the stored copy differ and nothing says so.
+  - **The docs were right and the UI was wrong** — 50 000 is the real API limit. The form now binds to it.
+  - `usageNotes` is the instruction sheet an MCP client receives at handshake. A truncated instruction sheet
+    does not fail; it stops instructing, and what gets cut is the END, which is where the specific rules live.
+    The reporter lost their write-order and repair-on-defect rules.
+  - **Both long fields now show a live character count**, highlighted near the cap. A limit you cannot see is
+    one you learn about by losing work.
+  - A gate compares every client `maxlength` against the server's cap for that field, written as a comparison
+    rather than a list of blessed numbers — a list would have been written to match the values on the day and
+    agreed with itself forever, which is how the 2 000 survived.
+
+- **The first-run setup route had no server-side length check on the instance label at all** — found while
+  chasing the report above. The form's `maxlength="100"` was the only bound, and it applies only to a browser,
+  so a direct POST could store an instance label of any size. That label is echoed into peer handshakes, audit
+  entries and the UI header. It is now refused with a 400 naming the limit, at the same 100 the form has always
+  shown, so nothing a person could type through the UI is newly rejected.
+
 ### Internal
 
 - **A gate against runtime import cycles in the server** — the deliverable from an architecture angle that

@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **REST `recall` takes `includeContent`, closing the last two-surfaces gap from that letter** (owner-approved
+  new surface). MCP `recall` and `find_similar` have had it since they shipped: ask for file-chunk locations
+  and metadata WITHOUT the passage bodies. A REST caller had no way to ask, which an integrator pointed out —
+  the same shape as the four two-surfaces-one-rule defects fixed on 2026-08-05.
+  - A passage body is by far the largest field a result carries, and every field is paid for `topK` times.
+    `includeContent: false` turns one expensive call into a cheap two-phase flow: recall to find WHERE
+    something is, then read only the chunk you chose.
+  - **It drops `content` and nothing else, on file results and nothing else** — the flag is about the passage
+    body, not about thinning a result. Verified against a live instance: the same chunk comes back with its
+    `path`, `score` and `_id` intact, and a memory result in the same response is untouched.
+  - Default `true`, so no existing caller changes; a non-boolean is a `400` rather than a coercion, because
+    `"false"` is truthy and an opt-out that silently does nothing is worse than one that errors.
+  - **The traverse path honours it too.** A caller who asked not to be sent passage bodies did not stop
+    meaning it because they also asked for graph expansion — an option that lapses on one code path is the
+    same defect one level down.
+  - Held by a cross-surface gate, as the item asked: the check is not "REST has a flag" but "the two surfaces
+    agree", which is the property that was violated.
+
 ### Documentation
 
 - **The tokens guide now says which key of the create response is the credential.** `POST /api/tokens` answers

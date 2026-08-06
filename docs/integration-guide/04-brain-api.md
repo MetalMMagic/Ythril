@@ -418,6 +418,7 @@ Available as both:
 | `maxTimeMS` | — | the instance budget | Deadline for this recall, in ms. **Can only lower the instance's `RECALL_BUDGET_MS`, never raise it** — a larger value is clamped to it, and a very small one is clamped up to a 250 ms floor. On expiry you get a **partial** answer with a `degraded` field, not an error and not a hang |
 | `traverse` | — | `0` | Graph-expansion depth (integer 0–5). `0` = classic recall; > 0 follows edges from each match (see [Graph-Augmented Recall](#graph-augmented-recall-traverse-parameter)) |
 | `includeFreshWrites` | — | `false` | Also scan the newest records straight from each collection, so a record written seconds ago is findable before the vector index has ingested it. See below. A non-boolean is a `400`, never coerced |
+| `includeContent` | — | `true` | Whether file-chunk results carry `content` — the passage body. `false` returns locations and metadata only (path, heading, chunk index, tags, properties). A non-boolean is a `400`, never coerced |
 
 **Response** `200`:
 
@@ -736,6 +737,23 @@ Per-result annotations:
 - Only **entities** are returned by traversal (edges connect entities); memories, chrono entries, and files still appear as seeds when they match semantically.
 
 **Performance:** traversal issues roughly two batched (`$in`) MongoDB queries per hop, not one query per node. Even so, `traverse > 2` on a densely-connected graph can fan out quickly — pair it with `filter`, `tags`, or a low `topK` to keep the seed set (and therefore the traversal frontier) tight.
+
+#### Recall without passage bodies (`includeContent`)
+
+A file result's `content` is the passage body, and it is by far the largest field a result carries — paid for
+`topK` times, in tokens. `includeContent: false` omits it and returns everything needed to decide *which*
+passage you want: path, heading, chunk index, tags, properties.
+
+```json
+{ "query": "retention policy", "types": ["file"], "includeContent": false }
+```
+
+That turns one expensive call into a cheap two-phase flow — recall to find **where** something is, then read
+only the chunk you chose (`GET /api/files/:spaceId/…`). MCP `recall` and `find_similar` have taken the same
+flag with the same meaning since they shipped; REST had no way to ask, which an integrator pointed out.
+
+It drops `content` and nothing else, on file results and nothing else — the flag is about the passage body,
+not about thinning a result. The default is `true`, so no existing caller changes.
 
 #### Searching for something you just wrote (`includeFreshWrites`)
 

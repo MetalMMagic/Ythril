@@ -197,6 +197,25 @@ export class BrainApi {
     return this.http.get<ChronoEntry>(`/api/brain/spaces/${spaceId}/chrono/${id}`);
   }
 
+  /**
+   * Fetch one record when the TYPE is data rather than a compile-time choice.
+   *
+   * Review findings carry `type` as a string, so a caller showing "the two records this finding is about"
+   * cannot pick a getter by hand. The switch lives here, next to the four getters it dispatches to, rather
+   * than being re-derived by every view that meets a typed id — and an unknown type throws instead of
+   * quietly requesting `/api/brain/spaces/x/undefined/y`, which 404s in a way that reads like a missing
+   * record rather than a missing case.
+   */
+  getRecord(spaceId: string, type: string, id: string): Observable<Entity | Memory | ChronoEntry | Edge> {
+    switch (type) {
+      case 'entity': return this.getEntity(spaceId, id);
+      case 'memory': return this.getMemory(spaceId, id);
+      case 'chrono': return this.getChrono(spaceId, id);
+      case 'edge':   return this.getEdge(spaceId, id);
+      default: throw new Error(`getRecord: unknown record type '${type}'`);
+    }
+  }
+
   traverseGraph(spaceId: string, body: { startId: string; direction?: 'outbound' | 'inbound' | 'both'; maxDepth?: number; limit?: number }): Observable<TraverseResult> {
     return this.http.post<TraverseResult>(`/api/brain/spaces/${spaceId}/traverse`, body);
   }

@@ -106,11 +106,11 @@ sticky dismissal — because the Review tab presents both under one vocabulary.
 | `GET` | `/api/contradictions?status=open&space=<id>` | any token (space-scoped) | List candidates. `status` = `open` (default), `dismissed`, `resolved`, or `all`. |
 | `POST` | `/api/contradictions/:id/dismiss` | non-read-only | Reviewed / not a real disagreement. Content-gated exactly like a duplicate dismissal. |
 | `POST` | `/api/contradictions/:id/reopen` | non-read-only | Bring a **dismissed** pair back onto the open list. `404` if it is not currently dismissed. |
-| `POST` | `/api/contradictions/:id/resolve` | non-read-only | Body `{ "resolution": "edited" \| "linked" }`. Records HOW a human settled it. |
+| `POST` | `/api/contradictions/:id/resolve` | non-read-only | Body `{ "resolution": "edited" \| "linked" \| "superseded" }`. Records HOW a human settled it. `superseded` also needs `"winner": "a" \| "b"` — see below. |
 | `POST` | `/api/contradictions/scan?space=<id>` | admin + MFA | Run the sweep now. Returns `nliStalled: true` if it stopped because the judge was unavailable. |
 
 A candidate is `{ id, spaceId, type, aId, aSummary, bId, bSummary, basis, confidence, fields?, truncated?,
-status, resolution?, detectedAt, updatedAt }`.
+status, resolution?, supersededId?, resolvedBy?, detectedAt, updatedAt }`.
 
 **`truncated: true` means the judge probably did not read the whole record.** Encoder NLI models cap at ~512
 tokens; a record whose text runs to thousands of characters is judged on its opening paragraphs, and the
@@ -140,8 +140,52 @@ reported each value against the other record; the finding was real, only its evi
 have stored or forwarded findings from before this fix, re-scan rather than trusting their `fields`.
 
 **Contradictions are never merged.** Two records that disagree are both real, and which one is wrong is a
-judgement call — so `resolve` records the outcome (`edited`: a record was corrected; `linked`: a
-`contradicts`/`supersedes` edge was drawn instead) and leaves the records to the normal edit paths.
+judgement call — so `resolve` records the outcome and leaves the records to the normal edit paths.
+
+| `resolution` | Means |
+|---|---|
+| `edited` | Someone corrected a record. |
+| `linked` | The reviewer drew a `contradicts`/`supersedes` edge by hand instead of changing either record. |
+| `superseded` | **The reviewer picked a winner.** Requires `winner: "a"` or `"b"`. |
+
+#### `superseded` — picking a winner
+
+The commonest real decision about two disagreeing records is *"this one is right, that one is stale"*, and
+neither of the other two says it. `superseded` records that judgement **and acts on it**:
+
+```http
+POST /api/contradictions/:id/resolve
+{ "resolution": "superseded", "winner": "a" }
+
+→ 200 {
+    "status": "resolved", "resolution": "superseded",
+    "supersededId": "<the b record>",         // the one judged out of date
+    "resolvedBy": "ops-automation",           // the token's NAME, never the token
+    "edge": { "id": "…", "from": "<a>", "to": "<b>", "label": "supersedes" }
+  }
+```
+
+- **Nothing is deleted or absorbed.** That is the line between this and a duplicate merge: a merge is lossless
+  because the two records are the same thing, and a contradiction is not — the loser is a real record that was
+  true, or was believed, and its history is the point. Both records still exist afterwards; one now carries a
+  `supersedes` edge pointing at it, and the finding names it in `supersededId`.
+- **`winner` is required and never guessed.** Omitting it is a `400`, and so is sending it with any other
+  resolution. Guessing which record a reviewer meant to keep is the one mistake this endpoint must not make.
+- **Repeating the call is safe.** An edge's identity is `(from, to, label)`, so resolving the same pair twice
+  lands on the same edge rather than accumulating duplicates.
+- **A non-entity pair gets the decision but no edge**, and the response says so:
+
+  ```json
+  { "status": "resolved", "resolution": "superseded", "supersededId": "…",
+    "note": "no edge drawn: edges connect entities, and this pair is of type 'memory'" }
+  ```
+
+  Edges in Ythril connect entities. Drawing one between two memories would be a link that is stored, returned,
+  and points at nothing traversable — so the judgement is kept and the absence of the edge is reported rather
+  than left for you to discover. Check for `edge` in the response if your automation depends on the link.
+
+`supersededId` and `resolvedBy` are also returned on the candidate by `GET /api/contradictions`, so a later
+reviewer can see who settled it and which side they judged stale without reading the audit log.
 
 **`nliStalled`** is surfaced rather than swallowed: a sweep that stopped because the NLI judge was
 unreachable has *not* cleared the space, and that must be distinguishable from a genuinely clean result.

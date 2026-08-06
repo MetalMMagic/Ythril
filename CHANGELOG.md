@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Keep A / Keep B on a contradiction card** (a canary ask). The commonest real decision about two disagreeing
+  records is *"this one is right, that one is stale"*, and neither existing resolution said it: `edited` claims
+  a record was corrected, `linked` claims the reviewer went and drew an edge by hand. Those decisions were
+  being recorded as something they were not.
+  - `POST /api/contradictions/:id/resolve` accepts `resolution: "superseded"` with `winner: "a" | "b"`. It
+    names the loser in `supersededId`, records **who decided** in `resolvedBy` (the token's name, never the
+    token), and for an entity pair draws the `supersedes` edge the reviewer would otherwise draw themselves.
+  - **Nothing is deleted or absorbed** — the line between this and a duplicate merge. A merge is lossless
+    because the two records are the same thing; a contradiction is not. The loser was true, or was believed,
+    and that history is usually why someone was looking. Both records survive; one is now marked.
+  - **`winner` is required and never guessed.** Omitting it is a 400, and so is sending it with any other
+    resolution. Guessing which record a reviewer meant to keep is the one mistake this endpoint must not make.
+  - **A non-entity pair gets the decision and no edge, and the response says so.** Edges connect entities, so a
+    `supersedes` between two memories would be stored, returned, and point at nothing traversable — the exact
+    dead edge an integrator reported. The UI raises that as a notice rather than letting a reviewer believe the
+    graph changed.
+  - Repeating the call is safe: an edge's identity is `(from, to, label)`, so a second resolve upserts.
+  - The card gained **Show both in full**, fetched on demand. The two lines on a card are summaries — enough to
+    triage a pair, rarely enough to judge one — and a record that fails to load is named rather than shown as
+    an empty panel, because that is precisely when deciding from the summary is wrong.
+
 ### Internal
 
 - **The CI vector-index wait had a deadline shorter than the lag it waited for.** Five integration files had each

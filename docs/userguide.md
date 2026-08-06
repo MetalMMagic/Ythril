@@ -1068,7 +1068,17 @@ property differently), while a **Model verdict** shows an entailment model's jud
 That distinction is the point — "these disagree on `port`" is a fact, "a model thinks these disagree" is an
 opinion. Contradictions are never merged: both records are real and which one is wrong is your call, so you
 either **dismiss** it (sticky, like a duplicate dismissal), mark it **resolved by edit** after correcting a
-record, or **link** the two as a contradiction instead.
+record, **link** the two as a contradiction, or pick a winner with **Keep A** / **Keep B**.
+
+**Keep A / Keep B** is usually what you actually mean: *this one is right, that one is stale*. It records who
+decided, marks the other record as superseded, and — for two entities — draws the `supersedes` edge for you.
+**Nothing is deleted.** The superseded record stays exactly where it was, now labelled, because it was true
+once and that history is often the reason you were looking. For a memory or chrono pair the decision is still
+recorded, but no edge is drawn (edges connect entities) and the app tells you so rather than letting you
+assume the graph changed.
+
+Before deciding, use **Show both in full** on the card: the two lines you see are summaries, which is enough
+to triage a pair and rarely enough to judge one.
 
 The view carries the same controls as Duplicates: a **search box** (which matches the disagreeing field
 values as well as the record summaries, so "the one about `port`" finds it), a **status filter**, and a

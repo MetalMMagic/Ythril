@@ -22,7 +22,7 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 
-let decideCandidateAction, contradictionPairId;
+let decideCandidateAction, contradictionPairId, fieldsInStoredOrder;
 
 const CONTRA = { kind: 'contradiction', basis: 'structured-field', confidence: 1, fields: [{ key: 'port', aValue: 1, bValue: 2 }] };
 const NLI = { kind: 'contradiction', basis: 'nli', confidence: 0.91 };
@@ -32,7 +32,7 @@ const row = (status) => ({ status });
 
 describe('contradiction candidates — the decision', () => {
   before(async () => {
-    ({ decideCandidateAction, contradictionPairId } =
+    ({ decideCandidateAction, contradictionPairId, fieldsInStoredOrder } =
       await import('../../server/dist/brain/contradiction-candidates.js'));
   });
 
@@ -97,6 +97,45 @@ describe('contradiction candidates — the decision', () => {
         assert.equal(a.do, 'reopen');
         assert.equal(a.outcome, 'reopened');
       });
+    });
+  });
+
+  /**
+   * The evidence must describe the side it is stored against.
+   *
+   * A verdict names values by ARGUMENT position (`aValue` = first argument), a row names sides by ID order
+   * (`aId` = lower id). Whichever way the scanner met the pair decided which of those two orders applied, so
+   * half of all structured findings stored each value against the other record — a real disagreement,
+   * described backwards. Nothing throws when that happens, which is exactly why it needs a test.
+   */
+  describe('a structured finding attributes each value to the right record', () => {
+    const fields = [{ key: 'port', aValue: 8080, bValue: 443 }, { key: 'env', aValue: 'prod', bValue: 'staging' }];
+
+    it('passes fields through untouched when the sides are already in id order', () => {
+      assert.deepEqual(fieldsInStoredOrder(fields, false), fields);
+    });
+
+    it('mirrors every field when the sides were swapped into id order', () => {
+      assert.deepEqual(fieldsInStoredOrder(fields, true), [
+        { key: 'port', aValue: 443, bValue: 8080 },
+        { key: 'env', aValue: 'staging', bValue: 'prod' },
+      ]);
+    });
+
+    it('keeps the key with its own pair of values — not a wholesale reverse of the list', () => {
+      // A plausible near-miss fix: reversing the array instead of each entry. It looks right on a
+      // single-field finding, which is the common case, and silently mislabels every multi-field one.
+      assert.deepEqual(fieldsInStoredOrder(fields, true).map(f => f.key), ['port', 'env']);
+    });
+
+    it('does not mutate the verdict it was given', () => {
+      const original = JSON.parse(JSON.stringify(fields));
+      fieldsInStoredOrder(fields, true);
+      assert.deepEqual(fields, original, 'the verdict is reused by the caller; mirroring must copy');
+    });
+
+    it('mirroring twice returns the original', () => {
+      assert.deepEqual(fieldsInStoredOrder(fieldsInStoredOrder(fields, true), true), fields);
     });
   });
 });

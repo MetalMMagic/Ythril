@@ -7,7 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The graph's node halo had never been drawn.** The stylesheet set `shadow-blur`, `shadow-color`,
+  `shadow-opacity` and `shadow-offset-x/y` across seven selectors. Those are **cytoscape 2** properties;
+  cytoscape 3 removed them, and an unknown style property is silently discarded rather than warned about. So
+  the depth-tapering glow the module's own comment described had never once been painted. Replaced with
+  `underlay-color` / `-opacity` / `-padding`, which are cytoscape 3's equivalent — the root node now carries a
+  brighter, wider halo and it fades with distance, which is what the layout was always meant to convey.
+  - `underlay-shape` defaults to round-rectangle, so the halo also had to be told the nodes are ellipses —
+    without it every circular node sat inside a visible box.
+  - It compiled for as long as it did because each `style` block ended in `as any`. The cast was not
+    documenting a boundary where the type is unknowable; it was suppressing the one check that could have
+    noticed. Cytoscape ships its own typings and the module now uses them throughout.
+
 ### Internal
+
+- **A gate that reads the shipped cytoscape runtime, not its typings** — every style property the graph sets
+  must exist in `cytoscape.cjs.js`, because a property present in the `.d.ts` and absent from the runtime is
+  exactly the failure above and only the runtime can tell you. It carries a positive control: a property known
+  to exist must be found and a known-removed one must not, since a gate that cannot read the bundle at all
+  greps empty in precisely the same way as one finding no problems. It also fails if a style block is cast to
+  `any` again.
+
+- **The record drawer's four record shapes are now a discriminated union.** `RecordDrawerState.open()` took
+  `(kind, record: any)` and read `record.fact` / `.name` / `.label` / `.title` off it, so nothing stopped a
+  caller passing an Edge as a `'memory'` and getting a drawer with an undefined field and no error anywhere.
+  Four overloads keep every call site's shape — including the four in TEMPLATES, checked because the client
+  builds with `strictTemplates`. The new type immediately caught a live one: the graph page's `lastSaved`
+  effect wrote an unnarrowed record into both its memory and its chrono list.
 
 - **A ratchet against god-files, measured in CODE lines rather than raw ones** — the deliverable from a second
   architecture angle that also found no defect. Ranked by raw lines the two largest files in the repo are its

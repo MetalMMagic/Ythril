@@ -266,7 +266,7 @@ import { BRAIN_CHIP_STYLES, BRAIN_DRAWER_STYLES } from './brain-form.styles';
                 }
                 <div class="drawer-field">
                   <div class="drawer-label">{{ 'common.author' | transloco }}</div>
-                  <div class="drawer-readonly-value">{{ dr.record.author?.instanceLabel }} ({{ dr.record.author?.instanceId }})</div>
+                  <div class="drawer-readonly-value">{{ dr.record.author.instanceLabel }} ({{ dr.record.author.instanceId }})</div>
                 </div>
                 <div class="drawer-field">
                   <div class="drawer-label">{{ 'common.seq' | transloco }}</div>

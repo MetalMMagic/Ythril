@@ -182,6 +182,8 @@ Two conventions make these worth the effort:
 
 At the rendering boundary, pin the **model** handed to the library rather than the library's output — e.g. the element list given to cytoscape, not what it draws. That lets the renderer move without the tests moving with it.
 
+That leaves one thing the model cannot tell you: whether the library still implements what the model names. A renderer typically **discards an unknown property in silence**, so a style the code sets, the tests pin and the comments describe can be doing nothing at all. The graph set `shadow-*` for as long as it had existed — cytoscape 2 properties, removed in cytoscape 3 — behind an `as any` on each style block that stopped the compiler from mentioning it. Prefer the library's own typings over a cast, and where a cast is genuinely unavoidable, check the property against the shipped bundle (`graph-styles-exist-in-cytoscape` does this). A gate of that shape needs a **positive control**: one that cannot read the bundle at all reports success in exactly the same way as one that finds no problems.
+
 ### Standalone tests (no Docker required)
 
 ```bash

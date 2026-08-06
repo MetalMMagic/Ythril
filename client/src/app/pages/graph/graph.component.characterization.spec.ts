@@ -443,7 +443,9 @@ describe('GraphComponent — what it asks the renderer to draw', () => {
 
   it('roots the layout at the entity the user selected', () => {
     render([['a', 1]], []);
-    expect(cy.layoutOpts.at(-1)).toMatchObject({ name: 'breadthfirst', roots: '#root' });
+    // `roots` is an array of raw ids, not a `#id` selector. Cytoscape accepts both and resolves them to
+    // the same element; the array is the form its typings describe, so the call needs no cast.
+    expect(cy.layoutOpts.at(-1)).toMatchObject({ name: 'breadthfirst', roots: ['root'] });
   });
 
   it('applies the hide-labels state on every render, not only on toggle', () => {

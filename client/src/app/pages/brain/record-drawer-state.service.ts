@@ -1,5 +1,5 @@
 import { Injectable, inject, signal } from '@angular/core';
-import { ChronoType, ChronoStatus } from '../../core/api.types';
+import { ChronoType, ChronoStatus, Memory, Entity, Edge, ChronoEntry } from '../../core/api.types';
 import { BrainApi } from '../../core/brain-api.service';
 import { BrainStore } from './brain-store.service';
 import { EntityRefPicker } from './entity-ref-picker.service';
@@ -21,6 +21,25 @@ import { toLocalDatetime, fmtApiError } from './brain-format';
  *
  * Provided by BrainComponent (not root): one instance per mounted page.
  */
+
+/** The four record kinds one drawer edits. */
+export type DrawerKind = 'memory' | 'entity' | 'edge' | 'chrono';
+
+/**
+ * What the drawer is holding — a discriminated union, so reading `record.fact` is only legal once
+ * `kind` has been narrowed to `'memory'`.
+ *
+ * This used to be `{ kind: DrawerKind; record: any }`, and the `any` was load-bearing in the wrong
+ * direction: `open()` reads `record.fact`, `record.name`, `record.label` and `record.title` on four
+ * different shapes, so nothing stopped a caller passing an Edge as a `'memory'` and getting a drawer
+ * with an undefined fact and no error anywhere.
+ */
+export type DrawerRecord =
+  | { kind: 'memory'; record: Memory }
+  | { kind: 'entity'; record: Entity }
+  | { kind: 'edge'; record: Edge }
+  | { kind: 'chrono'; record: ChronoEntry };
+
 @Injectable()
 export class RecordDrawerState {
   private brainApi = inject(BrainApi);
@@ -30,7 +49,7 @@ export class RecordDrawerState {
   /** Active brain space. Kept in sync by the shell, whose `activeSpaceId` is nav state. */
   readonly spaceId = signal('');
 
-  drawerRecord = signal<{ kind: 'memory' | 'entity' | 'edge' | 'chrono'; record: any } | null>(null);
+  drawerRecord = signal<DrawerRecord | null>(null);
   drawerSaving = signal(false);
   drawerError = signal('');
 
@@ -43,7 +62,7 @@ export class RecordDrawerState {
    * Deliberately a signal rather than a callback so a host reacts declaratively and one host cannot
    * overwrite another's handler.
    */
-  readonly lastSaved = signal<{ kind: 'memory' | 'entity' | 'edge' | 'chrono'; record: any } | null>(null);
+  readonly lastSaved = signal<DrawerRecord | null>(null);
 
   drawerEditMemory = { fact: '', tags: [] as string[], entityIds: '', description: '', properties: {} as Record<string, string | number | boolean> };
   drawerEditEntity = { name: '', type: '', tags: [] as string[], description: '', properties: {} as Record<string, string | number | boolean> };
@@ -65,54 +84,74 @@ export class RecordDrawerState {
     this.drawerEditChrono.properties = this.store.buildPropertiesObject('chrono', this.drawerEditChrono.properties, this.drawerChronoKind());
   }
 
-  open(kind: 'memory' | 'entity' | 'edge' | 'chrono', record: any): void {
-    this.drawerRecord.set({ kind, record });
+  /**
+   * Open the drawer on one record.
+   *
+   * Four overloads rather than one `(kind, record: any)`: the kind and the record are separate
+   * arguments, and TypeScript will not narrow the second from the first on its own. Stating the four
+   * legal pairings is what makes `open('memory', someEdge)` a compile error at all eight call sites —
+   * four of which are templates, checked because the client builds with `strictTemplates`.
+   */
+  open(kind: 'memory', record: Memory): void;
+  open(kind: 'entity', record: Entity): void;
+  open(kind: 'edge', record: Edge): void;
+  open(kind: 'chrono', record: ChronoEntry): void;
+  open(kind: DrawerKind, record: Memory | Entity | Edge | ChronoEntry): void {
+    // The one assertion in this method, and the overloads above are what make it sound: every caller
+    // has already been checked against a single legal (kind, record) pairing.
+    const target = { kind, record } as DrawerRecord;
+    this.drawerRecord.set(target);
     this.drawerError.set('');
     this.drawerSaving.set(false);
-    const ids: string[] = record.entityIds ?? [];
+    // Only memories and chrono entries carry entity references — the other two kinds have no such field.
+    const ids: string[] = 'entityIds' in record ? (record.entityIds ?? []) : [];
     if (ids.length) this.picker.resolveEntityNames(ids);
-    if (kind === 'memory') {
+    if (target.kind === 'memory') {
+      const r = target.record;
       this.drawerEditMemory = {
-        fact: record.fact,
-        tags: [...(record.tags ?? [])],
-        entityIds: (record.entityIds ?? []).join(', '),
-        description: record.description ?? '',
-        properties: this.store.buildPropertiesObject('memory', record.properties ?? {}),
+        fact: r.fact,
+        tags: [...(r.tags ?? [])],
+        entityIds: (r.entityIds ?? []).join(', '),
+        description: r.description ?? '',
+        properties: this.store.buildPropertiesObject('memory', r.properties ?? {}),
       };
-    } else if (kind === 'entity') {
+    } else if (target.kind === 'entity') {
+      const r = target.record;
       this.drawerEditEntity = {
-        name: record.name,
-        type: record.type ?? '',
-        tags: [...(record.tags ?? [])],
-        description: record.description ?? '',
-        properties: this.store.buildPropertiesObject('entity', record.properties ?? {}, record.type),
+        name: r.name,
+        type: r.type ?? '',
+        tags: [...(r.tags ?? [])],
+        description: r.description ?? '',
+        properties: this.store.buildPropertiesObject('entity', r.properties ?? {}, r.type),
       };
-    } else if (kind === 'edge') {
+    } else if (target.kind === 'edge') {
+      const r = target.record;
       this.drawerEditEdge = {
-        label: record.label,
-        type: record.type ?? '',
-        weight: record.weight ?? null,
-        tags: [...(record.tags ?? [])],
-        description: record.description ?? '',
-        properties: this.store.buildPropertiesObject('edge', record.properties ?? {}, record.label),
+        label: r.label,
+        type: r.type ?? '',
+        weight: r.weight ?? null,
+        tags: [...(r.tags ?? [])],
+        description: r.description ?? '',
+        properties: this.store.buildPropertiesObject('edge', r.properties ?? {}, r.label),
       };
-    } else if (kind === 'chrono') {
-      const isPredefined = this.store.chronoKinds.includes(record.type as ChronoType);
+    } else {
+      const r = target.record;
+      const isPredefined = this.store.chronoKinds.includes(r.type as ChronoType);
       this.drawerEditChrono = {
-        title: record.title,
-        kind: isPredefined ? record.type : '__custom__',
-        customKind: isPredefined ? '' : record.type,
-        status: record.status,
-        startsAt: record.startsAt ? toLocalDatetime(record.startsAt) : '',
-        endsAt: record.endsAt ? toLocalDatetime(record.endsAt) : '',
-        description: record.description ?? '',
-        tags: [...(record.tags ?? [])],
-        entityIds: (record.entityIds ?? []).join(', '),
-        confidence: record.confidence ?? null,
-        memoryIds: [...(record.memoryIds ?? [])],
-        properties: this.store.buildPropertiesObject('chrono', record.properties ?? {}, record.type),
+        title: r.title,
+        kind: isPredefined ? r.type : '__custom__',
+        customKind: isPredefined ? '' : r.type,
+        status: r.status,
+        startsAt: r.startsAt ? toLocalDatetime(r.startsAt) : '',
+        endsAt: r.endsAt ? toLocalDatetime(r.endsAt) : '',
+        description: r.description ?? '',
+        tags: [...(r.tags ?? [])],
+        entityIds: (r.entityIds ?? []).join(', '),
+        confidence: r.confidence ?? null,
+        memoryIds: [...(r.memoryIds ?? [])],
+        properties: this.store.buildPropertiesObject('chrono', r.properties ?? {}, r.type),
       };
-      this.picker.resolveMemoryTitles(record.memoryIds ?? []);
+      this.picker.resolveMemoryTitles(r.memoryIds ?? []);
     }
   }
 

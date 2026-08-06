@@ -54,7 +54,7 @@ import {
 } from './graph-traversal-cache';
 import {
   GraphTheme, DEFAULT_GRAPH_THEME, readGraphTheme, typeColor,
-  buildElements, createGraphCytoscape, renderElements,
+  buildElements, createGraphCytoscape, renderElements, type GraphInstance,
 } from './graph-cytoscape';
 import { GRAPH_STYLES } from './graph.styles';
 
@@ -387,10 +387,13 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     effect(() => {
       const saved = this.drawerState.lastSaved();
       if (!saved) return;
-      const rec = saved.record;
+      // Read `saved.record` inside each branch, not once above: the discriminant only narrows the
+      // record while it is still reached through `saved`.
       if (saved.kind === 'memory') {
+        const rec = saved.record;
         this.nodeMemories.update(list => list.map(m => m._id === rec._id ? rec : m));
       } else if (saved.kind === 'chrono') {
+        const rec = saved.record;
         this.nodeChrono.update(list => list.map(c => c._id === rec._id ? rec : c));
       }
     });
@@ -524,7 +527,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
   });
 
   // â”€â”€ Private state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  private cy: any = null;
+  private cy: GraphInstance | null = null;
   private subs = new Subscription();
 
   /** Palette read from CSS vars once the view exists; the default until then. */
@@ -909,7 +912,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     }).subscribe(({ mems, chrono }) => {
       // filter to those also referencing te.to
       const filteredMems = mems.memories.filter(m =>
-        Array.isArray((m as any).entityIds) && (m as any).entityIds.includes(te.to)
+        Array.isArray(m.entityIds) && m.entityIds.includes(te.to)
       );
       const filteredChrono = (chrono.results as unknown as ChronoEntry[]).filter(c =>
         Array.isArray(c.entityIds) && c.entityIds.includes(te.from) && c.entityIds.includes(te.to)
@@ -940,9 +943,16 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
    *
    * Kept as a method rather than calling `drawerState.open()` from each of the three call sites,
    * so this page keeps one seam for the open path.
+   *
+   * Overloaded for the same reason `RecordDrawerState.open` is: this page only ever opens the two
+   * kinds a graph node carries, and a single `(kind, record: any)` signature would let either one
+   * through as the other.
    */
-  openBrainDrawer(kind: 'memory' | 'chrono', record: any): void {
-    this.drawerState.open(kind, record);
+  openBrainDrawer(kind: 'memory', record: Memory): void;
+  openBrainDrawer(kind: 'chrono', record: ChronoEntry): void;
+  openBrainDrawer(kind: 'memory' | 'chrono', record: Memory | ChronoEntry): void {
+    if (kind === 'memory') this.drawerState.open(kind, record as Memory);
+    else this.drawerState.open(kind, record as ChronoEntry);
   }
 
   /**

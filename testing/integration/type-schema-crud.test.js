@@ -438,7 +438,7 @@ describe('Round-trip: GET then PUT (export/import snippet)', () => {
 //  body was acceptable. One of them was wrong, and it was not the one that
 //  accepted it.
 // ═════════════════════════════════════════════════════════════════════════════
-describe('Round-trip: GET a space's meta, then PATCH it back', () => {
+describe('Round-trip: GET the space meta, then PATCH it back', () => {
   // `GET /api/spaces/:id/meta` is the endpoint an integrator actually reads — there is no
   // `GET /api/spaces/:id`, which is what the first version of this test wrongly assumed and what CI caught.
   // It returns the meta fields SPREAD at the top level alongside an envelope (`spaceId`, `spaceName`,

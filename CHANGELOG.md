@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Internal
+
+- **A ratchet against god-files, measured in CODE lines rather than raw ones** — the deliverable from a second
+  architecture angle that also found no defect. Ranked by raw lines the two largest files in the repo are its
+  two best-documented (`config/types.ts` is 62% comment, `brain/recall.ts` 36%), so a gate on raw lines would
+  name them the worst and invite deleting the explanations. Stripping comments moves `types.ts` from 2nd to
+  11th and inverts the picture: what is actually large is a handful of Angular components at 6–12% comments.
+  - **No refactor was filed.** Size is not a defect — those files work, are covered, and splitting one is a
+    change with real regression risk nobody asked for. What is worth guaranteeing is that they stop growing,
+    because a god-file's failure mode is not its size on a given day but that every change lands in the same
+    place because that is where the code already is.
+  - The largest files are frozen at their measured size; everything else has a 650-line ceiling. A file that
+    shrinks is reported, never failed, so the list cannot quietly drift upward into headroom.
+  - It asserts its own premise: if `config/types.ts` ever stops being mostly comment, the gate says it is
+    measuring the wrong thing rather than carrying on.
+  - Also confirmed: the earlier `api/brain.ts` split held. Nine pieces, largest 713 lines, nothing crept back.
+
 ### Added
 
 - **The insert-time near-duplicate / contradiction check is now reachable over REST** (`checkDuplicates`,

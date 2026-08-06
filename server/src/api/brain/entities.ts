@@ -16,7 +16,7 @@ import { parseSortParam, SORTABLE_FIELDS } from '../../brain/list-sort.js';
 import { textSearchOr, SEARCHABLE_FIELDS } from '../../brain/text-search.js';
 import { resolveMemberSpaces, resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { validateEntity } from '../../spaces/schema-validation.js';
-import { UUID_V4_RE, webhookToken, getSpaceMeta, ttlDaysFromBody, ttlDaysError } from './_shared.js';
+import { UUID_V4_RE, webhookToken, getSpaceMeta, ttlDaysFromBody, ttlDaysError, dupeCheckOptsFromBody } from './_shared.js';
 import { classifyEntityUpsert, classifyUpdateViolations } from '../../brain/write-validation.js';
 import { tagContains, textContains, propertiesValueContains } from '../../brain/tag-filter.js';
 import { mergePropertiesOrKeep, mergeTagsOrKeep } from '../../brain/merge-fields.js';
@@ -85,11 +85,24 @@ entitiesRouter.post('/spaces/:spaceId/entities', globalRateLimit, requireSpaceAu
       res.status(400).json({ error: '`waitForEmbedding` must be a boolean' });
       return;
     }
-    const embedOpts = waitForEmbedding === true ? { waitForEmbedding: true } : undefined;
-    const { entity, warning } = await upsertEntity(wt.target, name.trim(), type.trim(), tags, properties, safeDesc, safeId, embedOpts, webhookToken(req), ttlDaysFromBody(req.body));
+    // The insert-time near-duplicate / contradiction check, which MCP has always had and REST never
+    // exposed. Same options object, same shared implementation — the only thing that was missing here was
+    // reading the flags off the body and reporting what came back.
+    const dupe = dupeCheckOptsFromBody(req.body);
+    if ('error' in dupe) { res.status(400).json({ error: dupe.error }); return; }
+
+    const writeOpts = { ...dupe.opts, ...(waitForEmbedding === true ? { waitForEmbedding: true } : {}) };
+    const { entity, warning, similar, contradicts } = await upsertEntity(
+      wt.target, name.trim(), type.trim(), tags, properties, safeDesc, safeId,
+      Object.keys(writeOpts).length > 0 ? writeOpts : undefined,
+      webhookToken(req), ttlDaysFromBody(req.body));
     const result: Record<string, unknown> = { ...entity };
     if (warning) result['warning'] = warning;
     if (check.warnings.length > 0) result['warnings'] = check.warnings;
+    // Advisory, never blocking: the write already happened. An agent correcting an outdated fact must be
+    // able to contradict the record it supersedes — the point is that it is TOLD, not that it is stopped.
+    if (similar && similar.length > 0) result['similar'] = similar;
+    if (contradicts && contradicts.length > 0) result['contradicts'] = contradicts;
     res.status(201).json(result);
   } catch (err) {
     res.status(500).json({ error: 'Internal server error' });

@@ -13,7 +13,7 @@ import { parseSortParam, SORTABLE_FIELDS } from '../../brain/list-sort.js';
 import { resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { validateChrono, getAllowedChronoTypes } from '../../spaces/schema-validation.js';
 import type { ChronoStatus } from '../../config/types.js';
-import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, ttlDaysFromBody, ttlDaysError } from './_shared.js';
+import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, ttlDaysFromBody, ttlDaysError, dupeCheckOptsFromBody } from './_shared.js';
 import { classifyUpdateViolations } from '../../brain/write-validation.js';
 import { resolveEntityIdsByName } from '../../brain/entities.js';
 import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
@@ -124,7 +124,12 @@ chronoRouter.post('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, 
     res.status(400).json({ error: '`waitForEmbedding` must be a boolean' });
     return;
   }
-  const embedOpts = waitForEmbedding === true ? { waitForEmbedding: true } : undefined;
+  // Same insert-time check as the other two write paths, and the same shared reader — `createChrono`
+  // already merges `similar` and `contradicts` into what it returns, so the spread below reports them.
+  const dupe = dupeCheckOptsFromBody(req.body);
+  if ('error' in dupe) { res.status(400).json({ error: dupe.error }); return; }
+  const writeOpts = { ...dupe.opts, ...(waitForEmbedding === true ? { waitForEmbedding: true } : {}) };
+  const embedOpts = Object.keys(writeOpts).length > 0 ? writeOpts : undefined;
   const entry = await createChrono(wt.target, {
     title: title.trim(), type, startsAt, endsAt, status, confidence,
     tags, entityIds, memoryIds, description, properties: safeProps, recurrence: safeRecurrence,

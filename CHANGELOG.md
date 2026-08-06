@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The insert-time near-duplicate / contradiction check is now reachable over REST** (`checkDuplicates`,
+  `checkContradictions`, `dupeThreshold` on `POST …/memories`, `…/entities` and `…/chrono`). It had existed
+  only on the MCP write tools, so the best knowledge-hygiene feature in the product was invisible to any
+  client that speaks HTTP — which an integrator pointed out is *every* record their thirty-flow fleet writes.
+  - Same shared implementation, same options object, same advisory contract: the record is written either way
+    and the warning rides on the `201` as `similar` / `contradicts`. An agent correcting an outdated fact must
+    be able to contradict the record it supersedes.
+  - **`recall` cannot stand in for it**, measured by the reporter: the same pair scores 0.94 on this check and
+    0.896 on recall, with unrelated topical neighbours at 0.845 — no recall threshold separates the true
+    near-duplicate from the coincidences, and the two scales are not interchangeable.
+  - **The flags are opt-in on REST and default ON over MCP**, which is a deliberate asymmetry rather than an
+    oversight: the check implies `waitForEmbedding`, so defaulting it on would make every existing REST
+    integration — including bulk importers — start paying the embedding model synchronously without asking.
+    Documented rather than left to be discovered from a latency graph.
+  - One shared reader for all three routes, because three hand-written copies of "read, validate, default" is
+    how the surfaces drifted apart to begin with.
+
 ### Fixed
 
 - **Creating a space with a broken schema-library `$ref` succeeded silently, while every route that EDITS the

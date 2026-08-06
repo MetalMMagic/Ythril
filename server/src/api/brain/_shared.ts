@@ -11,6 +11,7 @@ import type express from 'express';
 import { getConfig } from '../../config/loader.js';
 import { resolveMetaRefs, type SchemaViolation } from '../../spaces/schema-validation.js';
 import type { SpaceMeta } from '../../config/types.js';
+import type { DupeCheckOpts } from '../../brain/recall.js';
 
 /** Regex that matches a UUID v4 (case-insensitive). */
 // Re-exported from the canonical definition so there is exactly one copy in the codebase.
@@ -85,4 +86,66 @@ export function buildMemoryFilter(query: Record<string, unknown>): Record<string
   const or = textSearchOr(search, SEARCHABLE_FIELDS.memories);
   if (or) Object.assign(filter, or);
   return filter;
+}
+
+/**
+ * Read the insert-time duplicate / contradiction flags from a REST write body.
+ *
+ * ## Why this exists
+ *
+ * The check itself is the same code MCP has always used — `upsertEntity`, `createMemory` and `createChrono`
+ * all take a `DupeCheckOpts`, and the MCP tools fill it. REST simply never did, so the single best
+ * knowledge-hygiene feature in the product was invisible to any client that speaks HTTP.
+ *
+ * An integrator reported it with the measurement that makes the case: their fleet is thirty n8n flows, n8n
+ * speaks HTTP, so **every record they create is written over REST**. They also showed that recall cannot
+ * stand in for it — the same pair scores 0.94 on the dedup check and 0.896 on recall, with unrelated topical
+ * neighbours at 0.845, so no recall threshold separates a true near-duplicate from a coincidence.
+ *
+ * ## Why one reader rather than three
+ *
+ * Three record types take these flags, and three hand-written copies of "read, validate, default" is how the
+ * surfaces drifted apart in the first place. One function means a fourth type is a one-line change and
+ * cannot disagree with the others about what `dupeThreshold: "0.9"` means.
+ *
+ * ## Both flags are OPT-IN here, and that differs from MCP on purpose
+ *
+ * MCP's `remember` and `upsert_entity` default `checkDuplicates` ON. Copying that default to REST would be a
+ * silent latency regression for every integration that exists today, because **the check implies
+ * `waitForEmbedding`** — it needs the vector before the insert so the new record cannot match itself. Every
+ * REST write would start paying the embedding model synchronously, including bulk loaders, without anyone
+ * asking for it.
+ *
+ * The surfaces are asymmetric for a reason that survives stating: an MCP caller is an agent writing one
+ * record and reading the answer, and REST is also how a fleet imports thousands. So the CAPABILITY is now
+ * identical and the DEFAULT is not, which is documented rather than left to be discovered from a latency
+ * graph.
+ *
+ * A REST caller that sends none of these gets today's behaviour, byte for byte.
+ *
+ * Returns an error string when a flag is present but the wrong type — never a coercion. `"false"` is truthy,
+ * and a hygiene check that silently turns itself off is worse than one that was never asked for.
+ */
+export function dupeCheckOptsFromBody(body: unknown): { opts: DupeCheckOpts } | { error: string } {
+  const b = (body ?? {}) as Record<string, unknown>;
+  const opts: DupeCheckOpts = {};
+
+  for (const key of ['checkDuplicates', 'checkContradictions'] as const) {
+    const v = b[key];
+    if (v === undefined) continue;
+    if (typeof v !== 'boolean') return { error: `\`${key}\` must be a boolean` };
+    opts[key] = v;
+  }
+
+  if (b['dupeThreshold'] !== undefined) {
+    const t = b['dupeThreshold'];
+    // Bounded to the same 0..1 the score itself lives in. An out-of-range threshold is not a preference,
+    // it is a caller who has misunderstood the scale — and 1.5 would silently mean "never warn".
+    if (typeof t !== 'number' || !Number.isFinite(t) || t < 0 || t > 1) {
+      return { error: '`dupeThreshold` must be a number between 0 and 1' };
+    }
+    opts.dupeThreshold = t;
+  }
+
+  return { opts };
 }

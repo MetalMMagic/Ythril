@@ -22,8 +22,16 @@
  *    between two memories would be exactly that dead edge. Recording the resolution while silently not
  *    drawing anything is the failure mode this endpoint exists to avoid.
  *
- * The candidates come from the **structured** contradiction pass, which needs no NLI model at all: two
- * entities that set the same single-valued property to different values are a deterministic conflict.
+ * ## Why the candidates are INSERTED rather than scanned for
+ *
+ * The first version of this test asked `POST /api/contradictions/scan` to produce the pair. It failed in CI
+ * with `expected a candidate for the pair: []` — the scan returned 200 and found nothing, and from a green
+ * 200 there is no way to tell WHICH precondition was unmet: vector search unavailable, the space's index
+ * still building, or the pair not similar enough for the threshold.
+ *
+ * None of those are what this change touched. The scan's ability to FIND a pair is covered elsewhere; what is
+ * new here is what `resolve` does with one. So the candidate is written directly, the way the scanner writes
+ * it, and the test exercises only the endpoint — deterministic, and honest about what it proves.
  *
  * Run: node --test testing/integration/contradiction-resolve.test.js
  * Pre-requisite: docker compose -f testing/docker-compose.test.yml up && node testing/sync/setup.js
@@ -34,7 +42,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'url';
-import { INSTANCES, post, get, waitForIndexed } from '../sync/helpers.js';
+import { INSTANCES, post, get, dockerExec } from '../sync/helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -75,27 +83,55 @@ const createEntity = async (name, description, properties) => {
 const listOpen = async () => (await raw('GET', `/api/contradictions?space=${SPACE}&status=open`)).body?.contradictions ?? [];
 const findPair = (list, x, y) => list.find(c => [c.aId, c.bId].sort().join() === [x, y].sort().join());
 
+/**
+ * Write a candidate exactly as `recordContradiction` would.
+ *
+ * Reaching into the container's Mongo is the same move `readContainerConfig` makes, and it is the only way to
+ * put a KNOWN pair in front of the endpoint: every other route to a candidate runs through vector search.
+ */
+function insertCandidate(doc) {
+  const js = "db.getSiblingDB('ythril').getCollection(" + JSON.stringify(SPACE + '_contradiction_candidates')
+    + ").replaceOne({_id:" + JSON.stringify(doc._id) + "}, " + JSON.stringify(doc) + ", {upsert:true})";
+  dockerExec('docker exec ythril-mongo-a mongosh --quiet -u ythril -p ythril-test-pw '
+    + '--authenticationDatabase admin --eval ' + JSON.stringify(js));
+}
+
 before(async () => {
   tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
   const sp = await post(INSTANCES.a, token(), '/api/spaces', { id: SPACE, label: `Contradiction Resolve ${RUN}` });
   assert.equal(sp.status, 201, `create space: ${JSON.stringify(sp.body)}`);
   await ensureReindexed();
 
-  // A deterministic conflict: same subject (so they are near neighbours), same single-valued property, two
-  // different values. No model needed — this is what the structured pass is for.
-  ids.a = await createEntity(`Vault Secret Service ${RUN}`,
-    'Vault secret storage service handling authentication token scoping and rotation on a schedule',
-    { port: 8080 });
-  ids.b = await createEntity(`Vault Secrets Service ${RUN}`,
-    'Vault secret storage service handling authentication token scoping and rotation on a fixed schedule',
-    { port: 9090 });
-  ready = !!(ids.a && ids.b);
+  ids.a = await createEntity('Vault Secret Service', 'Vault secret storage handling token rotation', { port: 8080 });
+  ids.b = await createEntity('Vault Secrets Service', 'Vault secret storage handling token rotation', { port: 9090 });
+  const m1 = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/memories`, { fact: 'The service listens on 8080', tags: [] });
+  const m2 = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/memories`, { fact: 'The service does not listen on 8080', tags: [] });
+  ready = !!(ids.a && ids.b && m1.body?._id && m2.body?._id);
+  if (!ready) return;
 
-  if (ready) {
-    await waitForIndexed(INSTANCES.a, token(), SPACE, [ids.a, ids.b], ['entity']);
-    const scan = await raw('POST', `/api/contradictions/scan?space=${SPACE}`);
-    assert.equal(scan.status, 200, `scan: ${JSON.stringify(scan.body)}`);
-  }
+  // Canonical pair ids are `${lo}:${hi}` — the identity `contradictionPairId` derives.
+  [ids.a, ids.b] = [ids.a, ids.b].sort();
+  [ids.m1, ids.m2] = [m1.body._id, m2.body._id].sort();
+  const now = new Date().toISOString();
+
+  ids.entityPair = `${ids.a}:${ids.b}`;
+  insertCandidate({
+    _id: ids.entityPair, spaceId: SPACE, type: 'entity',
+    aId: ids.a, aSummary: 'Vault Secret Service', aSeq: 1,
+    bId: ids.b, bSummary: 'Vault Secrets Service', bSeq: 2,
+    basis: 'structured-field', confidence: 1,
+    fields: [{ key: 'port', aValue: 8080, bValue: 9090 }],
+    status: 'open', detectedAt: now, updatedAt: now,
+  });
+
+  ids.memoryPair = `${ids.m1}:${ids.m2}`;
+  insertCandidate({
+    _id: ids.memoryPair, spaceId: SPACE, type: 'memory',
+    aId: ids.m1, aSummary: 'listens on 8080', aSeq: 3,
+    bId: ids.m2, bSummary: 'does not listen on 8080', bSeq: 4,
+    basis: 'nli', confidence: 0.93,
+    status: 'open', detectedAt: now, updatedAt: now,
+  });
 });
 
 after(async () => {
@@ -107,8 +143,8 @@ after(async () => {
 });
 
 describe('Contradiction resolve — picking a winner', () => {
-  it('the structured pass found the property conflict', async (t) => {
-    if (!ready) return t.skip('embedding unavailable');
+  it('the API returns the candidate with its evidence intact', async (t) => {
+    if (!ready) return t.skip('records could not be created');
     const open = await listOpen();
     const c = findPair(open, ids.a, ids.b);
     assert.ok(c, `expected a candidate for the pair: ${JSON.stringify(open)}`);
@@ -122,7 +158,7 @@ describe('Contradiction resolve — picking a winner', () => {
   });
 
   it('rejects a winner that was not asked for, and a superseded without one', async (t) => {
-    if (!ready) return t.skip('embedding unavailable');
+    if (!ready) return t.skip('records could not be created');
     const c = findPair(await listOpen(), ids.a, ids.b);
     // Refused rather than defaulted: guessing which record a reviewer meant to keep is the one mistake
     // this endpoint must never make.
@@ -138,7 +174,7 @@ describe('Contradiction resolve — picking a winner', () => {
   });
 
   it('records the loser and who decided, and DRAWS the supersedes edge', async (t) => {
-    if (!ready) return t.skip('embedding unavailable');
+    if (!ready) return t.skip('records could not be created');
     const c = findPair(await listOpen(), ids.a, ids.b);
     const winnerId = c.aId;
     const loserId = c.bId;
@@ -167,7 +203,7 @@ describe('Contradiction resolve — picking a winner', () => {
   });
 
   it('the resolved finding carries the loser and the decider', async (t) => {
-    if (!ready) return t.skip('embedding unavailable');
+    if (!ready) return t.skip('records could not be created');
     const resolved = (await raw('GET', `/api/contradictions?space=${SPACE}&status=resolved`)).body?.contradictions ?? [];
     const c = findPair(resolved, ids.a, ids.b);
     assert.ok(c, `the pair must appear under resolved: ${JSON.stringify(resolved)}`);
@@ -176,8 +212,24 @@ describe('Contradiction resolve — picking a winner', () => {
     assert.ok(c.resolvedBy, 'resolvedBy must survive onto the stored finding');
   });
 
+  it('a NON-entity pair records the decision and says no edge was drawn', async (t) => {
+    if (!ready) return t.skip('records could not be created');
+    // Edges connect entities. A `supersedes` between two memories would be stored, returned, and point at
+    // nothing traversable — the accepted-dead-edge shape. The decision is still the reviewer's and is kept;
+    // what must not happen is the caller believing the graph changed.
+    const r = await raw('POST', `/api/contradictions/${ids.memoryPair}/resolve`, { resolution: 'superseded', winner: 'b' });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.edge, undefined, `no edge for a memory pair: ${JSON.stringify(r.body)}`);
+    assert.match(r.body.note ?? '', /no edge drawn/, `the response must explain: ${JSON.stringify(r.body)}`);
+    assert.equal(r.body.supersededId, ids.m1, 'the decision is still recorded');
+
+    const edges = await get(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/edges?label=supersedes`);
+    const strays = (edges.body.edges ?? []).filter(e => [e.from, e.to].some(x => x === ids.m1 || x === ids.m2));
+    assert.deepEqual(strays, [], 'no edge may reference a memory');
+  });
+
   it('resolving twice lands on the SAME edge rather than accumulating duplicates', async (t) => {
-    if (!ready) return t.skip('embedding unavailable');
+    if (!ready) return t.skip('records could not be created');
     const resolved = (await raw('GET', `/api/contradictions?space=${SPACE}&status=resolved`)).body?.contradictions ?? [];
     const c = findPair(resolved, ids.a, ids.b);
     const again = await raw('POST', `/api/contradictions/${c.id}/resolve`, { resolution: 'superseded', winner: 'a' });

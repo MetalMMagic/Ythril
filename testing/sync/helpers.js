@@ -164,6 +164,63 @@ export async function waitFor(condition, timeout = 15_000, interval = 500, diagn
   throw new Error(`waitFor timed out after ${timeout}ms${detail ? ` — ${detail}` : ''}`);
 }
 
+/**
+ * Wait until every id is visible to `$vectorSearch`, then return how long it took.
+ *
+ * ## Why this is one helper and not four copies of a 30-second timeout
+ *
+ * The Atlas Local vector index is **eventually consistent**: a record that came back 201 is not yet visible to
+ * `$vectorSearch`, and nothing in the write path tells you when it will be. Four test files each grew their own
+ * copy of this poll, each with a 30 s deadline that nobody had measured against anything.
+ *
+ * The lag has been observed at up to **150 s** on the CI runner. So the deadline was not conservative, it was
+ * simply wrong, and its failure — `Timed out waiting for indexing of: <uuid>` inside a `before` hook — cancels
+ * every test in the suite and reads exactly like a real regression. That has now failed CI four separate times.
+ *
+ * `INDEX_LAG_TIMEOUT_MS` is deliberately well beyond the worst observation rather than just past it. **This costs
+ * nothing when the index is quick** — the poll returns on the first hit — so the only thing a bigger number buys
+ * is not failing, and the only thing a smaller one buys is failing sooner on a slow runner.
+ *
+ * A test that does NOT need the index should not call this at all; prefer asserting on what the record itself
+ * returns. `embed-properties` was rewritten that way and stopped flaking entirely.
+ *
+ * @param types Record types to poll. Narrow it — polling for types you did not write cannot succeed.
+ */
+export const INDEX_LAG_TIMEOUT_MS = 300_000;
+
+export async function waitForIndexed(baseUrl, token, spaceId, ids, types, timeoutMs = INDEX_LAG_TIMEOUT_MS) {
+  const pending = new Set(ids);
+  const started = Date.now();
+  const deadline = started + timeoutMs;
+  let lastStatus = null;
+  let polls = 0;
+  while (pending.size > 0 && Date.now() < deadline) {
+    const r = await post(baseUrl, token, `/api/brain/spaces/${spaceId}/recall`,
+      { query: 'indexing probe query', types, topK: 100 });
+    polls++;
+    lastStatus = r.status;
+    if (r.status === 200 && Array.isArray(r.body?.results)) {
+      // Both shapes, because the four copies of this poll did not agree on one: most read `result._id`, one read
+      // `result.record?._id ?? result._id`. A copy that guesses wrong never matches anything and times out in
+      // full — a hard failure that looks exactly like index lag. Accepting both is the only version that cannot
+      // be silently wrong.
+      for (const result of r.body.results) pending.delete(result.record?._id ?? result._id);
+    }
+    if (pending.size > 0) await new Promise(res => setTimeout(res, 500));
+  }
+  if (pending.size > 0) {
+    // Say which of the two failures this is. A recall that never returned 200 is a broken instance and has
+    // nothing to do with index lag, but the old message described both as "timed out waiting for indexing".
+    const how = lastStatus === 200
+      ? `recall answered 200 every time and never listed them, over ${polls} polls`
+      : `the last recall returned ${lastStatus} — this is not index lag, recall itself is failing`;
+    throw new Error(
+      `Timed out after ${Math.round((Date.now() - started) / 1000)}s waiting for $vectorSearch to see `
+      + `${[...pending].join(', ')} in space ${spaceId} (types: ${types.join(',')}): ${how}`);
+  }
+  return Date.now() - started;
+}
+
 /** Trigger a sync run on an instance for a given networkId. Throws on any non-200. */
 export async function triggerSync(baseUrl, token, networkId) {
   const r = await post(baseUrl, token, '/api/notify/trigger', { networkId });

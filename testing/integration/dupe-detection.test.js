@@ -22,7 +22,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
 import { fileURLToPath } from 'url';
-import { INSTANCES, post, get } from '../sync/helpers.js';
+import { INSTANCES, post, get, waitForIndexed as waitForIndexedShared } from '../sync/helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -106,17 +106,14 @@ async function openMcpSession(authToken, instance = INSTANCES.a, timeoutMs = 15_
   });
 }
 
-/** Poll $vectorSearch until every id appears in unfiltered recall for `types`. */
-async function waitForIndexed(ids, types, timeoutMs = 30_000) {
-  const pending = new Set(ids);
-  const deadline = Date.now() + timeoutMs;
-  while (pending.size > 0 && Date.now() < deadline) {
-    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/recall`, { query: 'indexing probe query', types, topK: 100 });
-    if (r.status === 200 && Array.isArray(r.body.results)) for (const x of r.body.results) pending.delete(x._id);
-    if (pending.size > 0) await new Promise(res => setTimeout(res, 500));
-  }
-  if (pending.size > 0) throw new Error(`Timed out waiting for indexing of: ${[...pending].join(', ')}`);
-}
+/**
+ * Poll $vectorSearch until every id appears in unfiltered recall for `types`.
+ *
+ * The poll and its deadline are shared — this file used to carry its own copy with a 30 s timeout, under the
+ * 150 s index lag seen on CI.
+ */
+const waitForIndexed = (ids, types, timeoutMs) =>
+  waitForIndexedShared(INSTANCES.a, token(), SPACE, ids, types, timeoutMs);
 
 let session;
 

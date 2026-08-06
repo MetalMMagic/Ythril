@@ -55,25 +55,46 @@ const ENUMERATES = /readdirSync|execFileSync\('git', \['ls-files|execSync\('git 
 /**
  * A lower bound proving the enumeration found something. `> 0` counts — it is the most natural way to write it.
  *
- * **KNOWN FALSE NEGATIVE, found 2026-08-06.** The last pattern accepts any bare numeric comparison, so a floor
- * on something entirely unrelated satisfies it: `index-lag-wait-is-shared` shipped with an unfloored `git
- * ls-files` walk and passed this gate on the strength of `assert.ok(ms >= 240_000)`, a bound on a timeout
- * constant. Both were fixed at the source, and the pattern is kept because its only other user
- * (`ssrf-allow-private-coverage`) floors a genuine count with it.
+ * ## The false negative this used to have, and why the obvious fix was worse
  *
- * The real rule is "a floor over the SAME enumeration, in the same block", which needs per-`it()` analysis
- * rather than a file-wide regex. Filed rather than bodged — a tightening that flags a gate whose floor is real
- * teaches people to widen the allowlist.
+ * A bare `assert.ok(<name> >= N)` used to count unconditionally, so a floor on something unrelated satisfied
+ * it: `index-lag-wait-is-shared` shipped with an unfloored `git ls-files` walk and passed on the strength of
+ * `assert.ok(ms >= 240_000)` — a bound on a timeout constant parsed out of a source file.
+ *
+ * The rule that sounds right is "a floor over the SAME enumeration, in the same `it()` block". It was
+ * MEASURED before adopting, and it would flag **48** blocks across this suite, nearly all legitimate: the
+ * established idiom here is a floor in its own test (`it('finds the tools (the check itself works)')`)
+ * covering a file-scope enumeration. A rule that flags 48 correct gates does not get followed — it gets an
+ * allowlist, and then the allowlist is the gate.
+ *
+ * So the tightening is narrow and the scope stays file-wide: a bare numeric floor counts **only when the
+ * identifier it bounds is itself bound from something countable**. `total` from
+ * `files.reduce((n, f) => n + ….length, 0)` qualifies; `ms` from `Number(/…/.exec(src)?.[1])` does not.
  */
 const HAS_FLOOR = [
   /assert\.ok\([^;]*\.length\s*>\s*0/,
   /assert\.ok\([^;]*\.length\s*>=?\s*[1-9]/,
   /assert\.ok\([^;]*\.size\s*>\s*0/,
   /assert\.ok\([^;]*\.size\s*>=?\s*[1-9]/,
-  /assert\.ok\(\s*\w+\s*>=?\s*[1-9]/,
   /length,\s*[1-9]\d*\)/,
   /toBeGreaterThan/,
 ];
+
+/** A bare `assert.ok(<name> >= N)`. Only a floor when `<name>` counts something — see `countsSomething`. */
+const BARE_FLOOR = /assert\.ok\(\s*(\w+)\s*>=?\s*[1-9]/g;
+
+/**
+ * Is this identifier bound from something countable in this file?
+ *
+ * The discriminator between a real floor and the timeout constant that fooled this gate. A count comes from a
+ * collection — a `.length`, a `.size`, a `reduce`, a `filter`, or an enumerating call. A number parsed out of
+ * a regex match does not, and bounding it says nothing about whether anything was examined.
+ */
+function countsSomething(src, name) {
+  const decl = new RegExp(`\\b(?:const|let|var)\\s+${name}\\s*=([^;]*);`, 's').exec(src);
+  if (!decl) return false;
+  return /\.length\b|\.size\b|\.reduce\(|\.filter\(|readdirSync|ls-files|allDocsText\(|docFiles\(/.test(decl[1]);
+}
 
 /** A hardcoded list cannot silently become empty. */
 const HARDCODED_LIST = /const\s+[A-Z_]+\s*=\s*\[\s*\n?\s*\[?['"[]/;
@@ -82,7 +103,15 @@ const HARDCODED_LIST = /const\s+[A-Z_]+\s*=\s*\[\s*\n?\s*\[?['"[]/;
 export function classifyGate(src) {
   const assertsEmpty = EMPTY_ASSERT.some(re => re.test(src));
   const enumerates = ENUMERATES.test(src);
-  const floored = HAS_FLOOR.some(re => re.test(src)) || HARDCODED_LIST.test(src);
+  let floored = HAS_FLOOR.some(re => re.test(src)) || HARDCODED_LIST.test(src);
+  if (!floored) {
+    // `lastIndex` is reset because a shared /g regex carries state between calls — which is its own way of
+    // making a sweep quietly lie about what it looked at.
+    BARE_FLOOR.lastIndex = 0;
+    for (let m = BARE_FLOOR.exec(src); m; m = BARE_FLOOR.exec(src)) {
+      if (countsSomething(src, m[1])) { floored = true; break; }
+    }
+  }
   return { assertsEmpty, enumerates, floored };
 }
 
@@ -153,6 +182,38 @@ describe('no gate can pass while examining nothing', () => {
         assert.equal(offenders.length, 0);
       });`;
     assert.equal(classifyGate(named).enumerates, false);
+  });
+
+  it('REJECTS a bare floor on something that is not a count', () => {
+    // The exact false negative: a bound on a timeout constant parsed out of a file said nothing about
+    // whether the walk found anything, and this gate accepted it for a day.
+    const bad = `
+      import { readdirSync, readFileSync } from 'node:fs';
+      const files = readdirSync('server/src');
+      it('none', () => {
+        const ms = Number(/TIMEOUT = ([0-9]+)/.exec(readFileSync('x', 'utf8'))?.[1]);
+        assert.ok(ms >= 240000, 'the deadline is too short');
+        const offenders = files.filter(f => readFileSync(f, 'utf8').includes('bad'));
+        assert.deepEqual(offenders, []);
+      });`;
+    const c = classifyGate(bad);
+    assert.ok(c.enumerates && c.assertsEmpty, JSON.stringify(c));
+    assert.equal(c.floored, false, 'a bound on a parsed constant is not a floor on the enumeration');
+  });
+
+  it('ACCEPTS a bare floor on a real count', () => {
+    // The one legitimate user of this form: a total accumulated from the walk. Rejecting it would have made
+    // the tightening flag a gate whose floor is genuine, which is how an allowlist gets started.
+    const good = `
+      import { readdirSync, readFileSync } from 'node:fs';
+      const files = readdirSync('server/src');
+      it('none', () => {
+        const total = files.reduce((n, f) => n + findCalls(readFileSync(f, 'utf8')).length, 0);
+        assert.ok(total >= 10, \`found \${total} call sites\`);
+        const offenders = files.filter(f => readFileSync(f, 'utf8').includes('bad'));
+        assert.deepEqual(offenders, []);
+      });`;
+    assert.equal(classifyGate(good).floored, true);
   });
 
   it('does not demand a floor from a hardcoded fixture list', () => {

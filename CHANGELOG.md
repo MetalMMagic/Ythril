@@ -44,6 +44,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The rename itself (a clearer primary key with `plaintext` as an alias for one major) is still an open
     decision, and is the only half of this left.
 
+### Internal
+
+- **The gate that stops other gates passing vacuously had a false negative of its own, and the obvious fix was
+  measured to be worse.** `gates-cannot-pass-vacuously` requires any gate that enumerates a set and asserts an
+  empty offender list to also floor the enumeration — otherwise a broken walk goes green while examining
+  nothing. It accepted a bare `assert.ok(<name> >= N)` unconditionally, so a bound on something unrelated
+  counted: one gate shipped with an unfloored `git ls-files` walk and passed on `assert.ok(ms >= 240_000)`, a
+  bound on a timeout constant parsed out of a source file.
+  - **The rule that sounds right — "a floor over the same enumeration, in the same `it()` block" — would flag
+    48 blocks across the suite, nearly all legitimate.** The established idiom here is a floor in its own test
+    covering a file-scope enumeration. A rule that flags 48 correct gates does not get followed; it gets an
+    allowlist, and then the allowlist is the gate. Measured before adopting, and not adopted.
+  - The tightening is narrow instead: a bare numeric floor counts only when the identifier it bounds is itself
+    bound from something countable — a `.length`, `.size`, `reduce`, `filter`, or an enumerating call. Both
+    directions are pinned by tests, including that the one legitimate user of the bare form still passes.
+
 ### Changed
 
 - **`traverse` reaches chrono entries, so a timeline is walkable from the entity it is about** (a canary ask).

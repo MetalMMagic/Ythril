@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+
+- **The tokens guide now says which key of the create response is the credential.** `POST /api/tokens` answers
+  `{ token: <the record>, plaintext: <the secret> }`, and an integrator read the field called `token`, wrote it
+  into a handover file, and rendered the actual secret to a terminal — then revoked and re-minted rather than
+  reason about the exposure. They filed it as *"our bug, but the shape invited it"*, and they are right about
+  the shape: `PATCH /api/tokens/:id` and `GET /api/tokens` both return records under the same word, so every
+  other route reinforces the wrong reading. Only `regenerate` cannot be misread.
+  - The guide states it as a table — `token` is metadata and carries no credential, `plaintext` is the secret
+    and is shown once — names the incident, and explains that `prefix` is the only part of the secret a record
+    contains.
+  - A gate holds both claims **and** checks them against the route, so the note cannot be tidied away in a
+    harmless-looking edit and cannot outlive the response shape it describes. The mistake's failure mode is
+    silent; nothing would tell anyone it had been made again.
+  - The rename itself (a clearer primary key with `plaintext` as an alias for one major) is still an open
+    decision, and is the only half of this left.
+
 ### Changed
 
 - **`traverse` reaches chrono entries, so a timeline is walkable from the entity it is about** (a canary ask).

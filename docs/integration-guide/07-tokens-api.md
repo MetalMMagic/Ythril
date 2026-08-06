@@ -104,7 +104,23 @@ POST /api/tokens
 }
 ```
 
-> **The `plaintext` field is shown once.** Store it immediately.
+> **Two keys, and only one of them is a credential.**
+>
+> | key | what it is |
+> |---|---|
+> | `token` | **The record**, not the secret — id, name, prefix, flags, scoping. Safe to log, store and display. It carries no credential. |
+> | `plaintext` | **The secret.** Shown once, never retrievable again. Treat it as you would a password. |
+>
+> The names invite the opposite reading, and an integrator made it: they took the field called `token`,
+> wrote it into a handover file, and rendered the actual secret to a terminal — then revoked and re-minted
+> rather than reason about the exposure. The mistake is silent, so nothing tells you it happened.
+>
+> `prefix` on the record is the first characters of the secret, kept so a token can be identified in a list.
+> It is not enough to authenticate with, and it is the only part of the secret the record contains.
+>
+> Every other route reinforces the misleading reading: `PATCH /api/tokens/:id` returns `{ "token": … }` and
+> `GET /api/tokens` lists records under the same word — all metadata, never a credential.
+> `POST /api/tokens/:id/regenerate` is the one that cannot be misread: it returns `{ "plaintext": … }` alone.
 
 #### Library Access Tokens
 

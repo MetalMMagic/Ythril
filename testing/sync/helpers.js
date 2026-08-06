@@ -260,6 +260,38 @@ export function makeTriggerProbe(baseUrl, token, networkId, label = baseUrl) {
   return probe;
 }
 
+/**
+ * Trigger a sync and poll `condition` until it holds, RE-triggering while waiting.
+ *
+ * ## The three-part failure this replaces
+ *
+ * 23 call sites across ten sync/integration files were `await triggerSync(...)` followed by a bare `waitFor`.
+ * Each one has three defects that only show up together, on a slow runner:
+ *
+ *   1. **One trigger races the gossip cycle.** If that single async fire is queued behind other work, nothing
+ *      arrives and the poll expires having waited for something nobody asked for a second time.
+ *   2. **A bare timeout cannot tell a stall from a rejection.** `waitFor timed out after 15000ms` reports a
+ *      persistently-429'd trigger, a misconfigured network id and a merely-slow peer identically. That exact
+ *      message is how the notify rate-limit bug hid for weeks.
+ *   3. **It does not say what it was waiting for.** A test with two identical waits names neither.
+ *
+ * `closed-network.test.js` had already worked this out and hand-rolled it at ONE of its four sites; the other
+ * three, and every other file, kept the bare form. Which is the argument for a helper rather than a comment.
+ *
+ * @param what Human phrase completing "waiting for …". Appears in the timeout message; not optional, because
+ *   the whole point is that the failure explains itself.
+ */
+export async function syncUntil(baseUrl, token, networkId, condition, what, { timeoutMs = 25_000, interval = 500, retriggerMs = 3_000, label } = {}) {
+  await triggerSync(baseUrl, token, networkId);
+  const probe = makeTriggerProbe(baseUrl, token, networkId, label ?? baseUrl);
+  const retrigger = setInterval(() => { void probe(); }, retriggerMs);
+  try {
+    return await waitFor(condition, timeoutMs, interval, () => `waiting for ${what} — ${probe.diagnose()}`);
+  } finally {
+    clearInterval(retrigger);
+  }
+}
+
 /** Create a memory on an instance's general space */
 export async function createMemory(baseUrl, token, fact, tags = []) {
   return post(baseUrl, token, '/api/brain/spaces/general/memories', { fact, tags });

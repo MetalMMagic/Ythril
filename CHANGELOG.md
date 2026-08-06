@@ -25,6 +25,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - A gate matches the poll's SHAPE rather than any of its names, and immediately found a **fifth** copy that a
     grep for the others' error message could not: it said `Timed out indexing:` instead.
   - Nothing about the product changed; this is test infrastructure only.
+
+- **A sync wait now re-triggers, and its timeout says what it was waiting for.** `Subscriber-local content
+  survives publisher tombstone` failed CI as a bare `waitFor timed out after 15000ms`, on a branch whose diff
+  could not touch it. The message named neither of that test's two identical waits, nor whether the peer was
+  slow, the trigger was being rejected, or the network id was wrong.
+  - Three defects in one shape (`await triggerSync(...)` then a bare `waitFor`): one trigger races the gossip
+    cycle and is never re-sent; a bare timeout describes a persistently-429'd trigger and a merely-slow peer
+    identically — which is how the notify rate-limit bug hid for weeks; and nothing records what was awaited.
+  - `syncUntil` in the test helpers does all three. `closed-network.test.js` had already worked the pattern out
+    by hand at **one** of its four sites and left the others bare, which is the argument for a helper rather
+    than a comment.
+  - **22 sites still have the bare shape and none has ever been observed failing.** Converting them
+    mechanically would mean inventing 22 "waiting for …" descriptions that no script can write and no
+    measurement justifies — and the description is the point. So the gate freezes the count per file and fails
+    on a new one, while naming exactly what is uncovered: a gate reporting only the fixed case would read as
+    though the class were closed.
+  - Verified against the live four-instance test stack, not just by inspection.
+
 ### Added
 
 - **A contradiction finding says when the judge probably did not read the whole record** (`truncated`, half of
@@ -48,7 +66,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   endpoint's own request log. Reporting one number that was neither is what left an operator unable to explain
   their bill. `maxJudgedPairsPerRun` now bounds `modelCalls`: gating on useful answers alone let a space full
   of weak verdicts run indefinitely past a budget whose entire purpose is to bound spend.
-
 ### Fixed
 
 - **A contradiction sweep judged every pair twice, and the "free" deterministic pass was not free** (the other

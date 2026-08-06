@@ -69,8 +69,15 @@ describe('the vector-index wait is shared, and its deadline is the measured one'
     // Matched on the SHAPE (a bounded loop that polls recall for ids), not on the name `waitForIndexed` — a fifth
     // copy will be called something else. The two markers together are what a re-implementation cannot avoid:
     // it has to post to a recall route and it has to loop with its own deadline.
+    const files = testFiles();
+    // Floor the enumeration. Without this the check passes while examining nothing — `git ls-files` returning
+    // an empty list (wrong cwd, a partial checkout) would read as a clean tree. This gate shipped in #710
+    // without it and satisfied `gates-cannot-pass-vacuously` only by accident: that meta-gate accepted an
+    // unrelated `assert.ok(ms >= 240_000)` as the floor, which is a floor on a timeout constant, not on the
+    // walk. Both are fixed here.
+    assert.ok(files.length >= 40, `only enumerated ${files.length} test files`);
     const offenders = [];
-    for (const f of testFiles()) {
+    for (const f of files) {
       if (f === HELPERS) continue;
       const src = readFileSync(join(ROOT, f), 'utf8');
       const pollsRecall = /['"`][^'"`\n]*\/recall['"`]|`[^`\n]*\/recall`/.test(src);

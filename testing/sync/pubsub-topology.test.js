@@ -15,7 +15,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { dockerExec,
-  INSTANCES, post, postRetry429, get, del, delWithBody, triggerSync, waitFor,
+  INSTANCES, post, postRetry429, get, del, delWithBody, triggerSync, syncUntil,
 } from './helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -32,6 +32,12 @@ let tokenA, tokenB;
 let networkId;
 let testSpaceId;
 let instanceIdA;
+
+/** Wait for a memory to reach (or leave) B, re-triggering A's sync while waiting. See `syncUntil`. */
+const awaitOnB = (memId, expectStatus, what) =>
+  syncUntil(INSTANCES.a, tokenA, networkId,
+    async () => (await get(INSTANCES.b, tokenB, `/api/brain/spaces/${testSpaceId}/memories/${memId}`)).status === expectStatus,
+    `${what} (expected ${expectStatus} for ${memId} on B)`, { label: 'A' });
 
 describe('Pub/Sub topology (A -> B subscriber)', () => {
   before(async () => {
@@ -119,11 +125,7 @@ describe('Pub/Sub topology (A -> B subscriber)', () => {
     const memId = write.body._id ?? write.body.id;
 
     // A pushes to B
-    await triggerSync(INSTANCES.a, tokenA, networkId);
-    await waitFor(async () => {
-      const r = await get(INSTANCES.b, tokenB, `/api/brain/spaces/${testSpaceId}/memories/${memId}`);
-      return r.status === 200;
-    });
+    await awaitOnB(memId, 200, 'the published fact to appear on B');
     console.log(`  Published fact appeared on B ✓`);
   });
 
@@ -166,25 +168,20 @@ describe('Pub/Sub topology (A -> B subscriber)', () => {
     assert.equal(pubWrite.status, 201);
     const pubMemId = pubWrite.body._id ?? pubWrite.body.id;
 
-    // Push publisher memory to B first
-    await triggerSync(INSTANCES.a, tokenA, networkId);
-    await waitFor(async () => {
-      const r = await get(INSTANCES.b, tokenB, `/api/brain/spaces/${testSpaceId}/memories/${pubMemId}`);
-      return r.status === 200;
-    });
+    // Push publisher memory to B, then push the tombstone — both RE-TRIGGERED while waiting.
+    //
+    // This test failed CI as `waitFor timed out after 15000ms`, with no indication of which of the two waits
+    // gave up or why. Both were a single up-front `triggerSync` followed by a bare 15 s poll, which is the
+    // shape `makeTriggerProbe` exists to replace: a lone trigger races the gossip cycle, and a bare timeout
+    // reports a persistent, actionable failure (a 429, a misconfigured network) identically to a slow one.
+    // `closed-network.test.js` already does it this way — see the comment there.
+    await awaitOnB(pubMemId, 200, 'the publisher memory to arrive on B');
 
     // Now delete on A
     const delR = await del(INSTANCES.a, tokenA, `/api/brain/spaces/${testSpaceId}/memories/${pubMemId}`);
     assert.equal(delR.status, 204, `Delete on A: expected 204, got ${delR.status}`);
 
-    // Push tombstone to B
-    await triggerSync(INSTANCES.a, tokenA, networkId);
-
-    // Wait for tombstone to propagate
-    await waitFor(async () => {
-      const r = await get(INSTANCES.b, tokenB, `/api/brain/spaces/${testSpaceId}/memories/${pubMemId}`);
-      return r.status === 404;
-    });
+    await awaitOnB(pubMemId, 404, "the publisher's tombstone to reach B");
     console.log(`  Publisher's deleted fact removed from B ✓`);
 
     // Verify subscriber's own memory still exists

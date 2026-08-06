@@ -115,6 +115,45 @@ POST /api/brain/spaces/:spaceId/memories
 
 **Constraints**: `id` optional — a **UUID v4** you supply to make the write idempotent (a retry with the same id converges on that record instead of creating a second one); anything else is a `400`, and omitting it generates one. See [Retry Safety](#retry-safety). **Constraints**: `fact` max 50 000 chars. `type` optional string — stored on the document and validated against the space's `typeSchemas.memory` allowlist when set. `tags` must be an array of strings. `description` optional string. `properties` optional object; property values should be a string, number, or boolean (unlike the entity endpoint, the memory/edge/chrono write paths don't reject non-primitive values at the API layer — schema validation is the gate when the space defines the property). Every id in `entityIds` must be a UUID v4 **and** name an entity that exists — passing a name, a malformed id, or an id that resolves to nothing returns `400` and stores nothing. This is the default; a space can opt out with `meta.strictLinkage: false` (see [Reference integrity](12-admin-api.md#reference-integrity)). `ttlDays` optional — see [Record Expiry (TTL)](#record-expiry-ttl). `waitForEmbedding` optional boolean — see below.
 
+#### Catching a near-duplicate at write time (`checkDuplicates`, `checkContradictions`)
+
+A write can tell you it looks like something you already have, before you have two of them:
+
+```json
+{ "fact": "Deploys are frozen on Fridays after 14:00 UTC", "checkDuplicates": true }
+```
+
+```json
+{ "_id": "…", "fact": "…",
+  "similar": [ { "_id": "…", "type": "memory", "score": 0.94, "summary": "Deploys freeze Friday 14:00 UTC" } ] }
+```
+
+Available on `POST …/memories`, `POST …/entities` and `POST …/chrono`, with the same meaning the MCP tools
+have always had.
+
+| field | default on REST | effect |
+|---|---|---|
+| `checkDuplicates` | `false` | Report existing records that are semantically near-identical, as `similar` (`_id`, `type`, `score`, `summary`). |
+| `checkContradictions` | `false` | Report near-neighbours that set the same single-valued property to a DIFFERENT value, as `contradicts`. A different question from redundancy, so it is a separate flag. |
+| `dupeThreshold` | `0.92` | Score at or above which a neighbour is reported. Must be between 0 and 1. |
+
+- **It never blocks the write.** The record is stored either way and the warning rides on the `201`. An agent
+  correcting an outdated fact must be able to contradict the record it supersedes — the point is that it is
+  told, not that it is stopped.
+- **The flags are opt-in here, and default ON over MCP.** That asymmetry is deliberate: the check implies
+  `waitForEmbedding`, because it needs the vector before the insert so the new record cannot match itself. On
+  REST — which is also how a fleet imports thousands of records — defaulting it on would make every existing
+  integration pay the embedding model synchronously without asking. A REST write that sends none of these
+  behaves exactly as it did before.
+- **`recall` is not a substitute**, and an integrator measured why: the same pair scores **0.94** on this
+  check and **0.896** on recall, while unrelated topical neighbours sit at 0.845. No recall threshold
+  separates the true near-duplicate from the coincidences, and the two scales are not interchangeable.
+- `GET /api/duplicates` is the background scanner's review queue, not an on-demand similarity search — it
+  lists what a scheduled sweep has already found.
+
+A non-boolean flag (or a `dupeThreshold` outside 0–1) is a `400`, never a coercion: `"false"` is truthy, and
+a hygiene check that silently turns itself off is worse than one that was never asked for.
+
 #### When does a memory become searchable? (`waitForEmbedding`)
 
 **By default, a moment after the write returns.** The write stores the record and hands the embedding to a

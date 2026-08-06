@@ -17,7 +17,7 @@ import { checkQuota, QuotaError } from '../../quota/quota.js';
 import { resolveMemberSpaces, resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { validateMemory } from '../../spaces/schema-validation.js';
 import type { MemoryDoc } from '../../config/types.js';
-import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, buildMemoryFilter, ttlDaysFromBody, ttlDaysError } from './_shared.js';
+import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, buildMemoryFilter, ttlDaysFromBody, ttlDaysError, dupeCheckOptsFromBody } from './_shared.js';
 import { classifyUpdateViolations } from '../../brain/write-validation.js';
 import { resolveEntityIdsByName } from '../../brain/entities.js';
 import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
@@ -115,9 +115,16 @@ memoriesRouter.post('/spaces/:spaceId/memories', globalRateLimit, requireSpaceAu
     res.status(400).json({ error: '`waitForEmbedding` must be a boolean' });
     return;
   }
+  // The insert-time near-duplicate / contradiction check MCP's `remember` has always taken. `remember`
+  // already merges `similar` and `contradicts` into what it returns, so the spread below reports them with
+  // no further work — the only thing missing on this surface was reading the flags off the body.
+  const dupe = dupeCheckOptsFromBody(req.body);
+  if ('error' in dupe) { res.status(400).json({ error: dupe.error }); return; }
+  const writeOpts = { ...dupe.opts, ...(waitForEmbedding === true ? { waitForEmbedding: true } : {}) };
+
   const doc = await remember(
     targetSpace, fact, safeEntityIds, safeTags, safeDesc, safeProps,
-    undefined, safeMemoryType, waitForEmbedding === true ? { waitForEmbedding: true } : undefined,
+    undefined, safeMemoryType, Object.keys(writeOpts).length > 0 ? writeOpts : undefined,
     webhookToken(req), ttlDaysFromBody(req.body), safeId,
   );
   const body: Record<string, unknown> = { ...doc };

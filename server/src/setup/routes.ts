@@ -8,6 +8,14 @@ import { startConfiguredInstanceServices } from '../bootstrap.js';
 import { log } from '../util/log.js';
 import type { Config, SecretsFile } from '../config/types.js';
 
+/**
+ * Longest instance label the setup route accepts.
+ *
+ * Matches the `maxlength` the form has always carried, so nothing a person could type through the UI is now
+ * refused — this closes the direct-POST path, which had no bound at all.
+ */
+const SETUP_LABEL_MAX = 100;
+
 export const setupRouter = Router();
 
 // ── GET /status — used by Angular SPA to check first-run state ───────────
@@ -93,6 +101,17 @@ setupRouter.post('/', authRateLimit, async (req, res) => {
 
   if (!label) {
     res.status(400).send(errorPage('Brain label is required'));
+    return;
+  }
+  // Bounded server-side, not only by the form's `maxlength`.
+  //
+  // Found while chasing a silent-truncation report on a different field: this one had NO server-side length
+  // check at all, so the 100 in the HTML was the only limit and applied only to a browser. Anything posting
+  // directly could store an instance label of any size — and that label is echoed into peer handshakes,
+  // audit entries and the UI header. A refusal that names the limit is the right shape here for the same
+  // reason it is on the field that was reported: the alternative is silent damage.
+  if (label.length > SETUP_LABEL_MAX) {
+    res.status(400).send(errorPage(`Brain label must be ${SETUP_LABEL_MAX} characters or fewer`));
     return;
   }
 

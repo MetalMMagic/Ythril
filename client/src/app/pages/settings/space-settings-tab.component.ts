@@ -24,7 +24,12 @@ import { SettingsCardComponent } from '../../shared/settings-card.component';
   standalone: true,
   imports: [CommonModule, FormsModule, TranslocoPipe, SettingsCardComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  styles: [SPACE_DIALOG_STYLES],
+  styles: [SPACE_DIALOG_STYLES, `
+    /* A cap you cannot see is one you only learn about by losing work. Muted until it matters, then not. */
+    .char-count { font-size: 11px; color: var(--text-muted); text-align: right; margin-top: 3px;
+      font-variant-numeric: tabular-nums; }
+    .char-count.near { color: var(--warning); font-weight: 600; }
+  `],
   template: `
 <div style="display:flex;flex-direction:column;gap:16px;max-width:720px;">
 
@@ -38,11 +43,13 @@ import { SettingsCardComponent } from '../../shared/settings-card.component';
   <app-settings-card icon="info" [heading]="'spaces.settings.card.purpose' | transloco" [purpose]="'spaces.settings.card.purposeCardHint' | transloco">
     <div class="field">
       <label>{{ 'spaces.settings.purpose' | transloco }} <span style="font-size:11px;color:var(--text-muted);font-weight:normal;">{{ 'spaces.settings.purposeHint' | transloco }}</span></label>
-      <textarea [(ngModel)]="state.stForm.purpose" rows="6" maxlength="4000" style="resize:vertical;"></textarea>
+      <textarea [(ngModel)]="state.stForm.purpose" rows="6" [attr.maxlength]="PURPOSE_MAX" style="resize:vertical;"></textarea>
+      <div class="char-count" [class.near]="near(state.stForm.purpose, PURPOSE_MAX)">{{ (state.stForm.purpose || '').length }} / {{ PURPOSE_MAX }}</div>
     </div>
     <div class="field" style="margin-bottom:0;">
       <label>{{ 'spaces.settings.usageNotes' | transloco }} <span style="font-size:11px;color:var(--text-muted);font-weight:normal;">{{ 'spaces.settings.usageNotesHint' | transloco }}</span></label>
-      <textarea [(ngModel)]="state.stForm.usageNotes" rows="3" maxlength="2000" style="resize:vertical;"></textarea>
+      <textarea [(ngModel)]="state.stForm.usageNotes" rows="3" [attr.maxlength]="USAGE_NOTES_MAX" style="resize:vertical;"></textarea>
+      <div class="char-count" [class.near]="near(state.stForm.usageNotes, USAGE_NOTES_MAX)">{{ (state.stForm.usageNotes || '').length }} / {{ USAGE_NOTES_MAX }}</div>
     </div>
   </app-settings-card>
 
@@ -147,6 +154,27 @@ import { SettingsCardComponent } from '../../shared/settings-card.component';
 export class SpaceSettingsTabComponent {
   readonly state = inject(SpaceSettingsState);
   readonly store = inject(SpacesStore);
+
+  // ── Field limits, matching the API ────────────────────────────────────────────────────────────────────
+  //
+  // `usageNotes` had `maxlength="2000"` here while the API accepts 50 000 and the docs say 50 000. A browser
+  // does not warn at `maxlength` — it silently refuses the rest of a paste — so an operator who authored
+  // 2,377 characters got 2,000 stored, with no error on either side and no counter to notice it by.
+  //
+  // That field is the instruction sheet an MCP client receives at handshake. A truncated instruction sheet
+  // does not fail; it stops instructing, and the rules that get cut are the ones at the END, which is where
+  // people put the specific ones. The operator who reported it lost their write-order and repair-on-defect
+  // rules and only caught it by reading the field back in the same session.
+  //
+  // So the cap now matches the API rather than undercutting it by 25x, and both fields show a live count —
+  // a limit you cannot see is one you learn about by losing work.
+  readonly PURPOSE_MAX = 4000;
+  readonly USAGE_NOTES_MAX = 50_000;
+
+  /** Within 10% of the cap — the point at which a counter should start being noticeable. */
+  near(value: string | undefined, max: number): boolean {
+    return (value?.length ?? 0) >= max * 0.9;
+  }
 
   private static readonly LADDER = ['off', 'ocr', 'vlm', 'repair'] as const;
 

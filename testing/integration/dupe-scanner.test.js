@@ -23,7 +23,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'url';
-import { INSTANCES, post, get } from '../sync/helpers.js';
+import { INSTANCES, post, get, waitForIndexed as waitForIndexedShared } from '../sync/helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -61,16 +61,15 @@ async function createEntity(space, name, description) {
   return r.status === 201 ? r.body._id : null;
 }
 
-async function waitForIndexed(space, ids, timeoutMs = 30_000) {
-  const pending = new Set(ids);
-  const deadline = Date.now() + timeoutMs;
-  while (pending.size > 0 && Date.now() < deadline) {
-    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${space}/recall`, { query: 'probe', types: ['entity'], topK: 100 });
-    if (r.status === 200 && Array.isArray(r.body.results)) for (const x of r.body.results) pending.delete(x._id);
-    if (pending.size > 0) await new Promise(res => setTimeout(res, 500));
-  }
-  if (pending.size > 0) throw new Error(`Timed out indexing: ${[...pending].join(', ')}`);
-}
+/**
+ * Wait for $vectorSearch to see these entities. Shared poll, shared deadline.
+ *
+ * This was the FIFTH copy, and the one a grep for the others' error message could never find — it said
+ * "Timed out indexing:" instead of "Timed out waiting for indexing of:". It was caught by a gate that matches the
+ * SHAPE of the poll rather than any of its names.
+ */
+const waitForIndexed = (space, ids, timeoutMs) =>
+  waitForIndexedShared(INSTANCES.a, token(), space, ids, ['entity'], timeoutMs);
 
 async function scan(space) {
   return raw('POST', `/api/duplicates/scan?space=${space}`);

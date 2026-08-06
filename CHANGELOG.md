@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Internal
+
+- **The CI vector-index wait had a deadline shorter than the lag it waited for.** Five integration files had each
+  grown their own copy of "poll recall until these ids appear", every one with a **30 s** timeout that had never
+  been measured against anything. The Atlas Local index lag has been observed at **150 s** on the runner, so when
+  it ran long the poll threw from a `before` hook — which cancels every test in that suite and reads exactly like
+  a real regression (`hookFailed: Timed out waiting for indexing of: <uuid>`). That failed CI four separate times
+  on four different tests, and each occurrence was individually dismissible as a flake. It was not a flake; it was
+  an unmeasured number.
+  - One shared poll now, with the deadline as a named constant well beyond the worst observation. This costs
+    nothing when the index is quick — the poll returns on the first hit — so a larger number buys not failing and a
+    smaller one buys only failing sooner.
+  - **The copies had already drifted in a way that mattered:** four matched `result._id` and one matched
+    `result.record?._id ?? result._id`. A copy that guesses the wrong shape matches nothing and times out in full,
+    so the drift was invisible until it wasn't. The shared version accepts both.
+  - A gate matches the poll's SHAPE rather than any of its names, and immediately found a **fifth** copy that a
+    grep for the others' error message could not: it said `Timed out indexing:` instead.
+  - Nothing about the product changed; this is test infrastructure only.
+
 ### Fixed
 
 - **`GET /api/spaces/:id` returned three fields that `PATCH` then refused** (an integrator's fifth ask, and the

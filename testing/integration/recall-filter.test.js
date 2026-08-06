@@ -20,7 +20,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
 import { fileURLToPath } from 'url';
-import { INSTANCES, post, get } from '../sync/helpers.js';
+import { INSTANCES, post, get, waitForIndexed as waitForIndexedShared } from '../sync/helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -181,32 +181,13 @@ after(async () => {
 });
 
 /**
- * Poll $vectorSearch until all given IDs appear in unfiltered recall results.
- * Atlas Local has indexing latency — a document written with a 201 is not
- * immediately visible to $vectorSearch. We must wait for mongot to catch up.
+ * Wait for $vectorSearch to see the given ids in THIS suite's space.
+ *
+ * The poll and its deadline live in `helpers.js` — this file used to carry its own copy with a 30 s timeout,
+ * which is well under the 150 s index lag observed on CI and failed the whole suite from a `before` hook.
  */
-async function waitForIndexed(ids, types = ['entity', 'memory'], timeoutMs = 30_000) {
-  const pending = new Set(ids);
-  const deadline = Date.now() + timeoutMs;
-  while (pending.size > 0 && Date.now() < deadline) {
-    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/recall`, {
-      query: 'indexing probe query',
-      types,
-      topK: 100,
-    });
-    if (r.status === 200 && Array.isArray(r.body.results)) {
-      for (const result of r.body.results) {
-        pending.delete(result._id);
-      }
-    }
-    if (pending.size > 0) {
-      await new Promise(res => setTimeout(res, 500));
-    }
-  }
-  if (pending.size > 0) {
-    throw new Error(`Timed out waiting for indexing of: ${[...pending].join(', ')}`);
-  }
-}
+const waitForIndexed = (ids, types = ['entity', 'memory'], timeoutMs) =>
+  waitForIndexedIn(SPACE, ids, types, timeoutMs);
 
 // ── Validation tests (no embedding required) ─────────────────────────────
 
@@ -663,21 +644,10 @@ describe('Recall filter — exists operator', () => {
   });
 });
 
-// Space-parameterized variant of waitForIndexed (the schema test uses a second space).
-async function waitForIndexedIn(spaceId, ids, types = ['entity', 'memory'], timeoutMs = 30_000) {
-  const pending = new Set(ids);
-  const deadline = Date.now() + timeoutMs;
-  while (pending.size > 0 && Date.now() < deadline) {
-    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${spaceId}/recall`, {
-      query: 'indexing probe query', types, topK: 100,
-    });
-    if (r.status === 200 && Array.isArray(r.body.results)) {
-      for (const result of r.body.results) pending.delete(result.record?._id ?? result._id);
-    }
-    if (pending.size > 0) await new Promise(res => setTimeout(res, 500));
-  }
-  if (pending.size > 0) throw new Error(`Timed out waiting for indexing of: ${[...pending].join(', ')}`);
-}
+// Space-parameterized variant (the schema test uses a second space). Thin wrapper over the shared poll so both
+// spaces get the same measured deadline and the same diagnosis on failure.
+const waitForIndexedIn = (spaceId, ids, types = ['entity', 'memory'], timeoutMs) =>
+  waitForIndexedShared(INSTANCES.a, token(), spaceId, ids, types, timeoutMs);
 
 // ── P6: tags param uses ALL-of semantics on the native filter fast path ────────
 describe('Recall filter — tags param (must contain ALL; native fast path)', () => {

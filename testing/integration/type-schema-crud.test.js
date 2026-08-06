@@ -438,43 +438,61 @@ describe('Round-trip: GET then PUT (export/import snippet)', () => {
 //  body was acceptable. One of them was wrong, and it was not the one that
 //  accepted it.
 // ═════════════════════════════════════════════════════════════════════════════
-describe('Round-trip: GET a space, then PATCH its meta back', () => {
+describe('Round-trip: GET a space's meta, then PATCH it back', () => {
+  // `GET /api/spaces/:id/meta` is the endpoint an integrator actually reads — there is no
+  // `GET /api/spaces/:id`, which is what the first version of this test wrongly assumed and what CI caught.
+  // It returns the meta fields SPREAD at the top level alongside an envelope (`spaceId`, `spaceName`,
+  // `stats`), and it already strips `previousVersions`.
+  const readMeta = () => get(INSTANCES.a, token(), `/api/spaces/${TEST_SPACE}/meta`);
+
+  /** The meta fields from that response, minus the envelope — what a caller would send back as `meta`. */
+  const metaFrom = (body) => {
+    const { spaceId: _s, spaceName: _n, stats: _st, ...meta } = body;
+    return meta;
+  };
+
   it('accepts a meta carrying the server-owned housekeeping fields verbatim', async () => {
-    const got = await get(INSTANCES.a, token(), `/api/spaces/${TEST_SPACE}`);
+    const got = await readMeta();
     assert.equal(got.status, 200, JSON.stringify(got.body));
-    const meta = got.body.space?.meta ?? got.body.meta;
-    assert.ok(meta, `the GET must return meta to round-trip: ${JSON.stringify(got.body).slice(0, 300)}`);
-    // The premise of the whole item — if the GET stopped returning these, this test would be vacuous.
+    const meta = metaFrom(got.body);
+    // The premise of the item — if the response stopped carrying these, this test would prove nothing.
     assert.ok('version' in meta || 'updatedAt' in meta,
-      `GET must emit at least one server-owned field, or there is nothing to strip: ${JSON.stringify(meta).slice(0, 200)}`);
+      `the meta response must carry at least one server-owned field: ${JSON.stringify(meta).slice(0, 200)}`);
 
     const r = await patch(INSTANCES.a, token(), `/api/spaces/${TEST_SPACE}`, { meta });
     assert.notEqual(r.status, 400,
-      `a body straight out of GET must be accepted, got ${r.status}: ${JSON.stringify(r.body)}`);
+      `a meta straight out of GET /:id/meta must be accepted, got ${r.status}: ${JSON.stringify(r.body)}`);
   });
 
   it('still rejects an actual unknown key — the strip is three fields, not a free-for-all', async () => {
-    // The distinction that makes the fix safe: silently ignoring `validationMdoe` would let someone believe
-    // they had turned validation on. A typo must stay loud.
+    // Silently ignoring `validationMdoe` would let someone believe they had turned validation on.
     const r = await patch(INSTANCES.a, token(), `/api/spaces/${TEST_SPACE}`, {
       meta: { validationMdoe: 'strict' },
     });
     assert.equal(r.status, 400, `an unknown key must still be refused: ${JSON.stringify(r.body)}`);
   });
 
+  it('still rejects the response ENVELOPE fields inside meta', async () => {
+    // `spaceId`, `spaceName` and `stats` are the envelope of the GET, not part of meta. A caller who posts the
+    // whole response body as `meta` is making a real mistake, and being told is the correct outcome — the
+    // tolerance is only for fields that genuinely belong to meta.
+    const r = await patch(INSTANCES.a, token(), `/api/spaces/${TEST_SPACE}`, {
+      meta: { stats: { memories: 1 } },
+    });
+    assert.equal(r.status, 400, `envelope fields must not be accepted inside meta: ${JSON.stringify(r.body)}`);
+  });
+
   it('the housekeeping fields are not writable through the strip', async () => {
     // Stripping must DROP them, never apply them: a caller must not be able to set the version the
-    // optimistic-concurrency check reads.
-    const before = await get(INSTANCES.a, token(), `/api/spaces/${TEST_SPACE}`);
-    const beforeMeta = before.body.space?.meta ?? before.body.meta;
+    // optimistic-concurrency check reads. "We ignore it" and "we apply it" are one careless line apart.
+    const before = metaFrom((await readMeta()).body);
     const r = await patch(INSTANCES.a, token(), `/api/spaces/${TEST_SPACE}`, {
-      meta: { version: 999_999, purpose: 'round-trip probe' },
+      meta: { version: 999999, purpose: 'round-trip probe' },
     });
     assert.notEqual(r.status, 400, JSON.stringify(r.body));
-    const after = await get(INSTANCES.a, token(), `/api/spaces/${TEST_SPACE}`);
-    const afterMeta = after.body.space?.meta ?? after.body.meta;
-    assert.notEqual(afterMeta.version, 999_999, 'a caller must not be able to set the meta version');
-    assert.ok((afterMeta.version ?? 0) >= (beforeMeta.version ?? 0), 'the server still bumps it');
-    assert.equal(afterMeta.purpose, 'round-trip probe', 'and the real field in the same body applied');
+    const after = metaFrom((await readMeta()).body);
+    assert.notEqual(after.version, 999999, 'a caller must not be able to set the meta version');
+    assert.ok((after.version ?? 0) >= (before.version ?? 0), 'and the server still bumps it');
+    assert.equal(after.purpose, 'round-trip probe', 'while the real field in the same body applied');
   });
 });

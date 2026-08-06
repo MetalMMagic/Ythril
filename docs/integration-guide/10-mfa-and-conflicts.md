@@ -47,6 +47,38 @@ Scan the `otpauth` URI as a QR code in any TOTP app. The issuer is always `Ythri
 > consumes the code too, so a code you tested there cannot immediately be reused for a gated call:
 > wait for your authenticator to roll to the next one.
 
+### Per-token MFA
+
+The switch above is **instance-wide**, which makes it mutually exclusive with automation: once MFA is on,
+every admin-gated call needs a TOTP code, and a scheduler cannot type one. Since the deployments most likely
+to want MFA are exactly the ones that have automation, a token can override the instance setting — the same
+way `readOnly` and `spaces` already qualify a token.
+
+Set `mfa` when creating the token (`POST /api/tokens`):
+
+| `mfa` | Behaviour |
+|---|---|
+| absent / `"inherit"` | Follow the instance switch. **This is what every existing token does**, so nothing changes for a deployment that does not use the field. |
+| `"exempt"` | Never demand a code, even while MFA is enabled instance-wide. The automation case. |
+| `"required"` | Always demand a code, even while MFA is switched off instance-wide. For the two human admin tokens on an instance that does not force it on everything. |
+
+```http
+POST /api/tokens
+X-TOTP-Code: 123456
+{ "name": "nightly-scan", "admin": true, "mfa": "exempt" }
+```
+
+**An exemption is a deliberate hole in an instance-wide control, so it cannot widen itself.** `POST
+/api/tokens` is gated by admin + MFA — which an admin token that is *itself exempt* satisfies with no code at
+all. Without a second rule, one exemption could mint another until the switch protected nothing. So while MFA
+is enabled, **creating an exempt token requires a current `X-TOTP-Code` on that request regardless of who is
+asking**; the refusal is `403 { "error": "MFA_REQUIRED" }` with a message naming the reason. Someone holding
+the automation token but not the authenticator cannot escalate.
+
+Exempt tokens are badged in **Settings → Tokens** and their creation is audited. Grant one to the narrowest
+token that needs it — an exempt token is one factor away from the instance's admin surface, and `spaces` and
+`readOnly` still apply to it.
+
 ---
 
 ### Verify OTP Code

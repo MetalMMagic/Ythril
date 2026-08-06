@@ -209,12 +209,39 @@ function enforceAdmin(res: Response, record: Omit<TokenRecord, 'hash'> | OidcTok
 }
 
 /**
- * Enforce a current TOTP code for PAT sessions when MFA is enabled. Writes the
+ * Does this token need a second factor on an MFA-gated route?
+ *
+ * Pure, exported, and separate from the middleware so the policy can be enumerated without an HTTP request —
+ * it is three lines and each one is a security decision.
+ *
+ * The token's own setting wins over the instance switch in BOTH directions, because the instance switch is
+ * all-or-nothing and that is the reported defect: turning MFA on made it mutually exclusive with automation.
+ * An absent setting is `inherit`, so every token that exists today keeps exactly its current behaviour.
+ */
+export function mfaRequiredFor(
+  record: Pick<TokenRecord, 'mfa'> | { mfa?: undefined },
+  instanceEnabled: boolean,
+): boolean {
+  if (record.mfa === 'exempt') return false;
+  if (record.mfa === 'required') return true;
+  return instanceEnabled;
+}
+
+/**
+ * Enforce a current TOTP code for PAT sessions when this token needs one. Writes the
  * MFA_REQUIRED / MFA_INVALID 403 and returns false on failure. OIDC sessions are
  * exempt (the IdP handles its own step-up auth).
  */
-function enforceMfa(req: Request, res: Response, bearer: string): boolean {
-  if (isPat(bearer) && isMfaEnabled()) {
+function enforceMfa(
+  req: Request,
+  res: Response,
+  bearer: string,
+  // An OIDC record carries no `mfa` field and never reaches the check anyway — `isPat` is false for it, and
+  // the IdP owns its own step-up auth. Typed as the union so the call sites do not have to narrow.
+  record?: Omit<TokenRecord, 'hash'> | OidcTokenRecord,
+): boolean {
+  const mfa = record && 'mfa' in record ? { mfa: record.mfa } : {};
+  if (isPat(bearer) && mfaRequiredFor(mfa, isMfaEnabled())) {
     const code = (req.headers['x-totp-code'] as string | undefined ?? '').trim();
     if (!code) {
       res.status(403).json({ error: 'MFA_REQUIRED' });
@@ -380,7 +407,7 @@ export function requireAdminMfaScoped(paramName: string) {
     const { record, bearer } = auth;
 
     if (!enforceAdmin(res, record)) return;
-    if (!enforceMfa(req, res, bearer)) return;
+    if (!enforceMfa(req, res, bearer, record)) return;
 
     // Space-scope enforcement for space-restricted admin tokens.
     // Tokens without a spaces allowlist (unrestricted admin) are always allowed.
@@ -430,7 +457,7 @@ export async function requireAdminMfa(req: Request, res: Response, next: NextFun
   const { record, bearer } = auth;
 
   if (!enforceAdmin(res, record)) return;
-  if (!enforceMfa(req, res, bearer)) return;
+  if (!enforceMfa(req, res, bearer, record)) return;
 
   attachToken(req, record, bearer);
   next();

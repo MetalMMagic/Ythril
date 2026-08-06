@@ -317,6 +317,22 @@ import { httpErrorReason } from '../../core/http-error';
               <div class="scope-hint">{{ 'tokens.create.spacesHint' | transloco }}</div>
             </div>
 
+            <!-- Second factor, per token. The instance-wide switch is all-or-nothing, which is what makes
+                 MFA mutually exclusive with automation — a scheduler cannot type a code. Inherit is the
+                 default and means exactly what it means today. -->
+            <div class="field" style="margin-top:12px; margin-bottom:0;">
+              <label for="tokenMfa">{{ 'tokens.create.mfa' | transloco }}</label>
+              <select id="tokenMfa" [(ngModel)]="newMfa" name="mfa">
+                <option value="inherit">{{ 'tokens.mfa.inherit' | transloco }}</option>
+                <option value="exempt">{{ 'tokens.mfa.exempt' | transloco }}</option>
+                <option value="required">{{ 'tokens.mfa.required' | transloco }}</option>
+              </select>
+              <p class="permission-help">
+                <ph-icon name="info" [size]="14" />
+                <span>{{ ('tokens.mfa.' + newMfa + '.desc') | transloco }}</span>
+              </p>
+            </div>
+
             <div class="field" style="margin-top:12px; margin-bottom:0;">
               <label>{{ 'tokens.create.permission' | transloco }}</label>
               <div class="permission-radio-group">
@@ -407,6 +423,10 @@ import { httpErrorReason } from '../../core/http-error';
                     @else if (t.schemaLibrary) { <app-status-pill variant="pending">{{ 'tokens.badge.schemaLibrary' | transloco }}</app-status-pill> }
                     @else if (t.readOnly) { <app-status-pill variant="warn">{{ 'tokens.badge.readOnly' | transloco }}</app-status-pill> }
                     @else { <app-status-pill variant="ok">{{ 'tokens.badge.standard' | transloco }}</app-status-pill> }
+                    <!-- An MFA exemption is a deliberate hole in an instance-wide control. It is shown
+                         wherever the token is, because a hole nobody can see is one nobody reviews. -->
+                    @if (t.mfa === 'exempt') { <app-status-pill variant="warn">{{ 'tokens.badge.mfaExempt' | transloco }}</app-status-pill> }
+                    @else if (t.mfa === 'required') { <app-status-pill variant="pending">{{ 'tokens.badge.mfaRequired' | transloco }}</app-status-pill> }
                   </td>
                   <td><app-relative-time [value]="t.createdAt"/></td>
                   <td>
@@ -476,6 +496,8 @@ export class TokensComponent implements OnInit {
   newName = '';
   newExpiry = '';
   newPermission: 'readOnly' | 'standard' | 'admin' = 'standard';
+  /** Second factor for the token being created. `inherit` is today's behaviour for every existing token. */
+  newMfa: 'inherit' | 'exempt' | 'required' = 'inherit';
   newSelectedSpaces: string[] = [];
   newSpacesFallback = '';
   spacesLoadFailed = signal(false);
@@ -510,7 +532,9 @@ export class TokensComponent implements OnInit {
     this.creating.set(true);
     this.createError.set('');
 
-    const body: { name: string; expiresAt?: string; admin?: boolean; readOnly?: boolean; spaces?: string[] } = { name: this.newName.trim() };
+    const body: { name: string; expiresAt?: string; admin?: boolean; readOnly?: boolean; spaces?: string[]; mfa?: 'exempt' | 'required' } = { name: this.newName.trim() };
+    // Sent only when it says something — `inherit` is the absent state on the server too.
+    if (this.newMfa !== 'inherit') body.mfa = this.newMfa;
     if (this.newExpiry) body.expiresAt = new Date(this.newExpiry).toISOString();
     if (this.newPermission === 'admin') body.admin = true;
     if (this.newPermission === 'readOnly') body.readOnly = true;

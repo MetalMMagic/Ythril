@@ -193,6 +193,30 @@ Notes:
 - A value that is not a version — `If-Match: abc` — is rejected with **400**, never ignored. Silently ignoring an unparseable precondition would give you the false impression that your write was protected.
 - The same header is honoured by **every route that writes space meta**: `PUT /api/spaces/:id/schema` (checked before that route writes its schema backup file), and the single-type `PUT` and `DELETE` on `/api/spaces/:id/meta/typeSchemas/:knowledgeType/:typeName`.
 
+**Read-modify-write needs no stripping step.** `GET /api/spaces/:id/meta` returns the meta fields alongside
+`version` and `updatedAt`, which the server owns and you cannot set. `PATCH` **ignores** those (and
+`previousVersions`) rather than rejecting the request, so you can send back what you read:
+
+```http
+GET  /api/spaces/research/meta      →  { "spaceId": "research", "spaceName": "Research",
+                                          "purpose": "...", "typeSchemas": { ... },
+                                          "version": 7, "updatedAt": "...", "stats": { ... } }
+
+PATCH /api/spaces/research          →  { "meta": { "purpose": "...", "typeSchemas": { ... },
+                                                   "version": 7, "updatedAt": "..." } }   ✅ accepted
+```
+
+Ignoring is not accepting: the version the `If-Match` check reads cannot be written from a request body, and
+the server still bumps it.
+
+**Two things `meta` still rejects with a `400`, both deliberately:**
+
+- **The response envelope.** `spaceId`, `spaceName` and `stats` are the shape of the `GET`, not part of `meta`.
+  Posting the whole response body as `meta` is a real mistake and you should hear about it.
+- **Any other unknown key.** A typo like `validationMdoe` must not be silently ignored — you would come away
+  believing you had turned validation on. The tolerance covers only the fields that genuinely belong to `meta`
+  and that we ourselves emit.
+
 **Removing a type schema.** `PATCH` deep-merges, so omitting a type does not delete it — a merge that could delete would make every PATCH potentially destructive, and a client that round-trips a space would silently drop schemas whenever its serialiser emitted `null` for an unset field. Deletion is explicit instead: `DELETE /api/spaces/:id/meta/typeSchemas/:knowledgeType/:typeName` for one type (404 if it does not exist), or `PUT /api/spaces/:id/schema` to replace the whole map.
 
 ```json

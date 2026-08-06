@@ -23,7 +23,9 @@
  * Usage:  npm run preflight
  */
 import { execSync } from 'node:child_process';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+
+import { join } from 'node:path';
 
 /** Gates that read SOURCE only — no build required, so they run first and fail fastest. */
 const SOURCE_GATES = [
@@ -137,6 +139,68 @@ for (const [i, batch] of batches.entries()) {
 }
 if (standaloneFailed) {
   failures.push({ name: 'test:standalone (offline subset)', why: 'server contracts and pure logic — no Docker needed, so no reason to learn this from CI' });
+}
+
+// ── every test file PARSES, including the ones only CI runs ────────────────────────────────────────────────
+//
+// The offline subset above executes ~250 standalone files, so a syntax error in one of those fails loudly
+// here. The Docker-dependent suites — integration, sync, red-team — are never even PARSED locally, so a
+// broken one is invisible until CI, and it does not fail as an assertion: node reports a module-load error
+// at `line 1:1` with an import stack, which reads nothing like the test that is actually broken.
+//
+// Paid for on 2026-08-06: an apostrophe lost its backslash on the way through a shell heredoc, the file
+// stopped parsing, local preflight was green, and CI spent a full Docker run to say so. `node --check` over
+// every test file costs about a second and would have said it immediately.
+console.log('\n── every test file parses (incl. the Docker-only suites CI runs) ──');
+{
+  const testFiles = execSync('git ls-files "testing/**/*.js" "testing/**/*.mjs"', { encoding: 'utf8' })
+    .split(/\r?\n/).filter(Boolean);
+
+  // A leading UTF-8 BOM makes `node --check` reject a file that node RUNS perfectly — verified with a
+  // fixture rather than assumed, because the first version of this gate flagged `testing/_init/seed-brain.js`
+  // and that file is fine. `node --check` chokes on BOM-then-shebang; the runtime strips the BOM first.
+  //
+  // So the BOM is removed before checking. Do not "simplify" this back into a bare `node --check` — it will
+  // fail the whole gate on a working file, which is how a gate gets switched off.
+  const check = (p) => {
+    try { execSync(`node --check ${JSON.stringify(p)}`, { stdio: 'pipe' }); return null; }
+    catch (e) { return String(e.stderr ?? e).split('\n').find(l => /Error/.test(l)) ?? 'unparseable'; }
+  };
+
+  const unparseable = [];
+  for (const f of testFiles) {
+    const err = check(f);
+    if (!err) continue;
+
+    // A leading UTF-8 BOM makes `node --check` reject a file node RUNS fine (verified with a fixture: BOM,
+    // then shebang, checks as a SyntaxError and executes without complaint). Many files here carry one, so a
+    // bare check would fail the gate on working code — which is how a gate gets switched off.
+    //
+    // The retry copy MUST stay inside the repo. The first version wrote it to the OS temp dir, where no
+    // `package.json` applies, so node parsed it under different rules and a genuinely broken file came back
+    // clean — a gate with a silent-success path, which is worse than no gate. Caught by planting a syntax
+    // error and watching the gate pass.
+    const src = readFileSync(f, 'utf8');
+    if (src.charCodeAt(0) === 0xfeff) {
+      const sibling = `${f}.parse-check.tmp.mjs`;
+      try {
+        writeFileSync(sibling, src.slice(1));
+        const retry = check(sibling);
+        if (retry) unparseable.push(`${f}\n      ${retry}`);
+      } finally {
+        rmSync(sibling, { force: true });
+      }
+      continue;
+    }
+    unparseable.push(`${f}\n      ${err}`);
+  }
+
+  if (unparseable.length > 0) {
+    console.log(`  ${unparseable.length} file(s) do not parse:\n    ${unparseable.join('\n    ')}`);
+    failures.push({ name: 'test files parse', why: 'a Docker-only test that does not even load — CI reports it as a module error, not as a failing test' });
+  } else {
+    console.log(`  ${testFiles.length} test files parse.`);
+  }
 }
 
 console.log('\n── docs lint ──');

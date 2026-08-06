@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`GET /api/spaces/:id` returned three fields that `PATCH` then refused** (an integrator's fifth ask, and the
+  half of it that had not already shipped). A caller doing the obvious thing — `GET` a space, edit one field of
+  `meta.typeSchemas`, `PATCH` it back — got `unrecognized_keys` for `version`, `updatedAt` and
+  `previousVersions`: three fields they never wrote, could not know to strip, and had received from our own
+  response. Their ask was *"either merge, or do not return what you will not accept"*; the merge half shipped
+  earlier as `mergeSpaceMeta`, and this is the rest.
+  - Those three are now **stripped** from an incoming `meta` rather than rejected. They are server-owned: the
+    server writes them, the `GET` returns them, and a caller may not set them — so dropping them costs the
+    caller nothing, and the version the `If-Match` precondition reads still cannot be written from a request
+    body.
+  - **Only those three.** `.strict()` still rejects every other unknown key, and that distinction is the whole
+    design: a key the server itself emitted is echo-back noise, while `validationMdoe` is a typo that must stay
+    loud — silently ignoring it would leave someone believing they had turned validation on. Stripping
+    everything would have traded a real diagnostic for a convenience.
+  - **Our own dry-run endpoint had stripped exactly those three since it was written**, so two endpoints in one
+    file disagreed about whether a round-tripped body was acceptable. One of them was wrong, and it was not the
+    one that accepted it. Both now go through a single helper, so a field added to the server-owned set reaches
+    both instead of needing to be remembered twice.
+
 ### Added
 
 - **`PATCH /api/schema-library/:name` — change one property without restating the entry** (an integrator's

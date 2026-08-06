@@ -422,3 +422,77 @@ describe('Round-trip: GET then PUT (export/import snippet)', () => {
     assert.deepEqual(final.body.schema, exported.body.schema, 'Schema should be identical after round-trip');
   });
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  Round-trip the WHOLE space: GET /api/spaces/:id then PATCH meta back
+//
+//  The reported gap (A-L6-5): `GET` returns `version`, `updatedAt` and
+//  `previousVersions` inside `meta`, and `PATCH` refused them with
+//  `unrecognized_keys` — three fields the caller never wrote and could not know
+//  to strip. Their ask was "either merge, or do not return what you will not
+//  accept". The merge half shipped earlier as `mergeSpaceMeta`; this is the
+//  other half.
+//
+//  Our own dry-run endpoint had stripped exactly those three since it was
+//  written, so two endpoints in one file disagreed about whether a round-tripped
+//  body was acceptable. One of them was wrong, and it was not the one that
+//  accepted it.
+// ═════════════════════════════════════════════════════════════════════════════
+describe('Round-trip: GET the space meta, then PATCH it back', () => {
+  // `GET /api/spaces/:id/meta` is the endpoint an integrator actually reads — there is no
+  // `GET /api/spaces/:id`, which is what the first version of this test wrongly assumed and what CI caught.
+  // It returns the meta fields SPREAD at the top level alongside an envelope (`spaceId`, `spaceName`,
+  // `stats`), and it already strips `previousVersions`.
+  const readMeta = () => get(INSTANCES.a, token(), `/api/spaces/${TEST_SPACE}/meta`);
+
+  /** The meta fields from that response, minus the envelope — what a caller would send back as `meta`. */
+  const metaFrom = (body) => {
+    const { spaceId: _s, spaceName: _n, stats: _st, ...meta } = body;
+    return meta;
+  };
+
+  it('accepts a meta carrying the server-owned housekeeping fields verbatim', async () => {
+    const got = await readMeta();
+    assert.equal(got.status, 200, JSON.stringify(got.body));
+    const meta = metaFrom(got.body);
+    // The premise of the item — if the response stopped carrying these, this test would prove nothing.
+    assert.ok('version' in meta || 'updatedAt' in meta,
+      `the meta response must carry at least one server-owned field: ${JSON.stringify(meta).slice(0, 200)}`);
+
+    const r = await patch(INSTANCES.a, token(), `/api/spaces/${TEST_SPACE}`, { meta });
+    assert.notEqual(r.status, 400,
+      `a meta straight out of GET /:id/meta must be accepted, got ${r.status}: ${JSON.stringify(r.body)}`);
+  });
+
+  it('still rejects an actual unknown key — the strip is three fields, not a free-for-all', async () => {
+    // Silently ignoring `validationMdoe` would let someone believe they had turned validation on.
+    const r = await patch(INSTANCES.a, token(), `/api/spaces/${TEST_SPACE}`, {
+      meta: { validationMdoe: 'strict' },
+    });
+    assert.equal(r.status, 400, `an unknown key must still be refused: ${JSON.stringify(r.body)}`);
+  });
+
+  it('still rejects the response ENVELOPE fields inside meta', async () => {
+    // `spaceId`, `spaceName` and `stats` are the envelope of the GET, not part of meta. A caller who posts the
+    // whole response body as `meta` is making a real mistake, and being told is the correct outcome — the
+    // tolerance is only for fields that genuinely belong to meta.
+    const r = await patch(INSTANCES.a, token(), `/api/spaces/${TEST_SPACE}`, {
+      meta: { stats: { memories: 1 } },
+    });
+    assert.equal(r.status, 400, `envelope fields must not be accepted inside meta: ${JSON.stringify(r.body)}`);
+  });
+
+  it('the housekeeping fields are not writable through the strip', async () => {
+    // Stripping must DROP them, never apply them: a caller must not be able to set the version the
+    // optimistic-concurrency check reads. "We ignore it" and "we apply it" are one careless line apart.
+    const before = metaFrom((await readMeta()).body);
+    const r = await patch(INSTANCES.a, token(), `/api/spaces/${TEST_SPACE}`, {
+      meta: { version: 999999, purpose: 'round-trip probe' },
+    });
+    assert.notEqual(r.status, 400, JSON.stringify(r.body));
+    const after = metaFrom((await readMeta()).body);
+    assert.notEqual(after.version, 999999, 'a caller must not be able to set the meta version');
+    assert.ok((after.version ?? 0) >= (before.version ?? 0), 'and the server still bumps it');
+    assert.equal(after.purpose, 'round-trip probe', 'while the real field in the same body applied');
+  });
+});

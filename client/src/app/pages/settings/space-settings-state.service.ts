@@ -333,25 +333,31 @@ export class SpaceSettingsState {
     meta.validationMode = this.schValidation;
     if (this.schStrictLinkage)         meta.strictLinkage  = true;
     if (this.schTagSuggestions.length) meta.tagSuggestions = [...this.schTagSuggestions];
+    // Every knowledge type is emitted, including the empty ones, and `typeSchemas` is always set.
+    //
+    // Both used to be conditional (`if (names.length)`, `if (Object.keys(typeSchemas).length)`), and that
+    // is how a deletion was lost: delete the last entity type and the `entity` key vanished from the
+    // payload, so the server had nothing to act on and kept what it had. An absent key and an empty object
+    // mean opposite things here, and only one of them can express "this kind now declares nothing".
+    //
+    // Paired with `typeSchemasMode: 'replace'` on the request, this makes Save mean what it looks like it
+    // means: the space ends up holding exactly what the editor was showing.
     const typeSchemas: Partial<Record<KnowledgeType, Record<string, TypeSchema>>> = {};
     for (const kt of this.KINDS) {
       const ktMap = this.schTypeSchemas[kt] ?? {};
-      const names = Object.keys(ktMap);
-      if (names.length) {
-        const out: Record<string, TypeSchema> = {};
-        for (const name of names) {
-          const state = ktMap[name]!;
-          // If this type was set via "import as $ref", emit a $ref TypeSchema
-          if (state._libRef) {
-            out[name] = { $ref: `library:${state._libRef}` };
-            continue;
-          }
-          out[name] = typeSchemaFromState(kt, state);
+      const out: Record<string, TypeSchema> = {};
+      for (const name of Object.keys(ktMap)) {
+        const state = ktMap[name]!;
+        // If this type was set via "import as $ref", emit a $ref TypeSchema
+        if (state._libRef) {
+          out[name] = { $ref: `library:${state._libRef}` };
+          continue;
         }
-        typeSchemas[kt] = out;
+        out[name] = typeSchemaFromState(kt, state);
       }
+      typeSchemas[kt] = out;
     }
-    if (Object.keys(typeSchemas).length) meta.typeSchemas = typeSchemas;
+    meta.typeSchemas = typeSchemas;
     return meta;
   }
 

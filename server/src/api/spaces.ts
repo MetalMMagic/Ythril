@@ -186,6 +186,23 @@ const UpdateSpaceBody = z.object({
   description: z.string().max(SPACE_PURPOSE_MAX).optional(),
   maxGiB: z.number().positive().nullable().optional(),
   meta: SpaceMetaBody.optional(),
+  /**
+   * How `meta.typeSchemas` combines with what is already stored. Default `merge`, which is the behaviour
+   * this endpoint has always had and which an integrator specifically asked for — a caller that edits one
+   * type must not have to resend the other forty.
+   *
+   * `replace` makes the payload authoritative: types absent from it are REMOVED. It exists because there
+   * was otherwise no way to delete a type at all. The settings UI deleted one, sent a payload that simply
+   * did not mention it, and `mergeSpaceMeta` faithfully preserved it — so a deletion could be performed,
+   * saved, and silently not happen. Reported by an integrator whose space had 21 foreign types they could
+   * not remove by any sequence of UI actions.
+   *
+   * Deliberately NOT a new endpoint. `PUT /:id/schema` already replaces wholesale, but it calls
+   * `updateSpace()` directly and so bypasses the network vote that a meta change on a networked space
+   * has to go through. Routing the UI's Save there would have traded a silent no-op for a silent
+   * consensus bypass.
+   */
+  typeSchemasMode: z.enum(['merge', 'replace']).optional(),
   dupeRules: z.array(DupeActionRuleBody).max(20).optional(),
   dupeMergeSurvivor: z.enum(['older', 'newer']).optional(),
   dupeRulesOnInsert: z.boolean().optional(),
@@ -239,9 +256,13 @@ const PutSchemaBody = z.object({
  * The `version`, `updatedAt`, and `previousVersions` housekeeping fields are
  * intentionally omitted from the return value — `updateSpace()` re-adds them.
  */
-function mergeSpaceMeta(
+// Exported for testing only. The merge/replace decision is pure and is where a deletion was silently lost
+// for as long as it was; a unit test that reaches it directly is worth more than one that has to stand up
+// Docker and a network to observe the same branch.
+export function mergeSpaceMeta(
   existing: SpaceMeta,
   incoming: Partial<SpaceMeta>,
+  typeSchemasMode: 'merge' | 'replace' = 'merge',
 ): Omit<SpaceMeta, 'version' | 'updatedAt' | 'previousVersions'> {
   // Spread the existing base (drop housekeeping fields that updateSpace re-adds)
   const { version: _v, updatedAt: _u, previousVersions: _pv, ...existingBase } = existing;
@@ -254,8 +275,13 @@ function mergeSpaceMeta(
   if (incoming.tagSuggestions !== undefined) merged.tagSuggestions = incoming.tagSuggestions;
   if (incoming.strictLinkage !== undefined) merged.strictLinkage = incoming.strictLinkage;
 
-  // typeSchemas — merge per-KT, per-type: incoming types add/update, existing untouched types preserved
-  if (incoming.typeSchemas !== undefined) {
+  // typeSchemas — merge per-KT, per-type: incoming types add/update, existing untouched types preserved.
+  // Under `replace` the payload is authoritative instead, so a type absent from it is deleted. Note the
+  // guard is on `!== undefined`, so `replace` with `typeSchemas: {}` clears every type — which is the only
+  // way to express "this space declares nothing" and has to be reachable.
+  if (incoming.typeSchemas !== undefined && typeSchemasMode === 'replace') {
+    merged.typeSchemas = incoming.typeSchemas;
+  } else if (incoming.typeSchemas !== undefined) {
     const existingTs = existingBase.typeSchemas ?? {};
     const mergedTs: Partial<Record<KnowledgeType, Record<string, TypeSchema>>> = { ...existingTs };
     for (const [kt, ktMap] of Object.entries(incoming.typeSchemas) as
@@ -636,9 +662,10 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminMfaScoped('id'), async (
   // Merge the incoming meta with the existing meta so that PATCH has true
   // RFC-7396 semantics: scalar fields overwrite, typeSchemas entries are
   // added/updated, and types *not* mentioned in the body are preserved.
+  // `typeSchemasMode: 'replace'` opts out of that last clause so a deletion can be expressed at all.
   const mergedMeta: SpaceMeta | undefined =
     parsed.data.meta !== undefined
-      ? mergeSpaceMeta(space.meta ?? {}, parsed.data.meta)
+      ? mergeSpaceMeta(space.meta ?? {}, parsed.data.meta, parsed.data.typeSchemasMode ?? 'merge')
       : undefined;
 
   // ── Network voting for meta changes ──────────────────────────────────────

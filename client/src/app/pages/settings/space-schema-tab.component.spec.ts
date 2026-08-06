@@ -373,3 +373,66 @@ describe('SpaceSchemaTabComponent — validation controls (moved here in U9 pt3)
     expect(state.schStrictLinkage).toBe(false); // view → state
   });
 });
+
+/**
+ * Two defects reported together by an integrator whose space had accumulated 21 foreign entity types
+ * after a schema file was imported against the wrong space, and which no UI action could remove.
+ *
+ * Both are client-side halves of "Save persists the state the editor is showing".
+ */
+describe('SpaceSchemaTabComponent — a file import must not silently empty a $ref type', () => {
+  it('reads a type-level $ref and keeps it as a library reference', () => {
+    const { c } = setup();
+    // `{ "$ref": "library:x" }` carries no namingPattern, no propertySchemas and no retention, so the
+    // importer used to read every field as absent and stage an EMPTY type — which then saved as `{}`:
+    // no naming rule, nothing required, every new record accepted. Same file, and the per-type
+    // "import as $ref" button handled it correctly, which is why it looked non-deterministic.
+    const staged = (c as unknown as {
+      mapImportedTypeSchema(raw: Record<string, unknown>): TypeSchemaState;
+    }).mapImportedTypeSchema({ $ref: 'library:cross-space-reference' });
+
+    expect(staged._libRef).toBe('cross-space-reference');
+  });
+
+  it('still maps an inline schema normally', () => {
+    // The guard must not swallow ordinary types: it fires only on a `library:` ref.
+    const { c } = setup();
+    const staged = (c as unknown as {
+      mapImportedTypeSchema(raw: Record<string, unknown>): TypeSchemaState;
+    }).mapImportedTypeSchema({ namingPattern: '^f-', propertySchemas: { order: { type: 'number' } } });
+
+    expect(staged._libRef).toBeUndefined();
+    expect(staged.namingPattern).toBe('^f-');
+    expect(staged.propertySchemas.map(p => p.key)).toEqual(['order']);
+  });
+});
+
+describe('SpaceSettingsState.buildMeta — an emptied knowledge type must still be sent', () => {
+  it('emits every knowledge type, including the empty ones', () => {
+    const { state } = setup();
+    state.schTypeSchemas = { entity: {}, edge: { follows: mkType() } };
+    const meta = state.buildMeta();
+
+    // The bug: `if (names.length)` omitted a knowledge type holding zero types, so deleting the last
+    // entity type meant the `entity` key never left the browser — and the server, merging, kept all of
+    // them. An absent key and an empty object have to mean different things.
+    expect(meta.typeSchemas).toBeDefined();
+    expect(meta.typeSchemas!.entity).toEqual({});
+    expect(Object.keys(meta.typeSchemas!.edge!)).toEqual(['follows']);
+  });
+
+  it('emits typeSchemas even when the space declares nothing at all', () => {
+    const { state } = setup();
+    state.schTypeSchemas = {};
+    const meta = state.buildMeta();
+    expect(meta.typeSchemas).toBeDefined();
+    expect(meta.typeSchemas!.entity).toEqual({});
+  });
+
+  it('round-trips a $ref type back out as a $ref', () => {
+    const { state } = setup();
+    state.schTypeSchemas = { entity: { ref: mkType({ _libRef: 'cross-space-reference' }) } };
+    const meta = state.buildMeta();
+    expect(meta.typeSchemas!.entity!['ref']).toEqual({ $ref: 'library:cross-space-reference' });
+  });
+});

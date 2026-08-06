@@ -33,7 +33,7 @@ export class SpacesApi {
     return this.http.post<{ space: Space }>('/api/spaces', body);
   }
 
-  updateSpace(id: string, body: { label?: string; description?: string; maxGiB?: number | null; meta?: Partial<SpaceMeta>; dupeRules?: DupeActionRule[]; dupeMergeSurvivor?: 'older' | 'newer'; dupeRulesOnInsert?: boolean; recordTtlDays?: number | RecordTtlWindows | null; documentExtraction?: 'off' | 'ocr' | 'vlm' | 'repair' | 'auto' | null; imageAnalysis?: 'off' | 'caption' | 'recognition' | 'auto' | null; audioAnalysis?: 'off' | 'on' | 'auto' | null; videoAnalysis?: 'off' | 'audio' | 'full' | 'auto' | null; textAnalysis?: 'off' | 'embed' | 'chunk' | 'auto' | null }): Observable<UpdateSpaceResult> {
+  updateSpace(id: string, body: { label?: string; description?: string; maxGiB?: number | null; meta?: Partial<SpaceMeta>; typeSchemasMode?: 'merge' | 'replace'; dupeRules?: DupeActionRule[]; dupeMergeSurvivor?: 'older' | 'newer'; dupeRulesOnInsert?: boolean; recordTtlDays?: number | RecordTtlWindows | null; documentExtraction?: 'off' | 'ocr' | 'vlm' | 'repair' | 'auto' | null; imageAnalysis?: 'off' | 'caption' | 'recognition' | 'auto' | null; audioAnalysis?: 'off' | 'on' | 'auto' | null; videoAnalysis?: 'off' | 'audio' | 'full' | 'auto' | null; textAnalysis?: 'off' | 'embed' | 'chunk' | 'auto' | null }): Observable<UpdateSpaceResult> {
     return this.http.patch<UpdateSpaceResult>(`/api/spaces/${id}`, body);
   }
 

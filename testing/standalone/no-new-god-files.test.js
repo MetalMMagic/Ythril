@@ -70,8 +70,13 @@ const FROZEN = {
   'client/src/app/pages/files/file-manager.component.ts': 1617,
   'client/src/app/pages/schema-library/schema-library.component.ts': 1112,
   'server/src/sync/engine.ts': 966,
-  'client/src/app/pages/settings/space-schema-tab.component.ts': 954,
-  'server/src/api/spaces.ts': 839,
+  // 954 -> 958: `mapImportedTypeSchema` now reads a type-level `$ref` before the inline fields, which is
+  // four lines and closes a hole where an imported library-backed type saved as `{}` with nothing required.
+  'client/src/app/pages/settings/space-schema-tab.component.ts': 958,
+  // 839 -> 843: `typeSchemasMode` on the update body and the replace branch in `mergeSpaceMeta`. Both are
+  // small and belong beside the merge they qualify — splitting a two-branch decision across files would
+  // make the contract harder to read, not easier.
+  'server/src/api/spaces.ts': 843,
   // 769 -> 773: `openBrainDrawer` gained two overload signatures and its `lastSaved` effect reads the
   // record inside each branch so the discriminant narrows it. Four lines of TYPES, no new behaviour —
   // raised deliberately rather than worked around, which is what this list is for.

@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A schema type deleted in the settings editor was never actually deleted.** Reported by an integrator
+  whose space had accumulated 21 foreign entity types after a schema file was imported against the wrong
+  space; they deleted every declared type in the UI, re-imported the correct file, and all 21 were still
+  there. No sequence of UI actions could have removed them. Three additive layers stacked: the file import
+  staged into the existing staged schemas, `buildMeta()` omitted a knowledge type from the payload entirely
+  when it held zero types, and the server's PATCH merges per type-name and only touches knowledge types
+  present in the body. So deleting the last entity type meant the `entity` key never left the browser and
+  the server — correctly, by its own documented contract — kept everything it had.
+  - **Save now persists what the editor is showing.** Importing still ADDS, deleting deletes, and Save
+    writes that exact state. No merge behind it.
+  - `PATCH /api/spaces/:id` takes `"typeSchemasMode": "replace"`, which makes the payload authoritative.
+    The default stays `merge` so every existing integration is byte-for-byte unchanged — that behaviour was
+    asked for by an integrator and is not being taken away.
+  - Deliberately not routed through the existing `PUT /:id/schema`, which does replace wholesale but calls
+    `updateSpace()` directly and so bypasses the network vote a meta change on a networked space must go
+    through. That would have traded a silent no-op for a silent consensus bypass.
+
+- **Importing a schema file silently emptied a `$ref` type.** A file declaring
+  `"cross-space-reference": { "$ref": "library:cross-space-reference" }` staged a type with no naming
+  pattern and nothing required, and saved it as `{}` — so records that should have been refused were
+  accepted. The whole-file importer read `namingPattern`, `retention`, `tagSuggestions` and
+  `propertySchemas` and never looked at a type-level `$ref`; the per-type "import as $ref" action always
+  handled it, which is why the same file appeared to give two different results depending on which button
+  was used.
+
 - **The graph's node halo had never been drawn.** The stylesheet set `shadow-blur`, `shadow-color`,
   `shadow-opacity` and `shadow-offset-x/y` across seven selectors. Those are **cytoscape 2** properties;
   cytoscape 3 removed them, and an unknown style property is silently discarded rather than warned about. So

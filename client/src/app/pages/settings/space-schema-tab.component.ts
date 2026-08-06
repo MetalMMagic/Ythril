@@ -812,8 +812,23 @@ export class SpaceSchemaTabComponent implements OnInit {
     });
   }
 
-  /** Map one raw type-schema object (as exported / stored) into editor state. */
+  /**
+   * Map one raw type-schema object (as exported / stored) into editor state.
+   *
+   * A type-level `$ref` is read FIRST and short-circuits the rest. It used to be ignored entirely, and the
+   * consequence was not a broken import but a silently empty one: `{ "$ref": "library:cross-space-reference" }`
+   * has no `namingPattern`, no `propertySchemas` and no `retention`, so every field below read as absent and
+   * the type saved as `{}` — no naming rule, nothing required, every new record accepted. The per-type
+   * "import as $ref" action always handled this; the whole-file import did not, which is why the same file
+   * gave two different answers depending on which button was used.
+   */
   private mapImportedTypeSchema(ts2: Record<string, unknown>): TypeSchemaState {
+    const ref = ts2['$ref'];
+    if (typeof ref === 'string' && ref.startsWith('library:')) {
+      // `_libRef` is the editor's marker for "this type is a library reference"; `buildMeta()` turns it
+      // back into `{ $ref: 'library:<name>' }` on save, and the server resolves it.
+      return emptyTypeSchemaState({ _libRef: ref.slice('library:'.length) });
+    }
     // A retention window travels with the type it belongs to. It is read defensively because the file is
     // arbitrary JSON: a string or a negative number becomes "inherit" rather than a save the API will reject.
     const ret = ts2['retention'];

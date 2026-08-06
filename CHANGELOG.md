@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Creating a space with a broken schema-library `$ref` succeeded silently, while every route that EDITS the
+  same field answered 422.** Reported by an operator setting up a new space: a type declared
+  `{"$ref": "library:…"}` came back as an empty schema and the create reported success.
+  - The asymmetry was narrower than it looked from outside — `PATCH /:id`, `PUT /:id/schema` and the
+    single-type `PUT` all refused already. Only `POST /` did not, so the identical mistake was loud on every
+    path except the one people make it on: the one where a space and its schema arrive together.
+  - It matters most in a `strict` space, and `POST /` is the handler that SEEDS `strict`. One mistyped ref
+    left that type with no constraints while the schema looked authored.
+  - The check runs before the space is created, so a refusal leaves nothing behind to clean up.
+  - A gate now derives the requirement — every handler taking `typeSchemas` (or a `meta` that contains it)
+    must consult the ref checker. Keyed on `meta` as well as the literal field name, because the route that
+    had the defect never mentioned `typeSchemas` at all: a narrower detector would have reported the tree
+    clean on the day the bug was live.
+  - The guide said unresolvable refs "silently degrade to an empty schema" without qualifying when. Corrected:
+    they cannot be STORED, and the degrade applies to a ref that becomes unresolvable later — a library entry
+    deleted out from under a space that referenced it, which must not make that space unwritable.
+
+### Fixed
+
 - **The space settings form silently truncated `usageNotes` at 2 000 characters while the API accepts 50 000.**
   Reported by an operator who authored 2,377 characters, imported them, and read the field back to find it
   ending mid-word — two rules after that sentence gone, no error and no warning on either side. The cause was

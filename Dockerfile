@@ -70,6 +70,79 @@ COPY package.json package-lock.json* ./
 COPY server/package.json ./server/
 RUN npm ci --workspace=server --omit=dev
 
+# ── Stage 1c: Warm the embedding model, in a stage of its own ─────────────────
+#
+# ## Why the largest layer in the image had to stop living in the production stage
+#
+# The model warm used to be a `RUN` inside `production`, positioned above the app-source COPYs so a source change
+# would not invalidate it. That reasoning was right and insufficient: it still sat BELOW the ffmpeg apt layer and
+# below `COPY --from=prod-deps node_modules`, so a dependency bump — or any `apt-get update`, which is not
+# reproducible — re-executed it. Re-executing a `RUN` produces a fresh layer, and a fresh layer is a fresh digest
+# even when its content is identical.
+#
+# MEASURED by an operator against the registry, and it recurs every release onto a node whose RAID1 has been
+# degraded to a single drive since 2026-07-03: **2.3.0 → 2.4.0 shared 5 of 16 layers (76.2 MiB, ~7%) and
+# re-downloaded 1024.4 MiB (93.5%)**. The 482.5 MiB model layer changed digest on a release that did not change
+# the model.
+#
+# ## What makes a layer REUSABLE across releases
+#
+# Not "it was not invalidated" — a pull compares content digests, so a layer that is rebuilt but comes out
+# byte-identical is not downloaded again. That is achievable for a COPY of fixed content and is not achievable for
+# a RUN that downloads: the warm step also created and deleted `/app/server/warm.mjs`, which leaves `/app/server`
+# with a new mtime in the same changeset as the model, so 482.5 MiB moved because of one directory timestamp.
+#
+# So the download happens here, in a stage that is thrown away, and production takes the result as a plain COPY.
+# The shipped layer then keys on the model bytes alone. Everything above it in the production stage may change
+# freely without costing a user 482.5 MiB.
+#
+# `FROM prod-deps` rather than a fresh stage that installs `@huggingface/transformers` on its own: the version has
+# to be the one the server actually runs, and that is pinned in the lockfile. Installing the package separately
+# would either duplicate a version string that can drift or leave it unpinned — a supply-chain regression to save
+# a layer that is discarded anyway. This costs nothing: `prod-deps` is already built.
+FROM prod-deps AS model-warm
+
+# HF rate-limits anonymous downloads per-IP (shared CI egress → intermittent 403), so the retry/backoff rides
+# through a transient failure, and `--mount=type=cache` keeps a local rebuild from re-fetching ~274 MB.
+#
+# The mtime stamp here is for THIS stage's own layer, not for the shipped one: it lets CI's `--cache-from
+# type=gha` reuse a warm step across builds. The layer a user pulls is stamped again in the production stage,
+# because — measured — stamping the source cannot make a `COPY` of it deterministic. See the note there.
+#
+# Ownership is deliberately NOT set here; the production stage sets it in the layer that ships.
+#
+# `warm.mjs` goes in `/app`, and that placement is load-bearing in BOTH directions:
+#
+#   - it must be under `/app`, because Node resolves a bare `@huggingface/transformers` import by walking up
+#     from the SCRIPT's directory looking for `node_modules`. Writing it to `/` was tried and fails the build
+#     outright — `/node_modules` does not exist. (The original wrote it to `/app/server`, which resolved.)
+#   - it must NOT be under `/model-cache`, because a create-and-delete leaves the parent directory's new mtime
+#     in the same changeset, and `/model-cache` is the tree the production stage takes.
+#
+# `/app`'s mtime moving here is harmless in a way it was not before: this whole stage is discarded, and only
+# `/model-cache` is read out of it.
+RUN --mount=type=cache,target=/tmp/hf-model-cache \
+    printf '%s\n' \
+    'import { pipeline, env } from "@huggingface/transformers";' \
+    'env.cacheDir = "/tmp/hf-model-cache";' \
+    'const load = () => pipeline("feature-extraction", "nomic-ai/nomic-embed-text-v1.5", { dtype: "fp32" });' \
+    'const attempts = 6;' \
+    'for (let i = 1; i <= attempts; i++) {' \
+    '  try { await load(); break; }' \
+    '  catch (err) {' \
+    '    if (i === attempts) throw err;' \
+    '    const delay = Math.min(60, 2 ** i);' \
+    '    console.warn(`model download attempt ${i}/${attempts} failed: ${err}; retrying in ${delay}s`);' \
+    '    await new Promise(r => setTimeout(r, delay * 1000));' \
+    '  }' \
+    '}' \
+    > /app/warm.mjs && \
+    node /app/warm.mjs && \
+    rm /app/warm.mjs && \
+    mkdir -p /model-cache && \
+    cp -a /tmp/hf-model-cache/. /model-cache/ && \
+    find /model-cache -exec touch -h -d '@1' {} +
+
 # ── Stage 2: Production ──────────────────────────────────────────────────────
 FROM node:22-slim@sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3 AS production
 
@@ -110,47 +183,38 @@ COPY server/package.json ./server/
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=prod-deps /app/server/node_modules ./server/node_modules
 
-# Pre-download & cache the embedding model so first startup is instant and fully offline.
-# The model is then copied into the image layer so the container starts offline.
+# The embedding model, baked in so first startup is instant and needs no network.
 #
-# This runs BEFORE the app-source COPYs below on purpose: it depends only on the
-# @huggingface/transformers npm package (installed above), NOT on our source. So
-# a normal source change does not invalidate this layer, which lets a layer cache
-# (CI's `--cache-from type=gha`) restore the already-downloaded model instead of
-# re-fetching ~274 MB from HuggingFace on every build. HF rate-limits anonymous
-# downloads per-IP (shared CI egress → intermittent 403), so the fewer fetches the
-# better; the retry/backoff below rides through a transient 403 on the rare build
-# that does have to download. `--mount=type=cache` additionally speeds local rebuilds.
+# ## Why this is a mounted copy and not a `COPY --from`
 #
-# The step ends by fixing ownership AND stamping every file to a fixed mtime. Both decide what a user downloads:
-#   - ownership HERE rather than in a later `chown -R`, which would rewrite the whole tree into a second layer.
-#     It did: the published image shipped the model TWICE. See the note by the mkdir near the end of this file.
-#   - a fixed mtime because `cp -a` preserves the download's timestamps, and those land in the layer tar. Two
-#     builds of the identical model then produce different layer digests, so the layer can never be reused across
-#     releases even when nothing about the model changed. Determinism is the precondition for that reuse.
+# MEASURED, and the obvious form does not work. Four builds of a minimal reproduction, forcing the copy to
+# re-execute with a changed upstream stage:
+#
+#     COPY --from=warm /model-cache /app/model-cache   → layer digest CHANGED
+#     COPY marker.txt ./            (7 bytes!)         → layer digest CHANGED
+#     RUN --mount=from=warm … + stamp tree AND parent  → layer digest IDENTICAL
+#
+# The reason a 7-byte COPY moves is the whole finding: **adding an entry to a directory bumps that directory's
+# mtime, and the bumped parent ships in the same layer as the payload.** Stamping the copied tree cannot reach
+# `/app`, so 482.5 MiB moves because of one directory timestamp — the same shape as the old warm step, which
+# created and deleted `/app/server/warm.mjs` and so put `/app/server`'s mtime in the model's layer.
+#
+# So: mount the warmed tree (the download stays out of this layer, which is the point of the `model-warm` stage),
+# copy it in, and stamp every entry the layer contains, `/app` included. The changeset is then fully determined by
+# the model bytes, and a rebuild — for a dependency bump, an apt layer, a new release — re-materialises the same
+# digest. That is what makes a pull skip it.
+#
+# `/app`'s mtime being 1970 in this layer is invisible: the later COPYs write to `/app` again and set their own.
+#
+# Ownership is set INSIDE this RUN. A later `chown -R` would rewrite the whole tree into a second layer — that is
+# exactly how the published image came to ship the embedding model twice.
 ENV MODEL_CACHE_DIR=/app/model-cache
-RUN --mount=type=cache,target=/tmp/hf-model-cache \
-    printf '%s\n' \
-    'import { pipeline, env } from "@huggingface/transformers";' \
-    'env.cacheDir = "/tmp/hf-model-cache";' \
-    'const load = () => pipeline("feature-extraction", "nomic-ai/nomic-embed-text-v1.5", { dtype: "fp32" });' \
-    'const attempts = 6;' \
-    'for (let i = 1; i <= attempts; i++) {' \
-    '  try { await load(); break; }' \
-    '  catch (err) {' \
-    '    if (i === attempts) throw err;' \
-    '    const delay = Math.min(60, 2 ** i);' \
-    '    console.warn(`model download attempt ${i}/${attempts} failed: ${err}; retrying in ${delay}s`);' \
-    '    await new Promise(r => setTimeout(r, delay * 1000));' \
-    '  }' \
-    '}' \
-    > /app/server/warm.mjs && \
-    node /app/server/warm.mjs && \
-    rm /app/server/warm.mjs && \
+RUN --mount=from=model-warm,source=/model-cache,target=/mnt/model-cache \
     mkdir -p /app/model-cache && \
-    cp -a /tmp/hf-model-cache/. /app/model-cache/ && \
+    cp -a /mnt/model-cache/. /app/model-cache/ && \
     chown -R node:node /app/model-cache && \
-    find /app/model-cache -exec touch -h -d '@1' {} +
+    find /app/model-cache -exec touch -h -d '@1' {} + && \
+    touch -h -d '@1' /app
 
 # No model may be fetched at RUN TIME. Set after the warm step above, which is the one place a download
 # is legitimate — it happens on a build machine, once, and its result is what ships.

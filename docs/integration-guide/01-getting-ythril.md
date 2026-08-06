@@ -43,6 +43,25 @@ Published images are available on two registries:
 
 Tags follow semver: `:latest`, `:1.0.0`, `:1.0`, `:1`. All images are multi-arch (`linux/amd64`, `linux/arm64`).
 
+#### What a version upgrade actually downloads
+
+The single largest thing in the image is the **embedding model, ~482 MiB**, baked in so an instance can embed
+text on first boot with no network. That layer is built to be **stable across releases**: it is warmed in a
+build stage of its own and materialised with fixed file metadata, so its digest depends on the model and the
+`@huggingface/transformers` version and on nothing else. When neither changes, `docker pull` for a new Ythril
+version skips it.
+
+Two caveats, because they are the difference between a small upgrade and a full one:
+
+- **A release that changes the model id or the transformers version re-downloads it.** That is the layer doing
+  its job, not a regression.
+- **The ffmpeg apt layer (~472 MiB) is not stable and cannot be.** `apt-get update` is not reproducible, so
+  that layer's digest moves on essentially every build. If your upgrade download is larger than you expect,
+  this is usually why.
+
+If you are measuring, compare the layer digests in the two registry manifests rather than the reported image
+sizes — sizes tell you what the image weighs, not what a pull has to fetch.
+
 ### Quick Start
 
 ```bash

@@ -66,6 +66,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   endpoint's own request log. Reporting one number that was neither is what left an operator unable to explain
   their bill. `maxJudgedPairsPerRun` now bounds `modelCalls`: gating on useful answers alone let a space full
   of weak verdicts run indefinitely past a budget whose entire purpose is to bound spend.
+
+### Changed
+
+- **The embedding-model layer no longer changes digest on a release that does not change the model** (canary
+  C-L5-5). An operator compared two published images against the registry: **2.3.0 → 2.4.0 shared 5 of 16 layers
+  (76.2 MiB, ~7%) and re-downloaded 1024.4 MiB (93.5%)**, and the 482.5 MiB model layer was among what moved. It
+  recurs on every release, onto a node whose RAID1 has been degraded to a single drive since 2026-07-03.
+  - **The warm step moved into a build stage of its own.** In the production stage it sat below the ffmpeg apt
+    layer and below the dependency tree, so a dependency bump re-executed it — and `apt-get update` is not
+    reproducible, so an untouched lockfile could do it too. The download now happens in a stage that is discarded.
+  - **Being "above the source COPYs" was never the property that mattered**, which is why the previous attempt
+    read as correct while the layer kept moving. A pull compares content digests: a rebuilt layer that comes out
+    byte-identical is not fetched again. So the question is what makes it byte-identical — and the answer was
+    measured over four builds of a minimal reproduction, not reasoned:
+
+    | shape | digest after a forced rebuild |
+    |---|---|
+    | `COPY --from=warm /model-cache /app/model-cache` | **changed** |
+    | `COPY marker.txt ./` — a 7-byte file | **changed** |
+    | `RUN --mount=from=warm …` + stamp the tree **and** `/app` | **identical** |
+
+  - **A 7-byte COPY moving is the finding.** Adding an entry to a directory bumps that directory's mtime, and the
+    bumped parent ships in the same layer as the payload — so 482.5 MiB moves because of one timestamp on `/app`.
+    Stamping the copied tree cannot reach it. This is the same shape as the original bug (the old warm step
+    created and deleted `/app/server/warm.mjs`, putting `/app/server`'s mtime in the model's layer), and the
+    obvious fix quietly reintroduces it through a different directory. Nothing about a `COPY --from` reveals that;
+    only building it twice does.
+  - The model therefore arrives via a mounted copy whose every entry — tree, ownership, and `/app` — is stamped
+    inside the one `RUN`. Runtime is unchanged: same `/app/model-cache`, same `MODEL_CACHE_DIR`, same offline
+    guarantee.
+  - **Still true and not fixable here:** the ffmpeg apt layer (~472 MiB) moves on every build, because
+    `apt-get update` is not reproducible. Documented in the hosting guide so an upgrade's download size is
+    explainable rather than surprising.
+  - **What remains to confirm is the effect on the published artefact**, which needs two releases with this layer
+    structure: the model layer's digest must be identical across `2.x.y → 2.x.z` manifests. The mechanism is
+    measured; the release-to-release number is not yet.
+
 ### Fixed
 
 - **A contradiction sweep judged every pair twice, and the "free" deterministic pass was not free** (the other

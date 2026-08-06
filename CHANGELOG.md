@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A duplicate pair now says whether it is the SAME or the OPPOSITE** (an integrator's third ask, and the one
+  with the worst failure mode). Two memories meaning opposite things — *"ship the rough version today"* vs
+  *"take the extra days and never ship a rough version"* — score ~0.97 and arrived from `/api/duplicates` as a
+  plain *possible duplicate*, because neither sets a single-valued property to a conflicting value. Their
+  nightly pass reads that endpoint and works the pairs, so **a reversal of opinion arrived labelled as
+  redundancy**, and merging it erases the fact that someone changed their mind.
+  - **We already held the answer and never joined it.** Both candidate collections key a pair canonically
+    (`aId < bId`), so "is this pair also a known contradiction?" was always one indexed lookup away. Each
+    candidate now carries the contradiction record when there is one, with its `basis`, `confidence` and
+    `status` — one batched query per space, not one per pair.
+  - **`contradiction` is a tri-state, never a bare absence.** "Checked, they do not disagree" and "nobody has
+    looked" license opposite actions, so an optional field whose absence meant either would have reproduced —
+    on the endpoint whose whole job is telling a merge pass what NOT to merge — the exact confusion this
+    correspondent reported against our own settings page: an unconfigured optional component looking identical
+    to "checked, nothing found". With no judge configured or no scan ever run, the payload says so.
+  - **`negationAsymmetry: true`** is a cheap lexical cue for the case where nothing has judged the pair: one
+    summary carries negation words the other does not. It requires the negation to be **asymmetric** rather
+    than merely present, because two records that both say "do not ship on Friday" agree. Documented as a
+    reason to read the pair and explicitly not a verdict — a hint that fires on ordinary redundancy is worse
+    than no hint, since it teaches the reader to ignore the field.
+  - Not asked for and not attempted: solving semantic contradiction. They were explicit that they wanted a
+    discriminating hint or enough in the payload to decide themselves.
+
 - **`maxTimeMS` on recall — a per-call deadline, and a `degraded` flag when the answer is partial** (an
   integrator's second ask). They were enforcing a 5 s bound at **twelve** call sites with client-side HTTP
   timeouts, each degrading to "no context": the right behaviour in the wrong place, since a convention loses

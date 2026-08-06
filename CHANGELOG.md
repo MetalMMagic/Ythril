@@ -48,6 +48,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **A gate that an async write to a rendered field notifies OnPush** — the deliverable from the last
+  architecture angle, which came back clean. Under OnPush, `this.rows = result.items` in a subscribe
+  callback changes the data and does not tell Angular: the request succeeds, the value is correct in memory,
+  and the screen keeps showing the old one, with nothing thrown and nothing logged.
+  - Measuring found 55 async plain-field writes across 16 files, and three rules account for all of them —
+    a signal written in the same turn (the documented pattern behind every plain edit model, which alone
+    drops 55 to 6), the field being a signal holder, and the field being `private`, which a template cannot
+    read at all under `strictTemplates`.
+  - It ships with **no exemption list**, which is the part worth noting. The instinct was to exempt the four
+    surviving fields by name; `private` is not a model of those four but a fact about what a template can
+    reach, so it stays true of code nobody has written yet. Two gates written just before this one had to be
+    rewritten precisely because they encoded a model drawn from the sample already read.
+
 - **A gate that an env-pinned model setting cannot be rendered as editable** — the deliverable from a third
   architecture angle, on whether adding a provider means editing seven files. The Models settings tab writes
   six provider blocks out by hand, so adding a seventh does mean copying one, and a copied block is where a

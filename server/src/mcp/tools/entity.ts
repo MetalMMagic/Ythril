@@ -1,12 +1,12 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
 import { UUID_V4_RE, TTL_DAYS_SCHEMA, EXCLUDE_FROM_VECTOR_SEARCH_SCHEMA, ttlDaysFromArgs, uuidSchema, unitScoreSchema } from './shared.js';
 import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } from '../../brain/delete-fields.js';
-import { findEntitiesByName, getEntityById, updateEntityById, upsertEntity } from '../../brain/entities.js';
+import { deleteEntity, findEntitiesByName, findEntityBacklinks, getEntityById, updateEntityById, upsertEntity } from '../../brain/entities.js';
 // The shared write gate, imported rather than reimplemented — see the note in memory.ts.
 import { assertUpdateAllowed, classifyEntityUpsert, classifyUpdateViolations, locateForUpdate } from '../../brain/write-validation.js';
 import { type PropertyResolution, applyResolutions, computeMergePlan, executeMerge, validateResolution } from '../../brain/merge.js';
 import { getConfig } from '../../config/loader.js';
-import { isProxySpace, resolveWriteTarget, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
+import { isProxySpace, isStrictLinkage, resolveMemberSpaces, resolveWriteTarget, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { resolveMetaRefs, validateEntity } from '../../spaces/schema-validation.js';
 import { mergePropertiesOrKeep, mergeTagsOrKeep } from '../../brain/merge-fields.js';
 
@@ -331,5 +331,58 @@ export const find_entities_by_nameTool: ToolHandler = {
           all.map((e, i) => `[${i + 1}] ${e.name} (${e.type}) — ID ${e._id}`).join('\n'),
       }],
     };
+  },
+};
+
+/**
+ * Delete one entity — including the REST route's referential guard, not a weaker version of it.
+ *
+ * `DELETE /api/brain/spaces/:id/entities/:id` refuses with 409 when `strictLinkage` is on and something
+ * still points at the entity. Shipping an MCP delete without that check would be the two-surfaces-one-rule
+ * defect this very tool exists to close: an agent would be able to leave dangling references that a REST
+ * client is stopped from creating.
+ *
+ * Face labels are reported by `findEntityBacklinks` but deliberately do NOT block, exactly as in REST —
+ * `deleteEntity` unlabels them in the same operation, so they cannot dangle, and blocking on them would make
+ * "delete this person" the one thing an operator cannot do for the subject whose data is biometric.
+ */
+export const delete_entityTool: ToolHandler = {
+  name: 'delete_entity',
+  description: 'Delete an entity by ID. Refused when strictLinkage is on and other records still reference it. Creates a tombstone for sync propagation.',
+  mutating: true,
+  spaceRequired: true,
+  inputSchema: (s: ToolSchemas) => ({
+    type: 'object',
+    properties: {
+      space: s.requiredSpace,
+      id: { type: 'string', minLength: 1, description: 'Entity ID to delete.' },
+      targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
+    },
+    required: ['space', 'id'],
+    additionalProperties: false,
+  }),
+  async handle(ctx: ToolContext): Promise<ToolResult> {
+    const { args: a, callSpace } = ctx;
+    const id = String(a['id'] ?? '').trim();
+    if (!id) throw new Error('id must not be empty');
+
+    const wt = resolveWriteTarget(callSpace, a['targetSpace'] as string | undefined);
+    if (!wt.ok) throw new Error(wt.error);
+
+    for (const mid of resolveMemberSpaces(wt.target)) {
+      const existing = await getEntityById(mid, id);
+      if (!existing) continue;
+      if (isStrictLinkage(mid)) {
+        const blocking = (await findEntityBacklinks(mid, id)).filter(b => b.type !== 'face');
+        if (blocking.length > 0) {
+          const where = blocking.map(b => `${b.type} ${b._id}`).join(', ');
+          throw new Error(`Cannot delete entity '${id}': still referenced by ${where}`);
+        }
+      }
+      if (await deleteEntity(mid, id, ctx.actor)) {
+        return { content: [{ type: 'text' as const, text: `Entity deleted (ID ${id}).` }] };
+      }
+    }
+    throw new Error(`Entity '${id}' not found`);
   },
 };

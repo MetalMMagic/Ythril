@@ -1,11 +1,11 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
 import { UUID_V4_RE, TTL_DAYS_SCHEMA, EXCLUDE_FROM_VECTOR_SEARCH_SCHEMA, ttlDaysFromArgs, unitScoreSchema } from './shared.js';
-import { ChronoFilter, createChrono, getChronoById, listChrono, updateChrono, parseRecurrence } from '../../brain/chrono.js';
+import { ChronoFilter, createChrono, deleteChrono, getChronoById, listChrono, updateChrono, parseRecurrence } from '../../brain/chrono.js';
 // The API layer's write gate, imported rather than reimplemented — see the note in memory.ts.
 import { assertUpdateAllowed, classifyUpdateViolations, locateForUpdate } from '../../brain/write-validation.js';
 import { getConfig } from '../../config/loader.js';
 import { checkQuota } from '../../quota/quota.js';
-import { isStrictLinkage, resolveMemberSpaces, resolveWriteTarget } from '../../spaces/proxy.js';
+import { isStrictLinkage, resolveMemberSpaces, resolveWriteTarget, findFirstAcrossMembers } from '../../spaces/proxy.js';
 import { getAllowedChronoTypes, resolveMetaRefs, validateChrono } from '../../spaces/schema-validation.js';
 import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
 
@@ -339,5 +339,35 @@ export const list_chronoTool: ToolHandler = {
           : results.map((e, i) => `[${i + 1}] ${e.type} | ${e.status} | ${e.startsAt} | ${e.title} (ID ${e._id})`).join('\n'),
       }],
     };
+  },
+};
+
+/** Delete one chrono entry. Mirrors `DELETE /api/brain/spaces/:spaceId/chrono/:id`. */
+export const delete_chronoTool: ToolHandler = {
+  name: 'delete_chrono',
+  description: 'Delete a chrono entry by ID. Creates a tombstone for sync propagation.',
+  mutating: true,
+  spaceRequired: true,
+  inputSchema: (s: ToolSchemas) => ({
+    type: 'object',
+    properties: {
+      space: s.requiredSpace,
+      id: { type: 'string', minLength: 1, description: 'Chrono entry ID to delete.' },
+      targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
+    },
+    required: ['space', 'id'],
+    additionalProperties: false,
+  }),
+  async handle(ctx: ToolContext): Promise<ToolResult> {
+    const { args: a, callSpace } = ctx;
+    const id = String(a['id'] ?? '').trim();
+    if (!id) throw new Error('id must not be empty');
+
+    const wt = resolveWriteTarget(callSpace, a['targetSpace'] as string | undefined);
+    if (!wt.ok) throw new Error(wt.error);
+
+    const deleted = await findFirstAcrossMembers(wt.target, mid => deleteChrono(mid, id, ctx.actor));
+    if (!deleted) throw new Error(`Chrono entry '${id}' not found`);
+    return { content: [{ type: 'text' as const, text: `Chrono entry deleted (ID ${id}).` }] };
   },
 };

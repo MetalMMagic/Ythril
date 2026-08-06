@@ -1,7 +1,7 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
 import { UUID_V4_RE, TTL_DAYS_SCHEMA, EXCLUDE_FROM_VECTOR_SEARCH_SCHEMA, ttlDaysFromArgs, unitScoreSchema } from './shared.js';
 import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } from '../../brain/delete-fields.js';
-import { getEdgeById, traverseGraph, updateEdgeById, upsertEdge } from '../../brain/edges.js';
+import { deleteEdge, getEdgeById, traverseGraph, updateEdgeById, upsertEdge } from '../../brain/edges.js';
 // The shared write gate, imported rather than reimplemented — see the note in memory.ts.
 import { assertUpdateAllowed, classifyEdgeUpsert, classifyUpdateViolations, locateForUpdate } from '../../brain/write-validation.js';
 import { getConfig } from '../../config/loader.js';
@@ -226,5 +226,41 @@ export const traverseTool: ToolHandler = {
         text: JSON.stringify(result),
       }],
     };
+  },
+};
+
+/**
+ * Delete one edge.
+ *
+ * This tool is the reported gap, in the reporter's words: an agent could `wipe_space` but could not delete
+ * a single edge. REST has deleted all four record types since it existed; MCP had `delete_memory` and
+ * nothing else — so the only edge-removal an agent could reach was destroying the entire space.
+ */
+export const delete_edgeTool: ToolHandler = {
+  name: 'delete_edge',
+  description: 'Delete an edge by ID. Creates a tombstone for sync propagation.',
+  mutating: true,
+  spaceRequired: true,
+  inputSchema: (s: ToolSchemas) => ({
+    type: 'object',
+    properties: {
+      space: s.requiredSpace,
+      id: { type: 'string', minLength: 1, description: 'Edge ID to delete.' },
+      targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
+    },
+    required: ['space', 'id'],
+    additionalProperties: false,
+  }),
+  async handle(ctx: ToolContext): Promise<ToolResult> {
+    const { args: a, callSpace } = ctx;
+    const id = String(a['id'] ?? '').trim();
+    if (!id) throw new Error('id must not be empty');
+
+    const wt = resolveWriteTarget(callSpace, a['targetSpace'] as string | undefined);
+    if (!wt.ok) throw new Error(wt.error);
+
+    const deleted = await findFirstAcrossMembers(wt.target, mid => deleteEdge(mid, id, ctx.actor));
+    if (!deleted) throw new Error(`Edge '${id}' not found`);
+    return { content: [{ type: 'text' as const, text: `Edge deleted (ID ${id}).` }] };
   },
 };

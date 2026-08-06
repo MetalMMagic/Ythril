@@ -970,7 +970,19 @@ A space type definition can reference a library entry instead of embedding the s
 }
 ```
 
-`resolveMetaRefs()` resolves all `$ref` pointers from the library before validation runs. Unresolvable refs (entry not found, or unknown `$ref` format) silently degrade to an empty schema — no constraints are applied, which is identical to the behaviour for an undefined type.
+`resolveMetaRefs()` resolves all `$ref` pointers from the library before validation runs.
+
+**You cannot store an unresolvable ref.** Every route that accepts `typeSchemas` — `POST /api/spaces`,
+`PATCH /api/spaces/:id`, `PUT /api/spaces/:id/schema`, and the single-type
+`PUT /api/spaces/:id/meta/typeSchemas/:knowledgeType/:typeName` — answers **422** naming the missing library
+entry, before anything is written. Creation used to be the one exception, which meant the identical mistake
+was loud on every path except the one where a space and its schema arrive together.
+
+If a ref does become unresolvable later — the library entry is deleted out from under a space that referenced
+it — resolution degrades to an empty schema: no constraints are applied, identical to the behaviour for an
+undefined type. That is a deliberate degrade rather than a hard failure, because a deleted library entry must
+not make an existing space unwritable. In a `strict` space it does mean that type accepts anything, so treat
+deleting a referenced library entry as a change to every space that points at it.
 
 `$ref` and inline fields are mutually exclusive: a `TypeSchema` that contains `$ref` must not also contain `namingPattern`, `propertySchemas`, etc.
 

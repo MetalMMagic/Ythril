@@ -494,6 +494,26 @@ spacesRouter.post('/', globalRateLimit, requireAdminMfa, async (req, res) => {
   // incoming off-schema federated records on ingest. With no typeSchemas yet defined, 'strict' still
   // accepts every type/label (nothing to violate), so this never blocks a brand-new empty space.
   const requestMeta = meta as SpaceMeta | undefined;
+
+  // Same broken-`$ref` refusal the three UPDATE routes make, which this one did not.
+  //
+  // Reported by an operator setting up a NEW space: a type declared `{"$ref": "library:…"}` came back as an
+  // empty schema, and the create reported success. Every path that EDITS meta — `PATCH /:id`,
+  // `PUT /:id/schema`, `PUT /:id/meta/typeSchemas/…` — already answers 422 here; only creation did not, so
+  // the identical mistake was loud on one route and silent on another.
+  //
+  // It matters most in a `strict` space, which is the default this very handler seeds two lines below: one
+  // mistyped ref leaves that type with no constraints at all, and the space then accepts anything for it
+  // while its schema looks authored. A refusal naming the missing entry costs one call to fix; a silent
+  // empty schema costs however long it takes someone to notice their rules are not being applied.
+  if (requestMeta?.typeSchemas) {
+    const brokenRefs = findBrokenLibraryRefs(requestMeta.typeSchemas as z.infer<typeof TypeSchemasZ>);
+    if (brokenRefs.length > 0) {
+      res.status(422).json({ error: `Schema library ${brokenRefs.length === 1 ? 'entry' : 'entries'} not found: ${brokenRefs.join(', ')}. Create ${brokenRefs.length === 1 ? 'it' : 'them'} via POST /api/schema-library before referencing.` });
+      return;
+    }
+  }
+
   const seededMeta: SpaceMeta | undefined = proxyFor
     ? requestMeta
     : { validationMode: 'strict', strictLinkage: true, ...(requestMeta ?? {}) };

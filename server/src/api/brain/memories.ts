@@ -17,7 +17,7 @@ import { checkQuota, QuotaError } from '../../quota/quota.js';
 import { resolveMemberSpaces, resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { validateMemory } from '../../spaces/schema-validation.js';
 import type { MemoryDoc } from '../../config/types.js';
-import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, buildMemoryFilter, ttlDaysFromBody, ttlDaysError, dupeCheckOptsFromBody } from './_shared.js';
+import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, buildMemoryFilter, ttlDaysFromBody, ttlDaysError, dupeCheckOptsFromBody, ifMatchFromRequest, preconditionFailedBody } from './_shared.js';
 import { classifyUpdateViolations } from '../../brain/write-validation.js';
 import { resolveEntityIdsByName } from '../../brain/entities.js';
 import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
@@ -200,6 +200,8 @@ memoriesRouter.patch('/spaces/:spaceId/memories/:id', globalRateLimit, requireSp
   }
   const wt = resolveWriteTarget(spaceId, req.query['targetSpace'] as string | undefined);
   if (!wt.ok) { res.status(400).json({ error: wt.error }); return; }
+  const ifMatch = ifMatchFromRequest(req);
+  if (!ifMatch.ok) { res.status(400).json({ error: ifMatch.error }); return; }
   const { fact, tags, entityIds, description, properties, deleteFields } = req.body ?? {};
   // Validate deleteFields
   const dfResult = validateDeleteFields(deleteFields);
@@ -284,10 +286,16 @@ memoriesRouter.patch('/spaces/:spaceId/memories/:id', globalRateLimit, requireSp
     // Snapshot for the audit change list, taken from the read above. `audit-changes.ts` reads only the
     // allowlisted fields, so handing the whole record over cannot publish `properties` (deliberately
     // unlisted: its keys are user-chosen and could hold a pasted credential).
-    const updated = await updateMemory(mid, id, updates, dfPaths, webhookToken(req), ttlDaysFromBody(req.body));
+    const updated = await updateMemory(mid, id, updates, dfPaths, webhookToken(req), ttlDaysFromBody(req.body), ifMatch.seq);
     if (updated) {
       req.auditSnapshots = { before: existing[0] ?? {}, after: updated };
       res.json(updated);
+      return;
+    }
+    // See the note in entities.ts: with a precondition in play, a write that matched nothing is a 412
+    // and must not fall through to the next member space.
+    if (ifMatch.seq !== undefined) {
+      res.status(412).json(preconditionFailedBody('memory', (await listMemories(mid, { _id: id }, 1, 0))[0]?.seq));
       return;
     }
   }

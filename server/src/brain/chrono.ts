@@ -18,6 +18,7 @@ import { mergeTags, mergeProperties, mergePropertiesOrKeep } from './merge-field
 import { enqueueEmbedJob } from './embed-queue.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { ChronoEntry, ChronoType, ChronoStatus, TombstoneDoc } from '../config/types.js';
+import { writeFilterFor, writeOutcome } from './write-precondition.js';
 
 // Re-exported so existing importers (and the C5 tests) keep reaching it here; it lives in its own leaf
 // module only to keep chrono.ts ↔ recall.ts from importing each other. See chrono-status.ts.
@@ -223,6 +224,7 @@ export async function updateChrono(
   updates: Partial<Pick<ChronoEntry, 'title' | 'description' | 'type' | 'startsAt' | 'endsAt' | 'status' | 'confidence' | 'tags' | 'entityIds' | 'memoryIds' | 'properties' | 'recurrence' | 'excludeFromVectorSearch'>>,
   actor?: WebhookActor,
   ttlDays?: number | null,
+  ifMatchSeq?: number,
 ): Promise<ChronoEntry | null> {
   const existing = await col<ChronoEntry>(`${spaceId}_chrono`).findOne(asFilter<ChronoEntry>({ _id: id, spaceId })) as ChronoEntry | null;
   if (!existing) return null;
@@ -274,14 +276,16 @@ export async function updateChrono(
   // function is exactly the test for another writer landing in the window. Observation only — no write that
   // previously succeeded is now rejected.
   const beforeWrite = await col<ChronoEntry>(`${spaceId}_chrono`).findOneAndUpdate(
-    asFilter<ChronoEntry>({ _id: id }),
+    asFilter<ChronoEntry>(writeFilterFor(id, ifMatchSeq)),
     asUpdate<ChronoEntry>(updateOp),
     { returnDocument: 'before' },
   ) as ChronoEntry | null;
   brainWriteSeqTotal.labels({
     collection: 'chrono',
-    outcome: beforeWrite && beforeWrite.seq !== existing.seq ? 'collision' : 'clean',
+    outcome: writeOutcome(!!beforeWrite, ifMatchSeq !== undefined, !!beforeWrite && beforeWrite.seq !== existing.seq),
   }).inc();
+  // Nothing matched, so nothing was written; the response below is built from `existing`.
+  if (!beforeWrite) return null;
   const updatedChrono = { ...existing, ...($set as Partial<ChronoEntry>) } as ChronoEntry;
   if ('_expireAt' in $unset) delete (updatedChrono as { _expireAt?: unknown })._expireAt;
   // Toggling exclusion always ends in an embed job, and the job handles BOTH directions — it unsets

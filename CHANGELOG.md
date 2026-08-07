@@ -7,7 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Optimistic concurrency on brain records — `If-Match` and a 412.** Two clients that read the same record,
+  edit the same field and both save produced one silent loser: their value vanished with a `200` and no trace
+  anywhere. The counter that measured this shipped first, on the owner's call to measure before building; this
+  is the mechanism it was measuring for. Send back the `seq` you read and the write becomes conditional:
+
+  ```http
+  PATCH /api/brain/spaces/research/entities/8f2c…
+  If-Match: 41
+  ```
+
+  On a mismatch nothing is written and the response is **412** with the `currentSeq` to retry with — re-read
+  at failure time, so it is never a stale token that sends you round the same failure. An absent `currentSeq`
+  means the record was deleted rather than changed.
+  - **All four record types on their `PATCH` route**, or none: `memories`, `entities`, `edges`, `chrono`.
+    Shipping two would have recreated the one-rule-two-surfaces asymmetry this codebase keeps finding, so the
+    gate asserts all four rather than presence.
+  - **No header means no precondition**, so every existing client and script is byte-for-byte unaffected.
+    A header that cannot be parsed is a `400`, never ignored — answering `200` to a guarantee the server could
+    not evaluate hands back exactly the false safety the header was sent to prevent.
+  - **The check is part of the write.** `seq` goes into the update's own `findOneAndUpdate` filter, so the
+    record is matched and the operators applied in one operation. The obvious alternative — read, compare,
+    write — has a *longer* window than the race it claims to close, because every update function embeds
+    between the read and the write.
+  - **`seq` is an opaque token, not a version.** It is a per-space counter, so consecutive writes to one
+    record do not give you `1, 2, 3`. The docs say so and no message calls it a version.
+  - **Two surfaces refuse it with a `400` rather than accepting and dropping it**: the legacy
+    `POST .../chrono/:id`, which already refuses new capabilities and points at `PATCH`, and file metadata,
+    whose records carry no `seq` to condition a write on. **MCP has no equivalent** and that is the transport
+    rather than an oversight — tools take arguments, not headers.
+  - The header parse is now shared with space-meta writes instead of hand-written twice. It was generic from
+    the day it was written, and a second copy is how two surfaces end up disagreeing about whether `W/"4"`
+    counts.
+
 ### Fixed
+
+- **A brain-record update could report success for a write that never happened.** All four update functions
+  build their response from the record as it was READ, and returned it whether or not the write matched
+  anything — so a record deleted inside the read-to-write window produced a fabricated `200` describing
+  changes that were not made, and the write was additionally counted as `clean` in
+  `ythril_brain_write_seq_total`. A narrow race, but it is also the reason a precondition could not have
+  worked without fixing it: a refused write took the same path as a successful one. They now return `null`,
+  which the routes answer as `404` (or `412` when a precondition was in play), and the outcome is counted as
+  `collision` rather than `clean`.
 
 - **A schema type deleted in the settings editor was never actually deleted.** Reported by an integrator
   whose space had accumulated 21 foreign entity types after a schema file was imported against the wrong

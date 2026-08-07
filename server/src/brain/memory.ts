@@ -24,6 +24,7 @@ import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { MemoryDoc, EntityDoc, TombstoneDoc } from '../config/types.js';
 import { SimilarMatch, DupeCheckOpts, checkDuplicates } from './recall.js';
 import { PROPERTIES_SCAN_MAX_MS } from './tag-filter.js';
+import { writeFilterFor, writeOutcome } from './write-precondition.js';
 
 /** Resolve entity IDs to their names from the database. */
 async function resolveEntityNames(spaceId: string, entityIds: string[]): Promise<string[]> {
@@ -205,6 +206,7 @@ export async function updateMemory(
   deleteFieldsPaths?: string[],
   actor?: WebhookActor,
   ttlDays?: number | null,
+  ifMatchSeq?: number,
 ): Promise<MemoryDoc | null> {
   const existing = await col<MemoryDoc>(`${spaceId}_memories`).findOne(asFilter<MemoryDoc>({ _id: memoryId, spaceId })) as MemoryDoc | null;
   if (!existing) return null;
@@ -293,17 +295,24 @@ export async function updateMemory(
   // exactly the lost-update test: if it moved, another writer landed in the window between our read and our
   // write, and whatever they changed in a field we also set has just been overwritten with no trace.
   //
-  // Observation only, deliberately. There is no `If-Match` on brain records yet, so this must not reject a
-  // write that would previously have succeeded; it counts, and the counter decides whether the 412 path is
-  // worth building.
+  // Observation for a caller that sent no `If-Match`: it must not reject a write that would previously have
+  // succeeded, so the counter records and the write lands. With an `If-Match` the same operation ALSO
+  // enforces it, because `seq` goes in this filter — see `write-precondition.ts` for why the check has to
+  // live here rather than in a comparison made before the embed call above.
   const before = await col<MemoryDoc>(`${spaceId}_memories`).findOneAndUpdate(
-    asFilter<MemoryDoc>({ _id: memoryId }),
+    asFilter<MemoryDoc>(writeFilterFor(memoryId, ifMatchSeq)),
     asUpdate<MemoryDoc>(updateOp),
     { returnDocument: 'before' },
   ) as MemoryDoc | null;
   brainWriteSeqTotal
-    .labels({ collection: 'memories', outcome: before && before.seq !== existing.seq ? 'collision' : 'clean' })
+    .labels({
+      collection: 'memories',
+      outcome: writeOutcome(!!before, ifMatchSeq !== undefined, !!before && before.seq !== existing.seq),
+    })
     .inc();
+  // Nothing matched, so nothing was written; the response below is built from `existing` and would describe
+  // a write that did not happen.
+  if (!before) return null;
 
   const result = { ...existing, ...($set as Partial<MemoryDoc>) } as MemoryDoc;
   if ('_expireAt' in $unset) delete (result as { _expireAt?: unknown })._expireAt;

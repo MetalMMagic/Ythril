@@ -12,6 +12,7 @@ import { getConfig } from '../../config/loader.js';
 import { resolveMetaRefs, type SchemaViolation } from '../../spaces/schema-validation.js';
 import type { SpaceMeta } from '../../config/types.js';
 import type { DupeCheckOpts } from '../../brain/recall.js';
+import { parseIfMatch } from '../../util/if-match.js';
 
 /** Regex that matches a UUID v4 (case-insensitive). */
 // Re-exported from the canonical definition so there is exactly one copy in the codebase.
@@ -148,4 +149,51 @@ export function dupeCheckOptsFromBody(body: unknown): { opts: DupeCheckOpts } | 
   }
 
   return { opts };
+}
+
+// ── Optimistic concurrency (If-Match) ─────────────────────────────────────
+
+/**
+ * The `If-Match` precondition for a brain-record PATCH, read off the request.
+ *
+ * `seq: undefined` with `ok: true` covers BOTH "no header" and `If-Match: *`. Neither constrains the
+ * write: the absent header asks for no precondition at all, and `*` per RFC 9110 asks only that the
+ * record exist, which the route has already established by reading it. Only an exact value becomes a
+ * constraint on the write itself.
+ *
+ * A malformed value is an error rather than an ignored header — see `util/if-match.ts`. Answering 200
+ * to a client that asked for a guarantee the server could not parse hands back the exact false safety
+ * the header was sent to prevent.
+ */
+export function ifMatchFromRequest(req: express.Request): { ok: true; seq?: number } | { ok: false; error: string } {
+  const parsed = parseIfMatch(req.get('If-Match'));
+  switch (parsed.kind) {
+    case 'none':
+    case 'any':
+      return { ok: true };
+    case 'exact':
+      return { ok: true, seq: parsed.value };
+    case 'malformed':
+      return {
+        ok: false,
+        error: `Malformed If-Match header: '${parsed.received}'. Expected the record's \`seq\`, e.g. If-Match: 41`,
+      };
+  }
+}
+
+/**
+ * The body for a 412 on a brain record.
+ *
+ * `currentSeq` is re-read at failure time rather than reused from the read the route did before the
+ * write — that value is already known to be stale, and handing a client a stale token to retry with
+ * would send it round the same failure. Omitted when the record has since been deleted, which is a
+ * real outcome of a precondition failure and not a 404: the client's condition was evaluated and not met.
+ */
+export function preconditionFailedBody(record: string, currentSeq?: number): Record<string, unknown> {
+  return {
+    error: currentSeq === undefined
+      ? `This ${record} has been deleted since you read it. Re-read before writing.`
+      : `This ${record} has changed since you read it. Re-read it and re-apply your change.`,
+    ...(currentSeq === undefined ? {} : { currentSeq }),
+  };
 }

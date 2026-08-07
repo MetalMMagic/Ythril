@@ -17,6 +17,7 @@ import { getEntityById } from './entities.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { EdgeDoc, EntityDoc, TombstoneDoc, ChronoEntry } from '../config/types.js';
 import { tagContains, textContains, propertiesValueContains, PROPERTIES_SCAN_MAX_MS } from './tag-filter.js';
+import { writeFilterFor, writeOutcome } from './write-precondition.js';
 
 export interface TraverseNode {
   _id: string;
@@ -252,6 +253,7 @@ export async function updateEdgeById(
   deleteFieldsPaths?: string[],
   actor?: WebhookActor,
   ttlDays?: number | null,
+  ifMatchSeq?: number,
 ): Promise<EdgeDoc | null> {
   const collection = col<EdgeDoc>(`${spaceId}_edges`);
   const existing = await collection.findOne(asFilter<EdgeDoc>({ _id: id, spaceId })) as EdgeDoc | null;
@@ -333,14 +335,16 @@ export async function updateEdgeById(
   // function is exactly the test for another writer landing in the window. Observation only — no write that
   // previously succeeded is now rejected.
   const beforeWrite = await collection.findOneAndUpdate(
-    asFilter<EdgeDoc>({ _id: id }),
+    asFilter<EdgeDoc>(writeFilterFor(id, ifMatchSeq)),
     asUpdate<EdgeDoc>(updateOp),
     { returnDocument: 'before' },
   ) as EdgeDoc | null;
   brainWriteSeqTotal.labels({
     collection: 'edges',
-    outcome: beforeWrite && beforeWrite.seq !== existing.seq ? 'collision' : 'clean',
+    outcome: writeOutcome(!!beforeWrite, ifMatchSeq !== undefined, !!beforeWrite && beforeWrite.seq !== existing.seq),
   }).inc();
+  // Nothing matched, so nothing was written; the response below is built from `existing`.
+  if (!beforeWrite) return null;
 
   const result = {
     ...existing,

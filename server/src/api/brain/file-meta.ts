@@ -368,6 +368,14 @@ fileMetaRouter.patch('/spaces/:spaceId/files', globalRateLimit, requireSpaceAuth
   }
   const wt = resolveWriteTarget(spaceId, req.query['targetSpace'] as string | undefined);
   if (!wt.ok) { res.status(400).json({ error: wt.error }); return; }
+  // The four brain record types honour `If-Match` against their `seq`. File-metadata records have no `seq`
+  // — `updateFileMeta` never calls `nextSeq` — so there is nothing here to condition a write on. Refused
+  // rather than ignored, because the failure mode of ignoring is the one this feature exists to prevent:
+  // the client asked for a guarantee and would be told, with a 200, that it held.
+  if (req.get('If-Match') !== undefined) {
+    res.status(400).json({ error: '`If-Match` is not supported on file metadata: these records carry no `seq` to condition a write on. It is honoured on `PATCH` for memories, entities, edges and chrono entries.' });
+    return;
+  }
 
   const { description, tags, entityIds, chronoIds, memoryIds, properties } = req.body ?? {};
   if (tags !== undefined && !Array.isArray(tags)) { res.status(400).json({ error: '`tags` must be an array' }); return; }

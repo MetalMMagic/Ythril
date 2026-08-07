@@ -13,7 +13,7 @@ import { parseSortParam, SORTABLE_FIELDS } from '../../brain/list-sort.js';
 import { resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { validateChrono, getAllowedChronoTypes } from '../../spaces/schema-validation.js';
 import type { ChronoStatus } from '../../config/types.js';
-import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, ttlDaysFromBody, ttlDaysError, dupeCheckOptsFromBody } from './_shared.js';
+import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, ttlDaysFromBody, ttlDaysError, dupeCheckOptsFromBody, ifMatchFromRequest, preconditionFailedBody } from './_shared.js';
 import { classifyUpdateViolations } from '../../brain/write-validation.js';
 import { resolveEntityIdsByName } from '../../brain/entities.js';
 import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
@@ -200,6 +200,15 @@ chronoRouter.post('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceAu
     return;
   }
 
+  // `If-Match` is REFUSED here rather than ignored, for the same reason `excludeFromVectorSearch` is
+  // refused above: this legacy form does no property validation and writes no audit snapshot, so it is not
+  // getting new capabilities. Silently dropping the header would be the worse of the two options by a wide
+  // margin — the client asked for a guarantee and would be told, with a 200, that it held.
+  if (req.get('If-Match') !== undefined) {
+    res.status(400).json({ error: '`If-Match` is not supported on the legacy POST-as-update form. Use `PATCH /api/brain/spaces/:spaceId/chrono/:id`.' });
+    return;
+  }
+
   const updated = await updateChrono(wt.target, id, {
     title, type, startsAt, endsAt, status, confidence,
     tags, entityIds, memoryIds, description, properties: safeProps, recurrence: safeRecurrence,
@@ -220,6 +229,8 @@ chronoRouter.patch('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceA
   }
   const wt = resolveWriteTarget(spaceId, req.query['targetSpace'] as string | undefined);
   if (!wt.ok) { res.status(400).json({ error: wt.error }); return; }
+  const ifMatch = ifMatchFromRequest(req);
+  if (!ifMatch.ok) { res.status(400).json({ error: ifMatch.error }); return; }
 
   const { title, type, startsAt, endsAt, status, confidence, tags, entityIds, memoryIds, description, properties, recurrence } = req.body ?? {};
   // `recurrence` was previously persisted straight from the request body with NO shape
@@ -324,10 +335,19 @@ chronoRouter.patch('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceA
     title, type, startsAt, endsAt, status, confidence,
     tags, entityIds, memoryIds, description, properties: safeProps, recurrence: safeRecurrence,
     excludeFromVectorSearch,
-  }, webhookToken(req), ttlDaysFromBody(req.body)));
+  }, webhookToken(req), ttlDaysFromBody(req.body), ifMatch.seq));
   if (updated) {
     req.auditSnapshots = { before: prior ?? {}, after: updated };
     res.json(updated);
+    return;
+  }
+  // `prior` proves the entry was there when this handler read it, so a write that matched nothing was
+  // stopped by the precondition rather than by the entry being absent. Without `prior` the honest answer
+  // is still 404. Same rule as the other three routes, expressed against this one's `findFirstAcrossMembers`
+  // shape rather than a loop.
+  if (ifMatch.seq !== undefined && prior) {
+    const current = await findFirstAcrossMembers(wt.target, mid => getChronoById(mid, id));
+    res.status(412).json(preconditionFailedBody('chrono entry', current?.seq));
     return;
   }
   res.status(404).json({ error: 'Chrono entry not found' });

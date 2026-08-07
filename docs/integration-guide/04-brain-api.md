@@ -1820,6 +1820,57 @@ If you are on the legacy form, the migration is the verb alone: both reach the s
 merges on both, and no other field changes meaning. A `PATCH` that names no recognised field is a `400`
 (`At least one field must be provided`) where the legacy verb answered `200` with an unchanged record.
 
+### Optimistic concurrency (`If-Match`)
+
+Brain-record `PATCH`es are last-write-wins by default. Two clients that read the same record, edit the
+**same field**, and both save produce one silent loser: their value disappears with a `200` and no trace.
+(Editing *different* fields is safe — a `PATCH` only writes the fields you send.)
+
+To make your write conditional, send back the `seq` you read as an `If-Match` header:
+
+```http
+PATCH /api/brain/spaces/research/entities/8f2c…
+If-Match: 41
+```
+
+If that record's `seq` has moved, nothing is written and you get **412 Precondition Failed**:
+
+```json
+{
+  "error": "This entity has changed since you read it. Re-read it and re-apply your change.",
+  "currentSeq": 46
+}
+```
+
+`currentSeq` is read at the moment of the failure, so it is the value to retry with. If it is **absent**,
+the record was deleted rather than changed — the message says so.
+
+Notes:
+
+- **The header is optional.** Omit it and the write proceeds unconditionally, exactly as before. Every
+  existing client and script is unaffected.
+- **All four record types**, on the `PATCH` route: `memories`, `entities`, `edges`, `chrono`.
+- **`seq` is on every record** and is returned by every read. Treat it as an **opaque token**: it is a
+  per-space counter, not a per-record version, so consecutive writes to one record will not give you
+  `1, 2, 3`. Echo back what you read and do not reason about the gaps.
+- Bare (`41`), quoted (`"41"`) and weak (`W/"41"`) forms are all accepted, as is `*`, which asks only that
+  the record still exist.
+- **A value that is not a `seq` — `If-Match: abc` — is a `400`, never ignored.** Silently dropping an
+  unparseable precondition would leave you believing your write was protected when it was not.
+- **The check is part of the write**, not a read before it. There is no window between the two in which
+  another writer can land.
+- **The legacy `POST .../chrono/:id` refuses the header with a `400`** rather than ignoring it, for the same
+  reason it refuses `excludeFromVectorSearch` — see the table above. Use `PATCH`.
+- **MCP has no equivalent**, and this is a property of the transport rather than an oversight: MCP tools
+  take arguments, not headers, so there is nothing for an `If-Match` to travel in. Agents that need a
+  conditional write should use the REST route.
+- **File-metadata records are not covered**, and say so: they carry no `seq` to condition a write on, so
+  `PATCH /api/brain/spaces/:spaceId/files` **refuses** an `If-Match` with a `400` rather than accepting and
+  dropping it.
+
+The same header, in the same spellings, is honoured on space-meta writes against `meta.version` — see the
+[Spaces API](06-spaces-api.md).
+
 ### Retiring a record from semantic search
 
 `excludeFromVectorSearch` is a boolean on **all four** record types (`memories`, `entities`, `edges`,

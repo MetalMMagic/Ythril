@@ -1456,6 +1456,67 @@ DELETE /api/brain/spaces/:spaceId/chrono/:id
 
 ---
 
+### Data Model (inferred ER)
+
+```http
+GET /api/brain/spaces/:spaceId/er-model
+```
+
+The space's entity-relationship model, derived from the schema **and** from what is stored. Read-only,
+nothing cached, every number a real count of records.
+
+```json
+{
+  "spaceId": "ops",
+  "entityTypes": [
+    {
+      "type": "service",
+      "count": 128,
+      "declared": true,
+      "namingPattern": "^[a-z-]+$",
+      "properties": [
+        { "name": "tier", "type": "string", "required": true, "enumValues": ["gold", "silver"] }
+      ],
+      "linkedFrom": { "memories": 412, "chrono": 0, "files": 89 }
+    }
+  ],
+  "relationships": [
+    { "from": "deployment", "to": "service", "label": "targets", "count": 1204 }
+  ],
+  "danglingEdges": 0,
+  "truncated": null,
+  "totals": { "entities": 1771, "edges": 1929 }
+}
+```
+
+**Both sources, because they disagree and the disagreement is the point.** Three cases, and a caller should
+handle all three:
+
+| `declared` | `count` | what it means |
+|---|---|---|
+| `true` | `> 0` | the ordinary case |
+| `true` | `0` | a type nobody writes — the schema is aspirational, or the writers do not know it exists |
+| `false` | `> 0` | **records outside the declared vocabulary.** Under `validationMode: "strict"` these can no longer be written, so they are history; under `warn` they are still arriving |
+
+A model built from `typeSchemas` alone would show the second case and silently omit the third — which is
+backwards, because the third is the one nobody knows about.
+
+Notes:
+
+- **`relationships` are type-level.** An edge joins two entity *instances*; a relationship is the edge set
+  grouped by `(from type, label, to type)`, with `count` being how many real edges back it.
+- **`danglingEdges`** counts edges whose endpoint does not resolve to an entity. Normally `0`; a non-zero
+  value on a space with `strictLinkage` on is worth investigating.
+- **`truncated`** is `null` or `{ scan, limit }`. Both reads are capped, and a capped read says so rather
+  than presenting a partial diagram as complete. `totals` is measured **before** the cap, so you can see
+  what share of the space the model covers.
+- **An entity with no `type` is bucketed as `(untyped)`** rather than dropped, so the per-type counts add up.
+- **`properties` lists what the schema declares**, not what records happen to carry. An undeclared type
+  reports `[]` — the model does not infer a schema from data it has not been asked to validate.
+- **On a proxy space the members are reported separately**, as `{ spaceId, members: [ …model per member… ] }`.
+  They are not merged: two spaces can use one type name for different things, and an edge cannot cross a
+  space, so a merged model would show relationships that can never be joined.
+
 ### Space Stats
 
 ```http

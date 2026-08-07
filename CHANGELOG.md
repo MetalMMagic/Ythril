@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A space's entity-relationship model, inferred from the schema and from the records** —
+  `GET /api/brain/spaces/:spaceId/er-model`. Entity types with their declared properties and their real
+  record counts, the relationships between those types with real edge counts, and how many memories, chrono
+  entries and files point at each type.
+  - **Both sources, because they disagree and the disagreement is the point.** A type can be declared and
+    used, declared and empty, or — the case that matters — hold records with no declaration at all. A model
+    built from `typeSchemas` alone shows the second and silently omits the third, which is backwards: the
+    undeclared types are the ones nobody knows about. An integrator arrived at this product with a space
+    holding 21 of them, and no view anywhere would have shown it.
+  - **The relationships are type-level.** An edge joins two entity instances; a relationship is the edge set
+    grouped by `(from type, label, to type)`. Derived from two covered index scans and an in-memory join
+    rather than a `$lookup` per edge — `{ name: 1, type: 1 }` carries `_id` as every index does, and the
+    unique `{ from: 1, to: 1, label: 1 }` is exactly the three fields the grouping needs, so neither read
+    fetches a document body.
+  - **Bounded, and it says when it was bounded.** Both reads are capped, and a capped read reports
+    `truncated` naming which scan hit its limit; `totals` is measured before the cap, so a caller can see
+    what share of the space the model covers. A partial diagram is never presented as complete.
+  - `danglingEdges` counts edges whose endpoint does not resolve, rather than inventing a relationship from
+    one. An entity with no `type` is bucketed as `(untyped)` rather than dropped, so the counts add up.
+  - A proxy space reports its members separately. Merging would sum two types that share a name across
+    spaces and show relationships that can never be joined, since an edge cannot cross a space.
+
 ### Internal
 
 - **The model-warm retry loop had a 62-second budget against a failure measured in minutes.** Six attempts

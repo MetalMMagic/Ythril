@@ -32,6 +32,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     spaces and show relationships that can never be joined, since an edge cannot cross a space.
 
 ### Internal
+- **The per-type schema edits are pure functions now, so a second host can use them.** `addProp`,
+  `removeProp`, `addEnumVal` and `removeEnumVal` lived on `SpaceSettingsState` and reached into its own
+  map, which made them unusable anywhere else. The Brain Overview needs the same editor in place, and that
+  service is page-scoped — root-providing it would turn per-space editing state into a cross-page
+  singleton. They operate on a state object they are handed now; the service delegates. No behaviour
+  change, proven by the existing characterization spec and the full client suite.
+
 
 - **The model-warm retry loop had a 62-second budget against a failure measured in minutes.** Six attempts
   backing off 2, 4, 8, 16, 32 seconds — so every attempt landed inside 62.68 s. What it receives is

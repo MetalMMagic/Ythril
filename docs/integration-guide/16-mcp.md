@@ -116,6 +116,21 @@ Content-Type: application/json
 
 ### Available Tools
 
+> **After an instance upgrade, reconnect before concluding a tool is missing.** MCP negotiates the tool list
+> **once, at session start**, and clients cache it. A session held open across an upgrade keeps reporting the
+> tool surface of the version it connected to — so tools added by the new version are absent from the client's
+> view while the server offers them normally. Nothing is wrong and nothing needs fixing; the session is stale,
+> not the server.
+>
+> This is easy to misread, because every piece of evidence in front of you points the other way: the tool is
+> genuinely not in your client's list, and the instance is genuinely on the new version. An operator running
+> five instances hit exactly this on a 2.4.0 → 2.5.0 upgrade and came close to reporting that three tools had
+> not shipped.
+>
+> **`help()` is the check.** It is generated server-side, per token, at call time — so it always describes what
+> the instance offers *right now*, scoped to what your token may call. If `help()` lists a tool your client
+> does not, the answer is to reconnect.
+
 | Tool | Description |
 |---|---|
 | `help` | Self-documenting system guide — the knowledge model, how to choose between `query` / `recall` / filtered recall, schema authoring, and the tools available to the calling token. Read-only, no `space` needed; scoped to the token so it never lists tools the token can't call |

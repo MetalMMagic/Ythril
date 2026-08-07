@@ -311,14 +311,8 @@ export async function updateEntityById(
   if (updates.tags !== undefined || (deleteFieldsPaths && !$unset['tags'])) $set['tags'] = newTags;
   if (updates.properties !== undefined || (deleteFieldsPaths && !$unset['properties'])) $set['properties'] = newProps;
 
-  // Re-embed whenever any content field changes
-  try {
-    const embedText = entityEmbedText(newName, newType, newTags, newDesc, newProps);
-    const embResult = await embed(embedText);
-    $set['embedding'] = embResult.vector;
-    $set['embeddingModel'] = embResult.model;
-    $set['matchedText'] = embedText;
-  } catch { /* embedding unavailable — keep existing embedding */ }
+  // The re-embed is ENQUEUED after the write, not computed here. See `embedStoredRecord` for why computing
+  // it inline was wrong rather than merely slow: the text would come from this function's stale read.
 
   applyExpiryToUpdate(spaceId, ttlDays, existing._expireAt != null, $set, $unset,
     { collection: 'entity', existing: existing as unknown as Record<string, unknown> }); // F10
@@ -351,7 +345,6 @@ export async function updateEntityById(
     updatedAt: now,
     seq,
     ...(updates.description !== undefined ? { description: newDesc } : {}),
-    ...('embedding' in $set ? { embedding: $set['embedding'] as number[], embeddingModel: $set['embeddingModel'] as string } : {}),
   } as EntityDoc;
   if ('_expireAt' in $set) result._expireAt = $set['_expireAt'] as Date;
   else if ('_expireAt' in $unset) delete (result as { _expireAt?: unknown })._expireAt;
@@ -361,10 +354,14 @@ export async function updateEntityById(
     applyDeleteFields(result as unknown as Record<string, unknown>, deleteFieldsPaths);
   }
 
-  // Toggling exclusion always ends in an embed job, and the job handles BOTH directions — it unsets
-  // the vector when the flag is on and computes one when it is off. So this path never has to know
-  // which way the toggle went, which is what keeps the rule in one place.
-  if (updates.excludeFromVectorSearch !== undefined) await enqueueEmbedJob(spaceId, 'entity', result._id);
+  // ONE enqueue, unconditionally, for every successful update.
+  //
+  // It used to be conditional on `excludeFromVectorSearch` being present, because every other path embedded
+  // inline. Now that the vector always comes from the queue, the same call covers both jobs: recompute the
+  // text from the record as STORED, and honour the exclusion flag in whichever direction it was moved —
+  // `embedStoredRecord` unsets the vector when the flag is on and computes one when it is off, so this path
+  // still never has to know which way the toggle went.
+  await enqueueEmbedJob(spaceId, 'entity', result._id);
   if (actor) emitWebhookEvent({ event: 'entity.updated', spaceId, entry: { ...result, embedding: undefined }, ...actor });
   return result;
 }

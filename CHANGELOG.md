@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A record's search vector could permanently disagree with the record's own fields.** All four update
+  functions computed the embedding themselves, from the record as they had READ it plus the caller's patch,
+  and wrote it in the same `$set`. Every *content* field in that `$set` was guarded by
+  `updates.X !== undefined`; the embedding never was — it went in unconditionally.
+  - So two concurrent `PATCH`es touching **different** fields both landed and lost no field, exactly as the
+    guide promises, while each wrote a whole embedding describing only its own view. The later write won, and
+    the stored vector then described a record that existed nowhere. Not a lost field — a permanent
+    disagreement between a record and its own index, on a record whose every field is correct.
+  - **Nothing could have detected it.** No field was lost, so no `If-Match` precondition would have been
+    violated and `ythril_brain_write_seq_total` would have said `clean`. The only symptom is a search result
+    ranked on `matchedText` the record no longer contains.
+  - **An update now enqueues the re-embed instead**, and `embedStoredRecord` re-reads the document after the
+    write — so the text it embeds is, by construction, the text of the record as it actually stands, whoever
+    else wrote to it in between. This is the contract creates have had since the embed queue shipped;
+    updates were the odd one out.
+  - **What changes for a caller:** an updated record keeps its previous vector for the moment before the
+    worker catches up, so it is briefly ranked on its previous text rather than being absent from `recall`
+    (which is what a *pending create* does). `PATCH` responses no longer carry a freshly computed
+    `embedding`. Write latency drops, because the model is no longer in the `PATCH` path.
+  - It also deletes four inline copies of the embed-text builder. `buildEmbedText` is the one the queue uses,
+    and one copy cannot drift from itself.
+
 ### Documentation
 
 - **The MCP guide now says that a session caches its tool list, so an upgrade needs a reconnect.** MCP

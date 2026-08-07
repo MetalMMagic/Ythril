@@ -316,15 +316,9 @@ export async function updateEdgeById(
   if (updates.type !== undefined) $set['type'] = newType;
   if (updates.weight !== undefined || (deleteFieldsPaths && !$unset['weight'])) $set['weight'] = newWeight;
 
-  // Re-embed whenever any content field changes — resolve entity names for semantic signal
-  try {
-    const [fromName, toName] = await resolveEdgeEntityNames(spaceId, existing.from, existing.to);
-    const embedText = edgeEmbedText(fromName, newLabel, toName, newTags, newType, newDesc, newProps);
-    const embResult = await embed(embedText);
-    $set['embedding'] = embResult.vector;
-    $set['embeddingModel'] = embResult.model;
-    $set['matchedText'] = embedText;
-  } catch { /* embedding unavailable — keep existing embedding */ }
+  // The re-embed is ENQUEUED after the write — see `embedStoredRecord`. Computing it here would build the
+  // text from this function's stale read, which is how a record's vector ends up describing a record that
+  // no longer exists anywhere.
 
   applyExpiryToUpdate(spaceId, ttlDays, existing._expireAt != null, $set, $unset,
     { collection: 'edge', existing: existing as unknown as Record<string, unknown> }); // F10
@@ -356,7 +350,6 @@ export async function updateEdgeById(
     ...(updates.properties !== undefined || (deleteFieldsPaths && !$unset['properties']) ? { properties: newProps } : {}),
     ...(updates.type !== undefined ? { type: newType } : {}),
     ...(updates.weight !== undefined ? { weight: newWeight } : {}),
-    ...('embedding' in $set ? { embedding: $set['embedding'] as number[], embeddingModel: $set['embeddingModel'] as string } : {}),
   } as EdgeDoc;
   if ('_expireAt' in $set) result._expireAt = $set['_expireAt'] as Date;
   else if ('_expireAt' in $unset) delete (result as { _expireAt?: unknown })._expireAt;
@@ -369,7 +362,10 @@ export async function updateEdgeById(
   // Toggling exclusion always ends in an embed job, and the job handles BOTH directions — it unsets
   // the vector when the flag is on and computes one when it is off. So this path never has to know
   // which way the toggle went, which is what keeps the rule in one place.
-  if (updates.excludeFromVectorSearch !== undefined) await enqueueEmbedJob(spaceId, 'edge', result._id);
+  // ONE enqueue, unconditionally, for every successful update: recompute the text from the record as
+  // STORED, and honour excludeFromVectorSearch in whichever direction it moved. See the entity update and
+  // `embedStoredRecord` for why this replaced an inline embed built from a stale read.
+  await enqueueEmbedJob(spaceId, 'edge', result._id);
   if (actor) emitWebhookEvent({ event: 'edge.updated', spaceId, entry: { ...result, embedding: undefined }, ...actor });
   return result;
 }

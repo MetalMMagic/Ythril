@@ -1949,7 +1949,20 @@ export interface MediaJobDoc {
  * (`files/media/job-queue.ts`) with a richer job shape — per-page progress, chunking, a provider
  * signature. Folding it in here would replace a working, more capable mechanism with a simpler one.
  */
-export type BrainEmbedRecordType = 'memory' | 'entity' | 'edge' | 'chrono';
+/**
+ * `file` joined the four brain types on 2026-08-07, and for a correctness reason rather than tidiness.
+ *
+ * `updateFileMeta` used to compute the vector itself from the record as it had READ it, while every content
+ * field it wrote was guarded by `opts.X !== undefined` and the embedding was not. Two concurrent writes to
+ * different fields therefore both landed, lost no field, and left the stored vector describing a record that
+ * existed nowhere. The four brain updates had the identical defect and were fixed by handing the work to this
+ * queue, whose `embedStoredRecord` re-reads the document after the write; files needed to be IN the queue
+ * before the same fix could apply to them.
+ *
+ * The alternative — a second re-embed mechanism just for files — is what produced the bug in the first place:
+ * the update path had its own copy of the embed-text builder while the queue had `buildEmbedText`.
+ */
+export type BrainEmbedRecordType = 'memory' | 'entity' | 'edge' | 'chrono' | 'file';
 
 /**
  * One queued embedding job. `_id` is `<recordType>:<recordId>`, so a record rewritten five times has

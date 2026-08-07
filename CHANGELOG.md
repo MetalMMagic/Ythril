@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **File metadata had the same stale-read embedding defect, and a second one on top of it.** `updateFileMeta`
+  and `upsertFileMeta` both computed the vector from the record as they had READ it and spread it into `$set`
+  unconditionally, while every content field was guarded — so two concurrent writes to different fields both
+  landed, lost no field, and left the stored vector describing a record that existed nowhere. It was worse
+  here than in the brain: file-meta records carry no `seq`, so there was no precondition to violate and no
+  counter reporting the rate.
+  - **`upsertFileMeta`'s text had already drifted.** It omitted `excerpt` — a converted document's own
+    opening prose — while `updateFileMeta` included it. So **a re-upload silently dropped that prose out of
+    the file's vector**, and the only symptom was a document that stopped being findable by its own opening
+    words. Three copies of "what goes into a file's embedding" existed and two of them disagreed.
+  - Both now enqueue through the same embed queue as the brain types, so `buildEmbedText` is the only copy
+    and it reads the record as stored. `file` joined `BrainEmbedRecordType` for this; everything downstream
+    of the queue was already file-aware, including the duplicate scanner.
+  - Removes a now-dead second entity-name resolver from `files/file-meta.ts`, which existed only to feed the
+    inline embed and was the spare copy that let the two texts drift apart.
+
 - **A record's search vector could permanently disagree with the record's own fields.** All four update
   functions computed the embedding themselves, from the record as they had READ it plus the caller's patch,
   and wrote it in the same `$set`. Every *content* field in that `$set` was guarded by

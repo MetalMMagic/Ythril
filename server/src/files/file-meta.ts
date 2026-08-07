@@ -17,25 +17,18 @@ import { toDocId } from '../util/paths.js';
 import { escapeRegex } from '../util/redos.js';
 import { authorRef } from '../config/author.js';
 import { col, asFilter, asDoc, asUpdate } from '../db/mongo.js';
-import { embed } from '../brain/embedding.js';
 import { expiryForCreate } from '../brain/ttl.js';
-import { fileEmbedText } from '../brain/embed-text.js';
+import { enqueueEmbedJob } from '../brain/embed-queue.js';
 import { getConfig } from '../config/loader.js';
 import type { FileMetaDoc, AuthorRef, EntityDoc } from '../config/types.js';
 
 
 
 
-/** Resolve entity names from a list of entity IDs in this space. Best-effort — returns [] on error. */
-async function resolveEntityNames(spaceId: string, entityIds: string[]): Promise<string[]> {
-  if (entityIds.length === 0) return [];
-  try {
-    const docs = await col<EntityDoc>(`${spaceId}_entities`)
-      .find(asFilter<EntityDoc>({ _id: { $in: entityIds } }), { projection: { name: 1 } })
-      .toArray() as Array<{ name: string }>;
-    return docs.map(d => d.name);
-  } catch { return []; }
-}
+// `resolveEntityNames` lived here, used only to build embedding text. That job moved to `buildEmbedText`,
+// which resolves the names itself from the STORED record — so keeping a second resolver here would be a
+// spare copy waiting to be reached for, and the last spare copy in this file is what let its embedding text
+// drift from `updateFileMeta`'s.
 
 /**
  * Create or update the metadata record for a file after a write.
@@ -55,21 +48,15 @@ export async function upsertFileMeta(
     asFilter<FileMetaDoc>({ _id: normalised }),
   );
 
-  // Embed path + entity names + tags + description + property values — best-effort, never blocks write
-  const descForEmbed = opts.description !== undefined ? opts.description : (existing as FileMetaDoc | null)?.description;
-  const tagsForEmbed = opts.tags !== undefined ? opts.tags : ((existing as FileMetaDoc | null)?.tags ?? []);
-  const propsForEmbed = opts.properties !== undefined ? opts.properties : (existing as FileMetaDoc | null)?.properties;
-  const existingEntityIds: string[] = (existing as FileMetaDoc | null)?.entityIds ?? [];
-  const entityNames = await resolveEntityNames(spaceId, existingEntityIds);
-  let embeddingFields: { embedding?: number[]; embeddingModel?: string; matchedText?: string } = {};
-  try {
-    const embedText = fileEmbedText(normalised, tagsForEmbed, descForEmbed, propsForEmbed, entityNames);
-    const embResult = await embed(embedText);
-    embeddingFields = { embedding: embResult.vector, embeddingModel: embResult.model, matchedText: embedText };
-  } catch { /* embedding unavailable — file stored without vector */ }
-
+  // The embedding is ENQUEUED after the write, for the same reason as `updateFileMeta` below.
+  //
+  // This path had a second defect on top of the stale read, and it is the one worth naming: the text it
+  // built omitted `excerpt` entirely — a converted document's own opening prose — while `updateFileMeta`
+  // included it. So a re-upload silently dropped that prose out of the file's vector, and the only symptom
+  // was that a document stopped being findable by its own opening words. Three copies of "what goes into a
+  // file's embedding" existed and two of them disagreed; `buildEmbedText` is now the only one.
   if (existing) {
-    const $set: Record<string, unknown> = { updatedAt: now, sizeBytes, ...embeddingFields };
+    const $set: Record<string, unknown> = { updatedAt: now, sizeBytes };
     if (opts.description !== undefined) $set['description'] = opts.description;
     if (opts.tags !== undefined) $set['tags'] = opts.tags;
     if (opts.properties !== undefined) $set['properties'] = opts.properties;
@@ -102,10 +89,13 @@ export async function upsertFileMeta(
       sizeBytes,
       author: authorRef(),
       ...(expireAt ? { _expireAt: expireAt } : {}),
-      ...embeddingFields,
     };
     await col<FileMetaDoc>(`${spaceId}_files`).insertOne(asDoc<FileMetaDoc>(doc));
   }
+
+  // Both branches, unconditionally. A create enqueues for the reason every brain create does — the write
+  // should not pay the model's latency — and an update for the correctness reason above.
+  await enqueueEmbedJob(spaceId, 'file', normalised);
 }
 
 /**
@@ -147,24 +137,17 @@ export async function updateFileMeta(
   if (!existing) return null;
 
   const now = new Date().toISOString();
-  const descForEmbed = opts.description !== undefined ? opts.description : existing.description;
-  const tagsForEmbed = opts.tags !== undefined ? opts.tags : existing.tags;
-  const propsForEmbed = opts.properties !== undefined ? opts.properties : existing.properties;
-  // Falls back to the stored value like every other embedding input: an unrelated edit — a tag, a link —
-  // re-embeds the record, and reading the excerpt only from `opts` would silently drop the document's own
-  // text out of the embedding on the first tag change after conversion.
-  const excerptForEmbed = opts.excerpt !== undefined ? opts.excerpt : existing.excerpt;
-  // Use the incoming entityIds if being updated, otherwise fall back to existing
-  const entityIdsForEmbed: string[] = opts.entityIds !== undefined ? opts.entityIds : (existing.entityIds ?? []);
-  const entityNames = await resolveEntityNames(spaceId, entityIdsForEmbed);
-  let embeddingFields: { embedding?: number[]; embeddingModel?: string; matchedText?: string } = {};
-  try {
-    const embedText = fileEmbedText(normalised, tagsForEmbed, descForEmbed, propsForEmbed, entityNames, excerptForEmbed);
-    const embResult = await embed(embedText);
-    embeddingFields = { embedding: embResult.vector, embeddingModel: embResult.model, matchedText: embedText };
-  } catch { /* best-effort */ }
 
-  const $set: Record<string, unknown> = { updatedAt: now, ...embeddingFields };
+  // The re-embed is ENQUEUED after the write — see `embedStoredRecord`, and the note on
+  // `BrainEmbedRecordType` for why `file` is in that union at all.
+  //
+  // This function used to build the text here, from `existing` plus `opts`, and spread the result into
+  // `$set` UNCONDITIONALLY while every content field below is guarded by `opts.X !== undefined`. So two
+  // concurrent writes to different fields both landed and lost no field — and each wrote a whole embedding
+  // describing only its own view, leaving the stored vector describing a record that existed nowhere. There
+  // was nothing to notice it with: file-meta records carry no `seq`, so there is no precondition to violate
+  // and no lost-update counter, unlike the four brain types that had the identical defect.
+  const $set: Record<string, unknown> = { updatedAt: now };
   if (opts.description !== undefined) $set['description'] = opts.description;
   if (opts.descriptionSource !== undefined) $set['descriptionSource'] = opts.descriptionSource;
   if (opts.excerpt !== undefined) $set['excerpt'] = opts.excerpt;
@@ -185,6 +168,10 @@ export async function updateFileMeta(
     asFilter<FileMetaDoc>({ _id: normalised }),
     asUpdate<FileMetaDoc>(Object.keys($unset).length > 0 ? { $set, $unset } : { $set }),
   );
+
+  // ONE enqueue, unconditionally, after the write. Not gated on which fields moved: any such condition
+  // could only be computed from the read above, which is the stale value this change exists to stop using.
+  await enqueueEmbedJob(spaceId, 'file', normalised);
 
   // Face recognition side-effects when entity links change.
   //

@@ -39,12 +39,22 @@ const read = (p) => readFileSync(join(ROOT, p), 'utf8');
 const withoutComments = (text) =>
   text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
 
-/** The four update functions, and the embed-text builder each one used to call inline. */
+/**
+ * Every write path that stores a vector, and the embed-text builder each one used to call inline.
+ *
+ * `file` is here twice on purpose. `updateFileMeta` had the defect this file is named for; `upsertFileMeta`
+ * had it too AND had already drifted — its text omitted `excerpt`, so a re-upload silently dropped a
+ * converted document's opening prose out of the vector while the sibling function kept it. Three copies of
+ * "what goes into a file's embedding" existed and two disagreed. Listing both is what stops a fix to one
+ * leaving the other behind, which is exactly how they came to disagree.
+ */
 const UPDATES = [
   { type: 'entity', file: 'server/src/brain/entities.ts', fn: 'updateEntityById', builder: 'entityEmbedText' },
   { type: 'memory', file: 'server/src/brain/memory.ts', fn: 'updateMemory', builder: 'memoryEmbedText' },
   { type: 'edge', file: 'server/src/brain/edges.ts', fn: 'updateEdgeById', builder: 'edgeEmbedText' },
   { type: 'chrono', file: 'server/src/brain/chrono.ts', fn: 'updateChrono', builder: 'chronoEmbedText' },
+  { type: 'file', file: 'server/src/files/file-meta.ts', fn: 'updateFileMeta', builder: 'fileEmbedText' },
+  { type: 'file', file: 'server/src/files/file-meta.ts', fn: 'upsertFileMeta', builder: 'fileEmbedText' },
 ];
 
 /**

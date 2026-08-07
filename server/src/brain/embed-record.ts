@@ -17,15 +17,15 @@
 
 import { col, asFilter } from '../db/mongo.js';
 import { embed } from './embedding.js';
-import { memoryEmbedText, entityEmbedText, edgeEmbedText, chronoEmbedText } from './embed-text.js';
+import { memoryEmbedText, entityEmbedText, edgeEmbedText, chronoEmbedText, fileEmbedText } from './embed-text.js';
 import { resolveEdgeEntityNames } from './edges.js';
 import type {
-  BrainEmbedRecordType, MemoryDoc, EntityDoc, EdgeDoc, ChronoEntry,
+  BrainEmbedRecordType, MemoryDoc, EntityDoc, EdgeDoc, ChronoEntry, FileMetaDoc,
 } from '../config/types.js';
 
 /** Collection suffix per record type — the same mapping recall uses. */
 const COLLECTION: Record<BrainEmbedRecordType, string> = {
-  memory: 'memories', entity: 'entities', edge: 'edges', chrono: 'chrono',
+  memory: 'memories', entity: 'entities', edge: 'edges', chrono: 'chrono', file: 'files',
 };
 
 /** Resolve entity ids to names, for the two types whose embedding text names their links. */
@@ -66,6 +66,15 @@ export async function buildEmbedText(
     case 'chrono': {
       const c = doc as unknown as ChronoEntry;
       return chronoEmbedText(c.title, c.type, c.status, c.description, c.tags ?? [], c.properties);
+    }
+    case 'file': {
+      // `_id` IS the normalised path — `toDocId(filePath)` — so the path the vector is built from is the
+      // stored one, not one the caller passed in and that may since have been renamed.
+      const f = doc as unknown as FileMetaDoc & { _id: string };
+      return fileEmbedText(
+        f._id, f.tags ?? [], f.description, f.properties,
+        await entityNames(spaceId, f.entityIds), f.excerpt,
+      );
     }
   }
 }

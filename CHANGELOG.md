@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [2.6.0] — 2026-08-07
+## [2.5.1] — 2026-08-07
 
 > **Documentation files changed in this release:** `docs/integration-guide/04-brain-api.md`,
 > `docs/integration-guide/06-spaces-api.md`, `docs/integration-guide/16-mcp.md`.

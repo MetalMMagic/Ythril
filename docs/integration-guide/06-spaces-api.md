@@ -670,7 +670,13 @@ The schema is expressed as a single `typeSchemas` object on the space `meta`. It
 
 ```typescript
 interface TypeSchema {
+  $ref?: string;                                  // "library:<name>" — use a schema-library entry instead
+                                                  //   of the inline fields. When set, inline fields on the
+                                                  //   same object are IGNORED, not merged.
   namingPattern?: string;                         // entity only — regex for name validation
+  retention?: { days?: number; contentDays?: number };  // per-type retention, the middle tier of
+                                                  //   record > schema > space. `contentDays` is chrono-only
+                                                  //   and is rejected elsewhere. See 04-brain-api.md.
   tagSuggestions?: string[];                      // RETIRED — accepted and stored, consumed by nothing
   propertySchemas?: Record<string, PropertySchema>;
 }

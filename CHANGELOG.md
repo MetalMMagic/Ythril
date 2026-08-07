@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+
+- **The `TypeSchema` interface block was missing two of its five fields.**
+  `docs/integration-guide/06-spaces-api.md` documented `namingPattern`, `tagSuggestions` and
+  `propertySchemas`, and omitted **`retention`** (per-type retention, the middle tier of
+  `record > schema > space`) and **`$ref`** (link the type to a schema-library entry). Both are shipped, both
+  have editors in the admin UI, and `retention` is documented in `04-brain-api.md` — in a different file from
+  the one that carries the type. Reported as a question by an integrator who re-ingests the guides on every
+  deploy and could not surface the field by searching the type.
+  - **A prose gap invites the question. An enumeration does not** — it reads as complete, so nobody thinks to
+    ask. That is why this was found from outside rather than by us.
+  - Every docs-coverage gate here asks whether a thing is MENTIONED, and `retention` **was** mentioned, so all
+    of them were satisfied and right to be. An interface block is a second copy of a type declaration, and
+    nothing compared the two.
+
+### Internal
+
+- **A gate that a documented interface block lists what the interface declares**, in both directions and with
+  comments stripped. The reverse direction is the one that matters most to integrators: a documented key the
+  code does not declare produces a `PATCH` that deep-merges to a success code and changes nothing. That is not
+  hypothetical — the integrator who reported the omission above had previously written a `PATCH` against
+  `chronoRetention`, a key the docs described and the implementation never shipped, and was told it worked.
+  Mutation-checked in both directions against the block as it shipped.
+
 ## [2.5.0] — 2026-08-07
 
 ### Added

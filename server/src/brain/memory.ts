@@ -261,28 +261,10 @@ export async function updateMemory(
   }
 
   // Re-embed whenever any content field changes
-  const contentChanged =
-    updates.fact !== undefined ||
-    updates.tags !== undefined ||
-    updates.entityIds !== undefined ||
-    updates.description !== undefined ||
-    updates.properties !== undefined ||
-    (deleteFieldsPaths && deleteFieldsPaths.length > 0);
-  if (contentChanged) {
-    const newFact = ($set['fact'] as string) ?? existing.fact;
-    const newTags = ($set['tags'] as string[]) ?? existing.tags;
-    const newEntityIds = ($set['entityIds'] as string[]) ?? existing.entityIds;
-    const newDesc = 'description' in $set ? ($set['description'] as string | undefined) : existing.description;
-    const newProps = ($set['properties'] as Record<string, string | number | boolean>) ?? existing.properties;
-    const entityNames = await resolveEntityNames(spaceId, newEntityIds);
-    try {
-      const embedText = memoryEmbedText(newFact, newTags, entityNames, newDesc, newProps);
-      const embResult = await embed(embedText);
-      $set['embedding'] = embResult.vector;
-      $set['embeddingModel'] = embResult.model;
-      $set['matchedText'] = embedText;
-    } catch { /* embedding unavailable — keep existing embedding */ }
-  }
+  // There is no longer a "did the content change?" branch here. It existed to decide whether to pay for an
+  // inline embed; the re-embed is now ENQUEUED unconditionally after the write, and `embedStoredRecord`
+  // reads the record as STORED. Deciding here would mean deciding from this function's stale read — the
+  // exact reasoning that made the old inline embedding wrong.
 
   applyExpiryToUpdate(spaceId, ttlDays, existing._expireAt != null, $set, $unset,
     { collection: 'memory', existing: existing as unknown as Record<string, unknown> }); // F10
@@ -325,7 +307,10 @@ export async function updateMemory(
   // Toggling exclusion always ends in an embed job, and the job handles BOTH directions — it unsets
   // the vector when the flag is on and computes one when it is off. So this path never has to know
   // which way the toggle went, which is what keeps the rule in one place.
-  if (updates.excludeFromVectorSearch !== undefined) await enqueueEmbedJob(spaceId, 'memory', result._id);
+  // ONE enqueue, unconditionally, for every successful update: recompute the text from the record as
+  // STORED, and honour excludeFromVectorSearch in whichever direction it moved. See the entity update and
+  // `embedStoredRecord` for why this replaced an inline embed built from a stale read.
+  await enqueueEmbedJob(spaceId, 'memory', result._id);
   if (actor) emitWebhookEvent({ event: 'memory.updated', spaceId, entry: { ...result, embedding: undefined }, ...actor });
   return result;
 }

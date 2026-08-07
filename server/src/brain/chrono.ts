@@ -243,29 +243,10 @@ export async function updateChrono(
   const mergedUpdateProps = mergePropertiesOrKeep(existing.properties, updates.properties);
   if (updates.properties !== undefined) $set['properties'] = mergedUpdateProps;
 
-  // Re-embed if any embedding-relevant field changes
-  if (
-    updates.title !== undefined ||
-    updates.description !== undefined ||
-    updates.type !== undefined ||
-    updates.status !== undefined ||
-    updates.tags !== undefined ||
-    updates.properties !== undefined
-  ) {
-    const newTitle = updates.title ?? existing.title;
-    const newKind = updates.type ?? existing.type;
-    const newStatus = updates.status ?? existing.status;
-    const newDesc = updates.description !== undefined ? updates.description : existing.description;
-    const newTags = updates.tags ?? existing.tags;
-    const newProps = mergedUpdateProps ?? existing.properties;
-    try {
-      const embedText = chronoEmbedText(newTitle, newKind, newStatus, newDesc, newTags, newProps);
-      const embResult = await embed(embedText);
-      $set['embedding'] = embResult.vector;
-      $set['embeddingModel'] = embResult.model;
-      $set['matchedText'] = embedText;
-    } catch { /* embedding unavailable — keep existing embedding */ }
-  }
+  // There is no longer a "did an embedding-relevant field change?" branch here. It existed to decide whether
+  // to pay for an inline embed; the re-embed is now ENQUEUED unconditionally after the write, and
+  // `embedStoredRecord` reads the record as STORED. Deciding here would mean deciding from this function's
+  // stale read — the exact reasoning that made the old inline embedding wrong.
 
   applyExpiryToUpdate(spaceId, ttlDays, existing._expireAt != null, $set, $unset,
     { collection: 'chrono', existing: existing as unknown as Record<string, unknown> }); // F10
@@ -291,7 +272,10 @@ export async function updateChrono(
   // Toggling exclusion always ends in an embed job, and the job handles BOTH directions — it unsets
   // the vector when the flag is on and computes one when it is off. So this path never has to know
   // which way the toggle went, which is what keeps the rule in one place.
-  if (updates.excludeFromVectorSearch !== undefined) await enqueueEmbedJob(spaceId, 'chrono', updatedChrono._id);
+  // ONE enqueue, unconditionally, for every successful update: recompute the text from the record as
+  // STORED, and honour excludeFromVectorSearch in whichever direction it moved. See the entity update and
+  // `embedStoredRecord` for why this replaced an inline embed built from a stale read.
+  await enqueueEmbedJob(spaceId, 'chrono', updatedChrono._id);
   if (actor) emitWebhookEvent({ event: 'chrono.updated', spaceId, entry: { ...updatedChrono, embedding: undefined }, ...actor });
   return updatedChrono;
 }

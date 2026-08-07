@@ -180,6 +180,17 @@ Use it when you will search for what you just wrote in the same flow, or when a 
 should be a visible error rather than a background repair. `checkDuplicates` and `checkContradictions` imply
 it — a duplicate check needs the vector before the insert so the new record cannot match itself.
 
+**A `PATCH` re-embeds through the same queue**, and always — you do not have to work out whether the fields
+you sent were the ones the vector is built from. The record keeps its previous vector until the worker
+catches up, which is a moment later; unlike a create, an updated record is never *absent* from `recall` in
+the meantime, it is briefly ranked on its previous text.
+
+That is deliberate and it is the correctness argument, not a convenience: the worker rebuilds the text from
+the record **as stored**, so it sees every concurrent edit. An update that computed the vector itself could
+only build it from the record as that request read it — so two clients editing different fields would both
+succeed, lose nothing, and still leave the stored vector describing a record that exists nowhere. `PATCH`
+does not take `waitForEmbedding`; if you need the new vector before you search, poll the record or re-read it.
+
 ---
 
 ### Record Expiry (TTL)
@@ -1824,7 +1835,9 @@ merges on both, and no other field changes meaning. A `PATCH` that names no reco
 
 Brain-record `PATCH`es are last-write-wins by default. Two clients that read the same record, edit the
 **same field**, and both save produce one silent loser: their value disappears with a `200` and no trace.
-(Editing *different* fields is safe — a `PATCH` only writes the fields you send.)
+(Editing *different* fields is safe — a `PATCH` only writes the fields you send, and the record's search
+vector is rebuilt from the record as **stored**, so a concurrent edit to another field cannot leave the two
+disagreeing.)
 
 To make your write conditional, send back the `seq` you read as an `If-Match` header:
 

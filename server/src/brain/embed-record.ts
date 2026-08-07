@@ -80,7 +80,30 @@ export async function buildEmbedText(
 export type EmbedOutcome = 'embedded' | 'gone' | 'excluded';
 
 /**
- * Load the record, build its text, embed it, store the vector.
+ * ## Why an UPDATE enqueues this instead of embedding inline
+ *
+ * Until 2026-08-07 all four update functions computed the vector themselves, from the record as they had
+ * READ it plus the caller's patch, and wrote it in the same `$set`. Every content field in that `$set` was
+ * guarded by `updates.X !== undefined`, but the embedding never was — it went in unconditionally.
+ *
+ * So two concurrent patches touching DIFFERENT fields both landed and lost no field, exactly as documented,
+ * while each wrote a whole embedding describing only its own view of the record. The later write won, and
+ * the stored vector then described a record that no longer existed anywhere: not a lost field, a permanent
+ * disagreement between a record and its own index. Nothing could detect it, because every field was
+ * correct — no counter fires, and no `If-Match` precondition would have been violated.
+ *
+ * `embedStoredRecord` cannot have that bug. It re-reads the document AFTER the write, so the text it embeds
+ * is by construction the text of the record as it actually stands, whoever else wrote to it in between.
+ *
+ * Two things fall out of the change that are worth knowing before "simplifying" it back:
+ *
+ *  - **It is the contract creates already have.** `upsertEntity` and `remember` have queued by default since
+ *    the embed queue shipped, and `waitForEmbedding` is the documented opt-out. Updates were the odd one out.
+ *  - **It deletes four copies of the embed-text builder.** Each update function had its own inline call to
+ *    `entityEmbedText` / `memoryEmbedText` / …; `buildEmbedText` above is the one the queue uses, and one
+ *    copy cannot drift from itself.
+ *
+ * ## Load the record, build its text, embed it, store the vector.
  *
  * Throws if the model is unavailable — the caller decides whether that is a retry (the worker) or a
  * failed request (`waitForEmbedding: true`). Returns `gone` when the record no longer exists, which is

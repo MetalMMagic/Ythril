@@ -16,7 +16,7 @@ import { parseSortParam, SORTABLE_FIELDS } from '../../brain/list-sort.js';
 import { textSearchOr, SEARCHABLE_FIELDS } from '../../brain/text-search.js';
 import { resolveMemberSpaces, resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { validateEntity } from '../../spaces/schema-validation.js';
-import { UUID_V4_RE, webhookToken, getSpaceMeta, ttlDaysFromBody, ttlDaysError, dupeCheckOptsFromBody } from './_shared.js';
+import { UUID_V4_RE, webhookToken, getSpaceMeta, ttlDaysFromBody, ttlDaysError, dupeCheckOptsFromBody, ifMatchFromRequest, preconditionFailedBody } from './_shared.js';
 import { classifyEntityUpsert, classifyUpdateViolations } from '../../brain/write-validation.js';
 import { tagContains, textContains, propertiesValueContains } from '../../brain/tag-filter.js';
 import { mergePropertiesOrKeep, mergeTagsOrKeep } from '../../brain/merge-fields.js';
@@ -234,6 +234,8 @@ entitiesRouter.patch('/spaces/:spaceId/entities/:id', globalRateLimit, requireSp
   }
   const wt = resolveWriteTarget(spaceId, req.query['targetSpace'] as string | undefined);
   if (!wt.ok) { res.status(400).json({ error: wt.error }); return; }
+  const ifMatch = ifMatchFromRequest(req);
+  if (!ifMatch.ok) { res.status(400).json({ error: ifMatch.error }); return; }
   const { name, type, description, tags, properties, deleteFields } = req.body ?? {};
   // Validate deleteFields
   const dfResult = validateDeleteFields(deleteFields);
@@ -311,10 +313,17 @@ entitiesRouter.patch('/spaces/:spaceId/entities/:id', globalRateLimit, requireSp
     }
     // Snapshot for the audit change list, from the read above — see the note in memories.ts.
     // `properties` is deliberately not allowlisted, so handing the record over cannot publish it.
-    const updated = await updateEntityById(mid, id, updates, dfPaths, webhookToken(req), ttlDaysFromBody(req.body));
+    const updated = await updateEntityById(mid, id, updates, dfPaths, webhookToken(req), ttlDaysFromBody(req.body), ifMatch.seq);
     if (updated) {
       req.auditSnapshots = { before: existing ?? {}, after: updated };
       res.json(updated);
+      return;
+    }
+    // The record was there a moment ago and the write matched nothing, so the precondition is what
+    // stopped it. Do NOT fall through to the next member space — that would retry the write the client
+    // explicitly asked us not to make.
+    if (ifMatch.seq !== undefined) {
+      res.status(412).json(preconditionFailedBody('entity', (await getEntityById(mid, id))?.seq));
       return;
     }
   }

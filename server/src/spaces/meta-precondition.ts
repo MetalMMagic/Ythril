@@ -25,7 +25,16 @@
  * defined outcome of an unmet precondition, and HTTP client libraries already understand it. A
  * malformed header value is 400 — the client asked for a guarantee in terms the server cannot
  * evaluate, and silently ignoring it would hand back exactly the false safety the header was for.
+ *
+ * ── What is here and what is not ────────────────────────────────────────────────────────────────
+ *
+ * Reading the header is `util/if-match.ts`, shared with the brain-record routes, which honour the
+ * same header against a record's `seq`. What stays here is meta-specific and only that: the
+ * comparison against `space.meta.version`, and the wording of the two failures. The parse was
+ * generic from the day it was written, and a second hand-written copy is how two surfaces end up
+ * disagreeing about whether `W/"4"` counts.
  */
+import { parseIfMatch } from '../util/if-match.js';
 
 export type PreconditionVerdict =
   | { ok: true }
@@ -43,25 +52,18 @@ export type PreconditionVerdict =
  * "only if nobody has configured this yet".
  */
 export function checkMetaPrecondition(header: string | undefined, currentVersion: number): PreconditionVerdict {
-  if (header === undefined) return { ok: true };      // no precondition asked for
-
-  const raw = header.trim();
-  if (raw === '') return { ok: false, status: 400, reason: 'malformed', received: header };
-  if (raw === '*') return { ok: true };               // RFC 9110: matches any existing representation
-
-  // Strip a weak-validator prefix and surrounding quotes, so all three spellings of the same version
-  // behave identically rather than one of them silently failing every write.
-  const unquoted = raw.replace(/^W\//i, '').replace(/^"(.*)"$/, '$1').trim();
-
-  // Deliberately strict: `parseInt` would accept "4-and-a-half" as 4 and let a nonsense precondition
-  // pass, which is worse than rejecting it.
-  if (!/^\d+$/.test(unquoted)) return { ok: false, status: 400, reason: 'malformed', received: header };
-
-  const expected = Number(unquoted);
-  if (expected !== currentVersion) {
-    return { ok: false, status: 412, reason: 'mismatch', expected, actual: currentVersion };
+  const parsed = parseIfMatch(header);
+  switch (parsed.kind) {
+    case 'none':                                      // no precondition asked for
+    case 'any':                                       // RFC 9110: matches any existing representation
+      return { ok: true };
+    case 'malformed':
+      return { ok: false, status: 400, reason: 'malformed', received: parsed.received };
+    case 'exact':
+      return parsed.value === currentVersion
+        ? { ok: true }
+        : { ok: false, status: 412, reason: 'mismatch', expected: parsed.value, actual: currentVersion };
   }
-  return { ok: true };
 }
 
 /** The message body for a failed precondition — says what to do, not just what went wrong. */

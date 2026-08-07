@@ -111,11 +111,17 @@ export async function postRetry429(baseUrl, token, path, data, maxRetries = 3) {
   return post(baseUrl, token, path, data);
 }
 
-/** PATCH with JSON body */
-export async function patch(baseUrl, token, path, data) {
+/**
+ * PATCH with JSON body.
+ *
+ * `headers` is optional and merges over the defaults — it exists for `If-Match`, which is a header rather
+ * than a body field and so cannot be exercised through the body-only form.
+ */
+export async function patch(baseUrl, token, path, data, headers) {
   return reqJson(baseUrl, token, path, {
     method: 'PATCH',
     body: JSON.stringify(data),
+    ...(headers ? { headers } : {}),
   });
 }
 

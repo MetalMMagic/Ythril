@@ -10,6 +10,7 @@ import { embed } from './embedding.js';
 import { entityEmbedText } from './embed-text.js';
 import { getConfig } from '../config/loader.js';
 import { stampExpiryOnCreate, applyExpiryToUpdate } from './ttl.js';
+import { writeFilterFor, writeOutcome } from './write-precondition.js';
 import { applyDeleteFields } from './delete-fields.js';
 import { mergeTagsAndProperties, mergePropertiesOrKeep, mergeTagsOrKeep } from './merge-fields.js';
 import { enqueueEmbedJob } from './embed-queue.js';
@@ -244,7 +245,14 @@ export async function getEntityById(spaceId: string, id: string): Promise<Entity
   return col<EntityDoc>(`${spaceId}_entities`).findOne(asFilter<EntityDoc>({ _id: id, spaceId })) as Promise<EntityDoc | null>;
 }
 
-/** Update an existing entity by ID. Partial update — only supplied fields are changed. Re-embeds when any content field changes. */
+/**
+ * Update an existing entity by ID. Partial update — only supplied fields are changed. Re-embeds when any
+ * content field changes.
+ *
+ * `ifMatchSeq` is the optimistic-concurrency precondition: the write only lands if the record's `seq` is
+ * still that value. `undefined` means no precondition and the write proceeds exactly as it always has.
+ * See `writeFilterFor` for why it is enforced in the filter rather than by comparing the read.
+ */
 export async function updateEntityById(
   spaceId: string,
   id: string,
@@ -252,6 +260,7 @@ export async function updateEntityById(
   deleteFieldsPaths?: string[],
   actor?: WebhookActor,
   ttlDays?: number | null,
+  ifMatchSeq?: number,
 ): Promise<EntityDoc | null> {
   const collection = col<EntityDoc>(`${spaceId}_entities`);
   const existing = await collection.findOne(asFilter<EntityDoc>({ _id: id, spaceId })) as EntityDoc | null;
@@ -320,14 +329,18 @@ export async function updateEntityById(
   // function is exactly the test for another writer landing in the window. Observation only — no write that
   // previously succeeded is now rejected.
   const beforeWrite = await collection.findOneAndUpdate(
-    asFilter<EntityDoc>({ _id: id }),
+    asFilter<EntityDoc>(writeFilterFor(id, ifMatchSeq)),
     asUpdate<EntityDoc>(updateOp),
     { returnDocument: 'before' },
   ) as EntityDoc | null;
   brainWriteSeqTotal.labels({
     collection: 'entities',
-    outcome: beforeWrite && beforeWrite.seq !== existing.seq ? 'collision' : 'clean',
+    outcome: writeOutcome(!!beforeWrite, ifMatchSeq !== undefined, !!beforeWrite && beforeWrite.seq !== existing.seq),
   }).inc();
+  // Nothing matched, so nothing was written. Everything below builds the response out of `existing`, which
+  // would describe a write that did not happen — a fabricated 200 that predates the precondition and was
+  // reachable whenever a record was deleted inside the read-then-write window.
+  if (!beforeWrite) return null;
 
   const result = {
     ...existing,

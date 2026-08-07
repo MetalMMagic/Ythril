@@ -858,6 +858,12 @@ for (const reason of ['rerank_unavailable', 'rerank_skipped_budget', 'search_tim
  *
  * `collision` counts a detected overwrite; `clean` counts a write whose record had not moved. Both, so the
  * numerator has a denominator — "12 collisions" means nothing without "of how many writes".
+ *
+ * `refused` is the third outcome and means the opposite of the first: a write an `If-Match` precondition
+ * STOPPED, so the overwrite did not happen. It is a separate series on purpose. Folding it into `collision`
+ * would conflate a lost update with a prevented one, and would corrupt this very measurement — the
+ * collision rate has been accumulating since the counter shipped, and a series whose meaning changes
+ * halfway through cannot be compared with itself.
  */
 export const brainWriteSeqTotal = new Counter({
   name: 'ythril_brain_write_seq_total',
@@ -873,7 +879,7 @@ export const brainWriteSeqTotal = new Counter({
 // without instrumenting them would have been the worse fix: a permanent 0 on entities reads as "no
 // collisions here", which is the exact confusion pre-declaring exists to prevent.
 for (const collection of ['memories', 'entities', 'edges', 'chrono']) {
-  for (const outcome of ['clean', 'collision']) {
+  for (const outcome of ['clean', 'collision', 'refused']) {
     brainWriteSeqTotal.labels({ collection, outcome }).inc(0);
   }
 }

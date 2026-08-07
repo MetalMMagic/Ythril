@@ -15,7 +15,7 @@ import { parseLimit, parseSkip, capPage } from '../../util/pagination.js';
 import { parseSortParam, SORTABLE_FIELDS } from '../../brain/list-sort.js';
 import { resolveMemberSpaces, resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { validateEdge } from '../../spaces/schema-validation.js';
-import { UUID_V4_RE, webhookToken, getSpaceMeta, ttlDaysFromBody, ttlDaysError } from './_shared.js';
+import { UUID_V4_RE, webhookToken, getSpaceMeta, ttlDaysFromBody, ttlDaysError, ifMatchFromRequest, preconditionFailedBody } from './_shared.js';
 import { classifyEdgeUpsert, classifyUpdateViolations } from '../../brain/write-validation.js';
 import { resolveEntityIdsByName } from '../../brain/entities.js';
 import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
@@ -189,6 +189,8 @@ edgesRouter.patch('/spaces/:spaceId/edges/:id', globalRateLimit, requireSpaceAut
   }
   const wt = resolveWriteTarget(spaceId, req.query['targetSpace'] as string | undefined);
   if (!wt.ok) { res.status(400).json({ error: wt.error }); return; }
+  const ifMatch = ifMatchFromRequest(req);
+  if (!ifMatch.ok) { res.status(400).json({ error: ifMatch.error }); return; }
   const { label, description, tags, properties, weight, type, deleteFields } = req.body ?? {};
   // Validate deleteFields
   const dfResult = validateDeleteFields(deleteFields);
@@ -264,10 +266,16 @@ edgesRouter.patch('/spaces/:spaceId/edges/:id', globalRateLimit, requireSpaceAut
       }
     }
     // Snapshot for the audit change list, from the read above — see the note in memories.ts.
-    const updated = await updateEdgeById(mid, id, updates, dfPaths, webhookToken(req), ttlDaysFromBody(req.body));
+    const updated = await updateEdgeById(mid, id, updates, dfPaths, webhookToken(req), ttlDaysFromBody(req.body), ifMatch.seq);
     if (updated) {
       req.auditSnapshots = { before: existing ?? {}, after: updated };
       res.json(updated);
+      return;
+    }
+    // See the note in entities.ts: with a precondition in play, a write that matched nothing is a 412
+    // and must not fall through to the next member space.
+    if (ifMatch.seq !== undefined) {
+      res.status(412).json(preconditionFailedBody('edge', (await getEdgeById(mid, id))?.seq));
       return;
     }
   }

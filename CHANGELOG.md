@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.1] — 2026-08-07
+
+> **Documentation files changed in this release:** `docs/integration-guide/04-brain-api.md`,
+> `docs/integration-guide/06-spaces-api.md`, `docs/integration-guide/16-mcp.md`.
+>
+> Listed because an operator who re-ingests the guides on every deploy asked for it: their refresh is
+> size-idempotent and silently skips a file whose byte size has not changed, so a same-size edit would leave
+> their readers answering confidently from a stale copy. Naming the files means they know when to force.
+
 ### Fixed
 
 - **File metadata had the same stale-read embedding defect, and a second one on top of it.** `updateFileMeta`

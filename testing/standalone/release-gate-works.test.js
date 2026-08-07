@@ -34,6 +34,14 @@ const ROOT = process.cwd();
 const GATE = 'scripts/release-gate.mjs';
 const src = readFileSync(join(ROOT, GATE), 'utf8');
 
+/**
+ * Code only. Assertions about what a gate CHECKS must not be satisfiable by the comment that explains the
+ * check — that reads as coverage and makes deleting the explanation look like a fix.
+ */
+function withoutComments(text) {
+  return text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+}
+
 /** The gate names its checks in two arrays; pull them out rather than duplicating the list here. */
 function namedGates() {
   const out = [];
@@ -74,6 +82,34 @@ describe('mode detection', () => {
     assert.match(src, /if \(!RELEASING\) return;/,
       'the [Unreleased] emptiness check is not gated on release mode, so it fails on every healthy mid-cycle tree '
       + 'and teaches everyone to ignore this gate');
+  });
+
+  it('the green CHANGELOG line does not claim a check that mid-cycle skips', () => {
+    // `checkChangelog` returns early on the [Unreleased] rule unless RELEASING. So a success line naming that
+    // rule unconditionally reports, in green, a check that did not run — and green is the colour people stop
+    // reading after. It did exactly that for two releases, five lines below its own
+    // "mid-cycle — [Unreleased] may hold entries" banner.
+    //
+    // Asserted structurally for the same reason as the test above: running the gate and reading its output
+    // depends on whether HEAD happens to be a tag when the suite runs. Shape-agnostic on purpose — an
+    // if/else satisfies it as readily as the ternary that is there now.
+    const start = src.indexOf('checkChangelog(version);');
+    assert.ok(start > 0, 'the CHANGELOG section moved — this test needs re-pointing, not deleting');
+    // Comments stripped, and not as a formality: the first draft of this test PASSED against the pre-fix
+    // code, because the comment written to explain the fix mentions RELEASING. A gate that reads prose
+    // rewards deleting the prose.
+    const region = withoutComments(src.slice(start, src.indexOf('\n}', start)));
+
+    const claim = region.indexOf('[Unreleased] is empty');
+    assert.ok(claim > 0,
+      'the releasing-mode line no longer states that it checked [Unreleased]; if that claim was dropped on '
+      + 'purpose, re-point this test at whatever states the coverage now');
+    const branch = region.indexOf('RELEASING');
+    assert.ok(branch > 0 && branch < claim,
+      'the CHANGELOG success line is not gated on release mode, so a mid-cycle run claims [Unreleased] was '
+      + 'checked while checkChangelog skipped it');
+    assert.match(region, /not checked mid-cycle/,
+      'the mid-cycle line does not say which check it skipped, so its silence reads as coverage');
   });
 
   it('detects release mode from git rather than from a flag alone', () => {

@@ -234,7 +234,16 @@ console.log(`  version: ${version ?? '(inconsistent)'}   mode: ${mode}\n`);
 console.log(`${YELLOW}CHANGELOG carries the release${R}`);
 checkChangelog(version);
 if (!failures.some(f => f.gate === 'changelog')) {
-  console.log(`${GREEN}  ✓${R} [${version}] is dated, has content, and [Unreleased] is empty\n`);
+  // Say what was CHECKED, which is not the same in both modes. This line used to claim "[Unreleased] is
+  // empty" unconditionally — five lines after printing "mid-cycle — [Unreleased] may hold entries", and
+  // while `checkChangelog` only tests emptiness under RELEASING. So on every mid-cycle run the gate
+  // asserted, in green, something it had not looked at and that was usually false.
+  //
+  // A gate that overstates its coverage is worse than one that covers less: the whole value of a green
+  // line is that someone can stop worrying about the thing it names.
+  console.log(RELEASING
+    ? `${GREEN}  ✓${R} [${version}] is dated, has content, and [Unreleased] is empty\n`
+    : `${GREEN}  ✓${R} [${version}] is dated and has content ${DIM}([Unreleased] not checked mid-cycle)${R}\n`);
 } else {
   console.log('');
 }

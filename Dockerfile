@@ -102,8 +102,13 @@ RUN npm ci --workspace=server --omit=dev
 # a layer that is discarded anyway. This costs nothing: `prod-deps` is already built.
 FROM prod-deps AS model-warm
 
-# HF rate-limits anonymous downloads per-IP (shared CI egress → intermittent 403), so the retry/backoff rides
-# through a transient failure, and `--mount=type=cache` keeps a local rebuild from re-fetching ~274 MB.
+# HF rate-limits anonymous downloads per-IP (shared CI egress), so the retry/backoff below rides through it,
+# and `--mount=type=cache` keeps a local rebuild from re-fetching ~274 MB.
+#
+# This said "intermittent 403" until 2026-08-07, when the observed code was **429** on every one of six
+# attempts. Corrected rather than left, because the two suggest different fixes: a 403 reads as an auth or
+# policy problem you cannot wait out, and a 429 is precisely the one you can — which is what the backoff
+# below is now sized for.
 #
 # The mtime stamp here is for THIS stage's own layer, not for the shipped one: it lets CI's `--cache-from
 # type=gha` reuse a warm step across builds. The layer a user pulls is stamped again in the production stage,
@@ -121,18 +126,41 @@ FROM prod-deps AS model-warm
 #
 # `/app`'s mtime moving here is harmless in a way it was not before: this whole stage is discarded, and only
 # `/model-cache` is read out of it.
+#
+# ── The retry policy, and why it is two policies ─────────────────────────────────────────────────────
+#
+# This loop used to be six attempts backing off 2, 4, 8, 16, 32 seconds. It looked like protection and was
+# not: the whole budget is 62 seconds, and the failure it actually receives is `Error (429)` — HuggingFace
+# rate-limiting the anonymous download after a day's build volume. A rate-limit window does not clear in a
+# minute, so the loop exhausted itself against an error that could not have succeeded in the time allowed,
+# and took a release build down with it (2026-08-07).
+#
+# The loop was never broken — it logged all five retries and threw on the sixth, exactly as written. It was
+# CALIBRATED for the wrong failure. That distinction is why the fix is a budget and not a rewrite.
+#
+# So the two failures now get different treatment, because they want opposite things:
+#
+#   - **429 — wait it out.** Up to nine sleeps of 15, 30, 45, 60, 75, 90, 90, 90, 90 seconds: about
+#     9.5 minutes. A build already takes ~45, so spending that to survive a rate limit is cheap next to
+#     spending 45 to discover one.
+#   - **Anything else — fail fast.** A wrong model name, a 404, a full disk: three attempts and out, because
+#     none of them become true by waiting. Without this split, raising the budget would have made every
+#     genuine misconfiguration take ten minutes to report itself.
 RUN --mount=type=cache,target=/tmp/hf-model-cache \
     printf '%s\n' \
     'import { pipeline, env } from "@huggingface/transformers";' \
     'env.cacheDir = "/tmp/hf-model-cache";' \
     'const load = () => pipeline("feature-extraction", "nomic-ai/nomic-embed-text-v1.5", { dtype: "fp32" });' \
-    'const attempts = 6;' \
+    'const rateLimited = (err) => String(err).includes("(429)");' \
+    'const attempts = 10;' \
+    'const FAST_FAIL_AFTER = 3;' \
     'for (let i = 1; i <= attempts; i++) {' \
     '  try { await load(); break; }' \
     '  catch (err) {' \
-    '    if (i === attempts) throw err;' \
-    '    const delay = Math.min(60, 2 ** i);' \
-    '    console.warn(`model download attempt ${i}/${attempts} failed: ${err}; retrying in ${delay}s`);' \
+    '    const limited = rateLimited(err);' \
+    '    if (i === attempts || (!limited && i >= FAST_FAIL_AFTER)) throw err;' \
+    '    const delay = limited ? Math.min(90, 15 * i) : 2 ** i;' \
+    '    console.warn(`model download attempt ${i}/${attempts} failed${limited ? " (rate limited)" : ""}: ${err}; retrying in ${delay}s`);' \
     '    await new Promise(r => setTimeout(r, delay * 1000));' \
     '  }' \
     '}' \

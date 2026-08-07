@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Internal
+
+- **The model-warm retry loop had a 62-second budget against a failure measured in minutes.** Six attempts
+  backing off 2, 4, 8, 16, 32 seconds — so every attempt landed inside 62.68 s. What it receives is
+  `Error (429)`: HuggingFace rate-limiting the anonymous model download after a day's build volume. A
+  rate-limit window does not clear in a minute, so the loop exhausted itself against an error that could not
+  have succeeded in the time allowed, and took the 2.5.1 release build down with it.
+  - **The loop was never broken.** It logged all five retries and threw on the sixth, exactly as written. It
+    was calibrated for a transient network blip and received a rate limit. Recorded that way on purpose:
+    "the retry loop is broken" is the natural reading of the symptom, and it would send the next person
+    rewriting a working loop while leaving the budget untouched.
+  - **Now two policies, because the two failures want opposite things.** A 429 is waited out — up to nine
+    sleeps rising to a 90-second cap, about 9.5 minutes, against a build that already takes ~45. Anything
+    else fails after three attempts, because a wrong model name or a full disk does not become true by
+    waiting; without that split, raising the budget would have made every misconfiguration take ten minutes
+    to report itself.
+  - Tested by **extracting the script the Dockerfile writes and running it** with `load` and `setTimeout`
+    stubbed, rather than restating the loop in the test — a second copy of a policy is the thing that drifts.
+    The extractor fails loudly if the `printf` block changes shape, so the test cannot pass against a stale
+    copy, and it also syntax-checks the generated script: a mangled shell escape otherwise fails the image
+    build ten minutes in, with an error that points nowhere near the Dockerfile line that caused it.
+  - A neighbouring comment claiming "intermittent 403" is corrected to 429. The two suggest different fixes —
+    a 403 reads as something you cannot wait out, and this is precisely the one you can.
+
 ## [2.5.1] — 2026-08-07
 
 > **Documentation files changed in this release:** `docs/integration-guide/04-brain-api.md`,

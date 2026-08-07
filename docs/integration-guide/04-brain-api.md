@@ -1879,7 +1879,9 @@ Notes:
   conditional write should use the REST route.
 - **File-metadata records are not covered**, and say so: they carry no `seq` to condition a write on, so
   `PATCH /api/brain/spaces/:spaceId/files` **refuses** an `If-Match` with a `400` rather than accepting and
-  dropping it.
+  dropping it. Its search vector is still rebuilt from the record as stored, through the same background
+  queue as everything else, so a concurrent edit cannot leave the record and its vector disagreeing — you
+  simply cannot make *this* write conditional.
 
 The same header, in the same spellings, is honoured on space-meta writes against `meta.version` — see the
 [Spaces API](06-spaces-api.md).

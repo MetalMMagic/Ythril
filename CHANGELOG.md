@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
+- **The MCP guide now says that a session caches its tool list, so an upgrade needs a reconnect.** MCP
+  negotiates the tool list once at session start; a session held open across an instance upgrade keeps
+  reporting the old surface, and tools the new version added are absent from the client's view while the
+  server offers them normally. An operator upgrading five instances 2.4.0 → 2.5.0 came close to reporting
+  that three tools had not shipped — every piece of evidence in front of them pointed that way, because the
+  tools really were missing from their client and the instance really was on the new version. `help()` is the
+  check: it is generated server-side per token at call time, so it describes what the instance offers now.
+  Nothing to fix in the server — the protocol permits the client to cache — which is exactly why it needed
+  writing down instead.
+
 - **The `TypeSchema` interface block was missing two of its five fields.**
   `docs/integration-guide/06-spaces-api.md` documented `namingPattern`, `tagSuggestions` and
   `propertySchemas`, and omitted **`retention`** (per-type retention, the middle tier of

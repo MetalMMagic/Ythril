@@ -48,6 +48,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **The release gate printed a green line for a check it had skipped.** Its CHANGELOG section ended in
+  `✓ [2.4.0] is dated, has content, and [Unreleased] is empty` on every successful run — including mid-cycle
+  ones, five lines below its own `mid-cycle — [Unreleased] may hold entries` banner, and while `checkChangelog`
+  only tests emptiness under `RELEASING`. So mid-cycle it asserted, in green, something it had not looked at
+  and that was usually false; the run that found it printed the claim against an `[Unreleased]` holding eight
+  entries. A gate that overstates its coverage is worse than one that covers less — the value of a green line
+  is that someone can stop worrying about the thing it names. Mid-cycle now reads
+  `✓ [2.4.0] is dated and has content ([Unreleased] not checked mid-cycle)`; releasing mode is unchanged.
+  - Locked by a test asserting the claim is downstream of the mode branch and that the mid-cycle line names
+    what it skipped. Its first draft **passed against the pre-fix code**, because the comment written to
+    explain the fix mentions `RELEASING` — so the test strips comments before reading the source. An
+    assertion satisfiable by prose rewards deleting the prose.
+
 - **A gate that an async write to a rendered field notifies OnPush** — the deliverable from the last
   architecture angle, which came back clean. Under OnPush, `this.rows = result.items` in a subscribe
   callback changes the data and does not tell Angular: the request succeeds, the value is correct in memory,

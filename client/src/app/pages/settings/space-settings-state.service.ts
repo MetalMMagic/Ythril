@@ -5,6 +5,12 @@ import {
 } from '../../core/api.types';
 import { TranslocoService } from '@jsverse/transloco';
 import { SpacesApi } from '../../core/spaces-api.service';
+import {
+  addProp as addPropTo,
+  removeProp as removePropFrom,
+  addEnumVal as addEnumValTo,
+  removeEnumVal as removeEnumValFrom,
+} from './type-schema-edits';
 
 /**
  * Editable form state for one type schema.
@@ -427,18 +433,21 @@ export class SpaceSettingsState {
     else this.schExpandedProps.add(k);
   }
 
+  // ── The per-type edits live in `type-schema-edits.ts` and are delegated to from here.
+  //
+  // They moved so the Brain Overview's data-model panel can open the same editor in place rather than
+  // sending an operator to Space Settings for a one-field change. This service is page-scoped and cannot be
+  // injected there; the edits are now plain functions over a state object, so both callers share one
+  // implementation. What stays HERE is the expansion set, because which rows are open is a property of this
+  // view and a modal editing a single type has no use for it.
+
   addProp(kt: KnowledgeType, typeName: string): void {
-    const state = this.typeState(kt, typeName);
-    const key = (state._newPropInput ?? '').trim();
-    if (!key || state.propertySchemas.some(e => e.key === key)) { state._newPropInput = ''; return; }
-    state.propertySchemas = [...state.propertySchemas, { key, s: {}, _enumInput: '' }];
-    state._newPropInput   = '';
-    this.schExpandedProps.add(this.propKey(kt, typeName, key));
+    const key = addPropTo(this.typeState(kt, typeName));
+    if (key !== null) this.schExpandedProps.add(this.propKey(kt, typeName, key));
   }
 
   removeProp(kt: KnowledgeType, typeName: string, propKey: string): void {
-    const state = this.typeState(kt, typeName);
-    state.propertySchemas = state.propertySchemas.filter(e => e.key !== propKey);
+    removePropFrom(this.typeState(kt, typeName), propKey);
     this.schExpandedProps.delete(this.propKey(kt, typeName, propKey));
   }
 
@@ -452,19 +461,11 @@ export class SpaceSettingsState {
   }
 
   addEnumVal(kt: KnowledgeType, typeName: string, propKey: string): void {
-    const entry = this.typeState(kt, typeName).propertySchemas.find(e => e.key === propKey);
-    if (!entry) return;
-    const val = (entry._enumInput ?? '').trim();
-    if (!val) return;
-    const curr = entry.s.enum ?? [];
-    if (!curr.some(v => String(v) === val)) entry.s = { ...entry.s, enum: [...curr, val] };
-    entry._enumInput = '';
+    addEnumValTo(this.typeState(kt, typeName), propKey);
   }
 
   removeEnumVal(kt: KnowledgeType, typeName: string, propKey: string, val: string | number | boolean): void {
-    const entry = this.typeState(kt, typeName).propertySchemas.find(e => e.key === propKey);
-    if (!entry) return;
-    entry.s = { ...entry.s, enum: (entry.s.enum ?? []).filter(v => v !== val) };
+    removeEnumValFrom(this.typeState(kt, typeName), propKey, val);
   }
 
   wipeStatCols(): { label: string; value: number }[] {

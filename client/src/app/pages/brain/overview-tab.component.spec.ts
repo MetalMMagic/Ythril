@@ -8,6 +8,8 @@
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { provideRouter } from '@angular/router';
+import { of } from 'rxjs';
+import { BrainApi } from '../../core/brain-api.service';
 import { getTranslocoModule } from '../../testing/transloco-testing';
 import { OverviewTabComponent } from './overview-tab.component';
 import { COLLECTION_TABS } from './brain-tabs';
@@ -24,7 +26,7 @@ function setup(opts: { stats?: SpaceStats; space?: Space; confirm?: boolean; nee
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     imports: [OverviewTabComponent, getTranslocoModule()],
-    providers: [provideRouter([]), { provide: ConfirmDialogService, useValue: { confirm } }],
+    providers: [provideRouter([]), { provide: ConfirmDialogService, useValue: { confirm } }, { provide: BrainApi, useValue: { getErModel: () => of({ spaceId: 's', entityTypes: [], relationships: [], danglingEdges: 0, truncated: null, totals: { entities: 0, edges: 0 } }) } }],
   });
   const fixture: ComponentFixture<OverviewTabComponent> = TestBed.createComponent(OverviewTabComponent);
   fixture.componentRef.setInput('space', opts.space ?? space());
@@ -238,7 +240,7 @@ describe('OverviewTabComponent', () => {
     expect((noVotes.fixture.nativeElement as HTMLElement).querySelector('.vote-list')).toBeNull();
   });
 
-  it('the Statistics summary is the one full-width card; every other panel is a normal grid cell', () => {
+  it('two cards span the full width — the summary and the diagram — and nothing else does', () => {
     // Uniform card sizing is CSS (jsdom computes no layout, so heights are verified by the E2E
     // geometry check, not here). What IS pinnable is the structure that layout relies on: exactly one
     // .span-all card, and it is the Statistics summary.
@@ -250,8 +252,10 @@ describe('OverviewTabComponent', () => {
     fixture.detectChanges();
     const el = fixture.nativeElement as HTMLElement;
     const spanning = [...el.querySelectorAll('.panel.span-all')];
-    expect(spanning.length).toBe(1);
-    expect(spanning[0].querySelector('h3')?.textContent).toContain('brain.overview.statsTitle');
+    expect(spanning.length).toBe(2);
+    const titles = spanning.map(s => s.querySelector('h3')?.textContent ?? '');
+    expect(titles.some(x => x.includes('brain.overview.statsTitle'))).toBe(true);
+    expect(titles.some(x => x.includes('brain.overview.er.title'))).toBe(true);
     expect(el.querySelectorAll('.panel').length).toBeGreaterThan(1); // other panels are normal cells
   });
 
@@ -380,7 +384,7 @@ describe('OverviewTabComponent — the usage panel', () => {
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
       imports: [OverviewTabComponent, getTranslocoModule()],
-      providers: [{ provide: ConfirmDialogService, useValue: { confirm: () => Promise.resolve(true) } }],
+      providers: [provideRouter([]), { provide: ConfirmDialogService, useValue: { confirm: () => Promise.resolve(true) } }, { provide: BrainApi, useValue: { getErModel: () => of({ spaceId: 's', entityTypes: [], relationships: [], danglingEdges: 0, truncated: null, totals: { entities: 0, edges: 0 } }) } }],
     });
     const fixture = TestBed.createComponent(OverviewTabComponent);
     fixture.componentRef.setInput('space', { id: 'general', label: 'General' });
@@ -503,7 +507,7 @@ describe('OverviewTabComponent — first-load skeletons', () => {
   it('draws lines, not a spinner — the size is the point', () => {
     const { el } = render(PENDING);
     const lines = el.querySelectorAll('app-skeleton-lines .sk-line');
-    expect(lines.length).toBe(4 + 4 + 3 + 3);          // the per-card row counts
+    expect(lines.length).toBe(4 + 4 + 4 + 3 + 3);      // per-card row counts, incl. the data-model panel
     expect(el.querySelector('.panel[aria-busy="true"] .spinner')).toBeNull();
   });
 });

@@ -5,6 +5,7 @@
  * inline-edit strip empty optional properties via the entity schema.
  */
 import { TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { of } from 'rxjs';
 import type { Entity, SpaceMetaResponse } from '../../core/api.types';
@@ -29,6 +30,9 @@ function make() {
   TestBed.configureTestingModule({
     imports: [EntitiesTabComponent, getTranslocoModule()],
     providers: [
+      // The tab reads `?type=` on construction so the Overview's data-model panel can link straight to a
+      // filtered list. An empty router gives it a route with no params, which is the ordinary case.
+      provideRouter([]),
       RecordListState, BrainStore, EntityRefPicker, RecordDrawerState,
       { provide: BrainApi, useValue: api },
     ],

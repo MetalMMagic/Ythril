@@ -28,7 +28,8 @@ import { ErrorStateComponent } from '../../shared/error-state.component';
 import { httpErrorReason } from '../../core/http-error';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
-import { BrainTab, CollectionTab } from './brain-tabs';
+import { ActivatedRoute, Router } from '@angular/router';
+import { BrainTab, CollectionTab, BRAIN_TABS } from './brain-tabs';
 
 interface SpaceView {
   space: Space;
@@ -368,6 +369,9 @@ export class BrainComponent implements OnInit, OnDestroy {
 
   spaces = signal<SpaceView[]>([]);
   activeSpaceId = signal('');
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+
   activeTab = signal<BrainTab>('overview');
 
   /**
@@ -472,7 +476,7 @@ export class BrainComponent implements OnInit, OnDestroy {
         this.spaces.set(spaces.map(s => ({ space: s })));
         this.loadingSpaces.set(false);
         if (spaces.length > 0) {
-          this.selectSpace(spaces[0].id);
+          this.applyUrlState(spaces);
           // Pre-load stats for all other spaces so counts show on their chips
           spaces.slice(1).forEach(s => this.loadStats(s.id));
         }
@@ -686,6 +690,45 @@ export class BrainComponent implements OnInit, OnDestroy {
     });
   }
 
+  /**
+   * Deep-link state: which space and which tab, read from the URL.
+   *
+   * The Overview's data-model panel links a type's record count straight to the filtered entities tab, so
+   * that link has to be a real URL rather than a signal handed between two components — right-click, open in
+   * a new tab, bookmark and back/forward all follow for free, and neither component learns about the other.
+   * The Graph page already deep-links the same way with `?space=` and `?entity=`.
+   *
+   * Read once from the snapshot rather than subscribed: a later in-page navigation is this component
+   * WRITING the URL, and re-reading its own write would fight `setTab`.
+   */
+  private applyUrlState(spaces: { id: string }[]): void {
+    const qp = this.route.snapshot.queryParamMap;
+    const wanted = qp.get('space') ?? undefined;
+    const initial = wanted && spaces.some(s => s.id === wanted) ? wanted : spaces[0]!.id;
+    this.selectSpace(initial);
+
+    // Only a tab that exists. An unknown value in a hand-edited URL must land on the default rather than a
+    // blank pane, and `BRAIN_TABS` is the same list the strip renders from.
+    const tab = (qp.get('tab') ?? undefined) as BrainTab | undefined;
+    if (tab && (BRAIN_TABS as readonly string[]).includes(tab)) this.activeTab.set(tab);
+  }
+
+  /**
+   * Keep the URL saying which tab is open, so it can be linked to and survives a reload.
+   *
+   * `replaceUrl` — a tab switch is not a place someone wants to return to with Back; it would take them
+   * through every tab they had touched. `queryParamsHandling: 'merge'` preserves `?type=`, which the
+   * entities tab reads.
+   */
+  private writeTabToUrl(tab: BrainTab): void {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { tab },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
   setTab(tab: BrainTab): void {
     // Clearing the pending graph focus here (rather than only when leaving the Graph tab) is what stops
     // it becoming sticky: the Graph tab UNMOUNTS on leave and re-reads the input on every remount, so a
@@ -698,6 +741,7 @@ export class BrainComponent implements OnInit, OnDestroy {
     this.store.chronoSearch.set('');
     this.store.fileMetaSearch.set('');
     this.recordList.confirmDeleteId.set('');
+    this.writeTabToUrl(tab);
   }
 
   /**

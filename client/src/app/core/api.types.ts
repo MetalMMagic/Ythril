@@ -831,3 +831,54 @@ export interface WebhookDelivery {
   success: boolean;
   error?: string;
 }
+
+/**
+ * A space's entity-relationship model, inferred from the schema AND from what is stored.
+ *
+ * The server derives both halves because they disagree, and the disagreement is the point: a type can be
+ * declared and used, declared and empty, or hold records with no declaration at all. The third case is the
+ * one a schema-only view would silently omit, and it is the one nobody knows about.
+ */
+export interface ErProperty {
+  name: string;
+  type?: 'string' | 'number' | 'boolean' | 'date';
+  required: boolean;
+  enumValues?: (string | number | boolean)[];
+}
+
+export interface ErEntityType {
+  type: string;
+  /** Records actually stored. `0` on a declared type is a real answer, not a gap. */
+  count: number;
+  /** Whether the space's schema declares it. `false` means records outside the agreed vocabulary. */
+  declared: boolean;
+  namingPattern?: string;
+  properties: ErProperty[];
+  /** Records of the other kinds pointing AT this type through their `entityIds`. */
+  linkedFrom: { memories: number; chrono: number; files: number };
+}
+
+export interface ErRelationship {
+  from: string;
+  to: string;
+  label: string;
+  count: number;
+}
+
+export interface ErModel {
+  spaceId: string;
+  entityTypes: ErEntityType[];
+  relationships: ErRelationship[];
+  /** Edges whose endpoint does not resolve. Normally 0; non-zero with strictLinkage on is worth a look. */
+  danglingEdges: number;
+  /** Non-null when a read hit its cap — the model is partial and says so rather than looking complete. */
+  truncated: null | { scan: 'entities' | 'edges' | 'links'; limit: number };
+  /** Measured BEFORE any cap, so a caller can see what share of the space the model covers. */
+  totals: { entities: number; edges: number };
+}
+
+/** A proxy space reports its members separately — merging would invent relationships that cannot exist. */
+export interface ErModelMembers {
+  spaceId: string;
+  members: ErModel[];
+}

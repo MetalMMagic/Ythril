@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, inject, output, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { ActivatedRoute } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { TranslocoPipe } from '@jsverse/transloco';
 import { Entity } from '../../core/api.types';
@@ -239,6 +240,19 @@ import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
 export class EntitiesTabComponent extends RecordTabBase {
   readonly drawerState = inject(RecordDrawerState);
   private brainApi = inject(BrainApi);
+  private route = inject(ActivatedRoute);
+
+  /**
+   * `?type=` seeds the type filter, so the Overview's data-model panel can link straight to "the entities
+   * of this type" as a real URL.
+   *
+   * Read from the snapshot ONCE, not subscribed. A later navigation carrying a different `?type=` is not a
+   * case worth serving: this tab unmounts when the user leaves it, so arriving here is always a fresh read.
+   * Subscribing would additionally fight `resetOnSpaceChange`, which clears the filter deliberately — a
+   * type filter must not survive a space change, because the same name can mean different things in two
+   * spaces.
+   */
+  private deepLinkedType = this.route.snapshot.queryParamMap.get('type') ?? undefined;
 
   /** Emitted after a create/delete so the shell can refresh the space's tab-count stats. */
   readonly mutated = output<void>();
@@ -258,7 +272,16 @@ export class EntitiesTabComponent extends RecordTabBase {
   editEntity = { name: '', type: '', tags: [] as string[], description: '', properties: {} as Record<string, string | number | boolean> };
 
   protected override resetOnSpaceChange(): void {
-    this.recordFilter.set({ type: '', tag: '', description: '', properties: '', fromName: '', toName: '', entityName: '' });
+    // The deep-linked type is applied HERE rather than in the constructor, because this is where the
+    // filter's shape is defined — setting it earlier reads a signal the base class has not populated yet.
+    //
+    // Consumed once. It must not survive a space change: the same type name can mean different things in
+    // two spaces, so carrying the filter across would silently show a filtered-empty list and look like the
+    // space is empty. The tab unmounts when the user leaves it, so arriving here is always a fresh read of
+    // the URL anyway.
+    const type = this.deepLinkedType ?? '';
+    this.deepLinkedType = undefined;
+    this.recordFilter.set({ type, tag: '', description: '', properties: '', fromName: '', toName: '', entityName: '' });
   }
 
   protected override load(): void {

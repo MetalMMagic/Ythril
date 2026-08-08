@@ -2,13 +2,18 @@
  * Brain → Overview tab (F9, slice 1).
  *
  * The space's landing view: a governance/health dashboard assembled over data the Brain shell already
- * holds, so it adds no fetch of its own. Presentational by design — `space` and `stats` come in as
+ * holds, so it adds almost no fetch of its own. Presentational by design — `space` and `stats` come in as
  * inputs (the shell preloads them for every space), and the one action, Reindex, is emitted back to the
  * shell's existing reindex flow behind a confirm.
  *
  * Panels so far: Statistics, Indexing, Embedding queue (per-space media-job counts), Governance (open
  * votes across the space's networks), Networks (F8's `networks`/`networkStatus`) and Instance
- * (`/api/about`). Every input is preloaded by the shell, so this component still fetches nothing itself.
+ * (`/api/about`). Every input is preloaded by the shell.
+ *
+ * ONE EXCEPTION, added with the data-model panel: that panel asks for its own ER model. A full derivation is
+ * too expensive to put on the shell's critical path for a space nobody opens this panel on, so it fetches
+ * lazily and owns its own loading, empty and FAILED states. The claim above was 'this component still
+ * fetches nothing itself' until 2026-08-08; it is corrected rather than left to be discovered.
  * The token-access panel is a later slice (admin-gating).
  */
 import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
@@ -22,6 +27,7 @@ import { RouterLink } from '@angular/router';
 import { Space, SpaceStats, AboutInfo, EmbeddingQueue, VoteRound, TokenAccessEntry, CompletenessReport, CompletenessCheck, SpaceActivity, TTL_BUCKETS, recordTtlWindows } from '../../core/api.types';
 
 import { CollectionTab } from './brain-tabs';
+import { ErModelPanelComponent } from './er-model-panel.component';
 
 /** `key` doubles as the Brain tab this tile jumps to. Typed from the shared union rather than re-declared,
  *  so a tab added to the Brain and a tile added here can no longer disagree in silence. */
@@ -31,7 +37,7 @@ interface StatCard { key: CollectionTab; icon: string; label: string; value: num
   selector: 'app-overview-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [TranslocoPipe, PhIconComponent, StatusPillComponent, SkeletonLinesComponent, RouterLink, DatePipe],
+  imports: [ErModelPanelComponent, TranslocoPipe, PhIconComponent, StatusPillComponent, SkeletonLinesComponent, RouterLink, DatePipe],
   styles: [`
     :host { display: block; }
 
@@ -175,6 +181,19 @@ interface StatCard { key: CollectionTab; icon: string; label: string; value: num
   `],
   template: `
     <div class="grid">
+      <!-- ── Data model (full width: a diagram in a third-width card is unreadable) ──── -->
+      <section class="panel span-all">
+        <header class="panel-h">
+          <span class="ic"><ph-icon name="graph" [size]="16"/></span>
+          <div>
+            <h3>{{ 'brain.overview.er.title' | transloco }}</h3>
+            <p class="hint">{{ 'brain.overview.er.hint' | transloco }}</p>
+          </div>
+        </header>
+        <app-er-model-panel [spaceId]="space().id" [canEdit]="canEditSchema()"
+                            (editType)="editSchemaType.emit($event)" />
+      </section>
+
       <!-- ── Statistics (full-width summary strip) ──────────────────── -->
       <section class="panel span-all">
         <header class="panel-h">
@@ -580,6 +599,10 @@ interface StatCard { key: CollectionTab; icon: string; label: string; value: num
 })
 export class OverviewTabComponent {
   space = input.required<Space>();
+  /** Admin tokens get the schema pen on each type card. */
+  canEditSchema = input(false);
+  /** The SHELL owns the schema dialog: this tab reports which type was asked for and nothing more. */
+  editSchemaType = output<string>();
   stats = input<SpaceStats | undefined>(undefined);
   reindexing = input(false);
   needsReindex = input(false);

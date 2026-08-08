@@ -1815,5 +1815,18 @@
   "about.components.pending": "Checking components…",
   "spaces.badge.proxy": "Proxy space",
   "spaces.badge.proxyTitle": "Proxy space — mirrors {{ids}} on the peer",
-  "spaces.badge.proxyAllTitle": "Proxy space — mirrors every space on the peer"
+  "spaces.badge.proxyAllTitle": "Proxy space — mirrors every space on the peer",
+  "brain.overview.er.title": "Data model",
+  "brain.overview.er.hint": "Inferred from this space's schema and from the records actually stored.",
+  "brain.overview.er.summary": "{{types}} types · {{rels}} relationships",
+  "brain.overview.er.diagramLabel": "Entity relationship diagram for this space",
+  "brain.overview.er.empty": "No entity types yet — this space has no entities and declares no types.",
+  "brain.overview.er.loadFailed": "Could not load the data model",
+  "brain.overview.er.notDeclared": "not in the schema",
+  "brain.overview.er.openRecords": "Open records of type",
+  "brain.overview.er.editSchema": "Edit the schema for",
+  "brain.overview.er.declareSchema": "Declare a schema for",
+  "brain.overview.er.truncated": "This space is larger than one read: the {{scan}} scan stopped at {{limit}} records, so the diagram is partial.",
+  "brain.overview.er.dangling": "{{n}} edges point at an entity that no longer exists.",
+  "brain.overview.er.proxy": "A proxy space has no single data model — open a member space to see one."
 }

@@ -1025,7 +1025,7 @@ The model files are not bundled with Ythril. Download and place them in `DATA_RO
 | File | Size | Purpose |
 |---|---|---|
 | `blazeface-back.json` + `.bin` | ~0.5 MB | Face detector (BlazeFace Back) |
-| `faceres.json` + `.bin` | ~6.7 MB | 128-dimensional face descriptor (FaceRes) |
+| `faceres.json` + `.bin` | ~6.7 MB | Face descriptor (FaceRes). The model outputs 1024 dimensions; `@vladmandic/human` reduces them to the 128 the gallery stores |
 
 Download from `https://vladmandic.github.io/human/models/` — use the exact filenames listed above.
 
@@ -1038,7 +1038,7 @@ and the infra pin not turned off):
 
 1. **Decode** — image bytes decoded to raw RGBA via `sharp`.
 2. **Detect** — `@vladmandic/human` runs BlazeFace Back detection. Faces below `minFaceSizeFraction` (default: 5% of the shorter image side) are skipped.
-3. **Embed** — FaceRes produces a 128-dimensional descriptor per face.
+3. **Embed** — FaceRes produces a descriptor per face, which the library reduces to 128 dimensions. That reduction, not the model weights, is where the 128 comes from — worth knowing because the gallery is built on it.
 4. **Gallery search** — each descriptor is searched against the space's face gallery (all face-chunk records that have a `faceEntityId`) using an exact `$vectorSearch`. The top-1 result is examined.
 5. **Auto-label** — if the top match's cosine similarity score ≥ `confidenceThreshold` (default: `0.6`), the parent image is linked to that entity (`entityIds` updated). The first successful match wins.
 6. **Persist face-chunks** — one `{fileId}#face-chunk{N}` filemeta record per detected face is written (or replaced on reprocess) with:

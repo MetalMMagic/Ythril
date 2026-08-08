@@ -1,4 +1,5 @@
 import { ssrfSafeFetch } from '../../util/ssrf.js';
+import { isUsableDescriptor } from './face-descriptor.js';
 import { boundedJson } from '../../util/bounded-read.js';
 import { getConfig, getSecrets } from '../../config/loader.js';
 import { allowPrivateForSlot } from '../../config/model-egress-policy.js';
@@ -96,8 +97,11 @@ export async function detectFacesExternal(imageBytes: Buffer): Promise<ExternalF
     for (const f of raw) {
       // 128 floats exactly. A provider returning a different width would corrupt gallery similarity
       // scores rather than fail loudly, so the wrong shape is dropped here, not downstream.
-      if (!Array.isArray(f?.embedding) || f.embedding.length !== 128) continue;
-      if (!f.embedding.every(n => typeof n === 'number' && Number.isFinite(n))) continue;
+      if (!isUsableDescriptor(f?.embedding, 'external')) continue;
+      // `isUsableDescriptor` has already established this is an array of the right LENGTH; the values are
+      // still a provider's word for it, so they are checked before anything stores them.
+      const emb = f.embedding as unknown[];
+      if (!emb.every((n: unknown) => typeof n === 'number' && Number.isFinite(n))) continue;
       const box = f.boxRaw;
       const boxRaw = Array.isArray(box) && box.length === 4 && box.every(n => typeof n === 'number' && Number.isFinite(n))
         ? [box[0], box[1], box[2], box[3]] as [number, number, number, number]

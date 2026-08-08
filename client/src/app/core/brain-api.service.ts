@@ -4,7 +4,7 @@ import { Observable } from 'rxjs';
 import type {
   Memory, Entity, Edge, ChronoEntry, ChronoType, ChronoStatus,
   QueryCollection, QueryResult, RecallKnowledgeType, RecallResponse, TraverseResult, EmbeddingQueue,
-  TokenAccessEntry,
+  TokenAccessEntry, ErModel, ErModelMembers,
 } from './api.types';
 
 /**
@@ -257,5 +257,16 @@ export class BrainApi {
 
   deleteChrono(spaceId: string, id: string): Observable<void> {
     return this.http.delete<void>(`/api/brain/spaces/${spaceId}/chrono/${id}`);
+  }
+
+  /**
+   * The space’s inferred entity-relationship model.
+   *
+   * A proxy space answers with `{ spaceId, members: [...] }` instead of a single model, so a caller must
+   * narrow before reading `entityTypes`. Kept as a union rather than flattened here: merging members would
+   * sum two types that share a name across spaces and show relationships that can never be joined.
+   */
+  getErModel(spaceId: string): Observable<ErModel | ErModelMembers> {
+    return this.http.get<ErModel | ErModelMembers>(`/api/brain/spaces/${spaceId}/er-model`);
   }
 }

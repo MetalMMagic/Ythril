@@ -6,6 +6,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Changed
+- **The space Overview drops the Statistics strip and the Instance card** (owner decision, 2026-08-08).
+  - The **Statistics** strip showed record counts per type and a total. The Data model diagram above it
+    already shows those counts *and* how the types relate, so the strip was the diagram's data with the
+    structure removed — and its per-type tab shortcuts live on the diagram now.
+  - Its **storage bar survived** as its own small card. The diagram says nothing about disk, and storage is
+    the one number here that can stop a space working. It renders unconditionally: an intermediate version
+    nested it inside the usage card, which made it vanish on a space nobody had called yet — exactly the
+    space where a full disk is least expected. A test pins that.
+  - The **Instance** card is gone. Instance label, version, ID, uptime and MongoDB version are properties of
+    the instance, not of the space being looked at, and all of them are already on the **About** page. A
+    space overview that answers "which build am I on?" invites the reader to think it is saying something
+    about that space.
+  - **Usage** is now a normal card rather than a full-width one, leaving the diagram as the only panel wide
+    enough to earn the full row.
+
 ### Fixed
 - **The face gallery's vector index can no longer be silently re-dimensioned.** A change to the face
   descriptor width was treated like any other index definition change and rebuilt the index — in place, or

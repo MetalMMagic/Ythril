@@ -194,55 +194,40 @@ interface StatCard { key: CollectionTab; icon: string; label: string; value: num
                             (editType)="editSchemaType.emit($event)" />
       </section>
 
-      <!-- ── Statistics (full-width summary strip) ──────────────────── -->
-      <section class="panel span-all">
+      <!-- The record-count strip that used to sit here is gone (owner, 2026-08-08): the ER diagram above
+           shows the same counts per type AND how the types relate, so a flat row of the same numbers was
+           the diagram's data with the structure removed. Its per-type tab links live on the diagram now.
+           The STORAGE bar was not duplicated by the diagram, so it moved into Usage below rather than
+           being deleted with the strip around it — disk consumed is usage. -->
+
+      <!-- ── Storage: a small card, and NOT inside the activity panel ── -->
+      <!-- It briefly lived inside the usage card below and the spec caught it: that panel only renders when
+           activity data has arrived, so storage vanished on a space nobody had called yet — exactly the
+           space where filling the disk is least expected. It is unconditional here. -->
+      <section class="panel">
         <header class="panel-h">
-          <span class="ic"><ph-icon name="chart-bar" [size]="16"/></span>
-          <div><h3>{{ 'brain.overview.statsTitle' | transloco }}</h3>
-            <p>{{ 'brain.overview.statsHint' | transloco }}</p></div>
+          <span class="ic"><ph-icon name="database" [size]="16"/></span>
+          <div><h3>{{ 'brain.overview.storage' | transloco }}</h3></div>
         </header>
         <div class="panel-b">
-          @if (stats(); as s) {
-            <div class="stat-grid">
-              @for (c of statCards(); track c.key) {
-                <button type="button" class="stat stat-link" (click)="openTab.emit(c.key)"
-                        [attr.aria-label]="('brain.overview.openTabAriaLabel' | transloco) + ' ' + (c.label | transloco)">
-                  <div class="v">{{ c.value }}</div>
-                  <div class="l"><ph-icon [name]="c.icon" [size]="13"/>{{ c.label | transloco }}</div>
-                </button>
-              }
-              <div class="stat total">
-                <div class="v">{{ total() }}</div>
-                <div class="l">{{ 'brain.overview.total' | transloco }}</div>
-              </div>
-            </div>
-
-            <div class="store">
-              <div class="store-row">
-                <span class="cap">{{ 'brain.overview.storage' | transloco }}</span>
-                @if (space().maxGiB) {
-                  <span class="num">{{ used() }} / {{ space().maxGiB }} GiB</span>
-                } @else {
-                  <span class="num">{{ used() }} GiB · {{ 'brain.overview.storageUnlimited' | transloco }}</span>
-                }
-              </div>
-              @if (usagePct(); as pct) {
-                <div class="bar"><span [class.warn]="pct >= 80 && pct < 95" [class.err]="pct >= 95" [style.width.%]="pct"></span></div>
+          <div class="store">
+            <div class="store-row">
+              @if (space().maxGiB) {
+                <span class="num">{{ used() }} / {{ space().maxGiB }} GiB</span>
+              } @else {
+                <span class="num">{{ used() }} GiB · {{ 'brain.overview.storageUnlimited' | transloco }}</span>
               }
             </div>
-          } @else if (pending().stats) {
-            <!-- Sized to the settled grid, not a one-line placeholder. This is the FIRST card on the tab,
-                 and a single line collapsing into a full stats grid was the largest layout jump on it. -->
-            <app-skeleton-lines [rows]="4" />
-          } @else {
-            <span class="muted">{{ 'brain.overview.statsLoading' | transloco }}</span>
-          }
+            @if (usagePct(); as pct) {
+              <div class="bar"><span [class.warn]="pct >= 80 && pct < 95" [class.err]="pct >= 95" [style.width.%]="pct"></span></div>
+            }
+          </div>
         </div>
       </section>
 
       <!-- ── Usage: is anyone getting anything OUT of this space? ────── -->
       @if (activity(); as act) {
-        <section class="panel span-all">
+        <section class="panel">
           <header class="panel-h">
             <span class="ic"><ph-icon name="broadcast" [size]="16"/></span>
             <div><h3>{{ 'brain.overview.useTitle' | transloco }}</h3>
@@ -300,10 +285,11 @@ interface StatCard { key: CollectionTab; icon: string; label: string; value: num
                    can give, and blanking the panel would look like a loading failure instead. -->
               <span class="muted">{{ 'brain.overview.useNone' | transloco }}</span>
             }
+
           </div>
         </section>
       } @else if (pending().activity) {
-        <section class="panel span-all" [attr.aria-busy]="true">
+        <section class="panel" [attr.aria-busy]="true">
           <header class="panel-h">
             <span class="ic"><ph-icon name="broadcast" [size]="16"/></span>
             <div><h3>{{ 'brain.overview.useTitle' | transloco }}</h3>
@@ -524,39 +510,10 @@ interface StatCard { key: CollectionTab; icon: string; label: string; value: num
         </div>
       </section>
 
-      <!-- ── Instance ───────────────────────────────────────────────── -->
-      @if (about(); as a) {
-        <section class="panel">
-          <header class="panel-h">
-            <span class="ic"><ph-icon name="info" [size]="16"/></span>
-            <div><h3>{{ 'brain.overview.instanceTitle' | transloco }}</h3>
-              <p>{{ 'brain.overview.instanceHint' | transloco }}</p></div>
-          </header>
-          <div class="panel-b">
-            <dl class="kv">
-              <dt>{{ 'brain.overview.inst.label' | transloco }}</dt><dd>{{ a.instanceLabel }}</dd>
-              <dt>{{ 'brain.overview.inst.version' | transloco }}</dt><dd>{{ a.version }}</dd>
-              <dt>{{ 'brain.overview.inst.id' | transloco }}</dt><dd class="mono">{{ a.instanceId }}</dd>
-              <dt>{{ 'brain.overview.inst.uptime' | transloco }}</dt><dd>{{ a.uptime }}</dd>
-              <dt>{{ 'brain.overview.inst.mongo' | transloco }}</dt><dd>{{ a.mongoVersion }}</dd>
-            </dl>
-          </div>
-        </section>
-      } @else if (pending().about) {
-        <!-- NO BACKTICKS in a template comment: one ends the template string, and the error points at
-             @Component rather than here.
-             This card had NO else branch at all: the panel was simply absent until its data arrived and then
-             appeared, shifting whatever the reader was already looking at. The about data is fetched once at
-             init, so its pending flag is one-shot — see overviewPending in brain.component. -->
-        <section class="panel" [attr.aria-busy]="true">
-          <header class="panel-h">
-            <span class="ic"><ph-icon name="info" [size]="16"/></span>
-            <div><h3>{{ 'brain.overview.instanceTitle' | transloco }}</h3>
-              <p>{{ 'brain.overview.instanceHint' | transloco }}</p></div>
-          </header>
-          <div class="panel-b"><app-skeleton-lines [rows]="4" /></div>
-        </section>
-      }
+      <!-- The Instance card is gone (owner, 2026-08-08): instance label, version, id, uptime and Mongo
+           version are properties of the INSTANCE, not of the space being looked at, and every one of them
+           is already on the About page. A space overview that answers "which build am I on?" invites the
+           reader to think it is telling them something about this space. -->
 
       <!-- ── Token access (admin-only; null for non-admins → hidden) ──── -->
       @if (tokenAccess(); as toks) {
@@ -632,8 +589,11 @@ export class OverviewTabComponent {
    * (the endpoint 403s) and `completeness` is null after a failure, so a skeleton keyed on null alone would sit
    * there forever. The parent raises these only where it blanks, and clears each from both handlers.
    */
-  pending = input<Record<'activity' | 'completeness' | 'queue' | 'tokens' | 'stats' | 'about', boolean>>({
-    activity: false, completeness: false, queue: false, tokens: false, stats: false, about: false,
+  // `stats` and `about` are gone from this record with the panels they gated (owner, 2026-08-08). A pending
+  // flag with no skeleton branch left to drive is not harmless: it is a blank that never resolves into
+  // anything, and the gate that enforces the pairing is what caught them.
+  pending = input<Record<'activity' | 'completeness' | 'queue' | 'tokens', boolean>>({
+    activity: false, completeness: false, queue: false, tokens: false,
   });
   /** Emitted (after a confirm) so the shell's existing reindex flow runs — no duplicate API path. */
   /** A collection tile was clicked — the shell switches to that tab. */
@@ -716,25 +676,9 @@ export class OverviewTabComponent {
     return out.sort((a, b) => a.key.localeCompare(b.key));
   });
 
-  total = computed(() => {
-    const s = this.stats();
-    return s ? s.memories + s.entities + s.edges + s.chrono + s.files : 0;
-  });
-
-  statCards = computed<StatCard[]>(() => {
-    const s = this.stats();
-    if (!s) return [];
-    return [
-      // Same order as the tab strip above: Entities · Edges · Memories · Chrono · Files. These tiles are
-      // clickable shortcuts INTO those tabs, so a different order made the two disagree about what comes
-      // next and turned every click into a small search.
-      { key: 'entities', icon: 'stack', label: 'brain.overview.rec.entities', value: s.entities },
-      { key: 'edges', icon: 'link', label: 'brain.overview.rec.edges', value: s.edges },
-      { key: 'memories', icon: 'brain', label: 'brain.overview.rec.memories', value: s.memories },
-      { key: 'chrono', icon: 'timer', label: 'brain.overview.rec.chrono', value: s.chrono },
-      { key: 'files', icon: 'folder', label: 'brain.overview.rec.files', value: s.files },
-    ];
-  });
+  // `total` and `statCards` went with the statistics strip. Both existed only to feed those tiles, and the
+  // ER diagram computes its own per-type counts from the model it already fetched — keeping a second
+  // source of the same numbers is how two counts of one thing come to disagree.
 
   /**
    * The checks that actually cost points, heaviest loss first — a passing check is not a deduction and

@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **The Brain Overview draws the space's data model.** Entity types as cards with their declared properties
+  and their real record counts, joined by the relationships between them with real edge counts — derived from
+  the schema **and** from the records, so a type holding records with no declaration appears instead of being
+  silently omitted. That is the case nobody sees otherwise, and an integrator arrived here with 21 of them.
+  - **A record count is a link**, not a button styled like one: it opens the entities tab filtered to that
+    type as a real URL (`/brain?space=…&tab=entities&type=…`), so it can be right-clicked, opened in a new
+    tab, bookmarked or sent to someone, and reload and back/forward work. The Graph page already deep-links
+    the same way with `?space=` / `?entity=`.
+  - **An admin gets a pen** on each type card that opens the same per-type schema editor Space Settings uses,
+    in place. On an undeclared type it is a `+` instead, because there is no schema to edit yet.
+  - **The diagram's geometry is derived, never typed.** Every path endpoint is computed from the source and
+    target rectangles, and a test walks every path asserting each endpoint lies on the perimeter of its box —
+    so a join that stops short of what it points at cannot be expressed rather than merely being absent.
+  - **It reports what it could not do.** A capped read says which scan hit its limit, dangling edges are
+    counted rather than drawn, a failed load shows an error with a retry rather than an empty diagram, and a
+    proxy space is declined rather than drawn from one member's data.
+
 - **Graph edge labels sit on the edge, and only where they were asked for.** The style carried
   `text-margin-y: -8`, which lifted every label OFF the line it belongs to — on a bezier that reads as text
   floating between two edges rather than sitting on one. Removed, so the label falls at cytoscape's default

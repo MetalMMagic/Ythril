@@ -44,6 +44,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     spaces and show relationships that can never be joined, since an edge cannot cross a space.
 
 ### Internal
+- **The per-type schema editor is a component two hosts can open.** Its ~224 template lines lived inside the
+  Space Settings schema tab, bound to that page's state service on roughly thirty expressions, so nothing
+  else could show it. The Brain Overview's data-model panel needs the same editor in place — a one-field
+  schema change should not mean a trip to Space Settings and back. The component takes a draft and edits it;
+  each host keeps its own way of saving, because settings is staged and the panel is immediate.
+  - Export, save-to-library, unlink and remove stay with the settings tab. They are about the schema library
+    and about deleting a type, not about editing one, and a dialog that could delete a type would be
+    answerable for something no caller asked it to do.
+  - Styles moved to one module both import, rather than being copied. No behaviour change.
+
 - **The per-type schema edits are pure functions now, so a second host can use them.** `addProp`,
   `removeProp`, `addEnumVal` and `removeEnumVal` lived on `SpaceSettingsState` and reached into its own
   map, which made them unusable anywhere else. The Brain Overview needs the same editor in place, and that

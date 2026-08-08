@@ -807,6 +807,23 @@ export interface FaceRecognitionConfig {
     apiKey?: string;
     /** Host the operator acknowledged for biometric egress. Must match `baseUrl`'s host to be usable. */
     acknowledgedHost?: string;
+    /**
+     * Whether a configured-but-failing external provider may fall back to the bundled in-process model.
+     *
+     * **Defaults to `false`, and that is a deliberate behaviour change** (owner decision 2026-08-08:
+     * *"disable by default and enable consciously. its a silent pollution."*). The fallback used to be
+     * unconditional, so an unreachable or malformed endpoint quietly wrote a DIFFERENT embedder's vectors
+     * into the same gallery. Both models emit the same width today, so nothing detects the mixture — the
+     * vectors are simply wrong, and every similarity score computed against them is wrong with them.
+     *
+     * Skipping is the better failure: the media job retries later and the faces get embedded by the model
+     * the operator chose, instead of being permanently embedded by one they did not.
+     *
+     * **This only applies when an external provider is configured AND consented.** An instance with no
+     * external provider is not falling back to anything — in-process is its only path — and it keeps
+     * running exactly as before regardless of this flag.
+     */
+    allowInProcessFallback?: boolean;
   };
   /**
    * Directory (relative to DATA_ROOT) where the @vladmandic/human WASM model

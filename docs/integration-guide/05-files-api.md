@@ -631,14 +631,22 @@ data leaves the instance. You can optionally point at an external recogniser und
 | `model` | Optional model name, passed through in the request body. |
 | `apiKey` | Sent as `Authorization: Bearer`. Stored in `secrets.json`, masked on read, never echoed back. |
 | `acknowledgedHost` | The host you consented to. **Must equal `baseUrl`'s host or the endpoint is not used at all.** |
+| `allowInProcessFallback` | Whether a failing provider may hand off to the bundled model. **Default `false`.** Read as a strict boolean — a `"false"` string stays off. |
 
 Three properties worth knowing before enabling it:
 
 - **Consent is mandatory and host-scoped.** Face crops are biometric data. The API rejects a save whose
   `acknowledgedHost` does not match, and the runtime re-checks it — so a config edited on disk cannot
   egress faces either. Re-pointing `baseUrl` at a different host revokes consent by construction.
-- **In-process stays the fallback.** An unreachable, erroring or malformed provider falls back to local
-  recognition rather than dropping faces silently.
+- **A failing provider does NOT fall back to the bundled model unless you ask it to.** This changed: the
+  fallback used to be unconditional. Both embedders emit the same descriptor width, so falling back wrote a
+  *different embedder's* vectors into the same gallery and nothing could detect it — the vectors were the
+  right shape and the wrong vector space, and every similarity score computed against them was wrong.
+  Ythril now skips the image, logs once, and lets the media job retry; set `allowInProcessFallback: true`
+  to restore the old behaviour.
+  - **If you have no external provider configured, none of this applies to you.** In-process is your only
+    path rather than a fallback, and it runs exactly as before. The switch is gated on a provider being
+    configured *and* consented, precisely so a single-model install cannot lose face recognition to it.
 - **A provider's answer is not trusted.** Descriptors that are not exactly 128 finite floats are
   discarded (a wrong width would corrupt gallery similarity rather than fail loudly), and the number of
   faces accepted from one response is capped.

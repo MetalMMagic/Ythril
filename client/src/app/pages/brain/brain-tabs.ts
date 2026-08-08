@@ -27,5 +27,18 @@ export const COLLECTION_TABS = ['memories', 'entities', 'edges', 'chrono', 'file
 /** A tab that shows a collection — the only kind a stat tile links to. */
 export type CollectionTab = typeof COLLECTION_TABS[number];
 
+/** The views that are not backed by one collection. */
+const NON_COLLECTION_TABS = ['overview', 'query', 'graph', 'review'] as const;
+
+/**
+ * Every Brain tab, at runtime.
+ *
+ * Needed because the tab is now readable from the URL, and a value arriving from outside the app has to be
+ * checked against something that exists at runtime — a type cannot reject `?tab=nonsense`. Derived from the
+ * same two lists the type is, for the reason this whole file exists: a second hand-written copy would agree
+ * by hand until it did not.
+ */
+export const BRAIN_TABS = [...COLLECTION_TABS, ...NON_COLLECTION_TABS] as const;
+
 /** Every Brain tab. The collection tabs plus the views that are not backed by one collection. */
-export type BrainTab = CollectionTab | 'overview' | 'query' | 'graph' | 'review';
+export type BrainTab = CollectionTab | typeof NON_COLLECTION_TABS[number];

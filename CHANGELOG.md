@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **The Brain remembers which space and tab you were on, in the URL.** `?space=` and `?tab=` are read on
+  load and `?tab=` is written as you switch, so a Brain view can be linked to, bookmarked and reloaded —
+  which it could not be before. The Graph page already worked this way with `?space=` / `?entity=`.
+  `?type=` additionally seeds the Entities tab’s type filter, which is what makes a record count in the
+  data-model panel a real link rather than a button that looks like one.
 - **The Brain Overview draws the space's data model.** Entity types as cards with their declared properties
   and their real record counts, joined by the relationships between them with real edge counts — derived from
   the schema **and** from the records, so a type holding records with no declaration appears instead of being

@@ -6,6 +6,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Fixed
+
+- **A changed face-descriptor width would have skipped every face in silence.** Both embedding paths
+  compared `embedding.length !== 128` and moved on — no error, no log, no counter — so the symptom would
+  have read as "this image has no faces" or "the provider is broken", never as the actual cause.
+  - **The actual cause it was guarding against is closer than it looks.** Our docs said in five places that
+    FaceRes produces a 128-dimensional descriptor. It does not: `faceres.json` declares its output as
+    `[1, 1024]`, and `@vladmandic/human` reduces it to 128 in library code. **The width the whole face
+    gallery is built on is a property of a dependency's post-processing, not of the weights we ship** — so a
+    library upgrade could change the vector space of every future embedding. Reported by an operator
+    standing up a centralised face service, and confirmed here.
+  - The skip still happens, because one odd descriptor must not fail a whole media job. What changed is that
+    the first one says so, naming the width it got and which path produced it — once per process, because a
+    changed library means every face is wrong and a per-face log would bury the message.
+  - The literal `128`, previously written in both paths, is one shared constant. An operator has asked for
+    the width to become configurable; this is the single place that question now gets asked.
+  - The docs no longer claim the model emits 128. They say where the number actually comes from.
+
+
+### Fixed
 
 ### Added
 - **The Brain remembers which space and tab you were on, in the URL.** `?space=` and `?tab=` are read on

@@ -72,7 +72,15 @@ describe('the source enforces its own guarantees', () => {
   });
 
   it('rejects any descriptor that is not exactly 128 floats', () => {
-    assert.ok(src.includes('length !== 128'), 'width must be checked');
+    // The width check moved into `face-descriptor.ts` so both embedding paths share one rule and the first
+    // unexpected width is REPORTED rather than skipped in silence. This asserts both halves: that this file
+    // still defers to that helper, and that the helper still enforces the width — checking only the call
+    // would pass against a helper that had stopped checking anything.
+    assert.ok(src.includes('isUsableDescriptor('), 'the width check must still happen');
+    const guard = readFileSync(new URL('../../server/src/files/media/face-descriptor.ts', import.meta.url), 'utf8');
+    assert.match(guard, /embedding\.length === FACE_DESCRIPTOR_DIMS/,
+      'face-descriptor.ts no longer compares the width, so nothing does');
+    assert.match(guard, /FACE_DESCRIPTOR_DIMS = 128/, 'the gallery index is built at 128');
     assert.ok(src.includes('Number.isFinite'), 'NaN/Infinity must be rejected');
   });
 

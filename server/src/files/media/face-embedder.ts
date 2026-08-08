@@ -36,6 +36,7 @@ import { getConfig, getDataRoot, getFaceRecognitionConfig } from '../../config/l
 import { faceRecognitionAllowed } from '../converters/media-level.js';
 import { updateFileMeta } from '../file-meta.js';
 import { log } from '../../util/log.js';
+import { isUsableDescriptor, FACE_DESCRIPTOR_DIMS } from './face-descriptor.js';
 import type { FileMetaDoc, AuthorRef, EntityDoc } from '../../config/types.js';
 import type { Config as HumanConfig, Result } from '@vladmandic/human';
 import { detectFacesExternal } from './face-external.js';
@@ -333,7 +334,7 @@ export async function embedFaces(
       tags: [],
       createdAt: now,
       updatedAt: now,
-      sizeBytes: 128 * 4, // 128 × float32 = 512 bytes
+      sizeBytes: FACE_DESCRIPTOR_DIMS * 4, // float32 each
       author,
       parentFileId: fileId,
       chunkIndex: i,

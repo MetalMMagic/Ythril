@@ -175,6 +175,7 @@ function graphStylesheet(theme: GraphTheme): cytoscape.StylesheetJson {
       },
     },
     {
+      // Edges carry NO label by default — see `edge.show-label` below for when one appears and why.
       selector: 'edge',
       style: {
         'width': 1.5,
@@ -182,16 +183,33 @@ function graphStylesheet(theme: GraphTheme): cytoscape.StylesheetJson {
         'target-arrow-shape': 'triangle',
         'target-arrow-color': theme.edge,
         'curve-style': 'bezier',
-        'label': 'data(label)',
+        'label': '',
         'font-size': 10,
         'color': theme.edgeLabel,
         'text-rotation': 'autorotate',
-        'text-margin-y': -8,
+        // No `text-margin-y`. It used to be -8, which lifted the label OFF the line it belongs to; on a
+        // curve that reads as a label floating between two edges rather than sitting on one. Cytoscape's
+        // default placement for an edge label is the midpoint, which is where it should have been.
         'text-background-color': theme.nodeBg,
-        'text-background-opacity': 0.7,
-        'text-background-padding': '2px',
+        'text-background-opacity': 0.85,
+        'text-background-padding': '3px',
         'opacity': 0.75,
       },
+    },
+    {
+      /**
+       * A label appears on the edges of whatever you are looking at, and nowhere else.
+       *
+       * Every edge used to be labelled at all times. On a small traverse that is fine and on a dense one it
+       * is unreadable: cytoscape does not de-collide mid-edge labels, so they overlap each other and the
+       * nodes, and the picture gets worse exactly as it gets more interesting.
+       *
+       * Applied to the edges of the SELECTED node and to a HOVERED edge. Between them those are the two
+       * ways a person says "this one" — selection for the thing being examined, hover for the thing being
+       * pointed at — so the labels are present whenever they were asked for and absent when they were not.
+       */
+      selector: 'edge.show-label',
+      style: { 'label': 'data(label)' },
     },
     {
       selector: 'edge.hovered',
@@ -209,6 +227,25 @@ function graphStylesheet(theme: GraphTheme): cytoscape.StylesheetJson {
     },
     { selector: 'edge.hide-labels', style: { 'label': '' } },
   ];
+}
+
+/**
+ * Put a label on the edges of the selected node, and on nothing else.
+ *
+ * Recomputed from scratch each time rather than toggled incrementally: an incremental version has to undo
+ * exactly what it did last time, and the state it is undoing lives in the graph rather than in a variable —
+ * which is how a stale label survives a deselect and then belongs to nothing.
+ *
+ * A hovered edge adds its own class on mouseover and this function reinstates the correct set on mouseout,
+ * so the two rules compose without either needing to know about the other.
+ *
+ * `hide-labels` — the operator's global off switch — is deliberately NOT consulted here. It wins in the
+ * stylesheet instead, because a setting a person turned off must not be re-enabled by a selection.
+ */
+export function syncEdgeLabels(cy: cytoscape.Core): void {
+  cy.edges().removeClass('show-label');
+  const selected = cy.nodes(':selected');
+  if (selected.length > 0) selected.connectedEdges().addClass('show-label');
 }
 
 /**
@@ -296,14 +333,23 @@ export function createGraphCytoscape(
 
   const idOf = (evt: cytoscape.EventObject): string => evt.target.data('id');
 
+  syncEdgeLabels(cy);
+
   cy.on('tap', 'node', evt => handlers.onNodeTap(idOf(evt)));
   cy.on('tap', 'edge', evt => handlers.onEdgeTap(idOf(evt)));
   cy.on('dbltap', 'node', evt => handlers.onNodeDoubleTap(idOf(evt)));
 
   cy.on('mouseover', 'node', evt => { evt.target.addClass('hovered'); });
   cy.on('mouseout',  'node', evt => { evt.target.removeClass('hovered'); });
-  cy.on('mouseover', 'edge', evt => { evt.target.addClass('hovered'); });
-  cy.on('mouseout',  'edge', evt => { evt.target.removeClass('hovered'); });
+  // A hovered edge labels ITSELF — pointing at one line is the narrowest possible way of asking what it is.
+  cy.on('mouseover', 'edge', evt => { evt.target.addClass('hovered').addClass('show-label'); });
+  cy.on('mouseout',  'edge', evt => { evt.target.removeClass('hovered'); syncEdgeLabels(cy); });
+
+  // Selecting a node labels the edges around it, and deselecting takes them away again. Driven off
+  // cytoscape's own select/unselect rather than off `tap`, so a selection made any other way — restored
+  // state, a programmatic select — lights the same edges.
+  cy.on('select unselect', 'node', () => { syncEdgeLabels(cy); });
+  cy.on('tap', evt => { if (evt.target === cy) syncEdgeLabels(cy); });
 
   // Background tap — identified by the event target being the instance itself, not an element.
   cy.on('tap', evt => { if (evt.target === cy) handlers.onBackgroundTap(); });
@@ -331,6 +377,11 @@ export function renderElements(
 
   if (hideLabels) cy.edges().addClass('hide-labels');
   else cy.edges().removeClass('hide-labels');
+
+  // A re-render replaces every element, so the label set has to be recomputed rather than assumed to have
+  // survived. Runs after `hide-labels` is set, and that class still wins — the operator's global "off" is
+  // not something a selection may quietly override.
+  syncEdgeLabels(cy);
 
   // breadthfirst keeps each node next to its direct edge-partner.
   //

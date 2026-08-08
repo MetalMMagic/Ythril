@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Graph edge labels sit on the edge, and only where they were asked for.** The style carried
+  `text-margin-y: -8`, which lifted every label OFF the line it belongs to — on a bezier that reads as text
+  floating between two edges rather than sitting on one. Removed, so the label falls at cytoscape's default
+  placement, which is the midpoint.
+  - **A label now appears on the selected node's edges and on a hovered edge**, rather than on every edge at
+    all times. Cytoscape does not de-collide mid-edge labels, so a dense traverse turned into overlapping
+    text over the nodes — the picture got worse exactly as it got more interesting. Selection and hover are
+    the two ways a person says "this one", so the labels are present whenever they were asked for and absent
+    when they were not.
+  - The global hide-labels toggle still wins: it sits later in the stylesheet, so a setting a person turned
+    off cannot be re-enabled by a selection.
+
 
 - **A space's entity-relationship model, inferred from the schema and from the records** —
   `GET /api/brain/spaces/:spaceId/er-model`. Entity types with their declared properties and their real

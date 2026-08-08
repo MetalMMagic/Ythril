@@ -36,6 +36,8 @@ const cy = vi.hoisted(() => {
     layoutOpts: [] as any[],
     layoutStop: null as null | (() => void),
     edgeClasses: new Set<string>(),
+    /** Which nodes cytoscape would report as selected. Drives `syncEdgeLabels`. */
+    selectedNodes: [] as string[],
     removeCalls: 0,
     destroyed: 0,
     fits: 0,
@@ -44,6 +46,7 @@ const cy = vi.hoisted(() => {
   state.reset = () => {
     state.handlers = []; state.added = []; state.layoutOpts = []; state.layoutStop = null;
     state.edgeClasses = new Set<string>();
+    state.selectedNodes = [];
     state.removeCalls = 0; state.destroyed = 0; state.fits = 0;
   };
 
@@ -56,9 +59,18 @@ const cy = vi.hoisted(() => {
     };
   };
 
-  /** Fire a registered handler, as a real user tap would. */
+  /**
+   * Fire a registered handler, as a real user tap would.
+   *
+   * The registered name is split on whitespace because cytoscape's `on()` accepts a space-separated list —
+   * `cy.on('select unselect', …)` is one registration for two events. Matching the whole string would make
+   * such a handler unreachable from here, and the first test to rely on one would fail against production
+   * code that is correct.
+   */
   state.fire = (ev: string, sel: string | undefined, evt: any) => {
-    for (const h of state.handlers) if (h.ev === ev && h.sel === sel) h.cb(evt);
+    for (const h of state.handlers) {
+      if (h.sel === sel && String(h.ev).split(/\s+/).includes(ev)) h.cb(evt);
+    }
   };
 
   state.make = () => {
@@ -70,6 +82,16 @@ const cy = vi.hoisted(() => {
       edges: () => ({
         addClass: (c: string) => state.edgeClasses.add(c),
         removeClass: (c: string) => state.edgeClasses.delete(c),
+      }),
+      // `nodes(selector)` exists so `syncEdgeLabels` can ask which node is selected. `selectedNodes`
+      // defaults to none, which is the state a freshly rendered graph is in — nothing is selected, so no
+      // edge carries a label. A test that wants the labelled case sets it and calls the handler.
+      nodes: (_sel?: string) => ({
+        length: state.selectedNodes.length,
+        connectedEdges: () => ({
+          addClass: (c: string) => state.edgeClasses.add(c),
+          removeClass: (c: string) => state.edgeClasses.delete(c),
+        }),
       }),
       resize: () => {},
       fit: () => { state.fits++; },
@@ -456,6 +478,53 @@ describe('GraphComponent — what it asks the renderer to draw', () => {
     expect(cy.edgeClasses.has('hide-labels')).toBe(true);   // a re-render must not lose the setting
     c.onHideLabelsChange(false);
     expect(cy.edgeClasses.has('hide-labels')).toBe(false);
+  });
+
+  // ── Edge labels appear where they were asked for, and nowhere else ──────────────────────────────
+  //
+  // Every edge used to be labelled at all times. Cytoscape does not de-collide mid-edge labels, so a dense
+  // traverse turned into overlapping text over the nodes — the picture got worse exactly as it got more
+  // interesting. Labels now belong to the selected node's edges, and to a hovered edge.
+
+  it('labels no edge when nothing is selected', () => {
+    render([['a', 1]], [['e1', 'root', 'a']]);
+    expect(cy.edgeClasses.has('show-label')).toBe(false);
+  });
+
+  it('labels the selected node\'s edges once something is selected', () => {
+    render([['a', 1]], [['e1', 'root', 'a']]);
+    cy.selectedNodes = ['root'];
+    cy.fire('select', 'node', { target: { data: () => 'root' } });
+    expect(cy.edgeClasses.has('show-label')).toBe(true);
+  });
+
+  it('takes the labels away again on deselect', () => {
+    render([['a', 1]], [['e1', 'root', 'a']]);
+    cy.selectedNodes = ['root'];
+    cy.fire('select', 'node', { target: { data: () => 'root' } });
+    cy.selectedNodes = [];
+    cy.fire('unselect', 'node', { target: { data: () => 'root' } });
+    expect(cy.edgeClasses.has('show-label')).toBe(false);
+  });
+
+  it('a hovered edge labels itself even with nothing selected', () => {
+    // The narrowest way of asking what one line is. Without this, an unselected graph answers nothing.
+    render([['a', 1]], [['e1', 'root', 'a']]);
+    const added: string[] = [];
+    cy.fire('mouseover', 'edge', {
+      target: { addClass: (c: string) => { added.push(c); return { addClass: (d: string) => added.push(d) }; } },
+    });
+    expect(added).toContain('show-label');
+  });
+
+  it('re-applies the label set on every render, so a re-draw does not strand one', () => {
+    // The same reasoning as `hide-labels` above: a render replaces every element, so a class that was on an
+    // edge before is gone unless it is recomputed. A stale label would belong to nothing.
+    const brain: any = makeBrain({ traverseGraph: vi.fn(() => of(traverseResult([['a', 1]], [['e1', 'root', 'a']]))) });
+    const { c } = create(brain);
+    cy.selectedNodes = ['root'];
+    c.selectRoot(ROOT);
+    expect(cy.edgeClasses.has('show-label')).toBe(true);
   });
 
   it('auto-selects the root once the layout settles, and not before', () => {

@@ -38,6 +38,13 @@ function makeApi() {
     listMemories: () => of({ memories: [] }),
     getEntitiesByIds: () => of({ entities: [] }),
     mintEventsTicket: () => of({ ticket: 't', expiresInMs: 60000 }),
+    // Overview data-model panel. An empty model keeps the panel present but silent, which is what these
+    // tests want: they are about the shell, and a panel that threw would fail every one of them for a
+    // reason none of them are checking.
+    getErModel: () => of({
+      spaceId: 'work', entityTypes: [], relationships: [],
+      danglingEdges: 0, truncated: null, totals: { entities: 0, edges: 0 },
+    }),
     getAbout: () => of(null), // Overview Instance panel — null keeps it hidden in tests
     getEmbeddingQueue: () => of(null), // Overview embedding-queue panel — null keeps it hidden in tests
     getTokenAccess: () => of({ tokens: [] }), // Overview token-access matrix (admin-only)

@@ -1815,5 +1815,18 @@
   "about.components.pending": "Sprawdzanie komponentów…",
   "spaces.badge.proxy": "Przestrzeń proxy",
   "spaces.badge.proxyTitle": "Przestrzeń proxy — odzwierciedla {{ids}} na peerze",
-  "spaces.badge.proxyAllTitle": "Przestrzeń proxy — odzwierciedla wszystkie przestrzenie na peerze"
+  "spaces.badge.proxyAllTitle": "Przestrzeń proxy — odzwierciedla wszystkie przestrzenie na peerze",
+  "brain.overview.er.title": "Model danych",
+  "brain.overview.er.hint": "Wywnioskowany ze schematu tej przestrzeni i z faktycznie zapisanych rekordów.",
+  "brain.overview.er.summary": "{{types}} typów · {{rels}} relacji",
+  "brain.overview.er.diagramLabel": "Diagram encji i relacji dla tej przestrzeni",
+  "brain.overview.er.empty": "Brak typów encji — ta przestrzeń nie zawiera encji i nie deklaruje typów.",
+  "brain.overview.er.loadFailed": "Nie udało się wczytać modelu danych",
+  "brain.overview.er.notDeclared": "brak w schemacie",
+  "brain.overview.er.openRecords": "Otwórz rekordy typu",
+  "brain.overview.er.editSchema": "Edytuj schemat dla",
+  "brain.overview.er.declareSchema": "Zadeklaruj schemat dla",
+  "brain.overview.er.truncated": "Ta przestrzeń jest większa niż jeden odczyt: skanowanie {{scan}} zatrzymało się na {{limit}} rekordach, więc diagram jest częściowy.",
+  "brain.overview.er.dangling": "{{n}} krawędzi wskazuje na encję, która już nie istnieje.",
+  "brain.overview.er.proxy": "Przestrzeń proxy nie ma jednego modelu danych — otwórz przestrzeń członkowską."
 }

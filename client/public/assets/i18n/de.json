@@ -1815,5 +1815,18 @@
   "about.components.pending": "Komponenten werden geprüft…",
   "spaces.badge.proxy": "Proxy-Space",
   "spaces.badge.proxyTitle": "Proxy-Space — spiegelt {{ids}} auf dem Peer",
-  "spaces.badge.proxyAllTitle": "Proxy-Space — spiegelt alle Spaces auf dem Peer"
+  "spaces.badge.proxyAllTitle": "Proxy-Space — spiegelt alle Spaces auf dem Peer",
+  "brain.overview.er.title": "Datenmodell",
+  "brain.overview.er.hint": "Abgeleitet aus dem Schema dieses Raums und aus den tatsächlich gespeicherten Datensätzen.",
+  "brain.overview.er.summary": "{{types}} Typen · {{rels}} Beziehungen",
+  "brain.overview.er.diagramLabel": "Entity-Relationship-Diagramm für diesen Raum",
+  "brain.overview.er.empty": "Noch keine Entitätstypen — dieser Raum enthält keine Entitäten und deklariert keine Typen.",
+  "brain.overview.er.loadFailed": "Datenmodell konnte nicht geladen werden",
+  "brain.overview.er.notDeclared": "nicht im Schema",
+  "brain.overview.er.openRecords": "Datensätze öffnen vom Typ",
+  "brain.overview.er.editSchema": "Schema bearbeiten für",
+  "brain.overview.er.declareSchema": "Schema deklarieren für",
+  "brain.overview.er.truncated": "Dieser Raum ist größer als ein Lesevorgang: Der {{scan}}-Scan endete bei {{limit}} Datensätzen, das Diagramm ist daher unvollständig.",
+  "brain.overview.er.dangling": "{{n}} Kanten verweisen auf eine Entität, die nicht mehr existiert.",
+  "brain.overview.er.proxy": "Ein Proxy-Raum hat kein einzelnes Datenmodell — öffnen Sie einen Mitgliedsraum."
 }

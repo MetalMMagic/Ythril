@@ -70,9 +70,10 @@ const FROZEN = {
   'client/src/app/pages/files/file-manager.component.ts': 1617,
   'client/src/app/pages/schema-library/schema-library.component.ts': 1112,
   'server/src/sync/engine.ts': 966,
-  // 954 -> 958: `mapImportedTypeSchema` now reads a type-level `$ref` before the inline fields, which is
-  // four lines and closes a hole where an imported library-backed type saved as `{}` with nothing required.
-  'client/src/app/pages/settings/space-schema-tab.component.ts': 958,
+  // 958 -> 684: the per-type editor body moved into `schema-type-editor.component` so the Brain Overview
+  // could open the same editor. Lowered rather than left — a frozen number 274 lines above the real size
+  // is 274 lines this file could regrow into without the gate saying a word.
+  'client/src/app/pages/settings/space-schema-tab.component.ts': 684,
   // 839 -> 843: `typeSchemasMode` on the update body and the replace branch in `mergeSpaceMeta`. Both are
   // small and belong beside the merge they qualify — splitting a two-branch decision across files would
   // make the contract harder to read, not easier.
@@ -88,7 +89,12 @@ const FROZEN = {
   'server/src/config/types.ts': 672,
   'client/src/app/pages/settings/data.component.ts': 644,
   'server/src/api/files.ts': 646,
-  'client/src/app/pages/brain/overview-tab.component.ts': 645,
+  // 645 -> 660: the data-model panel’s mount and its card header. The panel ITSELF is a separate
+  // component (er-model-panel) and its geometry a separate module (er-layout) — which is what this
+  // ratchet asks for. What landed here is the 13 lines that place it in the grid, plus the two inputs
+  // it needs. Raised deliberately: refusing would have meant hiding a panel mount somewhere it does not
+  // belong purely to keep a number down.
+  'client/src/app/pages/brain/overview-tab.component.ts': 660,
   'client/src/app/pages/settings/networks.component.ts': 643,
 };
 

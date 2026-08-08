@@ -94,7 +94,9 @@ async function getHuman(): Promise<HumanInstance> {
         iris: { enabled: false },
         description: {
           enabled: true,
-          modelPath: 'faceres.json', // FaceRes — 128d descriptor; age/gender computed here too
+          // FaceRes emits a 1024-wide descriptor; the library reduces it to FACE_DESCRIPTOR_DIMS before we
+          // ever see it. Age/gender are computed here too.
+          modelPath: 'faceres.json',
           minConfidence: 0.0,
           skipFrames: 0,
         },
@@ -151,7 +153,7 @@ export async function labelStillResolves(spaceId: string, entityId: string): Pro
 
 /**
  * Search the face gallery (labeled face-chunk records in the space) for the
- * closest match to the given 128d descriptor.
+ * closest match to the given descriptor, which is FACE_DESCRIPTOR_DIMS wide.
  *
  * Uses exact-mode $vectorSearch so all gallery entries are considered, then
  * a post-match filter for faceEntityId to restrict to labeled faces only.
@@ -301,7 +303,9 @@ export async function embedFaces(
     const face = faces[i]!;
 
     const embedding: number[] | undefined = face.embedding;
-    if (!embedding || embedding.length !== 128) continue; // FaceRes not run / failed
+    // Absent means FaceRes did not run for this face — routine, and not what the width guard is about.
+    // Present-but-wrong-width is the case that must not stay quiet, so it goes through the shared guard.
+    if (!embedding || !isUsableDescriptor(embedding, 'in-process')) continue;
 
     // Filter by minimum face size (fraction of shorter image side)
     const boxRaw = face.boxRaw; // [x, y, w, h] normalised 0–1

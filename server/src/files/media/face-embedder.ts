@@ -3,12 +3,14 @@
  *
  * Uses @vladmandic/human with the CPU backend (pure JavaScript, no GPU, no
  * native TensorFlow bindings, no WASM file path configuration).
- * Model: BlazeFace Back (detection) + FaceRes (128d face descriptor).
+ * Model: BlazeFace Back (detection) + FaceRes (descriptor). FaceRes itself outputs 1024 dimensions;
  *
  * Pipeline per image:
+ * @vladmandic/human reduces them to the 128 the gallery stores — see face-descriptor.ts.
+ *
  *  1. Decode image bytes via sharp → raw RGBA pixel data + dimensions
  *  2. Create tf.Tensor3D via human.tf (bundled TF.js) from pixel data
- *  3. human.detect() → per-face {embedding (128d), boxRaw (normalised bbox)}
+ *  3. human.detect() → per-face {embedding (reduced to FACE_DESCRIPTOR_DIMS), boxRaw (normalised bbox)}
  *  4. For each detected face with a valid embedding:
  *     a. Gallery search: $vectorSearch (exact) on faceEmbedding index, post-
  *        match for faceEntityId, top-1
@@ -19,7 +21,7 @@
  *
  * Model files (NOT bundled — must be placed manually):
  *   DATA_ROOT/<modelPath>/blazeface-back.json + .bin  (~0.5 MB, detection)
- *   DATA_ROOT/<modelPath>/faceres.json + .bin          (~6.7 MB, 128d embed)
+ *   DATA_ROOT/<modelPath>/faceres.json + .bin          (~6.7 MB, 1024-wide, reduced to 128 by the library)
  *
  * Download from:
  *   https://vladmandic.github.io/human/models/blazeface-back.json

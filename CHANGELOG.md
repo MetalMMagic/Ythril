@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Fixed
+- **The face vector index and the embedders now share one width.** The number was written three times — in
+  the index built at `initSpace`, and in each of the two embedding paths. They MUST agree: an index built at
+  one width with vectors written at another gives a cosine search that ranks nothing correctly **and reports
+  no error at all**. One constant now, gated so it stays one.
+  - This is the groundwork for making the width configurable, which an operator has asked for because every
+    top-tier open face recogniser emits 512 dimensions while the contract admits only 128 — so the hook that
+    exists for bringing a better model currently accepts only models in the bundled one's weight class.
+    Asking that question in three places would have been the problem; there is one place now.
+  - The remaining `128`s in comments claimed FaceRes emits that width. It emits 1024, and the library reduces
+    it. Corrected where they sat.
+
 
 - **A changed face-descriptor width would have skipped every face in silence.** Both embedding paths
   compared `embedding.length !== 128` and moved on — no error, no log, no counter — so the symptom would

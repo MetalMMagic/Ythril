@@ -39,6 +39,12 @@ const CLIENT = resolve(__dirname, '../../..');
  * file had a `state.dupeError()` branch all along and needed no exemption.
  */
 const EXEMPT: Record<string, string> = {
+  'src/app/pages/settings/schema-type-editor.component.ts':
+    'Presentational: it edits a draft handed to it and resolves nothing itself, so it has no request that ' +
+    'could fail. Its two empty states are a linked library entry that declares no properties — resolved by ' +
+    'the HOST and passed in as `linkedProps` — and a type that has no properties yet, which is local form ' +
+    'state the operator is in the middle of filling in. The fetch that can actually fail is the schema ' +
+    "tab's library picker, which has its own failure branch (asserted separately below).",
   'src/app/pages/graph/graph-linked-records.component.ts':
     'Presentational: it receives its rows as an input and makes no request of its own, so it has no failure to distinguish. ' +
     'The panel that DOES fetch (graph.component) has the error state.',

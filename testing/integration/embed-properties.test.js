@@ -59,13 +59,28 @@ const COLLECTION_PATH = { memory: 'memories', entity: 'entities', edge: 'edges',
 
 async function embedTextOf(kind, id, timeoutMs = 30_000) {
   const deadline = Date.now() + timeoutMs;
+  let last = null;
+  let polls = 0;
   while (Date.now() < deadline) {
     const r = await get(INSTANCES.a, token, `/api/brain/spaces/${SPACE}/${COLLECTION_PATH[kind]}/${id}`);
+    polls++;
+    last = r;
     if (r.status === 200 && r.body?.matchedText != null) return r.body;
     await new Promise(res => setTimeout(res, 250));
   }
+  // Carry the reason out with the failure. A bare `null` cannot tell "the record was never written" from
+  // "the record is there and the embed job never ran" from "the read itself was failing" — and those have
+  // three different causes. This timed out once on 2026-08-08 (edge only, three siblings green in ~0.5 s)
+  // and the log said nothing beyond the assertion message, so the diagnosis had to be reconstructed from
+  // the outside. Whatever the next occurrence is, it should be readable from the failure itself.
+  lastProbe = `after ${polls} polls over ${timeoutMs}ms: HTTP ${last?.status}, `
+    + `record ${last?.status === 200 ? 'EXISTS' : 'NOT READABLE'}, `
+    + `matchedText ${last?.body?.matchedText === undefined ? 'absent' : JSON.stringify(last?.body?.matchedText)}`;
   return null;
 }
+
+/** Set by the last `embedTextOf` that timed out, so the assertion can say why rather than just "falsy". */
+let lastProbe = '(no probe recorded)';
 
 describe('Property keys are embedded (B4)', () => {
   before(async () => {
@@ -96,7 +111,7 @@ describe('Property keys are embedded (B4)', () => {
     assert.match(r.body.matchedText ?? '', /occupation pilot/,
       `memory create must fold "key value" into matchedText: ${r.body.matchedText}`);
     const hit = await embedTextOf('memory', r.body._id);
-    assert.ok(hit, 'memory should have its embed text stored');
+    assert.ok(hit, `memory should have its embed text stored — ${lastProbe}`);
     assert.match(hit.matchedText ?? '', /occupation/,
       `memory embed text must include the property key: ${hit.matchedText}`);
   });
@@ -107,7 +122,7 @@ describe('Property keys are embedded (B4)', () => {
       { name: `EntPropKey-${RUN}`, type: 'concept', properties: { occupation: 'engineer' } });
     assert.equal(r.status, 201, JSON.stringify(r.body));
     const hit = await embedTextOf('entity', r.body._id);
-    assert.ok(hit, 'entity should have its embed text stored');
+    assert.ok(hit, `entity should have its embed text stored — ${lastProbe}`);
     assert.match(hit.matchedText ?? '', /occupation/,
       `entity embed text must include the property key: ${hit.matchedText}`);
   });
@@ -120,7 +135,7 @@ describe('Property keys are embedded (B4)', () => {
     });
     assert.equal(r.status, 201, JSON.stringify(r.body));
     const hit = await embedTextOf('chrono', r.body._id);
-    assert.ok(hit, 'chrono should have its embed text stored');
+    assert.ok(hit, `chrono should have its embed text stored — ${lastProbe}`);
     assert.match(hit.matchedText ?? '', /venue/,
       `chrono embed text must include the property key: ${hit.matchedText}`);
   });
@@ -136,7 +151,7 @@ describe('Property keys are embedded (B4)', () => {
     });
     assert.equal(r.status, 201, JSON.stringify(r.body));
     const hit = await embedTextOf('edge', r.body._id);
-    assert.ok(hit, 'edge should have its embed text stored');
+    assert.ok(hit, `edge should have its embed text stored — ${lastProbe}`);
     assert.match(hit.matchedText ?? '', /medium/,
       `edge embed text must include the property key: ${hit.matchedText}`);
   });

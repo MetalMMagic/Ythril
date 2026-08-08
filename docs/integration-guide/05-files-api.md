@@ -1078,6 +1078,8 @@ Set `reprocessSyncedImages: false` to restrict gallery building to images upload
 
 Face recognition requires a dedicated Atlas vector search index per space. Name: `{spaceId}_files_faceEmbedding`, field: `faceEmbedding`, dimensions: `128`, similarity: `cosine`. This is distinct from the text embedding index used by `recall`.
 
+**This index is never re-dimensioned automatically, and that is deliberate.** Ythril rebuilds other vector indexes when their definition changes, because re-embedding the records makes the vectors catch up. Face vectors live on already-stored face-chunk records and nothing re-derives them, so a rebuild at a new width would leave the stored vectors indexed as if they were the new width — every similarity score wrong, with no error reported. If the configured width ever differs from an existing space's index, Ythril **refuses the change, keeps the existing width, and logs both numbers**. To move a populated gallery, re-embed its faces at the new width first. A filter-field change still applies, at the existing width.
+
 When the face recognition feature is first enabled, any existing `initSpace` call will create the required index. If you add the feature after spaces already exist, re-run `initSpace` for each space or create the index manually via the Atlas UI / MongoDB admin API.
 
 #### Configuration Reference

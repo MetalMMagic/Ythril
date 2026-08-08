@@ -6,6 +6,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Fixed
+- **The face gallery's vector index can no longer be silently re-dimensioned.** A change to the face
+  descriptor width was treated like any other index definition change and rebuilt the index — in place, or
+  by drop-and-recreate.
+  - For a text index that is correct: the records are re-embedded and the vectors catch up. **The face
+    gallery has no such path.** Its vectors live on already-stored face-chunk records and nothing re-derives
+    them, so a rebuild would leave 128-wide vectors indexed as if they were 512-wide — every similarity
+    score wrong, and **no error reported anywhere**.
+  - Ythril now refuses the width change, keeps the existing width, and logs both numbers with what to do
+    about it. Moving a populated gallery to a new width means re-embedding its faces first; that is a
+    decision about the data, not a config edit.
+  - A refused width change still lets a **filter-field** change through, at the existing width — freezing
+    the index against legitimate edits would break filtered recall for the space.
+  - Text indexes are deliberately unaffected. The asymmetry is the point: if every index refused, an
+    embedding-model change could never be applied.
+
 ### Changed
 - **BREAKING for operators using an external face model: the in-process fallback is now OFF by default.**
   When a configured and consented external face provider fails, Ythril no longer embeds the image with the

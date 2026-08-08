@@ -163,7 +163,7 @@ export async function ensureVectorSearchIndex(
   indexSuffix: string = 'embedding',
   waitForReady: boolean = true,
   filterFields: string[] = [],
-  opts: { force?: boolean } = {},
+  opts: { force?: boolean; refuseWidthChange?: boolean } = {},
 ): Promise<void> {
   const db = getDb();
   const coll = db.collection(`${spaceId}_${collectionSuffix}`);
@@ -213,6 +213,35 @@ export async function ensureVectorSearchIndex(
     if (dimsMatch && filtersMatch && !opts.force) {
       log.debug(`Vector search index ${indexName} already up to date`);
       return;
+    }
+
+    // Some indexes must NOT be silently re-dimensioned, and the face gallery is the one that exists today.
+    //
+    // Rebuilding a TEXT index at a new width is recoverable: the records are re-embedded and the vectors
+    // catch up. The face gallery has no such path. Its vectors live on `faceEmbedding` in already-stored
+    // face-chunk records, and nothing re-derives them — so widening the index leaves 128-wide vectors
+    // indexed as if they were 512-wide. Cosine search then ranks nothing correctly **and reports no error
+    // at all**, which is precisely the failure the shared width constant and its guards exist to prevent.
+    // Reintroducing it through the feature meant to make the width configurable would be the worst version
+    // of it, because the operator would have just been told the width is theirs to choose.
+    //
+    // So this refuses and keeps the existing width. Moving a POPULATED gallery to a new width means
+    // re-embedding every face, which is a decision about the data, not a config edit.
+    if (existing && !dimsMatch && opts.refuseWidthChange) {
+      log.error(
+        `REFUSING to change ${indexName} from ${existingDims} to ${numDimensions} dimensions. `
+        + `The vectors already stored in this space are ${existingDims}-wide and nothing re-derives them, `
+        + `so rebuilding the index at ${numDimensions} would leave every similarity score wrong with no `
+        + `error reported. The index keeps its current width. To move a populated gallery, re-embed its `
+        + `records at the new width first; to build a new space at ${numDimensions}, create it fresh.`,
+      );
+      if (filtersMatch) return;
+      // Filter fields may still legitimately need updating. Re-issue the definition at the width the
+      // index ALREADY has, so the filter change lands without touching the part that would destroy data.
+      definition.fields = [
+        { type: 'vector', path: vectorPath, numDimensions: existingDims as number, similarity },
+        ...filterFields.map(path => ({ type: 'filter', path })),
+      ];
     }
 
     // Definition changed (dimensions or filter fields). Prefer an in-place update — Atlas keeps
@@ -480,7 +509,9 @@ export async function buildSpaceVectorIndexes(
     // literal in each embedding path — three copies of a number that MUST agree, because an index built at
     // one width and vectors written at another produce a cosine search that silently ranks nothing
     // correctly. One copy now, which is also the precondition for making it configurable.
-    await ensureVectorSearchIndex(spaceId, 'files', FACE_DESCRIPTOR_DIMS, 'cosine', 'faceEmbedding', 'faceEmbedding', waitForReady, undefined, opts);
+    // `refuseWidthChange`: the face gallery is the one index whose vectors nothing re-derives, so a width
+    // change must never be applied silently to an existing space. See the guard in ensureVectorSearchIndex.
+    await ensureVectorSearchIndex(spaceId, 'files', FACE_DESCRIPTOR_DIMS, 'cosine', 'faceEmbedding', 'faceEmbedding', waitForReady, undefined, { ...opts, refuseWidthChange: true });
   }
 }
 

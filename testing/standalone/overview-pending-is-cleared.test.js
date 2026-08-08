@@ -34,12 +34,14 @@ const PANELS = [
   { key: 'completeness', loader: 'loadCompleteness' },
   { key: 'queue',        loader: 'loadEmbeddingQueue' },
   { key: 'tokens',       loader: 'loadTokenAccess' },
-  // `stats` is per-space like the four above — it is blanked and re-raised on every space switch.
-  { key: 'stats',        loader: 'loadStats', public: true },
-  // `about` is the odd one out and the reason `raisedInSelectSpace` exists as a separate field: the instance
-  // panel is fetched ONCE at init and never re-fetched, so it is one-shot. Raising it on a space switch would
-  // put a skeleton over data already on screen, which is why `selectSpace` must NOT list it.
-  { key: 'about',        loader: 'ngOnInit', public: true, oneShot: true },
+  // `stats` and `about` were here until 2026-08-08 and are deliberately gone, not overlooked. The owner
+  // removed the statistics strip (the ER diagram shows the same counts with the structure intact) and the
+  // Instance card (instance identity belongs to About, not to a space overview). Both loaders still run —
+  // other views read their data — they simply no longer drive a skeleton on this tab, so a pending flag for
+  // them would be one that is raised and never lowered, which is the exact defect this file exists to catch.
+  //
+  // `about` was also the reason `oneShot` existed: it was fetched once at init rather than per space switch.
+  // No key needs that distinction now; the field is kept because the next one-shot panel will.
 ];
 
 /** The body of one loader method, sliced to its own closing brace rather than a character count. */
@@ -90,7 +92,7 @@ describe('an Overview skeleton can always be dismissed', () => {
     const at = src.indexOf('  selectSpace(id: string): void {');
     assert.ok(at > 0, 'selectSpace method not found');
     const selectSpace = src.slice(at, src.indexOf('\n  }', at));
-    for (const key of ['activity', 'completeness', 'queue', 'tokens', 'stats']) {
+    for (const key of ['activity', 'completeness', 'queue', 'tokens']) {
       assert.match(selectSpace, new RegExp(`${key}: true`),
         `the space switch blanks ${key}, so it must raise its pending flag too`);
     }

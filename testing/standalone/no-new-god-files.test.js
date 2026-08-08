@@ -98,7 +98,11 @@ const FROZEN = {
   // ratchet asks for. What landed here is the 13 lines that place it in the grid, plus the two inputs
   // it needs. Raised deliberately: refusing would have meant hiding a panel mount somewhere it does not
   // belong purely to keep a number down.
-  'client/src/app/pages/brain/overview-tab.component.ts': 660,
+  // 660 -> 601: the statistics strip and the Instance card were deleted (owner, 2026-08-08) — the ER
+  // diagram supersedes the counts, and instance identity belongs to the About page, not a space overview.
+  // Ratcheted DOWN to what the file now measures, which is what makes this a ratchet: leaving 660 would
+  // have handed the file 59 lines of free headroom it did not earn.
+  'client/src/app/pages/brain/overview-tab.component.ts': 601,
   'client/src/app/pages/settings/networks.component.ts': 643,
 };
 

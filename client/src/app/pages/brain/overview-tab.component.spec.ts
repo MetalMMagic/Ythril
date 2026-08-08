@@ -38,32 +38,24 @@ function setup(opts: { stats?: SpaceStats; space?: Space; confirm?: boolean; nee
 describe('OverviewTabComponent', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('total sums every collection; statCards carries the five counts', () => {
-    const { c } = setup({ stats: STATS });
-    expect(c.total()).toBe(5 + 12 + 30 + 3 + 7);
-    // Order matters and is asserted deliberately: these tiles are shortcuts INTO the tab strip, so they
-    // follow it exactly (Entities · Edges · Memories · Chrono · Files). They used to lead with Memories,
-    // which meant the two disagreed about what comes next and every click became a small search.
-    expect(c.statCards().map(s => [s.key, s.value])).toEqual([
-      ['entities', 12], ['edges', 30], ['memories', 5], ['chrono', 3], ['files', 7],
-    ]);
-  });
+  // The three tests that covered `total` and `statCards` went with the statistics strip (owner,
+  // 2026-08-08): the ER diagram shows the same per-type counts AND how the types relate, and it carries
+  // the tab links those tiles provided. Their subject no longer exists, so they are deleted rather than
+  // re-pointed — a test kept alive against a replacement it was not written for asserts the old design.
 
-  it('every stat tile targets a real collection tab', () => {
-    // The tile's `key` IS the tab it opens. Typed from COLLECTION_TABS now rather than a second
-    // hand-written union, and checked at runtime too: the type stops a mismatch reaching the build,
-    // this stops a tile being added from data the type never sees.
-    const { c } = setup({ stats: STATS });
-    expect(c.statCards().length).toBe(COLLECTION_TABS.length);
-    for (const card of c.statCards()) {
-      expect(COLLECTION_TABS).toContain(card.key);
-    }
-  });
-
-  it('total is 0 and statCards empty while stats are still loading', () => {
-    const { c } = setup({ stats: undefined });
-    expect(c.total()).toBe(0);
-    expect(c.statCards()).toEqual([]);
+  it('the statistics strip is gone, and its storage bar was not deleted with it', () => {
+    // The strip held two unrelated things: record counts (now the diagram's job) and STORAGE, which the
+    // diagram says nothing about and which is the one number here that can stop a space working. Deleting
+    // the container is exactly how a survivor like that gets lost, so its presence is asserted directly.
+    const { fixture } = setup({ stats: STATS, space: space({ maxGiB: 10, usageGiB: 2.5 }) });
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    const text = el.textContent ?? '';
+    expect(text).not.toContain('brain.overview.statsTitle');
+    // Storage renders with NO activity input set, which is the point: it must not depend on the usage
+    // panel having data, or it disappears on exactly the untouched space where a full disk is a surprise.
+    expect(text).toContain('brain.overview.storage');
+    expect(el.querySelector('.store .bar')).not.toBeNull();
   });
 
   it('usagePct is a capped ratio when a quota is set, null when unlimited', () => {
@@ -116,21 +108,24 @@ describe('OverviewTabComponent', () => {
     expect(el.textContent).toContain('brain.overview.noNetworks');
   });
 
-  it('Instance panel renders identity/health when `about` is provided, and is absent otherwise', () => {
-    const withAbout = setup();
-    withAbout.fixture.componentRef.setInput('about', {
+  it('renders NOTHING about the instance, even when `about` is supplied', () => {
+    // The panel is gone (owner, 2026-08-08): instance label, version, id, uptime and Mongo version are
+    // properties of the instance, not of the space being looked at, and all of them are on the About page.
+    //
+    // Asserted with `about` PRESENT on purpose. The input still exists and the shell still passes it, so
+    // "the panel is absent" is only meaningful when the data that used to render it is available — testing
+    // it with `about` unset would pass against a panel that had simply not loaded yet.
+    const { fixture } = setup();
+    fixture.componentRef.setInput('about', {
       instanceId: 'inst-abc', instanceLabel: 'My Brain', version: '1.4.4', uptime: '2h', mongoVersion: '8.2.1',
       diskInfo: { total: 0, used: 0, available: 0, dataUsed: 0 },
     });
-    withAbout.fixture.detectChanges();
-    const kv = (withAbout.fixture.nativeElement as HTMLElement).querySelector('.kv');
-    expect(kv).toBeTruthy();
-    expect(kv!.textContent).toContain('My Brain');
-    expect(kv!.textContent).toContain('8.2.1');
-
-    const noAbout = setup();
-    noAbout.fixture.detectChanges();
-    expect((noAbout.fixture.nativeElement as HTMLElement).querySelector('.kv')).toBeNull();
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('.kv')).toBeNull();
+    expect(el.textContent).not.toContain('My Brain');
+    expect(el.textContent).not.toContain('8.2.1');
+    expect(el.textContent).not.toContain('inst-abc');
   });
 
   it('Embedding-queue panel shows counts + failed reasons when provided, and is absent without it', () => {
@@ -240,22 +235,20 @@ describe('OverviewTabComponent', () => {
     expect((noVotes.fixture.nativeElement as HTMLElement).querySelector('.vote-list')).toBeNull();
   });
 
-  it('two cards span the full width — the summary and the diagram — and nothing else does', () => {
+  it('ONE card spans the full width — the diagram — and nothing else does', () => {
     // Uniform card sizing is CSS (jsdom computes no layout, so heights are verified by the E2E
-    // geometry check, not here). What IS pinnable is the structure that layout relies on: exactly one
-    // .span-all card, and it is the Statistics summary.
+    // geometry check, not here). What IS pinnable is the structure that layout relies on.
+    //
+    // It was two: the statistics summary and the diagram. The summary is gone and usage became a normal
+    // cell (owner, 2026-08-08), so the diagram is the only thing wide enough to earn the full row. The
+    // COUNT is asserted, not just the diagram's presence — a second span-all card creeping back is what
+    // makes the grid look accidental, and naming only the survivor would not catch it.
     const { fixture } = setup({ stats: STATS });
-    fixture.componentRef.setInput('about', {
-      instanceId: 'i', instanceLabel: 'L', version: '1', uptime: '0m', mongoVersion: '8',
-      diskInfo: { total: 0, used: 0, available: 0, dataUsed: 0 },
-    });
     fixture.detectChanges();
     const el = fixture.nativeElement as HTMLElement;
     const spanning = [...el.querySelectorAll('.panel.span-all')];
-    expect(spanning.length).toBe(2);
-    const titles = spanning.map(s => s.querySelector('h3')?.textContent ?? '');
-    expect(titles.some(x => x.includes('brain.overview.statsTitle'))).toBe(true);
-    expect(titles.some(x => x.includes('brain.overview.er.title'))).toBe(true);
+    expect(spanning.length).toBe(1);
+    expect(spanning[0]!.querySelector('h3')?.textContent ?? '').toContain('brain.overview.er.title');
     expect(el.querySelectorAll('.panel').length).toBeGreaterThan(1); // other panels are normal cells
   });
 
@@ -351,13 +344,17 @@ describe('OverviewTabComponent', () => {
     expect((fixture.nativeElement as HTMLElement).querySelector('.comp-score')).toBeNull();
   });
 
-  it('renders the counts and a Reindex button; shows the reindex note when stale', () => {
+  it('shows the reindex note and button when the index is stale', () => {
+    // Renamed and narrowed. This test claimed to cover "the counts", but the two values it asserted — 12
+    // and the 57 total — were rendered by the STATISTICS strip, a different panel that happened to share
+    // the `.stat .v` class. It passed for the indexing panel while checking almost nothing about it, and
+    // it broke when the strip was deleted, which is how the overlap surfaced at all.
+    //
+    // A shared class name is not a shared subject. Scoped to the reindex controls, which is what this
+    // panel actually owns.
     const { fixture } = setup({ stats: STATS, needsReindex: true });
     fixture.detectChanges();
     const el = fixture.nativeElement as HTMLElement;
-    const values = [...el.querySelectorAll('.stat .v')].map(n => n.textContent?.trim());
-    expect(values).toContain('12');            // entities count rendered
-    expect(values).toContain('57');            // total
     expect(el.querySelector('.reindex-note')).not.toBeNull();       // stale note shown
     expect(el.querySelector('.actions button')).not.toBeNull();      // reindex button present
   });

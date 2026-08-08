@@ -6,6 +6,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Changed
+- **BREAKING for operators using an external face model: the in-process fallback is now OFF by default.**
+  When a configured and consented external face provider fails, Ythril no longer embeds the image with the
+  bundled model. It skips the image, logs once, and lets the media job retry.
+  - **Why the old behaviour was worse than a failure.** Both embedders emit the same descriptor width, so a
+    fallback wrote a *different embedder's* vectors into the same gallery and nothing could tell. The vectors
+    were the right shape and the wrong vector space; every similarity score computed against them was wrong,
+    silently and permanently. A skipped image is recoverable — a poisoned gallery entry is not.
+  - **If you do not use an external provider, nothing changes.** In-process is your only path, not a
+    fallback, and it keeps running exactly as before. The switch is gated on an external provider being
+    configured AND consented, specifically so a single-model install cannot lose face recognition to it.
+  - To keep the old behaviour, set `mediaEmbedding.faceRecognition.externalModel.allowInProcessFallback` to
+    `true`. The flag is read as a strict boolean, so a `"false"` string in a hand-edited config stays off.
+  - **What you will see if this bites you:** faces stop being added to the gallery while the provider is
+    down, and a single warning names the reason. Previously you would have seen nothing at all, and the
+    gallery would have been quietly accumulating incomparable vectors.
+  - **Two log lines changed text.** Both provider-failure warnings ended in *"falling back to in-process
+    recognition"*, which is now the opposite of what happens on a default configuration. They end in
+    *"no descriptors from this provider"* and no longer claim to know what happens next — that is the
+    caller's decision. If you alert on the old string, re-point it.
+
 ### Fixed
 - **The face vector index and the embedders now share one width.** The number was written three times — in
   the index built at `initSpace`, and in each of the two embedding paths. They MUST agree: an index built at

@@ -86,7 +86,11 @@ const FROZEN = {
   'client/src/app/pages/brain/review-tab.component.ts': 748,
   'server/src/brain/recall.ts': 739,
   'client/src/app/pages/settings/media-processing/models-tab.component.ts': 678,
-  'server/src/config/types.ts': 672,
+  // 672 -> 673: `allowInProcessFallback` on `faceRecognition.externalModel`. ONE line of type, and the
+  // behaviour it names lives in `face-external.ts` and `face-embedder.ts`, not here. The alternative —
+  // a face-only config module re-exported from this file — would split the config contract across two
+  // places to save a single field, which is the trade this list exists to let us decline.
+  'server/src/config/types.ts': 673,
   'client/src/app/pages/settings/data.component.ts': 644,
   'server/src/api/files.ts': 646,
   // 645 -> 660: the data-model panel’s mount and its card header. The panel ITSELF is a separate

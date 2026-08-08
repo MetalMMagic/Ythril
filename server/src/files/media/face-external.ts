@@ -48,11 +48,33 @@ export function externalFaceReady(): boolean {
 }
 
 /**
+ * May a configured-but-failing external provider hand off to the bundled in-process model?
+ *
+ * Defaults to `false` — see `allowInProcessFallback` in the config type for why a skip beats a silent
+ * substitution. Exported so the embedder asks this question in one place rather than reading config inline.
+ *
+ * Deliberately NOT combined with `externalFaceReady()`. They answer different questions and the caller
+ * needs both separately: an instance with no external provider must keep running in-process, so the
+ * fallback flag has to be irrelevant there rather than switching recognition off.
+ */
+export function fallbackAllowedIn(ext?: { allowInProcessFallback?: boolean }): boolean {
+  // `=== true` and not a truthy read: a config hand-edited on disk can carry the STRING "false", which is
+  // truthy, and would turn the operator's explicit refusal into an enable.
+  return ext?.allowInProcessFallback === true;
+}
+
+/** `fallbackAllowedIn` against the live config. Split so the rule itself is testable without it. */
+export function inProcessFallbackAllowed(): boolean {
+  return fallbackAllowedIn(getConfig().mediaEmbedding?.faceRecognition?.externalModel);
+}
+
+/**
  * Detect + embed faces via the configured external provider.
  *
- * Returns `null` on ANY failure — unconfigured, unacknowledged, unreachable, malformed. The caller then
- * runs the in-process recogniser, so a broken endpoint degrades to local processing instead of dropping
- * faces silently. That fallback is the whole reason this returns null rather than throwing.
+ * Returns `null` on ANY failure — unconfigured, unacknowledged, unreachable, malformed. Returning rather
+ * than throwing is what lets the caller decide: an instance with no provider runs in-process, and an
+ * instance whose provider failed skips the image unless `allowInProcessFallback` says otherwise. This
+ * function deliberately does not know which of those applies — it reports the failure and nothing more.
  *
  * `ssrfSafeFetch` rather than `fetch`: the URL is admin-settable through the API, and a plain fetch would
  * follow a redirect into link-local metadata. Validating the URL at write time is not enough on its own —
@@ -87,7 +109,9 @@ export async function detectFacesExternal(imageBytes: Buffer): Promise<ExternalF
       allowPrivate: allowPrivateForSlot('faceExternal'),
     });
     if (!res.ok) {
-      log.warn(`External face model: HTTP ${res.status} — falling back to in-process recognition`);
+      // Deliberately does not say what happens next: that is the caller's decision and it depends on
+      // `allowInProcessFallback`. Claiming a fallback here would be wrong on the default configuration.
+      log.warn(`External face model: HTTP ${res.status} — no descriptors from this provider`);
       return null;
     }
     const body = await boundedJson<ExternalFaceResponse>(res, 'external face provider');
@@ -111,7 +135,7 @@ export async function detectFacesExternal(imageBytes: Buffer): Promise<ExternalF
     }
     return faces;
   } catch (err) {
-    log.warn(`External face model unreachable (${err instanceof Error ? err.message : String(err)}) — falling back to in-process recognition`);
+    log.warn(`External face model unreachable (${err instanceof Error ? err.message : String(err)}) — no descriptors from this provider`);
     return null;
   }
 }

@@ -4,9 +4,9 @@
  * Uses @vladmandic/human with the CPU backend (pure JavaScript, no GPU, no
  * native TensorFlow bindings, no WASM file path configuration).
  * Model: BlazeFace Back (detection) + FaceRes (descriptor). FaceRes itself outputs 1024 dimensions;
+ * @vladmandic/human reduces them to the 128 the gallery stores — see face-descriptor.ts.
  *
  * Pipeline per image:
- * @vladmandic/human reduces them to the 128 the gallery stores — see face-descriptor.ts.
  *
  *  1. Decode image bytes via sharp → raw RGBA pixel data + dimensions
  *  2. Create tf.Tensor3D via human.tf (bundled TF.js) from pixel data
@@ -41,7 +41,7 @@ import { log } from '../../util/log.js';
 import { isUsableDescriptor, FACE_DESCRIPTOR_DIMS } from './face-descriptor.js';
 import type { FileMetaDoc, AuthorRef, EntityDoc } from '../../config/types.js';
 import type { Config as HumanConfig, Result } from '@vladmandic/human';
-import { detectFacesExternal } from './face-external.js';
+import { detectFacesExternal, externalFaceReady, inProcessFallbackAllowed } from './face-external.js';
 
 // ── Singleton Human instance (lazy init) ──────────────────────────────────
 
@@ -54,6 +54,17 @@ type HumanInstance = {
 let _human: HumanInstance | null = null;
 // serialise concurrent initialisations — only one load() runs at a time
 let _humanLoading: Promise<HumanInstance> | null = null;
+
+/**
+ * Once-per-process latch for the "fallback is disabled, so this image was skipped" warning.
+ *
+ * A provider that is down is down for every image in the backlog, so a per-image log would emit
+ * thousands of identical lines and bury the one an operator needs to read.
+ */
+let warnedFallbackDisabled = false;
+
+/** Test seam: the latch would otherwise make the second test in a file assert nothing. */
+export function resetFallbackWarning(): void { warnedFallbackDisabled = false; }
 
 async function getHuman(): Promise<HumanInstance> {
   if (_human) return _human;
@@ -258,11 +269,33 @@ export async function embedFaces(
 
   // ── 2. Detect + embed ────────────────────────────────────────────────────
   // An external provider gets first refusal, when one is configured AND its host is acknowledged. It
-  // returns null on ANY failure, so an unreachable or malformed endpoint falls through to in-process
-  // recognition rather than dropping faces — degrading, never silently doing nothing. Both paths yield
-  // the same `{ embedding, boxRaw }` shape, so everything below is shared.
+  // returns null on ANY failure. Both paths yield the same `{ embedding, boxRaw }` shape, so everything
+  // below is shared.
   let faces: Array<{ embedding?: number[]; boxRaw?: number[] }> | undefined =
     (await detectFacesExternal(imageBytes)) ?? undefined;
+
+  // A configured provider that failed does NOT hand off to the bundled model unless the operator asked
+  // for that. The two embedders emit the same width, so mixing them corrupts the gallery in a way no
+  // check can see: the vectors are the right shape, they are simply from a different vector space, and
+  // every similarity score computed against them is wrong. Returning here leaves the job to retry, which
+  // is recoverable; writing one wrong vector is not.
+  //
+  // `externalFaceReady()` and not `!faces` is the whole point. An instance with NO external provider is
+  // not falling back — in-process is its only path — and gating on `!faces` alone would silently switch
+  // face recognition off for every single-model install.
+  if (!faces && externalFaceReady() && !inProcessFallbackAllowed()) {
+    if (!warnedFallbackDisabled) {
+      warnedFallbackDisabled = true;
+      log.warn(
+        'Face recogniser: the external provider did not answer and the in-process fallback is disabled, '
+        + 'so this image was skipped rather than embedded with the bundled model. The media job will retry. '
+        + 'Set mediaEmbedding.faceRecognition.externalModel.allowInProcessFallback=true to accept vectors '
+        + 'from a different embedder in the same gallery. Logged once per process.',
+      );
+    }
+    log.debug(`Face recogniser: skipped ${spaceId}/${fileId} — external provider unavailable, fallback disabled`);
+    return;
+  }
 
   if (!faces) {
     // The local model is only loaded when no external provider answered — initialising it otherwise

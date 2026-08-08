@@ -84,6 +84,17 @@ describe('the source enforces its own guarantees', () => {
     assert.ok(src.includes('Number.isFinite'), 'NaN/Infinity must be rejected');
   });
 
+  it('the vector index is built at the width the embedders check against', () => {
+    // Three copies of this number used to exist: the index, and each embedding path. They MUST agree — an
+    // index built at one width with vectors written at another gives a cosine search that ranks nothing
+    // correctly and reports no error at all. One constant now, and this is what keeps it one.
+    const idx = readFileSync(new URL('../../server/src/spaces/vector-index.ts', import.meta.url), 'utf8');
+    assert.match(idx, /'faceEmbedding'/, 'the face index is gone from vector-index.ts — re-point this');
+    assert.ok(idx.includes('FACE_DESCRIPTOR_DIMS'),
+      'the face index writes its own width instead of reading the constant the embedders enforce');
+    assert.ok(!idx.includes("'files', 128,"), 'the face index width is a literal again');
+  });
+
   it('caps how many faces a provider can return', () => {
     assert.ok(src.includes('MAX_FACES'), 'an unbounded provider response must be capped');
   });

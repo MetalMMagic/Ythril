@@ -7,6 +7,7 @@
  * lifecycle; spaces.ts calls in, not the other way round.
  */
 import { getDb, asDoc } from '../db/mongo.js';
+import { FACE_DESCRIPTOR_DIMS } from '../files/media/face-descriptor.js';
 import { getConfig, mutateConfig, getEmbeddingConfig, getFaceRecognitionConfig } from '../config/loader.js';
 import { resolveMetaRefs } from './schema-validation.js';
 import { log } from '../util/log.js';
@@ -475,7 +476,11 @@ export async function buildSpaceVectorIndexes(
   }
   const faceCfg = getFaceRecognitionConfig();
   if (faceCfg.enabled) {
-    await ensureVectorSearchIndex(spaceId, 'files', 128, 'cosine', 'faceEmbedding', 'faceEmbedding', waitForReady, undefined, opts);
+    // The width comes from the same constant the embedders check against. It was a literal here and a
+    // literal in each embedding path — three copies of a number that MUST agree, because an index built at
+    // one width and vectors written at another produce a cosine search that silently ranks nothing
+    // correctly. One copy now, which is also the precondition for making it configurable.
+    await ensureVectorSearchIndex(spaceId, 'files', FACE_DESCRIPTOR_DIMS, 'cosine', 'faceEmbedding', 'faceEmbedding', waitForReady, undefined, opts);
   }
 }
 

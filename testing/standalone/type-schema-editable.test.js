@@ -33,6 +33,9 @@ const API    = 'server/src/api/spaces.ts';
 const LIB    = 'server/src/api/schema-library.ts';
 const EDITOR = 'client/src/app/pages/settings/space-settings-state.service.ts';
 const TAB    = 'client/src/app/pages/settings/space-schema-tab.component.ts';
+// The editing BODY moved out of the tab into a shared component so the Brain Overview could open the same
+// editor. The controls did not change; the file holding them did, and this gate names the file.
+const BODY   = 'client/src/app/pages/settings/schema-type-editor.component.ts';
 
 const read = (p) => readFileSync(join(ROOT, p), 'utf8');
 
@@ -94,12 +97,17 @@ describe('a space type schema is editable in the UI', () => {
     }
   });
 
-  it('the Schema tab actually binds the retention inputs', () => {
+  it('the type editor actually binds the retention inputs', () => {
     // The serialiser writing a field proves the SAVE works; only a binding proves a human can set it.
-    const tab = read(TAB);
+    //
+    // Read from the shared editor component rather than the tab: the body moved there so the Brain Overview
+    // could open the same editor in place. The binding is now against the injected draft — `d().<field>` —
+    // rather than a reach through the settings-page state service, which is precisely the coupling the move
+    // removed. If it moves again, re-point this; do not relax it.
+    const body = read(BODY);
     for (const field of ['retentionDays', 'retentionContentDays']) {
-      assert.match(tab, new RegExp(`\\[\\(ngModel\\)\\]="state\\.typeState\\(kt,name\\)\\.${field}"`),
-        `no input is bound to ${field} on the Schema tab`);
+      assert.match(body, new RegExp(`\\[\\(ngModel\\)\\]="d\\(\\)\\.${field}"`),
+        `no input is bound to ${field} in the type editor (${BODY})`);
     }
   });
 

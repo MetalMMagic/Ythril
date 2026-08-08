@@ -72,10 +72,15 @@ describe('the source enforces its own guarantees', () => {
   });
 
   it('rejects any descriptor that is not exactly 128 floats', () => {
-    // The width check moved into `face-descriptor.ts` so both embedding paths share one rule and the first
-    // unexpected width is REPORTED rather than skipped in silence. This asserts both halves: that this file
-    // still defers to that helper, and that the helper still enforces the width — checking only the call
-    // would pass against a helper that had stopped checking anything.
+    // The width check moved into `face-descriptor.ts` so the first unexpected width is REPORTED rather than
+    // skipped in silence. This asserts both halves for THIS path: that the file still defers to the helper,
+    // and that the helper still enforces the width — checking only the call would pass against a helper that
+    // had stopped checking anything.
+    //
+    // Scope, because this comment used to overstate it: these assertions cover the EXTERNAL path only. They
+    // once claimed "both embedding paths share one rule" while reading a single file, and the in-process path
+    // kept its own `!== 128` literal underneath that claim for a full release. The cross-path property lives
+    // in `face-width-is-never-a-literal.test.js`, which discovers the paths instead of naming them.
     assert.ok(src.includes('isUsableDescriptor('), 'the width check must still happen');
     const guard = readFileSync(new URL('../../server/src/files/media/face-descriptor.ts', import.meta.url), 'utf8');
     assert.match(guard, /embedding\.length === FACE_DESCRIPTOR_DIMS/,
@@ -87,7 +92,9 @@ describe('the source enforces its own guarantees', () => {
   it('the vector index is built at the width the embedders check against', () => {
     // Three copies of this number used to exist: the index, and each embedding path. They MUST agree — an
     // index built at one width with vectors written at another gives a cosine search that ranks nothing
-    // correctly and reports no error at all. One constant now, and this is what keeps it one.
+    // correctly and reports no error at all. This keeps the INDEX copy honest; the two embedding copies are
+    // kept honest by `face-width-is-never-a-literal.test.js`. Splitting that out is deliberate — asserting
+    // the three-way property here, where only the index is read, is how the third copy survived unnoticed.
     const idx = readFileSync(new URL('../../server/src/spaces/vector-index.ts', import.meta.url), 'utf8');
     assert.match(idx, /'faceEmbedding'/, 'the face index is gone from vector-index.ts — re-point this');
     assert.ok(idx.includes('FACE_DESCRIPTOR_DIMS'),

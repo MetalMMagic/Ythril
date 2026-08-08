@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The face vector index and the embedders now share one width.** The number was written three times — in
   the index built at `initSpace`, and in each of the two embedding paths. They MUST agree: an index built at
   one width with vectors written at another gives a cosine search that ranks nothing correctly **and reports
-  no error at all**. One constant now, gated so it stays one.
+  no error at all**. One constant now, gated so it stays one — see the entry below for the copy this first
+  pass left behind, which is why the gate now discovers the paths rather than naming them.
   - This is the groundwork for making the width configurable, which an operator has asked for because every
     top-tier open face recogniser emits 512 dimensions while the contract admits only 128 — so the hook that
     exists for bringing a better model currently accepts only models in the bundled one's weight class.
@@ -31,9 +32,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The skip still happens, because one odd descriptor must not fail a whole media job. What changed is that
     the first one says so, naming the width it got and which path produced it — once per process, because a
     changed library means every face is wrong and a per-face log would bury the message.
-  - The literal `128`, previously written in both paths, is one shared constant. An operator has asked for
-    the width to become configurable; this is the single place that question now gets asked.
+  - The literal `128` becomes one shared constant. An operator has asked for the width to become configurable;
+    this is the single place that question now gets asked. **Only the external path was actually converted —
+    the entry below finishes it.**
   - The docs no longer claim the model emits 128. They say where the number actually comes from.
+
+
+- **The in-process face path kept skipping wrong-width descriptors in silence.** The change above was
+  believed to cover both embedding paths, and said so. It covered one. The in-process path — the one that
+  runs on every default install, because the external provider is opt-in — kept its own
+  `embedding.length !== 128` and kept dropping faces with no error, no log and no counter. It now goes
+  through the same guard, so the first unexpected width is reported and names which path produced it.
+  - Two comments still told operators that FaceRes emits a 128-wide descriptor. It emits 1024 and the
+    library reduces it; a reader trusting those comments would look for a width change in the wrong place.
+  - **Nothing disagreed with the incomplete fix**, which is the part worth recording. The file's own
+    documentation said both paths were converted, and the test asserting it read a single file — it stated a
+    two-path property while checking one, so it went green on exactly the half that was done. The
+    replacement discovers every face-vector writer from `git ls-files` and requires each to consult the
+    guard, so a path that is added or missed fails rather than going unmentioned.
 
 
 ### Fixed

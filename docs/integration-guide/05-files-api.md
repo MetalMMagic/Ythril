@@ -1039,6 +1039,7 @@ and the infra pin not turned off):
 1. **Decode** — image bytes decoded to raw RGBA via `sharp`.
 2. **Detect** — `@vladmandic/human` runs BlazeFace Back detection. Faces below `minFaceSizeFraction` (default: 5% of the shorter image side) are skipped.
 3. **Embed** — FaceRes produces a descriptor per face, which the library reduces to 128 dimensions. That reduction, not the model weights, is where the 128 comes from — worth knowing because the gallery is built on it.
+   - **A descriptor of any other width is skipped, and the first one is logged as a warning** naming the width received and which path produced it (in-process or external). One odd descriptor must not fail a whole media job, so the skip itself is not an error; the log is once per process, because a changed width means every face is affected and a per-face log would bury the message. If face recognition appears to find nothing, check for this warning before concluding the images have no faces — that is the symptom a width mismatch produces.
 4. **Gallery search** — each descriptor is searched against the space's face gallery (all face-chunk records that have a `faceEntityId`) using an exact `$vectorSearch`. The top-1 result is examined.
 5. **Auto-label** — if the top match's cosine similarity score ≥ `confidenceThreshold` (default: `0.6`), the parent image is linked to that entity (`entityIds` updated). The first successful match wins.
 6. **Persist face-chunks** — one `{fileId}#face-chunk{N}` filemeta record per detected face is written (or replaced on reprocess) with:

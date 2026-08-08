@@ -7,7 +7,7 @@ import { log } from '../../util/log.js';
 
 /** One detected face, in exactly the shape the in-process recogniser produces. */
 export interface ExternalFace {
-  /** 128-d descriptor. Anything else is rejected — the gallery's cosine search assumes this width. */
+  /** FACE_DESCRIPTOR_DIMS wide. Anything else is rejected — the gallery's cosine search assumes this width. */
   embedding: number[];
   /** `[x, y, w, h]`, normalised 0–1, like `human`'s `boxRaw`. Optional: only used for the size filter. */
   boxRaw?: [number, number, number, number];
@@ -95,8 +95,9 @@ export async function detectFacesExternal(imageBytes: Buffer): Promise<ExternalF
 
     const faces: ExternalFace[] = [];
     for (const f of raw) {
-      // 128 floats exactly. A provider returning a different width would corrupt gallery similarity
-      // scores rather than fail loudly, so the wrong shape is dropped here, not downstream.
+      // Exactly as many floats as the gallery's index was built with. A provider returning a different width
+      // would corrupt gallery similarity scores rather than fail loudly, so the wrong shape is dropped here,
+      // not downstream.
       if (!isUsableDescriptor(f?.embedding, 'external')) continue;
       // `isUsableDescriptor` has already established this is an array of the right LENGTH; the values are
       // still a provider's word for it, so they are checked before anything stores them.

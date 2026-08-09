@@ -1,3 +1,5 @@
+import { spacesWhereTokenMay } from '../auth/reachable-spaces.js';
+import type { TokenRights, Rung } from '../config/rights-shape.js';
 import { Router } from 'express';
 import fs from 'fs/promises';
 import path from 'path';
@@ -15,11 +17,17 @@ const VALID_ACTIONS = ['keep-local', 'keep-incoming', 'keep-both', 'save-to-spac
 type ResolveAction = typeof VALID_ACTIONS[number];
 
 /** Return the space IDs the authenticated token is allowed to access. */
-function accessibleSpaces(tokenSpaces?: string[]): string[] {
-  const cfg = getConfig();
-  const all = cfg.spaces.map(s => s.id);
-  if (!tokenSpaces || tokenSpaces.length === 0) return all;
-  return all.filter(id => tokenSpaces.includes(id));
+/**
+ * The space IDs this token may act on at the given Data-quality level.
+ *
+ * These routes take no space in the path — they walk every space the token can reach — so this list IS the
+ * enforcement point. It also removes the copy of a conflation that lived here: `tokenSpaces.length === 0`
+ * used to mean "unrestricted". An ABSENT allowlist means every space; an EMPTY one means none. Anything
+ * holding `spaces: []` was handed the whole instance.
+ */
+function accessibleSpaces(req: { authToken?: unknown }, needs: Rung = 'read'): string[] {
+  const t = req.authToken as { rights?: TokenRights; spaces?: string[] } | undefined;
+  return spacesWhereTokenMay(t?.rights, t?.spaces, 'dataQuality', needs);
 }
 
 /** Find a conflict document across accessible spaces. Returns doc + spaceId, or null. */
@@ -103,7 +111,7 @@ const MAX_TOTAL = 2000;
 // GET /api/conflicts — list unresolved conflicts for all accessible spaces
 conflictsRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
   try {
-    const spaces = accessibleSpaces(req.authToken?.spaces);
+    const spaces = accessibleSpaces(req, 'read');
     const results: ConflictDoc[] = [];
     let truncated = false;
     for (const spaceId of spaces) {
@@ -144,7 +152,7 @@ conflictsRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
 // GET /api/conflicts/link-violations — list all link violations
 conflictsRouter.get('/link-violations', globalRateLimit, requireAuth, async (_req, res) => {
   try {
-    const spaces = accessibleSpaces(_req.authToken?.spaces);
+    const spaces = accessibleSpaces(_req, 'read');
     const results: LinkViolationDoc[] = [];
     let truncated = false;
     for (const spaceId of spaces) {
@@ -169,7 +177,7 @@ conflictsRouter.get('/link-violations', globalRateLimit, requireAuth, async (_re
 // DELETE /api/conflicts/link-violations/:id — dismiss a single link violation
 conflictsRouter.delete('/link-violations/:id', globalRateLimit, requireAuth, denyReadOnly, async (req, res) => {
   try {
-    const spaces = accessibleSpaces(req.authToken?.spaces);
+    const spaces = accessibleSpaces(req, 'write');
     for (const spaceId of spaces) {
       const result = await col<LinkViolationDoc>(`${spaceId}_link_violations`)
         .deleteOne(asFilter<LinkViolationDoc>({ _id: req.params['id'] }));
@@ -188,7 +196,7 @@ conflictsRouter.delete('/link-violations/:id', globalRateLimit, requireAuth, den
 // DELETE /api/conflicts/link-violations — dismiss all link violations for accessible spaces
 conflictsRouter.delete('/link-violations', globalRateLimit, requireAuth, denyReadOnly, async (_req, res) => {
   try {
-    const spaces = accessibleSpaces(_req.authToken?.spaces);
+    const spaces = accessibleSpaces(_req, 'write');
     let total = 0;
     for (const spaceId of spaces) {
       const result = await col<LinkViolationDoc>(`${spaceId}_link_violations`).deleteMany({});
@@ -204,7 +212,7 @@ conflictsRouter.delete('/link-violations', globalRateLimit, requireAuth, denyRea
 // GET /api/conflicts/:id — get a single conflict record
 conflictsRouter.get('/:id', globalRateLimit, requireAuth, async (req, res) => {
   try {
-    const spaces = accessibleSpaces(req.authToken?.spaces);
+    const spaces = accessibleSpaces(req, 'read');
     for (const spaceId of spaces) {
       const doc = await col<ConflictDoc>(`${spaceId}_conflicts`)
         .findOne(asFilter<ConflictDoc>({ _id: req.params['id'] })) as ConflictDoc | null;
@@ -231,7 +239,7 @@ conflictsRouter.get('/:id', globalRateLimit, requireAuth, async (req, res) => {
 // DELETE /api/conflicts/:id — dismiss (resolve) a conflict record
 conflictsRouter.delete('/:id', globalRateLimit, requireAuth, denyReadOnly, async (req, res) => {
   try {
-    const spaces = accessibleSpaces(req.authToken?.spaces);
+    const spaces = accessibleSpaces(req, 'write');
     for (const spaceId of spaces) {
       const result = await col<ConflictDoc>(`${spaceId}_conflicts`)
         .deleteOne(asFilter<ConflictDoc>({ _id: req.params['id'] }));
@@ -263,7 +271,7 @@ conflictsRouter.post('/bulk-resolve', globalRateLimit, requireAuth, denyReadOnly
       res.status(400).json({ error: 'targetSpaceId is required for save-to-space action' });
       return;
     }
-    const spaces = accessibleSpaces(req.authToken?.spaces);
+    const spaces = accessibleSpaces(req, 'write');
     if (action === 'save-to-space' && !spaces.includes(targetSpaceId)) {
       res.status(403).json({ error: 'Token does not have access to target space' });
       return;
@@ -307,7 +315,7 @@ conflictsRouter.post('/seed', globalRateLimit, requireAdmin, denyReadOnly, async
       res.status(400).json({ error: 'Missing required fields: _id, spaceId, originalPath, conflictPath' });
       return;
     }
-    const spaces = accessibleSpaces(req.authToken?.spaces);
+    const spaces = accessibleSpaces(req, 'write');
     if (!spaces.includes(spaceId)) {
       res.status(403).json({ error: 'Token does not have access to this space' });
       return;
@@ -344,7 +352,7 @@ conflictsRouter.post('/:id/resolve', globalRateLimit, requireAuth, denyReadOnly,
       return;
     }
 
-    const spaces = accessibleSpaces(req.authToken?.spaces);
+    const spaces = accessibleSpaces(req, 'write');
 
     // Validate target space access for save-to-space
     if (action === 'save-to-space' && !spaces.includes(targetSpaceId)) {

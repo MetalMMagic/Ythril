@@ -417,12 +417,17 @@ describe('OverviewTabComponent — the usage panel', () => {
     expect(el.textContent).toContain('63 ms');
   });
 
-  it('hides the panel when the fetch has landed with nothing, and does not crash on null', () => {
-    // `pending` defaults to false, which is "settled with no data" — the panel stays hidden, as it always has.
-    // The loading case is a skeleton and is covered in its own block below.
+  it('STAYS VISIBLE when the fetch has landed with nothing, because storage lives in it', () => {
+    // Reversed deliberately (owner, 2026-08-09). The panel used to hide when activity was null, which is why
+    // storage could not live here: on a space nobody had called, the card was absent and storage with it —
+    // exactly the space where a filling disk is least expected. Giving storage its own card worked around
+    // that and was the wrong fix; it made a card for one number.
+    // Now the SECTION is unconditional and only the activity block inside it is gated.
     const { el, c } = render(null);
     expect(c.answerRate()).toBeNull();
-    expect(el.textContent).not.toContain('brain.overview.useTitle');
+    expect(el.textContent).toContain('brain.overview.useTitle');
+    expect(el.textContent).toContain('brain.overview.storage');
+    expect(el.querySelector('.store')).not.toBeNull();
   });
 
   it('only mentions slow calls when there are some', () => {
@@ -467,7 +472,10 @@ describe('OverviewTabComponent — first-load skeletons', () => {
 
   it('reserves a card for every panel still awaiting its first answer', () => {
     const { el } = render(PENDING);
-    expect(busy(el)).toBe(4);
+    // Three, not four: the Usage card is unconditional now, so it renders its own frame and puts a skeleton
+    // in the body rather than being replaced by an aria-busy placeholder. Storage is inside it and must show
+    // whether or not activity has landed, which is the whole reason that panel stopped being conditional.
+    expect(busy(el)).toBe(3);
     // The frame is the real one, so the placeholder is identifiable rather than an anonymous grey box.
     for (const key of ['brain.overview.useTitle', 'brain.overview.compTitle', 'brain.overview.queueTitle', 'brain.overview.tokenTitle']) {
       expect(titles(el), key).toContain(key);
@@ -478,10 +486,11 @@ describe('OverviewTabComponent — first-load skeletons', () => {
     // This is the whole fix: what makes the page look like it is assembling itself is the layout moving.
     const loading = titles(render(PENDING).el);
     const settled = titles(render({}).el);
-    // Settled-with-no-data hides the four optional panels; loading shows their frames. Every OTHER card must be
-    // in the same place in both, and the four must appear in loading exactly where they will land.
+    // THREE optional panels now, not four: Usage left that set when storage moved into it, and is present in
+    // both renders. Its skeleton is inside its body rather than replacing the card, so the card itself never
+    // appears or disappears — which is a stronger version of what this test is about.
     expect(loading.filter(t => !settled.includes(t)).sort()).toEqual([
-      'brain.overview.compTitle', 'brain.overview.queueTitle', 'brain.overview.tokenTitle', 'brain.overview.useTitle',
+      'brain.overview.compTitle', 'brain.overview.queueTitle', 'brain.overview.tokenTitle',
     ]);
     expect(settled.every(t => loading.includes(t))).toBe(true);
   });
@@ -494,11 +503,15 @@ describe('OverviewTabComponent — first-load skeletons', () => {
     expect(titles(el)).not.toContain('brain.overview.tokenTitle');
   });
 
+  // Usage is deliberately excluded from the per-panel assertions below: it is unconditional now, so its title
+  // is present whatever any pending flag says. Leaving it in would assert the old behaviour.
   it('is per panel — one still loading does not reserve the others', () => {
     const { el } = render({ tokens: true });
     expect(busy(el)).toBe(1);
     expect(titles(el)).toContain('brain.overview.tokenTitle');
-    expect(titles(el)).not.toContain('brain.overview.useTitle');
+    // Usage IS present — it is unconditional. What must be absent is another panel's frame: the point of the
+    // test is that one pending flag does not reserve cards for panels nobody is waiting on.
+    expect(titles(el)).not.toContain('brain.overview.compTitle');
   });
 
   it('draws lines, not a spinner — the size is the point', () => {

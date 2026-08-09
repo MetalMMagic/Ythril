@@ -184,7 +184,14 @@ interface StatCard { key: CollectionTab; icon: string; label: string; value: num
       <!-- ── Data model (full width: a diagram in a third-width card is unreadable) ──── -->
       <section class="panel span-all">
         <header class="panel-h">
-          <span class="ic"><ph-icon name="graph" [size]="16"/></span>
+          <!-- NO BACKTICKS in a template comment: one ends the inline template string and the error points
+               at @Component, not here.
+               This is "stack", not "graph". The panel is the space's SCHEMA — record TYPES and their fields,
+               with the relationships between them. "graph" is the node-graph VIEW and now labels that tab;
+               two things wearing one icon made this read as a small copy of the Graph tab. Not "database"
+               either: the Indexing panel below already owns that, and swapping one collision for another is
+               not a fix. -->
+          <span class="ic"><ph-icon name="stack" [size]="16"/></span>
           <div>
             <h3>{{ 'brain.overview.er.title' | transloco }}</h3>
             <p class="hint">{{ 'brain.overview.er.hint' | transloco }}</p>
@@ -200,40 +207,20 @@ interface StatCard { key: CollectionTab; icon: string; label: string; value: num
            The STORAGE bar was not duplicated by the diagram, so it moved into Usage below rather than
            being deleted with the strip around it — disk consumed is usage. -->
 
-      <!-- ── Storage: a small card, and NOT inside the activity panel ── -->
-      <!-- It briefly lived inside the usage card below and the spec caught it: that panel only renders when
-           activity data has arrived, so storage vanished on a space nobody had called yet — exactly the
-           space where filling the disk is least expected. It is unconditional here. -->
+      <!-- ── Usage: storage, and whether anyone gets anything OUT of this space ── -->
+      <!-- The SECTION is unconditional; only the ACTIVITY block inside it is gated. It used to be the other
+           way round, which is why storage could not live here: the whole card waited on activity data, so on
+           a space nobody had called yet the card was absent and storage with it — exactly the space where a
+           filling disk is least expected. Giving storage its own card worked around that and was the wrong
+           fix: it made a card for one number. -->
       <section class="panel">
         <header class="panel-h">
-          <span class="ic"><ph-icon name="database" [size]="16"/></span>
-          <div><h3>{{ 'brain.overview.storage' | transloco }}</h3></div>
+          <span class="ic"><ph-icon name="broadcast" [size]="16"/></span>
+          <div><h3>{{ 'brain.overview.useTitle' | transloco }}</h3>
+            <p>{{ 'brain.overview.useHint' | transloco }}</p></div>
         </header>
         <div class="panel-b">
-          <div class="store">
-            <div class="store-row">
-              @if (space().maxGiB) {
-                <span class="num">{{ used() }} / {{ space().maxGiB }} GiB</span>
-              } @else {
-                <span class="num">{{ used() }} GiB · {{ 'brain.overview.storageUnlimited' | transloco }}</span>
-              }
-            </div>
-            @if (usagePct(); as pct) {
-              <div class="bar"><span [class.warn]="pct >= 80 && pct < 95" [class.err]="pct >= 95" [style.width.%]="pct"></span></div>
-            }
-          </div>
-        </div>
-      </section>
-
-      <!-- ── Usage: is anyone getting anything OUT of this space? ────── -->
-      @if (activity(); as act) {
-        <section class="panel">
-          <header class="panel-h">
-            <span class="ic"><ph-icon name="broadcast" [size]="16"/></span>
-            <div><h3>{{ 'brain.overview.useTitle' | transloco }}</h3>
-              <p>{{ 'brain.overview.useHint' | transloco }}</p></div>
-          </header>
-          <div class="panel-b">
+          @if (activity(); as act) {
             @if (act.calls > 0) {
               <div class="stat-grid">
                 <div class="stat">
@@ -267,8 +254,8 @@ interface StatCard { key: CollectionTab; icon: string; label: string; value: num
                     <span class="num">{{ act.answered }} / {{ act.recall }}<!--
                       -->@if (act.meanTopScore !== null) { · {{ 'brain.overview.useTopScore' | transloco }} {{ act.meanTopScore }} }</span>
                   </div>
-                  <!-- Inverted thresholds against the storage bar above: there, full is bad. Here a LOW rate is
-                       the warning — questions arriving and going unanswered is the content gap this panel
+                  <!-- Inverted thresholds against the storage bar below: there, full is bad. Here a LOW rate
+                       is the warning — questions arriving and going unanswered is the content gap this panel
                        exists to make visible. -->
                   <div class="bar"><span [class.warn]="rate < 50 && rate >= 20" [class.err]="rate < 20" [style.width.%]="rate"></span></div>
                 </div>
@@ -282,22 +269,31 @@ interface StatCard { key: CollectionTab; icon: string; label: string; value: num
               }
             } @else {
               <!-- Not "no data": no calls. A space with nothing asked of it is the clearest answer this panel
-                   can give, and blanking the panel would look like a loading failure instead. -->
+                   can give, and blanking it would look like a loading failure instead. -->
               <span class="muted">{{ 'brain.overview.useNone' | transloco }}</span>
             }
+          } @else if (pending().activity) {
+            <app-skeleton-lines [rows]="4" />
+          }
 
+          <!-- Storage: a SECTION of usage, not a card of its own. Disk consumed IS usage, and one number does
+               not earn a card in a grid of panels. It sits OUTSIDE the activity branch above, so it renders
+               whether or not anyone has ever called this space. -->
+          <div class="store">
+            <div class="store-row">
+              <span class="cap">{{ 'brain.overview.storage' | transloco }}</span>
+              @if (space().maxGiB) {
+                <span class="num">{{ used() }} / {{ space().maxGiB }} GiB</span>
+              } @else {
+                <span class="num">{{ used() }} GiB · {{ 'brain.overview.storageUnlimited' | transloco }}</span>
+              }
+            </div>
+            @if (usagePct(); as pct) {
+              <div class="bar"><span [class.warn]="pct >= 80 && pct < 95" [class.err]="pct >= 95" [style.width.%]="pct"></span></div>
+            }
           </div>
-        </section>
-      } @else if (pending().activity) {
-        <section class="panel" [attr.aria-busy]="true">
-          <header class="panel-h">
-            <span class="ic"><ph-icon name="broadcast" [size]="16"/></span>
-            <div><h3>{{ 'brain.overview.useTitle' | transloco }}</h3>
-              <p>{{ 'brain.overview.useHint' | transloco }}</p></div>
-          </header>
-          <div class="panel-b"><app-skeleton-lines [rows]="4" /></div>
-        </section>
-      }
+        </div>
+      </section>
 
       <!-- ── Completeness ───────────────────────────────────────────── -->
       @if (completeness(); as comp) {

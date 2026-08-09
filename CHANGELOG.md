@@ -6,6 +6,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- **A space can now be created at a face descriptor width other than 128.** `POST /api/spaces` accepts
+  `faceDescriptorDims` (64–4096, default 128), and the space's face index is built at that width.
+  - **Why it exists:** every top-tier open face recogniser emits 512 dimensions — ArcFace, AdaFace, FaceNet,
+    EdgeFace — while the bundled model emits 128. The external-provider hook exists so an operator can bring
+    a better model, and a hard 128 admitted only models in the bundled one's weight class. Requested by an
+    operator who had chosen a 512-d model and was holding their whole face rollout on it.
+  - **Create-only, and permanently so.** The gallery's vectors are written at this width and nothing
+    re-derives them, so changing it later would leave stored vectors indexed as a different size — a cosine
+    search that ranks nothing correctly and reports no error. The field is absent from `PATCH /api/spaces/:id`
+    so the API never offers the change, and the index build refuses it independently for a width that reaches
+    an existing space some other way.
+  - Bounds rather than an enum: 128 and 512 are today's answers, and an enum would make the next model a
+    code change.
+  - Absent means the built-in default and is **stored as absent**, so an existing space and a new
+    default-width one are the same shape on disk — a stored `128` would read as a choice nobody made.
+
 ### Changed
 - **The face descriptor width is now read from each space's own index instead of a built-in constant.**
   Groundwork for making the width configurable, and the half that has to land first.

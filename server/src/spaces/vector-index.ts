@@ -511,7 +511,11 @@ export async function buildSpaceVectorIndexes(
     // correctly. One copy now, which is also the precondition for making it configurable.
     // `refuseWidthChange`: the face gallery is the one index whose vectors nothing re-derives, so a width
     // change must never be applied silently to an existing space. See the guard in ensureVectorSearchIndex.
-    await ensureVectorSearchIndex(spaceId, 'files', FACE_DESCRIPTOR_DIMS, 'cosine', 'faceEmbedding', 'faceEmbedding', waitForReady, undefined, { ...opts, refuseWidthChange: true });
+    // The space's own width, chosen at creation. `refuseWidthChange` then makes it permanent: an existing
+    // gallery is never re-dimensioned, because nothing re-derives the vectors already stored in it.
+    const configuredDims = getConfig().spaces.find(s => s.id === spaceId)?.faceDescriptorDims
+      ?? FACE_DESCRIPTOR_DIMS;
+    await ensureVectorSearchIndex(spaceId, 'files', configuredDims, 'cosine', 'faceEmbedding', 'faceEmbedding', waitForReady, undefined, { ...opts, refuseWidthChange: true });
   }
 }
 

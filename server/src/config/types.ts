@@ -272,6 +272,18 @@ export interface SpaceConfig {
   builtIn: boolean;
   folders: string[];
   maxGiB?: number;
+  /**
+   * The width of this space's face descriptors, fixed when the space is created.
+   *
+   * Absent means the built-in default. **Create-only**: the face gallery's vectors are written at this width
+   * and nothing re-derives them, so changing it later would leave stored vectors indexed as if they were a
+   * different size — a cosine search that ranks nothing correctly and reports no error. The index build
+   * refuses such a change; this field simply never offers it.
+   *
+   * Exists because every top-tier open face recogniser emits 512 dimensions while the bundled one emits 128,
+   * so the external-provider hook admitted only models in the bundled model's weight class.
+   */
+  faceDescriptorDims?: number;
   flex?: number;
   /**
    * @deprecated Say `meta.purpose`. This is the legacy spelling of the same thing: it was the field

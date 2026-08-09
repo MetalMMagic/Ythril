@@ -159,6 +159,11 @@ const CreateSpaceBody = z.object({
   description: z.string().max(SPACE_PURPOSE_MAX).optional(),
   folders: z.array(z.string()).optional(),
   maxGiB: z.number().positive().optional(),
+  // Create-only, and deliberately absent from the update body: a populated gallery cannot be re-dimensioned,
+  // so offering the field on PATCH would be offering a change the index build then refuses.
+  // Bounds rather than an enum — 128 (MobileFaceNet class) and 512 (ArcFace, AdaFace, FaceNet, EdgeFace) are
+  // today's answers, and pinning an enum would make the next model a code change.
+  faceDescriptorDims: z.number().int().min(64).max(4096).optional(),
   proxyFor: ProxyForZ.optional(),
   meta: SpaceMetaBody.optional(),
 });
@@ -492,7 +497,7 @@ spacesRouter.post('/', globalRateLimit, requireAdminMfa, async (req, res) => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const { id: rawId, label, description, folders, maxGiB, proxyFor, meta } = parsed.data;
+  const { id: rawId, label, description, folders, maxGiB, proxyFor, meta, faceDescriptorDims } = parsed.data;
   const id = rawId ?? slugify(label);
 
   // Validate proxy members exist and are not themselves proxies
@@ -545,7 +550,7 @@ spacesRouter.post('/', globalRateLimit, requireAdminMfa, async (req, res) => {
     : { validationMode: 'strict', strictLinkage: true, ...(requestMeta ?? {}) };
 
   try {
-    const space = await createSpace({ id, label, description, folders, maxGiB, proxyFor, meta: seededMeta });
+    const space = await createSpace({ id, label, description, folders, maxGiB, proxyFor, meta: seededMeta, faceDescriptorDims });
     res.status(201).json({ space: spaceResponse(space) });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

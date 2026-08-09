@@ -85,10 +85,18 @@ const FROZEN = {
   // record inside each branch so the discriminant narrows it. Four lines of TYPES, no new behaviour —
   // raised deliberately rather than worked around, which is what this list is for.
   'client/src/app/pages/graph/graph.component.ts': 773,
-  'server/src/config/loader.ts': 753,
+  // 753 -> 764: `backfillTokenRights`. This file is where config migrations already live — the media
+  // master-switch and space-description ones are both here — so a fourth belongs beside them rather than in
+  // a module only the loader would ever call.
+  'server/src/config/loader.ts': 764,
   'client/src/app/pages/brain/review-tab.component.ts': 748,
   'server/src/brain/recall.ts': 739,
   'client/src/app/pages/settings/media-processing/models-tab.component.ts': 678,
+  // 675 -> 677: `rights` on TokenRecord, plus its import. FOURTH raise of this file in one session, and the
+  // first attempt wanted SIX lines because the shape was written inline. That was the signal, so the shape
+  // moved to `config/rights-shape.ts` — a leaf both this file and `auth/` can import without a cycle — and
+  // what is left here is one field and one import. The answer to a file that keeps growing is to stop
+  // putting things in it, not to raise the number again. The domain split is filed in ARCHITECTURE-TODO.
   // 674 -> 675: `spaceOrigins` on NetworkConfig. **THIRD raise of this file in one session** (672 -> 673 ->
   // 674 -> 675), and that is the signal this list exists to send rather than a run of bad luck. Each was one
   // honest line of type whose behaviour lives elsewhere, and each was individually correct — which is
@@ -101,7 +109,7 @@ const FROZEN = {
   // behaviour it names lives in `face-external.ts` and `face-embedder.ts`, not here. The alternative —
   // a face-only config module re-exported from this file — would split the config contract across two
   // places to save a single field, which is the trade this list exists to let us decline.
-  'server/src/config/types.ts': 675,
+  'server/src/config/types.ts': 677,
   'client/src/app/pages/settings/data.component.ts': 644,
   'server/src/api/files.ts': 646,
   // 645 -> 660: the data-model panel’s mount and its card header. The panel ITSELF is a separate

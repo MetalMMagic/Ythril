@@ -1,3 +1,4 @@
+import type { TokenRights } from './rights-shape.js';
 export interface TokenRecord {
   id: string;
   name: string;
@@ -36,6 +37,16 @@ export interface TokenRecord {
    *               same all-or-nothing trap from the other side.
    */
   mfa?: 'inherit' | 'exempt' | 'required';
+  /**
+   * The per-space rights matrix, derived from `admin`/`readOnly`/`spaces` by `migrateToken()` at load.
+   *
+   * **Not authoritative yet.** Enforcement still reads the legacy fields; this is written and compared
+   * first, so a defect in the derivation shows up as a mismatch rather than as access somebody has and
+   * nobody granted. Shape is `MigratedRights` in `auth/rights-migration.ts` — typed loosely here because
+   * `config/types.ts` must not import from `auth/`, which imports this file.
+   */
+  rights?: TokenRights;
+
 }
 
 // ── Space meta / schema types ──────────────────────────────────────────────

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **Internal: every space-scoped route is now classified into an area, and a gate fails the build on one
+  that is not.** Groundwork for the per-space rights matrix; no behaviour changes yet.
+  - The matrix can only govern routes it knows about. An unclassified route does not warn — it keeps working
+    at whatever access the old model gave it while the UI shows a column implying otherwise.
+  - **The enumeration immediately found what hand-writing the list had missed:** every COLLECTION-level
+    delete (`DELETE` on `memories`, `entities`, `edges`, `chrono` and `files` — each empties a whole record
+    type in a space), plus the conflict deletes and a test-seed route. The most destructive endpoints in the
+    area were the ones absent from the first draft.
+  - It also caught two routes that were listed with a method they do not have, which would have produced
+    rules guarding nothing.
+  - **Two enforcement shapes, not one.** Most routes take the space from the path. All of Data quality takes
+    no space at all — `duplicates`, `contradictions` and `conflicts` walk every space the token can reach and
+    resolve the space from the record. For those the enforcement point is the ITERATION SET, not the call, so
+    each entry records which shape it is. A guard written only for the path shape would have left that column
+    decorative.
+
+### Added
 - **A space can now be created at a face descriptor width other than 128.** `POST /api/spaces` accepts
   `faceDescriptorDims` (64–4096, default 128), and the space's face index is built at that width.
   - **Why it exists:** every top-tier open face recogniser emits 512 dimensions — ArcFace, AdaFace, FaceNet,

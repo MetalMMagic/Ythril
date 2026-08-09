@@ -2,10 +2,11 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { requireAuth, requireAdmin, requireAdminMfa } from '../auth/middleware.js';
 import { authRateLimit, globalRateLimit } from '../rate-limit/middleware.js';
-import { createToken, listTokens, revokeToken, regenerateToken, renameToken } from '../auth/tokens.js';
+import { createToken, listTokens, revokeToken, regenerateToken, renameToken, setTokenRights } from '../auth/tokens.js';
 import { isMfaEnabled, verifyMfaCode } from '../auth/totp.js';
 import { z } from 'zod';
 import { capRights, describeExcess } from '../auth/mint-cap.js';
+import { refuseSelfFloorRaise } from '../auth/floor-guard.js';
 import { migrateToken } from '../auth/rights-migration.js';
 
 export const tokensRouter = Router();
@@ -186,11 +187,22 @@ tokensRouter.post('/', authRateLimit, requireAdminMfa, async (req, res) => {
 
 const RenameTokenBody = z.object({
   // Same bound as create's `name`, so a label can't be edited to something the create flow would reject.
-  name: z.string().min(1).max(200),
-  // `.strict()` for the same reason as create, and here the edge is sharper: this route accepts a rename
-  // ONLY. A body carrying `spaces` or `admin` beside the name was dropped and answered 200, so an attempt to
-  // widen a token through the rename endpoint looked exactly like one that had worked.
-}).strict();
+  name: z.string().min(1).max(200).optional(),
+  // `.strict()` for the same reason as create, and here the edge is sharper: this route once accepted a
+  // rename ONLY. A body carrying `spaces` or `admin` beside the name was dropped and answered 200, so an
+  // attempt to widen a token through it looked exactly like one that had worked.
+  //
+  // `rights` is now a legitimate field, and `name` is optional so an edit can change either or both. The
+  // refine below keeps an empty body from being a silent no-op reported as success.
+  rights: z.object({
+    instanceAdmin: z.boolean(),
+    createSpaces: z.boolean(),
+    floor: z.record(z.string(), z.enum(['none', 'read', 'write', 'admin'])).nullable(),
+    perSpace: z.record(z.string(), z.record(z.string(), z.enum(['none', 'read', 'write', 'admin']))),
+  }).strict().optional(),
+}).strict().refine(d => d.name !== undefined || d.rights !== undefined, {
+  message: 'Provide `name`, `rights`, or both',
+});
 
 // PATCH /api/tokens/:id — rename a token's label (only) — admin + MFA
 tokensRouter.patch('/:id', requireAdminMfa, (req, res) => {
@@ -200,17 +212,55 @@ tokensRouter.patch('/:id', requireAdminMfa, (req, res) => {
     return;
   }
   const id = req.params['id'] as string;
-  // Only the name. The record also holds `hash` and `prefix`; handing the whole thing over would be safe
-  // (the allowlist reads `name` and nothing else), but naming the two fields keeps the intent legible at
-  // the call site rather than resting entirely on a list in another file.
+  const { name, rights } = parsed.data;
   const previous = listTokens().find(t => t.id === id);
-  req.auditSnapshots = { before: { name: previous?.name }, after: { name: parsed.data.name.trim() } };
-
-  const ok = renameToken(id, parsed.data.name.trim());
-  if (!ok) {
+  if (!previous) {
     res.status(404).json({ error: 'Token not found' });
     return;
   }
+
+  if (rights) {
+    // A token may never GRANT above itself, edit or mint. Same rule, same function — a second
+    // implementation here is how the two would come to disagree about what "above" means.
+    const editorRights = (req.authToken as { rights?: unknown } | undefined)?.rights
+      ?? migrateToken(req.authToken ?? {});
+    const excess = capRights(editorRights as never, rights as never);
+    if (excess.length > 0) {
+      res.status(403).json({ error: `A token cannot grant rights it does not hold — ${describeExcess(excess)}` });
+      return;
+    }
+
+    // And it may never raise its OWN floor. The mint cap stops handing more to a NEW token; without this
+    // the same escalation is available by a shorter route — edit yourself, then use yourself — and nothing
+    // about the result looks unusual afterwards.
+    const raised = refuseSelfFloorRaise(
+      (req.authToken as { id?: string } | undefined)?.id,
+      editorRights as never,
+      id,
+      rights as never,
+    );
+    if (raised.length > 0) {
+      res.status(403).json({
+        error: `A token cannot raise its own floor — ${raised.join(', ')}. Ask another administrator.`,
+      });
+      return;
+    }
+  }
+
+  req.auditSnapshots = {
+    before: { name: previous.name, rights: previous.rights },
+    after: { name: name?.trim() ?? previous.name, rights: rights ?? previous.rights },
+  };
+
+  if (name !== undefined && !renameToken(id, name.trim())) {
+    res.status(404).json({ error: 'Token not found' });
+    return;
+  }
+  if (rights && !setTokenRights(id, rights as never)) {
+    res.status(404).json({ error: 'Token not found' });
+    return;
+  }
+
   const updated = listTokens().find(t => t.id === id);
   res.json({ token: updated });
 });

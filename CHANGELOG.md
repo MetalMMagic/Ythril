@@ -6,6 +6,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- **`PATCH /api/tokens/:id` can now edit a token's rights matrix — and a token cannot raise its own floor.**
+  The last of the two enforcement rules the approved design said must live in the API rather than the UI.
+  - **The same cap as minting applies**, from the same function. A second implementation here is how the two
+    would come to disagree about what "above" means.
+  - **A token may not raise its OWN floor.** The mint cap stops handing more than you hold to a *new* token;
+    without this the same escalation is available by a shorter route — edit yourself, then use yourself — and
+    nothing about the result looks unusual afterwards.
+  - **Lowering your own floor is always allowed.** Refusing it would mean a token cannot reduce its own blast
+    radius, which is the one self-modification worth encouraging.
+  - Compared **per area**, not as one unit: a raise on `schema` must not pass because `knowledge` went down
+    in the same edit, and gaining a floor from none is the widest version of the move rather than an
+    exemption from it.
+  - `name` is now optional on that route and an empty body is a `400` rather than a silent no-op reported as
+    success.
+
 ### Fixed
 - **The same empty-allowlist bug existed in `contradictions` and `conflicts` too — three copies, not one.**
   Both carried a byte-identical filter reading `tokenSpaces.length === 0` as "unrestricted", and both are

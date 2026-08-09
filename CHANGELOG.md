@@ -6,6 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Changed
+- **The space guard now decides access from the rights matrix instead of the `spaces` allowlist.** Access is
+  unchanged: the rights are derived from `spaces`/`admin`/`readOnly` at config load, and the two predicates
+  are proved equivalent for every token shape on listed, unlisted and not-yet-created spaces.
+  - This is the first change in the rights work that alters how a decision is MADE rather than only adding
+    machinery. It went last on purpose, behind the proof, because its failure mode is a token reaching a
+    space it never could — with no error, nothing in the response and nothing in the logs.
+  - **The legacy branch survives, and is not decoration.** OIDC-derived tokens are built per request rather
+    than read from config, so the load-time backfill never sees them and they carry no rights. Without the
+    fallback the guard would refuse every OIDC caller — a lockout, not a widening, but one that would reach
+    production because no unit test stands up an OIDC session.
+  - The proxy rule is untouched: a proxy space still requires access to **every** member, never any one of
+    them.
+
 ### Added
 - **Internal: the rights-based space-reach check, proved equivalent to the legacy allowlist.** The guard
   still uses the old rule; nothing about access changes.

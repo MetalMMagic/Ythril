@@ -6,6 +6,7 @@ import { validateOidcJwt, getOidcConfig } from './oidc.js';
 import type { TokenRecord } from '../config/types.js';
 import type { OidcTokenRecord } from './oidc.js';
 import { resolveMemberSpaces } from '../spaces/proxy.js';
+import { reachesSpace } from './space-reach.js';
 import { authAttemptsTotal } from '../metrics/registry.js';
 import { logAuthFailure } from '../audit/middleware.js';
 import { mcpResourceMetadataUrl } from '../mcp/oauth.js';
@@ -265,18 +266,30 @@ function enforceSpaceScope(
   record: Omit<TokenRecord, 'hash'> | OidcTokenRecord,
   spaceId: string | undefined,
 ): boolean {
-  if (record.spaces && spaceId) {
-    // For proxy spaces, the token must have access to all member spaces.
-    // If the space doesn't exist in config, resolveMemberSpaces returns [].
-    // Fall back to [spaceId] so the scope check still rejects tokens that
-    // don't list this space — returning 403 instead of leaking a 404.
-    const memberIds = resolveMemberSpaces(spaceId);
-    const targets = memberIds.length > 0 ? memberIds : [spaceId];
-    const missing = targets.filter(sid => !record.spaces!.includes(sid));
-    if (missing.length > 0) {
-      res.status(403).json({ error: `Token does not have access to space '${spaceId}'` });
-      return false;
-    }
+  if (!spaceId) return true;
+
+  // For proxy spaces, the token must have access to ALL member spaces.
+  // If the space doesn't exist in config, resolveMemberSpaces returns [].
+  // Fall back to [spaceId] so the scope check still rejects tokens that
+  // don't reach this space — returning 403 instead of leaking a 404.
+  const memberIds = resolveMemberSpaces(spaceId);
+  const targets = memberIds.length > 0 ? memberIds : [spaceId];
+
+  // The rights matrix answers this now. It is derived from `spaces`/`admin`/`readOnly` at config load, and
+  // `rights-reach-matches-legacy.test.js` proves the two agree for every token shape on listed, unlisted and
+  // not-yet-created spaces — which is why this swap changes no behaviour.
+  //
+  // The legacy branch survives for records that carry no rights: OIDC-derived tokens are built per request
+  // rather than read from config, so the backfill never sees them. Falling through to `spaces` there is the
+  // same answer, not a weaker one; removing it would refuse every OIDC caller instead.
+  const rights = (record as { rights?: Parameters<typeof reachesSpace>[0] }).rights;
+  const missing = rights
+    ? targets.filter(sid => !reachesSpace(rights, sid))
+    : record.spaces ? targets.filter(sid => !record.spaces!.includes(sid)) : [];
+
+  if (missing.length > 0) {
+    res.status(403).json({ error: `Token does not have access to space '${spaceId}'` });
+    return false;
   }
   return true;
 }

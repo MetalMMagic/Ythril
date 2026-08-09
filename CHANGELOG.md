@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **Internal: the migration from today's token model to the per-space matrix, as a pure function.** Nothing
+  consumes it yet; no behaviour changes.
+  - This is the step where silent widening would happen. A token that gains an area nobody chose keeps
+    working, reports success, and is indistinguishable from one configured that way on purpose — no error,
+    no log line, no counter. So the mapping takes a record and returns a value, with no database, config or
+    clock, and every token shape is a test rather than a deployment.
+  - **The rule is "never a superset."** Where the old model is ambiguous the mapping takes the narrower
+    reading: a token that loses an access it should have had produces a 403 somebody reports on day one; one
+    that gains an access produces nothing at all.
+  - Two traps are pinned by name. A `schemaLibrary` token carries `readOnly: true` and stores `spaces: []`,
+    so reading `readOnly` first — or treating an empty list as "unscoped" — turns the narrowest token on the
+    instance into the widest. And an unscoped token maps to a FLOOR, because it reaches spaces created
+    tomorrow, while a scoped one must not.
+  - The property is asserted twice: per shape, and across 108 generated combinations, because a fixture test
+    can only speak about shapes somebody thought of. The widening detector is itself mutation-checked — a
+    predicate that always returns false would look identical to a clean run.
+
 - **Internal: every space-scoped route is now classified into an area, and a gate fails the build on one
   that is not.** Groundwork for the per-space rights matrix; no behaviour changes yet.
   - The matrix can only govern routes it knows about. An unclassified route does not warn — it keeps working

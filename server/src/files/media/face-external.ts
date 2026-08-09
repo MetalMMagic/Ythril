@@ -80,7 +80,7 @@ export function inProcessFallbackAllowed(): boolean {
  * follow a redirect into link-local metadata. Validating the URL at write time is not enough on its own —
  * DNS can change between the save and the call.
  */
-export async function detectFacesExternal(imageBytes: Buffer): Promise<ExternalFace[] | null> {
+export async function detectFacesExternal(imageBytes: Buffer, expectedDims: number): Promise<ExternalFace[] | null> {
   if (!externalFaceReady()) return null;
   const ext = getConfig().mediaEmbedding?.faceRecognition?.externalModel;
   const baseUrl = ext?.baseUrl?.trim();
@@ -122,7 +122,7 @@ export async function detectFacesExternal(imageBytes: Buffer): Promise<ExternalF
       // Exactly as many floats as the gallery's index was built with. A provider returning a different width
       // would corrupt gallery similarity scores rather than fail loudly, so the wrong shape is dropped here,
       // not downstream.
-      if (!isUsableDescriptor(f?.embedding, 'external')) continue;
+      if (!isUsableDescriptor(f?.embedding, 'external', expectedDims)) continue;
       // `isUsableDescriptor` has already established this is an array of the right LENGTH; the values are
       // still a provider's word for it, so they are checked before anything stores them.
       const emb = f.embedding as unknown[];

@@ -565,3 +565,58 @@ export async function finalizeSpaceIndexReady(
   // the opposite about two of them.
   return ok;
 }
+
+// ── Face descriptor width, resolved per space ────────────────────────────────────────────────────────────
+
+/**
+ * The width a given space's face gallery was built at.
+ *
+ * ## Why this is read from the INDEX rather than from config
+ *
+ * The number that matters is not "what does this instance prefer" but "what are this space's stored vectors,
+ * and what is its index expecting" — and those two were created together at `initSpace`. Reading the index
+ * makes a space self-consistent by construction: a gallery built at 128 keeps rejecting 512 descriptors even
+ * after an operator changes the configured default, which is the correct answer, because its stored vectors
+ * are still 128 wide.
+ *
+ * This is the shape the requesting operator asked for: *"the number exists as configuration in one place and
+ * the validator could read it instead of a literal."* The alternative they offered — a second
+ * `externalModel.dimensions` setting — is a second place to write the width down, and the two would drift.
+ *
+ * ## The cache, and why a miss is not cached
+ *
+ * One `listSearchIndexes` round trip per space, held for the process. Face embedding runs per image in a
+ * background job, so an uncached read would put a mongot call in front of every one.
+ *
+ * A space whose index cannot be read right now — mid-creation, mongot lagging, a transient error — falls back
+ * to `FACE_DESCRIPTOR_DIMS` and is **deliberately not cached**. Caching a fallback would pin a guess for the
+ * life of the process, and the guess is wrong precisely for the spaces this feature exists to serve: the ones
+ * built at a different width.
+ */
+const faceDimsBySpace = new Map<string, number>();
+
+export function resetFaceDimsCache(): void { faceDimsBySpace.clear(); }
+
+export async function faceDescriptorDimsFor(spaceId: string): Promise<number> {
+  const hit = faceDimsBySpace.get(spaceId);
+  if (hit !== undefined) return hit;
+
+  const indexName = `${spaceId}_files_faceEmbedding`;
+  try {
+    const coll = getDb().collection(`${spaceId}_files`);
+    const indexes = await coll.listSearchIndexes().toArray() as Array<{
+      name?: string; latestDefinition?: { fields?: SearchIndexField[] };
+    }>;
+    const fields = indexes.find(i => i.name === indexName)?.latestDefinition?.fields ?? [];
+    const dims = fields.find(f => f.type === 'vector')?.numDimensions ?? fields[0]?.numDimensions;
+    if (typeof dims === 'number' && dims > 0) {
+      faceDimsBySpace.set(spaceId, dims);
+      return dims;
+    }
+    log.debug(`Face index ${indexName} reports no dimension; using the built-in default this call only`);
+  } catch (err) {
+    log.debug(`Could not read ${indexName} (${err instanceof Error ? err.message : String(err)}); `
+      + 'using the built-in default this call only');
+  }
+  return FACE_DESCRIPTOR_DIMS;
+}

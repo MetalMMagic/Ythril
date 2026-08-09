@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **Internal: the mint cap — a minted token can never exceed the token that minted it.** Nothing calls it
+  yet; rights are not settable on mint.
+  - Minting is delegated in the approved design: a space admin may issue tokens for their own spaces.
+    Uncapped that is an escalation ladder — mint a token holding more than you do, then authenticate as it —
+    and nothing about the result looks wrong afterwards.
+  - **It refuses rather than silently trimming.** A quietly narrowed token works, looks configured, and is
+    not what the operator asked for; they find out when something they granted does not work, with the grid
+    saying one thing and the behaviour another. The refusal names every excess at once so one edit fixes it.
+  - Two comparisons that are easy to get subtly wrong, both pinned: the minter's reach in a space is its
+    floor **or** its row, whichever is higher; and a **floor may only come from a floor**, never from a row,
+    because a floor reaches spaces that do not exist yet and a row does not.
+
+### Added
 - **Internal: every token now carries a derived per-space rights object.** Computed at config load from the
   existing `admin` / `readOnly` / `spaces` fields. **Enforcement still reads the legacy fields** — nothing
   about access changes.

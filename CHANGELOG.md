@@ -6,6 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Changed
+- **The space guard now checks the AREA and LEVEL a request needs, not only whether the token reaches the
+  space.** This is the change that makes the rights columns bite.
+  - **Staged deliberately.** A route the inventory cannot resolve at runtime falls through to the reach check
+    with a warning naming the key that missed. So this layer can only ever be **stricter** than before, never
+    looser — there is no input for which it grants something reach denied.
+  - Turning those misses into refusals is the follow-up, once the warning has shown the log is clean. Doing
+    it now would `403` real traffic on any route whose key was reconstructed wrongly, and there is no runtime
+    evidence either way yet.
+  - **Iterating routes are not gated on the call.** Data quality's endpoints take no space and walk the
+    token's reachable ones; refusing the call would block a token that legitimately reaches some of the
+    spaces behind it. Their loop is the enforcement point and is a separate step.
+  - Refusals name the area and the level. "Forbidden" across four areas and four levels is unactionable.
+
 ### Added
 - **Internal: the route inventory can now answer "what rung does this request need".** Nothing calls it yet;
   the guard still checks reach only.

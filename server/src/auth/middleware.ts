@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
+import { log } from '../util/log.js';
 import { findMatchingToken, touchToken } from './tokens.js';
 import { consumeSseTicket } from './sse-ticket.js';
 import { isMfaEnabled, verifyMfaCode } from './totp.js';
@@ -7,6 +8,8 @@ import type { TokenRecord } from '../config/types.js';
 import type { OidcTokenRecord } from './oidc.js';
 import { resolveMemberSpaces } from '../spaces/proxy.js';
 import { reachesSpace } from './space-reach.js';
+import { requiredRung, satisfies } from './required-rung.js';
+import { effectiveRung } from './mint-cap.js';
 import { authAttemptsTotal } from '../metrics/registry.js';
 import { logAuthFailure } from '../audit/middleware.js';
 import { mcpResourceMetadataUrl } from '../mcp/oauth.js';
@@ -261,6 +264,57 @@ function enforceMfa(
  * Writes 403 and returns false when the token lacks access. Unrestricted tokens
  * (no `spaces` allowlist) always pass.
  */
+/**
+ * The AREA check, layered on top of reach — and deliberately staged.
+ *
+ * A route the inventory does not resolve at RUNTIME falls through to the reach check alone, with a warning.
+ * That is not the permissive default this feature exists to remove: reach is still enforced, so this can
+ * only ever be stricter than yesterday, never looser. What it cannot yet be is COMPLETE, because
+ * `req.baseUrl + req.route.path` is the only way to reconstruct the inventory key at runtime and nested
+ * routers can make that disagree with the registered path.
+ *
+ * The warning is the point. It names the key that missed, so the log says exactly which routes still need
+ * the mapping before misses can be turned into refusals — which is the follow-up. Flipping to refuse now
+ * would 403 real traffic on any route whose key I reconstructed wrongly, and I have no runtime evidence yet
+ * that I did not.
+ */
+/** The spaces a request actually touches: a proxy's members, or the space itself. Shared so the reach check
+ *  and the area check can never disagree about WHAT they are checking. */
+function spaceTargets(spaceId: string | undefined): string[] {
+  if (!spaceId) return [];
+  const memberIds = resolveMemberSpaces(spaceId);
+  return memberIds.length > 0 ? memberIds : [spaceId];
+}
+
+function enforceAreaRung(
+  res: Response,
+  record: Omit<TokenRecord, 'hash'> | OidcTokenRecord,
+  req: Request,
+  targets: string[],
+): boolean {
+  const rights = (record as { rights?: Parameters<typeof effectiveRung>[0] }).rights;
+  if (!rights) return true;                    // OIDC records: reach already answered for them
+
+  const routePath = `${req.baseUrl ?? ''}${(req.route as { path?: string } | undefined)?.path ?? ''}`;
+  const need = requiredRung(req.method, routePath);
+  if (!need) {
+    log.warn(`Space rights: no inventory entry for '${req.method} ${routePath}' — reach enforced, area not. `
+      + 'Add it to ROUTE_RIGHTS; misses become refusals once the log is clean.');
+    return true;
+  }
+  if (need.scope !== 'path') return true;      // iterating routes gate their LOOP, not the call
+
+  for (const sid of targets) {
+    if (!satisfies(effectiveRung(rights, sid, need.area), need.needs)) {
+      res.status(403).json({
+        error: `Token needs '${need.needs}' on ${need.area} in space '${sid}'`,
+      });
+      return false;
+    }
+  }
+  return true;
+}
+
 function enforceSpaceScope(
   res: Response,
   record: Omit<TokenRecord, 'hash'> | OidcTokenRecord,
@@ -398,6 +452,7 @@ export async function requireSpaceAuth(
 
   const spaceId = req.params['spaceId'] as string | undefined;
   if (!enforceSpaceScope(res, record, spaceId)) return;
+  if (!enforceAreaRung(res, record, req, spaceTargets(spaceId))) return;
 
   authAttemptsTotal.inc({ result: 'success' });
   attachToken(req, record, bearer);
@@ -426,6 +481,7 @@ export function requireAdminMfaScoped(paramName: string) {
     // Tokens without a spaces allowlist (unrestricted admin) are always allowed.
     const spaceId = req.params[paramName] as string | undefined;
     if (!enforceSpaceScope(res, record, spaceId)) return;
+  if (!enforceAreaRung(res, record, req, spaceTargets(spaceId))) return;
 
     attachToken(req, record, bearer);
     next();

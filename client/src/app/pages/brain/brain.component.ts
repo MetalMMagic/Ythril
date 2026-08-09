@@ -235,7 +235,7 @@ interface SpaceView {
           <ph-icon name="magnifying-glass" [size]="15" style="display:inline-flex;vertical-align:middle;margin-right:4px;"/> {{ 'brain.tab.query' | transloco }}
         </button>
         <button class="tab" type="button" role="tab" [class.active]="activeTab() === 'graph'" [attr.aria-selected]="activeTab() === 'graph'" (click)="setTab('graph')">
-          <ph-icon name="binoculars" [size]="15" style="display:inline-flex;vertical-align:middle;margin-right:4px;"/> {{ 'brain.tab.graph' | transloco }}
+          <ph-icon name="graph" [size]="15" style="display:inline-flex;vertical-align:middle;margin-right:4px;"/> {{ 'brain.tab.graph' | transloco }}
         </button>
         <!-- Review (F-REVIEW): duplicate pairs awaiting a decision in this space. Grouped with the
              other whole-space views rather than after Files — it is a workflow, not a record collection. -->

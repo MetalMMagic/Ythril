@@ -6,6 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Changed
+- **Storage is a section of the Usage card again, not a card of its own** (owner, 2026-08-09: *"i wanted
+  storage to be a section in the usage card and not one card for one number"*).
+  - It was briefly nested there, then split out because the Usage panel only rendered once activity data
+    arrived — so storage vanished on a space nobody had called yet, exactly the space where a filling disk is
+    least expected. Splitting it worked around that and was the wrong fix: it made a card for one number.
+  - The real fix is the one that should have been made first: **the Usage section is unconditional, and only
+    the activity block inside it is gated.** Its loading state is a skeleton in the body rather than a
+    placeholder replacing the whole card, so the card never appears or disappears.
+- **The Data model panel and the Graph tab no longer share an icon.** The panel showed the node-graph icon,
+  which made it read as a small copy of the Graph tab. The tab takes `graph` (it was binoculars) and the
+  panel takes `stack` — the icon its own record-type tiles already used. Not `database`: the Indexing panel
+  owns that, and swapping one collision for another is not a fix.
+
 ### Added
 - **Internal: the migration from today's token model to the per-space matrix, as a pure function.** Nothing
   consumes it yet; no behaviour changes.

@@ -6,6 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- **`POST /api/tokens` accepts a `rights` matrix, capped at the minter's own.** The first point where the
+  per-space rights model is settable rather than only derived.
+  - **A token can never mint above itself.** Enforced on the endpoint, not only in the UI: the grid is one
+    API call away from being bypassed, and the API is exactly where a token would be used to widen itself.
+    The refusal is a `403` naming every excess at once, so one edit fixes it.
+  - **`rights` and the legacy `spaces`/`admin`/`readOnly` cannot be sent together** — a `400`. A body
+    carrying both describes the same access twice, and any precedence rule makes one of them silent: the
+    caller states an access, the server ignores it, and both believe the request succeeded.
+  - The nested `rights` object is itself strict, so a mis-spelled area is a `400` rather than a token minted
+    with less than was asked for while reporting success.
+  - When the minting token carries no matrix — OIDC records never pass through the load-time backfill — its
+    matrix is derived from the same legacy fields rather than treated as unrestricted.
+
 ### Changed
 - **The space guard now decides access from the rights matrix instead of the `spaces` allowlist.** Access is
   unchanged: the rights are derived from `spaces`/`admin`/`readOnly` at config load, and the two predicates

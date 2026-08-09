@@ -175,6 +175,14 @@ export async function createToken(opts: {
   schemaLibrary?: boolean;
   /** `inherit` (default), `exempt`, or `required` — see `TokenRecord.mfa`. */
   mfa?: 'inherit' | 'exempt' | 'required';
+  /**
+   * An explicit rights matrix, already capped against the minter by the route.
+   *
+   * Threaded through rather than derived here: the caller has the minter's record and this function does
+   * not, so deriving at this depth would mean re-reading auth state from a place that has no business
+   * knowing about it. Absent means the load-time backfill will derive one from the legacy fields.
+   */
+  rights?: TokenRecord['rights'];
 }): Promise<{ record: TokenRecord; plaintext: string }> {
   const plaintext = generateToken();
   const hash = await hashToken(plaintext);
@@ -194,6 +202,9 @@ export async function createToken(opts: {
     // Stored only when it says something. `inherit` IS the absent state, so writing it would put a field on
     // every future token that means exactly what its absence already means.
     ...(opts.mfa && opts.mfa !== 'inherit' ? { mfa: opts.mfa } : {}),
+    // Stored when given. Omitted otherwise so the backfill derives it — writing an empty matrix here would
+    // mint a token that reaches nothing while its legacy fields say otherwise.
+    ...(opts.rights ? { rights: opts.rights } : {}),
   };
   const config = getConfig();
   config.tokens.push(record);

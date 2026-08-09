@@ -12,6 +12,14 @@ Authorization: Bearer ythril_<base62-encoded-token>
 
 Tokens are created during first-run setup or via `POST /api/tokens`. The plaintext token is shown **once** — store it securely.
 
+**A token may instead be minted with a `rights` matrix** — per-space, per-area levels (`none` / `read` /
+`write` / `admin`) plus a `floor` that applies to every space including ones created later. Two rules:
+
+- **`rights` and `spaces`/`admin`/`readOnly` cannot be sent together** — `400`. A body carrying both
+  describes the same access twice, and whichever lost would be applied silently.
+- **A token can never mint above itself** — `403`, naming every level that exceeded the minter. This is
+  enforced on the endpoint, not only in the UI, so it holds for the API too.
+
 **The space allowlist field is `spaces`, and nothing else.** The body is strict: any key it does not declare
 is a `400` naming it. This used to be a silent drop — `spaceIds`, `allowedSpaces`, `scope` and `denySpaces`
 were all accepted with a `201` and thrown away, so a token minted with one of those names had **instance-wide

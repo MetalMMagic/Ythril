@@ -73,6 +73,22 @@ describe('token route bodies reject unknown keys', () => {
     );
   });
 
+  it('server-owned fields are STRIPPED, not refused — strictness alone breaks a round-trip', () => {
+    // The half this gate missed on its first pass. `.strict()` on its own turned `POST /api/tokens` with a
+    // token read back from the API into a 400, because `id`, `hash` and `prefix` are fields WE emit. A
+    // red-team test pins that they are stripped; this pins that the strip still runs before the strict
+    // parse, since removing it would be green here and red there — and the two suites do not run together
+    // in preflight.
+    assert.match(code, /SERVER_OWNED_TOKEN_FIELDS\s*=\s*\[\s*'id',\s*'hash',\s*'prefix'/,
+      'the server-owned field list is gone or changed — a round-tripped token body will 400');
+    const parses = [...code.matchAll(/(\w+Body)\.safeParse\(([^)]*)\)/g)];
+    assert.ok(parses.length >= 2, `expected both bodies to be parsed, found ${parses.length}`);
+    for (const [, name, arg] of parses) {
+      assert.match(arg, /stripServerOwnedToken\(/,
+        `${name} parses req.body directly, so a client posting a token it read back gets a 400`);
+    }
+  });
+
   it('the create schema still declares the real scope field', () => {
     // Strictness is only protective while `spaces` is the name it accepts. If the field were renamed and
     // this test kept passing, every previously-correct caller would start getting 400s instead.

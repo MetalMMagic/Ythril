@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **If you were relying on one of those key names, your token is not scoped.** Re-check any token minted
     with a field other than `spaces`; it has instance-wide access. The 400 now tells you at the first
     request instead of the fifth.
+  - **Posting a token you read back still works.** `id`, `hash` and `prefix` are fields the server emits, so
+    they are stripped rather than refused — the same strip-then-be-strict shape `PATCH /api/spaces/:id`
+    already uses for its server-owned `meta` fields. Strictness alone would have turned a round-trip into a
+    400.
 
 ### Changed
 - **The space Overview drops the Statistics strip and the Instance card** (owner decision, 2026-08-08).

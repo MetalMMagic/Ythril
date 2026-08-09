@@ -14,6 +14,28 @@ tokensRouter.get('/me', globalRateLimit, requireAuth, (req, res) => {
 });
 
 /**
+ * Fields the SERVER owns on a token record. A client that posts a token it read back — `id`, `hash`,
+ * `prefix` — is round-tripping, not attacking, and being told "unknown key" for a field we ourselves emitted
+ * would be a worse answer than ignoring it.
+ *
+ * Same shape as `SERVER_OWNED_META_FIELDS` in `api/spaces.ts`: strip exactly the server-owned set, then let
+ * a STRICT schema refuse everything else. The two halves are the point — the strip keeps a round-trip
+ * working, and the strictness is what stops `spaceIds` minting an unscoped token in silence.
+ *
+ * A red-team test (`mass-assignment.test.js`) pins the strip; `credential-bodies-are-strict.test.js` pins
+ * the strictness. Neither is sufficient alone, which is exactly how the first attempt at this fix broke: it
+ * added `.strict()` and turned the round-trip into a 400.
+ */
+const SERVER_OWNED_TOKEN_FIELDS = ['id', 'hash', 'prefix'] as const;
+
+function stripServerOwnedToken(body: unknown): unknown {
+  if (body == null || typeof body !== 'object' || Array.isArray(body)) return body;
+  const copy: Record<string, unknown> = { ...(body as Record<string, unknown>) };
+  for (const f of SERVER_OWNED_TOKEN_FIELDS) delete copy[f];
+  return copy;
+}
+
+/**
  * `.strict()`, and it is the most important word in this file.
  *
  * Zod drops unknown keys by default, so `{ spaceIds: ['qa'] }` minted a token with NO `spaces` field and
@@ -75,7 +97,7 @@ tokensRouter.get('/', requireAdmin, (_req, res) => {
 // POST /api/tokens — create a new PAT — admin + MFA
 // admin:true may only be set when the calling token is itself admin (enforced by requireAdminMfa above)
 tokensRouter.post('/', authRateLimit, requireAdminMfa, async (req, res) => {
-  const parsed = CreateTokenBody.safeParse(req.body);
+  const parsed = CreateTokenBody.safeParse(stripServerOwnedToken(req.body));
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
@@ -131,7 +153,7 @@ const RenameTokenBody = z.object({
 
 // PATCH /api/tokens/:id — rename a token's label (only) — admin + MFA
 tokensRouter.patch('/:id', requireAdminMfa, (req, res) => {
-  const parsed = RenameTokenBody.safeParse(req.body);
+  const parsed = RenameTokenBody.safeParse(stripServerOwnedToken(req.body));
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;

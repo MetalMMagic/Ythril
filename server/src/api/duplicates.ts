@@ -12,6 +12,8 @@ import { Router } from 'express';
 import { requireAuth, requireAdminMfa, denyReadOnly } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { col, asFilter, asUpdate } from '../db/mongo.js';
+import { spacesWhereTokenMay } from '../auth/reachable-spaces.js';
+import type { TokenRights, Rung } from '../config/rights-shape.js';
 import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
 import { scanSpace, pairContentHash } from '../brain/dupe-scanner.js';
@@ -20,10 +22,10 @@ import { nliConfigured } from '../brain/nli-client.js';
 import type { DupeCandidateDoc, ContradictionCandidateDoc } from '../config/types.js';
 
 /** Find a candidate across the caller's accessible spaces. */
-async function findCandidate(id: string, tokenSpaces?: string[]): Promise<{ doc: DupeCandidateDoc; spaceId: string } | null> {
-  const cfg = getConfig();
-  const all = cfg.spaces.map(s => s.id);
-  const spaces = !tokenSpaces || tokenSpaces.length === 0 ? all : all.filter(s => tokenSpaces.includes(s));
+async function findCandidate(id: string, tokenSpaces?: string[], rights?: TokenRights): Promise<{ doc: DupeCandidateDoc; spaceId: string } | null> {
+  // Same rule as `accessibleSpaces`, and deliberately not a second copy of it: resolving a candidate id
+  // reads the record, so `read` is the level, and an empty allowlist means none rather than all.
+  const spaces = spacesWhereTokenMay(rights, tokenSpaces, 'dataQuality', 'read');
   for (const spaceId of spaces) {
     const doc = await col<DupeCandidateDoc>(`${spaceId}_dupe_candidates`).findOne(asFilter<DupeCandidateDoc>({ _id: id })) as DupeCandidateDoc | null;
     if (doc) return { doc, spaceId };
@@ -99,12 +101,20 @@ async function contradictionSignalsFor(
 
 export const duplicatesRouter = Router();
 
-/** Return the space IDs the authenticated token is allowed to access. */
-function accessibleSpaces(tokenSpaces?: string[]): string[] {
-  const cfg = getConfig();
-  const all = cfg.spaces.map(s => s.id);
-  if (!tokenSpaces || tokenSpaces.length === 0) return all;
-  return all.filter(id => tokenSpaces.includes(id));
+/**
+ * The space IDs this token may act on, at the Data-quality level the caller needs.
+ *
+ * These routes take no space in the path — they walk every space the token can reach — so this list IS the
+ * enforcement point. Reading it from the rights matrix is what stops the Data quality column being
+ * decorative.
+ *
+ * It also removes a conflation that lived here: `tokenSpaces.length === 0` used to mean "unrestricted". An
+ * ABSENT allowlist means every space; an EMPTY one means none, and they are opposite. Anything holding
+ * `spaces: []` was handed the whole instance.
+ */
+function accessibleSpaces(req: { authToken?: unknown }, needs: Rung = 'read'): string[] {
+  const t = req.authToken as { rights?: TokenRights; spaces?: string[] } | undefined;
+  return spacesWhereTokenMay(t?.rights, t?.spaces, 'dataQuality', needs);
 }
 
 /**
@@ -197,7 +207,7 @@ duplicatesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
     const status = statusRaw === 'dismissed' || statusRaw === 'all' ? statusRaw : 'open';
     const spaceFilter = typeof req.query['space'] === 'string' ? req.query['space'] : undefined;
 
-    let spaces = accessibleSpaces(req.authToken?.spaces);
+    let spaces = accessibleSpaces(req);
     if (spaceFilter) spaces = spaces.filter(id => id === spaceFilter);
 
     const results: DupeCandidateDoc[] = [];
@@ -233,7 +243,7 @@ duplicatesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
 duplicatesRouter.post('/:id/dismiss', globalRateLimit, requireAuth, denyReadOnly, async (req, res) => {
   try {
     const id = req.params['id'] as string;
-    const spaces = accessibleSpaces(req.authToken?.spaces);
+    const spaces = accessibleSpaces(req, 'write');
     for (const spaceId of spaces) {
       const coll = col<DupeCandidateDoc>(`${spaceId}_dupe_candidates`);
       const doc = await coll.findOne(asFilter<DupeCandidateDoc>({ _id: id })) as DupeCandidateDoc | null;
@@ -260,7 +270,7 @@ duplicatesRouter.post('/:id/dismiss', globalRateLimit, requireAuth, denyReadOnly
 duplicatesRouter.post('/:id/reopen', globalRateLimit, requireAuth, denyReadOnly, async (req, res) => {
   try {
     const id = req.params['id'] as string;
-    const spaces = accessibleSpaces(req.authToken?.spaces);
+    const spaces = accessibleSpaces(req, 'write');
     for (const spaceId of spaces) {
       const r = await col<DupeCandidateDoc>(`${spaceId}_dupe_candidates`).updateOne(
         asFilter<DupeCandidateDoc>({ _id: id, status: 'dismissed' }),
@@ -280,7 +290,7 @@ duplicatesRouter.post('/:id/reopen', globalRateLimit, requireAuth, denyReadOnly,
 // Returns 409 with the merge plan if the pair has a property-value conflict.
 duplicatesRouter.post('/:id/merge', globalRateLimit, requireAuth, denyReadOnly, async (req, res) => {
   try {
-    const found = await findCandidate(req.params['id'] as string, req.authToken?.spaces);
+    const found = await findCandidate(req.params['id'] as string, req.authToken?.spaces, (req.authToken as { rights?: TokenRights } | undefined)?.rights);
     if (!found) { res.status(404).json({ error: 'Duplicate candidate not found' }); return; }
     const { doc, spaceId } = found;
     if (doc.type !== 'entity') { res.status(400).json({ error: 'Merge is only supported for entity candidates' }); return; }
@@ -318,7 +328,7 @@ duplicatesRouter.post('/scan', globalRateLimit, requireAdminMfa, denyReadOnly, a
     // Intersect with the token's space allowlist — a space-restricted admin must
     // not be able to trigger destructive rules (automerge/notify) on spaces it
     // cannot access.
-    const allowed = new Set(accessibleSpaces(req.authToken?.spaces));
+    const allowed = new Set(accessibleSpaces(req, 'write'));
     const targets = cfg.spaces
       .filter(s => !s.proxyFor && allowed.has(s.id) && (!spaceFilter || s.id === spaceFilter))
       .map(s => s.id);

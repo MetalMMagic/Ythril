@@ -6,6 +6,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Fixed
+- **An EMPTY token space-allowlist granted access to EVERY space on the duplicates routes.** Those routes
+  take no space in the path — they walk every space the token can reach — and their filter read
+  `tokenSpaces.length === 0` as "unrestricted". An absent allowlist does mean every space; an empty one means
+  none, and they are opposite.
+  - So anything holding `spaces: []` was handed the whole instance, in the one place nobody would look for
+    it, because the routes name no space at all. A schema-library token stores exactly that value.
+  - The same conflation is the trap `migrateToken` avoids by checking `undefined` rather than length. This
+    removes the second copy rather than fixing it twice.
+
+### Changed
+- **The data-quality routes now filter their iteration set from the rights matrix.** Their loop is the
+  enforcement point: refusing the call would block a token that legitimately reaches some of the spaces
+  behind it, and an unfiltered loop leaves the Data quality column decorative.
+  - Mutating routes — dismiss, reopen, scan — require `write` on the area rather than `read`. Filtering them
+    at read would let a read-only token act on every space it can see.
+  - `/scan` intersects before acting: it triggers automerge and notification, and a filter applied afterwards
+    is a log entry rather than a guard.
+
 ### Changed
 - **The space guard now checks the AREA and LEVEL a request needs, not only whether the token reaches the
   space.** This is the change that makes the rights columns bite.

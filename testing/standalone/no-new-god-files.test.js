@@ -77,7 +77,10 @@ const FROZEN = {
   // 839 -> 843: `typeSchemasMode` on the update body and the replace branch in `mergeSpaceMeta`. Both are
   // small and belong beside the merge they qualify — splitting a two-branch decision across files would
   // make the contract harder to read, not easier.
-  'server/src/api/spaces.ts': 843,
+  // 843 -> 844: one Zod line accepting `faceDescriptorDims` on the CREATE body. Deliberately NOT added to
+  // the update body — see `face-width-is-create-only.test.js` — so this is the single line that admits the
+  // field at all, and there is nowhere smaller to put it.
+  'server/src/api/spaces.ts': 844,
   // 769 -> 773: `openBrainDrawer` gained two overload signatures and its `lastSaved` effect reads the
   // record inside each branch so the discriminant narrows it. Four lines of TYPES, no new behaviour —
   // raised deliberately rather than worked around, which is what this list is for.
@@ -86,11 +89,14 @@ const FROZEN = {
   'client/src/app/pages/brain/review-tab.component.ts': 748,
   'server/src/brain/recall.ts': 739,
   'client/src/app/pages/settings/media-processing/models-tab.component.ts': 678,
+  // 673 -> 674: `faceDescriptorDims` on SpaceConfig. One line of type again, and the behaviour it names is
+  // in `vector-index.ts` and `lifecycle.ts`. A space's shape belongs in the space's type; the alternative is
+  // a side-table of per-space settings, which is a worse trade than one line.
   // 672 -> 673: `allowInProcessFallback` on `faceRecognition.externalModel`. ONE line of type, and the
   // behaviour it names lives in `face-external.ts` and `face-embedder.ts`, not here. The alternative —
   // a face-only config module re-exported from this file — would split the config contract across two
   // places to save a single field, which is the trade this list exists to let us decline.
-  'server/src/config/types.ts': 673,
+  'server/src/config/types.ts': 674,
   'client/src/app/pages/settings/data.component.ts': 644,
   'server/src/api/files.ts': 646,
   // 645 -> 660: the data-model panel’s mount and its card header. The panel ITSELF is a separate

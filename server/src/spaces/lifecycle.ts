@@ -311,6 +311,8 @@ export async function createSpace(opts: {
   maxGiB?: number;
   proxyFor?: string[];
   meta?: SpaceMeta;
+  /** Face descriptor width for this space. Create-only — see `SpaceConfig.faceDescriptorDims`. */
+  faceDescriptorDims?: number;
 }): Promise<SpaceConfig> {
   const cfg = getConfig();
   if (cfg.spaces.some(s => s.id === opts.id)) {
@@ -327,6 +329,9 @@ export async function createSpace(opts: {
     builtIn: false,
     folders: opts.folders ?? [],
     maxGiB: opts.maxGiB,
+    // Omitted rather than defaulted when absent, so an existing space and a new one at the built-in width
+    // are the same shape on disk — a stored `128` would read as a deliberate choice nobody made.
+    ...(opts.faceDescriptorDims ? { faceDescriptorDims: opts.faceDescriptorDims } : {}),
     ...(opts.proxyFor ? { proxyFor: opts.proxyFor } : {}),
     // `description` on the create body is the deprecated spelling of `meta.purpose`; it seeds the
     // one store rather than a second one, so a space cannot be born with the two disagreeing.

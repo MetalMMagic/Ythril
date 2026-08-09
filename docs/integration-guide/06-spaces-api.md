@@ -73,6 +73,17 @@ Authorization: Bearer <admin-token>
 | `description` | no | **Deprecated** — writes `meta.purpose`. Max 4000 chars. Removal in 3.0. |
 | `folders` | no | Pre-create these directories on disk at space creation time. |
 | `maxGiB` | no | Maximum storage quota for the space (positive number in GiB). |
+| `faceDescriptorDims` | no | Width of this space's face descriptors (integer, 64–4096, default 128). **Create-only** — see below. |
+
+**`faceDescriptorDims` cannot be changed after creation, and that is deliberate.** The space's face gallery
+stores vectors at this width and nothing re-derives them, so re-dimensioning the index later would leave the
+stored vectors indexed as a different size — every similarity score wrong, with no error reported anywhere.
+The field is therefore absent from `PATCH /api/spaces/:id`, and the index build refuses a width change
+independently. Set it at creation or accept 128. To move a populated gallery, create a new space at the new
+width and re-process its images.
+
+Use it when you point `faceRecognition.externalModel` at a recogniser that does not emit 128 dimensions —
+most current open models emit 512.
 
 **Response** `201`: the created space object, wrapped in a `space` field:
 

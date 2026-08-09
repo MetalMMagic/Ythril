@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **Internal: network memberships now record which token established them.** `NetworkConfig.spaceOrigins`
+  maps `spaceId` -> token id. Nothing consumes it yet; no behaviour changes.
+  - Needed for the Networks column's admin rung: a token at `out` may leave a network it joined itself, but
+    removing a membership another token established needs `leave`.
+  - **Leaving is the guarded direction, which is counter-intuitive and deliberate.** Leaving stops nothing
+    retroactively — peers keep every record they already hold — so "leave quickly to stop a leak" was never
+    available. What leaving does is dismantle somebody else's topology: a publisher leaving strands its
+    subscribers, a braintree parent orphans its subtree.
+  - **An unknown establisher fails CLOSED.** Every membership predating this field has none, and treating
+    unknown as "probably fine" would leave the guard absent on exactly the memberships that have existed
+    longest and carry the most peers.
+  - A parallel map rather than a field on the membership: `spaces` is a plain `string[]` on every instance in
+    the field, and turning it into objects would be a breaking migration of live config for a value absent on
+    every existing row.
+
 - **Internal: the migration from today's token model to the per-space matrix, as a pure function.** Nothing
   consumes it yet; no behaviour changes.
   - This is the step where silent widening would happen. A token that gains an area nobody chose keeps

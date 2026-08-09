@@ -954,6 +954,19 @@ export interface NetworkConfig {
   label: string;
   type: NetworkType;
   spaces: string[];          // space IDs scoped to this network
+  /**
+   * Which token established each membership — `spaceId` -> token id.
+   *
+   * A PARALLEL map rather than a field on the membership, because `spaces` is a plain `string[]` on every
+   * instance in the field. Turning it into objects would be a breaking migration of live config for a value
+   * that is absent on every existing row anyway.
+   *
+   * **Absent means unknown, and unknown FAILS CLOSED.** Memberships that predate this field cannot prove
+   * whose they are, so leaving one requires the Networks admin rung rather than the write rung. That is the
+   * safe direction: a token that cannot dismantle somebody else's topology asks for help, while one that can
+   * does it silently. See `mayLeaveNetwork` in `auth/network-membership.ts`.
+   */
+  spaceOrigins?: Record<string, string>;
   /** Maps remote (peer-side) space IDs to local space IDs.
    *  Used when a local space was renamed after joining, or when the joiner chose
    *  a different local ID to avoid a collision.  The sync engine uses this to

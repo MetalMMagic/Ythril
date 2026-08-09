@@ -89,6 +89,11 @@ const FROZEN = {
   'client/src/app/pages/brain/review-tab.component.ts': 748,
   'server/src/brain/recall.ts': 739,
   'client/src/app/pages/settings/media-processing/models-tab.component.ts': 678,
+  // 674 -> 675: `spaceOrigins` on NetworkConfig. **THIRD raise of this file in one session** (672 -> 673 ->
+  // 674 -> 675), and that is the signal this list exists to send rather than a run of bad luck. Each was one
+  // honest line of type whose behaviour lives elsewhere, and each was individually correct — which is
+  // precisely how a god-file grows. Filed as work in ARCHITECTURE-TODO: this file is the config CONTRACT for
+  // every subsystem, and it wants splitting by domain, not another line.
   // 673 -> 674: `faceDescriptorDims` on SpaceConfig. One line of type again, and the behaviour it names is
   // in `vector-index.ts` and `lifecycle.ts`. A space's shape belongs in the space's type; the alternative is
   // a side-table of per-space settings, which is a worse trade than one line.
@@ -96,7 +101,7 @@ const FROZEN = {
   // behaviour it names lives in `face-external.ts` and `face-embedder.ts`, not here. The alternative —
   // a face-only config module re-exported from this file — would split the config contract across two
   // places to save a single field, which is the trade this list exists to let us decline.
-  'server/src/config/types.ts': 674,
+  'server/src/config/types.ts': 675,
   'client/src/app/pages/settings/data.component.ts': 644,
   'server/src/api/files.ts': 646,
   // 645 -> 660: the data-model panel’s mount and its card header. The panel ITSELF is a separate

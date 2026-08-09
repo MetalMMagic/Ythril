@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **Internal: the rights-based space-reach check, proved equivalent to the legacy allowlist.** The guard
+  still uses the old rule; nothing about access changes.
+  - Swapping `enforceSpaceScope` from `record.spaces` to the rights matrix is the one change in this feature
+    where a mistake is **silent widening** — a token reaching a space it never could, with no error, nothing
+    in the response and nothing in the logs. The token works and looks configured.
+  - So the replacement lands first as a pure function beside a test that compares it against a written-out
+    statement of the legacy rule, across every token shape and on listed, unlisted and not-yet-created
+    spaces. **If that test cannot be made green, the switch is not ready** — which is the point of writing it
+    before the switch rather than after.
+  - Deliberately space-level, not area-level. Area granularity comes from the route inventory and is a later
+    step: wiring both at once means a defect in either reads as a defect in the other.
+
+### Added
 - **Internal: the mint cap — a minted token can never exceed the token that minted it.** Nothing calls it
   yet; rights are not settable on mint.
   - Minting is delegated in the approved design: a space admin may issue tokens for their own spaces.

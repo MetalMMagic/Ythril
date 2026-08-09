@@ -71,7 +71,7 @@ describe('the source enforces its own guarantees', () => {
     assert.ok(!/[^f]\bfetch\(/.test(src.replace(/ssrfSafeFetch\(/g, '')), 'no bare fetch(');
   });
 
-  it('rejects any descriptor that is not exactly 128 floats', () => {
+  it('rejects any descriptor that is not the width THIS SPACE was built at', () => {
     // The width check moved into `face-descriptor.ts` so the first unexpected width is REPORTED rather than
     // skipped in silence. This asserts both halves for THIS path: that the file still defers to the helper,
     // and that the helper still enforces the width — checking only the call would pass against a helper that
@@ -83,9 +83,15 @@ describe('the source enforces its own guarantees', () => {
     // in `face-width-is-never-a-literal.test.js`, which discovers the paths instead of naming them.
     assert.ok(src.includes('isUsableDescriptor('), 'the width check must still happen');
     const guard = readFileSync(new URL('../../server/src/files/media/face-descriptor.ts', import.meta.url), 'utf8');
-    assert.match(guard, /embedding\.length === FACE_DESCRIPTOR_DIMS/,
+    assert.match(guard, /embedding\.length === expectedDims/,
       'face-descriptor.ts no longer compares the width, so nothing does');
-    assert.match(guard, /FACE_DESCRIPTOR_DIMS = 128/, 'the gallery index is built at 128');
+    // The width is per SPACE now, resolved from that space's own index, so the guard must take it as an
+    // argument rather than reading a module constant. `FACE_DESCRIPTOR_DIMS` survives only as the default
+    // for a caller with no space in hand — asserting on it here would pin the old fixed-width rule.
+    assert.match(guard, /expectedDims: number = FACE_DESCRIPTOR_DIMS/,
+      'the guard no longer accepts a per-space width; a space built at 512 would be judged against 128');
+    assert.match(src, /isUsableDescriptor\([^)]*expectedDims/,
+      'face-external.ts calls the guard without the resolved width');
     assert.ok(src.includes('Number.isFinite'), 'NaN/Infinity must be rejected');
   });
 

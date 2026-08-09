@@ -48,14 +48,25 @@ let warned = false;
  * in-process path changing width means the library's reduction moved, and an external provider changing
  * width means someone pointed the hook at a different model.
  */
-export function isUsableDescriptor(embedding: unknown, source: 'in-process' | 'external'): boolean {
+export function isUsableDescriptor(
+  embedding: unknown,
+  source: 'in-process' | 'external',
+  /**
+   * The width THIS SPACE's gallery was built at, from `faceDescriptorDimsFor()`.
+   *
+   * Defaults to the built-in only so a caller that genuinely has no space in hand still gets the old
+   * behaviour rather than silently accepting anything. Every real caller passes the resolved value: the
+   * number that has to agree is the one on the space's own index, not this instance's preference.
+   */
+  expectedDims: number = FACE_DESCRIPTOR_DIMS,
+): boolean {
   if (!Array.isArray(embedding)) return false;
-  if (embedding.length === FACE_DESCRIPTOR_DIMS) return true;
+  if (embedding.length === expectedDims) return true;
 
   if (!warned) {
     warned = true;
     log.warn(
-      `Face descriptor width is ${embedding.length}, expected ${FACE_DESCRIPTOR_DIMS} (${source}). `
+      `Face descriptor width is ${embedding.length}, expected ${expectedDims} (${source}). `
       + 'Every face is being skipped, and this will read as "no faces detected" everywhere. '
       + (source === 'in-process'
         ? 'The in-process width is produced by @vladmandic/human reducing FaceRes\'s own 1024-wide output — '

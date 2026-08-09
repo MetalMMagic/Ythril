@@ -83,7 +83,7 @@ describe('face descriptor width is never a literal', () => {
   it('both descriptor sources are named, so neither can be quietly dropped', () => {
     const sources = mediaSources()
       .filter((f) => f !== GUARD)
-      .flatMap((f) => [...withoutComments(read(f)).matchAll(/isUsableDescriptor\s*\([^)]*?['"]([a-z-]+)['"]\s*\)/g)]
+      .flatMap((f) => [...withoutComments(read(f)).matchAll(/isUsableDescriptor\s*\([^)]*?['"]([a-z-]+)['"]/g)]
         .map((m) => m[1]));
     // Build the regex fresh per use; a shared /g regex advances lastIndex between assertions.
     assert.ok(sources.includes('in-process'), `no in-process width check found, got: ${sources.join(', ') || '(none)'}`);

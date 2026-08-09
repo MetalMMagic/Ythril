@@ -6,6 +6,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Changed
+- **The face descriptor width is now read from each space's own index instead of a built-in constant.**
+  Groundwork for making the width configurable, and the half that has to land first.
+  - The number that has to agree was never "what does this instance prefer" — it is "what are this space's
+    stored vectors, and what is its index expecting". Those two were created together at `initSpace`, so
+    reading the index makes a space **self-consistent by construction**: a gallery built at 128 keeps
+    rejecting 512-wide descriptors even after the configured default changes, because its stored vectors are
+    still 128 wide. That is the correct answer, not a limitation.
+  - One `listSearchIndexes` round trip per space, cached for the process — face embedding runs per image in
+    a background job, so an uncached read would sit in front of every one. A space whose index cannot be
+    read right now falls back to the built-in default and is **deliberately not cached**: pinning a guess
+    for the life of the process would be wrong for exactly the spaces this exists to serve.
+  - The per-face-chunk `sizeBytes` follows the same width, so a record's reported size matches the vector it
+    actually holds.
+  - **Not yet configurable.** Every space is still created at 128; what changed is that nothing downstream
+    assumes it. The setting that lets a space be created at another width is the next step.
+
 ### Fixed
 - **`POST /api/tokens` accepted a mis-spelled scope field and minted an UNSCOPED token, reporting success.**
   `allowedSpaces`, `scope`, `spaceIds` and `denySpaces` were all taken with a **201** and silently dropped;

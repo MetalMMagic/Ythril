@@ -39,6 +39,7 @@ import { faceRecognitionAllowed } from '../converters/media-level.js';
 import { updateFileMeta } from '../file-meta.js';
 import { log } from '../../util/log.js';
 import { isUsableDescriptor, FACE_DESCRIPTOR_DIMS } from './face-descriptor.js';
+import { faceDescriptorDimsFor } from '../../spaces/vector-index.js';
 import type { FileMetaDoc, AuthorRef, EntityDoc } from '../../config/types.js';
 import type { Config as HumanConfig, Result } from '@vladmandic/human';
 import { detectFacesExternal, externalFaceReady, inProcessFallbackAllowed } from './face-external.js';
@@ -271,8 +272,12 @@ export async function embedFaces(
   // An external provider gets first refusal, when one is configured AND its host is acknowledged. It
   // returns null on ANY failure. Both paths yield the same `{ embedding, boxRaw }` shape, so everything
   // below is shared.
+  // Resolved once per image from THIS space's index, then used by both paths and by the chunk's sizeBytes.
+  // Reading it per face would put a mongot round trip inside the per-face loop.
+  const expectedDims = await faceDescriptorDimsFor(spaceId);
+
   let faces: Array<{ embedding?: number[]; boxRaw?: number[] }> | undefined =
-    (await detectFacesExternal(imageBytes)) ?? undefined;
+    (await detectFacesExternal(imageBytes, expectedDims)) ?? undefined;
 
   // A configured provider that failed does NOT hand off to the bundled model unless the operator asked
   // for that. The two embedders emit the same width, so mixing them corrupts the gallery in a way no
@@ -338,7 +343,7 @@ export async function embedFaces(
     const embedding: number[] | undefined = face.embedding;
     // Absent means FaceRes did not run for this face — routine, and not what the width guard is about.
     // Present-but-wrong-width is the case that must not stay quiet, so it goes through the shared guard.
-    if (!embedding || !isUsableDescriptor(embedding, 'in-process')) continue;
+    if (!embedding || !isUsableDescriptor(embedding, 'in-process', expectedDims)) continue;
 
     // Filter by minimum face size (fraction of shorter image side)
     const boxRaw = face.boxRaw; // [x, y, w, h] normalised 0–1
@@ -373,7 +378,7 @@ export async function embedFaces(
       tags: [],
       createdAt: now,
       updatedAt: now,
-      sizeBytes: FACE_DESCRIPTOR_DIMS * 4, // float32 each
+      sizeBytes: expectedDims * 4, // float32 each — the space's own width, not the built-in default
       author,
       parentFileId: fileId,
       chunkIndex: i,

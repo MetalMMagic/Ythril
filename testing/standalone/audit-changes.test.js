@@ -107,9 +107,17 @@ describe('audit changes — every allowlist is actually reachable', () => {
     // The second half of the same mistake: `token.update` was allowlisted as label/level/expiresAt when
     // the record field is `name` and the route changes nothing else. Entries that can never match are
     // silent forever, so nothing would have reported it.
-    assert.deepEqual(AUDIT_CHANGE_FIELDS['token.update'], ['name']);
-    assert.ok(read('server/src/api/tokens.ts').includes('name: parsed.data.name.trim()'),
-      'the token route should snapshot the same field the allowlist names');
+    // `rights` joined `name` when PATCH gained the ability to edit the matrix. Both are asserted against the
+    // route's own snapshot, not against each other: an allowlisted field the route never snapshots is silent
+    // forever, and a snapshotted field the allowlist omits is an edit that leaves no audit trace — and the
+    // second is worse here, because the field is the token's permissions.
+    assert.deepEqual(AUDIT_CHANGE_FIELDS['token.update'], ['name', 'rights']);
+    // Substring, not a regex: the snapshot spans two lines and a pattern that assumed one was the reason
+    // this assertion first failed against code that was actually correct.
+    const tokenSrc = read('server/src/api/tokens.ts');
+    assert.ok(tokenSrc.includes('name: previous.name'), 'the route does not snapshot `name`');
+    assert.ok(tokenSrc.includes('rights: previous.rights'),
+      'the route does not snapshot `rights`, so a permissions edit would leave no audit trace');
   });
 
   it('network.update names exactly the three fields its PATCH can change', () => {

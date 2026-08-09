@@ -60,7 +60,10 @@ export const AUDIT_CHANGE_FIELDS: Readonly<Record<string, readonly string[]>> = 
   // Token metadata ONLY, and only what this route can actually change: `PATCH /api/tokens/:id` renames.
   // Never `hash` or `prefix`; `token.create` and `token.regenerate` are absent entirely, because the
   // interesting value there IS the secret.
-  'token.update': ['name'],
+  // `rights` joined `name` when PATCH gained the ability to edit the matrix. Without it a rights change —
+  // the single most security-relevant edit this route can make — would be applied and leave no trace in the
+  // audit log, while a rename beside it did.
+  'token.update': ['name', 'rights'],
   // Media levels and extraction mode: the settings that decide what gets processed and what leaves the
   // instance. The provider blocks in the same payload carry API keys and are NOT listed.
   'config.media.update': ['levels.images', 'levels.audio', 'levels.video', 'levels.text', 'documentProcessing.mode'],

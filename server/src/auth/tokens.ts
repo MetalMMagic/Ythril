@@ -290,6 +290,20 @@ export function updateTokenSpaces(id: string, spaces: string[] | undefined): boo
 }
 
 /** Rename a token — updates only its human-readable label (`name`); the secret and scope are untouched. */
+/**
+ * Replace a token's rights matrix. Separate from `renameToken` because the two are different decisions with
+ * different guards, and one function taking an optional second thing would let a caller change rights while
+ * believing it renamed.
+ */
+export function setTokenRights(id: string, rights: TokenRecord['rights']): boolean {
+  const config = getConfig();
+  const idx = config.tokens.findIndex(t => t.id === id);
+  if (idx < 0) return false;
+  config.tokens[idx]!.rights = rights;
+  saveConfig(config);
+  return true;
+}
+
 export function renameToken(id: string, name: string): boolean {
   const config = getConfig();
   const idx = config.tokens.findIndex(t => t.id === id);

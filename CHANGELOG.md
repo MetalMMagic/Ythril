@@ -6,6 +6,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- **Internal: every token now carries a derived per-space rights object.** Computed at config load from the
+  existing `admin` / `readOnly` / `spaces` fields. **Enforcement still reads the legacy fields** — nothing
+  about access changes.
+  - Deliberately **in memory only, not written to `config.json`.** Persisting it would make a derivation
+    defect durable before anything has compared it against the behaviour it is supposed to reproduce.
+  - A boot migration is the right shape here **only because tokens are local state** — `config.json` does not
+    sync. Synced data has to be migrated lazily and self-healingly instead.
+  - An existing rights object is never overwritten. Once these become editable, a re-run at every boot would
+    silently revert an operator's change back to whatever the legacy fields imply — and those fields will
+    still be sitting there.
+
 ### Changed
 - **Storage is a section of the Usage card again, not a card of its own** (owner, 2026-08-09: *"i wanted
   storage to be a section in the usage card and not one card for one number"*).

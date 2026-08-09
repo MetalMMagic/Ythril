@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **Internal: the route inventory can now answer "what rung does this request need".** Nothing calls it yet;
+  the guard still checks reach only.
+  - A miss returns `null`, and **`null` means refuse, never "no requirement"**. An unclassified route is one
+    nobody decided about, and defaulting it to permissive reproduces exactly the situation this feature
+    exists to end — access that works because nothing said otherwise. The build-time gate makes a miss
+    unreachable in practice; the lookup assumes it happens anyway.
+  - Keyed by method **and** path: `GET`, `POST` and `DELETE` on the same collection are three different
+    permissions, and a path-only lookup would call them one.
+  - Carries the scope shape through, because Data quality's routes take no space and iterate the token's
+    reachable ones — a caller that ignored it would gate the call instead of the loop, leaving that column
+    decorative.
+
+### Added
 - **`POST /api/tokens` accepts a `rights` matrix, capped at the minter's own.** The first point where the
   per-space rights model is settable rather than only derived.
   - **A token can never mint above itself.** Enforced on the endpoint, not only in the UI: the grid is one

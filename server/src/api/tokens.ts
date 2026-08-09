@@ -5,6 +5,8 @@ import { authRateLimit, globalRateLimit } from '../rate-limit/middleware.js';
 import { createToken, listTokens, revokeToken, regenerateToken, renameToken } from '../auth/tokens.js';
 import { isMfaEnabled, verifyMfaCode } from '../auth/totp.js';
 import { z } from 'zod';
+import { capRights, describeExcess } from '../auth/mint-cap.js';
+import { migrateToken } from '../auth/rights-migration.js';
 
 export const tokensRouter = Router();
 
@@ -63,6 +65,18 @@ const CreateTokenBody = z.object({
    * See `TokenRecord.mfa` for why it is three states.
    */
   mfa: z.enum(['inherit', 'exempt', 'required']).optional(),
+  /**
+   * The per-space rights matrix for the new token.
+   *
+   * Mutually exclusive with `spaces` / `admin` / `readOnly` — see the refusal below. Accepting both would
+   * put two descriptions of the same thing in one request, and the loser would be silent.
+   */
+  rights: z.object({
+    instanceAdmin: z.boolean(),
+    createSpaces: z.boolean(),
+    floor: z.record(z.string(), z.enum(['none', 'read', 'write', 'admin'])).nullable(),
+    perSpace: z.record(z.string(), z.record(z.string(), z.enum(['none', 'read', 'write', 'admin']))),
+  }).strict().optional(),
 }).strict();
 
 /**
@@ -102,7 +116,34 @@ tokensRouter.post('/', authRateLimit, requireAdminMfa, async (req, res) => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const { name, expiresAt, spaces, admin, readOnly, peerInstanceId, schemaLibrary, mfa } = parsed.data;
+  const { name, expiresAt, spaces, admin, readOnly, peerInstanceId, schemaLibrary, mfa, rights } = parsed.data;
+
+  // One description of access per request. A body carrying both `rights` and a legacy field describes the
+  // same thing twice, and whichever lost would do so silently — which is the failure this whole area keeps
+  // producing. Refusing costs one call; guessing costs an access nobody chose.
+  if (rights && (spaces !== undefined || admin !== undefined || readOnly !== undefined)) {
+    res.status(400).json({
+      error: 'Specify either `rights` or the legacy `spaces`/`admin`/`readOnly` fields, not both',
+    });
+    return;
+  }
+
+  // A token may never mint above itself. Enforced HERE and not only in the UI: the grid is one API call away
+  // from being bypassed, and the API is exactly where a token would be used to widen itself.
+  if (rights) {
+    // OIDC records carry no `rights` — they are built per request and never pass through the config
+    // backfill — so the minter's matrix is derived on the spot from the same legacy fields. Deriving is the
+    // same answer, not a weaker one; treating a missing matrix as "unrestricted" would be the widening.
+    const held = (req.authToken as { rights?: unknown } | undefined)?.rights;
+    const minter = held ?? migrateToken(req.authToken ?? {});
+    const excess = capRights(minter as never, rights as never);
+    if (excess.length > 0) {
+      res.status(403).json({
+        error: `A token cannot mint rights it does not hold — ${describeExcess(excess)}`,
+      });
+      return;
+    }
+  }
   if (!exemptionNeedsLiveCode(req, res, mfa)) return;
   if (admin && readOnly) {
     res.status(400).json({ error: 'A token cannot be both admin and readOnly' });
@@ -137,7 +178,7 @@ tokensRouter.post('/', authRateLimit, requireAdminMfa, async (req, res) => {
   // schemaLibrary tokens are always read-only and have no space access
   const effectiveReadOnly = schemaLibrary ? true : (readOnly ?? false);
   const effectiveSpaces = schemaLibrary ? [] : spaces;
-  const { record, plaintext } = await createToken({ name, expiresAt: expiresAt ?? null, spaces: effectiveSpaces, admin, readOnly: effectiveReadOnly, peerInstanceId, schemaLibrary, mfa });
+  const { record, plaintext } = await createToken({ name, expiresAt: expiresAt ?? null, spaces: effectiveSpaces, admin, readOnly: effectiveReadOnly, peerInstanceId, schemaLibrary, mfa, rights: rights as never });
   // Return plaintext only on creation — never retrievable again
   const { hash: _h, ...safeRecord } = record;
   res.status(201).json({ token: safeRecord, plaintext });

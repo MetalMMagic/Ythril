@@ -29,6 +29,7 @@ const ROOT = process.cwd();
 const read = (p) => readFileSync(join(ROOT, p), 'utf8')
   .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
 
+const ITERATING = ['duplicates', 'contradictions', 'conflicts'];
 const dupes = read('server/src/api/duplicates.ts');
 const helper = read('server/src/auth/reachable-spaces.ts');
 
@@ -50,6 +51,29 @@ describe('the shared filter', () => {
     // OIDC records never pass the config backfill. Without this they would reach nothing at all.
     assert.match(helper, /if \(rights\)/);
     assert.match(helper, /if \(legacySpaces === undefined\) return all;/);
+  });
+});
+
+describe('every iterating router', () => {
+  it('carries no copy of the empty-means-all conflation', () => {
+    // Three copies of one rule existed. Fixing the reported one and stopping is how it survived in the other
+    // two, so this asserts across the set rather than the file that was reported.
+    for (const name of ITERATING) {
+      const src = read(`server/src/api/${name}.ts`);
+      assert.doesNotMatch(src, /tokenSpaces\.length === 0/,
+        `${name}.ts still reads an empty allowlist as unrestricted`);
+      assert.match(src, /spacesWhereTokenMay\(/, `${name}.ts does not use the shared filter`);
+    }
+  });
+
+  it('none of them declares its own space filter any more', () => {
+    // A local copy is what drifts. The helper takes the request, not a raw allowlist, so a caller cannot
+    // hand it the wrong thing.
+    for (const name of ITERATING) {
+      const src = read(`server/src/api/${name}.ts`);
+      assert.doesNotMatch(src, /function accessibleSpaces\(tokenSpaces/,
+        `${name}.ts still has the old signature, which takes a raw allowlist`);
+    }
   });
 });
 

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Fixed
+- **The same empty-allowlist bug existed in `contradictions` and `conflicts` too — three copies, not one.**
+  Both carried a byte-identical filter reading `tokenSpaces.length === 0` as "unrestricted", and both are
+  converted to the shared one. Fixing the reported copy and stopping is how it survived in the other two, so
+  the gate now asserts across all three routers rather than the file that was reported.
+  - Their mutating routes — resolve, dismiss, reopen, scan, bulk-resolve — require `write` on the area
+    rather than `read`, chosen per route from its HTTP method rather than assumed.
+
 - **An EMPTY token space-allowlist granted access to EVERY space on the duplicates routes.** Those routes
   take no space in the path — they walk every space the token can reach — and their filter read
   `tokenSpaces.length === 0` as "unrestricted". An absent allowlist does mean every space; an empty one means

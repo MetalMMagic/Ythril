@@ -13,6 +13,21 @@ tokensRouter.get('/me', globalRateLimit, requireAuth, (req, res) => {
   res.json(req.authToken);
 });
 
+/**
+ * `.strict()`, and it is the most important word in this file.
+ *
+ * Zod drops unknown keys by default, so `{ spaceIds: ['qa'] }` minted a token with NO `spaces` field and
+ * returned 201. The caller is told the operation succeeded, their own notes say the token is scoped, and it
+ * reaches every space on the instance. Nothing in the response, the record or the logs tells the two apart.
+ *
+ * Reported by an operator on 2026-08-09 who probed four plausible spellings — `allowedSpaces`, `scope`,
+ * `spaceIds`, `denySpaces` — and got 201 from every one. They found it by reading the stored token back and
+ * noticing four of five probes had no `spaces` at all. Their words: "somebody guessing the field name gets a
+ * token that looks scoped, reports success, and is not scoped at all."
+ *
+ * A permissive body schema is a silent failure anywhere. On the endpoint that mints CREDENTIALS it hands out
+ * access nobody intended and reports success while doing it.
+ */
 const CreateTokenBody = z.object({
   name: z.string().min(1).max(200),
   expiresAt: z.string().datetime().nullish(),
@@ -26,7 +41,7 @@ const CreateTokenBody = z.object({
    * See `TokenRecord.mfa` for why it is three states.
    */
   mfa: z.enum(['inherit', 'exempt', 'required']).optional(),
-});
+}).strict();
 
 /**
  * Granting an MFA exemption always costs a live second factor.
@@ -109,7 +124,10 @@ tokensRouter.post('/', authRateLimit, requireAdminMfa, async (req, res) => {
 const RenameTokenBody = z.object({
   // Same bound as create's `name`, so a label can't be edited to something the create flow would reject.
   name: z.string().min(1).max(200),
-});
+  // `.strict()` for the same reason as create, and here the edge is sharper: this route accepts a rename
+  // ONLY. A body carrying `spaces` or `admin` beside the name was dropped and answered 200, so an attempt to
+  // widen a token through the rename endpoint looked exactly like one that had worked.
+}).strict();
 
 // PATCH /api/tokens/:id — rename a token's label (only) — admin + MFA
 tokensRouter.patch('/:id', requireAdminMfa, (req, res) => {

@@ -12,6 +12,12 @@ Authorization: Bearer ythril_<base62-encoded-token>
 
 Tokens are created during first-run setup or via `POST /api/tokens`. The plaintext token is shown **once** — store it securely.
 
+**The space allowlist field is `spaces`, and nothing else.** The body is strict: any key it does not declare
+is a `400` naming it. This used to be a silent drop — `spaceIds`, `allowedSpaces`, `scope` and `denySpaces`
+were all accepted with a `201` and thrown away, so a token minted with one of those names had **instance-wide
+access while appearing scoped**. If you have tokens minted with a field other than `spaces`, re-check them:
+they are not scoped.
+
 > **The token must travel in the header.** A `?token=…` query parameter is ignored on every route → `401`, with one exception: the `GET /mcp` transport (an external-agent protocol whose clients may be unable to set headers). Query strings end up in access logs, proxy logs, browser history, and `Referer` headers, so a long-lived token must never ride in a URL. The **browser** SSE streams — `GET /api/brain/spaces/:id/events` and `GET /api/about/logs/stream` — instead use a **single-use ticket**: `POST` the paired `…/ticket` endpoint with the normal `Authorization` header to get a short-lived opaque ticket, then open the stream with `?ticket=<ticket>` (see the live-events section below).
 
 ### Token Scoping

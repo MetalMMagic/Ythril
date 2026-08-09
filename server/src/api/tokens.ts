@@ -13,6 +13,43 @@ tokensRouter.get('/me', globalRateLimit, requireAuth, (req, res) => {
   res.json(req.authToken);
 });
 
+/**
+ * Fields the SERVER owns on a token record. A client that posts a token it read back — `id`, `hash`,
+ * `prefix` — is round-tripping, not attacking, and being told "unknown key" for a field we ourselves emitted
+ * would be a worse answer than ignoring it.
+ *
+ * Same shape as `SERVER_OWNED_META_FIELDS` in `api/spaces.ts`: strip exactly the server-owned set, then let
+ * a STRICT schema refuse everything else. The two halves are the point — the strip keeps a round-trip
+ * working, and the strictness is what stops `spaceIds` minting an unscoped token in silence.
+ *
+ * A red-team test (`mass-assignment.test.js`) pins the strip; `credential-bodies-are-strict.test.js` pins
+ * the strictness. Neither is sufficient alone, which is exactly how the first attempt at this fix broke: it
+ * added `.strict()` and turned the round-trip into a 400.
+ */
+const SERVER_OWNED_TOKEN_FIELDS = ['id', 'hash', 'prefix'] as const;
+
+function stripServerOwnedToken(body: unknown): unknown {
+  if (body == null || typeof body !== 'object' || Array.isArray(body)) return body;
+  const copy: Record<string, unknown> = { ...(body as Record<string, unknown>) };
+  for (const f of SERVER_OWNED_TOKEN_FIELDS) delete copy[f];
+  return copy;
+}
+
+/**
+ * `.strict()`, and it is the most important word in this file.
+ *
+ * Zod drops unknown keys by default, so `{ spaceIds: ['qa'] }` minted a token with NO `spaces` field and
+ * returned 201. The caller is told the operation succeeded, their own notes say the token is scoped, and it
+ * reaches every space on the instance. Nothing in the response, the record or the logs tells the two apart.
+ *
+ * Reported by an operator on 2026-08-09 who probed four plausible spellings — `allowedSpaces`, `scope`,
+ * `spaceIds`, `denySpaces` — and got 201 from every one. They found it by reading the stored token back and
+ * noticing four of five probes had no `spaces` at all. Their words: "somebody guessing the field name gets a
+ * token that looks scoped, reports success, and is not scoped at all."
+ *
+ * A permissive body schema is a silent failure anywhere. On the endpoint that mints CREDENTIALS it hands out
+ * access nobody intended and reports success while doing it.
+ */
 const CreateTokenBody = z.object({
   name: z.string().min(1).max(200),
   expiresAt: z.string().datetime().nullish(),
@@ -26,7 +63,7 @@ const CreateTokenBody = z.object({
    * See `TokenRecord.mfa` for why it is three states.
    */
   mfa: z.enum(['inherit', 'exempt', 'required']).optional(),
-});
+}).strict();
 
 /**
  * Granting an MFA exemption always costs a live second factor.
@@ -60,7 +97,7 @@ tokensRouter.get('/', requireAdmin, (_req, res) => {
 // POST /api/tokens — create a new PAT — admin + MFA
 // admin:true may only be set when the calling token is itself admin (enforced by requireAdminMfa above)
 tokensRouter.post('/', authRateLimit, requireAdminMfa, async (req, res) => {
-  const parsed = CreateTokenBody.safeParse(req.body);
+  const parsed = CreateTokenBody.safeParse(stripServerOwnedToken(req.body));
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
@@ -109,11 +146,14 @@ tokensRouter.post('/', authRateLimit, requireAdminMfa, async (req, res) => {
 const RenameTokenBody = z.object({
   // Same bound as create's `name`, so a label can't be edited to something the create flow would reject.
   name: z.string().min(1).max(200),
-});
+  // `.strict()` for the same reason as create, and here the edge is sharper: this route accepts a rename
+  // ONLY. A body carrying `spaces` or `admin` beside the name was dropped and answered 200, so an attempt to
+  // widen a token through the rename endpoint looked exactly like one that had worked.
+}).strict();
 
 // PATCH /api/tokens/:id — rename a token's label (only) — admin + MFA
 tokensRouter.patch('/:id', requireAdminMfa, (req, res) => {
-  const parsed = RenameTokenBody.safeParse(req.body);
+  const parsed = RenameTokenBody.safeParse(stripServerOwnedToken(req.body));
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;

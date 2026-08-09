@@ -6,6 +6,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Fixed
+- **`POST /api/tokens` accepted a mis-spelled scope field and minted an UNSCOPED token, reporting success.**
+  `allowedSpaces`, `scope`, `spaceIds` and `denySpaces` were all taken with a **201** and silently dropped;
+  only `spaces` was ever real. The caller was told the operation worked, their own records said the token was
+  restricted, and it could reach every space on the instance. Nothing in the response, the stored token or
+  the logs distinguished it from a correctly scoped mint.
+  - Reported by an operator who probed four plausible spellings, got 201 from each, and only found it by
+    reading the stored token back and noticing four of five probes had no `spaces` field at all.
+  - Both token bodies are now strict: an unknown key is a **400** naming it. `PATCH /api/tokens/:id` had the
+    same shape with a sharper edge — it accepts a rename only, so `spaces` or `admin` sent beside the name
+    was dropped and answered **200**, which is what an attempt to widen a token through the rename endpoint
+    looked like.
+  - **If you were relying on one of those key names, your token is not scoped.** Re-check any token minted
+    with a field other than `spaces`; it has instance-wide access. The 400 now tells you at the first
+    request instead of the fifth.
+  - **Posting a token you read back still works.** `id`, `hash` and `prefix` are fields the server emits, so
+    they are stripped rather than refused — the same strip-then-be-strict shape `PATCH /api/spaces/:id`
+    already uses for its server-owned `meta` fields. Strictness alone would have turned a round-trip into a
+    400.
+
 ### Changed
 - **The space Overview drops the Statistics strip and the Instance card** (owner decision, 2026-08-08).
   - The **Statistics** strip showed record counts per type and a total. The Data model diagram above it

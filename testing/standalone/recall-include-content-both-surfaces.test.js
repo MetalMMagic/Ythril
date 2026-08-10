@@ -78,9 +78,16 @@ describe('recall exposes includeContent on both surfaces', () => {
   });
 
   it('both surfaces document it', () => {
-    const restDoc = read('docs/integration-guide/04-brain-api.md');
+    // Named files, NOT `readGuide()` from `_docs.mjs`.
+    //
+    // That helper concatenates every part of the integration guide, and `16-mcp.md` is one of those parts —
+    // so both sides of this two-surface comparison would be the same string and the check would pass on a
+    // single mention in either. A helper that exists to make a check split-proof would have made this one
+    // vacuous. The cost is that a further split has to update the path here; the gate names the part it
+    // reads so that failure is a missing file, not a silent pass.
+    const restDoc = read('docs/integration-guide/04a-recall-api.md');
     const mcpDoc = read('docs/integration-guide/16-mcp.md');
-    for (const [name, doc] of [['brain-api', restDoc], ['mcp', mcpDoc]]) {
+    for (const [name, doc] of [['recall-api', restDoc], ['mcp', mcpDoc]]) {
       assert.match(doc, /includeContent/, `${name} guide does not mention includeContent`);
     }
   });

@@ -14,6 +14,7 @@ stands on its own.
 3. [Authentication, Errors & Rate Limits](integration-guide/03-auth-and-limits.md)
    Error Format · Rate Limits
 4. [Brain API](integration-guide/04-brain-api.md)
+   [Recall & Similarity](integration-guide/04a-recall-api.md) · [Entities, Edges & Graph](integration-guide/04b-graph-api.md) · [Chrono](integration-guide/04c-chrono-api.md) · [Stats, Maintenance & Bulk](integration-guide/04d-brain-ops-api.md)
 5. [Files API](integration-guide/05-files-api.md)
 6. [Spaces API](integration-guide/06-spaces-api.md)
 7. [Tokens API](integration-guide/07-tokens-api.md)

@@ -6,6 +6,33 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Changed
+- **The Brain API reference is five files instead of one 2,037-line file.** It was the largest document in the
+  repository and roughly twice the next; a reader looking for chrono scrolled past recall, and the canary's vector
+  store held it as two chunks, from which nothing specific could be retrieved.
+  - `04-brain-api.md` (681) keeps the memory endpoints and the rules that apply to **every** record type — retry
+    safety, TTL, sorting, freetext search, PATCH merge semantics, `If-Match`, `deleteFields`. The four new parts are
+    the resource families: `04a-recall-api.md` (529), `04b-graph-api.md` (418), `04c-chrono-api.md` (105),
+    `04d-brain-ops-api.md` (317).
+  - **`Sorting` and `Freetext search` moved out of `List Entities`.** Both are stated to apply to every brain list
+    endpoint and were linked from the chrono and file-metadata tables, so they were cross-cutting rules filed under
+    one resource. Their anchors are unchanged, so every existing link still resolves.
+  - Every part is a whole numbered entry's worth of the index, the Help page renders all five as one continuous
+    chapter as before, and the two links from other guides that pointed into a moved section (`#reindex-space`,
+    `#prefiltered-recall-filter-parameter`) now name the part that holds it.
+  - **The split was performed by line range and checked by conserved total, not by hand.** 1,535 prose lines before,
+    1,535 after, compared as a multiset with the comparison mutation-tested against a deliberately deleted line —
+    because the previous split of this guide is what left the defect below.
+
+### Fixed
+- **The Brain API reference documented a capability that does not exist.** `plannedRoute` was removed from the
+  product in 2.0.0, and the removal left the tail of its explanation behind: a paragraph beginning mid-word
+  (*"ation naming the missing capability"*) followed by a rule about when the field is attached. It has shipped in
+  every release since — thirteen of them.
+  - It matters more than a typo because the canary reads our documentation **into** Ythril: a paragraph describing a
+    field no endpoint returns becomes a confidently retrieved false fact, which is the same failure mode that
+    produced `doc-links-resolve`.
+
 ### Added
 - **The semantic-search advanced panel now reaches every fillable recall field.** `maxPerType`,
   `includeFreshWrites` and `includeContent` had no control — they could only be set by hand-writing a request.

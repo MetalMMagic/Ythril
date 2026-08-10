@@ -254,7 +254,7 @@ docker run --rm -v "$PWD/cache:/cache" -e MODEL_CACHE_DIR=/cache -e HF_HUB_OFFLI
 ```
 
 Changing the embedding model **invalidates every existing vector**, so plan the
-[reindex](04-brain-api.md#reindex-space) that has to follow it.
+[reindex](04d-brain-ops-api.md#reindex-space) that has to follow it.
 
 Other model-loading components are separate processes with their own controls: the vision model is pulled
 by **Ollama** when you start it, and the speech model by the **faster-whisper** sidecar. Both are containers

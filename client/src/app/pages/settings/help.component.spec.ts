@@ -89,8 +89,13 @@ describe('HelpComponent', () => {
       expect(d.file).toMatch(/^[a-z0-9-]+\.md$/);
       // A split guide's parts are built into the same path, so they need the same guarantee: no `..`,
       // no absolute path, nothing that could escape `assets/docs`.
+      //
+      // `\d\d[a-z]?` because a part may itself be split: the Brain API is `04-brain-api.md` plus
+      // `04a`…`04d`, a suffix rather than a renumbering so that every published link to parts 05-17 keeps
+      // working. The shape is still pinned — a letter, not `[a-z0-9-]*`, which would re-admit a traversal
+      // segment the digits are here to exclude.
       for (const part of ('parts' in d ? d.parts : [])) {
-        expect(part).toMatch(/^[a-z0-9-]+\/\d\d-[a-z0-9-]+\.md$/);
+        expect(part).toMatch(/^[a-z0-9-]+\/\d\d[a-z]?-[a-z0-9-]+\.md$/);
       }
     }
   });

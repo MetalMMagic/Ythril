@@ -6,6 +6,7 @@ import { deleteEdge, getEdgeById, traverseGraph, updateEdgeById, upsertEdge } fr
 import { assertUpdateAllowed, classifyEdgeUpsert, classifyUpdateViolations, locateForUpdate } from '../../brain/write-validation.js';
 import { getConfig } from '../../config/loader.js';
 import { isStrictLinkage, resolveMemberSpaces, resolveWriteTarget, findFirstAcrossMembers } from '../../spaces/proxy.js';
+import { memberSpacesWithin } from '../../spaces/proxy-scoped.js';
 import { assertRefsResolve } from '../../brain/entity-refs.js';
 import { resolveMetaRefs, validateEdge } from '../../spaces/schema-validation.js';
 import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
@@ -205,7 +206,7 @@ export const traverseTool: ToolHandler = {
           additionalProperties: false,
         }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
-    const { args: a, callSpace } = ctx;
+    const { args: a, callSpace , accessibleSpaceIds } = ctx;
     const startId = String(a['startId'] ?? '').trim();
     if (!startId) throw new Error('startId must not be empty');
     const directionRaw = typeof a['direction'] === 'string' ? a['direction'] : 'outbound';
@@ -219,7 +220,7 @@ export const traverseTool: ToolHandler = {
     const maxDepth = typeof a['maxDepth'] === 'number' ? Math.min(Math.max(1, a['maxDepth']), 10) : 3;
     const limit = typeof a['limit'] === 'number' ? Math.min(Math.max(1, a['limit']), 1000) : 100;
 
-    const memberIds = resolveMemberSpaces(callSpace);
+    const memberIds = memberSpacesWithin(callSpace, accessibleSpaceIds);
     // Same default and same opt-out as REST — a rule that reaches one door and not the other is the defect
     // four brain-API fixes were about.
     const result = await traverseGraph(memberIds, startId, direction, edgeLabels, maxDepth, limit,

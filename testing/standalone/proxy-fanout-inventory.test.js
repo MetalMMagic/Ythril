@@ -99,6 +99,10 @@ const NARROWED = new Set([
   // Converted to memberSpacesForRequest. A no-op while the guard still requires all members, which is what makes
   // the conversion provable rather than a behaviour change taken on trust.
   'server/src/api/brain/search.ts',
+  'server/src/mcp/tools/spaces.ts',
+  'server/src/mcp/tools/file.ts',
+  'server/src/mcp/tools/edge.ts',
+  'server/src/mcp/tools/chrono.ts',
   'server/src/api/spaces.ts',
   'server/src/api/brain/file-meta.ts',
   'server/src/api/brain/entities.ts',
@@ -106,11 +110,7 @@ const NARROWED = new Set([
 ]);
 
 const PENDING = {
-  'server/src/mcp/tools/chrono.ts': 1,
-  'server/src/mcp/tools/edge.ts': 1,
-  'server/src/mcp/tools/file.ts': 2,
   'server/src/mcp/tools/search.ts': 1,
-  'server/src/mcp/tools/spaces.ts': 3,
 };
 
 // 28 read fan-outs across 13 files, plus 5 write-target sites. Those numbers came out of this gate, and the first

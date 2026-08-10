@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Changed
+- **Every proxy read fan-out is now narrowed to what the caller may see — all 29 sites.** The last one was
+  `resolveFindSimilarScope` in `mcp/tools/search.ts`, which takes the resolver as a **parameter**, so this was a
+  one-line call-site change rather than the signature rewrite the plan predicted.
+  - The inventory gate now asserts `PENDING` is empty, so a new un-narrowed fan-out fails twice over.
+  - **Still no behaviour change.** The three guards continue to require a token to reach every member of a proxy,
+    which is what has made the whole sweep a provable no-op. Flipping them to accept a non-empty intersection is the
+    single remaining change — now a small diff against fully-narrowed read paths rather than a leap of faith.
+
+### Changed
 - **The remaining MCP proxy fan-outs narrow to what the connection may see** — `mcp/tools/spaces.ts` (3),
   `file.ts` (2), `edge.ts` and `chrono.ts`. **One site left of 29:** the by-reference pass in `mcp/tools/search.ts`.
   - `accessibleSpaceIds` was already on the tool `ctx` and only `chrono.ts` ever destructured it — so the narrowed

@@ -91,6 +91,10 @@ const ROUTE_RULES: RouteRule[] = [
   // Rebuilding vector indexes leaves recall returning empty until the build finishes, so it is an
   // availability-affecting admin action and belongs in the trail alongside rename and wipe.
   { method: 'POST',   pattern: /^\/api\/spaces\/([^/]+)\/rebuild-indexes$/,        operation: 'space.indexes.rebuild', spaceGroup: 1 },
+  // Audited even though it only queues work: it changes what a space is findable BY, which is the same class of
+  // change as a rebuild, and it is the action an operator takes after turning suppression off. "Who un-suppressed
+  // this space and when" is answerable from the meta write; "who then backfilled it" needs this row.
+  { method: 'POST',   pattern: /^\/api\/spaces\/([^/]+)\/reembed$/,                 operation: 'space.embeddings.reembed', spaceGroup: 1 },
   { method: 'PATCH',  pattern: /^\/api\/spaces\/([^/]+)$/,                         operation: 'space.update',   spaceGroup: 1 },
   // There was no PUT rule in the entire table, so every schema write was unaudited.
   { method: 'PUT',    pattern: /^\/api\/spaces\/([^/]+)\/schema$/,                 operation: 'space.schema.update', spaceGroup: 1 },

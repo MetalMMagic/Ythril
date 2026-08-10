@@ -322,26 +322,37 @@ function enforceSpaceScope(
 ): boolean {
   if (!spaceId) return true;
 
-  // For proxy spaces, the token must have access to ALL member spaces.
-  // If the space doesn't exist in config, resolveMemberSpaces returns [].
-  // Fall back to [spaceId] so the scope check still rejects tokens that
-  // don't reach this space — returning 403 instead of leaking a 404.
+  // A proxy is a LENS over what the caller may already see: it is usable when the token reaches AT LEAST ONE
+  // member, and the read paths then serve only the members it reaches.
+  //
+  // This used to require ALL members, which meant a proxy could not be granted to a scoped token at all — listing it
+  // in `spaces` did nothing and every call 403'd. aigents proved it was not specific to one proxy by building their
+  // own over 15 spaces and getting the same refusal (Q-6).
+  //
+  // **This is the ONLY behaviour change in Q-6**, and it is safe now because all 29 read fan-outs were narrowed
+  // first — `proxy-fanout-inventory.test.js` asserts `PENDING` is empty. Flipping this beforehand would have handed
+  // a token records from every member of the proxy, well-formed and with nothing to notice.
+  //
+  // For a NON-PROXY space nothing changes, and that deserves precision rather than trust: a real space resolves to
+  // `[spaceId]`, so "reaches at least one of one" is the same predicate as "reaches all of one".
+  //
+  // A space missing from the config resolves to `[]`, and the fallback to `[spaceId]` keeps the answer a 403 for a
+  // token that cannot reach it, rather than a 404 that would confirm the space does not exist.
   const memberIds = resolveMemberSpaces(spaceId);
   const targets = memberIds.length > 0 ? memberIds : [spaceId];
 
-  // The rights matrix answers this now. It is derived from `spaces`/`admin`/`readOnly` at config load, and
-  // `rights-reach-matches-legacy.test.js` proves the two agree for every token shape on listed, unlisted and
-  // not-yet-created spaces — which is why this swap changes no behaviour.
+  // The legacy branch survives for records that carry no rights: OIDC-derived tokens are built per request rather
+  // than read from config, so the backfill never sees them. Falling through to `spaces` there is the same answer,
+  // not a weaker one; removing it would refuse every OIDC caller instead.
   //
-  // The legacy branch survives for records that carry no rights: OIDC-derived tokens are built per request
-  // rather than read from config, so the backfill never sees them. Falling through to `spaces` there is the
-  // same answer, not a weaker one; removing it would refuse every OIDC caller instead.
+  // `record.spaces === undefined` is unrestricted and reaches everything — NOT `.length === 0`. An empty allowlist
+  // reaches nothing, and reading empty as absent would turn the narrowest token into the widest.
   const rights = (record as { rights?: Parameters<typeof reachesSpace>[0] }).rights;
-  const missing = rights
-    ? targets.filter(sid => !reachesSpace(rights, sid))
-    : record.spaces ? targets.filter(sid => !record.spaces!.includes(sid)) : [];
+  const reachable = rights
+    ? targets.filter(sid => reachesSpace(rights, sid))
+    : record.spaces === undefined ? targets : targets.filter(sid => record.spaces!.includes(sid));
 
-  if (missing.length > 0) {
+  if (reachable.length === 0) {
     res.status(403).json({ error: `Token does not have access to space '${spaceId}'` });
     return false;
   }

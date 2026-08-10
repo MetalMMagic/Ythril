@@ -12,7 +12,7 @@ import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
 import { reachesSpace } from '../auth/space-reach.js';
 import type { TokenRights } from '../config/rights-shape.js';
-import { resolveMemberSpaces } from '../spaces/proxy.js';
+import { memberSpacesWithin } from '../spaces/proxy-scoped.js';
 import { ALL_TOOLS, TOOLS_BY_NAME, type ToolSchemas } from './tools/index.js';
 import { SchemaViolationError } from '../brain/write-validation.js';
 import { makeArgsValidator } from './validate-args.js';
@@ -200,18 +200,21 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
       if (tokenSpaces && !tokenSpaces.includes(rawSpace)) {
         return { content: [{ type: 'text' as const, text: `Error: token does not have access to space '${rawSpace}'` }], isError: true };
       }
-      // Proxy fan-out scope check: a proxy space aggregates reads across (and
-      // routes writes to) its member spaces. The token must hold EVERY member
-      // space — mirroring requireSpaceAuth on the REST layer — otherwise a token
-      // scoped only to the proxy (especially a `proxyFor: ['*']` wildcard) could
-      // read/write member spaces it was never granted. For a non-proxy space
-      // resolveMemberSpaces returns [rawSpace], so this is a no-op there.
-      if (tokenSpaces) {
-        const members = resolveMemberSpaces(rawSpace);
-        const missing = members.filter(m => !tokenSpaces.includes(m));
-        if (missing.length > 0) {
-          return { content: [{ type: 'text' as const, text: `Error: token does not have access to member space(s) of '${rawSpace}': ${missing.join(', ')}` }], isError: true };
-        }
+      // Proxy scope check, mirroring `enforceSpaceScope` on the REST layer — and it has to keep mirroring it, or the
+      // two surfaces answer one question differently, which is the defect #786 fixed one layer up.
+      //
+      // A proxy is usable when the connection reaches AT LEAST ONE member; the tools then read only the members it
+      // reaches, via `memberSpacesWithin`. It used to require EVERY member, which is why a scoped token could not be
+      // given a proxy at all (Q-6).
+      //
+      // Safe now only because every MCP fan-out was narrowed first. With the wide fan-outs still in place, a token
+      // reaching one member of a `proxyFor: ['*']` wildcard would have read every space on the instance.
+      //
+      // For a non-proxy space `resolveMemberSpaces` returns `[rawSpace]`, so "at least one of one" is the same
+      // predicate as "all of one" and nothing changes there.
+      const members = memberSpacesWithin(rawSpace, accessibleSpaceIds);
+      if (members.length === 0) {
+        return { content: [{ type: 'text' as const, text: `Error: token does not have access to '${rawSpace}' or any of its member spaces` }], isError: true };
       }
     }
     const callSpace = rawSpace;

@@ -6,6 +6,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- **A proxy space can now be granted to a scoped token — it becomes a lens over what that token may already see.**
+  `enforceSpaceScope` and the MCP guard accept a proxy when the token reaches **at least one** member instead of
+  requiring every member, and the read paths serve only the members it reaches.
+  - Asked for by an integrator with probes: a proxy space could not be granted to a non-admin token at all — listing it
+    in `spaces` did nothing and every call `403`'d. Building a filtered proxy by hand is not the answer, because it is a
+    second list to keep in step with the space set: every new space must be added or it silently drops out of recall.
+  - **This is the only behaviour change of the ten PRs in this work.** All 29 read fan-outs were narrowed first;
+    flipping the guard earlier would have served records from every member of the proxy — well-formed, `200`, nothing
+    to notice, and with a wildcard proxy that is every space on the instance.
+  - **Unchanged for a non-proxy space:** a real space resolves to one member, so "reaches at least one of one" is the
+    same predicate as "reaches all of one". That guarantee rests on the single-space fallback rather than the
+    predicate, and has its own test — without it an unknown space would produce an empty target list that passes
+    vacuously.
+  - The legacy allowlist branch now tests `spaces === undefined` rather than truthiness: under the old rule an empty
+    allowlist passed, and under the new one it must refuse.
+
 ### Changed
 - **Every proxy read fan-out is now narrowed to what the caller may see — all 29 sites.** The last one was
   `resolveFindSimilarScope` in `mcp/tools/search.ts`, which takes the resolver as a **parameter**, so this was a

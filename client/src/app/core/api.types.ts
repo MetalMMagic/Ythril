@@ -107,6 +107,9 @@ export interface TypeSchema {
   /** How long records of this type are kept — the schema tier of **record > schema > space**. `days` deletes
    *  the record; `contentDays` (chrono only) drops the detail and the embedding but keeps the record. */
   retention?: { days?: number; contentDays?: number };
+  /** Skip embedding this type — the schema tier of **record > schema > space**. Absent means NOT STATED and
+   *  falls through to the space setting; it does not mean `false`. Turning it off does not backfill. */
+  suppressEmbeddings?: boolean;
 }
 
 /** An entry in the instance-level schema library. */

@@ -114,6 +114,24 @@ export interface TypeSchema {
   tagSuggestions?: string[];
   /** Property key → JSON Schema subset for value validation and merge hints. */
   propertySchemas?: Record<string, PropertySchema>;
+  /**
+   * Skip embedding records of this type. Absent means **not stated**, which falls through to the space-wide
+   * setting — it does NOT mean `false`.
+   *
+   * That distinction is the whole design. If absent read as "do not suppress", `SpaceMeta.suppressEmbeddings`
+   * would do nothing for any type that had a schema at all, which is every type worth suppressing. The
+   * resolution order is record > schema > space, matching `retention` rather than inventing a second order;
+   * `brain/suppress-embeddings.ts` owns it and is tested against exactly this case.
+   *
+   * Asked for by an operator whose records are **state rather than prose**: a queue row whose name and
+   * description never change, whose weight is PATCHed every tick, and which nobody will ever search for by
+   * meaning. Each write re-embedded byte-identical text to produce a vector that already existed.
+   *
+   * **Turning it back on does not backfill.** Records written while it was on have no vector, and nothing
+   * revisits them — see the `POST /api/spaces/:id/reembed` note in the API docs. Stated here because an
+   * operator flipping this off would otherwise reasonably assume recall recovers on its own.
+   */
+  suppressEmbeddings?: boolean;
 }
 
 /** Validation mode for write operations against a space's schema. */
@@ -152,6 +170,19 @@ export interface SpaceMeta {
   /** When true, all reference fields (edge from/to, entityIds, memoryIds) must be
    *  valid UUID v4 values, and entity deletion is blocked while inbound backlinks exist. */
   strictLinkage?: boolean;
+  /**
+   * Space-wide default for skipping embeddings. The **lowest** tier: any type schema that states
+   * `suppressEmbeddings` overrides it, and a per-record value overrides both.
+   *
+   * Absent means `false` — embedding is the default, and suppression is opt-in. The failure direction of
+   * getting that backwards is records silently missing from recall, which nobody reports because there is
+   * nothing to see.
+   *
+   * Lives in the Danger Zone in the UI, alongside the other space-wide switches, because it changes what
+   * happens to data on write rather than how it is displayed. **It does not backfill when switched off** —
+   * see `TypeSchema.suppressEmbeddings`.
+   */
+  suppressEmbeddings?: boolean;
   /** ISO8601 timestamp of the last meta update. */
   updatedAt?: string;
   /** History of previous meta versions (most recent first, capped). */

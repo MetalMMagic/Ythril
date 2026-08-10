@@ -19,6 +19,9 @@ import { col, asFilter } from '../db/mongo.js';
 import { embed } from './embedding.js';
 import { memoryEmbedText, entityEmbedText, edgeEmbedText, chronoEmbedText, fileEmbedText } from './embed-text.js';
 import { resolveEdgeEntityNames } from './edges.js';
+import { embeddingSuppressed, schemaKeyFor } from './suppress-embeddings.js';
+import { getSpaceMeta } from '../spaces/schema-validation.js';
+import type { KnowledgeType } from '../config/types-knowledge.js';
 import type {
   BrainEmbedRecordType, MemoryDoc, EntityDoc, EdgeDoc, ChronoEntry, FileMetaDoc,
 } from '../config/types.js';
@@ -134,7 +137,28 @@ export async function embedStoredRecord(
   //
   // The stale vector is UNSET rather than left behind. Leaving it would keep the record findable by the
   // exact mechanism the flag exists to switch off, which is the whole bug.
-  if (doc['excludeFromVectorSearch'] === true) {
+  //
+  // The per-record flag is the TOP tier of three. A type schema may suppress the whole type, and the space may
+  // suppress everything; `embeddingSuppressed` resolves record > schema > space, the same order `retention`
+  // uses. Two tiered settings that resolved differently is the kind of thing nobody discovers until it is
+  // wrong, and "wrong" here means recall silently stops covering something.
+  //
+  // Absent at a tier means NOT STATED and falls through — it is not `false`. Reading it as `false` would make
+  // the space-wide switch do nothing for any type that had a schema at all, which is every type worth
+  // suppressing.
+  // A FILE has no type and therefore no type schema — the same asymmetry `TtlBucket` exists to name. So a file
+  // skips the middle tier entirely and is governed by the record flag or the space setting. Narrowing here
+  // rather than casting, because a cast would silently index `typeSchemas` with `'file'` and always miss.
+  const meta = getSpaceMeta(spaceId);
+  const knowledgeType: KnowledgeType | undefined = recordType === 'file' ? undefined : recordType;
+  const schemaKey = knowledgeType === undefined ? undefined : schemaKeyFor(knowledgeType, doc);
+  if (embeddingSuppressed({
+    record: doc['excludeFromVectorSearch'] === true ? true : undefined,
+    schema: knowledgeType === undefined || schemaKey === undefined
+      ? undefined
+      : meta?.typeSchemas?.[knowledgeType]?.[schemaKey],
+    space: meta?.suppressEmbeddings === true,
+  })) {
     await col(collName).updateOne(
       asFilter({ _id: recordId }),
       { $unset: { embedding: '', embeddingModel: '' } },

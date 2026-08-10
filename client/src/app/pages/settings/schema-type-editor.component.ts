@@ -142,6 +142,21 @@ import { SCHEMA_MD_STYLES } from './schema-styles';
   @if (contentWindowNeverFires(); as total) {
     <div class="sch-msg err">{{ 'spaces.schema.retention.contentTooLate' | transloco: { total } }}</div>
   }
+  <!-- Three states, not a checkbox. "Inherit" is the space setting and is the DEFAULT; the other two are
+       deliberate overrides in each direction. A two-state control could not express "embed this type even
+       though the space suppresses", and it would write a value on every save for types nobody touched. -->
+  <div class="field">
+    <label>{{ 'spaces.schema.suppressEmbeddings.label' | transloco }}</label>
+    <select [ngModel]="suppressValue()" (ngModelChange)="setSuppress($event)" style="max-width:320px;">
+      <option value="inherit">{{ 'spaces.schema.suppressEmbeddings.inherit' | transloco }}</option>
+      <option value="on">{{ 'spaces.schema.suppressEmbeddings.on' | transloco }}</option>
+      <option value="off">{{ 'spaces.schema.suppressEmbeddings.off' | transloco }}</option>
+    </select>
+    <div class="sch-hint" style="margin-top:3px;">{{ 'spaces.schema.suppressEmbeddings.hint' | transloco }}</div>
+    @if (d().suppressEmbeddings === true) {
+      <div class="sch-msg warn">{{ 'spaces.schema.suppressEmbeddings.noBackfill' | transloco }}</div>
+    }
+  </div>
   <!-- Per-type tag suggestions were retired here. The editor reached nothing: not the Brain
        record forms (they suggest from tags already in use) and not the schema guidance sent to
        MCP clients. Offering a control that does nothing is the dishonesty the Models rebuild
@@ -342,6 +357,21 @@ export class SchemaTypeEditorComponent {
     const total = Number(s.retentionDays) || this.spaceWindowDays() || 0;
     return total > 0 && content >= total ? total : null;
   });
+
+  /**
+   * The tri-state suppression control, as a select value.
+   *
+   * `null` is "inherit" and must round-trip as `null` — mapping it to `false` would write a decision on every
+   * save for every type nobody edited, and pin each of them to embedding regardless of the space setting.
+   */
+  readonly suppressValue = computed<'inherit' | 'on' | 'off'>(() => {
+    const v = this.draft().suppressEmbeddings;
+    return v === null || v === undefined ? 'inherit' : v ? 'on' : 'off';
+  });
+
+  setSuppress(v: 'inherit' | 'on' | 'off'): void {
+    this.draft().suppressEmbeddings = v === 'inherit' ? null : v === 'on';
+  }
   /**
    * One line summarising a property's constraints, for the collapsed row.
    *

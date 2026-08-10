@@ -6,6 +6,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- **`suppressEmbeddings` — skip embedding records that are state rather than prose.** Now wired end to end, on
+  three tiers resolving **record > schema > space**, the same order `retention` uses.
+  - `TypeSchema.suppressEmbeddings` suppresses one type; `SpaceMeta.suppressEmbeddings` suppresses a whole space.
+    Accepted on `PATCH /api/spaces/:id` and on schema-library entries, and documented in the Spaces API guide.
+  - **Absent means NOT STATED and falls through** — it does not mean `false`. Otherwise the space-wide setting
+    would do nothing for any type that had a schema at all, which is every type worth suppressing.
+  - **Suppression UNSETS a stale vector** rather than only declining to write a new one. Leaving the old vector
+    would keep the record findable by exactly the mechanism the flag exists to switch off.
+  - **A file has no type, so it skips the schema tier** — narrowed rather than cast, because a cast would index
+    `typeSchemas` with `'file'` and miss every time while looking wired.
+  - **Switching it back off does not backfill, and the docs say so plainly.** Records written while it was on
+    have no vector and nothing revisits them; re-saving a record re-embeds that record.
+  - Still to come: the space-wide toggle in the Danger Zone UI. The API is complete without it.
+
 ### Fixed
 - **A Mongo boot race could still kill a container at startup**, one layer later than the ECONNRESET case fixed
   earlier: `MongoServerError: interrupted at shutdown`, thrown mid-SCRAM because the replica-set entrypoint

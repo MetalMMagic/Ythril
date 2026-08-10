@@ -126,6 +126,31 @@ import { BrainStore } from './brain-store.service';
 
                 @if (showRecallAdvanced()) {
                   <div style="margin-top:10px; padding:10px; border:1px solid var(--border); border-radius:var(--radius-sm);">
+                    <!-- The rest of the recall surface. Owner asked for every fillable MCP/REST field to be
+                         reachable from the UI; before this, maxPerType, includeFreshWrites and includeContent could
+                         only be set by hand-writing a request.
+                         NOTE: no backticks anywhere in this template, including comments. One ends the template
+                         string and the error points at @Component, never here. -->
+                    <div class="row" style="gap:14px; flex-wrap:wrap; margin-bottom:10px;">
+                      <div class="field" style="margin:0;">
+                        <label>{{ 'brain.query.maxPerType' | transloco }}
+                          <span style="color:var(--text-muted);font-size:11px;" [attr.title]="'brain.query.maxPerType.tooltip' | transloco"><ph-icon name="info" [size]="11" style="display:inline-flex;vertical-align:middle;"/></span>
+                        </label>
+                        <input type="number" [(ngModel)]="recallForm.maxPerType" name="recallMaxPerType" min="0" max="100"
+                          [placeholder]="'brain.query.maxPerType.none' | transloco" style="width:90px;" />
+                      </div>
+                      <label style="display:flex; align-items:center; gap:6px; align-self:flex-end; cursor:pointer;">
+                        <input type="checkbox" [(ngModel)]="recallForm.includeFreshWrites" name="recallFresh" />
+                        <span>{{ 'brain.query.includeFreshWrites' | transloco }}</span>
+                        <span style="color:var(--text-muted);font-size:11px;" [attr.title]="'brain.query.includeFreshWrites.tooltip' | transloco"><ph-icon name="info" [size]="11" style="display:inline-flex;vertical-align:middle;"/></span>
+                      </label>
+                      <label style="display:flex; align-items:center; gap:6px; align-self:flex-end; cursor:pointer;">
+                        <input type="checkbox" [(ngModel)]="recallForm.includeContent" name="recallIncludeContent" />
+                        <span>{{ 'brain.query.includeContent' | transloco }}</span>
+                        <span style="color:var(--text-muted);font-size:11px;" [attr.title]="'brain.query.includeContent.tooltip' | transloco"><ph-icon name="info" [size]="11" style="display:inline-flex;vertical-align:middle;"/></span>
+                      </label>
+                    </div>
+
                     <!-- Type restriction + per-type minimums -->
                     <label style="display:block; margin-bottom:6px;">
                       {{ 'brain.query.types' | transloco }}
@@ -359,7 +384,14 @@ export class QueryTabComponent {
 
   // Semantic search
   recallKnowledgeTypes: RecallKnowledgeType[] = ['memory', 'entity', 'edge', 'chrono', 'file'];
-  recallForm = { query: '', topK: 10, minScore: 0, filter: '', tags: '', type: '' };
+  // `maxPerType: 0` and `includeContent: true` are the SERVER's defaults expressed as form state, not new policy:
+  // 0 means "no cap" and is omitted from the request, and `includeContent` starts true because sending false makes
+  // recall look as though it has stopped returning passages. `includeFreshWrites` starts false because it is an
+  // opt-in scan.
+  recallForm = {
+    query: '', topK: 10, minScore: 0, filter: '', tags: '', type: '',
+    maxPerType: 0, includeFreshWrites: false, includeContent: true,
+  };
 
   /** Type names offered by the recall "filter by type" dropdown (F5): schema type
    *  names for the space UNION the distinct `type` values present in the loaded
@@ -493,6 +525,13 @@ export class QueryTabComponent {
       ...(Object.keys(minPerType).length ? { minPerType } : {}),
       ...(tags.length ? { tags } : {}),
       ...(filter ? { filter } : {}),
+      // Each omitted unless it says something. `maxPerType: 0` is "no cap" and must not be sent as a literal zero,
+      // which would cap every type at nothing. `includeFreshWrites` is only sent when true — the route rejects a
+      // non-boolean, and there is no reason to spell out the default. `includeContent` is only sent when the operator
+      // has actually turned it off.
+      ...(this.recallForm.maxPerType > 0 ? { maxPerType: this.recallForm.maxPerType } : {}),
+      ...(this.recallForm.includeFreshWrites ? { includeFreshWrites: true } : {}),
+      ...(this.recallForm.includeContent ? {} : { includeContent: false }),
     }).subscribe({
       next: (res) => { this.recallRunning.set(false); this.recallResults.set(res.results); },
       error: (err) => { this.recallRunning.set(false); this.recallError.set(err.error?.error ?? 'Search failed'); },

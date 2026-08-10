@@ -44,20 +44,28 @@ function loadClassifier() {
   assert.ok(setAt > 0, 'TRANSIENT_CONNECT_ERRORS should exist');
   const setSrc = SRC.slice(setAt, SRC.indexOf(']);', setAt) + 3);
 
+  // The code allowlist, which the classifier now also consults. Asserted present rather than optional: if this
+  // Set is ever renamed away, the classifier below would still evaluate — as a version that retries nothing by
+  // code — and every transient-code test would fail for the wrong reason.
+  const codeAt = SRC.indexOf('const TRANSIENT_SERVER_ERROR_CODES');
+  assert.ok(codeAt > 0, 'TRANSIENT_SERVER_ERROR_CODES should exist');
+  const codeSrc = SRC.slice(codeAt, SRC.indexOf(']);', codeAt) + 3);
+
   const fnAt = SRC.indexOf('function isTransientConnectError');
   assert.ok(fnAt > 0, 'isTransientConnectError should exist');
   const fnSrc = SRC.slice(fnAt, SRC.indexOf('\n}', fnAt) + 2)
     // Strip just enough TypeScript to run it: the parameter type, the return type, and the cast.
     // Anything more elaborate would risk the test evaluating something other than the real rules.
     .replace(/^function (\w+)\(err: unknown\): boolean \{/, 'function $1(err) {')
-    .replace(/\(err as \{ name\?: string \} \| null\)/g, 'err');
+    .replace(/\(err as \{ name\?: string \} \| null\)/g, 'err')
+    .replace(/\(err as \{ code\?: unknown \} \| null\)/g, 'err');
 
   // eslint-disable-next-line no-new-func
-  return new Function(`${setSrc}\n${fnSrc}\nreturn isTransientConnectError;`)();
+  return new Function(`${setSrc}\n${codeSrc}\n${fnSrc}\nreturn isTransientConnectError;`)();
 }
 
 const isTransient = loadClassifier();
-const err = (name) => Object.assign(new Error('x'), { name });
+const err = (name, code) => Object.assign(new Error('x'), code === undefined ? { name } : { name, code });
 
 describe('which connect failures are retried', () => {
   describe('retried — the database is there but not ready', () => {
@@ -66,7 +74,30 @@ describe('which connect failures are retried', () => {
     }
   });
 
+  describe('retried by CODE — a MongoServerError that still means "not up yet"', () => {
+    // The #774 CI failure: `MongoServerError: interrupted at shutdown`, thrown mid-SCRAM because the replica-set
+    // entrypoint restarts mongod after initiation. Same boot race as ECONNRESET, one layer later — and invisible
+    // to a name-only allowlist, because bad credentials carry the same name. The name bounds the CLASS of
+    // failure and says nothing about its transience.
+    for (const [code, what] of [[11600, 'InterruptedAtShutdown'], [91, 'ShutdownInProgress'],
+      [11602, 'InterruptedDueToReplStateChange'], [189, 'PrimarySteppedDown'], [13436, 'NotPrimaryOrSecondary']]) {
+      it(`MongoServerError ${code} (${what})`, () => assert.equal(isTransient(err('MongoServerError', code)), true));
+    }
+
+    it('does NOT widen by code alone — an unrecognised NAME with a transient code still fails fast', () => {
+      // Otherwise the code list would re-admit every failure the name allowlist exists to reject.
+      assert.equal(isTransient(err('SomeOtherError', 11600)), false);
+      assert.equal(isTransient(err('MongoParseError', 11600)), false);
+    });
+  });
+
   describe('NOT retried — waiting cannot help', () => {
+    it('MongoServerError 18 (AuthenticationFailed) — the reason the name is excluded', () => {
+      // The case the whole allowlist exists for. Retrying real bad credentials for the full budget turns a clear
+      // immediate error into a boot that appears to hang.
+      assert.equal(isTransient(err('MongoServerError', 18)), false);
+    });
+    it('MongoServerError with a non-numeric code', () => assert.equal(isTransient(err('MongoServerError', '11600')), false));
     // Retrying these for the full budget replaces a clear immediate error with a slow mysterious one.
     it('MongoServerError (bad credentials)', () => assert.equal(isTransient(err('MongoServerError')), false));
     it('MongoParseError (malformed URI)', () => assert.equal(isTransient(err('MongoParseError')), false));

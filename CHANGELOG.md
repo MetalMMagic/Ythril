@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **Dev tooling: `npm run loop:check`** — decides whether the standing dev-loop may stop, from repo state
+  rather than from judgement. A turn may only end with something in flight (an open PR, so "Running" names a
+  number) or with the queue drained (the release boundary). Otherwise it refuses and prints the next row.
+  - Turned into a gate because the rule was broken five times in one session while being perfectly clear.
+    Every other rule here with that history became a gate — the god-file ratchet, the reachability check,
+    `todo:check`, the audit-route allowlist.
+  - **A tracker edit does not count as work in progress**, which is the specific failure it catches: a reply
+    whose newest work is bookkeeping, with nothing running and no PR open.
+  - Not wired into preflight — preflight guards a *push*, and this guards a *turn ending*.
 - **Internal: the `suppressEmbeddings` tier resolver.** Nothing consults it yet; the schema field, the
   space-wide setting and the wiring into `embedStoredRecord` follow.
   - Asked for by an operator with records that are **state rather than prose**: a queue row whose name and

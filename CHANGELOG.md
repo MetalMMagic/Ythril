@@ -6,6 +6,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Fixed
+- **MCP decided which spaces a token could see from the legacy `spaces` allowlist, while the HTTP guard used the
+  per-space rights matrix.** MCP now consults `reachesSpace` too, at both transports.
+  - **Not exploitable today, and that is worth stating plainly:** the migration derives `rights` *from* `spaces`, and a
+    test proves the two agree across 50 comparisons. Every config-loaded token got the same answer from both surfaces.
+  - The defect is that they can now **diverge**. A token edited directly through the rights-matrix editor has a
+    `spaces` array that no longer describes it, and MCP was still reading the array — so this was not "MCP is more
+    permissive", it was "MCP is answering from stale data", with no fixed direction of error.
+  - The legacy branch survives for records with no rights: OIDC tokens are built per request and the config backfill
+    never sees them, so removing it would refuse every OIDC caller rather than tighten anything.
+  - **It also unblocks Q-6's MCP half**, which cannot narrow a proxy to a token's reachable members while the surface
+    has no access to the rights that define them.
+
 ### Changed
 - **`locateForUpdate`'s first parameter is now called `writeTarget`, not `spaceId`** — a rename with a point. All four
   callers pass `wt.target` from `resolveWriteTarget`, which is always a real space: a non-proxy resolves to itself, and

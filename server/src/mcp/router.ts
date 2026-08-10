@@ -10,6 +10,8 @@ import { createHash } from 'node:crypto';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
+import { reachesSpace } from '../auth/space-reach.js';
+import type { TokenRights } from '../config/rights-shape.js';
 import { resolveMemberSpaces } from '../spaces/proxy.js';
 import { ALL_TOOLS, TOOLS_BY_NAME, type ToolSchemas } from './tools/index.js';
 import { SchemaViolationError } from '../brain/write-validation.js';
@@ -55,10 +57,44 @@ function sessionTag(sessionId: string): string {
  *   because the SSE transport builds the server once per CONNECTION and then serves many tool calls
  *   over it — there is no `req` in scope at dispatch time, only the one that opened the stream.
  */
+/**
+ * The rights off a token record, or `undefined` for one that has none.
+ *
+ * A cast because `OidcTokenRecord` has no `rights` field: those tokens are built per request from the identity
+ * provider and the config backfill never sees them. `undefined` here is the signal to fall back to the legacy
+ * allowlist, which is the same answer that path has always given — not a weaker one.
+ *
+ * The same cast appears at every other rights call site (`middleware.ts`, the three `accessibleSpaces` helpers). It is
+ * a narrowing the union cannot express, and writing it once here keeps this file from repeating it per transport.
+ */
+function tokenRights(record: unknown): TokenRights | undefined {
+  return (record as { rights?: TokenRights } | undefined)?.rights;
+}
+
 function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdmin?: boolean, tokenId?: string, tokenLabel?: string,
-  audit?: { ip: string; authMethod: 'pat' | 'oidc' | null; oidcSubject: string | null; transport: 'sse' | 'http' }): Server {
+  audit?: { ip: string; authMethod: 'pat' | 'oidc' | null; oidcSubject: string | null; transport: 'sse' | 'http' },
+  rights?: TokenRights): Server {
   const cfg = getConfig();
-  const accessibleSpaces = cfg.spaces.filter(s => !tokenSpaces || tokenSpaces.includes(s.id));
+  // The rights matrix decides this, with `tokenSpaces` as the fallback for records that carry no rights.
+  //
+  // Until now MCP answered from `tokenSpaces` ALONE while the HTTP guard used `reachesSpace`. Two surfaces, one rule,
+  // one of them weaker — the shape of the four defects fixed on 2026-08-05. It was not exploitable, because the
+  // migration derives `rights` FROM `spaces` and a test proves they agree across 50 comparisons. The problem was that
+  // they can now DIVERGE: a token edited through the rights-matrix editor has a `spaces` array that no longer
+  // describes it, and MCP was still reading the array. The error had no fixed direction either — the matrix can be
+  // narrower than the legacy list as well as wider, so this was not "MCP is more permissive", it was "MCP is
+  // answering from stale data".
+  //
+  // A `&&` of the two would be worse than either: the matrix can be wider, so combining them would silently refuse
+  // access the matrix grants.
+  //
+  // NOTE the parameter count. Seven positionals is past the point where a caller can get the order right by reading
+  // the call, and this change made it worse rather than better; it wants to be one `caller` object. Filed rather than
+  // done here, because rewriting the signature and every use of the five it replaces is a bigger diff than the
+  // correctness fix it would be hiding inside.
+  const accessibleSpaces = cfg.spaces.filter(s => (
+    rights ? reachesSpace(rights, s.id) : !tokenSpaces || tokenSpaces.includes(s.id)
+  ));
   const accessibleSpaceIds = accessibleSpaces.map(s => s.id);
   const spacesLine = accessibleSpaces.length > 0
     ? accessibleSpaces.map(s => s.id + (s.label ? ` ("${s.label.replace(/[\x00-\x1f]/g, '').slice(0, 200)}")` : '')).join(', ')
@@ -268,7 +304,7 @@ mcpRouter.get('/', globalRateLimit, async (req, res) => {
   });
 
   const server = createGlobalMcpServer(req.authToken?.spaces, req.authToken?.readOnly, req.authToken?.admin, req.authToken?.id, req.authToken?.name,
-    { ip: req.ip ?? '', authMethod: auditAuthMethod(req.authToken), oidcSubject: auditOidcSubject(req.authToken), transport: 'sse' });
+    { ip: req.ip ?? '', authMethod: auditAuthMethod(req.authToken), oidcSubject: auditOidcSubject(req.authToken), transport: 'sse' }, tokenRights(req.authToken));
   log.debug(`MCP global session ${sessionTag(transport.sessionId)} opened`);
   await server.connect(transport);
 });
@@ -300,7 +336,7 @@ mcpRouter.post('/messages', globalRateLimit, async (req, res) => {
 mcpRouter.post('/', globalRateLimit, async (req, res) => {
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   const server = createGlobalMcpServer(req.authToken?.spaces, req.authToken?.readOnly, req.authToken?.admin, req.authToken?.id, req.authToken?.name,
-    { ip: req.ip ?? '', authMethod: auditAuthMethod(req.authToken), oidcSubject: auditOidcSubject(req.authToken), transport: 'http' });
+    { ip: req.ip ?? '', authMethod: auditAuthMethod(req.authToken), oidcSubject: auditOidcSubject(req.authToken), transport: 'http' }, tokenRights(req.authToken));
   // Register cleanup before handling the request so it fires regardless of outcome.
   res.on('close', () => {
     transport.close();

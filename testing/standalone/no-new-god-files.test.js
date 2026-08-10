@@ -73,7 +73,11 @@ const FROZEN = {
   // It is now UNDER the ceiling and stays on this list on purpose: an entry here is a ratchet, and removing
   // it would hand the file back the 148 lines of headroom the extraction just removed. The dialog it lost
   // lives in `token-create-dialog.component.ts` at 207.
-  'client/src/app/pages/settings/tokens.component.ts': 502,
+  // 502 -> 526: the per-row "edit rights" action, its state, and the saved handler. The DIALOG went to
+  // `token-rights-dialog.component.ts`; what landed here is the entry point, which belongs to the page that
+  // owns the rows. Raised rather than worked around — hiding a row action somewhere it does not belong to
+  // keep a number down is the trade this list exists to let us decline.
+  'client/src/app/pages/settings/tokens.component.ts': 526,
   'client/src/app/pages/files/file-manager.component.ts': 1617,
   'client/src/app/pages/schema-library/schema-library.component.ts': 1112,
   'server/src/sync/engine.ts': 966,

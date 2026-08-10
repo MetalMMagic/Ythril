@@ -1831,5 +1831,9 @@
   "brain.overview.er.proxy": "Przestrzeń proxy nie ma jednego modelu danych — otwórz przestrzeń członkowską.",
   "tokens.matrix.show": "Użyj macierzy per przestrzeń",
   "tokens.matrix.hide": "Użyj prostych uprawnień",
-  "tokens.matrix.help": "Ustaw poziom dla obszaru w każdej przestrzeni. Zastępuje wybory powyżej — token używa jednego albo drugiego, nigdy obu."
+  "tokens.matrix.help": "Ustaw poziom dla obszaru w każdej przestrzeni. Zastępuje wybory powyżej — token używa jednego albo drugiego, nigdy obu.",
+  "tokens.rights.title": "Uprawnienia",
+  "tokens.rights.edit": "Edytuj uprawnienia",
+  "tokens.rights.saved": "Uprawnienia zaktualizowane",
+  "tokens.error.rightsFailed": "Nie udało się zaktualizować uprawnień"
 }

@@ -17,6 +17,7 @@ import { RelativeTimeComponent } from '../../shared/relative-time.component';
 import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
 import { RightsGlyphComponent, type TokenRights } from './rights-glyph.component';
 import { TokenCreateDialogComponent } from './token-create-dialog.component';
+import { TokenRightsDialogComponent } from './token-rights-dialog.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
 import { httpErrorReason } from '../../core/http-error';
 
@@ -25,7 +26,8 @@ import { httpErrorReason } from '../../core/http-error';
   standalone: true,
   imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, ModalDirective,
             SummaryStripComponent, StatusPillComponent, RelativeTimeComponent, HscrollTopDirective,
-            ErrorStateComponent, RightsGlyphComponent, TokenCreateDialogComponent],
+            ErrorStateComponent, RightsGlyphComponent, TokenCreateDialogComponent,
+            TokenRightsDialogComponent],
   styles: [`
     .new-token-banner {
       background: var(--success-dim);
@@ -258,6 +260,14 @@ import { httpErrorReason } from '../../core/http-error';
       </div>
     }
 
+    @if (editRightsFor(); as t) {
+      <app-token-rights-dialog
+        [token]="t"
+        [availableSpaces]="availableSpaces()"
+        (close)="editRightsFor.set(null)"
+        (saved)="onRightsSaved($event)"/>
+    }
+
     <!-- The create dialog lives in TokenCreateDialogComponent. It was over a quarter of this file and
          is a self-contained flow with thirteen pieces of its own state; leaving it here is what kept
          this component over the god-file ceiling. -->
@@ -334,7 +344,16 @@ import { httpErrorReason } from '../../core/http-error';
                          what the rights model makes possible. Only drawn once a token carries a matrix —
                          OIDC records never get one, and an empty glyph would read as "reaches nothing". -->
                     @if (t.rights) {
+                      <!-- The glyph is the summary; the button is the way in. Clicking the glyph itself would
+                           make an information display secretly interactive, which is how people discover an
+                           editor by accident on a page about credentials. -->
                       <app-rights-glyph [rights]="t.rights" style="margin-left:8px;vertical-align:middle;"/>
+                      <button class="icon-btn" type="button" style="margin-left:4px;vertical-align:middle;"
+                              [attr.aria-label]="'tokens.rights.edit' | transloco"
+                              [attr.title]="'tokens.rights.edit' | transloco"
+                              (click)="editRightsFor.set(t)">
+                        <ph-icon name="pencil-simple" [size]="13"/>
+                      </button>
                     }
                   </td>
                   <td><app-relative-time [value]="t.createdAt"/></td>
@@ -400,6 +419,9 @@ export class TokensComponent implements OnInit {
   /** Null until the last load failed — checked before the empty state, so a failure never reads as "no tokens". */
   loadError = signal<string | null>(null);
   showCreateDialog = signal(false);
+  /** The token whose rights are being edited, or null. Holding the RECORD rather than an id keeps the dialog
+   *  from having to look it up again and disagreeing with the row that opened it. */
+  editRightsFor = signal<TokenRecord | null>(null);
 
   /**
    * Whether the operator switched from the legacy permission control to the per-space matrix.
@@ -439,6 +461,12 @@ export class TokensComponent implements OnInit {
 
 
   /** The dialog owns the create flow; the page owns the list and the one-time plaintext reveal. */
+  onRightsSaved(updated: TokenRecord): void {
+    this.editRightsFor.set(null);
+    this.tokens.update(list => list.map(t => (t.id === updated.id ? updated : t)));
+    this.toast.success(this.transloco.translate('tokens.rights.saved'));
+  }
+
   onTokenCreated(e: { token: TokenRecord; plaintext: string }): void {
     this.showCreateDialog.set(false);
     this.tokens.update(list => [e.token, ...list]);

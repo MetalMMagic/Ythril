@@ -1831,5 +1831,9 @@
   "brain.overview.er.proxy": "Ein Proxy-Raum hat kein einzelnes Datenmodell — öffnen Sie einen Mitgliedsraum.",
   "tokens.matrix.show": "Matrix pro Space verwenden",
   "tokens.matrix.hide": "Einfache Berechtigung verwenden",
-  "tokens.matrix.help": "Pro Bereich und Space eine Stufe setzen. Ersetzt die Auswahl oben — ein Token nutzt entweder das eine oder das andere, nie beides."
+  "tokens.matrix.help": "Pro Bereich und Space eine Stufe setzen. Ersetzt die Auswahl oben — ein Token nutzt entweder das eine oder das andere, nie beides.",
+  "tokens.rights.title": "Rechte",
+  "tokens.rights.edit": "Rechte bearbeiten",
+  "tokens.rights.saved": "Rechte aktualisiert",
+  "tokens.error.rightsFailed": "Rechte konnten nicht aktualisiert werden"
 }

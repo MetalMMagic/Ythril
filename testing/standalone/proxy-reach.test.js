@@ -152,9 +152,13 @@ describe('nothing is wired to it yet, and that is deliberate', () => {
     // `--untracked` matters: plain `git grep` searches the INDEX, so on the commit that introduces these two files
     // it finds neither and this assertion fails against correct code. Same shape as the repo's rule about never
     // asking git what files exist without saying which set you mean.
+    // Scoped to `server/src`, because that is where a CALLER would be. The first version also searched `testing/`
+    // and pinned an exact two-file list, so it failed the moment a second test mentioned the names — which happened
+    // immediately, when the fan-out inventory gate referenced them in its own assertion. A test naming a function is
+    // not a caller of it, and a gate that cannot tell those apart fires on correct code.
     const { execSync } = await import('node:child_process');
-    const hits = execSync('git grep --untracked -l "memberSpacesForToken\\|mayUseProxy" -- server/src testing || true',
+    const hits = execSync('git grep --untracked -l "memberSpacesForToken\\|mayUseProxy" -- server/src || true',
       { encoding: 'utf8' }).trim().split('\n').filter(Boolean);
-    assert.deepEqual(hits.sort(), ['server/src/auth/proxy-reach.ts', 'testing/standalone/proxy-reach.test.js']);
+    assert.deepEqual(hits, ['server/src/auth/proxy-reach.ts']);
   });
 });

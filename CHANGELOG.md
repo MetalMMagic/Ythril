@@ -6,6 +6,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Changed
+- **Five more data-table cells use `<app-timestamp>`** — the chrono Starts/Ends/Created columns, the edges Created
+  column, and the file-manager Modified column. Each gains the local time with seconds; two of them showed no time at
+  all before.
+  - **The date format is pinned to `dd.MM.yyyy`, not taken from the browser.** The instruction was to render the local
+    *time* — the zone. Taking the viewer's locale for the date too would make the field order vary by browser
+    (`15.01.2026` here, `01/15/2026` there) for the same row on the same instance, which would undo the point of a
+    scannable column. The zone is the viewer's; the format is fixed.
+  - The chrono Ends column loses its `? … : '—'` ternary: the component renders its own dash, and a second copy of
+    that decision is one more place for the two to disagree about what "no timestamp" looks like.
+  - 16 usages remain, and they are deliberately **not** all in scope: the rest are inline in sentences, in detail
+    drawers, or inside a `title` attribute, where a two-line stack would break the line.
+
 ### Added
 - **`<app-timestamp>` — one absolute-time treatment for data tables:** the date on one line, the local time with
   **seconds** below it. Nothing uses it yet; the 23 call sites follow.

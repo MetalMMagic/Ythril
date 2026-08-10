@@ -66,10 +66,21 @@ export function formatTimestampParts(
   const t = toEpochMs(value);
   if (t === null) return null;
   const d = new Date(t);
+  // `de-DE` by default, and that is deliberate rather than an oversight.
+  //
+  // The instruction was to render the local TIME — the zone. Taking the viewer's locale for the date as well would
+  // make the field ORDER vary by browser: `15.01.2026` here, `01/15/2026` there, for the same row on the same
+  // instance. This app has an explicit `dd.MM.yyyy` convention in eleven places, and a spec asserting it caught the
+  // switch immediately. Varying the format by browser would also undo the point of the component, which is that a
+  // column can be scanned.
+  //
+  // So the ZONE is the viewer's and the FORMAT is fixed. `locale` stays an input for tests and for a future explicit
+  // per-user preference — a deliberate setting rather than whatever the browser happens to be.
   const opts: Intl.DateTimeFormatOptions = timeZone ? { timeZone } : {};
+  const fmt = locale ?? 'de-DE';
   return {
-    date: new Intl.DateTimeFormat(locale, { ...opts, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d),
-    time: new Intl.DateTimeFormat(locale, { ...opts, hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).format(d),
+    date: new Intl.DateTimeFormat(fmt, { ...opts, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d),
+    time: new Intl.DateTimeFormat(fmt, { ...opts, hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).format(d),
     // The ORIGINAL instant, in UTC. Never the localised string — see the class comment on why the DOM must stay UTC.
     iso: d.toISOString(),
   };
@@ -101,7 +112,10 @@ export class TimestampComponent {
   value = input.required<TimestampValue>();
   /** What to show when there is no timestamp. A dash, not an empty cell — an empty cell reads as a layout bug. */
   empty = input<string>('—');
-  /** Overridable for tests and for a future per-user preference; undefined means the viewer's own. */
+  /**
+   * Overridable for tests and for a future per-user preference. Undefined means the app's fixed `dd.MM.yyyy`, NOT the
+   * browser's locale — see `formatTimestampParts` on why the field order must not vary by viewer.
+   */
   locale = input<string | undefined>(undefined);
   timeZone = input<string | undefined>(undefined);
 

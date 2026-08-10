@@ -24,6 +24,7 @@ import { parseLimit, parseSkip, capPage } from '../../util/pagination.js';
 import { parseSortParam, toMongoSort, SORTABLE_FIELDS } from '../../brain/list-sort.js';
 import { textSearchOr, SEARCHABLE_FIELDS } from '../../brain/text-search.js';
 import { resolveMemberSpaces, resolveWriteTarget, findFirstAcrossMembers, collectAcrossMembers, isStrictLinkage } from '../../spaces/proxy.js';
+import { memberSpacesForRequest } from '../../spaces/proxy-scoped.js';
 import type { FileMetaDoc } from '../../config/types.js';
 import { fetchJobProgress, getMediaJobCounts, FAILED_SAMPLE_LIMIT, FAILED_REASON_LIMIT, type MediaJobCounts } from '../../files/media/job-queue.js';
 import { tagContains } from '../../brain/tag-filter.js';
@@ -157,7 +158,7 @@ fileMetaRouter.get('/spaces/:spaceId/files/extract', globalRateLimit, requireSpa
   // member collection as their parent, and querying another member's would silently return nothing.
   let member: string | null = null;
   let parent: FileMetaDoc | null = null;
-  for (const mid of resolveMemberSpaces(spaceId)) {
+  for (const mid of memberSpacesForRequest(req, spaceId)) {
     const found = await getFileMeta(mid, parentId);
     if (found) { member = mid; parent = found; break; }
   }
@@ -264,7 +265,7 @@ fileMetaRouter.get('/spaces/:spaceId/embedding-queue', globalRateLimit, requireS
   // Reasons are summed across member spaces before truncating, so a proxy space's grouping is the grouping of
   // its whole fleet rather than of whichever member was iterated first.
   const reasons = new Map<string | null, number>();
-  for (const mid of resolveMemberSpaces(spaceId)) {
+  for (const mid of memberSpacesForRequest(req, spaceId)) {
     const c = await getMediaJobCounts(mid);
     total.pending += c.pending; total.processing += c.processing; total.complete += c.complete; total.failed += c.failed;
     total.failedSample.push(...c.failedSample);
@@ -289,7 +290,7 @@ fileMetaRouter.post('/spaces/:spaceId/embedding-queue/retry-failed', globalRateL
   }
   const { retryFailedJobs } = await import('../../files/media/job-queue.js');
   let retried = 0;
-  for (const mid of resolveMemberSpaces(spaceId)) {
+  for (const mid of memberSpacesForRequest(req, spaceId)) {
     retried += await retryFailedJobs(mid);
   }
   res.status(202).json({ retried });

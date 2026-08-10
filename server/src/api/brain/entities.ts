@@ -15,6 +15,7 @@ import { parseLimit, parseSkip, capPage } from '../../util/pagination.js';
 import { parseSortParam, SORTABLE_FIELDS } from '../../brain/list-sort.js';
 import { textSearchOr, SEARCHABLE_FIELDS } from '../../brain/text-search.js';
 import { resolveMemberSpaces, resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
+import { memberSpacesForRequest } from '../../spaces/proxy-scoped.js';
 import { validateEntity } from '../../spaces/schema-validation.js';
 import { UUID_V4_RE, webhookToken, getSpaceMeta, ttlDaysFromBody, ttlDaysError, dupeCheckOptsFromBody, ifMatchFromRequest, preconditionFailedBody } from './_shared.js';
 import { classifyEntityUpsert, classifyUpdateViolations } from '../../brain/write-validation.js';
@@ -193,7 +194,7 @@ entitiesRouter.get('/spaces/:spaceId/entities/:id', globalRateLimit, requireSpac
 entitiesRouter.delete('/spaces/:spaceId/entities/:id', globalRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
   const id = req.params['id'] as string;
-  const memberIds = resolveMemberSpaces(spaceId);
+  const memberIds = memberSpacesForRequest(req, spaceId);
   for (const mid of memberIds) {
     const entity = await getEntityById(mid, id);
     if (!entity) continue;

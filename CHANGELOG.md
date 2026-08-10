@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Changed
+- **Internal: nine more proxy fan-outs narrowed to the members the caller may see** — `api/spaces.ts` (4),
+  `api/brain/file-meta.ts` (3), `api/brain/entities.ts` and `api/files.ts`. Every HTTP-side fan-out with a request in
+  scope is now converted: **16 narrowed, 12 pending**, and the gate's conserved total still reads 28.
+  - Still a **provable no-op**: the guard requires a token to reach every member, so the narrowed list equals the
+    full one for any caller that gets this far.
+  - What remains is the work that needs more than a mechanical swap — `brain/write-validation.ts` is a shared helper
+    whose signature has to change, and the MCP tools carry a call context rather than a request.
+
+### Changed
 - **Internal: recall's seven proxy fan-outs now narrow to the members the caller may see.** `api/brain/search.ts`
   calls `memberSpacesForRequest` instead of `resolveMemberSpaces` — recall, stats, activity, traverse, the ER model,
   reindex and reindex-status.

@@ -49,13 +49,13 @@ const NARROWED = new Set([
   // Converted to memberSpacesForRequest. A no-op while the guard still requires all members, which is what makes
   // the conversion provable rather than a behaviour change taken on trust.
   'server/src/api/brain/search.ts',
+  'server/src/api/spaces.ts',
+  'server/src/api/brain/file-meta.ts',
+  'server/src/api/brain/entities.ts',
+  'server/src/api/files.ts',
 ]);
 
 const PENDING = {
-  'server/src/api/brain/entities.ts': 1,
-  'server/src/api/brain/file-meta.ts': 3,
-  'server/src/api/files.ts': 1,
-  'server/src/api/spaces.ts': 4,
   'server/src/auth/middleware.ts': 2,
   'server/src/brain/write-validation.ts': 1,
   'server/src/mcp/router.ts': 1,

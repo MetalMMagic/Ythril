@@ -6,6 +6,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Fixed
+- **The proxy fan-out inventory had three GUARD sites misclassified as read fan-outs.** A guard decides whether a
+  caller may use a proxy at all; it must **not** be narrowed — narrowing one would check the caller against a list
+  already filtered by that same caller, a tautology that always passes. It flips once, at the end.
+  - They looked like fan-outs because the argument is the request's space, exactly as every fan-out's is. Found by
+    reading them, not by their shape.
+  - Left uncorrected, *"PENDING is empty"* would have been the wrong definition of done: waiting to narrow three
+    sites that should be flipped, and flipping nothing.
+  - The conserved total now reads **16 narrowed + 3 guards + 9 pending = 28**.
+
 ### Changed
 - **Internal: nine more proxy fan-outs narrowed to the members the caller may see** — `api/spaces.ts` (4),
   `api/brain/file-meta.ts` (3), `api/brain/entities.ts` and `api/files.ts`. Every HTTP-side fan-out with a request in

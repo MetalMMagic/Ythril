@@ -45,6 +45,30 @@ import { readFileSync } from 'node:fs';
  * that fails for an edit three functions away gets ignored. The count still catches a NEW fan-out appearing in a
  * file that already had some, which a bare file list would not.
  */
+/**
+ * GUARDS — the sites that decide whether a caller may use the proxy at all.
+ *
+ * A third class, found by reading them rather than by their argument, and the reason it matters: a guard must NOT be
+ * narrowed. It flips, once, at the end — from "reaches every member" to "reaches at least one". Narrowing a guard
+ * would make it check the caller against a list already filtered by that same caller, which is a tautology that
+ * always passes.
+ *
+ * They were classified as read fan-outs on the first pass, purely because the argument is the request's space like
+ * every fan-out's is. That would have made "PENDING is empty" the wrong definition of done — waiting to narrow three
+ * sites that should be flipped, and flipping nothing.
+ *
+ *  - `auth/middleware.ts` — `spaceTargets` (feeds the area check) and `enforceSpaceScope` itself.
+ *  - `mcp/router.ts` — the MCP equivalent of `enforceSpaceScope`, refusing when any member is unreachable.
+ *
+ * NOTE, and it is a separate defect rather than part of this: the MCP guard filters on `tokenSpaces` — the legacy
+ * allowlist — while the HTTP guard uses `reachesSpace` and the rights matrix. Two surfaces, one rule, one of them
+ * weaker. Filed rather than fixed here.
+ */
+const GUARDS = {
+  'server/src/auth/middleware.ts': 2,
+  'server/src/mcp/router.ts': 1,
+};
+
 const NARROWED = new Set([
   // Converted to memberSpacesForRequest. A no-op while the guard still requires all members, which is what makes
   // the conversion provable rather than a behaviour change taken on trust.
@@ -56,9 +80,7 @@ const NARROWED = new Set([
 ]);
 
 const PENDING = {
-  'server/src/auth/middleware.ts': 2,
   'server/src/brain/write-validation.ts': 1,
-  'server/src/mcp/router.ts': 1,
   'server/src/mcp/tools/chrono.ts': 1,
   'server/src/mcp/tools/edge.ts': 1,
   'server/src/mcp/tools/file.ts': 2,
@@ -136,7 +158,7 @@ describe('the inventory matches the source', () => {
 
   it('every un-narrowed read fan-out is a listed PENDING file', () => {
     const unlisted = sites
-      .filter(s => !isWriteTarget(s.arg) && !(s.file in PENDING))
+      .filter(s => !isWriteTarget(s.arg) && !(s.file in PENDING) && !(s.file in GUARDS))
       .map(s => `${s.file} → resolveMemberSpaces(${s.arg})`);
     assert.deepEqual(unlisted, [],
       'a read fan-out in a file the inventory does not list. Narrow it with memberSpacesForRequest '
@@ -147,6 +169,7 @@ describe('the inventory matches the source', () => {
     const actual = {};
     for (const s of sites) {
       if (isWriteTarget(s.arg)) continue;
+      if (s.file in GUARDS) continue;
       actual[s.file] = (actual[s.file] ?? 0) + 1;
     }
     assert.deepEqual(actual, PENDING);
@@ -156,6 +179,7 @@ describe('the inventory matches the source', () => {
     // A list that outlives its code starts describing the past — the same reason a tracker checkbox is not evidence.
     const seen = new Set(sites.filter(s => !isWriteTarget(s.arg)).map(s => s.file));
     assert.deepEqual(Object.keys(PENDING).filter(f => !seen.has(f)), []);
+    assert.deepEqual(Object.keys(GUARDS).filter(f => !seen.has(f)), []);
   });
 });
 
@@ -181,8 +205,9 @@ describe('the total is conserved', () => {
     // The invariant that makes progress checkable: converting a site must MOVE it, never drop it. A conversion that
     // quietly deleted a fan-out would otherwise look like progress.
     const pending = Object.values(PENDING).reduce((a, b) => a + b, 0);
-    assert.equal(pending + narrowedCalls().length, 28,
-      `expected 28 total, got ${pending} pending + ${narrowedCalls().length} narrowed`);
+    const guards = Object.values(GUARDS).reduce((a, b) => a + b, 0);
+    assert.equal(pending + guards + narrowedCalls().length, 28,
+      `expected 28 total, got ${pending} pending + ${guards} guards + ${narrowedCalls().length} narrowed`);
   });
 });
 

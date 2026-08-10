@@ -6,6 +6,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Changed
+- **`locateForUpdate`'s first parameter is now called `writeTarget`, not `spaceId`** — a rename with a point. All four
+  callers pass `wt.target` from `resolveWriteTarget`, which is always a real space: a non-proxy resolves to itself, and
+  a proxy demands an explicit `targetSpace` that must be one of its members, and members cannot be proxies. So its
+  member loop is provably single-element.
+  - It read as a proxy fan-out during the Q-6 sweep purely because of the name, and was queued as a site to narrow.
+    There is nothing to narrow — the caller already chose one space. **A misnamed parameter gets classified by its
+    name rather than by what reaches it.**
+  - The loop stays rather than becoming a direct lookup: it is what lets `load` return nothing, and collapsing it
+    would be a behaviour bet on the reasoning above rather than a description of it.
+  - The inventory now tracks a **reclassified** count instead of quietly lowering its total from 28. A conserved total
+    that can be satisfied by deleting something is not conserved.
+
 ### Fixed
 - **The proxy fan-out inventory had three GUARD sites misclassified as read fan-outs.** A guard decides whether a
   caller may use a proxy at all; it must **not** be narrowed — narrowing one would check the caller against a list

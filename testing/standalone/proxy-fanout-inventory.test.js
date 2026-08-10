@@ -64,6 +64,19 @@ import { readFileSync } from 'node:fs';
  * allowlist — while the HTTP guard uses `reachesSpace` and the rights matrix. Two surfaces, one rule, one of them
  * weaker. Filed rather than fixed here.
  */
+/**
+ * Sites that turned out NOT to be read fan-outs on closer reading, and are therefore no longer counted among them.
+ *
+ * Tracked as a number rather than dropped, so the original measurement of 28 stays honest. Lowering the constant to
+ * 27 instead would erase the fact that a site moved class — and the whole value of the conserved total is that it
+ * cannot be satisfied by quietly deleting something.
+ *
+ *  - **1** — `brain/write-validation.ts`. `locateForUpdate`'s parameter was called `spaceId`, so it read as a proxy
+ *    space. Every one of its four callers passes `wt.target`, which is always a real space, so the loop is
+ *    single-element and there is nothing to narrow. Renamed to `writeTarget`, which is what it is.
+ */
+const RECLASSIFIED = 1;
+
 const GUARDS = {
   'server/src/auth/middleware.ts': 2,
   'server/src/mcp/router.ts': 1,
@@ -80,7 +93,6 @@ const NARROWED = new Set([
 ]);
 
 const PENDING = {
-  'server/src/brain/write-validation.ts': 1,
   'server/src/mcp/tools/chrono.ts': 1,
   'server/src/mcp/tools/edge.ts': 1,
   'server/src/mcp/tools/file.ts': 2,
@@ -131,7 +143,7 @@ function callSites() {
  * one real space. Recognised from the ARGUMENT rather than from a list, so a new write path is classified without
  * anyone remembering to add it.
  */
-const isWriteTarget = (arg) => /^wt\.target$/.test(arg);
+const isWriteTarget = (arg) => /^(wt\.target|writeTarget)$/.test(arg);
 
 
 /** Calls that HAVE been narrowed — `memberSpacesForRequest` / `memberSpacesForRecord`. */
@@ -206,14 +218,18 @@ describe('the total is conserved', () => {
     // quietly deleted a fan-out would otherwise look like progress.
     const pending = Object.values(PENDING).reduce((a, b) => a + b, 0);
     const guards = Object.values(GUARDS).reduce((a, b) => a + b, 0);
-    assert.equal(pending + guards + narrowedCalls().length, 28,
-      `expected 28 total, got ${pending} pending + ${guards} guards + ${narrowedCalls().length} narrowed`);
+    const narrowed = narrowedCalls().length;
+    assert.equal(pending + guards + narrowed + RECLASSIFIED, 28,
+      `expected 28, got ${pending} pending + ${guards} guards + ${narrowed} narrowed + ${RECLASSIFIED} reclassified`);
   });
 });
 
 describe('the write-target classification is real, not a loophole', () => {
   it('recognises exactly the resolved-write-target form', () => {
     assert.equal(isWriteTarget('wt.target'), true);
+    // `writeTarget` counts too: `locateForUpdate` takes one and every caller passes `wt.target`. The parameter used
+    // to be called `spaceId`, which is exactly why it was misclassified as a fan-out — a name decides this.
+    assert.equal(isWriteTarget('writeTarget'), true);
     for (const arg of ['spaceId', 'id', 'callSpace', 'rawSpace', 's.id', 'wt.target ?? spaceId', 'proxyId']) {
       assert.equal(isWriteTarget(arg), false, `${arg} must not classify as a write target`);
     }

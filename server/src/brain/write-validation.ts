@@ -110,10 +110,21 @@ export function classifyUpdateViolations(
  * three of them would end up validating against the proxy.
  */
 export async function locateForUpdate<T>(
-  spaceId: string,
+  writeTarget: string,
   load: (memberId: string) => Promise<T | null | undefined>,
 ): Promise<{ memberId: string; record: T; meta: SpaceMeta | undefined } | undefined> {
-  for (const memberId of resolveMemberSpaces(spaceId)) {
+  // `writeTarget`, not `spaceId`, and the rename is the point: every one of the four callers passes `wt.target`
+  // from `resolveWriteTarget`, which is ALWAYS a real space. A non-proxy resolves to itself, and a proxy demands an
+  // explicit `targetSpace` that must be one of its members — and members cannot be proxies, since nesting is not
+  // allowed. So this loop is provably single-element.
+  //
+  // It was called `spaceId`, which is what made it read as a proxy fan-out during the Q-6 sweep and put it on the
+  // list of sites to narrow. There is nothing here to narrow: the caller already chose one space. A misnamed
+  // parameter is invisible — it gets classified by its name rather than by what reaches it.
+  //
+  // The loop stays rather than becoming a direct lookup: it is what makes `load` free to return nothing, and
+  // collapsing it would be a behaviour bet on the reasoning above rather than a description of it.
+  for (const memberId of resolveMemberSpaces(writeTarget)) {
     const record = await load(memberId);
     if (record != null) return { memberId, record, meta: getSpaceMeta(memberId) };
   }

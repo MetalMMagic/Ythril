@@ -91,7 +91,12 @@ const FROZEN = {
   // 843 -> 844: one Zod line accepting `faceDescriptorDims` on the CREATE body. Deliberately NOT added to
   // the update body — see `face-width-is-create-only.test.js` — so this is the single line that admits the
   // field at all, and there is nowhere smaller to put it.
-  'server/src/api/spaces.ts': 844,
+  // RAISED 844 -> 847 for `suppressEmbeddings`: the field on `SpaceMetaBody`, the field on `TypeSchemaZ`, and the
+  // `!== undefined` merge guard. Both schemas are `.strict()`, so an unlisted field is REJECTED rather than
+  // ignored — there is no "put it beside this file" for a field the API must accept. Raised rather than split
+  // because this is its FIRST raise; `config/types.ts` is the cautionary case, and the rule stands: a fourth
+  // raise of one file is the signal to split it instead of raising a fifth time.
+  'server/src/api/spaces.ts': 847,
   // 769 -> 773: `openBrainDrawer` gained two overload signatures and its `lastSaved` effect reads the
   // record inside each branch so the discriminant narrows it. Four lines of TYPES, no new behaviour —
   // raised deliberately rather than worked around, which is what this list is for.

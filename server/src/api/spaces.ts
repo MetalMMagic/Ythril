@@ -77,6 +77,10 @@ const TypeSchemaZ = z.union([
     }).strict().refine(v => v.days !== undefined || v.contentDays !== undefined, {
       message: 'retention needs days, contentDays, or both',
     }).optional(),
+    // Same reasoning as `retention` above, and the same tier. Absent means NOT STATED and falls through to the
+    // space setting — which is why this is a plain optional boolean and not defaulted to `false` here. A default
+    // would turn "said nothing" into "said no" at the edge, and the tier resolver would never see the space.
+    suppressEmbeddings: z.boolean().optional(),
   }).strict(),
 ]);
 
@@ -117,6 +121,10 @@ const SpaceMetaBody = z.object({
   typeSchemas: TypeSchemasZ.optional(),
   tagSuggestions: z.array(z.string().min(1).max(200)).max(200).optional(),
   strictLinkage: z.boolean().optional(),
+  // The lowest of the three suppression tiers. `.strict()` above is why this has to be listed at all: without
+  // it the field would be REJECTED as unknown, not silently ignored — which is the right failure, but still a
+  // failure for a field the type now declares.
+  suppressEmbeddings: z.boolean().optional(),
 }).strict();
 
 /**
@@ -279,6 +287,10 @@ export function mergeSpaceMeta(
   if (incoming.validationMode !== undefined) merged.validationMode = incoming.validationMode;
   if (incoming.tagSuggestions !== undefined) merged.tagSuggestions = incoming.tagSuggestions;
   if (incoming.strictLinkage !== undefined) merged.strictLinkage = incoming.strictLinkage;
+  // Guarded on `!== undefined`, not on truthiness. `suppressEmbeddings: false` is how an operator turns
+  // suppression back OFF, and a truthy guard would drop that patch and leave the space suppressed while
+  // answering 200 — the flag reporting one thing and the write path doing another.
+  if (incoming.suppressEmbeddings !== undefined) merged.suppressEmbeddings = incoming.suppressEmbeddings;
 
   // typeSchemas — merge per-KT, per-type: incoming types add/update, existing untouched types preserved.
   // Under `replace` the payload is authoritative instead, so a type absent from it is deleted. Note the

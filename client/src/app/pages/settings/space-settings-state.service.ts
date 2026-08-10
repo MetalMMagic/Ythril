@@ -33,6 +33,14 @@ export interface TypeSchemaState {
    */
   retentionDays:        number | null;
   retentionContentDays: number | null;
+  /**
+   * Skip embedding records of this type — the SCHEMA tier of record > schema > space.
+   *
+   * `null` means NOT STATED, and that is why it is a tri-state rather than a boolean: `false` is a real value
+   * meaning "embed this type even though the space suppresses", and collapsing the two would make the
+   * space-wide setting unreachable for any type that has a schema at all.
+   */
+  suppressEmbeddings: boolean | null;
   tagSuggestions:  string[];
   propertySchemas: { key: string; s: PropertySchema; _enumInput: string }[];
   _newPropInput:   string;
@@ -56,7 +64,7 @@ export interface TypeSchemaState {
  */
 export function emptyTypeSchemaState(over: Partial<TypeSchemaState> = {}): TypeSchemaState {
   return {
-    namingPattern: '', retentionDays: null, retentionContentDays: null,
+    namingPattern: '', retentionDays: null, retentionContentDays: null, suppressEmbeddings: null,
     tagSuggestions: [], propertySchemas: [], _newPropInput: '', _newTagInput: '',
     ...over,
   };
@@ -92,6 +100,9 @@ export function typeSchemaFromState(
       ts.retention = { ...(days !== undefined ? { days } : {}), ...(contentDays !== undefined ? { contentDays } : {}) };
     }
   }
+  // Sent only when STATED. Writing `false` for "not stated" would pin every type to embedding and make the
+  // space-wide switch do nothing — the tier the API resolves last would never be reached.
+  if (state.suppressEmbeddings !== null) ts.suppressEmbeddings = state.suppressEmbeddings;
   if (state.tagSuggestions.length) ts.tagSuggestions = [...state.tagSuggestions];
   if (state.propertySchemas.length) {
     const ps: Record<string, PropertySchema> = {};
@@ -251,6 +262,9 @@ export class SpaceSettingsState {
             // API rejects. Reading it as 0 would round-trip a blank field into an invalid save.
             retentionDays:        ts.retention?.days        ?? null,
             retentionContentDays: ts.retention?.contentDays ?? null,
+            // `?? null` again, and for the same reason: absent must round-trip as absent, or opening and saving
+            // a type would write a value nobody chose.
+            suppressEmbeddings:   ts.suppressEmbeddings      ?? null,
             tagSuggestions:  [...(ts.tagSuggestions ?? [])],
             propertySchemas: Object.entries(ts.propertySchemas ?? {}).map(([k, ps]) => ({ key: k, s: { ...ps }, _enumInput: '' })),
           });

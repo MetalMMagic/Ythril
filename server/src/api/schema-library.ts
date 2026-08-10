@@ -94,6 +94,10 @@ const LibraryTypeSchemaZ = z.object({
   namingPattern: z.string().max(500).optional(),
   tagSuggestions: z.array(z.string().min(1).max(200)).max(200).optional(),
   propertySchemas: z.record(z.string().min(1).max(200), PropertySchemaZ).optional(),
+  // Kept in step with `TypeSchemaZ` in `api/spaces.ts` deliberately: a library entry that cannot express a field
+  // the inline schema can is a surface that silently drops it on `.strict()`. `retention` is already in exactly
+  // that state here and is filed as its own item rather than widened in a feature PR.
+  suppressEmbeddings: z.boolean().optional(),
 }).strict();
 
 /** Name must be URL-safe and reasonably short. Allows uppercase, dots, dashes, underscores. */

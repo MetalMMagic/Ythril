@@ -6,6 +6,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Changed
+- **Internal: the knowledge-schema vocabulary moved out of `config/types.ts`** into `config/types-knowledge.ts` —
+  merge functions, `PropertySchema`, `TypeSchema`, `ValidationMode`, `KnowledgeType` and `SpaceMeta`. Re-exported,
+  so **no importer changes and no behaviour change**.
+  - `config/types.ts` had taken **four** god-file ratchet raises in two days, each individually correct. The gate's
+    own comment said a fifth should be a split instead. Ratchet lowered 677 → 645.
+  - **The new file is a leaf that imports nothing**, and that is the load-bearing part. The first attempt moved the
+    *network* types out instead; `NetworkConfig` references `SpaceMeta`, so re-exporting created a module cycle and
+    TypeScript degraded `NetworkConfig` to `any` — `api/invite.ts` silently lost the types on three callbacks while
+    both moved files compiled clean. A leaf cannot be half of a cycle.
+  - Per-type schema fields now grow here, which is what unblocks the pending `suppressEmbeddings` field.
+
 ### Added
 - **Dev tooling: `npm run loop:check`** — decides whether the standing dev-loop may stop, from repo state
   rather than from judgement. A turn may only end with something in flight (an open PR, so "Running" names a

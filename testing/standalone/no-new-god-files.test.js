@@ -120,7 +120,12 @@ const FROZEN = {
   // behaviour it names lives in `face-external.ts` and `face-embedder.ts`, not here. The alternative —
   // a face-only config module re-exported from this file — would split the config contract across two
   // places to save a single field, which is the trade this list exists to let us decline.
-  'server/src/config/types.ts': 677,
+  // LOWERED 677 -> 645 (Q-3, slice 1). The knowledge-schema vocabulary — merge functions, `PropertySchema`,
+  // `TypeSchema`, `ValidationMode`, `KnowledgeType`, `SpaceMeta` — moved to `config/types-knowledge.ts`, a leaf
+  // that imports nothing. This entry took FOUR raises in two days and the comment below said the fifth should
+  // be a split instead; that is this. The number matters less than where the growth now goes: per-type schema
+  // fields land in the leaf, so Q-2's `suppressEmbeddings` is not a fifth raise of this file.
+  'server/src/config/types.ts': 645,
   'client/src/app/pages/settings/data.component.ts': 644,
   'server/src/api/files.ts': 646,
   // 645 -> 660: the data-model panel’s mount and its card header. The panel ITSELF is a separate

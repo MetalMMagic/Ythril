@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { registerReembedRoute } from './spaces-reembed.js';
 import path from 'path';
 import { requireAuth, requireAdmin, requireAdminMfa, requireAdminMfaScoped } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
@@ -343,6 +344,8 @@ spacesRouter.post('/:id/rebuild-indexes', globalRateLimit, requireAdminMfaScoped
     res.status(500).json({ error: msg });
   }
 });
+
+registerReembedRoute(spacesRouter);
 
 // PATCH /api/spaces/:id/rename
 spacesRouter.patch('/:id/rename', globalRateLimit, requireAdminMfaScoped('id'), async (req, res) => {

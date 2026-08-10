@@ -99,9 +99,17 @@ export async function ensureEmbedJobIndexes(spaceId: string): Promise<void> {
  * exhausted its attempts on the OLD content must not inherit that verdict. This is what makes rewriting
  * a record the operator's escape hatch from a permanently failed job.
  *
- * Never throws into the caller's write path. An enqueue that fails leaves a record whose vector is
- * missing — exactly the state this queue exists to repair — and the periodic backfill sweep will find
- * it. Failing the write instead would trade a delayed search hit for lost data.
+ * Never throws into the caller's write path. An enqueue that fails leaves a record whose vector is missing,
+ * and failing the write instead would trade a delayed search hit for lost data.
+ *
+ * **This used to claim "the periodic backfill sweep will find it". There was no such sweep** — the comment
+ * described a repair mechanism that had never been built, which is worse than saying nothing: it is exactly the
+ * kind of reassurance that stops anyone checking. A swallowed enqueue error meant a record silently missing from
+ * recall forever, with no error, no metric and nothing to grep for.
+ *
+ * The repair now exists and is `POST /api/spaces/:id/reembed` (`brain/reembed.ts`), which queues a job for every
+ * record with no vector. It is **on demand, not periodic** — say that precisely, because "it will be picked up"
+ * and "an operator can pick it up" are different promises, and only one of them is true here.
  */
 export async function enqueueEmbedJob(
   spaceId: string,

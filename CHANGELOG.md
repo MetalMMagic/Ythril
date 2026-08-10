@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **`POST /api/spaces/:id/reembed` — the way back from `suppressEmbeddings`.** Queues an embedding job for every
+  record in a space that has no vector. Owner: *"there should be a way to backfill"*.
+  - **A record still suppressed at any tier is skipped**, using the same resolver the write path uses, so a
+    backfill cannot re-index what an operator asked to keep out of recall. Running it while suppression is on is
+    not an error — every candidate comes back under `skippedSuppressed`, which says the setting is still on.
+  - **It queues rather than embeds.** A large space would time out mid-way through inline work with no record of
+    where it stopped. Idempotent per record, so a repeated call converges.
+  - **Nothing is truncated silently:** `remaining` is counted over the space rather than the page, and
+    `truncated` says a further call is needed.
+  - Filters on `embedding: {$exists: false}`, not `null` — suppression `$unset`s the field, and a `null` filter
+    would match nothing and report a clean sweep over an entirely unindexed space.
+
+### Fixed
+- **A comment promised a repair mechanism that had never been built.** `enqueueEmbedJob` swallows its error
+  rather than failing the caller's write, justified by "the periodic backfill sweep will find it" — **there was
+  no such sweep**. A swallowed enqueue meant a record silently missing from recall forever, with no error, no
+  metric and nothing to grep for. The repair now exists, and the comment states that it is on demand rather than
+  periodic, because "it will be picked up" and "an operator can pick it up" are different promises.
+
 - **`suppressEmbeddings` — skip embedding records that are state rather than prose.** Now wired end to end, on
   three tiers resolving **record > schema > space**, the same order `retention` uses.
   - `TypeSchema.suppressEmbeddings` suppresses one type; `SpaceMeta.suppressEmbeddings` suppresses a whole space.

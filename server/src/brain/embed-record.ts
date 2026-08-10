@@ -27,7 +27,9 @@ import type {
 } from '../config/types.js';
 
 /** Collection suffix per record type — the same mapping recall uses. */
-const COLLECTION: Record<BrainEmbedRecordType, string> = {
+/** Exported so the re-embed backfill scans the same collections this function writes. A second copy of this
+ *  map is how a backfill quietly misses a record kind. */
+export const COLLECTION: Record<BrainEmbedRecordType, string> = {
   memory: 'memories', entity: 'entities', edge: 'edges', chrono: 'chrono', file: 'files',
 };
 

@@ -96,7 +96,11 @@ const FROZEN = {
   // ignored — there is no "put it beside this file" for a field the API must accept. Raised rather than split
   // because this is its FIRST raise; `config/types.ts` is the cautionary case, and the rule stands: a fourth
   // raise of one file is the signal to split it instead of raising a fifth time.
-  'server/src/api/spaces.ts': 847,
+  // RAISED 847 -> 849 for the re-embed route: an import and a registration call, nothing else. Inline it was
+  // +28 (route body plus its Zod schema), which would have been the SECOND double-digit raise of this file in two
+  // PRs — so the route moved to `api/spaces-reembed.ts` instead and only its mount point stayed. That is what the
+  // ratchet is for: not to forbid growth, but to make the second raise in two PRs visible enough to answer.
+  'server/src/api/spaces.ts': 849,
   // 769 -> 773: `openBrainDrawer` gained two overload signatures and its `lastSaved` effect reads the
   // record inside each branch so the discriminant narrows it. Four lines of TYPES, no new behaviour —
   // raised deliberately rather than worked around, which is what this list is for.

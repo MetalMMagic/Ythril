@@ -171,6 +171,63 @@ The rename atomically:
 
 ---
 
+### Re-embed backfill
+
+```http
+POST /api/spaces/:id/reembed
+Authorization: Bearer <admin-token>
+```
+
+Queues an embedding job for every record in the space that **has no vector**. This is the way back from
+`suppressEmbeddings`: suppression leaves records unembedded, and nothing revisits them on its own, so recall stays
+blind to whatever was written while it was on.
+
+It is also the repair for an embedding that never got queued — an enqueue failure is deliberately swallowed rather
+than failing the write, which leaves exactly this state.
+
+**Body — all fields optional.** An empty body sweeps every record kind at the default limit.
+
+| Field | Description |
+|-------|-------------|
+| `kinds` | Narrow the sweep: any of `memory`, `entity`, `edge`, `chrono`, `file`. Omitted means all five. |
+| `limit` | Maximum records to queue in one call. Default 5000, maximum 50000. |
+
+An unknown field is a `400` rather than being ignored — a caller who meant to narrow the sweep and silently got
+all of it would be worse off than one who got an error.
+
+**Response** `200`:
+
+```json
+{
+  "spaceId": "research",
+  "enqueued": 1284,
+  "skippedSuppressed": 0,
+  "byKind": { "memory": 900, "entity": 384 },
+  "remaining": 0,
+  "truncated": false
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `enqueued` | Records a job was queued for. Embedding happens in the background afterwards. |
+| `skippedSuppressed` | Candidates skipped because suppression **still applies**. See the note below. |
+| `byKind` | Where the gap was, per record kind. |
+| `remaining` | Candidates left after `limit`. Counted over the whole space, not over this page. |
+| `truncated` | `true` when `remaining > 0` — call again to continue. |
+
+> **Turn suppression off first.** A record that is still suppressed at any tier is skipped, so that a backfill
+> cannot re-index what an operator asked to keep out of recall. Running this while suppression is on is not an
+> error: every candidate comes back under `skippedSuppressed`, which tells you the setting is still on.
+
+**It queues rather than embeds.** A large space would time out mid-way through inline embedding, having done
+partial work with no record of where it stopped. Queuing is idempotent per record, so repeating the call over the
+same space converges instead of duplicating work.
+
+**Nothing is truncated silently** — when more candidates remain than `limit` allowed, `remaining` says how many.
+
+---
+
 ### Update a Space
 
 ```http
@@ -765,7 +822,7 @@ What the schema enforces:
 | `typeSchemas` | Per-type schema definitions (see above). **The PATCH merge is exactly two levels deep, and the second one REPLACES.** A knowledge type you do not mention is preserved; a *type name* you do not mention inside one is preserved; but a type name you **do** mention has its definition object **replaced wholesale**, not merged. So `PATCH {"meta":{"typeSchemas":{"chrono":{"event":{"retention":{"days":90}}}}}}` leaves `entity` and every other chrono type untouched — and wipes `event`'s own `propertySchemas`, `namingPattern` and `tagSuggestions`. **Read the type first and send it back complete.** Deleting a type needs `PUT /:id/schema` (full replace), because under merge semantics an absent type is indistinguishable from a removed one. |
 | `tagSuggestions` | **Retired.** A space-wide list of non-enforced tag hints. It is still accepted and stored (so an existing list is preserved untouched, and the change is reversible) but nothing reads it: it no longer feeds tag autocomplete in the Brain record forms, and no longer appears in the schema guidance returned to MCP clients. It was one list, editable in a single place, applied to every type and every form in the space — easy to set once and forget while quietly steering what got tagged. Autocomplete now comes from the tags actually in use, which maintains itself. **The per-type `typeSchemas.<kind>.<type>.tagSuggestions` is retired on exactly the same terms** — stored, returned, read by nothing, no editor. An earlier revision of this line said it was "unaffected", which contradicted the `typeSchemas` section above and left an integrator unable to tell which sentence was current; both lists are dead, and clearing either is safe. `null` is **rejected** with a 400 on a meta write; `[]` empties the list and is the way to clear one. There is no route that removes a top-level `meta` key, so the field itself stays present and empty — which is what makes the retirement reversible. |
 | `strictLinkage` | When `true`, all reference fields (`from`/`to`, `entityIds`, `memoryIds`) must be valid UUID v4 values, and entity deletion is blocked while inbound backlinks exist. **Default: `true`** — and an absent value also resolves to `true`. Turning it off is a deliberate per-space choice to accept dangling references (the case it exists for is bulk import, where targets are resolved in a later pass); you do not get that by saying nothing. |
-| `suppressEmbeddings` | When `true`, records in this space are **not embedded**, so they never appear in semantic recall. **Default: `false`** — suppression is opt-in. This is the LOWEST of three tiers: a per-record `excludeFromVectorSearch` wins, then a type's own `suppressEmbeddings`, then this. A type schema that says nothing falls through to this value rather than overriding it with `false`. Intended for records that are **state rather than prose** — a row whose text never changes but whose numbers are patched constantly, which would otherwise re-embed identical text on every write. **Switching it off does not backfill:** records written while it was on have no vector and nothing revisits them, so recall stays blind to them until each is written again. There is no bulk re-embed endpoint; re-saving a record re-embeds that record. |
+| `suppressEmbeddings` | When `true`, records in this space are **not embedded**, so they never appear in semantic recall. **Default: `false`** — suppression is opt-in. This is the LOWEST of three tiers: a per-record `excludeFromVectorSearch` wins, then a type's own `suppressEmbeddings`, then this. A type schema that says nothing falls through to this value rather than overriding it with `false`. Intended for records that are **state rather than prose** — a row whose text never changes but whose numbers are patched constantly, which would otherwise re-embed identical text on every write. **Switching it off does not backfill on its own** — records written while it was on have no vector and nothing revisits them. Run [`POST /api/spaces/:id/reembed`](#re-embed-backfill) afterwards to queue the missing ones. |
 | `purpose` | Short description of the space (max 4000 chars). Returned by `get_space_meta`. |
 | `usageNotes` | Extended Markdown-formatted guidance for LLM clients (max 50 000 chars — the settings form shows a live count and accepts the same limit). Returned by `get_space_meta`. |
 

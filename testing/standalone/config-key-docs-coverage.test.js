@@ -87,9 +87,27 @@ const FREE_FORM = new Set([
   'entity', 'memory', 'edge', 'chrono',
 ]);
 
+/**
+ * Every file the config contract is spread across.
+ *
+ * **Derived, not listed.** Q-3 split `config/types.ts` by domain — the knowledge-schema vocabulary to
+ * `types-knowledge.ts`, the network types to `types-networks.ts` — and a hand-written list meant this gate stopped
+ * seeing `NetworkConfig`'s fields the moment they moved. It then reported `members` and `direction` as
+ * undocumented keys: a **false positive**, which is the better failure of the two, but only by luck. Had the split
+ * gone the other way the gate would have quietly checked less and still passed.
+ *
+ * So the sources are enumerated from the directory. Any further slice is covered without touching this file.
+ */
+function typeSources() {
+  const dir = join(ROOT, 'server', 'src', 'config');
+  return readdirSync(dir)
+    .filter((f) => /^types.*\.ts$/.test(f) && !f.endsWith('.d.ts'))
+    .map((f) => join(dir, f));
+}
+
 function declaredFields() {
   const out = new Set();
-  const sources = [TYPES, join(ROOT, 'server', 'src', 'db', 'backup-config.ts')].filter(existsSync);
+  const sources = [...typeSources(), join(ROOT, 'server', 'src', 'db', 'backup-config.ts')].filter(existsSync);
   for (const f of sources) {
     const src = readFileSync(f, 'utf8');
     // Anywhere, not line-anchored — see the header note on inline object literals.

@@ -6,6 +6,29 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Fixed
+- **A Mongo boot race could still kill a container at startup**, one layer later than the ECONNRESET case fixed
+  earlier: `MongoServerError: interrupted at shutdown`, thrown mid-SCRAM because the replica-set entrypoint
+  restarts mongod after initiation. The healthcheck has already passed, so whichever instance loses the race dies
+  and it reads as a flake.
+  - The retry allowlist keyed on the error **name**, and `MongoServerError` is excluded on purpose — bad
+    credentials carry that name. So the name bounds the *class* of failure and says nothing about its
+    *transience*. Now narrowed by the server error **code** for that one name: 11600, 91, 11602, 189, 13436.
+  - `AuthenticationFailed` (18) still fails immediately, and an unrecognised name with a transient code is still
+    rejected — widening by code alone would re-admit everything the allowlist exists to reject.
+
+### Changed
+- **Internal: the knowledge-schema vocabulary moved out of `config/types.ts`** into `config/types-knowledge.ts` —
+  merge functions, `PropertySchema`, `TypeSchema`, `ValidationMode`, `KnowledgeType` and `SpaceMeta`. Re-exported,
+  so **no importer changes and no behaviour change**.
+  - `config/types.ts` had taken **four** god-file ratchet raises in two days, each individually correct. The gate's
+    own comment said a fifth should be a split instead. Ratchet lowered 677 → 645.
+  - **The new file is a leaf that imports nothing**, and that is the load-bearing part. The first attempt moved the
+    *network* types out instead; `NetworkConfig` references `SpaceMeta`, so re-exporting created a module cycle and
+    TypeScript degraded `NetworkConfig` to `any` — `api/invite.ts` silently lost the types on three callbacks while
+    both moved files compiled clean. A leaf cannot be half of a cycle.
+  - Per-type schema fields now grow here, which is what unblocks the pending `suppressEmbeddings` field.
+
 ### Added
 - **Dev tooling: `npm run loop:check`** — decides whether the standing dev-loop may stop, from repo state
   rather than from judgement. A turn may only end with something in flight (an open PR, so "Running" names a

@@ -35,9 +35,41 @@ const TRANSIENT_CONNECT_ERRORS = new Set([
   'MongoTopologyClosedError',
 ]);
 
+/**
+ * Transient `MongoServerError` **codes** — because the name alone cannot decide this one.
+ *
+ * The allowlist above excludes `MongoServerError` on purpose: bad credentials carry that name, and retrying
+ * them for thirty seconds turns a clear error into a boot that appears to hang. But so does this, observed in
+ * CI on #774 with the container dying at startup:
+ *
+ *     Fatal startup error: MongoServerError: interrupted at shutdown
+ *         at async continueScramConversation (…/cmap/auth/scram.js:131:15)
+ *
+ * That is the same boot race the class comment above describes, one layer later. The replica-set entrypoint
+ * restarts mongod after initiation, and a driver that opened a socket just before gets interrupted **mid-SCRAM**.
+ * The healthcheck had already passed. Whichever instance loses the race dies, which is why it reads as a flake
+ * and moves between containers.
+ *
+ * So the name bounds the *class* of failure and says nothing about its *transience* — the discriminator is the
+ * server's error code. Retry these; anything else keeping the `MongoServerError` name, `AuthenticationFailed`
+ * (18) above all, still fails immediately.
+ */
+const TRANSIENT_SERVER_ERROR_CODES = new Set([
+  11600,  // InterruptedAtShutdown — the observed failure
+  91,     // ShutdownInProgress
+  11602,  // InterruptedDueToReplStateChange
+  189,    // PrimarySteppedDown
+  13436,  // NotPrimaryOrSecondary — stepping up during rs initiation
+]);
+
 function isTransientConnectError(err: unknown): boolean {
   const name = (err as { name?: string } | null)?.name ?? '';
-  return TRANSIENT_CONNECT_ERRORS.has(name);
+  if (TRANSIENT_CONNECT_ERRORS.has(name)) return true;
+  // Narrow by code, and only for the one name where a code can mean "not up yet". Widening by code alone would
+  // re-admit every unrecognised failure the allowlist exists to reject.
+  if (name !== 'MongoServerError') return false;
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === 'number' && TRANSIENT_SERVER_ERROR_CODES.has(code);
 }
 
 /**

@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **The tokens list shows what each token can reach.** One bar per area, height for the ceiling and a red
+  line for the floor, beside the existing badges.
+  - A single label was what the old model could say, and it is exactly what this replaces: "read-write"
+    cannot express *admin on Files here, nothing anywhere else*. A row of bars can be scanned down a column,
+    which is what a list is for.
+  - **Ceiling and floor are one bar and one mark, not two bars.** They answer different questions — how high
+    this goes, and how much of that applies everywhere including spaces that do not exist yet. As two bars
+    they read as unrelated numbers; as a bar with a line, the gap between them is visible and is exactly the
+    part granted per space.
+  - A line at the top therefore means ceiling equals floor: that level everywhere, forever, nothing
+    space-specific to review. That is the state worth spotting across a list, which is why the mark is red.
+  - **Instance administrator renders as its own state**, not as a rung. It reaches routes no space can grant,
+    so it must not look identical to a token that happens to hold area-admin in every space.
+  - Drawn only for tokens that carry a matrix. OIDC records never get one, and an empty glyph would read as
+    "reaches nothing" rather than "not known here" — different facts, and the wrong one is reassuring.
+  - The component reads the wire shape defensively: a missing area is `none` rather than a crash. A glyph
+    that throws takes the whole token list with it, and the list is where somebody is auditing access.
+
+### Added
 - **`PATCH /api/tokens/:id` can now edit a token's rights matrix — and a token cannot raise its own floor.**
   The last of the two enforcement rules the approved design said must live in the API rather than the UI.
   - **The same cap as minting applies**, from the same function. A second implementation here is how the two

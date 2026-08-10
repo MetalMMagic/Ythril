@@ -220,6 +220,18 @@ export interface TokenRecord {
    * case, and a deliberate hole, so it is badged wherever the token is listed.
    */
   mfa?: 'inherit' | 'exempt' | 'required';
+  /**
+   * The per-space rights matrix, when the server has one for this token.
+   *
+   * Optional because OIDC-derived records never pass through the config backfill that derives it. A missing
+   * matrix means "not known here", not "reaches nothing" — the glyph is omitted rather than drawn empty.
+   */
+  rights?: {
+    instanceAdmin: boolean;
+    createSpaces: boolean;
+    floor: Record<string, 'none' | 'read' | 'write' | 'admin'> | null;
+    perSpace: Record<string, Record<string, 'none' | 'read' | 'write' | 'admin'>>;
+  };
 }
 
 export interface Memory {

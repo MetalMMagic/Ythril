@@ -55,7 +55,13 @@ export const HELP_DOCS = [
       // resource families. Reading order, so `joinParts` renders them as one continuous chapter.
       'integration-guide/04a-recall-api.md', 'integration-guide/04b-graph-api.md',
       'integration-guide/04c-chrono-api.md', 'integration-guide/04d-brain-ops-api.md',
-      'integration-guide/05-files-api.md', 'integration-guide/06-spaces-api.md',
+      'integration-guide/05-files-api.md',
+      // The three pipelines a file can go through are their own parts. They are read by different people
+      // for different reasons — an operator sizing a document converter, an integrator wiring vision/STT
+      // providers, and whoever is deciding whether face recognition may be switched on at all.
+      'integration-guide/05a-conversion-pipeline.md', 'integration-guide/05b-media-embedding.md',
+      'integration-guide/05c-face-recognition.md',
+      'integration-guide/06-spaces-api.md',
       // The space schema and the instance-wide schema library are their own parts: the schema spec is what
       // an integrator reads while writing a `typeSchemas` block, and the library is a different feature that
       // happens to reuse the same shape.

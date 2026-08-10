@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Changed
+- **The Files API reference is four files instead of one 1,130-line file.** `05-files-api.md` (214) keeps the file
+  operations — upload, chunked upload, download, directory, move, delete — and the three pipelines a file can go
+  through are their own parts: `05a-conversion-pipeline.md` (598), `05b-media-embedding.md` (202),
+  `05c-face-recognition.md` (125).
+  - Those three are read by different people for different reasons: an operator sizing a document converter, an
+    integrator wiring vision/STT providers, and whoever is deciding whether face recognition may be switched on at
+    all. Previously all three sat below 200 lines of upload endpoints, and the conversion pipeline alone was 595 of
+    the file's 1,130 lines.
+  - The two inbound links that crossed a boundary — `#document-processing-configuration` from Hosting and
+    `#configuration` from the recall docs — now name the part that holds them. Both were found by grep rather than
+    by memory, because the file holding the second one was being split in a sibling branch at the same time.
+  - `nli-wrong-shaped-head` pins the `mediaEmbedding.nli.model` row by path and now reads `05b-media-embedding.md`.
+    That row is the one that says a 2-class head fails silently, so a path resolving to a file without it is the
+    failure the gate exists to prevent.
+
+### Changed
 - **The Spaces API reference is three files instead of one 1,248-line file.** `06-spaces-api.md` (500) keeps the
   space endpoints; `06a-schema-api.md` (348) holds the type-definition endpoints and the schema specification, which
   is what an integrator reads while writing a `typeSchemas` block; `06b-schema-library-api.md` (406) holds the

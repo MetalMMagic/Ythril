@@ -156,6 +156,10 @@ export interface SpaceMeta {
   typeSchemas?: Partial<Record<KnowledgeType, Record<string, TypeSchema>>>;
   tagSuggestions?: string[];
   strictLinkage?: boolean;
+  /** Space-wide default for skipping embeddings — the LOWEST of record > schema > space. Absent means `false`;
+   *  suppression is opt-in. Any type schema that states a value overrides this. Turning it off does not
+   *  backfill on its own — that is `POST /api/spaces/:id/reembed`. */
+  suppressEmbeddings?: boolean;
   updatedAt?: string;
 }
 
@@ -403,6 +407,23 @@ export interface QueryResult {
 }
 
 export type WipeCollectionType = 'memories' | 'entities' | 'edges' | 'chrono' | 'files';
+
+/**
+ * What `POST /api/spaces/:id/reembed` reports back.
+ *
+ * `remaining` is counted over the whole space rather than the returned page, so `truncated` genuinely means "call
+ * again" — a backfill that quietly stopped at a round number would read as a fully-indexed space.
+ *
+ * `skippedSuppressed` is how the UI can say "suppression is still on" instead of showing a successful no-op.
+ */
+export interface ReembedResult {
+  spaceId: string;
+  enqueued: number;
+  skippedSuppressed: number;
+  byKind: Record<string, number>;
+  remaining: number;
+  truncated: boolean;
+}
 
 export type RecallKnowledgeType = 'memory' | 'entity' | 'edge' | 'chrono' | 'file';
 

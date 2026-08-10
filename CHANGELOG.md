@@ -6,6 +6,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- **An existing token's rights can be edited from the tokens list.** A pencil beside the glyph opens the
+  matrix; saving sends it to `PATCH /api/tokens/:id`, where the server caps it and refuses a self floor-raise.
+  - **The server's refusals are shown verbatim.** Two guards can reject the save and they are different
+    problems: the cap names every level that was over the line, and the floor guard names the areas that
+    would have gone up. A generic "could not save" would leave the operator guessing between *I asked for too
+    much* and *I am not allowed to do this to myself*, which have different next steps.
+  - **The draft starts from what the token already has.** Starting empty would make every save a silent
+    narrowing of everything the operator did not happen to re-enter.
+  - The glyph stays a display and the pencil is the way in. Making the glyph itself clickable would turn an
+    information element secretly interactive — on a page about credentials, that is how somebody opens an
+    editor by accident.
+
 ### Changed
 - **Internal: the create-token dialog is its own component.** No behaviour change — the same request body,
   the same fields, the same flow.

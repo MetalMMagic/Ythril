@@ -1831,5 +1831,9 @@
   "brain.overview.er.proxy": "A proxy space has no single data model — open a member space to see one.",
   "tokens.matrix.show": "Use the per-space matrix",
   "tokens.matrix.hide": "Use the simple permission",
-  "tokens.matrix.help": "Set a level per area per space. Replaces the permission and space choices above — a token uses one or the other, never both."
+  "tokens.matrix.help": "Set a level per area per space. Replaces the permission and space choices above — a token uses one or the other, never both.",
+  "tokens.rights.title": "Rights",
+  "tokens.rights.edit": "Edit rights",
+  "tokens.rights.saved": "Rights updated",
+  "tokens.error.rightsFailed": "Could not update rights"
 }

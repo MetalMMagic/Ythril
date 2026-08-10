@@ -1,3 +1,4 @@
+import type { TokenRights } from '../pages/settings/rights-glyph.component';
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
@@ -45,6 +46,17 @@ export class AuthApi {
 
   regenerateToken(id: string): Observable<{ plaintext: string }> {
     return this.http.post<{ plaintext: string }>(`/api/tokens/${id}/regenerate`, {});
+  }
+
+  /**
+   * Replace a token's rights matrix.
+   *
+   * Separate call from `renameToken` rather than one method with two optional fields: the server guards them
+   * differently — a rights edit is capped at the caller's own and refused outright if it would raise the
+   * caller's floor — and a single method would let a caller believe it renamed while it changed permissions.
+   */
+  setTokenRights(id: string, rights: TokenRights): Observable<{ token: TokenRecord }> {
+    return this.http.patch<{ token: TokenRecord }>(`/api/tokens/${id}`, { rights });
   }
 
   renameToken(id: string, name: string): Observable<{ token: TokenRecord }> {

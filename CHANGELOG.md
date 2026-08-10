@@ -6,6 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- **Internal: the rule for narrowing a proxy space to the members a token may see.** Nothing consults it yet — the
+  guard change and the read-path narrowing must land together, and this is the rule on its own.
+  - Asked for by aigents with probes: today a proxy space cannot be granted to a non-admin token at all, because
+    the guard requires the token to reach **every** member. They proved it was not specific to one proxy by
+    building their own over 15 spaces and getting the same 403.
+  - **The result can only ever narrow.** `narrowsOnly()` asserts that independently, because the failure it guards
+    is silent — one unreachable member in the set leaks that space's records through the proxy while every response
+    still looks well-formed.
+  - **An empty `spaces` array is not unrestricted.** The check is on `undefined` alone; the
+    `!spaces || spaces.length === 0` reading has already been a defect in three separate files.
+  - **An empty proxy is refused, not answered with an empty body** — a caller cannot tell that from a space they
+    are not allowed to see into.
+
 ### Fixed
 - **Every checkbox and radio in the app rendered the browser's default blue instead of the accent.** `--accent` is
   lime; the platform default is blue, and nothing set `accent-color` globally.

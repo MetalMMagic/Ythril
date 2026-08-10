@@ -1828,5 +1828,8 @@
   "brain.overview.er.declareSchema": "Declare a schema for",
   "brain.overview.er.truncated": "This space is larger than one read: the {{scan}} scan stopped at {{limit}} records, so the diagram is partial.",
   "brain.overview.er.dangling": "{{n}} edges point at an entity that no longer exists.",
-  "brain.overview.er.proxy": "A proxy space has no single data model — open a member space to see one."
+  "brain.overview.er.proxy": "A proxy space has no single data model — open a member space to see one.",
+  "tokens.matrix.show": "Use the per-space matrix",
+  "tokens.matrix.hide": "Use the simple permission",
+  "tokens.matrix.help": "Set a level per area per space. Replaces the permission and space choices above — a token uses one or the other, never both."
 }

@@ -1828,5 +1828,8 @@
   "brain.overview.er.declareSchema": "Zadeklaruj schemat dla",
   "brain.overview.er.truncated": "Ta przestrzeń jest większa niż jeden odczyt: skanowanie {{scan}} zatrzymało się na {{limit}} rekordach, więc diagram jest częściowy.",
   "brain.overview.er.dangling": "{{n}} krawędzi wskazuje na encję, która już nie istnieje.",
-  "brain.overview.er.proxy": "Przestrzeń proxy nie ma jednego modelu danych — otwórz przestrzeń członkowską."
+  "brain.overview.er.proxy": "Przestrzeń proxy nie ma jednego modelu danych — otwórz przestrzeń członkowską.",
+  "tokens.matrix.show": "Użyj macierzy per przestrzeń",
+  "tokens.matrix.hide": "Użyj prostych uprawnień",
+  "tokens.matrix.help": "Ustaw poziom dla obszaru w każdej przestrzeni. Zastępuje wybory powyżej — token używa jednego albo drugiego, nigdy obu."
 }

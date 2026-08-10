@@ -6,6 +6,7 @@ import { assertUpdateAllowed, classifyUpdateViolations, locateForUpdate } from '
 import { getConfig } from '../../config/loader.js';
 import { checkQuota } from '../../quota/quota.js';
 import { isStrictLinkage, resolveMemberSpaces, resolveWriteTarget, findFirstAcrossMembers } from '../../spaces/proxy.js';
+import { memberSpacesWithin } from '../../spaces/proxy-scoped.js';
 import { getAllowedChronoTypes, resolveMetaRefs, validateChrono } from '../../spaces/schema-validation.js';
 import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
 
@@ -324,7 +325,7 @@ export const list_chronoTool: ToolHandler = {
     const limit = typeof a['limit'] === 'number' ? Math.min(a['limit'], 100) : 20;
     const skip = typeof a['skip'] === 'number' ? Math.max(a['skip'], 0) : 0;
 
-    const memberIds = callSpace ? resolveMemberSpaces(callSpace) : accessibleSpaceIds;
+    const memberIds = callSpace ? memberSpacesWithin(callSpace, accessibleSpaceIds) : accessibleSpaceIds;
     // Fetch skip+limit from each member so the combined list has enough entries
     // after global sort/slice. For large skip values this over-fetches slightly,
     // but chrono lists are expected to be small in practice.

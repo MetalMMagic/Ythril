@@ -9,6 +9,7 @@ import { writeFileTombstones } from '../../files/tombstones.js';
 import { deleteFileCascade } from '../../files/delete-cascade.js';
 import { QuotaError, checkQuota } from '../../quota/quota.js';
 import { resolveMemberSpaces, resolveWriteTarget } from '../../spaces/proxy.js';
+import { memberSpacesWithin } from '../../spaces/proxy-scoped.js';
 import { emitWebhookEvent } from '../../webhooks/dispatcher.js';
 import { log } from '../../util/log.js';
 
@@ -26,10 +27,10 @@ export const read_fileTool: ToolHandler = {
           additionalProperties: false,
         }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
-    const { args: a, callSpace } = ctx;
+    const { args: a, callSpace , accessibleSpaceIds } = ctx;
     const filePath = String(a['path'] ?? '');
     if (!filePath.trim()) throw new Error('path must not be empty');
-    const memberIds = resolveMemberSpaces(callSpace);
+    const memberIds = memberSpacesWithin(callSpace, accessibleSpaceIds);
     let content: string | null = null;
     for (const mid of memberIds) {
       try { content = await readFile(mid, filePath); break; } catch { /* try next */ }
@@ -124,9 +125,9 @@ export const list_dirTool: ToolHandler = {
           additionalProperties: false,
         }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
-    const { args: a, callSpace, name } = ctx;
+    const { args: a, callSpace, name , accessibleSpaceIds } = ctx;
     const dirPath = String(a['path'] ?? '');
-    const memberIds = resolveMemberSpaces(callSpace);
+    const memberIds = memberSpacesWithin(callSpace, accessibleSpaceIds);
     const seen = new Set<string>();
     const allEntries: { name: string; type: 'file' | 'dir'; size?: number }[] = [];
     for (const mid of memberIds) {

@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Changed
+- **The remaining MCP proxy fan-outs narrow to what the connection may see** — `mcp/tools/spaces.ts` (3),
+  `file.ts` (2), `edge.ts` and `chrono.ts`. **One site left of 29:** the by-reference pass in `mcp/tools/search.ts`.
+  - `accessibleSpaceIds` was already on the tool `ctx` and only `chrono.ts` ever destructured it — so the narrowed
+    list was there the whole time and the other tools simply did not ask for it. Since #786 it comes from the rights
+    matrix, so intersecting with it gives the answer the HTTP side gets without threading rights into every tool.
+  - Still a provable no-op: the guards continue to require a token to reach every member.
+
 ### Fixed
 - **The proxy fan-out sweep was blind to a by-reference pass, and did not strip comments.** Two defects in the gate
   itself, found while converting `mcp/tools/search.ts`.

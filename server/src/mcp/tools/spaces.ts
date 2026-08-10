@@ -2,6 +2,7 @@ import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.
 import { getConfig } from '../../config/loader.js';
 import { col } from '../../db/mongo.js';
 import { resolveMemberSpaces } from '../../spaces/proxy.js';
+import { memberSpacesWithin } from '../../spaces/proxy-scoped.js';
 import { WIPE_COLLECTION_TYPES, type WipeCollectionType, wipeSpace } from '../../spaces/lifecycle.js';
 import { updateSpace, spacePurpose } from '../../spaces/spaces.js';
 import { SPACE_PURPOSE_MAX } from '../../spaces/_shared.js';
@@ -11,10 +12,10 @@ export const list_spacesTool: ToolHandler = {
   description: 'List all accessible spaces with their IDs, labels, purposes, and entry counts (memories, entities, edges, chrono). Use counts to decide which spaces are populated and worth querying.',
   inputSchema: (_s: ToolSchemas) => ({ type: 'object', properties: {}, required: [], additionalProperties: false }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
-    const { accessibleSpaces } = ctx;
+    const { accessibleSpaces , accessibleSpaceIds } = ctx;
     const spaceCountResults = await Promise.allSettled(
       accessibleSpaces.map(async s => {
-        const memberIds = resolveMemberSpaces(s.id);
+        const memberIds = memberSpacesWithin(s.id, accessibleSpaceIds);
         const perMember = await Promise.all(memberIds.map(async mid => ({
           memories: await col(`${mid}_memories`).countDocuments(),
           entities: await col(`${mid}_entities`).countDocuments(),
@@ -64,8 +65,8 @@ export const get_statsTool: ToolHandler = {
           additionalProperties: false,
         }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
-    const { callSpace } = ctx;
-    const memberIds = resolveMemberSpaces(callSpace);
+    const { callSpace , accessibleSpaceIds } = ctx;
+    const memberIds = memberSpacesWithin(callSpace, accessibleSpaceIds);
     const counts = await Promise.all(memberIds.map(async mid => ({
       memories: await col(`${mid}_memories`).countDocuments(),
       entities: await col(`${mid}_entities`).countDocuments(),
@@ -103,7 +104,7 @@ export const get_space_metaTool: ToolHandler = {
           additionalProperties: false,
         }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
-    const { callSpace } = ctx;
+    const { callSpace , accessibleSpaceIds } = ctx;
     const metaCfg = getConfig();
     const metaSpace = metaCfg.spaces.find(s => s.id === callSpace);
     // Always resolve library `$ref` types so the agent sees the effective schema (propertySchemas from
@@ -111,7 +112,7 @@ export const get_space_metaTool: ToolHandler = {
     // GET /api/spaces/:id/meta?resolve=1.
     const { resolveMetaRefs } = await import('../../spaces/schema-validation.js');
     const metaBlock = resolveMetaRefs(metaSpace?.meta ?? {});
-    const metaMemberIds = resolveMemberSpaces(callSpace);
+    const metaMemberIds = memberSpacesWithin(callSpace, accessibleSpaceIds);
     const metaCounts = await Promise.all(metaMemberIds.map(async mid => ({
       memories: await col(`${mid}_memories`).countDocuments(),
       entities: await col(`${mid}_entities`).countDocuments(),

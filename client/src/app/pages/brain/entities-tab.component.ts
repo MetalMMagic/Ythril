@@ -19,6 +19,7 @@ import { fmtApiError } from './brain-format';
 import { BRAIN_CHIP_STYLES } from './brain-form.styles';
 import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
 import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
+import { TimestampComponent } from '../../shared/timestamp.component';
 
 /**
  * The Entities record tab, extracted from BrainComponent (A17.9b-6e) following the memories pattern.
@@ -36,7 +37,7 @@ import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
   selector: 'app-entities-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, PropertiesViewComponent, PropertiesEditorComponent, EntitySearchComponent, PhIconComponent, ErrorStateComponent, SortableHeaderComponent, HscrollTopDirective],
+  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, PropertiesViewComponent, PropertiesEditorComponent, EntitySearchComponent, PhIconComponent, ErrorStateComponent, SortableHeaderComponent, HscrollTopDirective, TimestampComponent],
   styles: [BRAIN_CHIP_STYLES, BRAIN_RECORD_TABLE_STYLES],
   template: `
 
@@ -199,7 +200,7 @@ import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
                         @if (!(ent.tags?.length)) { <span style="color:var(--text-muted)">—</span> }
                       </td>
                       <td><app-properties-view [properties]="ent.properties" [schema]="store.entitySchema(ent.type)" /></td>
-                      <td style="color:var(--text-muted)">{{ ent.createdAt | date:'dd.MM.yyyy' }}</td>
+                      <td><app-timestamp [value]="ent.createdAt"/></td>
                       <td style="white-space:nowrap;">
                         <button class="icon-btn" [attr.title]="'common.viewDetails' | transloco" [attr.aria-label]="'common.viewDetails' | transloco" (click)="drawerState.open('entity', ent)"><ph-icon name="eye" [size]="16"/></button>
                         <button class="icon-btn" [attr.title]="'common.viewInGraph' | transloco" [attr.aria-label]="'common.viewInGraph' | transloco" (click)="viewInGraph.emit(ent._id)"><ph-icon name="graph" [size]="16"/></button>

@@ -6,6 +6,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- **`<app-timestamp>` — one absolute-time treatment for data tables:** the date on one line, the local time with
+  **seconds** below it. Nothing uses it yet; the 23 call sites follow.
+  - Replaces five different formats measured across the client (`dd.MM.yyyy HH:mm` ×11, `yyyy-MM-dd HH:mm:ss` ×5,
+    `dd.MM.yyyy` ×4, `dd.MM.yy` ×2, `mediumDate` ×1), so it is a drift fix as much as a feature.
+  - **Rendering only — storage stays UTC.** The `datetime` attribute carries the original UTC ISO string, so anything
+    reading the DOM gets UTC rather than a localised string.
+  - It exposes `sortKey()` in epoch-ms, because sorting the rendered text is the specific way this goes wrong:
+    `01.02.2026` sorts before `02.01.2025` as a string, and that ordering looks plausible enough to survive review.
+  - 24-hour clock pinned regardless of locale — left to the locale, one row reads `11:59:03 PM` and the next
+    `23:59:03`, and a column mixing both cannot be scanned.
+  - Absent values render a dash, not an empty cell, and an unparseable value renders the dash rather than
+    `Invalid Date`.
+  - **First two tables converted:** the Memories and Entities `Created` columns, which showed `dd.MM.yyyy` and no time
+    at all. 21 usages remain.
+
 ### Changed
 - **A schema-library entry refusing `retention` now explains why.** `.strict()` alone answered
   `Unrecognized key(s) in object: 'retention'`, which tells a direct API caller that a field valid on an inline type

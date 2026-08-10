@@ -45,10 +45,15 @@ import { readFileSync } from 'node:fs';
  * that fails for an edit three functions away gets ignored. The count still catches a NEW fan-out appearing in a
  * file that already had some, which a bare file list would not.
  */
+const NARROWED = new Set([
+  // Converted to memberSpacesForRequest. A no-op while the guard still requires all members, which is what makes
+  // the conversion provable rather than a behaviour change taken on trust.
+  'server/src/api/brain/search.ts',
+]);
+
 const PENDING = {
   'server/src/api/brain/entities.ts': 1,
   'server/src/api/brain/file-meta.ts': 3,
-  'server/src/api/brain/search.ts': 7,
   'server/src/api/files.ts': 1,
   'server/src/api/spaces.ts': 4,
   'server/src/auth/middleware.ts': 2,
@@ -71,7 +76,13 @@ const PENDING = {
 // is wrong the first time, every time.
 
 /** The module that DEFINES it, and the rule module that only names it in prose. Neither is a fan-out. */
-const NOT_CALL_SITES = new Set(['server/src/spaces/proxy.ts', 'server/src/auth/proxy-reach.ts']);
+//  DEFINES it,  names it in prose, and  is the narrowing wrapper — its
+// own call is the one legitimate un-narrowed use, since it is what does the narrowing.
+const NOT_CALL_SITES = new Set([
+  'server/src/spaces/proxy.ts',
+  'server/src/auth/proxy-reach.ts',
+  'server/src/spaces/proxy-scoped.ts',
+]);
 
 /**
  * Every `resolveMemberSpaces(<arg>)` call in the server, with its argument text.
@@ -100,26 +111,39 @@ function callSites() {
  */
 const isWriteTarget = (arg) => /^wt\.target$/.test(arg);
 
-describe('the fan-out inventory matches the source', () => {
+
+/** Calls that HAVE been narrowed — `memberSpacesForRequest` / `memberSpacesForRecord`. */
+function narrowedCalls() {
+  const out = [];
+  const files = execSync('git grep --untracked -l "memberSpacesFor" -- server/src', { encoding: 'utf8' })
+    .trim().split('\n').filter(Boolean);
+  for (const f of files) {
+    if (NOT_CALL_SITES.has(f) || f === 'server/src/spaces/proxy-scoped.ts') continue;
+    const src = readFileSync(f, 'utf8');
+    for (const m of src.matchAll(/memberSpacesFor(?:Request|Record)\(/g)) out.push({ file: f, at: m.index });
+  }
+  return out;
+}
+
+describe('the inventory matches the source', () => {
   const sites = callSites();
+  const done = narrowedCalls();
 
   it('finds call sites at all — an empty sweep would pass everything', () => {
     // The failure this repo keeps finding: a gate whose measurement returns nothing reads exactly like a clean one.
-    assert.ok(sites.length >= 20, `only found ${sites.length} call sites — the sweep is broken`);
+    assert.ok(sites.length + done.length >= 25, `only found ${sites.length + done.length} — the sweep is broken`);
   });
 
-  it('classifies every site as a write target or a listed read fan-out', () => {
-    const unlisted = [];
-    for (const s of sites) {
-      if (isWriteTarget(s.arg)) continue;
-      if (!(s.file in PENDING)) unlisted.push(`${s.file} → resolveMemberSpaces(${s.arg})`);
-    }
+  it('every un-narrowed read fan-out is a listed PENDING file', () => {
+    const unlisted = sites
+      .filter(s => !isWriteTarget(s.arg) && !(s.file in PENDING))
+      .map(s => `${s.file} → resolveMemberSpaces(${s.arg})`);
     assert.deepEqual(unlisted, [],
-      'a read fan-out in a file the inventory does not list. Narrow it to the token\'s members '
-      + '(auth/proxy-reach.ts) and add the file to PENDING, or explain why it cannot expose another space.');
+      'a read fan-out in a file the inventory does not list. Narrow it with memberSpacesForRequest '
+      + '(spaces/proxy-scoped.ts) and move the file to NARROWED, or add it to PENDING with its count.');
   });
 
-  it('counts match per file, so a NEW fan-out in a known file is caught', () => {
+  it('PENDING counts match, so a NEW fan-out in a known file is caught', () => {
     const actual = {};
     for (const s of sites) {
       if (isWriteTarget(s.arg)) continue;
@@ -128,35 +152,50 @@ describe('the fan-out inventory matches the source', () => {
     assert.deepEqual(actual, PENDING);
   });
 
-  it('has no stale entry — every listed file still contains a fan-out', () => {
-    // A list that outlives its code is how an inventory starts describing the past. Same reason the tracker rule
-    // says a checkbox is not evidence.
+  it('no PENDING entry is stale', () => {
+    // A list that outlives its code starts describing the past — the same reason a tracker checkbox is not evidence.
     const seen = new Set(sites.filter(s => !isWriteTarget(s.arg)).map(s => s.file));
-    assert.deepEqual([...Object.keys(PENDING)].filter(f => !seen.has(f)), []);
+    assert.deepEqual(Object.keys(PENDING).filter(f => !seen.has(f)), []);
+  });
+});
+
+describe('a NARROWED file is really narrowed', () => {
+  it('contains no un-narrowed read fan-out left behind', () => {
+    // The half-converted file is the dangerous state: six sites narrowed and a seventh still fanning out over every
+    // member reads as done and leaks on one route.
+    const leftovers = callSites()
+      .filter(s => !isWriteTarget(s.arg) && NARROWED.has(s.file))
+      .map(s => `${s.file} → resolveMemberSpaces(${s.arg})`);
+    assert.deepEqual(leftovers, []);
+  });
+
+  it('actually calls the narrowing helper', () => {
+    // Otherwise a file could be moved to NARROWED by deleting its fan-outs rather than converting them.
+    const byFile = new Set(narrowedCalls().map(c => c.file));
+    assert.deepEqual([...NARROWED].filter(f => !byFile.has(f)), []);
+  });
+});
+
+describe('the total is conserved', () => {
+  it('narrowed + still pending accounts for all 28 read fan-outs', () => {
+    // The invariant that makes progress checkable: converting a site must MOVE it, never drop it. A conversion that
+    // quietly deleted a fan-out would otherwise look like progress.
+    const pending = Object.values(PENDING).reduce((a, b) => a + b, 0);
+    assert.equal(pending + narrowedCalls().length, 28,
+      `expected 28 total, got ${pending} pending + ${narrowedCalls().length} narrowed`);
   });
 });
 
 describe('the write-target classification is real, not a loophole', () => {
   it('recognises exactly the resolved-write-target form', () => {
     assert.equal(isWriteTarget('wt.target'), true);
-    // Anything that merely mentions the request's space is a fan-out, however it is spelled.
     for (const arg of ['spaceId', 'id', 'callSpace', 'rawSpace', 's.id', 'wt.target ?? spaceId', 'proxyId']) {
       assert.equal(isWriteTarget(arg), false, `${arg} must not classify as a write target`);
     }
   });
 
   it('at least one real write-target site exists, so the branch is exercised', () => {
-    // If this were zero, `isWriteTarget` could be wrong in either direction and every test above would still pass.
+    // At zero, `isWriteTarget` could be wrong in either direction and every test above would still pass.
     assert.ok(callSites().some(s => isWriteTarget(s.arg)), 'no write-target call sites found — check the pattern');
-  });
-});
-
-describe('the rule from #780 is still unwired', () => {
-  it('no fan-out consults it yet, which is what makes this a PENDING list', () => {
-    // When this starts failing, it is because the second half has begun — at which point the entries move to
-    // NARROWED and the assertions above tighten. It failing is the signal to update this file, not a defect.
-    const hits = execSync('git grep --untracked -l "memberSpacesForToken\\|mayUseProxy" -- server/src || true',
-      { encoding: 'utf8' }).trim().split('\n').filter(Boolean);
-    assert.deepEqual(hits, ['server/src/auth/proxy-reach.ts']);
   });
 });

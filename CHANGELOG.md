@@ -6,6 +6,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Changed
+- **Internal: recall's seven proxy fan-outs now narrow to the members the caller may see.** `api/brain/search.ts`
+  calls `memberSpacesForRequest` instead of `resolveMemberSpaces` — recall, stats, activity, traverse, the ER model,
+  reindex and reindex-status.
+  - **A provable no-op today.** `enforceSpaceScope` still requires a token to reach every member, so any caller that
+    gets this far already reaches all of them and the narrowed list equals the full one. Converting first and
+    flipping the guard afterwards is what makes the expensive half verifiable.
+  - The reverse order would be a leak: flip the guard first and every un-narrowed site serves records from spaces the
+    caller cannot see, with a well-formed `200`.
+  - The inventory gate now holds a **conserved total** — narrowed plus pending must equal 28 — so a conversion has to
+    move a site rather than drop it, and a half-converted file fails outright.
+
 ### Added
 - **A gate over every proxy fan-out, so Q-6's second half cannot miss one.** `resolveMemberSpaces` expands a proxy
   into its members and the read paths fan out over the result; once a token that reaches only *some* members may use

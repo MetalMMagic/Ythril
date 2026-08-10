@@ -6,6 +6,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Changed
+- **The network types moved out of `config/types.ts`** into `config/types-networks.ts` — `NetworkType`,
+  `SyncDirection`, `VoteValue`, `VoteRoundType`, `NetworkMember`, `VoteCast`, `VoteRound`, `NetworkConfig`.
+  Re-exported, so **no importer changes and no behaviour change**. Ratchet lowered 645 → 578.
+  - Completes the Q-3 split: **677 → 645 → 578** across two slices. The gate's own comment said a fifth raise of
+    this file should be a split instead, and this is the second half of it.
+  - **This is the move that failed the first time.** `NetworkConfig` references `SpaceMeta`, so before the
+    knowledge-schema leaf existed it created a module cycle and TypeScript degraded `NetworkConfig` to `any` — a
+    caller losing its types while every file in the diff compiled clean. It imports `SpaceMeta` from the leaf now.
+  - Verified with `grep -c "TS7006"` on a full build (0), not on a green compile of the moved files.
+
 ### Added
 - **The space-wide `suppressEmbeddings` toggle, in the space Danger Zone** — completing the feature. Alongside it,
   the backfill from #776 is now a button rather than API-only.

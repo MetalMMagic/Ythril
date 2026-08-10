@@ -760,136 +760,16 @@ export interface FaceRecognitionConfig {
 }
 
 // ── Network types ──────────────────────────────────────────────────────────
+//
+// Moved to `types-networks.ts`. It imports `SpaceMeta` from the `types-knowledge.ts` LEAF rather than from
+// here — importing it back from this file would be a cycle, which is what made the first attempt at this split
+// degrade `NetworkConfig` to `any` in `api/invite.ts`. See that file for the full account.
+//
+// Imported as well as re-exported: `export ... from` does not bring a name into local scope, and types below
+// this line are built from these.
+import type { NetworkType, SyncDirection, VoteValue, VoteRoundType, NetworkMember, VoteCast, VoteRound, NetworkConfig } from './types-networks.js';
+export type { NetworkType, SyncDirection, VoteValue, VoteRoundType, NetworkMember, VoteCast, VoteRound, NetworkConfig };
 
-export type NetworkType = 'closed' | 'democratic' | 'club' | 'braintree' | 'pubsub';
-export type SyncDirection = 'both' | 'push' | 'pull';
-export type VoteValue = 'yes' | 'veto';
-export type VoteRoundType = 'join' | 'remove' | 'space_deletion' | 'meta_change';
-
-export interface NetworkMember {
-  instanceId: string;
-  label: string;
-  url: string;
-  tokenHash: string;         // bcrypt of the token this instance uses to auth inbound from peer
-  direction: SyncDirection;
-  lastSyncAt?: string;       // ISO8601 — set only on successful sync
-  lastSeqReceived?: Record<string, number>;  // spaceId → last seq ingested from this peer
-  lastSeqPushed?: Record<string, number>;    // spaceId → last seq we confirmed pushed to this peer
-  /** spaceId → the newest `deletedAt` among FILE tombstones this peer has answered 200 to on a push.
-   *  File tombstones carry no `seq`, so their retention floor is built from acknowledgement rather than from a
-   *  served position (see `sync/file-tombstone-ack.ts`). Only a 200 may advance it: a direction-blocked peer
-   *  that 403s has NOT taken the deletion, and pruning on a rejected push is how a deleted file comes back. */
-  lastFileTombstoneAckedAt?: Record<string, string>;
-  /** spaceId → the highest `sinceSeq` this peer has pulled OUR tombstones from, i.e. the position it has
-   *  confirmed applying. The mirror of the two above: they are our position in the peer's data, this is the
-   *  peer's position in ours, and without it a tombstone can never be safely dropped (see
-   *  `sync/served-watermark.ts`). Monotonic; absent means "never pulled", which blocks pruning. */
-  lastSeqServed?: Record<string, number>;
-  consecutiveFailures?: number;  // incremented on each failed sync; reset to 0 on success
-  parentInstanceId?: string; // braintree only
-  /** Set during a temporary reparent; stores the original parent so it can be restored. */
-  originalParentInstanceId?: string;
-  children?: string[];       // instanceIds of direct children (braintree)
-  skipTlsVerify?: boolean;   // non-default; UI shows security warning when true
-  /** Ed25519 public key (SPKI PEM) used to verify this member's signed vote casts.
-   *  Trust-on-first-use: pinned the first time we learn it via member gossip / invite;
-   *  a later attempt to change it to a different key is rejected. */
-  signingPublicKey?: string;
-}
-
-export interface VoteCast {
-  instanceId: string;
-  vote: VoteValue;
-  castAt: string;            // ISO8601
-  /** Base64 Ed25519 signature by `instanceId` over the canonical vote message
-   *  (see util/signing.ts). Present on casts created by signing-capable brains;
-   *  absent on legacy/unsigned casts (accepted only via the own-cast path). */
-  sig?: string;
-}
-
-export interface VoteRound {
-  roundId: string;
-  type: VoteRoundType;
-  subjectInstanceId: string;
-  subjectLabel: string;
-  subjectUrl: string;
-  deadline: string;          // ISO8601
-  openedAt: string;          // ISO8601
-  votes: VoteCast[];
-  inviteKeyHash?: string;    // bcrypt of invite key (join rounds only)
-  concluded?: boolean;
-  passed?: boolean;          // true if concluded and the motion carried; false if vetoed/expired
-  pendingMember?: NetworkMember;  // stored on join rounds; added to members when vote passes
-  spaceId?: string;              // populated for space_deletion and meta_change rounds
-  pendingMeta?: SpaceMeta;       // stored on meta_change rounds; applied when vote passes
-  /**
-   * Top-level `meta` fields the proposer changed (meta_change rounds).
-   *
-   * Conclusion applies only these, re-merged into whatever the meta says at that moment, so two rounds
-   * that touch different fields no longer overwrite each other — `pendingMeta` is a full snapshot of the
-   * meta as it stood when the round opened, and applying it wholesale silently reverts anything that
-   * concluded in between. See `sync/meta-round-merge.ts`.
-   */
-  metaChangedFields?: string[];
-  /**
-   * The space's `meta.version` the proposal was computed against (meta_change rounds).
-   *
-   * Rounds gossip, so this is absent on any round proposed by a peer predating field-merge — and that
-   * absence is the compatibility switch: such a round applies wholesale, exactly as before. It cannot
-   * field-merge, because the changed-field list it never recorded would merge nothing at all.
-   */
-  baseMetaVersion?: number;
-  requiredVoters?: string[];     // braintree only: instanceIds that must ALL vote yes
-}
-
-export interface NetworkConfig {
-  id: string;
-  label: string;
-  type: NetworkType;
-  spaces: string[];          // space IDs scoped to this network
-  /**
-   * Which token established each membership — `spaceId` -> token id.
-   *
-   * A PARALLEL map rather than a field on the membership, because `spaces` is a plain `string[]` on every
-   * instance in the field. Turning it into objects would be a breaking migration of live config for a value
-   * that is absent on every existing row anyway.
-   *
-   * **Absent means unknown, and unknown FAILS CLOSED.** Memberships that predate this field cannot prove
-   * whose they are, so leaving one requires the Networks admin rung rather than the write rung. That is the
-   * safe direction: a token that cannot dismantle somebody else's topology asks for help, while one that can
-   * does it silently. See `mayLeaveNetwork` in `auth/network-membership.ts`.
-   */
-  spaceOrigins?: Record<string, string>;
-  /** Maps remote (peer-side) space IDs to local space IDs.
-   *  Used when a local space was renamed after joining, or when the joiner chose
-   *  a different local ID to avoid a collision.  The sync engine uses this to
-   *  translate between peer space IDs on the wire and local collection/file IDs.
-   *  Key = remote space ID, Value = local space ID. */
-  spaceMap?: Record<string, string>;
-  votingDeadlineHours: number;
-  merkle?: boolean;
-  /** When true, governance vote casts must carry a valid Ed25519 signature from
-   *  the voting member (verified against its pinned signingPublicKey). Enable
-   *  once every member has published a signing key. Default (false/undefined)
-   *  runs in compatibility mode: signed casts are verified and relay-safe, while
-   *  unsigned casts are accepted only directly from the voter (never relayed). */
-  requireSignedVotes?: boolean;
-  members: NetworkMember[];
-  pendingRounds: VoteRound[];
-  syncSchedule?: string;     // cron expression; omit = manual only
-  inviteKeyHash?: string;    // bcrypt of current active invite key
-  createdAt: string;
-  /** Braintree only: this instance's parent instanceId in the network tree.
-   *  When unset this instance is treated as the root. */
-  myParentInstanceId?: string;
-  /** Set on THIS instance when it has been temporarily re-parented in a braintree.
-   *  Cleared when the reparent is made permanent (`adopt`) or reverted. */
-  temporaryReparent?: {
-    newParentInstanceId: string;      // grandparent that adopted us
-    originalParentInstanceId: string; // offline intermediate we bypassed
-    reparentedAt: string;             // ISO8601
-  };
-}
 
 // ── OIDC types ─────────────────────────────────────────────────────────────
 

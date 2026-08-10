@@ -134,7 +134,11 @@ const FROZEN = {
   // that imports nothing. This entry took FOUR raises in two days and the comment below said the fifth should
   // be a split instead; that is this. The number matters less than where the growth now goes: per-type schema
   // fields land in the leaf, so Q-2's `suppressEmbeddings` is not a fifth raise of this file.
-  'server/src/config/types.ts': 645,
+  // LOWERED 645 -> 578 (Q-3, slice 2). The network types moved to `config/types-networks.ts`, which imports
+  // `SpaceMeta` from the slice-1 leaf rather than back from `types.ts`. 677 -> 645 -> 578 across the two slices,
+  // and the first attempt at this move — before the leaf existed — reached 609 while silently degrading
+  // `NetworkConfig` to `any` in a caller. The number was never the point; where the growth goes is.
+  'server/src/config/types.ts': 578,
   'client/src/app/pages/settings/data.component.ts': 644,
   'server/src/api/files.ts': 646,
   // 645 -> 660: the data-model panel’s mount and its card header. The panel ITSELF is a separate

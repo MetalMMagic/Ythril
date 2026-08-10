@@ -99,6 +99,7 @@ const NARROWED = new Set([
   // Converted to memberSpacesForRequest. A no-op while the guard still requires all members, which is what makes
   // the conversion provable rather than a behaviour change taken on trust.
   'server/src/api/brain/search.ts',
+  'server/src/mcp/tools/search.ts',
   'server/src/mcp/tools/spaces.ts',
   'server/src/mcp/tools/file.ts',
   'server/src/mcp/tools/edge.ts',
@@ -110,7 +111,6 @@ const NARROWED = new Set([
 ]);
 
 const PENDING = {
-  'server/src/mcp/tools/search.ts': 1,
 };
 
 // 28 read fan-outs across 13 files, plus 5 write-target sites. Those numbers came out of this gate, and the first
@@ -237,6 +237,18 @@ describe('a NARROWED file is really narrowed', () => {
     // Otherwise a file could be moved to NARROWED by deleting its fan-outs rather than converting them.
     const byFile = new Set(narrowedCalls().map(c => c.file));
     assert.deepEqual([...NARROWED].filter(f => !byFile.has(f)), []);
+  });
+});
+
+describe('the narrowing half is COMPLETE', () => {
+  it('PENDING is empty — every read fan-out is narrowed', () => {
+    // The definition of done for Q-6's expensive half, and now a regression guard: a new un-narrowed fan-out puts a
+    // file back into PENDING and fails here as well as in the classification test.
+    //
+    // What is left is NOT a fan-out. The three GUARDS still require a token to reach every member of a proxy, which
+    // is why all of this has been a provable no-op so far. Flipping them to accept a non-empty intersection is the
+    // one behaviour change, and it is now a small diff against fully-narrowed read paths instead of a leap of faith.
+    assert.deepEqual(PENDING, {});
   });
 });
 

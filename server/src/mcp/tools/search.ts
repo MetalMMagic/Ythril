@@ -13,7 +13,7 @@ import { MAX_RECALL_TRAVERSE, traverseRecallSeeds } from '../../brain/edges.js';
 import { type FilterExpression, validateFilterExpression } from '../../brain/filter.js';
 import { queryBrain } from '../../brain/query.js';
 import { type RecallKnowledgeType, type RecallResult, findSimilar, recall, recallGlobal, rankOf, mergeRecallResults } from '../../brain/recall.js';
-import { collectAcrossMembers, resolveMemberSpaces } from '../../spaces/proxy.js';
+import { collectAcrossMembers } from '../../spaces/proxy.js';
 import { memberSpacesWithin } from '../../spaces/proxy-scoped.js';
 import { NotFoundError } from '../../util/errors.js';
 
@@ -31,6 +31,13 @@ export function resolveFindSimilarScope(
   callSpace: string | undefined,
   crossSpace: boolean,
   accessibleSpaceIds: string[],
+  /**
+   * Expand a space to its members, ALREADY narrowed to what the caller may see.
+   *
+   * Injected rather than imported so this stays testable without a config — and that injection is what made the Q-6
+   * narrowing a one-line change here instead of a signature rewrite. It is also why the parameter is documented: a
+   * caller passing the raw `resolveMemberSpaces` would compile, run, and quietly widen a proxy back to every member.
+   */
   resolveMembers: (space: string) => string[],
 ): { candidateBases: string[]; searchIds: string[] | undefined } {
   if (callSpace && !crossSpace) {
@@ -288,7 +295,10 @@ export const find_similarTool: ToolHandler = {
 
     // Locate the source entry: with a space, use it; without, try each accessible space (first match
     // wins — the lookup fails fast before any search, so misses are cheap).
-    const { candidateBases, searchIds } = resolveFindSimilarScope(callSpace || undefined, crossSpace, accessibleSpaceIds, resolveMemberSpaces);
+    // The resolver is NARROWED. `resolveFindSimilarScope` takes it as a parameter, so this is the whole fix — no
+    // signature change was needed, which is the opposite of what the plan for this site predicted.
+    const { candidateBases, searchIds } = resolveFindSimilarScope(
+      callSpace || undefined, crossSpace, accessibleSpaceIds, sp => memberSpacesWithin(sp, accessibleSpaceIds));
     let result: Awaited<ReturnType<typeof findSimilar>> | undefined;
     let usedBase: string | undefined;
     for (const base of candidateBases) {

@@ -47,8 +47,8 @@ const PAIRS = [
   // Both moved from `config/types.ts` to the `config/types-knowledge.ts` leaf in Q-3. This gate caught the move
   // by failing, which is the "assert it FOUND both blocks" property above doing exactly its job — a path that
   // silently resolved to nothing would have turned it into a gate that compares nothing and passes.
-  { name: 'TypeSchema', doc: 'docs/integration-guide/06-spaces-api.md', src: 'server/src/config/types-knowledge.ts' },
-  { name: 'PropertySchema', doc: 'docs/integration-guide/06-spaces-api.md', src: 'server/src/config/types-knowledge.ts' },
+  { name: 'TypeSchema', doc: 'docs/integration-guide/06a-schema-api.md', src: 'server/src/config/types-knowledge.ts' },
+  { name: 'PropertySchema', doc: 'docs/integration-guide/06a-schema-api.md', src: 'server/src/config/types-knowledge.ts' },
 ];
 
 /** Strip comments so a field named only in prose about the type cannot satisfy the comparison. */

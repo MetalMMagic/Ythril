@@ -17,6 +17,7 @@ stands on its own.
    [Recall & Similarity](integration-guide/04a-recall-api.md) · [Entities, Edges & Graph](integration-guide/04b-graph-api.md) · [Chrono](integration-guide/04c-chrono-api.md) · [Stats, Maintenance & Bulk](integration-guide/04d-brain-ops-api.md)
 5. [Files API](integration-guide/05-files-api.md)
 6. [Spaces API](integration-guide/06-spaces-api.md)
+   [Space Schemas & Validation](integration-guide/06a-schema-api.md) · [Schema Library](integration-guide/06b-schema-library-api.md)
 7. [Tokens API](integration-guide/07-tokens-api.md)
 8. [Networks & Invite APIs](integration-guide/08-networks-api.md)
    Invite API

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Fixed
+- **The proxy fan-out sweep was blind to a by-reference pass, and did not strip comments.** Two defects in the gate
+  itself, found while converting `mcp/tools/search.ts`.
+  - `resolveFindSimilarScope(..., resolveMemberSpaces)` hands the resolver to a helper that expands a proxy inside it.
+    The sweep matched only `resolveMemberSpaces(` — so **the indirection that makes a fan-out hardest to follow was
+    exactly what it could not see.** Found by accident: removing the import for a conversion broke the build on a line
+    the gate had never counted.
+  - Widening it then reported a by-reference fan-out in a file that had none, because it was matching the name inside
+    a **comment**. Comments are stripped now — the standing rule that prose describing a thing must not satisfy a
+    check for the thing.
+  - **The true total is 29, not 28.** Raised rather than left, because a conserved total that conserves the wrong
+    number is worse than none. The original figure was an undercount produced by a call-only sweep.
+
+### Fixed
 - **MCP decided which spaces a token could see from the legacy `spaces` allowlist, while the HTTP guard used the
   per-space rights matrix.** MCP now consults `reachesSpace` too, at both transports.
   - **Not exploitable today, and that is worth stating plainly:** the migration derives `rights` *from* `spaces`, and a

@@ -77,6 +77,19 @@ import { readFileSync } from 'node:fs';
  */
 const RECLASSIFIED = 1;
 
+/**
+ * The true total, and why it is 29 rather than the 28 first measured.
+ *
+ * 28 counted only `resolveMemberSpaces(...)` CALLS. Widening the sweep to catch a by-reference pass —
+ * `resolveFindSimilarScope(..., resolveMemberSpaces)` in `mcp/tools/search.ts`, which hands the resolver to a helper
+ * that expands a proxy inside it — revealed one more site that had always been there.
+ *
+ * Raised rather than left at 28, because the alternative is a conserved total that conserves the wrong number. The
+ * original figure was not wrong through carelessness: it was an undercount produced by a sweep that matched calls,
+ * and the indirection it missed is exactly the kind that makes a fan-out hard to follow.
+ */
+const TOTAL = 29;
+
 const GUARDS = {
   'server/src/auth/middleware.ts': 2,
   'server/src/mcp/router.ts': 1,
@@ -130,9 +143,24 @@ function callSites() {
     .trim().split('\n').filter(Boolean);
   for (const f of files) {
     if (NOT_CALL_SITES.has(f)) continue;
-    const src = readFileSync(f, 'utf8');
+    // Comments STRIPPED first. Without this the sweep matched `resolveMemberSpaces` inside a comment explaining what
+    // a handler does, and reported a by-reference fan-out in a file that had none. That is the standing rule about
+    // source-reading gates: the prose describing a thing must not satisfy a check for the thing.
+    const src = readFileSync(f, 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|[^:])\/\/.*$/gm, '$1');
     for (const m of src.matchAll(/resolveMemberSpaces\(([^)]*)\)/g)) {
       out.push({ file: f, arg: m[1].trim() });
+    }
+    // A BY-REFERENCE pass is a fan-out the call regex above cannot see: `resolveFindSimilarScope(..., crossSpace,
+    // accessibleSpaceIds, resolveMemberSpaces)` hands the function itself to a helper that then expands a proxy
+    // inside. Found by accident — removing the import for a conversion broke the build on a line the gate had never
+    // counted. A sweep that only matches calls is blind to exactly the indirection that makes a fan-out hard to
+    // follow, which is the wrong way round.
+    for (const m of src.matchAll(/(?<![.\w])resolveMemberSpaces(?!\s*\()/g)) {
+      const before = src.slice(Math.max(0, m.index - 200), m.index);
+      if (/import\s*\{[^}]*$/.test(before)) continue;   // the import statement itself is not a use
+      out.push({ file: f, arg: 'BY-REFERENCE' });
     }
   }
   return out;
@@ -149,12 +177,12 @@ const isWriteTarget = (arg) => /^(wt\.target|writeTarget)$/.test(arg);
 /** Calls that HAVE been narrowed — `memberSpacesForRequest` / `memberSpacesForRecord`. */
 function narrowedCalls() {
   const out = [];
-  const files = execSync('git grep --untracked -l "memberSpacesFor" -- server/src', { encoding: 'utf8' })
+  const files = execSync('git grep --untracked -l "memberSpaces" -- server/src', { encoding: 'utf8' })
     .trim().split('\n').filter(Boolean);
   for (const f of files) {
     if (NOT_CALL_SITES.has(f) || f === 'server/src/spaces/proxy-scoped.ts') continue;
     const src = readFileSync(f, 'utf8');
-    for (const m of src.matchAll(/memberSpacesFor(?:Request|Record)\(/g)) out.push({ file: f, at: m.index });
+    for (const m of src.matchAll(/memberSpaces(?:ForRequest|ForRecord|Within)\(/g)) out.push({ file: f, at: m.index });
   }
   return out;
 }
@@ -219,8 +247,8 @@ describe('the total is conserved', () => {
     const pending = Object.values(PENDING).reduce((a, b) => a + b, 0);
     const guards = Object.values(GUARDS).reduce((a, b) => a + b, 0);
     const narrowed = narrowedCalls().length;
-    assert.equal(pending + guards + narrowed + RECLASSIFIED, 28,
-      `expected 28, got ${pending} pending + ${guards} guards + ${narrowed} narrowed + ${RECLASSIFIED} reclassified`);
+    assert.equal(pending + guards + narrowed + RECLASSIFIED, TOTAL,
+      `expected ${TOTAL}, got ${pending} pending + ${guards} guards + ${narrowed} narrowed + ${RECLASSIFIED} reclassified`);
   });
 });
 

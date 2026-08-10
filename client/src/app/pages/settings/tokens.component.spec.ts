@@ -10,15 +10,24 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { of } from 'rxjs';
 import { getTranslocoModule } from '../../testing/transloco-testing';
 import { TokensComponent } from './tokens.component';
+import { TokenCreateDialogComponent } from './token-create-dialog.component';
 import { AuthApi } from '../../core/auth-api.service';
 import { SpacesApi } from '../../core/spaces-api.service';
 import { ToastService } from '../../core/toast.service';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 
+/**
+ * The create flow moved into `TokenCreateDialogComponent` (Q-5). The HOST changed; not one assertion below
+ * did. That is the result these tests were written to produce: they were proven green against the
+ * pre-extraction code, and the only edit the refactor required was where they reach for `createToken`.
+ *
+ * If a future change to this file needs an assertion edited rather than a subject re-pointed, that is the
+ * refactor altering behaviour and the edit is the thing to question.
+ */
 function make(createSpy = vi.fn().mockReturnValue(of({ token: 'tok_x' }))) {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
-    imports: [TokensComponent, getTranslocoModule()],
+    imports: [TokenCreateDialogComponent, getTranslocoModule()],
     providers: [
       { provide: AuthApi, useValue: {
         getMe: () => of({ admin: true }),
@@ -30,7 +39,7 @@ function make(createSpy = vi.fn().mockReturnValue(of({ token: 'tok_x' }))) {
       { provide: ConfirmDialogService, useValue: { confirm: () => Promise.resolve(true) } },
     ],
   });
-  const fixture = TestBed.createComponent(TokensComponent);
+  const fixture = TestBed.createComponent(TokenCreateDialogComponent);
   fixture.detectChanges();
   return { fixture, c: fixture.componentInstance, createSpy };
 }
@@ -57,6 +66,30 @@ describe('TokensComponent — permission → create payload', () => {
   });
 });
 
+/**
+ * The LIST page. Separate harness from `make()` since Q-5: the pills belong to the table and the create
+ * fields belong to the dialog, and one harness serving both was only possible while they shared a file.
+ */
+function makeList(tokens: unknown[] = []) {
+  TestBed.resetTestingModule();
+  TestBed.configureTestingModule({
+    imports: [TokensComponent, getTranslocoModule()],
+    providers: [
+      { provide: AuthApi, useValue: {
+        getMe: () => of({ admin: true }),
+        listTokens: () => of({ tokens }),
+        createToken: vi.fn().mockReturnValue(of({ token: 'tok_x' })),
+      } },
+      { provide: SpacesApi, useValue: { listSpaces: () => of({ spaces: [] }) } },
+      { provide: ToastService, useValue: { show: () => {}, error: () => {}, success: () => {} } },
+      { provide: ConfirmDialogService, useValue: { confirm: () => Promise.resolve(true) } },
+    ],
+  });
+  const fixture = TestBed.createComponent(TokensComponent);
+  fixture.detectChanges();
+  return { fixture, c: fixture.componentInstance };
+}
+
 describe('TokensComponent — permission pill colour semantics (UI-BUNDLE-1)', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
@@ -70,7 +103,7 @@ describe('TokensComponent — permission pill colour semantics (UI-BUNDLE-1)', (
       { tok: { id: 't4', schemaLibrary: true }, variant: 'pending' },
     ] as const;
     for (const { tok, variant } of cases) {
-      const { fixture, c } = make();
+      const { fixture, c } = makeList();
       c.tokens.set([{ spaces: [], ...tok } as never]);
       fixture.detectChanges();
       const pill = fixture.nativeElement.querySelector('tbody tr td:nth-child(2) .pill');
@@ -88,7 +121,6 @@ describe('TokensComponent — permission capability help (U6)', () => {
   // the transloco pipe's async key resolution is awkward to pin deterministically in a unit test).
   it('renders the permission capability-help line in the open create dialog', () => {
     const { fixture } = make();
-    fixture.componentInstance.showCreateDialog.set(true);
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.permission-help')).not.toBeNull();
     expect(fixture.nativeElement.querySelector('.permission-help > span')).not.toBeNull();

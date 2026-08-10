@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **A gate over every proxy fan-out, so Q-6's second half cannot miss one.** `resolveMemberSpaces` expands a proxy
+  into its members and the read paths fan out over the result; once a token that reaches only *some* members may use
+  a proxy, every one of those must narrow. A missed one hands the caller records from a space it cannot see, with a
+  well-formed `200` and nothing to notice.
+  - Sites are **enumerated from source and classified**, not listed: a write target is recognised from its argument
+    (`wt.target` — a proxy write already resolved one real space), and everything else is a read fan-out that must
+    appear in the inventory. A new call site fails the gate until someone says which kind it is.
+  - **The real numbers are 28 read fan-outs across 13 files**, plus 5 write-target sites. The hand-written first
+    version of that list was wrong in both directions — it said "17 files" from a `grep -c` that counted import
+    lines, and it missed two files entirely because the shell output behind it had been truncated.
+  - Mutation-tested: a new fan-out is caught both in a file already listed and in one that is not.
+
+### Added
 - **Internal: the rule for narrowing a proxy space to the members a token may see.** Nothing consults it yet — the
   guard change and the read-path narrowing must land together, and this is the rule on its own.
   - Asked for by aigents with probes: today a proxy space cannot be granted to a non-admin token at all, because

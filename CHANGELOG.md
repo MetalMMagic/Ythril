@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **Internal: the `suppressEmbeddings` tier resolver.** Nothing consults it yet; the schema field, the
+  space-wide setting and the wiring into `embedStoredRecord` follow.
+  - Asked for by an operator with records that are **state rather than prose**: a queue row whose name and
+    description never change, whose weight is PATCHed every tick, and which nobody will ever search for by
+    meaning. Each write re-embedded byte-identical text ~4,800 times a day to produce a vector that already
+    existed.
+  - Resolves **record > schema > space**, matching `retention` exactly rather than inventing an order. Two
+    tiered settings that resolve differently is the kind of thing nobody discovers until it is wrong.
+  - **"Not stated" falls through; it is not `false`.** If an absent schema flag read as "do not suppress",
+    the space-wide switch would do nothing for any type that had a schema at all — which is every type worth
+    suppressing.
+  - **An edge finds its schema by `label`, not `type`.** `EdgeDoc` carries both, so reading `type` finds a
+    schema that is never there and looks like it worked — suppression would silently never apply to edges,
+    the record kind this was explicitly widened to cover.
+
+### Added
 - **An existing token's rights can be edited from the tokens list.** A pencil beside the glyph opens the
   matrix; saving sends it to `PATCH /api/tokens/:id`, where the server caps it and refuses a self floor-raise.
   - **The server's refusals are shown verbatim.** Two guards can reject the save and they are different

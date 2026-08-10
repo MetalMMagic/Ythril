@@ -20,6 +20,7 @@ import { fmtApiError } from './brain-format';
 import { BRAIN_CHIP_STYLES } from './brain-form.styles';
 import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
 import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
+import { TimestampComponent } from '../../shared/timestamp.component';
 
 /**
  * The Memories record tab, extracted from BrainComponent (A17.9b-6d) — the first of the five record
@@ -41,7 +42,7 @@ import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
   selector: 'app-memories-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, PropertiesViewComponent, PropertiesEditorComponent, EntityRefFieldComponent, PhIconComponent, ErrorStateComponent, RecordSearchBarComponent, SortableHeaderComponent, HscrollTopDirective],
+  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, PropertiesViewComponent, PropertiesEditorComponent, EntityRefFieldComponent, PhIconComponent, ErrorStateComponent, RecordSearchBarComponent, SortableHeaderComponent, HscrollTopDirective, TimestampComponent],
   styles: [BRAIN_CHIP_STYLES, BRAIN_RECORD_TABLE_STYLES],
   template: `
 
@@ -188,7 +189,7 @@ import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
                         } @else { <span style="color:var(--text-muted)">—</span> }
                       </td>
                       <td><app-properties-view [properties]="mem.properties" [schema]="store.memorySchema()" /></td>
-                      <td style="color:var(--text-muted)">{{ mem.createdAt | date:'dd.MM.yyyy' }}</td>
+                      <td><app-timestamp [value]="mem.createdAt"/></td>
                       <td style="white-space:nowrap;">
                         <button class="icon-btn" [attr.title]="'common.viewDetails' | transloco" [attr.aria-label]="'common.viewDetails' | transloco" (click)="drawerState.open('memory', mem)"><ph-icon name="eye" [size]="16"/></button>
                         @if (recordList.confirmDeleteId() === mem._id) {

@@ -86,9 +86,18 @@ if (shipped.length === 0) {
 
 /** Line numbers added to CHANGELOG.md in this diff. */
 function addedChangelogLines() {
+  // `${base}` and NOT `${base}...HEAD`, to match how the changed-FILE list is built above.
+  //
+  // The two were inconsistent for exactly one commit: the file list was widened to include the working tree, and this
+  // was left committed-only. So an uncommitted change to shipped code was SEEN while the uncommitted CHANGELOG entry
+  // answering it was not — and the gate failed on correct code, on its own first real use. Half-widening a comparison
+  // is worse than not widening it, because the halves disagree in the direction that reports a defect.
+  //
+  // Line numbers here are compared against the CURRENT file (`unreleasedRange` reads it from disk), so a working-tree
+  // diff is the consistent choice rather than a convenience.
   let patch;
   try {
-    patch = git('diff', '-U0', `${base}...HEAD`, '--', 'CHANGELOG.md');
+    patch = git('diff', '-U0', base, '--', 'CHANGELOG.md');
   } catch {
     return [];
   }

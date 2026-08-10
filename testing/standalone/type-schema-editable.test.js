@@ -119,9 +119,14 @@ describe('a space type schema is editable in the UI', () => {
     const start = lib.indexOf('const LibraryTypeSchemaZ =');
     assert.ok(start > 0, `LibraryTypeSchemaZ not found in ${LIB}`);
     const block = lib.slice(start, lib.indexOf('}).strict()', start));
-    assert.ok(!/retention:/.test(block), 'LibraryTypeSchemaZ now accepts `retention`, but nothing resolves a '
+    // ACCEPTS, not mentions. The field may be declared as `z.never(...)` — that refuses it while giving the caller
+    // the reason instead of a bare `Unrecognized key(s)`, which is strictly better than omitting it. A substring
+    // check on `retention:` could not tell those apart and failed on the version that improved the error.
+    const declared = /retention:\s*z\.(\w+)/.exec(block);
+    assert.ok(!declared || declared[1] === 'never',
+      `LibraryTypeSchemaZ declares retention as z.${declared?.[1]}, which ACCEPTS it — but nothing resolves a `
       + '$ref when retention is read (see chrono-retention.ts / ttl.ts, which use the RAW space meta). Either '
-      + 'resolve refs there first, or keep the field out of the library — and update the UI copy either way: '
+      + 'resolve refs there first, or keep the field refused — and update the UI copy either way: '
       + 'the Schema tab tells the operator a saved-to-library type loses its window.');
   });
 

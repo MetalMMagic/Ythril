@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **A token can be created with the per-space rights matrix from the UI.** The create dialog offers it behind
+  a switch; the four areas, the all-spaces floor, and one row per space.
+  - **It is a switch, not an extra panel.** The matrix and the legacy permission/space controls are mutually
+    exclusive on the wire — the server refuses a body carrying both rather than silently preferring one — so
+    opening it changes which field the request sends.
+  - **The floor row is a minimum, not a bulk button.** Every space is at least that, and so is every space
+    created after the token was minted. Rungs beneath it are clamped in each cell rather than removed, so the
+    reason a cell will not go lower is visible where the click happens.
+  - **A cell shows the higher of its own row and the floor.** Showing the stored row alone would display
+    `none` for a space the token actually reaches — the screen saying one thing while enforcement does
+    another, in the direction that under-states access.
+  - Each cell is an escalation rather than four checkboxes: rungs contain the ones below, so "write but not
+    read" cannot be expressed. Clicking the rung you are on steps down one — a control that can only climb
+    reads as resisting being narrowed.
+
+### Added
 - **The tokens list shows what each token can reach.** One bar per area, height for the ceiling and a red
   line for the floor, beside the existing badges.
   - A single label was what the old model could say, and it is exactly what this replaces: "read-write"

@@ -1828,5 +1828,8 @@
   "brain.overview.er.declareSchema": "Schema deklarieren für",
   "brain.overview.er.truncated": "Dieser Raum ist größer als ein Lesevorgang: Der {{scan}}-Scan endete bei {{limit}} Datensätzen, das Diagramm ist daher unvollständig.",
   "brain.overview.er.dangling": "{{n}} Kanten verweisen auf eine Entität, die nicht mehr existiert.",
-  "brain.overview.er.proxy": "Ein Proxy-Raum hat kein einzelnes Datenmodell — öffnen Sie einen Mitgliedsraum."
+  "brain.overview.er.proxy": "Ein Proxy-Raum hat kein einzelnes Datenmodell — öffnen Sie einen Mitgliedsraum.",
+  "tokens.matrix.show": "Matrix pro Space verwenden",
+  "tokens.matrix.hide": "Einfache Berechtigung verwenden",
+  "tokens.matrix.help": "Pro Bereich und Space eine Stufe setzen. Ersetzt die Auswahl oben — ein Token nutzt entweder das eine oder das andere, nie beides."
 }

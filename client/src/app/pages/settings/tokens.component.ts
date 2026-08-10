@@ -15,7 +15,8 @@ import { SummaryStripComponent, SummaryItem } from '../../shared/summary-strip.c
 import { StatusPillComponent } from '../../shared/status-pill.component';
 import { RelativeTimeComponent } from '../../shared/relative-time.component';
 import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
-import { RightsGlyphComponent } from './rights-glyph.component';
+import { RightsGlyphComponent, type TokenRights } from './rights-glyph.component';
+import { RightsMatrixComponent } from './rights-matrix.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
 import { httpErrorReason } from '../../core/http-error';
 
@@ -24,7 +25,7 @@ import { httpErrorReason } from '../../core/http-error';
   standalone: true,
   imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, ModalDirective,
             SummaryStripComponent, StatusPillComponent, RelativeTimeComponent, HscrollTopDirective,
-            ErrorStateComponent, RightsGlyphComponent],
+            ErrorStateComponent, RightsGlyphComponent, RightsMatrixComponent],
   styles: [`
     .new-token-banner {
       background: var(--success-dim);
@@ -358,6 +359,26 @@ import { httpErrorReason } from '../../core/http-error';
               </p>
             </div>
 
+            <!-- The per-space matrix, shown only when the operator asks for it. Collapsed by default because
+                 the legacy permission control above already answers the common case, and the two are
+                 mutually exclusive on the wire: the server refuses a body carrying both rather than
+                 silently preferring one. Opening this is therefore a deliberate switch, not an extra. -->
+            <div style="margin-top:14px;">
+              <button class="btn-secondary btn btn-sm" type="button" (click)="useMatrix.set(!useMatrix())">
+                {{ useMatrix() ? ('tokens.matrix.hide' | transloco) : ('tokens.matrix.show' | transloco) }}
+              </button>
+              @if (useMatrix()) {
+                <p class="permission-help" style="margin-top:8px;">
+                  <ph-icon name="info" [size]="14" />
+                  <span>{{ 'tokens.matrix.help' | transloco }}</span>
+                </p>
+                <app-rights-matrix
+                  [rights]="draftRights()"
+                  [spaces]="spaceIds()"
+                  (changed)="draftRights.set($event)"/>
+              }
+            </div>
+
             <div class="form-grid-bottom" style="margin-top:12px;">
               <button class="btn-secondary btn" type="button" (click)="showCreateDialog.set(false)">{{ 'common.cancel' | transloco }}</button>
               <button class="btn-primary btn" type="submit" style="margin-left:auto;" [disabled]="creating() || !newName.trim()">
@@ -502,6 +523,18 @@ export class TokensComponent implements OnInit {
   creating = signal(false);
   createError = signal('');
   showCreateDialog = signal(false);
+
+  /**
+   * Whether the operator switched from the legacy permission control to the per-space matrix.
+   *
+   * Not a view toggle — the two are mutually exclusive on the wire, and the server refuses a body carrying
+   * both rather than silently preferring one. So this decides WHICH field the create request sends.
+   */
+  /** Just the ids, because the matrix keys rows by id and does not need the rest of a space. */
+  spaceIds = computed(() => this.availableSpaces().map(s => s.id));
+
+  useMatrix = signal(false);
+  draftRights = signal<TokenRights>({ instanceAdmin: false, createSpaces: false, floor: null, perSpace: {} });
   newName = '';
   newExpiry = '';
   newPermission: 'readOnly' | 'standard' | 'admin' = 'standard';
@@ -541,20 +574,31 @@ export class TokensComponent implements OnInit {
     this.creating.set(true);
     this.createError.set('');
 
-    const body: { name: string; expiresAt?: string; admin?: boolean; readOnly?: boolean; spaces?: string[]; mfa?: 'exempt' | 'required' } = { name: this.newName.trim() };
+    const body: {
+      name: string; expiresAt?: string; admin?: boolean; readOnly?: boolean; spaces?: string[];
+      mfa?: 'exempt' | 'required'; rights?: TokenRights;
+    } = { name: this.newName.trim() };
     // Sent only when it says something — `inherit` is the absent state on the server too.
     if (this.newMfa !== 'inherit') body.mfa = this.newMfa;
     if (this.newExpiry) body.expiresAt = new Date(this.newExpiry).toISOString();
-    if (this.newPermission === 'admin') body.admin = true;
-    if (this.newPermission === 'readOnly') body.readOnly = true;
 
-    let spaceIds: string[];
-    if (this.spacesLoadFailed()) {
-      spaceIds = this.newSpacesFallback.split(',').map(s => s.trim()).filter(Boolean);
+    if (this.useMatrix()) {
+      // EITHER the matrix OR the legacy fields, never both. The server refuses a body carrying both rather
+      // than silently preferring one, so sending the permission radio alongside would turn a deliberate
+      // choice into a 400 the operator did not make.
+      body.rights = this.draftRights();
     } else {
-      spaceIds = [...this.newSelectedSpaces];
+      if (this.newPermission === 'admin') body.admin = true;
+      if (this.newPermission === 'readOnly') body.readOnly = true;
+
+      let spaceIds: string[];
+      if (this.spacesLoadFailed()) {
+        spaceIds = this.newSpacesFallback.split(',').map(s => s.trim()).filter(Boolean);
+      } else {
+        spaceIds = [...this.newSelectedSpaces];
+      }
+      if (spaceIds.length) body.spaces = spaceIds;
     }
-    if (spaceIds.length) body.spaces = spaceIds;
 
     this.authApi.createToken(body).subscribe({
       next: ({ token, plaintext }) => {

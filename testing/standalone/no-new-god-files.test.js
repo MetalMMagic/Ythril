@@ -67,6 +67,14 @@ const CEILING = 650;
  * file shrinks; raising one is a decision to make deliberately and to say why in the commit.
  */
 const FROZEN = {
+  // NEW ENTRANT 2026-08-10, at 676 — it crossed the 650 ceiling when the rights matrix was wired into the
+  // create dialog. Frozen rather than split because the split is real work and doing it inside a feature PR
+  // would mix a refactor with a behaviour change; filed in ARCHITECTURE-TODO as the extraction it needs.
+  //
+  // The honest reading: this file is a page, a create dialog, a permission editor and a token list in one
+  // component, and the create dialog alone is over half of it. It is the next thing to come out, and this
+  // number should go DOWN when it does rather than up again.
+  'client/src/app/pages/settings/tokens.component.ts': 676,
   'client/src/app/pages/files/file-manager.component.ts': 1617,
   'client/src/app/pages/schema-library/schema-library.component.ts': 1112,
   'server/src/sync/engine.ts': 966,

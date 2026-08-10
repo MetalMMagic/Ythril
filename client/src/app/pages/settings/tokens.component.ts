@@ -15,6 +15,7 @@ import { SummaryStripComponent, SummaryItem } from '../../shared/summary-strip.c
 import { StatusPillComponent } from '../../shared/status-pill.component';
 import { RelativeTimeComponent } from '../../shared/relative-time.component';
 import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
+import { RightsGlyphComponent } from './rights-glyph.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
 import { httpErrorReason } from '../../core/http-error';
 
@@ -23,7 +24,7 @@ import { httpErrorReason } from '../../core/http-error';
   standalone: true,
   imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, ModalDirective,
             SummaryStripComponent, StatusPillComponent, RelativeTimeComponent, HscrollTopDirective,
-            ErrorStateComponent],
+            ErrorStateComponent, RightsGlyphComponent],
   styles: [`
     .new-token-banner {
       background: var(--success-dim);
@@ -427,6 +428,14 @@ import { httpErrorReason } from '../../core/http-error';
                          wherever the token is, because a hole nobody can see is one nobody reviews. -->
                     @if (t.mfa === 'exempt') { <app-status-pill variant="warn">{{ 'tokens.badge.mfaExempt' | transloco }}</app-status-pill> }
                     @else if (t.mfa === 'required') { <app-status-pill variant="pending">{{ 'tokens.badge.mfaRequired' | transloco }}</app-status-pill> }
+                    <!-- The badges above say what KIND of token this is. The glyph says what it can reach:
+                         one bar per area, height for the ceiling, a red line for the floor. A badge cannot
+                         express "admin on Files in one space and nothing anywhere else", which is exactly
+                         what the rights model makes possible. Only drawn once a token carries a matrix —
+                         OIDC records never get one, and an empty glyph would read as "reaches nothing". -->
+                    @if (t.rights) {
+                      <app-rights-glyph [rights]="t.rights" style="margin-left:8px;vertical-align:middle;"/>
+                    }
                   </td>
                   <td><app-relative-time [value]="t.createdAt"/></td>
                   <td>

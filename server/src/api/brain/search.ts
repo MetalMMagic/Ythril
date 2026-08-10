@@ -20,7 +20,8 @@ import { getConfig } from '../../config/loader.js';
 import { col, asFilter } from '../../db/mongo.js';
 import { needsReindex, clearReindexFlag } from '../../spaces/_shared.js';
 import { log } from '../../util/log.js';
-import { resolveMemberSpaces, collectAcrossMembers } from '../../spaces/proxy.js';
+import { collectAcrossMembers } from '../../spaces/proxy.js';
+import { memberSpacesForRequest } from '../../spaces/proxy-scoped.js';
 import type { MemoryDoc, EntityDoc, EdgeDoc, ChronoEntry, FileMetaDoc } from '../../config/types.js';
 import { reindexInProgress } from '../../metrics/registry.js';
 import { UUID_V4_RE } from './_shared.js';
@@ -52,7 +53,7 @@ searchRouter.get('/spaces/:spaceId/er-model', globalRateLimit, requireSpaceAuth,
     res.status(404).json({ error: `Space '${spaceId}' not found` });
     return;
   }
-  const memberIds = resolveMemberSpaces(spaceId);
+  const memberIds = memberSpacesForRequest(req, spaceId);
   const models = await Promise.all(memberIds.map(mid => buildErModel(mid)));
   res.json(memberIds.length === 1 && memberIds[0] === spaceId
     ? models[0]
@@ -68,7 +69,7 @@ searchRouter.get('/spaces/:spaceId/stats', globalRateLimit, requireSpaceAuth, as
     res.status(404).json({ error: `Space '${spaceId}' not found` });
     return;
   }
-  const memberIds = resolveMemberSpaces(spaceId);
+  const memberIds = memberSpacesForRequest(req, spaceId);
   const counts = await Promise.all(memberIds.map(async mid => ({
     memories: await countMemories(mid),
     entities: await col(`${mid}_entities`).countDocuments(),
@@ -122,7 +123,7 @@ searchRouter.get('/spaces/:spaceId/activity', globalRateLimit, requireSpaceAuth,
   const raw = Number(req.query['hours'] ?? 24);
   const hours = Number.isFinite(raw) ? Math.max(1, Math.min(90 * 24, Math.floor(raw))) : 24;
 
-  const memberIds = resolveMemberSpaces(spaceId);
+  const memberIds = memberSpacesForRequest(req, spaceId);
   const rows = (await Promise.all(memberIds.map(mid => summariseActivity(hours, Date.now(), mid)))).flat();
   res.json({ spaceId, hours, spaces: rows });
 });
@@ -187,7 +188,7 @@ searchRouter.post('/spaces/:spaceId/traverse', globalRateLimit, requireSpaceAuth
     return;
   }
 
-  const memberIds = resolveMemberSpaces(spaceId);
+  const memberIds = memberSpacesForRequest(req, spaceId);
   const result = await traverseGraph(memberIds, startId.trim(), effectiveDirection, effectiveEdgeLabels, effectiveDepth, effectiveLimit,
     includeChronoRaw !== false);
   res.json(result);
@@ -378,7 +379,7 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
   }
 
   try {
-    const memberIds = resolveMemberSpaces(spaceId);
+    const memberIds = memberSpacesForRequest(req, spaceId);
     // One collector across every member, deduped by `recall` itself, so a proxy space reports "the answer is
     // partial" once rather than once per member.
     // Opt-in scan of the newest records, for the case the index has not caught up yet. Rejected rather
@@ -540,7 +541,7 @@ searchRouter.get('/spaces/:spaceId/reindex-status', globalRateLimit, requireSpac
     res.status(404).json({ error: `Space '${spaceId}' not found` });
     return;
   }
-  const memberIds = resolveMemberSpaces(spaceId);
+  const memberIds = memberSpacesForRequest(req, spaceId);
   const needs = memberIds.some(mid => needsReindex(mid));
   res.json({ spaceId, needsReindex: needs });
 });
@@ -562,7 +563,7 @@ searchRouter.post('/spaces/:spaceId/reindex', globalRateLimit, requireSpaceAuth,
     return;
   }
 
-  const memberIds = resolveMemberSpaces(spaceId);
+  const memberIds = memberSpacesForRequest(req, spaceId);
   reindexJobRunning = true;
   reindexInProgress.set(1);
   res.json({ spaceId, reindexed: 0, errors: 0, status: 'started' });

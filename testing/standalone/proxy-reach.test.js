@@ -145,20 +145,15 @@ describe('may the token use the proxy at all', () => {
   });
 });
 
-describe('nothing is wired to it yet, and that is deliberate', () => {
-  it('no caller outside its own module and tests', async () => {
-    // Allowing a token onto a proxy WITHOUT narrowing the 17 read fan-outs would hand it records from spaces it
-    // cannot see. This test is the reminder that the guard change and the fan-out change must land together.
-    // `--untracked` matters: plain `git grep` searches the INDEX, so on the commit that introduces these two files
-    // it finds neither and this assertion fails against correct code. Same shape as the repo's rule about never
-    // asking git what files exist without saying which set you mean.
-    // Scoped to `server/src`, because that is where a CALLER would be. The first version also searched `testing/`
-    // and pinned an exact two-file list, so it failed the moment a second test mentioned the names — which happened
-    // immediately, when the fan-out inventory gate referenced them in its own assertion. A test naming a function is
-    // not a caller of it, and a gate that cannot tell those apart fires on correct code.
+describe('the rule is reached through ONE seam', () => {
+  it('only spaces/proxy-scoped.ts calls it', async () => {
+    // This replaced an assertion that nothing called it at all, which was right until the conversion began and then
+    // failed against correct code. The property worth keeping is not "unused" — it is that every read path goes
+    // through the one wrapper that also does the config lookup. A handler calling the pure rule directly would have
+    // to resolve the member list itself, which is the second copy that makes two answers to one question.
     const { execSync } = await import('node:child_process');
-    const hits = execSync('git grep --untracked -l "memberSpacesForToken\\|mayUseProxy" -- server/src || true',
-      { encoding: 'utf8' }).trim().split('\n').filter(Boolean);
-    assert.deepEqual(hits, ['server/src/auth/proxy-reach.ts']);
+    const hits = execSync('git grep --untracked -l "memberSpacesForToken(" -- server/src || true',
+      { encoding: 'utf8' }).trim().split('\n').filter(Boolean).sort();
+    assert.deepEqual(hits, ['server/src/auth/proxy-reach.ts', 'server/src/spaces/proxy-scoped.ts']);
   });
 });

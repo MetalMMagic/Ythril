@@ -78,7 +78,11 @@ const FROZEN = {
   // owns the rows. Raised rather than worked around — hiding a row action somewhere it does not belong to
   // keep a number down is the trade this list exists to let us decline.
   'client/src/app/pages/settings/tokens.component.ts': 526,
-  'client/src/app/pages/files/file-manager.component.ts': 1617,
+  // RAISED 1617 -> 1618 by one line: the Q-10 timestamp swap replaced a `| date:` cell with `<app-timestamp>` and
+  // needed an import, gaining an import line while losing none. At 1618 code lines this file is by far the largest
+  // here and wants splitting on its own terms — but not inside a one-cell rendering change, where the split would be
+  // the diff and the fix would be a footnote.
+  'client/src/app/pages/files/file-manager.component.ts': 1618,
   'client/src/app/pages/schema-library/schema-library.component.ts': 1112,
   'server/src/sync/engine.ts': 966,
   // 958 -> 684: the per-type editor body moved into `schema-type-editor.component` so the Brain Overview

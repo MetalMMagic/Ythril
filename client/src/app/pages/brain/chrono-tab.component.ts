@@ -20,6 +20,7 @@ import { fmtApiError, toLocalDatetime } from './brain-format';
 import { BRAIN_CHIP_STYLES } from './brain-form.styles';
 import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
 import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
+import { TimestampComponent } from '../../shared/timestamp.component';
 
 /**
  * The Chrono record tab, extracted from BrainComponent (A17.9b-6g) following the memories/edges pattern.
@@ -36,7 +37,7 @@ import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
   selector: 'app-chrono-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, EntityRefFieldComponent, MemoryRefFieldComponent, PropertiesEditorComponent, PhIconComponent, ErrorStateComponent, RecordSearchBarComponent, SortableHeaderComponent, HscrollTopDirective],
+  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, EntityRefFieldComponent, MemoryRefFieldComponent, PropertiesEditorComponent, PhIconComponent, ErrorStateComponent, RecordSearchBarComponent, SortableHeaderComponent, HscrollTopDirective, TimestampComponent],
   styles: [BRAIN_CHIP_STYLES, BRAIN_RECORD_TABLE_STYLES],
   template: `
 
@@ -222,8 +223,8 @@ import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
                       </td>
                       <td><span class="badge badge-blue">{{ entry.type }}</span></td>
                       <td><span class="badge" [class.badge-purple]="entry.status === 'upcoming'" [class.badge-blue]="entry.status === 'active'">{{ entry.status }}</span></td>
-                      <td style="color:var(--text-muted); font-size:12px">{{ entry.startsAt | date:'dd.MM.yyyy HH:mm' }}</td>
-                      <td style="color:var(--text-muted); font-size:12px">{{ entry.endsAt ? (entry.endsAt | date:'dd.MM.yyyy HH:mm') : '—' }}</td>
+                      <td><app-timestamp [value]="entry.startsAt"/></td>
+                      <td><app-timestamp [value]="entry.endsAt"/></td>
                       <td>
                         @for (tag of entry.tags; track tag) { <span class="tag">{{ tag }}</span> }
                       </td>
@@ -236,7 +237,7 @@ import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
                           </div>
                         } @else { <span style="color:var(--text-muted)">—</span> }
                       </td>
-                      <td style="color:var(--text-muted)">{{ entry.createdAt | date:'dd.MM.yyyy' }}</td>
+                      <td><app-timestamp [value]="entry.createdAt"/></td>
                       <td style="white-space:nowrap;">
                         <button class="icon-btn" [attr.title]="'common.viewDetails' | transloco" [attr.aria-label]="'common.viewDetails' | transloco" (click)="drawerState.open('chrono', entry)"><ph-icon name="eye" [size]="16"/></button>
                         @if (recordList.confirmDeleteId() === entry._id) {

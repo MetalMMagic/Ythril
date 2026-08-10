@@ -6,6 +6,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- **The semantic-search advanced panel now reaches every fillable recall field.** `maxPerType`,
+  `includeFreshWrites` and `includeContent` had no control — they could only be set by hand-writing a request.
+  - **The gap was three fields, not six.** Scoped first from the template and the API, which suggested `tags`,
+    `minPerType` and `filter` were missing too; reading `runRecall()` showed it already builds and sends all three.
+    A finding is a suspicion until a count comes out of the code.
+  - Each field is **omitted unless it says something**: `maxPerType: 0` means "no cap" and must not be sent as a
+    literal zero, which would cap every type at nothing; `includeFreshWrites` is sent only when true, since the route
+    rejects a non-boolean rather than coercing; `includeContent` is sent only when an operator has turned it off.
+  - `includeContent` defaults to on, because sending `false` makes recall look as though it has stopped returning
+    passages rather than as though a filter is active.
+
 ### Changed
 - **Five more data-table cells use `<app-timestamp>`** — the chrono Starts/Ends/Created columns, the edges Created
   column, and the file-manager Modified column. Each gains the local time with seconds; two of them showed no time at

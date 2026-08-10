@@ -75,6 +75,22 @@ export class BrainApi {
       tags?: string[];
       /** Guarantee at least N hits per knowledge type, e.g. { entity: 2 }. */
       minPerType?: Partial<Record<RecallKnowledgeType, number>>;
+      /** Cap hits per knowledge type, so one noisy type cannot fill the whole result set. */
+      maxPerType?: number;
+      /**
+       * Also scan the newest records, for when the vector index has not caught up.
+       *
+       * A real boolean or absent — the route REJECTS a non-boolean rather than coercing, because `"false"` is truthy
+       * and an opt-in that silently turns itself on is worse than one that errors.
+       */
+      includeFreshWrites?: boolean;
+      /**
+       * Whether file-chunk hits carry their passage body. `false` returns locations and metadata only.
+       *
+       * Defaults to `true` server-side, and a caller should leave it alone unless it means it: sending `false` makes
+       * recall look as though it has stopped returning passages.
+       */
+      includeContent?: boolean;
     },
   ): Observable<RecallResponse> {
     return this.http.post<RecallResponse>(`/api/brain/spaces/${spaceId}/recall`, body);

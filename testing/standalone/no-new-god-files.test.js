@@ -140,7 +140,11 @@ const FROZEN = {
   // `NetworkConfig` to `any` in a caller. The number was never the point; where the growth goes is.
   'server/src/config/types.ts': 578,
   'client/src/app/pages/settings/data.component.ts': 644,
-  'server/src/api/files.ts': 646,
+  // RAISED 646 -> 647 by ONE line: the Q-6 narrowing swapped `resolveMemberSpaces` for `memberSpacesForRequest`,
+  // and this file no longer needed the old import, so it gained an import line and lost none. Not growth in any
+  // meaningful sense — but the ratchet cannot tell a net line from a meaningful one, and quietly special-casing
+  // "it was only an import" is how a ceiling stops meaning anything.
+  'server/src/api/files.ts': 647,
   // 645 -> 660: the data-model panel’s mount and its card header. The panel ITSELF is a separate
   // component (er-model-panel) and its geometry a separate module (er-layout) — which is what this
   // ratchet asks for. What landed here is the 13 lines that place it in the grid, plus the two inputs

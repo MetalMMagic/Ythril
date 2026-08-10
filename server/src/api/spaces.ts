@@ -14,7 +14,7 @@ import { gatherCompletenessFacts, scoreCompleteness } from '../spaces/completene
 import { ensureTtlIndex } from '../brain/ttl.js';
 import { measureUsage, dirSizeBytes } from '../quota/quota.js';
 import { col } from '../db/mongo.js';
-import { resolveMemberSpaces } from '../spaces/proxy.js';
+import { memberSpacesForRequest } from '../spaces/proxy-scoped.js';
 import { isNetworkSyncing } from '../sync/engine.js';
 import { spaceNetworkInfo } from '../spaces/network-status.js';
 import { z } from 'zod';
@@ -422,7 +422,7 @@ spacesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
   if (includeCounts) {
     const countResults = await Promise.allSettled(
       visibleSpaces.map(async s => {
-        const memberIds = resolveMemberSpaces(s.id);
+        const memberIds = memberSpacesForRequest(req, s.id);
         const perMember = await Promise.all(memberIds.map(async mid => ({
           memories: await col(`${mid}_memories`).countDocuments(),
           entities: await col(`${mid}_entities`).countDocuments(),
@@ -874,7 +874,7 @@ spacesRouter.get('/:id/meta', globalRateLimit, requireAuth, async (req, res) => 
   const meta = resolveRefs
     ? (await import('../spaces/schema-validation.js')).resolveMetaRefs(rawMeta)
     : rawMeta;
-  const memberIds = resolveMemberSpaces(id);
+  const memberIds = memberSpacesForRequest(req, id);
   const counts = await Promise.all(memberIds.map(async mid => ({
     memories: await col(`${mid}_memories`).countDocuments(),
     entities: await col(`${mid}_entities`).countDocuments(),
@@ -915,7 +915,7 @@ spacesRouter.get('/:id/completeness', globalRateLimit, requireAuth, async (req, 
     res.status(404).json({ error: `Space '${id}' not found` });
     return;
   }
-  const facts = await gatherCompletenessFacts(resolveMemberSpaces(id));
+  const facts = await gatherCompletenessFacts(memberSpacesForRequest(req, id));
   res.json(scoreCompleteness(id, space.meta ?? {}, facts));
 });
 
@@ -1118,7 +1118,7 @@ spacesRouter.post('/:id/validate-schema', globalRateLimit, requireAdminMfaScoped
   const resolvedMeta = resolveMetaRefs(dryMeta);
 
   const violations: Array<{ collection: string; _id: string; violations: Array<{ field: string; value: unknown; reason: string }> }> = [];
-  const memberIds = resolveMemberSpaces(id);
+  const memberIds = memberSpacesForRequest(req, id);
   const SCAN_LIMIT = 10_000;
 
   for (const mid of memberIds) {

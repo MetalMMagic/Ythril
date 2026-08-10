@@ -49,7 +49,8 @@ import type { FileMetaDoc } from '../config/types.js';
 import { upsertFileMeta, deleteFileMeta, deleteFileMetaByPrefix, renameFileMeta, renameFileMetaByPrefix, markFileMetaDeleted, markFileMetaDeletedByPrefix } from '../files/file-meta.js';
 import { writeFileTombstones } from '../files/tombstones.js';
 import { deleteFileCascade } from '../files/delete-cascade.js';
-import { resolveMemberSpaces, resolveWriteTarget } from '../spaces/proxy.js';
+import { resolveWriteTarget } from '../spaces/proxy.js';
+import { memberSpacesForRequest } from '../spaces/proxy-scoped.js';
 import { emitWebhookEvent } from '../webhooks/dispatcher.js';
 import { deleteConversionArtifacts, deleteConversionArtifactsByPrefix, isMediaFormat } from '../files/converters/pipeline.js';
 import type { InputFormat } from '../files/converters/pipeline.js';
@@ -295,7 +296,7 @@ fileStoreRouter.get('/:spaceId', globalRateLimit, requireSpaceAuth, async (req, 
 
   const filePath = req.query['path'];
   const normalised = typeof filePath === 'string' && filePath.trim() ? filePath : '.';
-  const memberIds = resolveMemberSpaces(spaceId);
+  const memberIds = memberSpacesForRequest(req, spaceId);
 
   // Directory listing — aggregate across all member spaces
   // Try to find the first member where the path resolves successfully

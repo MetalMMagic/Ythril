@@ -16,7 +16,7 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
 import { RelativeTimeComponent } from '../../shared/relative-time.component';
 import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
 import { RightsGlyphComponent, type TokenRights } from './rights-glyph.component';
-import { RightsMatrixComponent } from './rights-matrix.component';
+import { TokenCreateDialogComponent } from './token-create-dialog.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
 import { httpErrorReason } from '../../core/http-error';
 
@@ -25,7 +25,7 @@ import { httpErrorReason } from '../../core/http-error';
   standalone: true,
   imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, ModalDirective,
             SummaryStripComponent, StatusPillComponent, RelativeTimeComponent, HscrollTopDirective,
-            ErrorStateComponent, RightsGlyphComponent, RightsMatrixComponent],
+            ErrorStateComponent, RightsGlyphComponent, TokenCreateDialogComponent],
   styles: [`
     .new-token-banner {
       background: var(--success-dim);
@@ -258,137 +258,16 @@ import { httpErrorReason } from '../../core/http-error';
       </div>
     }
 
-    <!-- Create token form (dialog) -->
+    <!-- The create dialog lives in TokenCreateDialogComponent. It was over a quarter of this file and
+         is a self-contained flow with thirteen pieces of its own state; leaving it here is what kept
+         this component over the god-file ceiling. -->
     @if (showCreateDialog()) {
-      <div class="dialog-backdrop">
-        <div class="dialog" [appModal]="'tokens.create.title' | transloco" (dismiss)="showCreateDialog.set(false)" (click)="$event.stopPropagation()">
-          <div class="dialog-header">
-            <div class="card-title">{{ 'tokens.create.title' | transloco }}</div>
-            <button class="icon-btn" [attr.aria-label]="'common.close' | transloco" (click)="showCreateDialog.set(false)"><ph-icon name="x" [size]="14"/></button>
-          </div>
-
-          @if (createError()) {
-            <div class="alert alert-error" style="margin-bottom:16px;">{{ createError() }}</div>
-          }
-
-          <form (ngSubmit)="createToken()" #f="ngForm">
-            <div class="form-grid">
-              <div class="field" style="margin-bottom:0;">
-                <label>{{ 'tokens.create.label' | transloco }}</label>
-                <input type="text" [(ngModel)]="newName" name="name" [placeholder]="'tokens.create.labelPlaceholder' | transloco" maxlength="200" required />
-              </div>
-              <div class="field" style="margin-bottom:0;">
-                <label>{{ 'tokens.create.expires' | transloco }}</label>
-                <input type="date" class="styled-input" [(ngModel)]="newExpiry" name="expiry" />
-              </div>
-            </div>
-
-            <div class="field" style="margin-top:12px; margin-bottom:0;">
-              <label>{{ 'tokens.create.spaces' | transloco }}</label>
-              @if (spacesLoadFailed()) {
-                <div class="alert alert-error" style="margin-bottom:6px; font-size:12px;">{{ 'tokens.create.spacesLoadFailed' | transloco }}</div>
-                <input type="text" [(ngModel)]="newSpacesFallback" name="spaces" [placeholder]="'tokens.create.spacesFallbackPlaceholder' | transloco" />
-              } @else if (availableSpaces().length === 0) {
-                <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">{{ 'tokens.create.loadingSpaces' | transloco }}</div>
-              } @else {
-                <div class="table-wrapper" hscrollTop style="max-height:200px; overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius-sm);">
-                  <table style="margin:0;">
-                    <thead>
-                      <tr>
-                        <th style="width:40px; text-align:center;">
-                          <input type="checkbox" [checked]="newSelectedSpaces.length === 0" (change)="selectAllSpaces()" [attr.title]="'tokens.create.allSpacesTitle' | transloco" />
-                        </th>
-                        <th>{{ 'auditLog.filter.space' | transloco }} <span style="font-size:10px; color:var(--text-muted); font-weight:400;">— {{ 'tokens.create.spacesCheckNoneHint' | transloco }}</span></th>
-                        <th>{{ 'spaces.table.column.id' | transloco }}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      @for (s of availableSpaces(); track s.id) {
-                        <tr style="cursor:pointer;" (click)="toggleSpace(s.id)">
-                          <td style="text-align:center;">
-                            <input type="checkbox" [checked]="isSpaceSelected(s.id)" (click)="$event.stopPropagation()" (change)="toggleSpace(s.id)" />
-                          </td>
-                          <td>{{ s.label }}</td>
-                          <td><span class="badge badge-gray mono">{{ s.id }}</span></td>
-                        </tr>
-                      }
-                    </tbody>
-                  </table>
-                </div>
-              }
-              <div class="scope-hint">{{ 'tokens.create.spacesHint' | transloco }}</div>
-            </div>
-
-            <!-- Second factor, per token. The instance-wide switch is all-or-nothing, which is what makes
-                 MFA mutually exclusive with automation — a scheduler cannot type a code. Inherit is the
-                 default and means exactly what it means today. -->
-            <div class="field" style="margin-top:12px; margin-bottom:0;">
-              <label for="tokenMfa">{{ 'tokens.create.mfa' | transloco }}</label>
-              <select id="tokenMfa" [(ngModel)]="newMfa" name="mfa">
-                <option value="inherit">{{ 'tokens.mfa.inherit' | transloco }}</option>
-                <option value="exempt">{{ 'tokens.mfa.exempt' | transloco }}</option>
-                <option value="required">{{ 'tokens.mfa.required' | transloco }}</option>
-              </select>
-              <p class="permission-help">
-                <ph-icon name="info" [size]="14" />
-                <span>{{ ('tokens.mfa.' + newMfa + '.desc') | transloco }}</span>
-              </p>
-            </div>
-
-            <div class="field" style="margin-top:12px; margin-bottom:0;">
-              <label>{{ 'tokens.create.permission' | transloco }}</label>
-              <div class="permission-radio-group">
-                <label class="permission-radio-item">
-                  <input type="radio" name="permission" value="readOnly" [(ngModel)]="newPermission" />
-                  {{ 'tokens.permission.readOnly' | transloco }}
-                </label>
-                <label class="permission-radio-item">
-                  <input type="radio" name="permission" value="standard" [(ngModel)]="newPermission" />
-                  {{ 'tokens.permission.standard' | transloco }}
-                </label>
-                @if (selfToken()?.admin) {
-                  <label class="permission-radio-item">
-                    <input type="radio" name="permission" value="admin" [(ngModel)]="newPermission" />
-                    {{ 'tokens.permission.admin' | transloco }}
-                  </label>
-                }
-              </div>
-              <p class="permission-help">
-                <ph-icon name="info" [size]="14" />
-                <span>{{ ('tokens.permission.' + newPermission + '.desc') | transloco }}</span>
-              </p>
-            </div>
-
-            <!-- The per-space matrix, shown only when the operator asks for it. Collapsed by default because
-                 the legacy permission control above already answers the common case, and the two are
-                 mutually exclusive on the wire: the server refuses a body carrying both rather than
-                 silently preferring one. Opening this is therefore a deliberate switch, not an extra. -->
-            <div style="margin-top:14px;">
-              <button class="btn-secondary btn btn-sm" type="button" (click)="useMatrix.set(!useMatrix())">
-                {{ useMatrix() ? ('tokens.matrix.hide' | transloco) : ('tokens.matrix.show' | transloco) }}
-              </button>
-              @if (useMatrix()) {
-                <p class="permission-help" style="margin-top:8px;">
-                  <ph-icon name="info" [size]="14" />
-                  <span>{{ 'tokens.matrix.help' | transloco }}</span>
-                </p>
-                <app-rights-matrix
-                  [rights]="draftRights()"
-                  [spaces]="spaceIds()"
-                  (changed)="draftRights.set($event)"/>
-              }
-            </div>
-
-            <div class="form-grid-bottom" style="margin-top:12px;">
-              <button class="btn-secondary btn" type="button" (click)="showCreateDialog.set(false)">{{ 'common.cancel' | transloco }}</button>
-              <button class="btn-primary btn" type="submit" style="margin-left:auto;" [disabled]="creating() || !newName.trim()">
-                @if (creating()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
-                {{ 'tokens.create.submitButton' | transloco }}
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
+      <app-token-create-dialog
+        [availableSpaces]="availableSpaces()"
+        [spacesLoadFailed]="spacesLoadFailed()"
+        [callerIsAdmin]="!!selfToken()?.admin"
+        (close)="showCreateDialog.set(false)"
+        (created)="onTokenCreated($event)"/>
     }
 
     <!-- Operator summary -->
@@ -520,8 +399,6 @@ export class TokensComponent implements OnInit {
   loading = signal(true);
   /** Null until the last load failed — checked before the empty state, so a failure never reads as "no tokens". */
   loadError = signal<string | null>(null);
-  creating = signal(false);
-  createError = signal('');
   showCreateDialog = signal(false);
 
   /**
@@ -531,17 +408,8 @@ export class TokensComponent implements OnInit {
    * both rather than silently preferring one. So this decides WHICH field the create request sends.
    */
   /** Just the ids, because the matrix keys rows by id and does not need the rest of a space. */
-  spaceIds = computed(() => this.availableSpaces().map(s => s.id));
 
-  useMatrix = signal(false);
-  draftRights = signal<TokenRights>({ instanceAdmin: false, createSpaces: false, floor: null, perSpace: {} });
-  newName = '';
-  newExpiry = '';
-  newPermission: 'readOnly' | 'standard' | 'admin' = 'standard';
   /** Second factor for the token being created. `inherit` is today's behaviour for every existing token. */
-  newMfa: 'inherit' | 'exempt' | 'required' = 'inherit';
-  newSelectedSpaces: string[] = [];
-  newSpacesFallback = '';
   spacesLoadFailed = signal(false);
   newToken = signal('');
   copied = signal(false);
@@ -569,71 +437,16 @@ export class TokensComponent implements OnInit {
     });
   }
 
-  createToken(): void {
-    if (!this.newName.trim()) return;
-    this.creating.set(true);
-    this.createError.set('');
 
-    const body: {
-      name: string; expiresAt?: string; admin?: boolean; readOnly?: boolean; spaces?: string[];
-      mfa?: 'exempt' | 'required'; rights?: TokenRights;
-    } = { name: this.newName.trim() };
-    // Sent only when it says something — `inherit` is the absent state on the server too.
-    if (this.newMfa !== 'inherit') body.mfa = this.newMfa;
-    if (this.newExpiry) body.expiresAt = new Date(this.newExpiry).toISOString();
-
-    if (this.useMatrix()) {
-      // EITHER the matrix OR the legacy fields, never both. The server refuses a body carrying both rather
-      // than silently preferring one, so sending the permission radio alongside would turn a deliberate
-      // choice into a 400 the operator did not make.
-      body.rights = this.draftRights();
-    } else {
-      if (this.newPermission === 'admin') body.admin = true;
-      if (this.newPermission === 'readOnly') body.readOnly = true;
-
-      let spaceIds: string[];
-      if (this.spacesLoadFailed()) {
-        spaceIds = this.newSpacesFallback.split(',').map(s => s.trim()).filter(Boolean);
-      } else {
-        spaceIds = [...this.newSelectedSpaces];
-      }
-      if (spaceIds.length) body.spaces = spaceIds;
-    }
-
-    this.authApi.createToken(body).subscribe({
-      next: ({ token, plaintext }) => {
-        this.creating.set(false);
-        this.showCreateDialog.set(false);
-        this.tokens.update(list => [token, ...list]);
-        this.newToken.set(plaintext);
-        this.newName = '';
-        this.newExpiry = '';
-        this.newPermission = 'standard';
-        this.newSelectedSpaces = [];
-        this.newSpacesFallback = '';
-      },
-      error: (err) => {
-        this.creating.set(false);
-        this.createError.set(err.error?.error ?? this.transloco.translate('tokens.error.createFailed'));
-      },
-    });
+  /** The dialog owns the create flow; the page owns the list and the one-time plaintext reveal. */
+  onTokenCreated(e: { token: TokenRecord; plaintext: string }): void {
+    this.showCreateDialog.set(false);
+    this.tokens.update(list => [e.token, ...list]);
+    this.newToken.set(e.plaintext);
   }
 
-  isSpaceSelected(id: string): boolean {
-    return this.newSelectedSpaces.includes(id);
-  }
 
-  toggleSpace(id: string): void {
-    if (this.newSelectedSpaces.includes(id)) {
-      this.newSelectedSpaces = this.newSelectedSpaces.filter(s => s !== id);
-    } else {
-      this.newSelectedSpaces = [...this.newSelectedSpaces, id];
-    }
-  }
 
-  selectAllSpaces(): void {
-    this.newSelectedSpaces = [];
-  }
 
   async regenerate(t: TokenRecord): Promise<void> {
     const ok = await this.confirmDialog.confirm({

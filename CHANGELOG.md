@@ -6,6 +6,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Changed
+- **Internal: the create-token dialog is its own component.** No behaviour change — the same request body,
+  the same fields, the same flow.
+  - `tokens.component.ts` had crossed the god-file ceiling at 676 code lines and was frozen with a note
+    saying the number should go **down**. It is 502 now, under the ceiling, and the dialog it lost is 207.
+  - **It stays on the frozen list on purpose.** An entry there is a ratchet; removing it would hand the file
+    back the 148 lines of headroom the extraction just removed.
+  - **The nine characterization tests were written and proven green BEFORE the move**, against the
+    pre-extraction code. The refactor changed the host they reach for and **not one assertion**. That was the
+    point of writing them first: the move is judged by them rather than by reading the diff.
+  - One harness became two, because the pills belong to the table and the create fields to the dialog. A
+    single harness serving both was only possible while they shared a file.
+
 ### Added
 - **A token can be created with the per-space rights matrix from the UI.** The create dialog offers it behind
   a switch; the four areas, the all-spaces floor, and one row per space.

@@ -47,6 +47,8 @@ import { execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 
 const ORDERED = 'todo/_TODO-ORDERED.md';
+/** The authority for what is parked. A tier in the ordered file is bookkeeping; this is what the owner reads. */
+const PARKED = 'todo/_PARKED-DECISIONS.md';
 const C = { red: '\x1b[31m', green: '\x1b[32m', yellow: '\x1b[33m', dim: '\x1b[2m', bold: '\x1b[1m', off: '\x1b[0m' };
 const reason = process.argv.includes('--reason') ? process.argv[process.argv.indexOf('--reason') + 1] : null;
 
@@ -141,8 +143,32 @@ function main() {
   console.log('');
 
   if (reason) {
-    // Naming a stop puts the claim on the record. The script cannot verify it, but an unnamed stop and a named
-    // one should not look identical afterwards.
+    // A claimed OWNER DECISION is checkable, and it is the one that has been abused.
+    //
+    // Twice now a turn ended on "Your move" while the ordered queue held work — once on an item that was already
+    // decided and documented, once on a phantom: a row sitting in the ordered file's parked tier while
+    // `_PARKED-DECISIONS.md` said "Nothing open". A decision nobody is actually waiting on is not a stop, it is a
+    // manufactured one, and it is the same failure as claiming "Running" with nothing running.
+    //
+    // Two facts settle it. **Parked never blocks** while other work exists (owner, 2026-08-10: "if its in parked you
+    // dont wait for me if there are other things in ordered"). And `_PARKED-DECISIONS.md` is the authority for what
+    // is parked — a tier in the ordered file is bookkeeping, not a queue the owner reads for decisions.
+    if (/owner|decision|your move|sign.?off|approval/i.test(reason)) {
+      const parkedOpen = existsSync(PARKED) && !/^\s*##\s+Nothing open\s*$/mi.test(readFileSync(PARKED, 'utf8'));
+      if (rows.length > 0) {
+        console.log(`${C.red}NOT A STOP${C.off} — an owner decision is claimed, but ${rows.length} Q- row(s) are open.`);
+        console.log('Parked never blocks while other work exists. Go build the next row and batch the decision.');
+        console.log(`${C.bold}Next: ${rows[0].id} — ${rows[0].what}${C.off}`);
+        process.exit(1);
+      }
+      if (!parkedOpen) {
+        console.log(`${C.red}NOT A STOP${C.off} — an owner decision is claimed, but ${PARKED} says nothing is open.`);
+        console.log('Either file it there with a recommended default, or decide it yourself (the TINA rule).');
+        process.exit(1);
+      }
+    }
+    // Naming a stop puts the claim on the record. The script cannot verify the other kinds, but an unnamed stop and
+    // a named one should not look identical afterwards.
     console.log(`${C.yellow}STOP CLAIMED${C.off} — ${reason}`);
     console.log(`${C.dim}The genuine stops: an owner decision, a live-cluster change, something${C.off}`);
     console.log(`${C.dim}outward-facing, or an external failure. Nothing else.${C.off}`);

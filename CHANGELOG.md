@@ -6,6 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Changed
+- **A schema-library entry refusing `retention` now explains why.** `.strict()` alone answered
+  `Unrecognized key(s) in object: 'retention'`, which tells a direct API caller that a field valid on an inline type
+  schema is invalid here and nothing about the reason — inviting them to report it as a bug.
+  - The refusal itself is unchanged and deliberate: one library entry is referenced by any number of spaces, and a
+    delete window belongs to a type *in* a space rather than to the shape. The message now says that, and names both
+    ways out (resolve the `$ref` to an inline definition, or use the space-wide `recordTtlDays`).
+  - `.strict()` still handles everything else, so an ordinary typo keeps the generic answer.
+
 ### Added
 - **A proxy space can now be granted to a scoped token — it becomes a lens over what that token may already see.**
   `enforceSpaceScope` and the MCP guard accept a proxy when the token reaches **at least one** member instead of

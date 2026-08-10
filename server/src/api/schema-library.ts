@@ -88,16 +88,38 @@ const PropertySchemaZ = z.object({
   message: 'mergeFn is incompatible with the declared type (numeric fns require type "number", boolean fns require type "boolean")',
 });
 
-/** Zod schema for the inline TypeSchema stored in library entries.
- *  `$ref` is not permitted inside a library entry (no recursive references). */
+/**
+ * Zod schema for the inline TypeSchema stored in library entries.
+ *
+ * `$ref` is not permitted inside a library entry (no recursive references).
+ *
+ * ## `retention` is refused ON PURPOSE, and now says so
+ *
+ * A library entry is referenced by any number of spaces, and a delete policy is not a property of a shape — so a
+ * window belongs to a type IN a space, never to the library definition. That decision predates this comment and is
+ * already documented in `04-brain-api.md`; the client strips the field before saving to the library
+ * (`typeSchemaFromState(..., { withRetention: false })`).
+ *
+ * What was missing was the explanation at the point of refusal. `.strict()` alone answers `Unrecognized key(s) in
+ * object: 'retention'`, which tells a direct API caller that a field valid one place is invalid here and nothing
+ * about why. Declaring the key with a message that fails is uglier than omitting it, and worth it: the alternative
+ * is a caller reading the Zod error and concluding it is a bug.
+ *
+ * Anything else unrecognised still falls through to `.strict()`, because a generic rejection is the right answer for
+ * a genuine typo — this is only for the one field whose absence is a design decision rather than an oversight.
+ */
 const LibraryTypeSchemaZ = z.object({
   namingPattern: z.string().max(500).optional(),
   tagSuggestions: z.array(z.string().min(1).max(200)).max(200).optional(),
   propertySchemas: z.record(z.string().min(1).max(200), PropertySchemaZ).optional(),
-  // Kept in step with `TypeSchemaZ` in `api/spaces.ts` deliberately: a library entry that cannot express a field
-  // the inline schema can is a surface that silently drops it on `.strict()`. `retention` is already in exactly
-  // that state here and is filed as its own item rather than widened in a feature PR.
+  // Kept in step with `TypeSchemaZ` in `api/spaces.ts` deliberately: a library entry that cannot express a field the
+  // inline schema can is a surface that silently drops it.
   suppressEmbeddings: z.boolean().optional(),
+  retention: z.never({
+    message: 'retention cannot be set on a schema-library entry: one entry is referenced by any number of spaces, '
+      + 'and a delete window belongs to a type in a space rather than to the shape. Set it on the type after '
+      + 'resolving the $ref to an inline definition, or use the space-wide recordTtlDays.',
+  }).optional(),
 }).strict();
 
 /** Name must be URL-safe and reasonably short. Allows uppercase, dots, dashes, underscores. */

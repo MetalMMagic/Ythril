@@ -37,7 +37,8 @@
     "test:all": "node testing/_init/run-test-all-with-cleanup.mjs",
     "test:client": "npm run test --workspace=client",
     "release:gate": "node ./scripts/release-gate.mjs",
-    "todo:check": "node ./scripts/todo-consistency.mjs"
+    "todo:check": "node ./scripts/todo-consistency.mjs",
+    "loop:check": "node ./scripts/loop-check.mjs"
   },
   "overrides": {
     "protobufjs": "^7.5.5"

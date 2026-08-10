@@ -1,9 +1,10 @@
 /**
  * MarkdownRenderService — heading ids and sanitization.
  *
- * The heading ids are not cosmetic. `docs/userguide.md` carries 31 `](#anchor)` links in its own table
- * of contents, all authored against GitHub's slug rules; without matching ids every one of them points
- * at nothing, and the per-page help links have nowhere to scroll to.
+ * The heading ids are not cosmetic. The user guide's table of contents carries 30 anchor links, all
+ * authored against GitHub's slug rules; without matching ids every one of them points at nothing, and the
+ * per-page help links have nowhere to scroll to. They address a chapter file since the guide was split,
+ * but the Help page joins the chapters and strips the prefix, so the fragment still resolves here.
  */
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach } from 'vitest';

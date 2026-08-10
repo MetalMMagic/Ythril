@@ -32,7 +32,17 @@ import { httpErrorReason } from '../../core/http-error';
  * here simply is not offered, which the coverage test below turns into a failure rather than a silence.
  */
 export const HELP_DOCS = [
-  { id: 'userguide', file: 'userguide.md' },
+  // Split into chapters on disk, rendered here as one document — the same shape as the integration guide
+  // below. `file` stays the id-bearing name so every `?doc=userguide#anchor` link, and every per-page help
+  // control in `help-anchors.ts`, still resolves to this entry.
+  {
+    id: 'userguide', file: 'userguide.md',
+    parts: [
+      'userguide/01-getting-started.md', 'userguide/02-brain.md',
+      'userguide/03-files-and-schemas.md', 'userguide/04-settings.md',
+      'userguide/05-storage-data-and-audit.md', 'userguide/06-connecting-an-ai-assistant.md',
+    ],
+  },
   // Split by topic on disk, rendered here as one document — see `joinParts`. The `file` is kept as the
   // id-bearing name so cross-doc links written as `integration-guide.md#x` still resolve to this entry.
   {

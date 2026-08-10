@@ -1,0 +1,168 @@
+# Files, Conflicts and the Schema Library
+
+> Part of the [Ythril User Guide](../userguide.md).
+
+## Files, Conflicts and the Schema Library
+
+## Files
+
+> Files is a **tab inside Brain**, not a separate page. Open Brain and click the **Files** tab.
+
+The file manager lets you upload, download, organise, and preview files within each space.
+
+**Uploading:** Click **↑ Upload** in the toolbar, or drag and drop files directly onto the file list. Large files are uploaded in chunks automatically.
+
+**Uploading over a file that already exists asks first.** *New in 2.2.* A file with the same name in the
+same folder is **replaced**, and everything derived from the old one is removed and rebuilt: conversion
+chunks, extracted images, and any description generated from them. The dialog names all of that, because
+what you need to weigh is that the derived records disappear — not that some bytes change.
+
+You are asked **once for a whole batch**, not once per file: a drop of twenty files where three collide is
+one question. **Cancel is the default**, and Replace is styled as destructive. There is no undo.
+
+**Actions per row:**
+
+| Action | How |
+|--------|-----|
+| Preview | Click the file name or the 👁 icon |
+| Download | Click the ↓ icon |
+| Rename | Click **Rename** |
+| Delete | Click ✕ and confirm |
+
+**New folder:** Click **New folder** in the toolbar.
+
+**Navigation:** A breadcrumb bar (`root / docs / guides`) at the top lets you jump to any parent directory. The **tree sidebar** (toggle with **Show tree** / **Hide tree**) provides a full directory view.
+
+**Folder sizes:** the Size column shows a folder's **total content size** — the sum of every file inside it (recursively), not just files. An empty folder shows `0 B`.
+
+**Status & tags:** each file row also shows its **embedding status** (a pill: *Embedded*, *Embedding*, *Partial*, *Failed*, *Skipped*…) and its **tags**, pulled from the file's metadata — so a space's file-processing state is visible right in the list. (This is the file manager and the *File Meta* tab coming together into one view.)
+
+**While a file is being processed**, the Status column shows a **stage bar** instead of the pill: a segment
+per stage of *that file's own route* — a PDF might run render → VLM → repair, an image caption → embed — with
+the current stage filling as its pages land and a `12 / 40` count where the work is countable. It replaces a
+generic "Embedding" that looked the same for every file and every stage. If the worker stops reporting for
+longer than the stall timeout the bar turns amber and says **stalled**, so a wedged job no longer looks like
+a working one. The moment the file finishes, the row goes back to its status pill.
+
+If **nothing** will run, it says so and why: the file's type is switched off for this space, or the file is
+larger than the processing size limit. If a stage isn't available (for example a vision level with no page
+renderer configured), it says that it falls back to plain text extraction. That is the answer to *"why did
+nothing happen to my scan?"* — previously only findable by cross-checking Settings → Media Processing
+against the space's own overrides.
+
+**Sorting:** click the **Name**, **Status**, **Size** or **Modified** header to sort the current folder. Clicking cycles ascending → descending → back to the folder's own order. **Folders always stay at the top** — a file explorer where directories interleave with files by size or date is hard to navigate. Sorting applies to the folder you are looking at, which is the whole set the view holds.
+
+### Detail pane (preview + description ⇄ file meta)
+
+Clicking a file opens a **docked detail pane** to the right of the list (the list runs full width until then, and reclaims it when you close the pane). The pane has two faces, switched with the segmented toggle in its header:
+
+- **Preview & description** — the file preview, with the file's metadata **description** shown beneath it:
+
+  | Type | How it renders |
+  |------|---------------|
+  | Markdown (.md, .markdown) | **Formatted** — headings, lists, links, code blocks, tables, and `mermaid` diagrams |
+  | Text, code, JSON, YAML… | Syntax-highlighted source |
+  | Images (.png, .jpg, .gif, .webp, .svg…) | Inline image |
+  | PDF | Embedded viewer |
+  | Spreadsheets (.xlsx, .xlsm) | First sheet as a table (capped at 200 rows × 40 columns, with a note when truncated) |
+  | Everything else | File info + download button |
+
+  A **full-screen** button (top-right of the preview) expands the preview to fill the window; **Escape** or its close button collapses it back to the docked pane.
+
+  **Where the description came from.** For an uploaded document Ythril writes one itself, and labels it so
+  you know whose words you are reading:
+
+  - **generated** — the model configured for documents answered *what is this file?* from the file's own
+    text. Nobody has checked it, which is what the label is for.
+  - **from the document** — the opening of the document's own text, taken verbatim. This is what an
+    instance with no document model configured produces.
+  - **no label** — a person wrote it. Editing the description on the **File meta** side removes any label,
+    because the words become yours.
+
+  The document's own opening text is kept either way and is searchable, so a phrase you remember from
+  inside a file still finds it — even when the description is a generated summary that does not contain
+  that phrase.
+
+- **File meta** *(in the Brain)* — the editable metadata record: **description**, **tags**, and links to **entities**, **memories** and **chrono** entries, plus a **Retry** action to re-queue embedding for a failed or partial file. This is where the former *File Meta* tab's editing now lives. (On the standalone Files page, outside the Brain, the pane shows preview + description only.)
+
+- **Extract** *(in the Brain, and only for files that have been processed)* — **what retrieval actually
+  sees.** This is the tab to open when a document is in the system and still answers questions badly:
+
+  | Section | What it tells you |
+  |---|---|
+  | **Chunks** | The pieces search actually matches on, in order. Each shows where it came from — the **heading** it opened for a document, or its **position in the recording** (`1:05-1:35`) for audio and video. If a chunk is missing text you expected, the conversion is where to look, not the search. |
+  | **Extracted images** | The images pulled out of the document, each with its caption and whether that caption was **generated** or written by a person. |
+  | **Converted markdown** | Exactly what the converter produced from the file — the input everything else is derived from. Long documents are shown up to 256 KB. |
+
+  Nothing here is new: these are the records the pipeline already wrote. They were only visible before by
+  browsing the internal `_converted/` and `_extracted/` folders, which are now hidden — hidden from
+  browsing, not from inspection.
+
+  A file with no chunks is worth noticing on its own: it means **nothing from that file is searchable yet**.
+
+Press **Escape** or the close button to dismiss the pane. Use arrow keys to move to the previous or next file in the directory.
+
+---
+
+## Conflict resolution
+
+When two connected brains modify the same file before syncing, a conflict is created. A dedicated **Conflicts** item then appears in the sidebar's Workspace section, carrying a red count badge of how many are waiting.
+
+Open **Conflicts** from the sidebar to see them. For each conflict choose what to do:
+
+| Option | Result |
+|--------|--------|
+| **Keep local** | Your version wins, the incoming version is discarded |
+| **Keep incoming** | The incoming version replaces yours |
+| **Keep both** | Both versions are kept (you can rename the incoming copy) |
+| **Save to space** | The incoming version is copied to a different space, then the conflict is removed |
+
+**Dismiss** (✕) removes the conflict record without changing any files.
+
+---
+
+## Schema Library
+
+The Schema Library is an instance-wide store of reusable data definitions. Instead of copying the same schema into every space, define it once here and reference it from any space.
+
+Open **Schema Library** from the sidebar (under Workspace).
+
+### My Library tab
+
+This tab lists all schema definitions on this instance.
+
+**Browsing:** Use the search bar to filter by name or description. Use the type filter pills (entity / memory / edge / chrono) to narrow by knowledge type.
+
+**Creating an entry:** Click **+ New entry**. Fill in:
+
+- **Name** — the display name (e.g. `Service`). A unique identifier is derived from it automatically.
+- **Knowledge Type** — which kind of data this schema applies to.
+- **Description** — optional, surfaced to AI assistants.
+- **Naming pattern** — an optional regular expression that entity names must match.
+- **Property schemas** — click **+ Add property** to define properties with optional type, constraints, and whether they are required.
+
+Click anywhere on a card to open and edit it. Changes save and close automatically.
+
+**Importing from a file:** Use **Import from file** to load a `.json` file. It accepts either a single library entry (or an array of them) *or* a whole space's exported schema (a `{ typeSchemas: … }` file from a space's Schema tab **Export JSON**) — in the latter case every type is auto-grouped into the library under a group named after the file's space, mirroring **Export to library**. Types linked to the library are skipped.
+
+**Publishing:** Click the globe icon on a card to make the entry visible to other Ythril instances. The icon turns accented when published. Click again to unpublish. No space data is ever exposed — only the schema definition.
+
+**Sharing your library:** The **Share This Library** panel shows your instance's **Public endpoint** URL. Click **Copy URL** to copy it. Other instances can paste this URL when adding a catalog link.
+
+To protect your library endpoint with a token (e.g. when your instance sits behind Cloudflare Access), click **Create access token**. Give the token a name and click **Create** — the value is shown once. Paste it into the **Library Access Token** field when the consuming instance adds a catalog link pointing to you.
+
+**Deleting:** Click the trash icon. If spaces currently reference the entry, a dialog shows which ones and offers to unlink them automatically before deleting.
+
+### Foreign Catalogs tab
+
+This tab lets you link to other Ythril instances' public schema libraries and import their definitions.
+
+**Adding a catalog:** Click **Add Catalog**. Enter a short ID (e.g. `acme`), the base URL of the remote instance (e.g. `https://brain.acme.example`), and an optional description. If the remote instance requires authentication on its public library endpoint (indicated by a lock icon or communicated by the owner), also enter the **Library Access Token** they issued you.
+
+**Browsing:** Click **Browse** on a catalog card to see all published entries on that remote instance.
+
+**Importing:** Click **Import** next to any entry. It is copied into your local library tagged with the source catalog for traceability.
+
+**Removing a catalog link:** Click the trash icon on the catalog card. Previously imported entries stay in your library.
+
+---

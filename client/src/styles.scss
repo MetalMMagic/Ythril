@@ -269,6 +269,28 @@ select {
   appearance: none;
 }
 
+/*
+ * Checkboxes and radios: the accent, not the browser's blue.
+ *
+ * They are NOT in the selector list above and should not be — they take neither height nor padding the way a text
+ * input does, so folding them in would set five properties that do nothing and one that breaks them. What they do
+ * need is the one property that list cannot give them.
+ *
+ * Without this every checkbox in the app rendered the platform default blue, while `--accent` is lime. The graph
+ * toolbar had already fixed it locally (`graph.styles.ts`), for its own toggles only — so the product had two
+ * answers to "what colour is a ticked box", and the wrong one was the default everywhere else.
+ *
+ * Found by SCREENSHOT, which is the whole point and is the third time on this file: the comment above the input
+ * rule records the same lesson, and it says the drift sweep missed its case because the tool and the CSS shared one
+ * blind spot. A sweep that enumerates `input[type="text"]` cannot report a checkbox it never looks at.
+ */
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+
 /* Same list as the base rule above — a type styled but not focus-styled loses its focus ring, which is an
    accessibility regression rather than a cosmetic one. */
 input[type="text"]:focus,

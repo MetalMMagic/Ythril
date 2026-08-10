@@ -58,3 +58,19 @@ export function memberSpacesForRequest(req: { authToken?: unknown }, spaceId: st
 export function memberSpacesForRecord(record: Bearer, spaceId: string): string[] {
   return memberSpacesForToken(record?.rights, record?.spaces, resolveMemberSpaces(spaceId));
 }
+
+/**
+ * The members of `spaceId` that appear in an already-narrowed accessible list.
+ *
+ * For the MCP tools, which hold no request and no token record — they are handed an `accessibleSpaceIds` list built
+ * once per connection. Since #786 that list comes from the rights matrix, so intersecting with it gives the same
+ * answer `memberSpacesForRequest` would, without threading rights down to every tool.
+ *
+ * **`accessible` must already be the narrowed set.** If a caller passes every space in the config, this narrows
+ * nothing and the name lies. It is not defensive about that on purpose: a check here could only compare the list
+ * against itself, and the honest place to be sure is the one line in `mcp/router.ts` that builds it.
+ */
+export function memberSpacesWithin(spaceId: string, accessible: readonly string[]): string[] {
+  const allowed = new Set(accessible);
+  return resolveMemberSpaces(spaceId).filter(id => allowed.has(id));
+}

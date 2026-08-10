@@ -13,7 +13,8 @@ import { MAX_RECALL_TRAVERSE, traverseRecallSeeds } from '../../brain/edges.js';
 import { type FilterExpression, validateFilterExpression } from '../../brain/filter.js';
 import { queryBrain } from '../../brain/query.js';
 import { type RecallKnowledgeType, type RecallResult, findSimilar, recall, recallGlobal, rankOf, mergeRecallResults } from '../../brain/recall.js';
-import { resolveMemberSpaces, collectAcrossMembers } from '../../spaces/proxy.js';
+import { collectAcrossMembers, resolveMemberSpaces } from '../../spaces/proxy.js';
+import { memberSpacesWithin } from '../../spaces/proxy-scoped.js';
 import { NotFoundError } from '../../util/errors.js';
 
 /**
@@ -181,7 +182,10 @@ export const recallTool: ToolHandler = {
     let seeds: RecallResult[];
     let traverseSpaces: string[];
     if (callSpace) {
-      const memberIds = resolveMemberSpaces(callSpace);
+      // Narrowed to what this connection may see, not every member of the proxy. `accessibleSpaceIds` is built
+      // once per connection from the rights matrix (#786), so intersecting with it is the same answer the HTTP side
+      // gets from `memberSpacesForRequest` — without threading rights down into every tool.
+      const memberIds = memberSpacesWithin(callSpace, accessibleSpaceIds);
       const all = (await Promise.all(memberIds.map(mid => recall(mid, query, topK, tags, types, minPerType, minScore, filter, { maxPerType, maxTimeMS: recallMaxTimeMS, degraded, includeFreshWrites: a['includeFreshWrites'] === true })))).flat();
       // Same rule as everywhere else: rankOf, not `.score`. See the note on the REST recall route.
       all.sort((x, y) => rankOf(y) - rankOf(x));

@@ -56,13 +56,29 @@ describe('the space guard', () => {
       'the fallback is gone; every OIDC caller would be refused, and no unit test stands one up');
   });
 
-  it('still applies the proxy rule — ALL member spaces, not any', () => {
+  it('applies the proxy rule — AT LEAST ONE member, since Q-6', () => {
     const body = guardBody();
     assert.match(body, /resolveMemberSpaces\(/, 'proxy members are no longer resolved');
-    // `filter(... !reaches)` then `length > 0` is "every target must pass". A `.some()` here would mean one
-    // reachable member unlocked a proxy over spaces the token cannot see — the widening this rule prevents.
-    assert.match(body, /missing\.length > 0/, 'the all-members rule is gone');
-    assert.doesNotMatch(body, /targets\.some\(/, 'ANY-member access would unlock a proxy over unreachable spaces');
+
+    // This assertion used to demand the opposite: `missing.length > 0`, i.e. EVERY member must be reachable. That
+    // rule meant a proxy could not be granted to a scoped token at all, which is what aigents reported. It is now
+    // deliberately "at least one", and the read paths serve only the members the caller reaches.
+    //
+    // The old comment here argued that ANY-member access "would unlock a proxy over spaces the token cannot see".
+    // That was true when the fan-outs were wide, and it is exactly why the flip came LAST: all 29 read fan-outs were
+    // narrowed first, and `proxy-fanout-inventory.test.js` asserts none is left.
+    assert.match(body, /reachable\.length === 0/, 'the at-least-one rule is gone');
+    assert.doesNotMatch(body, /missing\.length > 0/, 'the old all-members rule is back');
+  });
+
+  it('is UNCHANGED for a non-proxy space, which is the safety property', () => {
+    // A real space resolves to `[spaceId]`, so "reaches at least one of one" is the same predicate as "reaches all
+    // of one". Pinned because it is the claim that makes the flip safe, and it rests on the fallback below rather
+    // than on the predicate: without `memberIds.length > 0 ? … : [spaceId]` an unknown space would resolve to `[]`
+    // and an empty target list would pass a `.some()`-shaped check vacuously.
+    const body = guardBody();
+    assert.match(body, /memberIds\.length > 0 \? memberIds : \[spaceId\]/,
+      'the single-space fallback is gone; an unknown space would produce an empty target list');
   });
 
   it('refuses rather than falling through when a space is unreachable', () => {

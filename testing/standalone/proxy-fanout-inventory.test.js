@@ -92,7 +92,12 @@ const TOTAL = 29;
 
 const GUARDS = {
   'server/src/auth/middleware.ts': 2,
-  'server/src/mcp/router.ts': 1,
+  // `mcp/router.ts` used to be here. Its guard is FLIPPED: it calls `memberSpacesWithin` and refuses only when the
+  // connection reaches no member, so it is counted by `narrowedCalls()` now rather than as an un-flipped guard.
+  // Leaving it in both places would double-count it, which the conserved total caught immediately (30 !== 29).
+  //
+  // `auth/middleware.ts` stays: its predicate is flipped, but it still resolves the member list with
+  // `resolveMemberSpaces` — it needs the FULL list to decide reachability, which is exactly what a guard does.
 };
 
 const NARROWED = new Set([

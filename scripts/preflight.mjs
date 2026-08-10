@@ -215,6 +215,17 @@ try { run('npm run todo:check'); } catch {
   failures.push({ name: 'todo:check', why: 'a tracker holds closed work, or an open item the ordered list never references' });
 }
 
+// CI has run this since it was written; preflight never did. So eleven PRs in a row passed locally with an entry, and
+// the twelfth — the only one in that run to change access rules — got as far as a red CI job before anyone noticed the
+// CHANGELOG had no line for it. A gate that only exists after the push is a gate that teaches you to push and see.
+//
+// It works locally for the same reason CI can run it: the comparison is against `origin/main`, which is already
+// fetched. Nothing about it needed the runner.
+console.log('\n── CHANGELOG entry for shipped changes ──');
+try { run('node ./scripts/check-changelog.mjs'); } catch {
+  failures.push({ name: 'check-changelog', why: 'a file that changes what ships, with no [Unreleased] line' });
+}
+
 console.log('\n── client unit tests (includes i18n key coverage) ──');
 try { run('npm run test:client'); } catch {
   failures.push({ name: 'test:client', why: 'component behaviour, and translation keys missing from de/pl' });

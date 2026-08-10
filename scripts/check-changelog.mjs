@@ -50,7 +50,18 @@ const SHIPPED = [/^server\/src\//, /^client\/src\//, /^client\/public\//];
 
 let changed;
 try {
-  changed = git('diff', '--name-only', `${base}...HEAD`).split('\n').map(s => s.trim()).filter(Boolean);
+  // Committed work UNION the working tree, and the union is the point.
+  //
+  // `${base}...HEAD` alone is committed-only, which is correct in CI and useless in a local pre-push run: the usual
+  // order is `git add` → preflight → commit → push, so the change being checked is not committed yet and the gate
+  // sees nothing. It would then report "nothing to require" and pass — vacuously, on exactly the push it exists to
+  // stop. That is how this was missed on the one PR in eleven that had no entry.
+  //
+  // `git diff --name-only ${base}` compares the working tree to the base, so it catches uncommitted and staged files.
+  // In CI the two produce the same set, because there is nothing uncommitted there.
+  const committed = git('diff', '--name-only', `${base}...HEAD`).split('\n');
+  const working = git('diff', '--name-only', base).split('\n');
+  changed = [...new Set([...committed, ...working].map(s => s.trim()).filter(Boolean))];
 } catch (err) {
   // A diff that cannot run must NOT look like a pass. In CI that is an environment fault worth stopping for — a
   // shallow clone with no merge base would otherwise turn this check into a no-op that reports success, which is

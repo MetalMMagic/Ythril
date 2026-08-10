@@ -6,6 +6,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Fixed
+- **Every checkbox and radio in the app rendered the browser's default blue instead of the accent.** `--accent` is
+  lime; the platform default is blue, and nothing set `accent-color` globally.
+  - The graph toolbar had already fixed it **locally**, for its own toggles only — so the product had two answers to
+    "what colour is a ticked box", and the wrong one was the default everywhere else: settings, space dialogs,
+    network wizards, the schema editor.
+  - Checkboxes are deliberately NOT in the shared text-input selector list, and should not be: they take neither
+    height nor padding the way a text input does. What they needed was the one property that list cannot give them.
+  - **Found by screenshot**, which is the third time on this file. The comment above the input rule records the same
+    lesson and says the drift sweep missed its case because the tool and the CSS shared one blind spot — a sweep
+    enumerating `input[type="text"]` cannot report a checkbox it never looks at.
+
 ### Changed
 - **The network types moved out of `config/types.ts`** into `config/types-networks.ts` — `NetworkType`,
   `SyncDirection`, `VoteValue`, `VoteRoundType`, `NetworkMember`, `VoteCast`, `VoteRound`, `NetworkConfig`.

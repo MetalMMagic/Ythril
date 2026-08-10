@@ -94,3 +94,84 @@ describe('TokensComponent — permission capability help (U6)', () => {
     expect(fixture.nativeElement.querySelector('.permission-help > span')).not.toBeNull();
   });
 });
+
+/**
+ * CHARACTERIZATION, written before extracting the create dialog into its own component (Q-5).
+ *
+ * The file crossed the god-file ceiling at 676 lines and is frozen; the dialog alone is over half of it and
+ * comes out next. These pin what the dialog DOES today — proven against the current code — so the extraction
+ * can be judged by whether they still pass rather than by reading the diff.
+ *
+ * They deliberately assert the request BODY rather than the DOM. The body is the contract with the server,
+ * it is what the mint cap and the audit log see, and it is the thing that must survive a refactor unchanged;
+ * markup is what the refactor is allowed to move.
+ */
+describe('TokensComponent — create payload, characterized before the Q-5 extraction', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('sends only the name when nothing else is chosen', () => {
+    const { c, createSpy } = make();
+    c.newName = '  spaced  ';
+    c.createToken();
+    expect(createSpy.mock.calls[0][0]).toEqual({ name: 'spaced' });
+  });
+
+  it('refuses to fire at all on an empty name', () => {
+    const { c, createSpy } = make();
+    c.newName = '   ';
+    c.createToken();
+    expect(createSpy).not.toHaveBeenCalled();
+  });
+
+  it('omits mfa when it is `inherit`, because absent IS inherit on the server', () => {
+    const { c, createSpy } = make();
+    c.newName = 't'; c.newMfa = 'inherit';
+    c.createToken();
+    expect('mfa' in createSpy.mock.calls[0][0]).toBe(false);
+    const second = make();
+    second.c.newName = 't'; second.c.newMfa = 'exempt';
+    second.c.createToken();
+    expect(second.createSpy.mock.calls[0][0].mfa).toBe('exempt');
+  });
+
+  it('sends spaces only when some are selected', () => {
+    const { c, createSpy } = make();
+    c.newName = 't';
+    c.newSelectedSpaces = new Set(['qa', 'research']);
+    c.createToken();
+    expect(createSpy.mock.calls[0][0].spaces.sort()).toEqual(['qa', 'research']);
+    const none = make();
+    none.c.newName = 't';
+    none.c.createToken();
+    expect('spaces' in none.createSpy.mock.calls[0][0]).toBe(false);
+  });
+
+  it('with the matrix on, sends `rights` and NONE of the legacy fields', () => {
+    // The mutual exclusion is the part most likely to be lost in an extraction: the server refuses a body
+    // carrying both, so a refactor that leaves the permission radio wired would turn every matrix create
+    // into a 400.
+    const { c, createSpy } = make();
+    c.newName = 't';
+    c.newPermission = 'admin';
+    c.newSelectedSpaces = new Set(['qa']);
+    c.useMatrix.set(true);
+    c.draftRights.set({ instanceAdmin: false, createSpaces: false, floor: null, perSpace: { qa: { knowledge: 'read', files: 'none', schema: 'none', dataQuality: 'none' } } });
+    c.createToken();
+    const body = createSpy.mock.calls[0][0];
+    expect(body.rights.perSpace.qa.knowledge).toBe('read');
+    expect('admin' in body).toBe(false);
+    expect('readOnly' in body).toBe(false);
+    expect('spaces' in body).toBe(false);
+  });
+
+  it('with the matrix OFF, never sends `rights` — even if a draft was edited first', () => {
+    // Someone can open the matrix, edit it, change their mind and close it. The draft survives in memory,
+    // and sending it anyway would be the same mutual-exclusion 400 from the other direction.
+    const { c, createSpy } = make();
+    c.newName = 't';
+    c.draftRights.set({ instanceAdmin: true, createSpaces: false, floor: null, perSpace: {} });
+    c.useMatrix.set(false);
+    c.createToken();
+    expect('rights' in createSpy.mock.calls[0][0]).toBe(false);
+  });
+});

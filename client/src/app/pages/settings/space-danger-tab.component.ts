@@ -6,6 +6,7 @@
  * page provides — so this component just renders them and calls them.
  */
 import { Component, ChangeDetectionStrategy, inject, signal, computed, effect } from '@angular/core';
+import type { ReembedResult } from '../../core/api.types';
 import { firstValueFrom } from 'rxjs';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -76,6 +77,55 @@ import { TranslocoService } from '@jsverse/transloco';
     </ul>
   } @else {
     <p class="dz-hint">{{ 'spaces.dangerZone.retentionPerTypeNone' | transloco }}</p>
+  }
+</div>
+
+<div class="dz-section">
+  <div class="dz-section-title">{{ 'spaces.dangerZone.embeddingsTitle' | transloco }}</div>
+  <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;">{{ 'spaces.dangerZone.embeddingsDescription' | transloco }}</p>
+
+  <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;margin-bottom:10px;">
+    <input type="checkbox" [ngModel]="suppress()" (ngModelChange)="suppress.set($event)" name="suppressEmbeddings" style="margin-top:2px;" />
+    <span style="font-size:13px;">{{ 'spaces.dangerZone.embeddingsSuppress' | transloco }}</span>
+  </label>
+
+  <!-- Shown while the box is ticked rather than only after saving: the consequence an operator needs is that
+       records written from now on have no vector, and telling them that AFTER they save is telling them too late. -->
+  @if (suppress()) {
+    <div class="alert alert-warning" style="margin-bottom:12px;font-size:12px;">{{ 'spaces.dangerZone.embeddingsNoBackfill' | transloco }}</div>
+  }
+
+  <!-- The per-TYPE overrides, read-only, for the same reason retention lists them: an operator setting a
+       space-wide switch needs to know which types ignore it, or they set it and wonder why one type keeps
+       being embedded. -->
+  @if (declaredSuppression().length) {
+    <p class="dz-hint">{{ 'spaces.dangerZone.embeddingsPerType' | transloco }}</p>
+    <ul style="margin:6px 0 12px;padding-left:18px;font-size:12px;color:var(--text-secondary);">
+      @for (r of declaredSuppression(); track r.key) {
+        <li>{{ r.label }}</li>
+      }
+    </ul>
+  }
+
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+    <button class="btn btn-secondary" type="button" [disabled]="savingSuppress()" (click)="saveSuppress()">
+      @if (savingSuppress()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }{{ 'spaces.dangerZone.embeddingsSave' | transloco }}
+    </button>
+    <!-- Disabled while suppression is on, because the server would skip every candidate and report zero. A
+         button that runs and does nothing is worse than one that says why it cannot. -->
+    <button class="btn btn-secondary" type="button" [disabled]="backfilling() || suppress()" (click)="backfill()">
+      @if (backfilling()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }{{ 'spaces.dangerZone.embeddingsBackfill' | transloco }}
+    </button>
+  </div>
+  @if (suppress()) {
+    <div class="dz-hint" style="margin-top:6px;">{{ 'spaces.dangerZone.embeddingsBackfillBlocked' | transloco }}</div>
+  }
+  @if (backfillResult(); as r) {
+    <div class="alert alert-success" style="margin-top:10px;font-size:12px;">
+      {{ 'spaces.dangerZone.embeddingsBackfillDone' | transloco: { enqueued: r.enqueued } }}
+      @if (r.truncated) { <br/>{{ 'spaces.dangerZone.embeddingsBackfillMore' | transloco: { remaining: r.remaining } }} }
+      @if (r.skippedSuppressed > 0) { <br/>{{ 'spaces.dangerZone.embeddingsBackfillSkipped' | transloco: { skipped: r.skippedSuppressed } }} }
+    </div>
   }
 </div>
 
@@ -199,7 +249,86 @@ export class SpaceDangerTabComponent {
       // `recordTtlWindows` widens a legacy scalar, so a space that set one number before the split shows it on
       // all five fields — which is what it has always meant — rather than appearing to have no policy.
       this.ttl = recordTtlWindows(s.recordTtlDays);
+      // Absent reads as false, matching the server: suppression is opt-in, and the failure direction of getting
+      // that backwards is records silently missing from recall, which nobody reports because there is nothing to
+      // see. Re-seeded per space, and the previous space's backfill result is cleared with it.
+      this.suppress.set(s.meta?.suppressEmbeddings === true);
+      this.backfillResult.set(null);
     });
+  }
+
+  // ── Embeddings ─────────────────────────────────────────────────────────────────────────────────────
+  //
+  // Its own save, like retention and for the same reason: this changes what the space is findable BY, so it
+  // must not ride along in a footer save with a label edit.
+
+  /** The space-wide tier of record > schema > space. The LOWEST tier — any type schema that states a value wins. */
+  readonly suppress = signal(false);
+  readonly savingSuppress = signal(false);
+  readonly backfilling = signal(false);
+  readonly backfillResult = signal<ReembedResult | null>(null);
+
+  /**
+   * The per-TYPE overrides already declared in the schema, read-only.
+   *
+   * Same reasoning as `declaredRetention`: an operator setting a space-wide switch needs to know which types
+   * ignore it, or they tick the box and wonder why one type is still being embedded. Only types that STATE a
+   * value are listed — a type that says nothing inherits, and listing it would suggest an override that is not
+   * there.
+   */
+  readonly declaredSuppression = computed<Array<{ key: string; label: string }>>(() => {
+    const schemas = this.state.settingsSpace()?.meta?.typeSchemas ?? {};
+    const t = (k: string, p?: Record<string, unknown>) => this.transloco.translate(k, p);
+    const out: Array<{ key: string; label: string }> = [];
+    for (const [kt, map] of Object.entries(schemas)) {
+      for (const [name, schema] of Object.entries(map ?? {})) {
+        const v = (schema as { suppressEmbeddings?: boolean }).suppressEmbeddings;
+        if (v === undefined) continue;
+        out.push({
+          key: `${kt}.${name}`,
+          label: t(v ? 'spaces.dangerZone.embeddingsTypeSuppressed' : 'spaces.dangerZone.embeddingsTypeEmbedded', { type: name }),
+        });
+      }
+    }
+    return out;
+  });
+
+  async saveSuppress(): Promise<void> {
+    const space = this.state.settingsSpace();
+    if (!space) return;
+    this.savingSuppress.set(true);
+    try {
+      // `firstValueFrom`, not `await` on the Observable — `updateSpace` is cold, and awaiting one resolves with
+      // the Observable itself without subscribing, so no request is sent and the success toast fires anyway.
+      // That exact bug shipped on the retention button in this same file.
+      //
+      // Sent inside `meta`, because the server MERGES a partial meta over what is stored: sending the whole meta
+      // back would race any other edit made since this dialog opened.
+      await firstValueFrom(this.spacesApi.updateSpace(space.id, { meta: { suppressEmbeddings: this.suppress() } }));
+      this.store.load();
+      this.toast.success(this.transloco.translate('spaces.dangerZone.embeddingsSaved'));
+    } catch (err) {
+      this.toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      this.savingSuppress.set(false);
+    }
+  }
+
+  async backfill(): Promise<void> {
+    const space = this.state.settingsSpace();
+    if (!space) return;
+    this.backfilling.set(true);
+    this.backfillResult.set(null);
+    try {
+      // The counts ARE the result — `enqueued`, and `remaining` when the call was capped. Reporting only
+      // "started" would leave an operator unable to tell a fully-swept space from one that needs three more
+      // calls, which is the whole reason the endpoint returns numbers instead of `202`.
+      this.backfillResult.set(await firstValueFrom(this.spacesApi.reembedSpace(space.id)));
+    } catch (err) {
+      this.toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      this.backfilling.set(false);
+    }
   }
 
   /**

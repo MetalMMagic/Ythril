@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **The space-wide `suppressEmbeddings` toggle, in the space Danger Zone** — completing the feature. Alongside it,
+  the backfill from #776 is now a button rather than API-only.
+  - **The no-backfill warning shows while the box is ticked**, not after saving. The consequence an operator needs
+    is that records written from now on have no vector, and saying so afterwards says it too late.
+  - **Per-type overrides are listed read-only**, the same way retention lists them: an operator setting a
+    space-wide switch needs to know which types ignore it, or they tick the box and wonder why one type is still
+    being embedded. Only types that STATE a value are listed — a type that says nothing inherits.
+  - **Backfill is disabled while suppression is on**, with the reason shown. The server would skip every candidate
+    and report zero; a button that runs and does nothing is worse than one that says why it cannot.
+  - The result reports `enqueued`, and `remaining` when the sweep was capped, rather than just "started".
+
+### Added
 - **`POST /api/spaces/:id/reembed` — the way back from `suppressEmbeddings`.** Queues an embedding job for every
   record in a space that has no vector. Owner: *"there should be a way to backfill"*.
   - **A record still suppressed at any tier is skipped**, using the same resolver the write path uses, so a

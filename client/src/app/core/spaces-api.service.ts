@@ -1,4 +1,5 @@
 import { Injectable, inject } from '@angular/core';
+import type { ReembedResult } from './api.types';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import type {
@@ -95,6 +96,17 @@ export class SpacesApi {
     return this.http.post<{ ok: boolean; spaceId: string; status: string }>(
       `/api/spaces/${spaceId}/rebuild-indexes`, {},
     );
+  }
+
+  /**
+   * Queue embeddings for records in the space that have none — the way back from `suppressEmbeddings`.
+   *
+   * Unlike `rebuildSpaceIndexes` this is AWAITED for its counts rather than fire-and-forget: it only enqueues, so
+   * it returns in the time it takes to scan, and `enqueued` / `remaining` are the answer the operator wants. A
+   * record still suppressed at any tier is skipped by the server and reported under `skippedSuppressed`.
+   */
+  reembedSpace(spaceId: string, body: { kinds?: string[]; limit?: number } = {}): Observable<ReembedResult> {
+    return this.http.post<ReembedResult>(`/api/spaces/${spaceId}/reembed`, body);
   }
 
   wipeSpace(spaceId: string, types?: WipeCollectionType[]): Observable<{ deleted: WipeResult }> {

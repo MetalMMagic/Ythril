@@ -39,7 +39,10 @@ function setup(confirmResult: boolean, api: Partial<Record<string, unknown>> = {
       SpaceSettingsState,
       { provide: SpacesApi, useValue: spacesApi },
       { provide: NetworksApi, useValue: networksApi },
-      { provide: SpacesStore, useValue: { spaces: signal([]), networks: signal([]), refreshNetworks: () => {} } },
+      // `networksForSpace` and `load` are needed because these tests run a real change-detection pass
+      // (`TestBed.tick()`) to fire the seeding effect, which renders the template. The earlier tests called
+      // methods directly and never rendered, so the mock could get away with less.
+      { provide: SpacesStore, useValue: { spaces: signal([]), networks: signal([]), refreshNetworks: () => {}, networksForSpace: () => [], load: () => {} } },
       { provide: ToastService, useValue: { error: () => {}, success: () => {}, show: () => {} } },
       { provide: ConfirmDialogService, useValue: { confirm: () => Promise.resolve(confirmResult) } },
     ],
@@ -108,5 +111,68 @@ describe('SpaceDangerTabComponent — irreversible ops are confirm-gated', () =>
     const ok = setup(true);
     await ok.c.leaveNetworkDanger('net1');
     expect(ok.networksApi.leaveNetwork).toHaveBeenCalledWith('net1');
+  });
+});
+
+describe('the embedding suppression section', () => {
+  // The seeding lives in an `effect()`, so it does not run on `set()` alone — it needs a change-detection pass.
+  // Flushed explicitly rather than worked around, because the effect IS the behaviour being tested: seeding from
+  // the space is what makes the toggle show the stored value instead of always starting off.
+  const withMeta = (meta) => {
+    const h = setup(true, {
+      updateSpace: vi.fn().mockReturnValue(of({ space: { id: 'proj', label: 'Project' } })),
+      reembedSpace: vi.fn().mockReturnValue(of({ spaceId: 'proj', enqueued: 12, skippedSuppressed: 0, byKind: { memory: 12 }, remaining: 0, truncated: false })),
+    });
+    h.state.settingsSpace.set({ id: 'other', label: 'Other', meta } as never);
+    TestBed.tick();
+    return h;
+  };
+
+  it('seeds the toggle from the space, treating absent as OFF', () => {
+    // Suppression is opt-in. Reading absent as ON would silently stop a space embedding.
+    expect(withMeta({}).c.suppress()).toBe(false);
+    expect(withMeta({ suppressEmbeddings: true }).c.suppress()).toBe(true);
+  });
+
+  it('sends the flag inside meta, so the server MERGES rather than replacing', () => {
+    // Sending a whole meta back would race any other edit made since the dialog opened.
+    const h = withMeta({});
+    h.c.suppress.set(true);
+    return h.c.saveSuppress().then(() => {
+      expect(h.spacesApi.updateSpace).toHaveBeenCalledWith('other', { meta: { suppressEmbeddings: true } });
+    });
+  });
+
+  it('sends false when turned OFF, rather than omitting it', () => {
+    // Omitting the field under a merge would leave suppression on while the save reported success.
+    const h = withMeta({ suppressEmbeddings: true });
+    h.c.suppress.set(false);
+    return h.c.saveSuppress().then(() => {
+      expect(h.spacesApi.updateSpace).toHaveBeenCalledWith('other', { meta: { suppressEmbeddings: false } });
+    });
+  });
+
+  it('lists only the types that STATE a value', () => {
+    // A type that says nothing inherits; listing it would suggest an override that is not there.
+    const h = withMeta({ typeSchemas: { memory: { note: { suppressEmbeddings: true }, plain: {} }, entity: { row: { suppressEmbeddings: false } } } });
+    expect(h.c.declaredSuppression().map(r => r.key).sort()).toEqual(['entity.row', 'memory.note']);
+  });
+
+  it('keeps the backfill result, because the counts ARE the answer', () => {
+    const h = withMeta({});
+    return h.c.backfill().then(() => {
+      expect(h.spacesApi.reembedSpace).toHaveBeenCalledWith('other');
+      expect(h.c.backfillResult()?.enqueued).toBe(12);
+    });
+  });
+
+  it('clears a previous backfill result when the space changes', () => {
+    // Otherwise one space's counts would be shown under another space's name.
+    const h = withMeta({});
+    return h.c.backfill().then(() => {
+      h.state.settingsSpace.set({ id: 'third', label: 'Third' } as never);
+      TestBed.tick();
+      expect(h.c.backfillResult()).toBe(null);
+    });
   });
 });

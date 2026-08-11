@@ -24,8 +24,10 @@ Media embedding is **always on** — there is no master on/off switch. To turn a
 
 Required services (bundled by default; override only when you point at external providers):
 
-- **Ollama** (image captioning): `OLLAMA_URL=http://ollama:11434` — deploy any vision-capable model (default: `moondream`).
-- **faster-whisper-server** (audio/video STT): `WHISPER_URL=http://whisper:8000` — set model via `WHISPER_MODEL` (default: `base`).
+- **Ollama** (image captioning): `VISION_BASE_URL=http://ollama:11434` — deploy any vision-capable model, set via `VISION_MODEL` (default: `moondream`).
+- **faster-whisper-server** (audio/video STT): `STT_BASE_URL=http://whisper:8000` — set model via `STT_MODEL` (default: `base`).
+
+> The legacy names `OLLAMA_URL`, `WHISPER_URL` and `WHISPER_MODEL` still work and warn once at startup — see the rename note below.
 
 Kubernetes manifests are provided in `kubernetes/manifests/ollama-deploy.yaml` and `kubernetes/manifests/whisper-deploy.yaml`. Dual `NetworkPolicy` + `CiliumNetworkPolicy` resources are in `media-netpol.yaml` and `media-cilium-netpol.yaml`.
 

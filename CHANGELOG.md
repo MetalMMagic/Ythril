@@ -6,6 +6,53 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Fixed
+- **The media-embedding guide told you to set the deprecated env vars, and then told you they were deprecated
+  eighty lines later.** Its "required services" list used `OLLAMA_URL`, `WHISPER_URL` and `WHISPER_MODEL`, so a
+  reader following the setup instructions got a startup deprecation warning for doing exactly what the document
+  said. The same file's configuration table and its own "Renamed in 2.1" note give the current names.
+  - Now `VISION_BASE_URL`, `VISION_MODEL`, `STT_BASE_URL` and `STT_MODEL`, with the legacy names in a note that
+    points at the rename block rather than competing with it.
+  - **An identifier-existence gate cannot catch this**, which is why it needed reading: both names are real and
+    both work. The claim that was wrong was about *which one to use*.
+  - Checked the neighbouring default claims at the same time — `moondream`, `base`, `human-models`,
+    `confidenceThreshold: 0.6`, `dupeMergeSurvivor: older`, `enforceForBrowser: false` all match the loader.
+- **Two identifiers in the contribution guide named nothing.** Both were in the migration-strategy section — the
+  one a contributor reads to decide how to write a migration.
+  - `sizeFileBytes` should be **`sizeBytes`**, and it was the *worked example* of the self-healing rule, so it is
+    the name a reader would have gone looking for in the code.
+  - `ensureIndex` was removed from the MongoDB driver in 4.0. Our code uses `createIndex` and always has.
+  - Found by the new gate below rather than by reading, which is the point: `plannedRoute` was found by reading,
+    and reading does not scale to 44 documents.
+
+### Added
+- **A gate: a backticked camelCase identifier in the docs must exist somewhere in the repository.** `plannedRoute`
+  was documented as a response field for thirteen releases after the feature was removed. Nothing failed — no test
+  names a field that does not exist, and prose is not compiled.
+  - **Narrow on purpose.** Earlier attempts at generic doc↔code matching produced 69, then 36, then 89 false
+    proposals, and a check nobody trusts gets skipped. So: camelCase only (an identifier, not a word), backticked
+    only (the doc is *naming* it), and existence only (not whether it is used correctly). 291 identifiers, three
+    findings, two of them real.
+  - The exemption list holds exactly one entry — `podPidsLimit`, a kubelet flag — and each row must give a reason
+    naming whose software owns the identifier. A second assertion fails if an exempted identifier later appears in
+    our own code, so the list cannot quietly outlive its reason.
+  - **It excludes its own file, and that was a real bug.** The header names `sizeFileBytes` and `ensureIndex` while
+    explaining they were wrong, so with itself in the haystack the gate passed *on the comment describing the bug
+    it exists to catch*. Verified by re-introducing the wrong name and watching it stay green.
+- **A gate: no shipped document over 900 lines.** Splitting the five oversized guides fixed the instances; it did
+  not fix the mechanism, which is that a document grows one paragraph at a time and no single commit ever looks
+  like the one that made it unreadable.
+  - **900 is measured, not round.** With all five splits in, the largest surviving document is `02-hosting.md` at
+    817 lines and the next is 611. A limit of 1,000 could not fire against anything that exists — a gate that
+    passes forever and reads like protection. There is a second assertion for exactly that failure: it fails if
+    the largest tracked doc drops below half the limit, so the number has to come down with the documentation
+    rather than sit there unreachable.
+  - The predicate is mutation-checked against fabricated input, because a size gate that can never fire looks
+    identical to one with nothing to report.
+  - The failure message names each file and its length, and says what splitting actually involves — the line-range
+    tooling, plus adding the parts to `HELP_DOCS`, linking them from the index, and re-pointing every gate that
+    pins a path or anchor into a moved section.
+
 ### Changed
 - **The use-case catalogue is three chapters instead of one 1,038-line file, and it finally has a table of
   contents.** 27 numbered examples and one appendix, each 25–58 lines, with no way to see what was in the file

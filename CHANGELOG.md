@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Fixed
+- **The egress matrix named the deprecated variable for the vision slot, one row above the current one for
+  speech-to-text.** `02-hosting.md`'s table gave `OLLAMA_URL` for vision and `STT_BASE_URL` for STT — two
+  spellings of the same 2.1 decision, one table apart. An operator reading it to find which variable controls
+  vision egress got the name that warns at startup.
+  - Swept for the rest rather than fixing the reported one: three more in the media-embedding guide's setup list
+    (already fixed), and the rename note's own example now names both spellings.
+  - **Our own deployment artifacts are clean** — `docker-compose.yml` and the Kubernetes manifests mention the
+    legacy names only in comments explaining why they are deliberately *not* set. Checked rather than assumed;
+    a `git grep -l` matched both files and the hits turned out to be those comments.
+
+### Added
+- **A gate: a renamed env var may appear in the docs, but never on its own.** A legacy name is only allowed on a
+  line that also names its replacement.
+  - **Two existing gates were right and still missed this.** `egress-matrix` asserts every documented env var is
+    *real*, and `OLLAMA_URL` is entirely real — the loader reads it on purpose. `env-var-docs-coverage` asserts
+    the docs name every variable the code reads, and the code does read it. Neither asks *which of two working
+    names a reader should be told to use*, which is a claim about behaviour rather than about existence.
+  - The rule needs no exemption list: every legitimate mention — the rename note, the "Legacy alias" column, the
+    upgrade table — already names both, and that pairing is exactly what a reader needs in order to migrate.
+  - The pairs are parsed from `RENAMED_ENV_VARS` in the config loader rather than copied, because the next rename
+    is precisely when a hand-kept second list would be wrong.
+
 - **The media-embedding guide told you to set the deprecated env vars, and then told you they were deprecated
   eighty lines later.** Its "required services" list used `OLLAMA_URL`, `WHISPER_URL` and `WHISPER_MODEL`, so a
   reader following the setup instructions got a startup deprecation warning for doing exactly what the document

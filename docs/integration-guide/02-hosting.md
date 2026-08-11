@@ -420,7 +420,7 @@ broken, and nothing compared the two.
 | Slot | Slot key | Env | Sends | Guard | Acknowledgement |
 |---|---|---|---|---|---|
 | Embedding | `embedding` | `EMBEDDING_URL` | record + query text | yes, when the provider is `external` | — |
-| Vision (captions) | `vision` | `OLLAMA_URL` | uploaded images | yes, when the provider is `external` | — |
+| Vision (captions) | `vision` | `VISION_BASE_URL` | uploaded images | yes, when the provider is `external` | — |
 | Speech-to-text | `stt` | `STT_BASE_URL` | uploaded audio | yes, when the provider is `external` | — |
 | Reranker | `rerank` | `RERANK_URL` | the query **and** the passages it matched | yes, unless the URL is local | — |
 | Contradiction judge | `nli` | `NLI_URL` | pairs of stored records | yes, unless the URL is local | — |

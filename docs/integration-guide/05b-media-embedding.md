@@ -27,7 +27,7 @@ Required services (bundled by default; override only when you point at external 
 - **Ollama** (image captioning): `VISION_BASE_URL=http://ollama:11434` — deploy any vision-capable model, set via `VISION_MODEL` (default: `moondream`).
 - **faster-whisper-server** (audio/video STT): `STT_BASE_URL=http://whisper:8000` — set model via `STT_MODEL` (default: `base`).
 
-> The legacy names `OLLAMA_URL`, `WHISPER_URL` and `WHISPER_MODEL` still work and warn once at startup — see the rename note below.
+> The legacy names still work and warn once at startup: `OLLAMA_URL` → `VISION_BASE_URL`, `WHISPER_URL` → `STT_BASE_URL`, `WHISPER_MODEL` → `STT_MODEL`. The reasoning is in the rename note below.
 
 Kubernetes manifests are provided in `kubernetes/manifests/ollama-deploy.yaml` and `kubernetes/manifests/whisper-deploy.yaml`. Dual `NetworkPolicy` + `CiliumNetworkPolicy` resources are in `media-netpol.yaml` and `media-cilium-netpol.yaml`.
 
@@ -112,7 +112,7 @@ The worker-tuning fields — `workerConcurrency`, `workerPollIntervalMs`, `worke
 > **Renamed in 2.1: `OLLAMA_URL` → `VISION_BASE_URL`, `WHISPER_URL` → `STT_BASE_URL`, `WHISPER_MODEL` → `STT_MODEL`.**
 >
 > The old names described the implementation that happened to be first, not the field they configure.
-> `OLLAMA_URL` is the sharpest case: it sets `vision.baseUrl`, which is used **even when
+> `OLLAMA_URL` (now `VISION_BASE_URL`) is the sharpest case: it sets `vision.baseUrl`, which is used **even when
 > `visionProvider` is `external`** — so an operator running vLLM or llama.cpp had to set a variable named
 > after a product they were not running, assuming they found it at all. This is the same distinction the
 > provider switch already gets right: **the setting names a wire protocol, not a product.**

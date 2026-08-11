@@ -27,6 +27,7 @@ import { AuthService } from '../../core/auth.service';
 import { getTranslocoModule } from '../../testing/transloco-testing';
 import { BrainComponent } from './brain.component';
 import { COLLECTION_TABS } from './brain-tabs';
+import { SpaceSettingsState } from '../settings/space-settings-state.service';
 
 
 /** Read-only stub: brain's init cascade is listSpaces → getSpaceStats/getReindexStatus/getSpaceMeta. */
@@ -286,6 +287,76 @@ describe('BrainComponent (OnPush)', () => {
       c.setTab('graph');                       // opened by hand this time
       expect(c.graphFocusId()).toBeNull();
       expect(c.activeTab()).toBe('graph');
+    });
+  });
+
+  /**
+   * ── The space-settings cog ──────────────────────────────────────────────────────────────────────
+   *
+   * Reaching the space editor meant leaving the Brain for Settings → Spaces, finding the row, and coming
+   * back — three navigations to rename a space that was already on screen. The cog opens the same dialog
+   * on the space already selected here.
+   *
+   * Placement is the owner's call and is asserted rather than described: FAR RIGHT, after Files. It was
+   * first proposed beside Review and rejected for the reason these tests pin — it opens a modal, so it
+   * selects nothing, and sitting it among the tabs makes it read as a ninth destination.
+   */
+  describe('the space-settings cog', () => {
+    // The TAB strip, not the sidebar space chips — which also live in a .space-tabs container and whose
+    // last button is a space. That mistake made three of these pass for the wrong reason on first run.
+    const strip = (f: any) => f.nativeElement.querySelector('.tabs[role="tablist"]') as HTMLElement;
+
+    it('is the LAST control in the strip, after Files', () => {
+      const buttons = [...strip(create()).querySelectorAll('button')];
+      const last = buttons[buttons.length - 1];
+      expect(last?.classList.contains('tab-cog')).toBe(true);
+      // And Files is the one before it, which is what makes this an ordering assertion rather than a
+      // restatement of "there is a cog somewhere in the strip".
+      const prev = buttons[buttons.length - 2];
+      expect(prev?.textContent ?? '').toContain('files');
+    });
+
+    it('is not a tab: no role, no aria-selected, no label text', () => {
+      const cog = strip(create()).querySelector('.tab-cog');
+      expect(cog?.getAttribute('role')).toBeNull();
+      expect(cog?.getAttribute('aria-selected')).toBeNull();
+      // Icon only. A visible "Settings" word here competes with the instance-wide Settings page, which is
+      // a different scope — so the name lives in the accessible label rather than being dropped.
+      expect((cog?.textContent ?? '').trim()).toBe('');
+      expect(cog?.getAttribute('aria-label')).toBeTruthy();
+      expect(cog?.getAttribute('title')).toBeTruthy();
+    });
+
+    it('opens the dialog on the space already selected, with no extra request', () => {
+      const f = create();
+      const state = f.debugElement.injector.get(SpaceSettingsState);
+      expect(state.settingsSpace()).toBeNull();
+
+      f.componentInstance.openSpaceSettings();
+      // The id matters more than the object: opening the dialog on a DIFFERENT space than the one the
+      // sidebar shows selected is exactly the failure this cog exists to avoid.
+      expect(state.settingsSpace()?.id).toBe('work');
+    });
+
+    it('is disabled while no space is selected', () => {
+      const f = create();
+      f.componentInstance.activeSpaceId.set('');
+      f.detectChanges();
+      expect(strip(f).querySelector('.tab-cog')?.hasAttribute('disabled')).toBe(true);
+    });
+
+    it('a saved space patches the sidebar row and KEEPS its stats', () => {
+      // The reason the host listens at all: the dialog patches its own SpacesStore, and the instance here
+      // is a separate empty one. Refetching instead would drop the per-space stats, which cost a request
+      // each — so the record is merged and the stats left alone. A label edit changes no count.
+      const c = create().componentInstance;
+      const before = c.spaces().find((sv: any) => sv.space.id === 'work');
+      expect(before?.stats).toBeTruthy();
+
+      c.onSpaceSaved({ ...before!.space, label: 'Renamed' });
+      const after = c.spaces().find((sv: any) => sv.space.id === 'work');
+      expect(after?.space.label).toBe('Renamed');
+      expect(after?.stats).toEqual(before?.stats);
     });
   });
 });

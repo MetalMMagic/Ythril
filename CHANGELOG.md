@@ -6,6 +6,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- **A cog at the far right of the Brain's tab strip opens the settings for the space you are already in.**
+  Same editor as **Settings → Spaces** — Settings, Schema, Duplicates, Danger Zone — over the page you were
+  reading, so closing it returns you to the tab you were on.
+  - Renaming a space you were working in previously meant leaving the Brain, finding the row in the admin
+    table, and navigating back: three moves to edit something already on screen.
+  - Deliberately **not** a ninth tab, and deliberately icon-only. It opens a modal, so it selects nothing —
+    among the tabs it would read as another destination and leave the strip looking wrong when the dialog
+    closed. A visible "Settings" label would also compete with the instance-wide Settings page, which is a
+    different scope; the name lives in the accessible label and the tooltip instead.
+  - Greyed out until a space is selected, rather than opening an empty dialog.
+  - The dialog's code is fetched **when the cog is pressed**, not with the page. Loading it eagerly pulled the
+    schema editor, duplicate rules and danger zone into the app's heaviest route — and moved shared code out
+    of the `spaces-component` chunk, which took that chunk off the bundle-budget list entirely.
+  - A save made here patches the space chip behind the dialog. It keeps the per-space record counts already
+    loaded rather than refetching the list, since a label or quota edit changes no count.
+  - **The admin list at Settings → Spaces is unchanged** and remains where spaces are created, reordered and
+    compared, with its own per-row cog.
+
 ### Fixed
 - **A token you read back could not be written back: `PATCH /api/tokens/:id` refused ten of the twelve fields
   `GET /api/tokens` emits.** Read a token, change its name, send it back, and the answer was

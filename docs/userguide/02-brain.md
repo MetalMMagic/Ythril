@@ -12,6 +12,14 @@ The Brain is where all your knowledge lives. It has eight tabs: **Overview**, **
 
 At the top of the page a row of **space chips** lets you switch space; each chip shows the space's total record count. The tab buttons themselves carry small count badges for the collection they open.
 
+At the **far right of the tab strip**, past Files, a **cog** opens the settings for the space you are already
+looking at — the same editor as **Settings → Spaces**, with its Settings, Schema, Duplicates and Danger Zone
+tabs. It is not a ninth tab: it opens a dialog over the page, so nothing you were reading is lost, and closing
+it returns you to the tab you were on. The cog is greyed out until a space is selected.
+
+The admin list at **Settings → Spaces** is unchanged and remains the place to create, reorder and compare
+spaces; the cog is the shortcut for the one you are working in.
+
 If the search index needs rebuilding (for example after the embedding model changes), a banner appears reading *"Embeddings are stale — the embedding model has changed and this space needs reindexing."* Click **Reindex now** to rebuild it.
 
 > **Reindex and rebuild are different repairs.** *Reindex* re-embeds your content against the current model. It does **not** help when the search index itself is missing or broken — the symptom there is search quietly returning nothing at all, with no error. That one needs **Rebuild search indexes** on the space's **Danger** tab (see below).

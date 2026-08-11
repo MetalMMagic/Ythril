@@ -6,6 +6,10 @@
 
 ## Settings — Spaces
 
+> **Editing one space you are already in?** The Brain has a **cog at the far right of its tab strip** that
+> opens this same editor for the selected space, without leaving the page. Use the list below to create,
+> reorder or compare spaces.
+
 Open **Settings → Spaces** to manage all spaces on this instance. A summary above the list shows the total number of spaces, the storage in use across all of them, and how many are still building (or have failed to build) their search index. If a space's index is still preparing, its row is flagged so you know recall may be incomplete for it.
 
 ### Creating a space

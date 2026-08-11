@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { registerReembedRoute } from './spaces-reembed.js';
+import { registerActivityResetRoute } from './spaces-activity.js';
 import path from 'path';
 import { requireAuth, requireAdmin, requireAdminMfa, requireAdminMfaScoped } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
@@ -346,6 +347,7 @@ spacesRouter.post('/:id/rebuild-indexes', globalRateLimit, requireAdminMfaScoped
 });
 
 registerReembedRoute(spacesRouter);
+registerActivityResetRoute(spacesRouter);
 
 // PATCH /api/spaces/:id/rename
 spacesRouter.patch('/:id/rename', globalRateLimit, requireAdminMfaScoped('id'), async (req, res) => {

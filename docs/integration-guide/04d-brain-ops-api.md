@@ -191,6 +191,37 @@ discovering this by trying.
 > or if the database search process was not ready when the instance started. Reindexing every record
 > in the space will not create it. Use the rebuild endpoint below.
 
+### Reset a space's recorded usage
+
+```http
+POST /api/spaces/:spaceId/activity/reset
+```
+
+Deletes the hourly usage buckets behind the Overview **usage** panel for this space. Admin + MFA, scoped to the
+space — clearing a usage record changes no memory, entity, edge or file, so it is an administrative act on the
+space's own bookkeeping rather than a knowledge write, and it sits with the other destructive space operations.
+
+**Response** `200`:
+
+```json
+{ "ok": true, "spaceId": "general", "cleared": 412 }
+```
+
+`cleared` is how many hourly buckets were removed. It is in the response because afterwards the panel reads zero
+either way, and nothing on screen distinguishes a reset from a space that was genuinely idle. Audited as
+`space.activity.reset` for the same reason — so that answer survives the request.
+
+In-memory counters are flushed first. Without that, up to a minute of already-counted traffic would land in
+Mongo moments later and the panel would appear to un-reset itself.
+
+**Irreversible.** The buckets are deleted, not hidden. Note that usage is *already* transient — buckets carry a
+90-day TTL — so this brings forward a deletion the store would have done anyway rather than destroying a
+permanent record.
+
+Returns `404` if no space has that id.
+
+---
+
 ### Rebuild search indexes
 
 ```http

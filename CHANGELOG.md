@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Fixed
+- **An entity merge left every FILE linked to the absorbed entity pointing at a record it had just deleted.**
+  Third finding of the Data Integrity & Correctness audit lens.
+  - A file metadata record is a knowledge-graph document like any other and carries `entityIds` — that is how a
+    file is linked to an entity, and `assertRefsResolve` enforces at write time that every id in it names a real
+    entity. The merge relinked edges, memories and chrono, and never opened the files collection.
+  - So merging B into A rewrote three collections and left the fourth pointing at B, which the merge's own last
+    phase then deleted. **The merge path broke the invariant the write path enforces.**
+  - **Every direction that could have noticed was looking elsewhere.** The ER model counts `linkedFrom.files` as
+    a first-class relationship, so the number was simply wrong rather than obviously broken. `danglingEdges` in
+    that same model counts dangling *edges* and never looks at files. `strictLinkage` blocks deleting an entity
+    with inbound backlinks — and a merge deletes the absorbed entity directly, so it never passes that guard. A
+    traversal from the file came back empty, which reads as "nothing linked" rather than as a broken link.
+  - The relink bumps `seq` like the others, so the correction replicates instead of being undone by the next
+    pull from a peer, and dedupes — a file linked to *both* entities would otherwise hold the survivor twice.
+  - The new gate **derives** the record kinds from `config/types.ts` rather than listing collection names: every
+    interface declaring an `entityIds` field must have its collection relinked by the merge. A future record
+    type with entity links fails the gate by name instead of quietly repeating this.
 - **`POST /api/spaces/:id/reembed` could not converge, and a page of suppressed records blocked every embeddable
   record behind it — permanently.** Second finding of the Data Integrity & Correctness audit lens.
   - A suppressed record matches the candidate query *"has no vector"* **by construction**: suppression is what

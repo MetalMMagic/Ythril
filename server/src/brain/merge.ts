@@ -18,7 +18,7 @@ import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
 import { mergeTags } from './merge-fields.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
-import type { EntityDoc, EdgeDoc, MemoryDoc, ChronoEntry, TombstoneDoc, SpaceMeta, PropertySchema } from '../config/types.js';
+import type { EntityDoc, EdgeDoc, MemoryDoc, ChronoEntry, FileMetaDoc, TombstoneDoc, SpaceMeta, PropertySchema } from '../config/types.js';
 
 // ── Public types ───────────────────────────────────────────────────────────
 
@@ -426,6 +426,39 @@ export async function executeMerge(
         await chronoColl.updateOne(
           asFilter<ChronoEntry>({ _id: ch._id }),
           asUpdate<ChronoEntry>({ $set: { entityIds: dedupedIds, updatedAt: now, seq: chSeq } }),
+          { session },
+        );
+      }
+
+      // ── 3b. Relink FILE metadata records ───────────────────────────────
+      //
+      // A file record is a knowledge-graph document like the others and carries `entityIds` — that is how a
+      // file is linked to an entity, and `assertRefsResolve` enforces at write time that every id in it names
+      // a real entity.
+      //
+      // This phase was missing. Edges, memories and chrono were relinked and files were not, so a merge left
+      // every file whose `entityIds` held the absorbed id pointing at an entity that phase 5 then DELETED.
+      // The merge path broke the invariant the write path enforces.
+      //
+      // It was invisible from every direction: the ER model counts `linkedFrom.files` as a first-class
+      // relationship, so the number was simply wrong; `danglingEdges` in that same model counts dangling
+      // EDGES and never looked at files; `strictLinkage` blocks deleting an entity that still has inbound
+      // backlinks, and a merge deletes the absorbed entity directly rather than passing that guard. A
+      // traversal from the file came back empty, which reads as "nothing linked" rather than as a broken link.
+      const fileColl = col<FileMetaDoc>(`${spaceId}_files`);
+      const affectedFiles = await fileColl
+        .find(asFilter<FileMetaDoc>({ spaceId, entityIds: absorbed._id }), { session })
+        .toArray() as FileMetaDoc[];
+      for (const f of affectedFiles) {
+        // `?? []` because `entityIds` is OPTIONAL on a file record, unlike memories and chrono where it is
+        // required. The filter above only matches files that hold the id, so the fallback never fires in
+        // practice — but the map has to be total over the type rather than rely on that.
+        const newEntityIds = (f.entityIds ?? []).map(id => id === absorbed._id ? survivor._id : id);
+        const dedupedIds = [...new Set(newEntityIds)];
+        const fSeq = await nextSeq(spaceId);
+        await fileColl.updateOne(
+          asFilter<FileMetaDoc>({ _id: f._id }),
+          asUpdate<FileMetaDoc>({ $set: { entityIds: dedupedIds, updatedAt: now, seq: fSeq } }),
           { session },
         );
       }

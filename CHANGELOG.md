@@ -6,22 +6,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
-### Fixed
-- **Fourteen documented navigation paths named a label the sidebar does not say.** A wrong menu path is the most
-  concrete documentation defect there is — the reader is looking at the screen while they read it, and the word is
-  not there.
-  - **Three routes are labelled differently from their name**, which accounts for seven of them:
-    `/settings/storage` reads **Metrics**, `/settings/audit-log` reads **Logs**, `/settings/data` reads
-    **Database**. The docs said Storage, Audit Log and Data.
-  - **Two were not Settings pages at all**: Conflicts is a **Workspace** item, and Files is a Brain tab.
-  - **Two named a card rather than a nav entry** — the per-space Danger Zone and the Document extraction picker
-    are both reached through **Settings → Spaces**, and the paths now say so.
-  - **One described a page that no longer exists.** The global Duplicates page became per-space; it is now named
-    by the route it used to answer on (which still redirects), because a nav label describes what is on screen.
-  - **Two were someone else's Settings.** The MCP guides walk a reader through claude.ai's connector setup; those
-    paths are now rooted in the product, which is clearer for a reader and takes them out of scope for a check
-    that can only know our own sidebar.
-
 ### Added
 - **A gate: `Settings → X` in the docs must name something the sidebar actually says.** The nav is parsed out of
   `shell.component.ts` and the labels resolved through `en.json`, so no hand-kept copy exists to go stale —
@@ -38,19 +22,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     included. The offender list alone looked like a documentation catastrophe; the assertions that the parse
     finds Tokens and resolves Metrics/Logs/Database are what said otherwise.
 
-### Fixed
-
-- **The egress matrix named the deprecated variable for the vision slot, one row above the current one for
-  speech-to-text.** `02-hosting.md`'s table gave `OLLAMA_URL` for vision and `STT_BASE_URL` for STT — two
-  spellings of the same 2.1 decision, one table apart. An operator reading it to find which variable controls
-  vision egress got the name that warns at startup.
-  - Swept for the rest rather than fixing the reported one: three more in the media-embedding guide's setup list
-    (already fixed), and the rename note's own example now names both spellings.
-  - **Our own deployment artifacts are clean** — `docker-compose.yml` and the Kubernetes manifests mention the
-    legacy names only in comments explaining why they are deliberately *not* set. Checked rather than assumed;
-    a `git grep -l` matched both files and the hits turned out to be those comments.
-
-### Added
 - **A gate: a renamed env var may appear in the docs, but never on its own.** A legacy name is only allowed on a
   line that also names its replacement.
   - **Two existing gates were right and still missed this.** `egress-matrix` asserts every documented env var is
@@ -72,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     both work. The claim that was wrong was about *which one to use*.
   - Checked the neighbouring default claims at the same time — `moondream`, `base`, `human-models`,
     `confidenceThreshold: 0.6`, `dupeMergeSurvivor: older`, `enforceForBrowser: false` all match the loader.
+
 - **Two identifiers in the contribution guide named nothing.** Both were in the migration-strategy section — the
   one a contributor reads to decide how to write a migration.
   - `sizeFileBytes` should be **`sizeBytes`**, and it was the *worked example* of the self-healing rule, so it is
@@ -80,7 +52,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Found by the new gate below rather than by reading, which is the point: `plannedRoute` was found by reading,
     and reading does not scale to 44 documents.
 
-### Added
 - **A gate: a backticked camelCase identifier in the docs must exist somewhere in the repository.** `plannedRoute`
   was documented as a response field for thirteen releases after the feature was removed. Nothing failed — no test
   names a field that does not exist, and prose is not compiled.
@@ -94,6 +65,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **It excludes its own file, and that was a real bug.** The header names `sizeFileBytes` and `ensureIndex` while
     explaining they were wrong, so with itself in the haystack the gate passed *on the comment describing the bug
     it exists to catch*. Verified by re-introducing the wrong name and watching it stay green.
+
 - **A gate: no shipped document over 900 lines.** Splitting the five oversized guides fixed the instances; it did
   not fix the mechanism, which is that a document grows one paragraph at a time and no single commit ever looks
   like the one that made it unreadable.
@@ -108,160 +80,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     tooling, plus adding the parts to `HELP_DOCS`, linking them from the index, and re-pointing every gate that
     pins a path or anchor into a moved section.
 
-### Changed
-- **The use-case catalogue is three chapters instead of one 1,038-line file, and it finally has a table of
-  contents.** 27 numbered examples and one appendix, each 25–58 lines, with no way to see what was in the file
-  short of scrolling all of it — which is a large part of why 1,038 lines of catalogue was hard to use.
-  - `01-sharing-and-distribution.md` (278, examples 1–9), `02-operations-research-and-agents.md` (217, 10–16),
-    `03-proxy-multi-space-and-personal.md` (548, 17–27 plus the Entity Merge appendix).
-  - **Split by contiguous range, not by theme.** The numbers are the reader's handle on an example, so
-    regrouping thematically would have renumbered all 27 to gain nothing the new contents page cannot give.
-  - The contents page is generated from the headings each chapter actually ended up with, and the splitter
-    refuses unless the chapters carry exactly 28 entries — a contents page that silently lost one is worse than
-    none, because the reader concludes the example does not exist.
-  - `split-guide-indexes` now covers three front doors. The two table-of-contents guides share a loop, since a
-    third hand-written copy of the same six assertions is where duplication stops being cheaper than a table;
-    the integration guide keeps its own stricter block, because merging all three would have meant loosening
-    its "each part linked exactly once, in numbered order" to whatever the other two also satisfy.
-
-### Changed
-- **The Files API reference is four files instead of one 1,130-line file.** `05-files-api.md` (214) keeps the file
-  operations — upload, chunked upload, download, directory, move, delete — and the three pipelines a file can go
-  through are their own parts: `05a-conversion-pipeline.md` (598), `05b-media-embedding.md` (202),
-  `05c-face-recognition.md` (125).
-  - Those three are read by different people for different reasons: an operator sizing a document converter, an
-    integrator wiring vision/STT providers, and whoever is deciding whether face recognition may be switched on at
-    all. Previously all three sat below 200 lines of upload endpoints, and the conversion pipeline alone was 595 of
-    the file's 1,130 lines.
-  - The two inbound links that crossed a boundary — `#document-processing-configuration` from Hosting and
-    `#configuration` from the recall docs — now name the part that holds them. Both were found by grep rather than
-    by memory, because the file holding the second one was being split in a sibling branch at the same time.
-  - `nli-wrong-shaped-head` pins the `mediaEmbedding.nli.model` row by path and now reads `05b-media-embedding.md`.
-    That row is the one that says a 2-class head fails silently, so a path resolving to a file without it is the
-    failure the gate exists to prevent.
-
-### Changed
-- **The Spaces API reference is three files instead of one 1,248-line file.** `06-spaces-api.md` (500) keeps the
-  space endpoints; `06a-schema-api.md` (348) holds the type-definition endpoints and the schema specification, which
-  is what an integrator reads while writing a `typeSchemas` block; `06b-schema-library-api.md` (406) holds the
-  instance-wide library, a separate feature that happens to reuse the same shape.
-  - The two links that crossed the new boundaries — `#schema-validation` from the space `meta` table, and
-    `#re-embed-backfill` from the `suppressEmbeddings` row — now name the part that holds them, as does the one
-    inbound link from the Brain API's bulk-write section.
-  - `documented-interfaces-match-code` pins the `TypeSchema` and `PropertySchema` blocks by path and now reads
-    `06a-schema-api.md`. That gate exists because those blocks listed three of the real fields, so a path silently
-    resolving to a file without them is precisely the failure it was written to prevent.
-  - Same line-range split, asserted range starts, conserved total and prose-line comparison as the two before it.
-
-### Changed
-- **The Brain API reference is five files instead of one 2,037-line file.** It was the largest document in the
-  repository and roughly twice the next; a reader looking for chrono scrolled past recall, and the canary's vector
-  store held it as two chunks, from which nothing specific could be retrieved.
-  - `04-brain-api.md` (681) keeps the memory endpoints and the rules that apply to **every** record type — retry
-    safety, TTL, sorting, freetext search, PATCH merge semantics, `If-Match`, `deleteFields`. The four new parts are
-    the resource families: `04a-recall-api.md` (529), `04b-graph-api.md` (418), `04c-chrono-api.md` (105),
-    `04d-brain-ops-api.md` (317).
-  - **`Sorting` and `Freetext search` moved out of `List Entities`.** Both are stated to apply to every brain list
-    endpoint and were linked from the chrono and file-metadata tables, so they were cross-cutting rules filed under
-    one resource. Their anchors are unchanged, so every existing link still resolves.
-  - Every part is a whole numbered entry's worth of the index, the Help page renders all five as one continuous
-    chapter as before, and the two links from other guides that pointed into a moved section (`#reindex-space`,
-    `#prefiltered-recall-filter-parameter`) now name the part that holds it.
-  - **The split was performed by line range and checked by conserved total, not by hand.** 1,535 prose lines before,
-    1,535 after, compared as a multiset with the comparison mutation-tested against a deliberately deleted line —
-    because the previous split of this guide is what left the defect below.
-
-### Fixed
-- **The Brain API reference documented a capability that does not exist.** `plannedRoute` was removed from the
-  product in 2.0.0, and the removal left the tail of its explanation behind: a paragraph beginning mid-word
-  (*"ation naming the missing capability"*) followed by a rule about when the field is attached. It has shipped in
-  every release since — thirteen of them.
-  - It matters more than a typo because the canary reads our documentation **into** Ythril: a paragraph describing a
-    field no endpoint returns becomes a confidently retrieved false fact, which is the same failure mode that
-    produced `doc-links-resolve`.
-
-### Changed
-- **The user guide is six chapters instead of one 1,300-line file**, with `docs/userguide.md` kept as its table
-  of contents. Every existing link to it still lands somewhere sensible, and the Help page renders the chapters as
-  one continuous guide exactly as before.
-  - `01-getting-started` (59), `02-brain` (292), `03-files-and-schemas` (168), `04-settings` (361),
-    `05-storage-data-and-audit` (271), `06-connecting-an-ai-assistant` (143).
-  - **Two sections moved to where they belong.** *Brain — Review tab* was filed between Audit Log and Webhooks,
-    two thirds of the guide away from *Brain*; Webhooks and About sat after it. Both are anchor-stable, so grouping
-    them cost nothing.
-  - **The 37 anchor links were re-pointed by derivation, not by hand.** The headings of each chapter are read back
-    and every link is rewritten to whichever chapter actually contains its target — hand-mapping 37 anchors across
-    six files is how one ends up in the wrong chapter with nothing to complain about it.
-  - Same conserved-total check as the Brain API split: no prose line disappeared, and the comparison normalises
-    heading depth and link targets on both sides so it asks only whether a sentence is still in the documentation.
-
-### Fixed
-- **Four gates read a split guide's index and would have concluded the guide says nothing.** `doc-cited-constants`
-  looked for the offsite-backup retention figure — the exact drift (#489) that gate exists for — in what is now a
-  table of contents; `help-anchor-coverage` looked for every per-page help anchor there; `hybrid-retrieval` looked
-  for the plain-English ranking sentence.
-  - Fixed at the root: **a split is now detected, not listed.** `docs/x.md` with a sibling `docs/x/` directory is
-    that guide's index, and the guide is its parts. Naming `integration-guide` literally is what turned this split
-    into a hunt for callers, and the next split needs no edit.
-  - The one place that deliberately still names files is `recall-include-content-both-surfaces`: it compares the
-    REST doc against `16-mcp.md`, which is *itself* a part of the integration guide, so resolving both sides
-    through the helper would make them the same string and the check vacuous.
-  - `integration-guide-index.test.js` is now `split-guide-indexes.test.js` and covers both front doors. The two
-    guides' indexes are checked separately rather than merged: the integration guide links each part exactly once
-    in numbered order, while the user guide's contents page points several anchors into each chapter — merging them
-    would have meant loosening the stricter assertion to whatever both satisfy.
-
-### Added
-- **The semantic-search advanced panel now reaches every fillable recall field.** `maxPerType`,
-  `includeFreshWrites` and `includeContent` had no control — they could only be set by hand-writing a request.
-  - **The gap was three fields, not six.** Scoped first from the template and the API, which suggested `tags`,
-    `minPerType` and `filter` were missing too; reading `runRecall()` showed it already builds and sends all three.
-    A finding is a suspicion until a count comes out of the code.
-  - Each field is **omitted unless it says something**: `maxPerType: 0` means "no cap" and must not be sent as a
-    literal zero, which would cap every type at nothing; `includeFreshWrites` is sent only when true, since the route
-    rejects a non-boolean rather than coercing; `includeContent` is sent only when an operator has turned it off.
-  - `includeContent` defaults to on, because sending `false` makes recall look as though it has stopped returning
-    passages rather than as though a filter is active.
-
-### Changed
-- **Five more data-table cells use `<app-timestamp>`** — the chrono Starts/Ends/Created columns, the edges Created
-  column, and the file-manager Modified column. Each gains the local time with seconds; two of them showed no time at
-  all before.
-  - **The date format is pinned to `dd.MM.yyyy`, not taken from the browser.** The instruction was to render the local
-    *time* — the zone. Taking the viewer's locale for the date too would make the field order vary by browser
-    (`15.01.2026` here, `01/15/2026` there) for the same row on the same instance, which would undo the point of a
-    scannable column. The zone is the viewer's; the format is fixed.
-  - The chrono Ends column loses its `? … : '—'` ternary: the component renders its own dash, and a second copy of
-    that decision is one more place for the two to disagree about what "no timestamp" looks like.
-  - 16 usages remain, and they are deliberately **not** all in scope: the rest are inline in sentences, in detail
-    drawers, or inside a `title` attribute, where a two-line stack would break the line.
-
-### Added
-- **`<app-timestamp>` — one absolute-time treatment for data tables:** the date on one line, the local time with
-  **seconds** below it. Nothing uses it yet; the 23 call sites follow.
-  - Replaces five different formats measured across the client (`dd.MM.yyyy HH:mm` ×11, `yyyy-MM-dd HH:mm:ss` ×5,
-    `dd.MM.yyyy` ×4, `dd.MM.yy` ×2, `mediumDate` ×1), so it is a drift fix as much as a feature.
-  - **Rendering only — storage stays UTC.** The `datetime` attribute carries the original UTC ISO string, so anything
-    reading the DOM gets UTC rather than a localised string.
-  - It exposes `sortKey()` in epoch-ms, because sorting the rendered text is the specific way this goes wrong:
-    `01.02.2026` sorts before `02.01.2025` as a string, and that ordering looks plausible enough to survive review.
-  - 24-hour clock pinned regardless of locale — left to the locale, one row reads `11:59:03 PM` and the next
-    `23:59:03`, and a column mixing both cannot be scanned.
-  - Absent values render a dash, not an empty cell, and an unparseable value renders the dash rather than
-    `Invalid Date`.
-  - **First two tables converted:** the Memories and Entities `Created` columns, which showed `dd.MM.yyyy` and no time
-    at all. 21 usages remain.
-
-### Changed
-- **A schema-library entry refusing `retention` now explains why.** `.strict()` alone answered
-  `Unrecognized key(s) in object: 'retention'`, which tells a direct API caller that a field valid on an inline type
-  schema is invalid here and nothing about the reason — inviting them to report it as a bug.
-  - The refusal itself is unchanged and deliberate: one library entry is referenced by any number of spaces, and a
-    delete window belongs to a type *in* a space rather than to the shape. The message now says that, and names both
-    ways out (resolve the `$ref` to an inline definition, or use the space-wide `recordTtlDays`).
-  - `.strict()` still handles everything else, so an ordinary typo keeps the generic answer.
-
-### Added
 - **A proxy space can now be granted to a scoped token — it becomes a lens over what that token may already see.**
   `enforceSpaceScope` and the MCP guard accept a proxy when the token reaches **at least one** member instead of
   requiring every member, and the read paths serve only the members it reaches.
@@ -278,94 +96,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The legacy allowlist branch now tests `spaces === undefined` rather than truthiness: under the old rule an empty
     allowlist passed, and under the new one it must refuse.
 
-### Changed
-- **Every proxy read fan-out is now narrowed to what the caller may see — all 29 sites.** The last one was
-  `resolveFindSimilarScope` in `mcp/tools/search.ts`, which takes the resolver as a **parameter**, so this was a
-  one-line call-site change rather than the signature rewrite the plan predicted.
-  - The inventory gate now asserts `PENDING` is empty, so a new un-narrowed fan-out fails twice over.
-  - **Still no behaviour change.** The three guards continue to require a token to reach every member of a proxy,
-    which is what has made the whole sweep a provable no-op. Flipping them to accept a non-empty intersection is the
-    single remaining change — now a small diff against fully-narrowed read paths rather than a leap of faith.
-
-### Changed
-- **The remaining MCP proxy fan-outs narrow to what the connection may see** — `mcp/tools/spaces.ts` (3),
-  `file.ts` (2), `edge.ts` and `chrono.ts`. **One site left of 29:** the by-reference pass in `mcp/tools/search.ts`.
-  - `accessibleSpaceIds` was already on the tool `ctx` and only `chrono.ts` ever destructured it — so the narrowed
-    list was there the whole time and the other tools simply did not ask for it. Since #786 it comes from the rights
-    matrix, so intersecting with it gives the answer the HTTP side gets without threading rights into every tool.
-  - Still a provable no-op: the guards continue to require a token to reach every member.
-
-### Fixed
-- **The proxy fan-out sweep was blind to a by-reference pass, and did not strip comments.** Two defects in the gate
-  itself, found while converting `mcp/tools/search.ts`.
-  - `resolveFindSimilarScope(..., resolveMemberSpaces)` hands the resolver to a helper that expands a proxy inside it.
-    The sweep matched only `resolveMemberSpaces(` — so **the indirection that makes a fan-out hardest to follow was
-    exactly what it could not see.** Found by accident: removing the import for a conversion broke the build on a line
-    the gate had never counted.
-  - Widening it then reported a by-reference fan-out in a file that had none, because it was matching the name inside
-    a **comment**. Comments are stripped now — the standing rule that prose describing a thing must not satisfy a
-    check for the thing.
-  - **The true total is 29, not 28.** Raised rather than left, because a conserved total that conserves the wrong
-    number is worse than none. The original figure was an undercount produced by a call-only sweep.
-
-### Fixed
-- **MCP decided which spaces a token could see from the legacy `spaces` allowlist, while the HTTP guard used the
-  per-space rights matrix.** MCP now consults `reachesSpace` too, at both transports.
-  - **Not exploitable today, and that is worth stating plainly:** the migration derives `rights` *from* `spaces`, and a
-    test proves the two agree across 50 comparisons. Every config-loaded token got the same answer from both surfaces.
-  - The defect is that they can now **diverge**. A token edited directly through the rights-matrix editor has a
-    `spaces` array that no longer describes it, and MCP was still reading the array — so this was not "MCP is more
-    permissive", it was "MCP is answering from stale data", with no fixed direction of error.
-  - The legacy branch survives for records with no rights: OIDC tokens are built per request and the config backfill
-    never sees them, so removing it would refuse every OIDC caller rather than tighten anything.
-  - **It also unblocks Q-6's MCP half**, which cannot narrow a proxy to a token's reachable members while the surface
-    has no access to the rights that define them.
-
-### Changed
-- **`locateForUpdate`'s first parameter is now called `writeTarget`, not `spaceId`** — a rename with a point. All four
-  callers pass `wt.target` from `resolveWriteTarget`, which is always a real space: a non-proxy resolves to itself, and
-  a proxy demands an explicit `targetSpace` that must be one of its members, and members cannot be proxies. So its
-  member loop is provably single-element.
-  - It read as a proxy fan-out during the Q-6 sweep purely because of the name, and was queued as a site to narrow.
-    There is nothing to narrow — the caller already chose one space. **A misnamed parameter gets classified by its
-    name rather than by what reaches it.**
-  - The loop stays rather than becoming a direct lookup: it is what lets `load` return nothing, and collapsing it
-    would be a behaviour bet on the reasoning above rather than a description of it.
-  - The inventory now tracks a **reclassified** count instead of quietly lowering its total from 28. A conserved total
-    that can be satisfied by deleting something is not conserved.
-
-### Fixed
-- **The proxy fan-out inventory had three GUARD sites misclassified as read fan-outs.** A guard decides whether a
-  caller may use a proxy at all; it must **not** be narrowed — narrowing one would check the caller against a list
-  already filtered by that same caller, a tautology that always passes. It flips once, at the end.
-  - They looked like fan-outs because the argument is the request's space, exactly as every fan-out's is. Found by
-    reading them, not by their shape.
-  - Left uncorrected, *"PENDING is empty"* would have been the wrong definition of done: waiting to narrow three
-    sites that should be flipped, and flipping nothing.
-  - The conserved total now reads **16 narrowed + 3 guards + 9 pending = 28**.
-
-### Changed
-- **Internal: nine more proxy fan-outs narrowed to the members the caller may see** — `api/spaces.ts` (4),
-  `api/brain/file-meta.ts` (3), `api/brain/entities.ts` and `api/files.ts`. Every HTTP-side fan-out with a request in
-  scope is now converted: **16 narrowed, 12 pending**, and the gate's conserved total still reads 28.
-  - Still a **provable no-op**: the guard requires a token to reach every member, so the narrowed list equals the
-    full one for any caller that gets this far.
-  - What remains is the work that needs more than a mechanical swap — `brain/write-validation.ts` is a shared helper
-    whose signature has to change, and the MCP tools carry a call context rather than a request.
-
-### Changed
-- **Internal: recall's seven proxy fan-outs now narrow to the members the caller may see.** `api/brain/search.ts`
-  calls `memberSpacesForRequest` instead of `resolveMemberSpaces` — recall, stats, activity, traverse, the ER model,
-  reindex and reindex-status.
-  - **A provable no-op today.** `enforceSpaceScope` still requires a token to reach every member, so any caller that
-    gets this far already reaches all of them and the narrowed list equals the full one. Converting first and
-    flipping the guard afterwards is what makes the expensive half verifiable.
-  - The reverse order would be a leak: flip the guard first and every un-narrowed site serves records from spaces the
-    caller cannot see, with a well-formed `200`.
-  - The inventory gate now holds a **conserved total** — narrowed plus pending must equal 28 — so a conversion has to
-    move a site rather than drop it, and a half-converted file fails outright.
-
-### Added
 - **A gate over every proxy fan-out, so Q-6's second half cannot miss one.** `resolveMemberSpaces` expands a proxy
   into its members and the read paths fan out over the result; once a token that reaches only *some* members may use
   a proxy, every one of those must narrow. A missed one hands the caller records from a space it cannot see, with a
@@ -378,7 +108,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     lines, and it missed two files entirely because the shell output behind it had been truncated.
   - Mutation-tested: a new fan-out is caught both in a file already listed and in one that is not.
 
-### Added
 - **Internal: the rule for narrowing a proxy space to the members a token may see.** Nothing consults it yet — the
   guard change and the read-path narrowing must land together, and this is the rule on its own.
   - Asked for by aigents with probes: today a proxy space cannot be granted to a non-admin token at all, because
@@ -392,150 +121,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **An empty proxy is refused, not answered with an empty body** — a caller cannot tell that from a space they
     are not allowed to see into.
 
-### Fixed
-- **Every checkbox and radio in the app rendered the browser's default blue instead of the accent.** `--accent` is
-  lime; the platform default is blue, and nothing set `accent-color` globally.
-  - The graph toolbar had already fixed it **locally**, for its own toggles only — so the product had two answers to
-    "what colour is a ticked box", and the wrong one was the default everywhere else: settings, space dialogs,
-    network wizards, the schema editor.
-  - Checkboxes are deliberately NOT in the shared text-input selector list, and should not be: they take neither
-    height nor padding the way a text input does. What they needed was the one property that list cannot give them.
-  - **Found by screenshot**, which is the third time on this file. The comment above the input rule records the same
-    lesson and says the drift sweep missed its case because the tool and the CSS shared one blind spot — a sweep
-    enumerating `input[type="text"]` cannot report a checkbox it never looks at.
-
-### Changed
-- **The network types moved out of `config/types.ts`** into `config/types-networks.ts` — `NetworkType`,
-  `SyncDirection`, `VoteValue`, `VoteRoundType`, `NetworkMember`, `VoteCast`, `VoteRound`, `NetworkConfig`.
-  Re-exported, so **no importer changes and no behaviour change**. Ratchet lowered 645 → 578.
-  - Completes the Q-3 split: **677 → 645 → 578** across two slices. The gate's own comment said a fifth raise of
-    this file should be a split instead, and this is the second half of it.
-  - **This is the move that failed the first time.** `NetworkConfig` references `SpaceMeta`, so before the
-    knowledge-schema leaf existed it created a module cycle and TypeScript degraded `NetworkConfig` to `any` — a
-    caller losing its types while every file in the diff compiled clean. It imports `SpaceMeta` from the leaf now.
-  - Verified with `grep -c "TS7006"` on a full build (0), not on a green compile of the moved files.
-
-### Added
-- **The space-wide `suppressEmbeddings` toggle, in the space Danger Zone** — completing the feature. Alongside it,
-  the backfill from #776 is now a button rather than API-only.
-  - **The no-backfill warning shows while the box is ticked**, not after saving. The consequence an operator needs
-    is that records written from now on have no vector, and saying so afterwards says it too late.
-  - **Per-type overrides are listed read-only**, the same way retention lists them: an operator setting a
-    space-wide switch needs to know which types ignore it, or they tick the box and wonder why one type is still
-    being embedded. Only types that STATE a value are listed — a type that says nothing inherits.
-  - **Backfill is disabled while suppression is on**, with the reason shown. The server would skip every candidate
-    and report zero; a button that runs and does nothing is worse than one that says why it cannot.
-  - The result reports `enqueued`, and `remaining` when the sweep was capped, rather than just "started".
-
-### Added
-- **`POST /api/spaces/:id/reembed` — the way back from `suppressEmbeddings`.** Queues an embedding job for every
-  record in a space that has no vector. Owner: *"there should be a way to backfill"*.
-  - **A record still suppressed at any tier is skipped**, using the same resolver the write path uses, so a
-    backfill cannot re-index what an operator asked to keep out of recall. Running it while suppression is on is
-    not an error — every candidate comes back under `skippedSuppressed`, which says the setting is still on.
-  - **It queues rather than embeds.** A large space would time out mid-way through inline work with no record of
-    where it stopped. Idempotent per record, so a repeated call converges.
-  - **Nothing is truncated silently:** `remaining` is counted over the space rather than the page, and
-    `truncated` says a further call is needed.
-  - Filters on `embedding: {$exists: false}`, not `null` — suppression `$unset`s the field, and a `null` filter
-    would match nothing and report a clean sweep over an entirely unindexed space.
-
-### Fixed
-- **A comment promised a repair mechanism that had never been built.** `enqueueEmbedJob` swallows its error
-  rather than failing the caller's write, justified by "the periodic backfill sweep will find it" — **there was
-  no such sweep**. A swallowed enqueue meant a record silently missing from recall forever, with no error, no
-  metric and nothing to grep for. The repair now exists, and the comment states that it is on demand rather than
-  periodic, because "it will be picked up" and "an operator can pick it up" are different promises.
-
-- **`suppressEmbeddings` — skip embedding records that are state rather than prose.** Now wired end to end, on
-  three tiers resolving **record > schema > space**, the same order `retention` uses.
-  - `TypeSchema.suppressEmbeddings` suppresses one type; `SpaceMeta.suppressEmbeddings` suppresses a whole space.
-    Accepted on `PATCH /api/spaces/:id` and on schema-library entries, and documented in the Spaces API guide.
-  - **Absent means NOT STATED and falls through** — it does not mean `false`. Otherwise the space-wide setting
-    would do nothing for any type that had a schema at all, which is every type worth suppressing.
-  - **Suppression UNSETS a stale vector** rather than only declining to write a new one. Leaving the old vector
-    would keep the record findable by exactly the mechanism the flag exists to switch off.
-  - **A file has no type, so it skips the schema tier** — narrowed rather than cast, because a cast would index
-    `typeSchemas` with `'file'` and miss every time while looking wired.
-  - **Switching it back off does not backfill, and the docs say so plainly.** Records written while it was on
-    have no vector and nothing revisits them; re-saving a record re-embeds that record.
-  - Still to come: the space-wide toggle in the Danger Zone UI. The API is complete without it.
-
-### Fixed
-- **A Mongo boot race could still kill a container at startup**, one layer later than the ECONNRESET case fixed
-  earlier: `MongoServerError: interrupted at shutdown`, thrown mid-SCRAM because the replica-set entrypoint
-  restarts mongod after initiation. The healthcheck has already passed, so whichever instance loses the race dies
-  and it reads as a flake.
-  - The retry allowlist keyed on the error **name**, and `MongoServerError` is excluded on purpose — bad
-    credentials carry that name. So the name bounds the *class* of failure and says nothing about its
-    *transience*. Now narrowed by the server error **code** for that one name: 11600, 91, 11602, 189, 13436.
-  - `AuthenticationFailed` (18) still fails immediately, and an unrecognised name with a transient code is still
-    rejected — widening by code alone would re-admit everything the allowlist exists to reject.
-
-### Changed
-- **Internal: the knowledge-schema vocabulary moved out of `config/types.ts`** into `config/types-knowledge.ts` —
-  merge functions, `PropertySchema`, `TypeSchema`, `ValidationMode`, `KnowledgeType` and `SpaceMeta`. Re-exported,
-  so **no importer changes and no behaviour change**.
-  - `config/types.ts` had taken **four** god-file ratchet raises in two days, each individually correct. The gate's
-    own comment said a fifth should be a split instead. Ratchet lowered 677 → 645.
-  - **The new file is a leaf that imports nothing**, and that is the load-bearing part. The first attempt moved the
-    *network* types out instead; `NetworkConfig` references `SpaceMeta`, so re-exporting created a module cycle and
-    TypeScript degraded `NetworkConfig` to `any` — `api/invite.ts` silently lost the types on three callbacks while
-    both moved files compiled clean. A leaf cannot be half of a cycle.
-  - Per-type schema fields now grow here, which is what unblocks the pending `suppressEmbeddings` field.
-
-### Added
-- **Dev tooling: `npm run loop:check`** — decides whether the standing dev-loop may stop, from repo state
-  rather than from judgement. A turn may only end with something in flight (an open PR, so "Running" names a
-  number) or with the queue drained (the release boundary). Otherwise it refuses and prints the next row.
-  - Turned into a gate because the rule was broken five times in one session while being perfectly clear.
-    Every other rule here with that history became a gate — the god-file ratchet, the reachability check,
-    `todo:check`, the audit-route allowlist.
-  - **A tracker edit does not count as work in progress**, which is the specific failure it catches: a reply
-    whose newest work is bookkeeping, with nothing running and no PR open.
-  - Not wired into preflight — preflight guards a *push*, and this guards a *turn ending*.
-- **Internal: the `suppressEmbeddings` tier resolver.** Nothing consults it yet; the schema field, the
-  space-wide setting and the wiring into `embedStoredRecord` follow.
-  - Asked for by an operator with records that are **state rather than prose**: a queue row whose name and
-    description never change, whose weight is PATCHed every tick, and which nobody will ever search for by
-    meaning. Each write re-embedded byte-identical text ~4,800 times a day to produce a vector that already
-    existed.
-  - Resolves **record > schema > space**, matching `retention` exactly rather than inventing an order. Two
-    tiered settings that resolve differently is the kind of thing nobody discovers until it is wrong.
-  - **"Not stated" falls through; it is not `false`.** If an absent schema flag read as "do not suppress",
-    the space-wide switch would do nothing for any type that had a schema at all — which is every type worth
-    suppressing.
-  - **An edge finds its schema by `label`, not `type`.** `EdgeDoc` carries both, so reading `type` finds a
-    schema that is never there and looks like it worked — suppression would silently never apply to edges,
-    the record kind this was explicitly widened to cover.
-
-### Added
-- **An existing token's rights can be edited from the tokens list.** A pencil beside the glyph opens the
-  matrix; saving sends it to `PATCH /api/tokens/:id`, where the server caps it and refuses a self floor-raise.
-  - **The server's refusals are shown verbatim.** Two guards can reject the save and they are different
-    problems: the cap names every level that was over the line, and the floor guard names the areas that
-    would have gone up. A generic "could not save" would leave the operator guessing between *I asked for too
-    much* and *I am not allowed to do this to myself*, which have different next steps.
-  - **The draft starts from what the token already has.** Starting empty would make every save a silent
-    narrowing of everything the operator did not happen to re-enter.
-  - The glyph stays a display and the pencil is the way in. Making the glyph itself clickable would turn an
-    information element secretly interactive — on a page about credentials, that is how somebody opens an
-    editor by accident.
-
-### Changed
-- **Internal: the create-token dialog is its own component.** No behaviour change — the same request body,
-  the same fields, the same flow.
-  - `tokens.component.ts` had crossed the god-file ceiling at 676 code lines and was frozen with a note
-    saying the number should go **down**. It is 502 now, under the ceiling, and the dialog it lost is 207.
-  - **It stays on the frozen list on purpose.** An entry there is a ratchet; removing it would hand the file
-    back the 148 lines of headroom the extraction just removed.
-  - **The nine characterization tests were written and proven green BEFORE the move**, against the
-    pre-extraction code. The refactor changed the host they reach for and **not one assertion**. That was the
-    point of writing them first: the move is judged by them rather than by reading the diff.
-  - One harness became two, because the pills belong to the table and the create fields to the dialog. A
-    single harness serving both was only possible while they shared a file.
-
-### Added
 - **A token can be created with the per-space rights matrix from the UI.** The create dialog offers it behind
   a switch; the four areas, the all-spaces floor, and one row per space.
   - **It is a switch, not an extra panel.** The matrix and the legacy permission/space controls are mutually
@@ -551,7 +136,85 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     read" cannot be expressed. Clicking the rung you are on steps down one — a control that can only climb
     reads as resisting being narrowed.
 
-### Added
+- **`PATCH /api/tokens/:id` can now edit a token's rights matrix — and a token cannot raise its own floor.**
+  The last of the two enforcement rules the approved design said must live in the API rather than the UI.
+  - **The same cap as minting applies**, from the same function. A second implementation here is how the two
+    would come to disagree about what "above" means.
+  - **A token may not raise its OWN floor.** The mint cap stops handing more than you hold to a *new* token;
+    without this the same escalation is available by a shorter route — edit yourself, then use yourself — and
+    nothing about the result looks unusual afterwards.
+  - **Lowering your own floor is always allowed.** Refusing it would mean a token cannot reduce its own blast
+    radius, which is the one self-modification worth encouraging.
+  - Compared **per area**, not as one unit: a raise on `schema` must not pass because `knowledge` went down
+    in the same edit, and gaining a floor from none is the widest version of the move rather than an
+    exemption from it.
+  - `name` is now optional on that route and an empty body is a `400` rather than a silent no-op reported as
+    success.
+
+- **Internal: the route inventory can now answer "what rung does this request need".** Nothing calls it yet;
+  the guard still checks reach only.
+  - A miss returns `null`, and **`null` means refuse, never "no requirement"**. An unclassified route is one
+    nobody decided about, and defaulting it to permissive reproduces exactly the situation this feature
+    exists to end — access that works because nothing said otherwise. The build-time gate makes a miss
+    unreachable in practice; the lookup assumes it happens anyway.
+  - Keyed by method **and** path: `GET`, `POST` and `DELETE` on the same collection are three different
+    permissions, and a path-only lookup would call them one.
+  - Carries the scope shape through, because Data quality's routes take no space and iterate the token's
+    reachable ones — a caller that ignored it would gate the call instead of the loop, leaving that column
+    decorative.
+
+- **Internal: the rights-based space-reach check, proved equivalent to the legacy allowlist.** The guard
+  still uses the old rule; nothing about access changes.
+  - Swapping `enforceSpaceScope` from `record.spaces` to the rights matrix is the one change in this feature
+    where a mistake is **silent widening** — a token reaching a space it never could, with no error, nothing
+    in the response and nothing in the logs. The token works and looks configured.
+  - So the replacement lands first as a pure function beside a test that compares it against a written-out
+    statement of the legacy rule, across every token shape and on listed, unlisted and not-yet-created
+    spaces. **If that test cannot be made green, the switch is not ready** — which is the point of writing it
+    before the switch rather than after.
+  - Deliberately space-level, not area-level. Area granularity comes from the route inventory and is a later
+    step: wiring both at once means a defect in either reads as a defect in the other.
+
+- **Internal: the mint cap — a minted token can never exceed the token that minted it.** Nothing calls it
+  yet; rights are not settable on mint.
+  - Minting is delegated in the approved design: a space admin may issue tokens for their own spaces.
+    Uncapped that is an escalation ladder — mint a token holding more than you do, then authenticate as it —
+    and nothing about the result looks wrong afterwards.
+  - **It refuses rather than silently trimming.** A quietly narrowed token works, looks configured, and is
+    not what the operator asked for; they find out when something they granted does not work, with the grid
+    saying one thing and the behaviour another. The refusal names every excess at once so one edit fixes it.
+  - Two comparisons that are easy to get subtly wrong, both pinned: the minter's reach in a space is its
+    floor **or** its row, whichever is higher; and a **floor may only come from a floor**, never from a row,
+    because a floor reaches spaces that do not exist yet and a row does not.
+
+- **Internal: every space-scoped route is now classified into an area, and a gate fails the build on one
+  that is not.** Groundwork for the per-space rights matrix; no behaviour changes yet.
+  - The matrix can only govern routes it knows about. An unclassified route does not warn — it keeps working
+    at whatever access the old model gave it while the UI shows a column implying otherwise.
+  - **The enumeration immediately found what hand-writing the list had missed:** every COLLECTION-level
+    delete (`DELETE` on `memories`, `entities`, `edges`, `chrono` and `files` — each empties a whole record
+    type in a space), plus the conflict deletes and a test-seed route. The most destructive endpoints in the
+    area were the ones absent from the first draft.
+  - It also caught two routes that were listed with a method they do not have, which would have produced
+    rules guarding nothing.
+  - **Two enforcement shapes, not one.** Most routes take the space from the path. All of Data quality takes
+    no space at all — `duplicates`, `contradictions` and `conflicts` walk every space the token can reach and
+    resolve the space from the record. For those the enforcement point is the ITERATION SET, not the call, so
+    each entry records which shape it is. A guard written only for the path shape would have left that column
+    decorative.
+
+- **An existing token's rights can be edited from the tokens list.** A pencil beside the glyph opens the
+  matrix; saving sends it to `PATCH /api/tokens/:id`, where the server caps it and refuses a self floor-raise.
+  - **The server's refusals are shown verbatim.** Two guards can reject the save and they are different
+    problems: the cap names every level that was over the line, and the floor guard names the areas that
+    would have gone up. A generic "could not save" would leave the operator guessing between *I asked for too
+    much* and *I am not allowed to do this to myself*, which have different next steps.
+  - **The draft starts from what the token already has.** Starting empty would make every save a silent
+    narrowing of everything the operator did not happen to re-enter.
+  - The glyph stays a display and the pencil is the way in. Making the glyph itself clickable would turn an
+    information element secretly interactive — on a page about credentials, that is how somebody opens an
+    editor by accident.
+
 - **The tokens list shows what each token can reach.** One bar per area, height for the ceiling and a red
   line for the floor, beside the existing badges.
   - A single label was what the old model could say, and it is exactly what this replaces: "read-write"
@@ -570,76 +233,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The component reads the wire shape defensively: a missing area is `none` rather than a crash. A glyph
     that throws takes the whole token list with it, and the list is where somebody is auditing access.
 
-### Added
-- **`PATCH /api/tokens/:id` can now edit a token's rights matrix — and a token cannot raise its own floor.**
-  The last of the two enforcement rules the approved design said must live in the API rather than the UI.
-  - **The same cap as minting applies**, from the same function. A second implementation here is how the two
-    would come to disagree about what "above" means.
-  - **A token may not raise its OWN floor.** The mint cap stops handing more than you hold to a *new* token;
-    without this the same escalation is available by a shorter route — edit yourself, then use yourself — and
-    nothing about the result looks unusual afterwards.
-  - **Lowering your own floor is always allowed.** Refusing it would mean a token cannot reduce its own blast
-    radius, which is the one self-modification worth encouraging.
-  - Compared **per area**, not as one unit: a raise on `schema` must not pass because `knowledge` went down
-    in the same edit, and gaining a floor from none is the widest version of the move rather than an
-    exemption from it.
-  - `name` is now optional on that route and an empty body is a `400` rather than a silent no-op reported as
-    success.
-
-### Fixed
-- **The same empty-allowlist bug existed in `contradictions` and `conflicts` too — three copies, not one.**
-  Both carried a byte-identical filter reading `tokenSpaces.length === 0` as "unrestricted", and both are
-  converted to the shared one. Fixing the reported copy and stopping is how it survived in the other two, so
-  the gate now asserts across all three routers rather than the file that was reported.
-  - Their mutating routes — resolve, dismiss, reopen, scan, bulk-resolve — require `write` on the area
-    rather than `read`, chosen per route from its HTTP method rather than assumed.
-
-- **An EMPTY token space-allowlist granted access to EVERY space on the duplicates routes.** Those routes
-  take no space in the path — they walk every space the token can reach — and their filter read
-  `tokenSpaces.length === 0` as "unrestricted". An absent allowlist does mean every space; an empty one means
-  none, and they are opposite.
-  - So anything holding `spaces: []` was handed the whole instance, in the one place nobody would look for
-    it, because the routes name no space at all. A schema-library token stores exactly that value.
-  - The same conflation is the trap `migrateToken` avoids by checking `undefined` rather than length. This
-    removes the second copy rather than fixing it twice.
-
-### Changed
-- **The data-quality routes now filter their iteration set from the rights matrix.** Their loop is the
-  enforcement point: refusing the call would block a token that legitimately reaches some of the spaces
-  behind it, and an unfiltered loop leaves the Data quality column decorative.
-  - Mutating routes — dismiss, reopen, scan — require `write` on the area rather than `read`. Filtering them
-    at read would let a read-only token act on every space it can see.
-  - `/scan` intersects before acting: it triggers automerge and notification, and a filter applied afterwards
-    is a log entry rather than a guard.
-
-### Changed
-- **The space guard now checks the AREA and LEVEL a request needs, not only whether the token reaches the
-  space.** This is the change that makes the rights columns bite.
-  - **Staged deliberately.** A route the inventory cannot resolve at runtime falls through to the reach check
-    with a warning naming the key that missed. So this layer can only ever be **stricter** than before, never
-    looser — there is no input for which it grants something reach denied.
-  - Turning those misses into refusals is the follow-up, once the warning has shown the log is clean. Doing
-    it now would `403` real traffic on any route whose key was reconstructed wrongly, and there is no runtime
-    evidence either way yet.
-  - **Iterating routes are not gated on the call.** Data quality's endpoints take no space and walk the
-    token's reachable ones; refusing the call would block a token that legitimately reaches some of the
-    spaces behind it. Their loop is the enforcement point and is a separate step.
-  - Refusals name the area and the level. "Forbidden" across four areas and four levels is unactionable.
-
-### Added
-- **Internal: the route inventory can now answer "what rung does this request need".** Nothing calls it yet;
-  the guard still checks reach only.
-  - A miss returns `null`, and **`null` means refuse, never "no requirement"**. An unclassified route is one
-    nobody decided about, and defaulting it to permissive reproduces exactly the situation this feature
-    exists to end — access that works because nothing said otherwise. The build-time gate makes a miss
-    unreachable in practice; the lookup assumes it happens anyway.
-  - Keyed by method **and** path: `GET`, `POST` and `DELETE` on the same collection are three different
-    permissions, and a path-only lookup would call them one.
-  - Carries the scope shape through, because Data quality's routes take no space and iterate the token's
-    reachable ones — a caller that ignored it would gate the call instead of the loop, leaving that column
-    decorative.
-
-### Added
 - **`POST /api/tokens` accepts a `rights` matrix, capped at the minter's own.** The first point where the
   per-space rights model is settable rather than only derived.
   - **A token can never mint above itself.** Enforced on the endpoint, not only in the UI: the grid is one
@@ -653,47 +246,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - When the minting token carries no matrix — OIDC records never pass through the load-time backfill — its
     matrix is derived from the same legacy fields rather than treated as unrestricted.
 
-### Changed
-- **The space guard now decides access from the rights matrix instead of the `spaces` allowlist.** Access is
-  unchanged: the rights are derived from `spaces`/`admin`/`readOnly` at config load, and the two predicates
-  are proved equivalent for every token shape on listed, unlisted and not-yet-created spaces.
-  - This is the first change in the rights work that alters how a decision is MADE rather than only adding
-    machinery. It went last on purpose, behind the proof, because its failure mode is a token reaching a
-    space it never could — with no error, nothing in the response and nothing in the logs.
-  - **The legacy branch survives, and is not decoration.** OIDC-derived tokens are built per request rather
-    than read from config, so the load-time backfill never sees them and they carry no rights. Without the
-    fallback the guard would refuse every OIDC caller — a lockout, not a widening, but one that would reach
-    production because no unit test stands up an OIDC session.
-  - The proxy rule is untouched: a proxy space still requires access to **every** member, never any one of
-    them.
-
-### Added
-- **Internal: the rights-based space-reach check, proved equivalent to the legacy allowlist.** The guard
-  still uses the old rule; nothing about access changes.
-  - Swapping `enforceSpaceScope` from `record.spaces` to the rights matrix is the one change in this feature
-    where a mistake is **silent widening** — a token reaching a space it never could, with no error, nothing
-    in the response and nothing in the logs. The token works and looks configured.
-  - So the replacement lands first as a pure function beside a test that compares it against a written-out
-    statement of the legacy rule, across every token shape and on listed, unlisted and not-yet-created
-    spaces. **If that test cannot be made green, the switch is not ready** — which is the point of writing it
-    before the switch rather than after.
-  - Deliberately space-level, not area-level. Area granularity comes from the route inventory and is a later
-    step: wiring both at once means a defect in either reads as a defect in the other.
-
-### Added
-- **Internal: the mint cap — a minted token can never exceed the token that minted it.** Nothing calls it
-  yet; rights are not settable on mint.
-  - Minting is delegated in the approved design: a space admin may issue tokens for their own spaces.
-    Uncapped that is an escalation ladder — mint a token holding more than you do, then authenticate as it —
-    and nothing about the result looks wrong afterwards.
-  - **It refuses rather than silently trimming.** A quietly narrowed token works, looks configured, and is
-    not what the operator asked for; they find out when something they granted does not work, with the grid
-    saying one thing and the behaviour another. The refusal names every excess at once so one edit fixes it.
-  - Two comparisons that are easy to get subtly wrong, both pinned: the minter's reach in a space is its
-    floor **or** its row, whichever is higher; and a **floor may only come from a floor**, never from a row,
-    because a floor reaches spaces that do not exist yet and a row does not.
-
-### Added
 - **Internal: every token now carries a derived per-space rights object.** Computed at config load from the
   existing `admin` / `readOnly` / `spaces` fields. **Enforcement still reads the legacy fields** — nothing
   about access changes.
@@ -705,21 +257,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     silently revert an operator's change back to whatever the legacy fields imply — and those fields will
     still be sitting there.
 
-### Changed
-- **Storage is a section of the Usage card again, not a card of its own** (owner, 2026-08-09: *"i wanted
-  storage to be a section in the usage card and not one card for one number"*).
-  - It was briefly nested there, then split out because the Usage panel only rendered once activity data
-    arrived — so storage vanished on a space nobody had called yet, exactly the space where a filling disk is
-    least expected. Splitting it worked around that and was the wrong fix: it made a card for one number.
-  - The real fix is the one that should have been made first: **the Usage section is unconditional, and only
-    the activity block inside it is gated.** Its loading state is a skeleton in the body rather than a
-    placeholder replacing the whole card, so the card never appears or disappears.
-- **The Data model panel and the Graph tab no longer share an icon.** The panel showed the node-graph icon,
-  which made it read as a small copy of the Graph tab. The tab takes `graph` (it was binoculars) and the
-  panel takes `stack` — the icon its own record-type tiles already used. Not `database`: the Indexing panel
-  owns that, and swapping one collision for another is not a fix.
-
-### Added
 - **Internal: network memberships now record which token established them.** `NetworkConfig.spaceOrigins`
   maps `spaceId` -> token id. Nothing consumes it yet; no behaviour changes.
   - Needed for the Networks column's admin rung: a token at `out` may leave a network it joined itself, but
@@ -752,23 +289,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     can only speak about shapes somebody thought of. The widening detector is itself mutation-checked — a
     predicate that always returns false would look identical to a clean run.
 
-- **Internal: every space-scoped route is now classified into an area, and a gate fails the build on one
-  that is not.** Groundwork for the per-space rights matrix; no behaviour changes yet.
-  - The matrix can only govern routes it knows about. An unclassified route does not warn — it keeps working
-    at whatever access the old model gave it while the UI shows a column implying otherwise.
-  - **The enumeration immediately found what hand-writing the list had missed:** every COLLECTION-level
-    delete (`DELETE` on `memories`, `entities`, `edges`, `chrono` and `files` — each empties a whole record
-    type in a space), plus the conflict deletes and a test-seed route. The most destructive endpoints in the
-    area were the ones absent from the first draft.
-  - It also caught two routes that were listed with a method they do not have, which would have produced
-    rules guarding nothing.
-  - **Two enforcement shapes, not one.** Most routes take the space from the path. All of Data quality takes
-    no space at all — `duplicates`, `contradictions` and `conflicts` walk every space the token can reach and
-    resolve the space from the record. For those the enforcement point is the ITERATION SET, not the call, so
-    each entry records which shape it is. A guard written only for the path shape would have left that column
-    decorative.
-
-### Added
 - **A space can now be created at a face descriptor width other than 128.** `POST /api/spaces` accepts
   `faceDescriptorDims` (64–4096, default 128), and the space's face index is built at that width.
   - **Why it exists:** every top-tier open face recogniser emits 512 dimensions — ArcFace, AdaFace, FaceNet,
@@ -785,150 +305,76 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Absent means the built-in default and is **stored as absent**, so an existing space and a new
     default-width one are the same shape on disk — a stored `128` would read as a choice nobody made.
 
-### Changed
-- **The face descriptor width is now read from each space's own index instead of a built-in constant.**
-  Groundwork for making the width configurable, and the half that has to land first.
-  - The number that has to agree was never "what does this instance prefer" — it is "what are this space's
-    stored vectors, and what is its index expecting". Those two were created together at `initSpace`, so
-    reading the index makes a space **self-consistent by construction**: a gallery built at 128 keeps
-    rejecting 512-wide descriptors even after the configured default changes, because its stored vectors are
-    still 128 wide. That is the correct answer, not a limitation.
-  - One `listSearchIndexes` round trip per space, cached for the process — face embedding runs per image in
-    a background job, so an uncached read would sit in front of every one. A space whose index cannot be
-    read right now falls back to the built-in default and is **deliberately not cached**: pinning a guess
-    for the life of the process would be wrong for exactly the spaces this exists to serve.
-  - The per-face-chunk `sizeBytes` follows the same width, so a record's reported size matches the vector it
-    actually holds.
-  - **Not yet configurable.** Every space is still created at 128; what changed is that nothing downstream
-    assumes it. The setting that lets a space be created at another width is the next step.
+- **The space-wide `suppressEmbeddings` toggle, in the space Danger Zone** — completing the feature. Alongside it,
+  the backfill from #776 is now a button rather than API-only.
+  - **The no-backfill warning shows while the box is ticked**, not after saving. The consequence an operator needs
+    is that records written from now on have no vector, and saying so afterwards says it too late.
+  - **Per-type overrides are listed read-only**, the same way retention lists them: an operator setting a
+    space-wide switch needs to know which types ignore it, or they tick the box and wonder why one type is still
+    being embedded. Only types that STATE a value are listed — a type that says nothing inherits.
+  - **Backfill is disabled while suppression is on**, with the reason shown. The server would skip every candidate
+    and report zero; a button that runs and does nothing is worse than one that says why it cannot.
+  - The result reports `enqueued`, and `remaining` when the sweep was capped, rather than just "started".
 
-### Fixed
-- **`POST /api/tokens` accepted a mis-spelled scope field and minted an UNSCOPED token, reporting success.**
-  `allowedSpaces`, `scope`, `spaceIds` and `denySpaces` were all taken with a **201** and silently dropped;
-  only `spaces` was ever real. The caller was told the operation worked, their own records said the token was
-  restricted, and it could reach every space on the instance. Nothing in the response, the stored token or
-  the logs distinguished it from a correctly scoped mint.
-  - Reported by an operator who probed four plausible spellings, got 201 from each, and only found it by
-    reading the stored token back and noticing four of five probes had no `spaces` field at all.
-  - Both token bodies are now strict: an unknown key is a **400** naming it. `PATCH /api/tokens/:id` had the
-    same shape with a sharper edge — it accepts a rename only, so `spaces` or `admin` sent beside the name
-    was dropped and answered **200**, which is what an attempt to widen a token through the rename endpoint
-    looked like.
-  - **If you were relying on one of those key names, your token is not scoped.** Re-check any token minted
-    with a field other than `spaces`; it has instance-wide access. The 400 now tells you at the first
-    request instead of the fifth.
-  - **Posting a token you read back still works.** `id`, `hash` and `prefix` are fields the server emits, so
-    they are stripped rather than refused — the same strip-then-be-strict shape `PATCH /api/spaces/:id`
-    already uses for its server-owned `meta` fields. Strictness alone would have turned a round-trip into a
-    400.
+- **`POST /api/spaces/:id/reembed` — the way back from `suppressEmbeddings`.** Queues an embedding job for every
+  record in a space that has no vector. Owner: *"there should be a way to backfill"*.
+  - **A record still suppressed at any tier is skipped**, using the same resolver the write path uses, so a
+    backfill cannot re-index what an operator asked to keep out of recall. Running it while suppression is on is
+    not an error — every candidate comes back under `skippedSuppressed`, which says the setting is still on.
+  - **It queues rather than embeds.** A large space would time out mid-way through inline work with no record of
+    where it stopped. Idempotent per record, so a repeated call converges.
+  - **Nothing is truncated silently:** `remaining` is counted over the space rather than the page, and
+    `truncated` says a further call is needed.
+  - Filters on `embedding: {$exists: false}`, not `null` — suppression `$unset`s the field, and a `null` filter
+    would match nothing and report a clean sweep over an entirely unindexed space.
 
-### Changed
-- **The space Overview drops the Statistics strip and the Instance card** (owner decision, 2026-08-08).
-  - The **Statistics** strip showed record counts per type and a total. The Data model diagram above it
-    already shows those counts *and* how the types relate, so the strip was the diagram's data with the
-    structure removed — and its per-type tab shortcuts live on the diagram now.
-  - Its **storage bar survived** as its own small card. The diagram says nothing about disk, and storage is
-    the one number here that can stop a space working. It renders unconditionally: an intermediate version
-    nested it inside the usage card, which made it vanish on a space nobody had called yet — exactly the
-    space where a full disk is least expected. A test pins that.
-  - The **Instance** card is gone. Instance label, version, ID, uptime and MongoDB version are properties of
-    the instance, not of the space being looked at, and all of them are already on the **About** page. A
-    space overview that answers "which build am I on?" invites the reader to think it is saying something
-    about that space.
-  - **Usage** is now a normal card rather than a full-width one, leaving the diagram as the only panel wide
-    enough to earn the full row.
+- **Internal: the `suppressEmbeddings` tier resolver.** Nothing consults it yet; the schema field, the
+  space-wide setting and the wiring into `embedStoredRecord` follow.
+  - Asked for by an operator with records that are **state rather than prose**: a queue row whose name and
+    description never change, whose weight is PATCHed every tick, and which nobody will ever search for by
+    meaning. Each write re-embedded byte-identical text ~4,800 times a day to produce a vector that already
+    existed.
+  - Resolves **record > schema > space**, matching `retention` exactly rather than inventing an order. Two
+    tiered settings that resolve differently is the kind of thing nobody discovers until it is wrong.
+  - **"Not stated" falls through; it is not `false`.** If an absent schema flag read as "do not suppress",
+    the space-wide switch would do nothing for any type that had a schema at all — which is every type worth
+    suppressing.
+  - **An edge finds its schema by `label`, not `type`.** `EdgeDoc` carries both, so reading `type` finds a
+    schema that is never there and looks like it worked — suppression would silently never apply to edges,
+    the record kind this was explicitly widened to cover.
 
-### Fixed
-- **The face gallery's vector index can no longer be silently re-dimensioned.** A change to the face
-  descriptor width was treated like any other index definition change and rebuilt the index — in place, or
-  by drop-and-recreate.
-  - For a text index that is correct: the records are re-embedded and the vectors catch up. **The face
-    gallery has no such path.** Its vectors live on already-stored face-chunk records and nothing re-derives
-    them, so a rebuild would leave 128-wide vectors indexed as if they were 512-wide — every similarity
-    score wrong, and **no error reported anywhere**.
-  - Ythril now refuses the width change, keeps the existing width, and logs both numbers with what to do
-    about it. Moving a populated gallery to a new width means re-embedding its faces first; that is a
-    decision about the data, not a config edit.
-  - A refused width change still lets a **filter-field** change through, at the existing width — freezing
-    the index against legitimate edits would break filtered recall for the space.
-  - Text indexes are deliberately unaffected. The asymmetry is the point: if every index refused, an
-    embedding-model change could never be applied.
+- **`<app-timestamp>` — one absolute-time treatment for data tables:** the date on one line, the local time with
+  **seconds** below it. Nothing uses it yet; the 23 call sites follow.
+  - Replaces five different formats measured across the client (`dd.MM.yyyy HH:mm` ×11, `yyyy-MM-dd HH:mm:ss` ×5,
+    `dd.MM.yyyy` ×4, `dd.MM.yy` ×2, `mediumDate` ×1), so it is a drift fix as much as a feature.
+  - **Rendering only — storage stays UTC.** The `datetime` attribute carries the original UTC ISO string, so anything
+    reading the DOM gets UTC rather than a localised string.
+  - It exposes `sortKey()` in epoch-ms, because sorting the rendered text is the specific way this goes wrong:
+    `01.02.2026` sorts before `02.01.2025` as a string, and that ordering looks plausible enough to survive review.
+  - 24-hour clock pinned regardless of locale — left to the locale, one row reads `11:59:03 PM` and the next
+    `23:59:03`, and a column mixing both cannot be scanned.
+  - Absent values render a dash, not an empty cell, and an unparseable value renders the dash rather than
+    `Invalid Date`.
+  - **First two tables converted:** the Memories and Entities `Created` columns, which showed `dd.MM.yyyy` and no time
+    at all. 21 usages remain.
 
-### Changed
-- **BREAKING for operators using an external face model: the in-process fallback is now OFF by default.**
-  When a configured and consented external face provider fails, Ythril no longer embeds the image with the
-  bundled model. It skips the image, logs once, and lets the media job retry.
-  - **Why the old behaviour was worse than a failure.** Both embedders emit the same descriptor width, so a
-    fallback wrote a *different embedder's* vectors into the same gallery and nothing could tell. The vectors
-    were the right shape and the wrong vector space; every similarity score computed against them was wrong,
-    silently and permanently. A skipped image is recoverable — a poisoned gallery entry is not.
-  - **If you do not use an external provider, nothing changes.** In-process is your only path, not a
-    fallback, and it keeps running exactly as before. The switch is gated on an external provider being
-    configured AND consented, specifically so a single-model install cannot lose face recognition to it.
-  - To keep the old behaviour, set `mediaEmbedding.faceRecognition.externalModel.allowInProcessFallback` to
-    `true`. The flag is read as a strict boolean, so a `"false"` string in a hand-edited config stays off.
-  - **What you will see if this bites you:** faces stop being added to the gallery while the provider is
-    down, and a single warning names the reason. Previously you would have seen nothing at all, and the
-    gallery would have been quietly accumulating incomparable vectors.
-  - **Two log lines changed text.** Both provider-failure warnings ended in *"falling back to in-process
-    recognition"*, which is now the opposite of what happens on a default configuration. They end in
-    *"no descriptors from this provider"* and no longer claim to know what happens next — that is the
-    caller's decision. If you alert on the old string, re-point it.
+- **The semantic-search advanced panel now reaches every fillable recall field.** `maxPerType`,
+  `includeFreshWrites` and `includeContent` had no control — they could only be set by hand-writing a request.
+  - **The gap was three fields, not six.** Scoped first from the template and the API, which suggested `tags`,
+    `minPerType` and `filter` were missing too; reading `runRecall()` showed it already builds and sends all three.
+    A finding is a suspicion until a count comes out of the code.
+  - Each field is **omitted unless it says something**: `maxPerType: 0` means "no cap" and must not be sent as a
+    literal zero, which would cap every type at nothing; `includeFreshWrites` is sent only when true, since the route
+    rejects a non-boolean rather than coercing; `includeContent` is sent only when an operator has turned it off.
+  - `includeContent` defaults to on, because sending `false` makes recall look as though it has stopped returning
+    passages rather than as though a filter is active.
 
-### Fixed
-- **The face vector index and the embedders now share one width.** The number was written three times — in
-  the index built at `initSpace`, and in each of the two embedding paths. They MUST agree: an index built at
-  one width with vectors written at another gives a cosine search that ranks nothing correctly **and reports
-  no error at all**. One constant now, gated so it stays one — see the entry below for the copy this first
-  pass left behind, which is why the gate now discovers the paths rather than naming them.
-  - This is the groundwork for making the width configurable, which an operator has asked for because every
-    top-tier open face recogniser emits 512 dimensions while the contract admits only 128 — so the hook that
-    exists for bringing a better model currently accepts only models in the bundled one's weight class.
-    Asking that question in three places would have been the problem; there is one place now.
-  - The remaining `128`s in comments claimed FaceRes emits that width. It emits 1024, and the library reduces
-    it. Corrected where they sat.
-
-
-- **A changed face-descriptor width would have skipped every face in silence.** Both embedding paths
-  compared `embedding.length !== 128` and moved on — no error, no log, no counter — so the symptom would
-  have read as "this image has no faces" or "the provider is broken", never as the actual cause.
-  - **The actual cause it was guarding against is closer than it looks.** Our docs said in five places that
-    FaceRes produces a 128-dimensional descriptor. It does not: `faceres.json` declares its output as
-    `[1, 1024]`, and `@vladmandic/human` reduces it to 128 in library code. **The width the whole face
-    gallery is built on is a property of a dependency's post-processing, not of the weights we ship** — so a
-    library upgrade could change the vector space of every future embedding. Reported by an operator
-    standing up a centralised face service, and confirmed here.
-  - The skip still happens, because one odd descriptor must not fail a whole media job. What changed is that
-    the first one says so, naming the width it got and which path produced it — once per process, because a
-    changed library means every face is wrong and a per-face log would bury the message.
-  - The literal `128` becomes one shared constant. An operator has asked for the width to become configurable;
-    this is the single place that question now gets asked. **Only the external path was actually converted —
-    the entry below finishes it.**
-  - The docs no longer claim the model emits 128. They say where the number actually comes from.
-
-
-- **The in-process face path kept skipping wrong-width descriptors in silence.** The change above was
-  believed to cover both embedding paths, and said so. It covered one. The in-process path — the one that
-  runs on every default install, because the external provider is opt-in — kept its own
-  `embedding.length !== 128` and kept dropping faces with no error, no log and no counter. It now goes
-  through the same guard, so the first unexpected width is reported and names which path produced it.
-  - Two comments still told operators that FaceRes emits a 128-wide descriptor. It emits 1024 and the
-    library reduces it; a reader trusting those comments would look for a width change in the wrong place.
-  - **Nothing disagreed with the incomplete fix**, which is the part worth recording. The file's own
-    documentation said both paths were converted, and the test asserting it read a single file — it stated a
-    two-path property while checking one, so it went green on exactly the half that was done. The
-    replacement discovers every face-vector writer from `git ls-files` and requires each to consult the
-    guard, so a path that is added or missed fails rather than going unmentioned.
-
-
-### Fixed
-
-### Added
 - **The Brain remembers which space and tab you were on, in the URL.** `?space=` and `?tab=` are read on
   load and `?tab=` is written as you switch, so a Brain view can be linked to, bookmarked and reloaded —
   which it could not be before. The Graph page already worked this way with `?space=` / `?entity=`.
   `?type=` additionally seeds the Entities tab’s type filter, which is what makes a record count in the
   data-model panel a real link rather than a button that looks like one.
+
 - **The Brain Overview draws the space's data model.** Entity types as cards with their declared properties
   and their real record counts, joined by the relationships between them with real edge counts — derived from
   the schema **and** from the records, so a type holding records with no declaration appears instead of being
@@ -958,7 +404,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The global hide-labels toggle still wins: it sits later in the stylesheet, so a setting a person turned
     off cannot be re-enabled by a selection.
 
-
 - **A space's entity-relationship model, inferred from the schema and from the records** —
   `GET /api/brain/spaces/:spaceId/er-model`. Entity types with their declared properties and their real
   record counts, the relationships between those types with real edge counts, and how many memories, chrono
@@ -981,6 +426,503 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - A proxy space reports its members separately. Merging would sum two types that share a name across
     spaces and show relationships that can never be joined, since an edge cannot cross a space.
 
+- **Dev tooling: `npm run loop:check`** — decides whether the standing dev-loop may stop, from repo state
+  rather than from judgement. A turn may only end with something in flight (an open PR, so "Running" names a
+  number) or with the queue drained (the release boundary). Otherwise it refuses and prints the next row.
+  - Turned into a gate because the rule was broken five times in one session while being perfectly clear.
+    Every other rule here with that history became a gate — the god-file ratchet, the reachability check,
+    `todo:check`, the audit-route allowlist.
+  - **A tracker edit does not count as work in progress**, which is the specific failure it catches: a reply
+    whose newest work is bookkeeping, with nothing running and no PR open.
+  - Not wired into preflight — preflight guards a *push*, and this guards a *turn ending*.
+
+### Changed
+- **The use-case catalogue is three chapters instead of one 1,038-line file, and it finally has a table of
+  contents.** 27 numbered examples and one appendix, each 25–58 lines, with no way to see what was in the file
+  short of scrolling all of it — which is a large part of why 1,038 lines of catalogue was hard to use.
+  - `01-sharing-and-distribution.md` (278, examples 1–9), `02-operations-research-and-agents.md` (217, 10–16),
+    `03-proxy-multi-space-and-personal.md` (548, 17–27 plus the Entity Merge appendix).
+  - **Split by contiguous range, not by theme.** The numbers are the reader's handle on an example, so
+    regrouping thematically would have renumbered all 27 to gain nothing the new contents page cannot give.
+  - The contents page is generated from the headings each chapter actually ended up with, and the splitter
+    refuses unless the chapters carry exactly 28 entries — a contents page that silently lost one is worse than
+    none, because the reader concludes the example does not exist.
+  - `split-guide-indexes` now covers three front doors. The two table-of-contents guides share a loop, since a
+    third hand-written copy of the same six assertions is where duplication stops being cheaper than a table;
+    the integration guide keeps its own stricter block, because merging all three would have meant loosening
+    its "each part linked exactly once, in numbered order" to whatever the other two also satisfy.
+
+- **The Files API reference is four files instead of one 1,130-line file.** `05-files-api.md` (214) keeps the file
+  operations — upload, chunked upload, download, directory, move, delete — and the three pipelines a file can go
+  through are their own parts: `05a-conversion-pipeline.md` (598), `05b-media-embedding.md` (202),
+  `05c-face-recognition.md` (125).
+  - Those three are read by different people for different reasons: an operator sizing a document converter, an
+    integrator wiring vision/STT providers, and whoever is deciding whether face recognition may be switched on at
+    all. Previously all three sat below 200 lines of upload endpoints, and the conversion pipeline alone was 595 of
+    the file's 1,130 lines.
+  - The two inbound links that crossed a boundary — `#document-processing-configuration` from Hosting and
+    `#configuration` from the recall docs — now name the part that holds them. Both were found by grep rather than
+    by memory, because the file holding the second one was being split in a sibling branch at the same time.
+  - `nli-wrong-shaped-head` pins the `mediaEmbedding.nli.model` row by path and now reads `05b-media-embedding.md`.
+    That row is the one that says a 2-class head fails silently, so a path resolving to a file without it is the
+    failure the gate exists to prevent.
+
+- **The Spaces API reference is three files instead of one 1,248-line file.** `06-spaces-api.md` (500) keeps the
+  space endpoints; `06a-schema-api.md` (348) holds the type-definition endpoints and the schema specification, which
+  is what an integrator reads while writing a `typeSchemas` block; `06b-schema-library-api.md` (406) holds the
+  instance-wide library, a separate feature that happens to reuse the same shape.
+  - The two links that crossed the new boundaries — `#schema-validation` from the space `meta` table, and
+    `#re-embed-backfill` from the `suppressEmbeddings` row — now name the part that holds them, as does the one
+    inbound link from the Brain API's bulk-write section.
+  - `documented-interfaces-match-code` pins the `TypeSchema` and `PropertySchema` blocks by path and now reads
+    `06a-schema-api.md`. That gate exists because those blocks listed three of the real fields, so a path silently
+    resolving to a file without them is precisely the failure it was written to prevent.
+  - Same line-range split, asserted range starts, conserved total and prose-line comparison as the two before it.
+
+- **The Brain API reference is five files instead of one 2,037-line file.** It was the largest document in the
+  repository and roughly twice the next; a reader looking for chrono scrolled past recall, and the canary's vector
+  store held it as two chunks, from which nothing specific could be retrieved.
+  - `04-brain-api.md` (681) keeps the memory endpoints and the rules that apply to **every** record type — retry
+    safety, TTL, sorting, freetext search, PATCH merge semantics, `If-Match`, `deleteFields`. The four new parts are
+    the resource families: `04a-recall-api.md` (529), `04b-graph-api.md` (418), `04c-chrono-api.md` (105),
+    `04d-brain-ops-api.md` (317).
+  - **`Sorting` and `Freetext search` moved out of `List Entities`.** Both are stated to apply to every brain list
+    endpoint and were linked from the chrono and file-metadata tables, so they were cross-cutting rules filed under
+    one resource. Their anchors are unchanged, so every existing link still resolves.
+  - Every part is a whole numbered entry's worth of the index, the Help page renders all five as one continuous
+    chapter as before, and the two links from other guides that pointed into a moved section (`#reindex-space`,
+    `#prefiltered-recall-filter-parameter`) now name the part that holds it.
+  - **The split was performed by line range and checked by conserved total, not by hand.** 1,535 prose lines before,
+    1,535 after, compared as a multiset with the comparison mutation-tested against a deliberately deleted line —
+    because the previous split of this guide is what left the defect below.
+
+- **The user guide is six chapters instead of one 1,300-line file**, with `docs/userguide.md` kept as its table
+  of contents. Every existing link to it still lands somewhere sensible, and the Help page renders the chapters as
+  one continuous guide exactly as before.
+  - `01-getting-started` (59), `02-brain` (292), `03-files-and-schemas` (168), `04-settings` (361),
+    `05-storage-data-and-audit` (271), `06-connecting-an-ai-assistant` (143).
+  - **Two sections moved to where they belong.** *Brain — Review tab* was filed between Audit Log and Webhooks,
+    two thirds of the guide away from *Brain*; Webhooks and About sat after it. Both are anchor-stable, so grouping
+    them cost nothing.
+  - **The 37 anchor links were re-pointed by derivation, not by hand.** The headings of each chapter are read back
+    and every link is rewritten to whichever chapter actually contains its target — hand-mapping 37 anchors across
+    six files is how one ends up in the wrong chapter with nothing to complain about it.
+  - Same conserved-total check as the Brain API split: no prose line disappeared, and the comparison normalises
+    heading depth and link targets on both sides so it asks only whether a sentence is still in the documentation.
+
+- **Every proxy read fan-out is now narrowed to what the caller may see — all 29 sites.** The last one was
+  `resolveFindSimilarScope` in `mcp/tools/search.ts`, which takes the resolver as a **parameter**, so this was a
+  one-line call-site change rather than the signature rewrite the plan predicted.
+  - The inventory gate now asserts `PENDING` is empty, so a new un-narrowed fan-out fails twice over.
+  - **Still no behaviour change.** The three guards continue to require a token to reach every member of a proxy,
+    which is what has made the whole sweep a provable no-op. Flipping them to accept a non-empty intersection is the
+    single remaining change — now a small diff against fully-narrowed read paths rather than a leap of faith.
+
+- **The remaining MCP proxy fan-outs narrow to what the connection may see** — `mcp/tools/spaces.ts` (3),
+  `file.ts` (2), `edge.ts` and `chrono.ts`. **One site left of 29:** the by-reference pass in `mcp/tools/search.ts`.
+  - `accessibleSpaceIds` was already on the tool `ctx` and only `chrono.ts` ever destructured it — so the narrowed
+    list was there the whole time and the other tools simply did not ask for it. Since #786 it comes from the rights
+    matrix, so intersecting with it gives the answer the HTTP side gets without threading rights into every tool.
+  - Still a provable no-op: the guards continue to require a token to reach every member.
+
+- **`locateForUpdate`'s first parameter is now called `writeTarget`, not `spaceId`** — a rename with a point. All four
+  callers pass `wt.target` from `resolveWriteTarget`, which is always a real space: a non-proxy resolves to itself, and
+  a proxy demands an explicit `targetSpace` that must be one of its members, and members cannot be proxies. So its
+  member loop is provably single-element.
+  - It read as a proxy fan-out during the Q-6 sweep purely because of the name, and was queued as a site to narrow.
+    There is nothing to narrow — the caller already chose one space. **A misnamed parameter gets classified by its
+    name rather than by what reaches it.**
+  - The loop stays rather than becoming a direct lookup: it is what lets `load` return nothing, and collapsing it
+    would be a behaviour bet on the reasoning above rather than a description of it.
+  - The inventory now tracks a **reclassified** count instead of quietly lowering its total from 28. A conserved total
+    that can be satisfied by deleting something is not conserved.
+
+- **Internal: nine more proxy fan-outs narrowed to the members the caller may see** — `api/spaces.ts` (4),
+  `api/brain/file-meta.ts` (3), `api/brain/entities.ts` and `api/files.ts`. Every HTTP-side fan-out with a request in
+  scope is now converted: **16 narrowed, 12 pending**, and the gate's conserved total still reads 28.
+  - Still a **provable no-op**: the guard requires a token to reach every member, so the narrowed list equals the
+    full one for any caller that gets this far.
+  - What remains is the work that needs more than a mechanical swap — `brain/write-validation.ts` is a shared helper
+    whose signature has to change, and the MCP tools carry a call context rather than a request.
+
+- **Internal: recall's seven proxy fan-outs now narrow to the members the caller may see.** `api/brain/search.ts`
+  calls `memberSpacesForRequest` instead of `resolveMemberSpaces` — recall, stats, activity, traverse, the ER model,
+  reindex and reindex-status.
+  - **A provable no-op today.** `enforceSpaceScope` still requires a token to reach every member, so any caller that
+    gets this far already reaches all of them and the narrowed list equals the full one. Converting first and
+    flipping the guard afterwards is what makes the expensive half verifiable.
+  - The reverse order would be a leak: flip the guard first and every un-narrowed site serves records from spaces the
+    caller cannot see, with a well-formed `200`.
+  - The inventory gate now holds a **conserved total** — narrowed plus pending must equal 28 — so a conversion has to
+    move a site rather than drop it, and a half-converted file fails outright.
+
+- **The data-quality routes now filter their iteration set from the rights matrix.** Their loop is the
+  enforcement point: refusing the call would block a token that legitimately reaches some of the spaces
+  behind it, and an unfiltered loop leaves the Data quality column decorative.
+  - Mutating routes — dismiss, reopen, scan — require `write` on the area rather than `read`. Filtering them
+    at read would let a read-only token act on every space it can see.
+  - `/scan` intersects before acting: it triggers automerge and notification, and a filter applied afterwards
+    is a log entry rather than a guard.
+
+- **The space guard now checks the AREA and LEVEL a request needs, not only whether the token reaches the
+  space.** This is the change that makes the rights columns bite.
+  - **Staged deliberately.** A route the inventory cannot resolve at runtime falls through to the reach check
+    with a warning naming the key that missed. So this layer can only ever be **stricter** than before, never
+    looser — there is no input for which it grants something reach denied.
+  - Turning those misses into refusals is the follow-up, once the warning has shown the log is clean. Doing
+    it now would `403` real traffic on any route whose key was reconstructed wrongly, and there is no runtime
+    evidence either way yet.
+  - **Iterating routes are not gated on the call.** Data quality's endpoints take no space and walk the
+    token's reachable ones; refusing the call would block a token that legitimately reaches some of the
+    spaces behind it. Their loop is the enforcement point and is a separate step.
+  - Refusals name the area and the level. "Forbidden" across four areas and four levels is unactionable.
+
+- **The space guard now decides access from the rights matrix instead of the `spaces` allowlist.** Access is
+  unchanged: the rights are derived from `spaces`/`admin`/`readOnly` at config load, and the two predicates
+  are proved equivalent for every token shape on listed, unlisted and not-yet-created spaces.
+  - This is the first change in the rights work that alters how a decision is MADE rather than only adding
+    machinery. It went last on purpose, behind the proof, because its failure mode is a token reaching a
+    space it never could — with no error, nothing in the response and nothing in the logs.
+  - **The legacy branch survives, and is not decoration.** OIDC-derived tokens are built per request rather
+    than read from config, so the load-time backfill never sees them and they carry no rights. Without the
+    fallback the guard would refuse every OIDC caller — a lockout, not a widening, but one that would reach
+    production because no unit test stands up an OIDC session.
+  - The proxy rule is untouched: a proxy space still requires access to **every** member, never any one of
+    them.
+
+- **Internal: the create-token dialog is its own component.** No behaviour change — the same request body,
+  the same fields, the same flow.
+  - `tokens.component.ts` had crossed the god-file ceiling at 676 code lines and was frozen with a note
+    saying the number should go **down**. It is 502 now, under the ceiling, and the dialog it lost is 207.
+  - **It stays on the frozen list on purpose.** An entry there is a ratchet; removing it would hand the file
+    back the 148 lines of headroom the extraction just removed.
+  - **The nine characterization tests were written and proven green BEFORE the move**, against the
+    pre-extraction code. The refactor changed the host they reach for and **not one assertion**. That was the
+    point of writing them first: the move is judged by them rather than by reading the diff.
+  - One harness became two, because the pills belong to the table and the create fields to the dialog. A
+    single harness serving both was only possible while they shared a file.
+
+- **The face descriptor width is now read from each space's own index instead of a built-in constant.**
+  Groundwork for making the width configurable, and the half that has to land first.
+  - The number that has to agree was never "what does this instance prefer" — it is "what are this space's
+    stored vectors, and what is its index expecting". Those two were created together at `initSpace`, so
+    reading the index makes a space **self-consistent by construction**: a gallery built at 128 keeps
+    rejecting 512-wide descriptors even after the configured default changes, because its stored vectors are
+    still 128 wide. That is the correct answer, not a limitation.
+  - One `listSearchIndexes` round trip per space, cached for the process — face embedding runs per image in
+    a background job, so an uncached read would sit in front of every one. A space whose index cannot be
+    read right now falls back to the built-in default and is **deliberately not cached**: pinning a guess
+    for the life of the process would be wrong for exactly the spaces this exists to serve.
+  - The per-face-chunk `sizeBytes` follows the same width, so a record's reported size matches the vector it
+    actually holds.
+  - **Not yet configurable.** Every space is still created at 128; what changed is that nothing downstream
+    assumes it. The setting that lets a space be created at another width is the next step.
+
+- **BREAKING for operators using an external face model: the in-process fallback is now OFF by default.**
+  When a configured and consented external face provider fails, Ythril no longer embeds the image with the
+  bundled model. It skips the image, logs once, and lets the media job retry.
+  - **Why the old behaviour was worse than a failure.** Both embedders emit the same descriptor width, so a
+    fallback wrote a *different embedder's* vectors into the same gallery and nothing could tell. The vectors
+    were the right shape and the wrong vector space; every similarity score computed against them was wrong,
+    silently and permanently. A skipped image is recoverable — a poisoned gallery entry is not.
+  - **If you do not use an external provider, nothing changes.** In-process is your only path, not a
+    fallback, and it keeps running exactly as before. The switch is gated on an external provider being
+    configured AND consented, specifically so a single-model install cannot lose face recognition to it.
+  - To keep the old behaviour, set `mediaEmbedding.faceRecognition.externalModel.allowInProcessFallback` to
+    `true`. The flag is read as a strict boolean, so a `"false"` string in a hand-edited config stays off.
+  - **What you will see if this bites you:** faces stop being added to the gallery while the provider is
+    down, and a single warning names the reason. Previously you would have seen nothing at all, and the
+    gallery would have been quietly accumulating incomparable vectors.
+  - **Two log lines changed text.** Both provider-failure warnings ended in *"falling back to in-process
+    recognition"*, which is now the opposite of what happens on a default configuration. They end in
+    *"no descriptors from this provider"* and no longer claim to know what happens next — that is the
+    caller's decision. If you alert on the old string, re-point it.
+
+- **Five more data-table cells use `<app-timestamp>`** — the chrono Starts/Ends/Created columns, the edges Created
+  column, and the file-manager Modified column. Each gains the local time with seconds; two of them showed no time at
+  all before.
+  - **The date format is pinned to `dd.MM.yyyy`, not taken from the browser.** The instruction was to render the local
+    *time* — the zone. Taking the viewer's locale for the date too would make the field order vary by browser
+    (`15.01.2026` here, `01/15/2026` there) for the same row on the same instance, which would undo the point of a
+    scannable column. The zone is the viewer's; the format is fixed.
+  - The chrono Ends column loses its `? … : '—'` ternary: the component renders its own dash, and a second copy of
+    that decision is one more place for the two to disagree about what "no timestamp" looks like.
+  - 16 usages remain, and they are deliberately **not** all in scope: the rest are inline in sentences, in detail
+    drawers, or inside a `title` attribute, where a two-line stack would break the line.
+
+- **Storage is a section of the Usage card again, not a card of its own** (owner, 2026-08-09: *"i wanted
+  storage to be a section in the usage card and not one card for one number"*).
+  - It was briefly nested there, then split out because the Usage panel only rendered once activity data
+    arrived — so storage vanished on a space nobody had called yet, exactly the space where a filling disk is
+    least expected. Splitting it worked around that and was the wrong fix: it made a card for one number.
+  - The real fix is the one that should have been made first: **the Usage section is unconditional, and only
+    the activity block inside it is gated.** Its loading state is a skeleton in the body rather than a
+    placeholder replacing the whole card, so the card never appears or disappears.
+
+- **The Data model panel and the Graph tab no longer share an icon.** The panel showed the node-graph icon,
+  which made it read as a small copy of the Graph tab. The tab takes `graph` (it was binoculars) and the
+  panel takes `stack` — the icon its own record-type tiles already used. Not `database`: the Indexing panel
+  owns that, and swapping one collision for another is not a fix.
+
+- **The space Overview drops the Statistics strip and the Instance card** (owner decision, 2026-08-08).
+  - The **Statistics** strip showed record counts per type and a total. The Data model diagram above it
+    already shows those counts *and* how the types relate, so the strip was the diagram's data with the
+    structure removed — and its per-type tab shortcuts live on the diagram now.
+  - Its **storage bar survived** as its own small card. The diagram says nothing about disk, and storage is
+    the one number here that can stop a space working. It renders unconditionally: an intermediate version
+    nested it inside the usage card, which made it vanish on a space nobody had called yet — exactly the
+    space where a full disk is least expected. A test pins that.
+  - The **Instance** card is gone. Instance label, version, ID, uptime and MongoDB version are properties of
+    the instance, not of the space being looked at, and all of them are already on the **About** page. A
+    space overview that answers "which build am I on?" invites the reader to think it is saying something
+    about that space.
+  - **Usage** is now a normal card rather than a full-width one, leaving the diagram as the only panel wide
+    enough to earn the full row.
+
+- **A schema-library entry refusing `retention` now explains why.** `.strict()` alone answered
+  `Unrecognized key(s) in object: 'retention'`, which tells a direct API caller that a field valid on an inline type
+  schema is invalid here and nothing about the reason — inviting them to report it as a bug.
+  - The refusal itself is unchanged and deliberate: one library entry is referenced by any number of spaces, and a
+    delete window belongs to a type *in* a space rather than to the shape. The message now says that, and names both
+    ways out (resolve the `$ref` to an inline definition, or use the space-wide `recordTtlDays`).
+  - `.strict()` still handles everything else, so an ordinary typo keeps the generic answer.
+
+- **The network types moved out of `config/types.ts`** into `config/types-networks.ts` — `NetworkType`,
+  `SyncDirection`, `VoteValue`, `VoteRoundType`, `NetworkMember`, `VoteCast`, `VoteRound`, `NetworkConfig`.
+  Re-exported, so **no importer changes and no behaviour change**. Ratchet lowered 645 → 578.
+  - Completes the Q-3 split: **677 → 645 → 578** across two slices. The gate's own comment said a fifth raise of
+    this file should be a split instead, and this is the second half of it.
+  - **This is the move that failed the first time.** `NetworkConfig` references `SpaceMeta`, so before the
+    knowledge-schema leaf existed it created a module cycle and TypeScript degraded `NetworkConfig` to `any` — a
+    caller losing its types while every file in the diff compiled clean. It imports `SpaceMeta` from the leaf now.
+  - Verified with `grep -c "TS7006"` on a full build (0), not on a green compile of the moved files.
+
+- **Internal: the knowledge-schema vocabulary moved out of `config/types.ts`** into `config/types-knowledge.ts` —
+  merge functions, `PropertySchema`, `TypeSchema`, `ValidationMode`, `KnowledgeType` and `SpaceMeta`. Re-exported,
+  so **no importer changes and no behaviour change**.
+  - `config/types.ts` had taken **four** god-file ratchet raises in two days, each individually correct. The gate's
+    own comment said a fifth should be a split instead. Ratchet lowered 677 → 645.
+  - **The new file is a leaf that imports nothing**, and that is the load-bearing part. The first attempt moved the
+    *network* types out instead; `NetworkConfig` references `SpaceMeta`, so re-exporting created a module cycle and
+    TypeScript degraded `NetworkConfig` to `any` — `api/invite.ts` silently lost the types on three callbacks while
+    both moved files compiled clean. A leaf cannot be half of a cycle.
+  - Per-type schema fields now grow here, which is what unblocks the pending `suppressEmbeddings` field.
+
+### Fixed
+- **Fourteen documented navigation paths named a label the sidebar does not say.** A wrong menu path is the most
+  concrete documentation defect there is — the reader is looking at the screen while they read it, and the word is
+  not there.
+  - **Three routes are labelled differently from their name**, which accounts for seven of them:
+    `/settings/storage` reads **Metrics**, `/settings/audit-log` reads **Logs**, `/settings/data` reads
+    **Database**. The docs said Storage, Audit Log and Data.
+  - **Two were not Settings pages at all**: Conflicts is a **Workspace** item, and Files is a Brain tab.
+  - **Two named a card rather than a nav entry** — the per-space Danger Zone and the Document extraction picker
+    are both reached through **Settings → Spaces**, and the paths now say so.
+  - **One described a page that no longer exists.** The global Duplicates page became per-space; it is now named
+    by the route it used to answer on (which still redirects), because a nav label describes what is on screen.
+  - **Two were someone else's Settings.** The MCP guides walk a reader through claude.ai's connector setup; those
+    paths are now rooted in the product, which is clearer for a reader and takes them out of scope for a check
+    that can only know our own sidebar.
+
+- **The egress matrix named the deprecated variable for the vision slot, one row above the current one for
+  speech-to-text.** `02-hosting.md`'s table gave `OLLAMA_URL` for vision and `STT_BASE_URL` for STT — two
+  spellings of the same 2.1 decision, one table apart. An operator reading it to find which variable controls
+  vision egress got the name that warns at startup.
+  - Swept for the rest rather than fixing the reported one: three more in the media-embedding guide's setup list
+    (already fixed), and the rename note's own example now names both spellings.
+  - **Our own deployment artifacts are clean** — `docker-compose.yml` and the Kubernetes manifests mention the
+    legacy names only in comments explaining why they are deliberately *not* set. Checked rather than assumed;
+    a `git grep -l` matched both files and the hits turned out to be those comments.
+
+- **The Brain API reference documented a capability that does not exist.** `plannedRoute` was removed from the
+  product in 2.0.0, and the removal left the tail of its explanation behind: a paragraph beginning mid-word
+  (*"ation naming the missing capability"*) followed by a rule about when the field is attached. It has shipped in
+  every release since — thirteen of them.
+  - It matters more than a typo because the canary reads our documentation **into** Ythril: a paragraph describing a
+    field no endpoint returns becomes a confidently retrieved false fact, which is the same failure mode that
+    produced `doc-links-resolve`.
+
+- **Four gates read a split guide's index and would have concluded the guide says nothing.** `doc-cited-constants`
+  looked for the offsite-backup retention figure — the exact drift (#489) that gate exists for — in what is now a
+  table of contents; `help-anchor-coverage` looked for every per-page help anchor there; `hybrid-retrieval` looked
+  for the plain-English ranking sentence.
+  - Fixed at the root: **a split is now detected, not listed.** `docs/x.md` with a sibling `docs/x/` directory is
+    that guide's index, and the guide is its parts. Naming `integration-guide` literally is what turned this split
+    into a hunt for callers, and the next split needs no edit.
+  - The one place that deliberately still names files is `recall-include-content-both-surfaces`: it compares the
+    REST doc against `16-mcp.md`, which is *itself* a part of the integration guide, so resolving both sides
+    through the helper would make them the same string and the check vacuous.
+  - `integration-guide-index.test.js` is now `split-guide-indexes.test.js` and covers both front doors. The two
+    guides' indexes are checked separately rather than merged: the integration guide links each part exactly once
+    in numbered order, while the user guide's contents page points several anchors into each chapter — merging them
+    would have meant loosening the stricter assertion to whatever both satisfy.
+
+- **The proxy fan-out sweep was blind to a by-reference pass, and did not strip comments.** Two defects in the gate
+  itself, found while converting `mcp/tools/search.ts`.
+  - `resolveFindSimilarScope(..., resolveMemberSpaces)` hands the resolver to a helper that expands a proxy inside it.
+    The sweep matched only `resolveMemberSpaces(` — so **the indirection that makes a fan-out hardest to follow was
+    exactly what it could not see.** Found by accident: removing the import for a conversion broke the build on a line
+    the gate had never counted.
+  - Widening it then reported a by-reference fan-out in a file that had none, because it was matching the name inside
+    a **comment**. Comments are stripped now — the standing rule that prose describing a thing must not satisfy a
+    check for the thing.
+  - **The true total is 29, not 28.** Raised rather than left, because a conserved total that conserves the wrong
+    number is worse than none. The original figure was an undercount produced by a call-only sweep.
+
+- **MCP decided which spaces a token could see from the legacy `spaces` allowlist, while the HTTP guard used the
+  per-space rights matrix.** MCP now consults `reachesSpace` too, at both transports.
+  - **Not exploitable today, and that is worth stating plainly:** the migration derives `rights` *from* `spaces`, and a
+    test proves the two agree across 50 comparisons. Every config-loaded token got the same answer from both surfaces.
+  - The defect is that they can now **diverge**. A token edited directly through the rights-matrix editor has a
+    `spaces` array that no longer describes it, and MCP was still reading the array — so this was not "MCP is more
+    permissive", it was "MCP is answering from stale data", with no fixed direction of error.
+  - The legacy branch survives for records with no rights: OIDC tokens are built per request and the config backfill
+    never sees them, so removing it would refuse every OIDC caller rather than tighten anything.
+  - **It also unblocks Q-6's MCP half**, which cannot narrow a proxy to a token's reachable members while the surface
+    has no access to the rights that define them.
+
+- **The proxy fan-out inventory had three GUARD sites misclassified as read fan-outs.** A guard decides whether a
+  caller may use a proxy at all; it must **not** be narrowed — narrowing one would check the caller against a list
+  already filtered by that same caller, a tautology that always passes. It flips once, at the end.
+  - They looked like fan-outs because the argument is the request's space, exactly as every fan-out's is. Found by
+    reading them, not by their shape.
+  - Left uncorrected, *"PENDING is empty"* would have been the wrong definition of done: waiting to narrow three
+    sites that should be flipped, and flipping nothing.
+  - The conserved total now reads **16 narrowed + 3 guards + 9 pending = 28**.
+
+- **The same empty-allowlist bug existed in `contradictions` and `conflicts` too — three copies, not one.**
+  Both carried a byte-identical filter reading `tokenSpaces.length === 0` as "unrestricted", and both are
+  converted to the shared one. Fixing the reported copy and stopping is how it survived in the other two, so
+  the gate now asserts across all three routers rather than the file that was reported.
+  - Their mutating routes — resolve, dismiss, reopen, scan, bulk-resolve — require `write` on the area
+    rather than `read`, chosen per route from its HTTP method rather than assumed.
+
+- **An EMPTY token space-allowlist granted access to EVERY space on the duplicates routes.** Those routes
+  take no space in the path — they walk every space the token can reach — and their filter read
+  `tokenSpaces.length === 0` as "unrestricted". An absent allowlist does mean every space; an empty one means
+  none, and they are opposite.
+  - So anything holding `spaces: []` was handed the whole instance, in the one place nobody would look for
+    it, because the routes name no space at all. A schema-library token stores exactly that value.
+  - The same conflation is the trap `migrateToken` avoids by checking `undefined` rather than length. This
+    removes the second copy rather than fixing it twice.
+
+- **`POST /api/tokens` accepted a mis-spelled scope field and minted an UNSCOPED token, reporting success.**
+  `allowedSpaces`, `scope`, `spaceIds` and `denySpaces` were all taken with a **201** and silently dropped;
+  only `spaces` was ever real. The caller was told the operation worked, their own records said the token was
+  restricted, and it could reach every space on the instance. Nothing in the response, the stored token or
+  the logs distinguished it from a correctly scoped mint.
+  - Reported by an operator who probed four plausible spellings, got 201 from each, and only found it by
+    reading the stored token back and noticing four of five probes had no `spaces` field at all.
+  - Both token bodies are now strict: an unknown key is a **400** naming it. `PATCH /api/tokens/:id` had the
+    same shape with a sharper edge — it accepts a rename only, so `spaces` or `admin` sent beside the name
+    was dropped and answered **200**, which is what an attempt to widen a token through the rename endpoint
+    looked like.
+  - **If you were relying on one of those key names, your token is not scoped.** Re-check any token minted
+    with a field other than `spaces`; it has instance-wide access. The 400 now tells you at the first
+    request instead of the fifth.
+  - **Posting a token you read back still works.** `id`, `hash` and `prefix` are fields the server emits, so
+    they are stripped rather than refused — the same strip-then-be-strict shape `PATCH /api/spaces/:id`
+    already uses for its server-owned `meta` fields. Strictness alone would have turned a round-trip into a
+    400.
+
+- **The face gallery's vector index can no longer be silently re-dimensioned.** A change to the face
+  descriptor width was treated like any other index definition change and rebuilt the index — in place, or
+  by drop-and-recreate.
+  - For a text index that is correct: the records are re-embedded and the vectors catch up. **The face
+    gallery has no such path.** Its vectors live on already-stored face-chunk records and nothing re-derives
+    them, so a rebuild would leave 128-wide vectors indexed as if they were 512-wide — every similarity
+    score wrong, and **no error reported anywhere**.
+  - Ythril now refuses the width change, keeps the existing width, and logs both numbers with what to do
+    about it. Moving a populated gallery to a new width means re-embedding its faces first; that is a
+    decision about the data, not a config edit.
+  - A refused width change still lets a **filter-field** change through, at the existing width — freezing
+    the index against legitimate edits would break filtered recall for the space.
+  - Text indexes are deliberately unaffected. The asymmetry is the point: if every index refused, an
+    embedding-model change could never be applied.
+
+- **The face vector index and the embedders now share one width.** The number was written three times — in
+  the index built at `initSpace`, and in each of the two embedding paths. They MUST agree: an index built at
+  one width with vectors written at another gives a cosine search that ranks nothing correctly **and reports
+  no error at all**. One constant now, gated so it stays one — see the entry below for the copy this first
+  pass left behind, which is why the gate now discovers the paths rather than naming them.
+  - This is the groundwork for making the width configurable, which an operator has asked for because every
+    top-tier open face recogniser emits 512 dimensions while the contract admits only 128 — so the hook that
+    exists for bringing a better model currently accepts only models in the bundled one's weight class.
+    Asking that question in three places would have been the problem; there is one place now.
+  - The remaining `128`s in comments claimed FaceRes emits that width. It emits 1024, and the library reduces
+    it. Corrected where they sat.
+
+- **A changed face-descriptor width would have skipped every face in silence.** Both embedding paths
+  compared `embedding.length !== 128` and moved on — no error, no log, no counter — so the symptom would
+  have read as "this image has no faces" or "the provider is broken", never as the actual cause.
+  - **The actual cause it was guarding against is closer than it looks.** Our docs said in five places that
+    FaceRes produces a 128-dimensional descriptor. It does not: `faceres.json` declares its output as
+    `[1, 1024]`, and `@vladmandic/human` reduces it to 128 in library code. **The width the whole face
+    gallery is built on is a property of a dependency's post-processing, not of the weights we ship** — so a
+    library upgrade could change the vector space of every future embedding. Reported by an operator
+    standing up a centralised face service, and confirmed here.
+  - The skip still happens, because one odd descriptor must not fail a whole media job. What changed is that
+    the first one says so, naming the width it got and which path produced it — once per process, because a
+    changed library means every face is wrong and a per-face log would bury the message.
+  - The literal `128` becomes one shared constant. An operator has asked for the width to become configurable;
+    this is the single place that question now gets asked. **Only the external path was actually converted —
+    the entry below finishes it.**
+  - The docs no longer claim the model emits 128. They say where the number actually comes from.
+
+- **The in-process face path kept skipping wrong-width descriptors in silence.** The change above was
+  believed to cover both embedding paths, and said so. It covered one. The in-process path — the one that
+  runs on every default install, because the external provider is opt-in — kept its own
+  `embedding.length !== 128` and kept dropping faces with no error, no log and no counter. It now goes
+  through the same guard, so the first unexpected width is reported and names which path produced it.
+  - Two comments still told operators that FaceRes emits a 128-wide descriptor. It emits 1024 and the
+    library reduces it; a reader trusting those comments would look for a width change in the wrong place.
+  - **Nothing disagreed with the incomplete fix**, which is the part worth recording. The file's own
+    documentation said both paths were converted, and the test asserting it read a single file — it stated a
+    two-path property while checking one, so it went green on exactly the half that was done. The
+    replacement discovers every face-vector writer from `git ls-files` and requires each to consult the
+    guard, so a path that is added or missed fails rather than going unmentioned.
+
+- **A comment promised a repair mechanism that had never been built.** `enqueueEmbedJob` swallows its error
+  rather than failing the caller's write, justified by "the periodic backfill sweep will find it" — **there was
+  no such sweep**. A swallowed enqueue meant a record silently missing from recall forever, with no error, no
+  metric and nothing to grep for. The repair now exists, and the comment states that it is on demand rather than
+  periodic, because "it will be picked up" and "an operator can pick it up" are different promises.
+
+- **`suppressEmbeddings` — skip embedding records that are state rather than prose.** Now wired end to end, on
+  three tiers resolving **record > schema > space**, the same order `retention` uses.
+  - `TypeSchema.suppressEmbeddings` suppresses one type; `SpaceMeta.suppressEmbeddings` suppresses a whole space.
+    Accepted on `PATCH /api/spaces/:id` and on schema-library entries, and documented in the Spaces API guide.
+  - **Absent means NOT STATED and falls through** — it does not mean `false`. Otherwise the space-wide setting
+    would do nothing for any type that had a schema at all, which is every type worth suppressing.
+  - **Suppression UNSETS a stale vector** rather than only declining to write a new one. Leaving the old vector
+    would keep the record findable by exactly the mechanism the flag exists to switch off.
+  - **A file has no type, so it skips the schema tier** — narrowed rather than cast, because a cast would index
+    `typeSchemas` with `'file'` and miss every time while looking wired.
+  - **Switching it back off does not backfill, and the docs say so plainly.** Records written while it was on
+    have no vector and nothing revisits them; re-saving a record re-embeds that record.
+  - Still to come: the space-wide toggle in the Danger Zone UI. The API is complete without it.
+
+- **Every checkbox and radio in the app rendered the browser's default blue instead of the accent.** `--accent` is
+  lime; the platform default is blue, and nothing set `accent-color` globally.
+  - The graph toolbar had already fixed it **locally**, for its own toggles only — so the product had two answers to
+    "what colour is a ticked box", and the wrong one was the default everywhere else: settings, space dialogs,
+    network wizards, the schema editor.
+  - Checkboxes are deliberately NOT in the shared text-input selector list, and should not be: they take neither
+    height nor padding the way a text input does. What they needed was the one property that list cannot give them.
+  - **Found by screenshot**, which is the third time on this file. The comment above the input rule records the same
+    lesson and says the drift sweep missed its case because the tool and the CSS shared one blind spot — a sweep
+    enumerating `input[type="text"]` cannot report a checkbox it never looks at.
+
+- **A Mongo boot race could still kill a container at startup**, one layer later than the ECONNRESET case fixed
+  earlier: `MongoServerError: interrupted at shutdown`, thrown mid-SCRAM because the replica-set entrypoint
+  restarts mongod after initiation. The healthcheck has already passed, so whichever instance loses the race dies
+  and it reads as a flake.
+  - The retry allowlist keyed on the error **name**, and `MongoServerError` is excluded on purpose — bad
+    credentials carry that name. So the name bounds the *class* of failure and says nothing about its
+    *transience*. Now narrowed by the server error **code** for that one name: 11600, 91, 11602, 189, 13436.
+  - `AuthenticationFailed` (18) still fails immediately, and an unrecognised name with a transient code is still
+    rejected — widening by code alone would re-admit everything the allowlist exists to reject.
+
 ### Internal
 - **The per-type schema editor is a component two hosts can open.** Its ~224 template lines lived inside the
   Space Settings schema tab, bound to that page's state service on roughly thirty expressions, so nothing
@@ -998,7 +940,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   service is page-scoped — root-providing it would turn per-space editing state into a cross-page
   singleton. They operate on a state object they are handed now; the service delegates. No behaviour
   change, proven by the existing characterization spec and the full client suite.
-
 
 - **The model-warm retry loop had a 62-second budget against a failure measured in minutes.** Six attempts
   backing off 2, 4, 8, 16, 32 seconds — so every attempt landed inside 62.68 s. What it receives is

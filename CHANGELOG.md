@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Fixed
+- **The media-embedding guide told you to set the deprecated env vars, and then told you they were deprecated
+  eighty lines later.** Its "required services" list used `OLLAMA_URL`, `WHISPER_URL` and `WHISPER_MODEL`, so a
+  reader following the setup instructions got a startup deprecation warning for doing exactly what the document
+  said. The same file's configuration table and its own "Renamed in 2.1" note give the current names.
+  - Now `VISION_BASE_URL`, `VISION_MODEL`, `STT_BASE_URL` and `STT_MODEL`, with the legacy names in a note that
+    points at the rename block rather than competing with it.
+  - **An identifier-existence gate cannot catch this**, which is why it needed reading: both names are real and
+    both work. The claim that was wrong was about *which one to use*.
+  - Checked the neighbouring default claims at the same time — `moondream`, `base`, `human-models`,
+    `confidenceThreshold: 0.6`, `dupeMergeSurvivor: older`, `enforceForBrowser: false` all match the loader.
 - **Two identifiers in the contribution guide named nothing.** Both were in the migration-strategy section — the
   one a contributor reads to decide how to write a migration.
   - `sizeFileBytes` should be **`sizeBytes`**, and it was the *worked example* of the self-healing rule, so it is

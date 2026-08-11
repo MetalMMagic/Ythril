@@ -1,18 +1,17 @@
 /**
  * The two split guides' front doors are INDEXES and nothing else.
  *
- * `docs/integration-guide.md` and `docs/userguide.md` are both link lists now, with their real content in a
- * sibling directory of parts. The rules are the same and the shapes are not, so the checks are written per
- * guide rather than merged into one loop with four flags:
+ * `docs/integration-guide.md`, `docs/userguide.md` and `docs/usecase-examples.md` are all link lists now,
+ * with their real content in a sibling directory of parts. Two shapes, so two blocks:
  *
  *  - the **integration guide** index links each part exactly once, in numbered order, with no fragments. It
- *    is a contents page for seventeen API references read one at a time.
- *  - the **user guide** index is a table of contents with anchors — twenty numbered entries pointing into
- *    six chapters, several entries per chapter. So "each part exactly once, in order" is the wrong
- *    assertion there; "every chapter reachable, nothing linked that is not one" is the right one.
+ *    is a contents page for a set of API references read one at a time, and it gets its own describe.
+ *  - the **table-of-contents guides** (user guide, use-case examples) point several anchors into each
+ *    chapter. So "each part exactly once, in order" is the wrong assertion there; "every chapter reachable,
+ *    nothing linked that is not one" is the right one. Those two share a loop.
  *
- * Merging them would have meant loosening the integration guide's assertion to whatever the userguide also
- * satisfies, which is how a gate quietly stops checking the thing it was written for.
+ * Merging all three would have meant loosening the integration guide's assertion to whatever the other two
+ * also satisfy, which is how a gate quietly stops checking the thing it was written for.
  *
  * ── The original rationale, which still applies to both ─────────────────────────────────────────────
  *
@@ -99,53 +98,69 @@ describe('the integration guide index', () => {
   });
 });
 
-const UG_INDEX = 'docs/userguide.md';
-const UG_DIR = 'docs/userguide';
+/**
+ * The two TABLE-OF-CONTENTS guides.
+ *
+ * These share a shape the integration guide does not: their index points several anchors into each chapter,
+ * so "each part linked exactly once, in order" is the wrong assertion and "every chapter reachable, nothing
+ * linked that is not one" is the right one.
+ *
+ * Two of them is where a third hand-written copy stops being cheaper than a table. The one genuine
+ * difference is `groupsWithH3`: the use-case index groups 28 examples under three chapter headings, which is
+ * navigation, while an H3 in the user guide's twenty-line contents list would be content that had crept in.
+ * One flag, named for what it means, rather than two near-identical describes to keep in step.
+ */
+const TOC_GUIDES = [
+  { name: 'user guide', index: 'docs/userguide.md', dir: 'docs/userguide', minParts: 4, maxLines: 80, groupsWithH3: false },
+  { name: 'use-case examples', index: 'docs/usecase-examples.md', dir: 'docs/usecase-examples', minParts: 3, maxLines: 120, groupsWithH3: true },
+];
 
-const ugIndex = readFileSync(UG_INDEX, 'utf8');
-const ugParts = readdirSync(UG_DIR).filter(f => f.endsWith('.md')).sort();
-/** Every `](userguide/<part>.md…)` target in the index, deduplicated — the TOC links several per chapter. */
-const ugLinked = [...new Set([...ugIndex.matchAll(/\]\(userguide\/([^)#]+\.md)/g)].map(m => m[1]))].sort();
+for (const g of TOC_GUIDES) {
+  const slug = g.dir.replace('docs/', '');
+  const text = readFileSync(g.index, 'utf8');
+  const chapters = readdirSync(g.dir).filter(f => f.endsWith('.md')).sort();
+  const reached = [...new Set([...text.matchAll(new RegExp(`\\]\\(${slug}/([^)#]+\\.md)`, 'g'))].map(m => m[1]))];
 
-describe('the user guide index', () => {
-  it('finds the chapters (the check itself works)', () => {
-    assert.ok(ugParts.length >= 4, `expected the split guide's chapters, found ${ugParts.length}`);
+  describe(`the ${g.name} index`, () => {
+    it('finds the chapters (the check itself works)', () => {
+      assert.ok(chapters.length >= g.minParts, `expected this guide's chapters, found ${chapters.length}`);
+    });
+
+    it('reaches every chapter, and links nothing that is not one', () => {
+      assert.deepEqual([...reached].sort(), chapters,
+        'The table of contents and the directory disagree. A chapter with no link is content nobody can find\n'
+        + `from the front door — including the reader who arrived at ${g.index} from the README.`);
+    });
+
+    it('lists the chapters in reading order', () => {
+      // The numeric prefix is pedagogical, and a GitHub folder listing sorts alphabetically. A contents
+      // page that contradicts the prefixes makes the numbering worse than useless.
+      assert.deepEqual(reached, [...reached].sort(), 'the index must reach the chapters in their numbered order');
+    });
+
+    it('carries no content of its own', () => {
+      // What "content" means here: anything a reader could act on, and therefore anything that can go stale
+      // independently of the chapter that also states it.
+      const offenders = [];
+      if (/```/.test(text)) offenders.push('a fenced code block');
+      if (/^\|/m.test(text)) offenders.push('a table');
+      if (/\b(GET|POST|PUT|PATCH|DELETE)\s+\/api\//.test(text)) offenders.push('an API endpoint');
+      if (!g.groupsWithH3 && /^#{3,}\s/m.test(text)) offenders.push('a subsection heading (H3+)');
+      if (g.groupsWithH3 && /^#{4,}\s/m.test(text)) offenders.push('a heading below the chapter grouping (H4+)');
+      assert.deepEqual(offenders, [],
+        `The ${g.name} index has grown content. Every statement belongs in exactly one chapter — a copy here\n`
+        + 'is a second place to remember to edit, and the one that goes stale is whichever was not open.');
+    });
+
+    it('stays short enough to be obviously an index', () => {
+      const lines = text.split(/\r?\n/).length;
+      assert.ok(lines < g.maxLines, `the ${g.name} index is ${lines} lines — that is prose, not a contents page`);
+    });
+
+    it('every chapter points back at the index', () => {
+      const back = `](../${g.index.replace('docs/', '')})`;
+      const orphans = chapters.filter(f => !readFileSync(`${g.dir}/${f}`, 'utf8').includes(back));
+      assert.deepEqual(orphans, [], `these chapters have no backlink to ${g.index}`);
+    });
   });
-
-  it('reaches every chapter, and links nothing that is not one', () => {
-    assert.deepEqual(ugLinked, ugParts,
-      'The table of contents and the directory disagree. A chapter with no link is content nobody can find\n'
-      + 'from the front door — including the reader who arrived at docs/userguide.md from the README.');
-  });
-
-  it('lists the chapters in reading order', () => {
-    // The numeric prefix is pedagogical: logging in, then the brain, then settings, then connecting an
-    // assistant. A table of contents that contradicts it makes the numbering worse than useless.
-    const order = [...new Set([...ugIndex.matchAll(/\]\(userguide\/([^)#]+\.md)/g)].map(m => m[1]))];
-    assert.deepEqual(order, [...order].sort(), 'the index must reach the chapters in their numbered order');
-  });
-
-  it('carries no content of its own', () => {
-    // Same rule as the integration guide, minus the H2 restriction: this index's own section is called
-    // "Table of Contents", and its entries are a numbered list rather than one line per file.
-    const offenders = [];
-    if (/```/.test(ugIndex)) offenders.push('a fenced code block');
-    if (/^\|/m.test(ugIndex)) offenders.push('a table');
-    if (/\b(GET|POST|PUT|PATCH|DELETE)\s+\/api\//.test(ugIndex)) offenders.push('an API endpoint');
-    if (/^#{3,}\s/m.test(ugIndex)) offenders.push('a subsection heading (H3+)');
-    assert.deepEqual(offenders, [],
-      'The user guide index has grown content. Every statement belongs in exactly one chapter — a copy here\n'
-      + 'is a second place to remember to edit, and the one that goes stale is whichever was not open.');
-  });
-
-  it('stays short enough to be obviously an index', () => {
-    const lines = ugIndex.split(/\r?\n/).length;
-    assert.ok(lines < 80, `the user guide index is ${lines} lines — that is prose, not a contents page`);
-  });
-
-  it('every chapter points back at the index', () => {
-    const orphans = ugParts.filter(f =>
-      !readFileSync(`${UG_DIR}/${f}`, 'utf8').includes('](../userguide.md)'));
-    assert.deepEqual(orphans, [], 'these chapters have no backlink to the index');
-  });
-});
+}

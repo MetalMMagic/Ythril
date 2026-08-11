@@ -74,7 +74,17 @@ export const HELP_DOCS = [
       'integration-guide/17-quotas-pagination-oidc.md',
     ],
   },
-  { id: 'usecase-examples', file: 'usecase-examples.md' },
+  // A catalogue rather than a narrative, so it splits by contiguous range: the numbers are the reader's
+  // handle on an example, and regrouping thematically would renumber all 27 to gain nothing the contents
+  // page cannot give.
+  {
+    id: 'usecase-examples', file: 'usecase-examples.md',
+    parts: [
+      'usecase-examples/01-sharing-and-distribution.md',
+      'usecase-examples/02-operations-research-and-agents.md',
+      'usecase-examples/03-proxy-multi-space-and-personal.md',
+    ],
+  },
   // The decision records, as ONE entry with the records as parts — the same shape as the integration guide above.
   // Four separate entries would crowd an operator's nav with contributor material; one entry keeps every record
   // reachable (the coverage gate requires that) while costing a single line in the list. The contribution guide is

@@ -84,12 +84,20 @@ describe('Entity/edge sync — cross-instance (A→B)', () => {
     assert.equal(r.status, 201, `Create entity on A: ${JSON.stringify(r.body)}`);
     const entityId = r.body._id;
 
-    // Trigger sync once, then poll via waitFor (60s default).
+    // Trigger sync once, then poll.
+    //
+    // The budget is EXPLICIT and measured. This read "60s default" and `waitFor`'s default is 15 s, so the
+    // comment was four times the real number — and a wrong comment about a timeout is worse than none, because
+    // it is what stops anyone looking. #823's margin warning caught this wait at 9925 ms of that 15 s (66%),
+    // which is the first number anybody has had for how long propagation actually takes here.
+    //
+    // 25 s is that measurement plus room for a loaded runner, and it is deliberately still bounded: the retry
+    // below is the real safety net, and a first attempt that never gives up would never reach it.
     await post(INSTANCES.a, tokenA, '/api/notify/trigger', { networkId });
     await waitFor(async () => {
       const r2 = await reqJson(INSTANCES.b, tokenB, `/api/sync/entities/${entityId}?spaceId=general`);
       return r2.status === 200;
-    }).catch(() => {
+    }, 25_000).catch(() => {
       // Re-trigger once and give a final window
       return post(INSTANCES.a, tokenA, '/api/notify/trigger', { networkId })
         .then(() => waitFor(async () => {

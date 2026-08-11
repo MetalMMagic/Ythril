@@ -59,8 +59,26 @@ import { layoutErModel } from './er-layout';
     .box-head { fill: var(--bg-elevated); }
     .box-name { font-size: 12.5px; font-weight: 600; fill: var(--text-primary); }
     .box-prop { font-size: 10.5px; fill: var(--text-muted); font-family: var(--font-mono); }
-    .join { fill: none; stroke: var(--graph-edge); stroke-width: 1.25; }
-    .join-label { font-size: 10.5px; fill: var(--graph-edge-label); font-family: var(--font-mono); }
+    .join { fill: none; stroke: var(--graph-edge); stroke-width: 1.25; transition: stroke .1s ease, stroke-width .1s ease; }
+    /* The pointer target. Wide, invisible, and it must NOT paint: a stroke of transparent still receives
+       pointer events, which is exactly what a 1.25 px line cannot do on its own. */
+    .join-hit { fill: none; stroke: transparent; stroke-width: 14; cursor: default; }
+    .join-label {
+      font-size: 10.5px; fill: var(--graph-edge-label); font-family: var(--font-mono);
+      /* A halo, so a label crossing another lane is still readable. paint-order draws the stroke first and
+         the glyphs over it, which is the difference between an outline and a smear. */
+      paint-order: stroke; stroke: var(--bg-surface); stroke-width: 3px; stroke-linejoin: round;
+      transition: fill .1s ease;
+    }
+    /* Hovering anywhere on the join lights the line, its arrow and its label together. Grouping is what makes
+       that one rule instead of three coordinated ones. */
+    .joing:hover .join { stroke: var(--accent); stroke-width: 2.25; }
+    .joing:hover .join-label { fill: var(--accent); }
+    /* The whole diagram dims its other joins while one is hovered, so following a single edge across a busy
+       model is possible at all. Restrained — .35 still reads as present, which matters because the point is
+       to find one line among many rather than to hide the rest. */
+    svg:has(.joing:hover) .joing:not(:hover) .join { stroke-opacity: .35; }
+    svg:has(.joing:hover) .joing:not(:hover) .join-label { opacity: .35; }
     .count { font-size: 11px; font-family: var(--font-mono); fill: var(--text-secondary); }
     a.count-link { cursor: pointer; }
     a.count-link:hover .count, a.count-link:focus-visible .count { fill: var(--accent); }
@@ -91,9 +109,17 @@ import { layoutErModel } from './er-layout';
               </marker>
             </defs>
 
+            <!-- Each join is a GROUP: the visible stroke, an invisible fat stroke to hover, and the label.
+                 The hit path is why hover works at all — a 1.25 px line is not a pointer target, and hovering
+                 the visible stroke alone would have been a feature nobody could trigger. The label carries a
+                 painted halo (paint-order) so it stays readable where it crosses another lane. -->
             @for (p of view().paths; track p.from + p.label + p.to) {
-              <path class="join" [attr.d]="p.d" marker-end="url(#er-arrow)" />
-              <text class="join-label" [attr.x]="p.labelX" [attr.y]="p.labelY">{{ p.label }} · {{ p.count }}</text>
+              <g class="joing">
+                <path class="join" [attr.d]="p.d" marker-end="url(#er-arrow)" />
+                <path class="join-hit" [attr.d]="p.d" />
+                <text class="join-label" [attr.x]="p.labelX" [attr.y]="p.labelY"
+                      [attr.text-anchor]="p.labelAnchor">{{ p.label }} · {{ p.count }}</text>
+              </g>
             }
 
             @for (b of view().boxes; track b.type) {

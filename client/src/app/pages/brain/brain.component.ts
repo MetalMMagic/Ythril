@@ -702,15 +702,37 @@ export class BrainComponent implements OnInit, OnDestroy {
    * WRITING the URL, and re-reading its own write would fight `setTab`.
    */
   private applyUrlState(spaces: { id: string }[]): void {
+    this.applyQueryParams(spaces);
+    /**
+     * ...and keep applying it, because a link INTO this page from a component already on it is a query-param
+     * change and nothing else.
+     *
+     * The data-model panel's record count is such a link. Read-once meant clicking it rewrote the URL —
+     * `?tab=entities&type=x` — and changed nothing on screen: reported as *"clicking the number does not jump
+     * to the correct tab. it just appends a route to the url"*. Exactly right, and the URL being correct while
+     * the page ignored it is the worst version of the bug, because the address bar says it worked.
+     *
+     * The original comment feared re-reading our own writes fighting `setTab`. That fear is answered by
+     * applying only DIFFERENCES rather than by not subscribing: when this component writes `tab=x` it has
+     * already set `activeTab` to x, so the incoming value equals current state and the handler does nothing.
+     * Idempotence, not abstinence — and it cannot loop, because a no-op writes no URL.
+     */
+    this.route.queryParamMap.subscribe(() => this.applyQueryParams(spaces));
+  }
+
+  /** Apply `?space=` / `?tab=` if — and only if — they differ from what is on screen. */
+  private applyQueryParams(spaces: { id: string }[]): void {
     const qp = this.route.snapshot.queryParamMap;
     const wanted = qp.get('space') ?? undefined;
     const initial = wanted && spaces.some(s => s.id === wanted) ? wanted : spaces[0]!.id;
-    this.selectSpace(initial);
+    // Only when it CHANGES: selectSpace reloads the space's data, so calling it on every query-param event
+    // would refetch on each tab switch this component itself performs.
+    if (initial !== this.activeSpaceId()) this.selectSpace(initial);
 
     // Only a tab that exists. An unknown value in a hand-edited URL must land on the default rather than a
     // blank pane, and `BRAIN_TABS` is the same list the strip renders from.
     const tab = (qp.get('tab') ?? undefined) as BrainTab | undefined;
-    if (tab && (BRAIN_TABS as readonly string[]).includes(tab)) this.activeTab.set(tab);
+    if (tab && tab !== this.activeTab() && (BRAIN_TABS as readonly string[]).includes(tab)) this.activeTab.set(tab);
   }
 
   /**

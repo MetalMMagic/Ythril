@@ -6,6 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Internal
+- **The space-settings pop-up is its own component.** No behaviour change: 84 lines of template moved out of
+  `spaces.component` into `space-settings-popup.component`, asserted **byte-identical** against the original
+  rather than retyped, along with `governedBy`, `saveSettings` and `attemptClose`.
+  - Groundwork for U-1 — a cog at the far right of the Brain tab strip opening these settings for the space you
+    are already looking at. The modal is driven by one signal, so a second host was only ever a question of who
+    provides the service; this is the step that makes that a re-host rather than a rewrite.
+  - `canLeave` and the `beforeunload` handler stayed on the Spaces page: those are route concerns, and a modal
+    openable from two pages must not own either page's navigation guard. The discard prompt moved to the
+    **service** rather than being copied, because both the (X) and the route guard need the same question.
+  - Two tests followed the code into a new spec, and the stale path in `space-purpose-one-field` was re-pointed
+    at the pop-up — the gate keeps a *positive* assertion, so a path resolving to a file without the
+    vote-pending branch fails loudly instead of passing vacuously.
+
 ### Fixed
 - **An entity merge left every FILE linked to the absorbed entity pointing at a record it had just deleted.**
   Third finding of the Data Integrity & Correctness audit lens.

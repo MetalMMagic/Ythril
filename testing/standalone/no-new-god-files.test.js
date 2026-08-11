@@ -114,7 +114,16 @@ const FROZEN = {
   // a module only the loader would ever call.
   'server/src/config/loader.ts': 764,
   'client/src/app/pages/brain/review-tab.component.ts': 748,
-  'server/src/brain/recall.ts': 739,
+  // 739 -> 744: the cross-space fan-out now embeds the query ONCE and hands the vector down, instead of
+  // embedding the identical text in every space. Five real code lines — an options field, the `??` that
+  // prefers a handed-down vector, and the embed-and-spread in `recallGlobal`.
+  //
+  // Raised rather than paid for with an extraction, deliberately and with the trade named: the alternative
+  // was leaving a 5x embedding cost on every cross-space recall on every instance, which an operator was
+  // already paying and reported. A file this size wants a real split, and that is its own change with its own
+  // characterization tests — not something to improvise while fixing a perf defect. Recorded as such in the
+  // tracker rather than left as a raise nobody has to justify twice.
+  'server/src/brain/recall.ts': 744,
   'client/src/app/pages/settings/media-processing/models-tab.component.ts': 678,
   // 675 -> 677: `rights` on TokenRecord, plus its import. FOURTH raise of this file in one session, and the
   // first attempt wanted SIX lines because the shape was written inline. That was the signal, so the shape

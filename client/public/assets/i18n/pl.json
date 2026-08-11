@@ -1862,5 +1862,7 @@
   "tokens.rights.title": "Uprawnienia",
   "tokens.rights.edit": "Edytuj uprawnienia",
   "tokens.rights.saved": "Uprawnienia zaktualizowane",
-  "tokens.error.rightsFailed": "Nie udało się zaktualizować uprawnień"
+  "tokens.error.rightsFailed": "Nie udało się zaktualizować uprawnień",
+  "brain.tab.spaceSettings": "Ustawienia przestrzeni",
+  "brain.tab.spaceSettingsTitle": "Skonfiguruj tę przestrzeń — etykieta, schemat, duplikaty, strefa zagrożenia"
 }

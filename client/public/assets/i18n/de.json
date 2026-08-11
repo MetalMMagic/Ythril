@@ -1862,5 +1862,7 @@
   "tokens.rights.title": "Rechte",
   "tokens.rights.edit": "Rechte bearbeiten",
   "tokens.rights.saved": "Rechte aktualisiert",
-  "tokens.error.rightsFailed": "Rechte konnten nicht aktualisiert werden"
+  "tokens.error.rightsFailed": "Rechte konnten nicht aktualisiert werden",
+  "brain.tab.spaceSettings": "Space-Einstellungen",
+  "brain.tab.spaceSettingsTitle": "Diesen Space konfigurieren — Bezeichnung, Schema, Duplikate, Gefahrenzone"
 }

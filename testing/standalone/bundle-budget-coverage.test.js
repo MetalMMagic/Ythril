@@ -107,10 +107,17 @@ describe('bundle budgets', () => {
 
   it('the app pages that carry real weight are named individually', () => {
     // Not "every page needs a budget" — most are a few kB and an `any` ceiling covers them fine. These
-    // four are the ones that have actually grown: the Brain (once 2x the initial bundle), the Spaces
-    // settings screen, the Files manager (exceljs, mermaid) and Media Processing.
+    // four are the ones that have actually grown: the Brain (once 2x the initial bundle), the space
+    // settings DIALOG, the Files manager (exceljs, mermaid) and Media Processing.
+    //
+    // `spaces-component` used to be on this list and is deliberately not any more: the space settings
+    // dialog is now deferred and shared by two hosts, which moved 217 kB of schema editor, duplicate rules
+    // and danger zone out of the spaces route and into its own chunk. The route dropped to ~41 kB and
+    // stopped being emitted under that name at all — so the budget guarding it named nothing, which is the
+    // exact failure the sibling gate in preflight catches. The weight did not vanish; it moved, and the
+    // ceiling moved with it.
     const named = new Set(budgets.filter(b => b.type === 'bundle').map(b => b.name));
-    for (const heavy of ['brain-component', 'spaces-component', 'file-manager-component', 'media-processing-page-component']) {
+    for (const heavy of ['brain-component', 'space-settings-popup-component', 'file-manager-component', 'media-processing-page-component']) {
       assert.ok(named.has(heavy), `${heavy} has grown before and needs its own ceiling`);
     }
   });

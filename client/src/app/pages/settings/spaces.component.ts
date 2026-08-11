@@ -47,8 +47,18 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
       <app-space-create-dialog (closed)="showCreateDialog.set(false)" />
     }
 
-    <!-- The space settings pop-up: its own component, opened by setting state.settingsSpace(). -->
-    <app-space-settings-popup />
+    <!-- The space settings pop-up: its own component, opened by setting state.settingsSpace().
+         Deferred behind the same gate the Brain host uses. It is modal-only in both places, so neither page
+         needs the schema editor, the duplicate rules and the danger zone until a cog is pressed — and while
+         one host loaded it eagerly and the other did not, the shared code was hoisted out of this route's
+         chunk, which cost spaces-component its name and took it off the bundle-budget list. A budget that
+         names no chunk is evaluated against nothing, so the page could then grow unbounded while the build
+         stayed green. -->
+    @if (state.settingsSpace()) {
+      @defer (on immediate) {
+        <app-space-settings-popup />
+      }
+    }
 
     <!-- Import conflict dialog -->
 

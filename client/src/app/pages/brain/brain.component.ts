@@ -16,6 +16,9 @@ import { ReviewTabComponent } from './review-tab.component';
 import { FormsModule } from '@angular/forms';
 import { Space, SpaceStats, AboutInfo, EmbeddingQueue, VoteRound, TokenAccessEntry, CompletenessReport, SpaceActivity } from '../../core/api.types';
 import { SpacesApi } from '../../core/spaces-api.service';
+import { SpaceSettingsPopupComponent } from '../settings/space-settings-popup.component';
+import { SpacesStore } from '../settings/spaces-store.service';
+import { SpaceSettingsState } from '../settings/space-settings-state.service';
 import { BrainApi } from '../../core/brain-api.service';
 import { AdminApi } from '../../core/admin-api.service';
 import { NetworksApi } from '../../core/networks-api.service';
@@ -48,8 +51,8 @@ interface SpaceView {
   // or happens in a template event handler, both of which mark the view dirty. That coupling is
   // load-bearing and pinned by the specs (the drawer's own version lives in the drawer component).
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ProxySpaceBadgeComponent, CommonModule, FormsModule, GraphComponent, FileManagerComponent, PhIconComponent, RecordDrawerComponent, QueryTabComponent, MemoriesTabComponent, EntitiesTabComponent, EdgesTabComponent, ChronoTabComponent, OverviewTabComponent, ReviewTabComponent, ErrorStateComponent, TranslocoPipe],
-  providers: [BrainStore, EntityRefPicker, RecordDrawerState, RecordListState],
+  imports: [ProxySpaceBadgeComponent, CommonModule, FormsModule, GraphComponent, FileManagerComponent, PhIconComponent, RecordDrawerComponent, QueryTabComponent, MemoriesTabComponent, EntitiesTabComponent, EdgesTabComponent, ChronoTabComponent, OverviewTabComponent, ReviewTabComponent, ErrorStateComponent, TranslocoPipe, SpaceSettingsPopupComponent],
+  providers: [BrainStore, EntityRefPicker, RecordDrawerState, RecordListState, SpacesStore, SpaceSettingsState],
   styles: [`
     .space-tabs {
       display: flex;
@@ -155,6 +158,18 @@ interface SpaceView {
     }
 
     .tab-spacer { flex: 1; }
+    /* The cog. Square rather than label-width, and it never takes the active treatment: it opens a modal,
+       so there is no state for "selected" to describe. Without this it inherited .tab's text padding and
+       sat as a wide empty button beside Files. */
+    .tab-cog {
+      padding: 6px 9px;
+      flex: 0 0 auto;
+      color: var(--text-muted);
+    }
+    .tab-cog:hover:not(:disabled) { color: var(--text); }
+    /* Disabled while no space is selected — the dialog has nothing to edit, and a cog that opens an empty
+       modal is worse than one that is visibly unavailable. */
+    .tab-cog:disabled { opacity: .4; cursor: not-allowed; }
 
     /* The active tab's content region. position:relative anchors the floating load spinner so it
        overlays the tab WITHOUT unmounting it (see the storm note in the template). */
@@ -261,7 +276,32 @@ interface SpaceView {
             <span class="tab-count">{{ s.files }}</span>
           }
         </button>
+        <!-- Space settings, as a cog at the far RIGHT of the strip and deliberately not a tab.
+             It opens a modal, so it does not select anything — sitting it between the record tabs would
+             make it read as a ninth destination and leave the strip looking wrong when the modal closed
+             and nothing was selected. .tab-cog drops the label for the same reason: a "Settings" word
+             here competes with the instance-wide Settings page, which is a different scope entirely.
+             The label lives in the aria-label and the tooltip, where it names the space scope. -->
+        <button class="tab tab-cog" type="button"
+          [attr.aria-label]="'brain.tab.spaceSettings' | transloco"
+          [attr.title]="'brain.tab.spaceSettingsTitle' | transloco"
+          [disabled]="!activeSpace()"
+          (click)="openSpaceSettings()">
+          <ph-icon name="gear" [size]="15" style="display:inline-flex;vertical-align:middle;"/>
+        </button>
       </div>
+
+      <!-- The same dialog the admin spaces table opens, hosted here too. It self-gates on
+           settingsSpace(), so this renders nothing until the cog is pressed. (saved) patches the one
+           row in THIS page's list: the store the dialog patches is a separate instance here, and the
+           sidebar renders from spaces() with per-space stats attached. -->
+      @if (spaceSettings.settingsSpace()) {
+        @defer (on immediate) {
+          <app-space-settings-popup (saved)="onSpaceSaved($event)" />
+        } @loading (minimum 200ms) {
+          <div class="loading-overlay loading-overlay--float" data-tab-defer="space-settings"><span class="spinner"></span></div>
+        }
+      }
 
       <!-- Content. Tabs are gated by activeTab() ONLY — NEVER wrapped in @else of
            @if (recordList.loading()). Each record tab WRITES recordList.loading during its own
@@ -339,6 +379,16 @@ export class BrainComponent implements OnInit, OnDestroy {
   readonly drawerState = inject(RecordDrawerState);
   readonly recordList = inject(RecordListState);
   private spacesApi = inject(SpacesApi);
+  /**
+   * The dialog's state, provided by this component so it opens and closes with the page.
+   *
+   * Public because the template reads `settingsSpace()` to decide whether the dialog's code should be
+   * fetched at all — see the `@defer` around it. The dialog carries the schema editor, the duplicate rules
+   * and the danger zone, and this is already the heaviest page in the app; loading all of that on the
+   * chance someone presses the cog took `spaces-component` off the bundle-budget list entirely, because
+   * the shared code had moved out of it. It now arrives when the cog is pressed and not before.
+   */
+  readonly spaceSettings = inject(SpaceSettingsState);
   private brainApi = inject(BrainApi);
   private adminApi = inject(AdminApi);
   private networksApi = inject(NetworksApi);
@@ -442,6 +492,31 @@ export class BrainComponent implements OnInit, OnDestroy {
   activeSpace = computed(() =>
     this.spaces().find(sv => sv.space.id === this.activeSpaceId())?.space,
   );
+
+  /**
+   * Open the space settings dialog on the space already selected here.
+   *
+   * No request: this page's list already holds the full `Space` record, which is the whole reason the cog
+   * can live here at all. Reaching the same editor previously meant leaving the Brain, finding the row in
+   * the admin table, and coming back — three navigations to change the label of a space that was already
+   * on screen.
+   */
+  openSpaceSettings(): void {
+    const space = this.activeSpace();
+    if (space) this.spaceSettings.openSettings(space);
+  }
+
+  /**
+   * Patch the one row this page renders from, after a save the dialog APPLIED.
+   *
+   * The dialog patches `SpacesStore`, but that instance is provided per host — the one here is empty and
+   * nothing reads it. Refetching the list instead would also discard the per-space stats hanging off each
+   * row, which cost one request each. So the record is merged in place and the stats are left alone: a
+   * label or quota edit does not change any count.
+   */
+  onSpaceSaved(space: Space): void {
+    this.spaces.update(list => list.map(sv => sv.space.id === space.id ? { ...sv, space } : sv));
+  }
 
   spaceTotal(stats: SpaceStats): number {
     return stats.memories + stats.entities + stats.edges + stats.chrono + stats.files;

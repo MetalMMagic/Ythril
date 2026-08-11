@@ -34,12 +34,13 @@
  * route guard need it. Two copies of "are you sure you want to lose these edits" is two places for the answer
  * to drift.
  */
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, output } from '@angular/core';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { ModalDirective } from '../../shared/modal.directive';
 import { StatusPillComponent } from '../../shared/status-pill.component';
 import { SpacesApi } from '../../core/spaces-api.service';
+import type { Space } from '../../core/api.types';
 import { SpaceSettingsState } from './space-settings-state.service';
 import { SpacesStore } from './spaces-store.service';
 import { SpaceSettingsTabComponent } from './space-settings-tab.component';
@@ -152,6 +153,20 @@ export class SpaceSettingsPopupComponent {
   private store = inject(SpacesStore);
 
   /**
+   * A save that was APPLIED, with the updated space.
+   *
+   * The store row behind the modal is already patched by `applySpace`, which is enough for the spaces
+   * page — it renders from that store. The Brain host does not: it holds its own space list (with per-space
+   * stats attached), so without this a rename saved from the Brain cog left the old label in the sidebar
+   * that had just opened the dialog. Emitting the record rather than a bare signal means the host can patch
+   * the one row instead of refetching the list.
+   *
+   * NOT emitted on the 202 vote_pending path: nothing has been applied yet, and a host that patched its
+   * row there would show a change the network has not agreed to.
+   */
+  readonly saved = output<Space>();
+
+  /**
    * Which networks govern this space, as a label list — or null when none do.
    *
    * Deliberately not keyed on `networkStatus`: that reports whether something is *happening* (a vote, a sync,
@@ -206,6 +221,7 @@ export class SpaceSettingsPopupComponent {
           return;                      // stay open so the notice is read, unlike the applied path
         }
         this.store.applySpace(result.space);
+        this.saved.emit(result.space);
         // Re-baseline BEFORE closing. The dirty snapshot was only ever taken when a space was opened, so
         // a successful save left it stale: the editor still compared against the pre-save values and
         // reported unsaved changes for edits that were already persisted. Closing here happened to hide

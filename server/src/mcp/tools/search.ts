@@ -12,10 +12,11 @@ import { UUID_V4_RE, entityDocToRecord, formatRecallSummary, toRecallRecord, uui
 import { MAX_RECALL_TRAVERSE, traverseRecallSeeds } from '../../brain/edges.js';
 import { type FilterExpression, validateFilterExpression } from '../../brain/filter.js';
 import { queryBrain } from '../../brain/query.js';
-import { type RecallKnowledgeType, type RecallResult, findSimilar, recall, recallGlobal, rankOf, mergeRecallResults } from '../../brain/recall.js';
+import { type RecallKnowledgeType, type RecallResult, findSimilar, recall, recallGlobal } from '../../brain/recall.js';
 import { collectAcrossMembers } from '../../spaces/proxy.js';
 import { memberSpacesWithin } from '../../spaces/proxy-scoped.js';
 import { NotFoundError } from '../../util/errors.js';
+import { rankOf, mergeRecallResults } from '../../brain/recall-shape.js';
 
 /**
  * Space scope for find_similar — mirrors recall's omit-space idiom (F1 consistency).

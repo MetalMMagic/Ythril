@@ -31,7 +31,6 @@ import { ssrfSafeFetch } from '../util/ssrf.js';
 import { log } from '../util/log.js';
 import {
   findSimilar,
-  summariseRecall,
   DEFAULT_DUPE_THRESHOLD,
   type RecallResult,
   type RecallKnowledgeType,
@@ -40,6 +39,7 @@ import { computeMergePlan, applyResolutions, executeMerge } from './merge.js';
 import { emitWebhookEvent } from '../webhooks/dispatcher.js';
 import type { DupeCandidateDoc, DupeScanStateDoc, DupeScanType, DupeActionRule } from '../config/types.js';
 import { runExclusive } from '../util/single-flight.js';
+import { summariseRecall } from './recall-shape.js';
 
 const DEFAULT_SCHEDULE = '0 3 * * *';   // 03:00 daily
 const DEFAULT_BATCH_SIZE = 200;

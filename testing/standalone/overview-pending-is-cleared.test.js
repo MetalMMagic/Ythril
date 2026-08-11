@@ -67,9 +67,27 @@ describe('an Overview skeleton can always be dismissed', () => {
     for (const p of PANELS) {
       const body = loaderBody(p.loader);
       const clears = [...body.matchAll(new RegExp(`settled\\('${p.key}'\\)`, 'g'))].length;
-      // One per handler. A loader with a single call has covered one outcome and left the other hanging.
-      if (clears !== 2) bad.push(`${p.loader} clears '${p.key}' ${clears}x, expected 2 (next: + error:)`);
+      // At least one per handler. This used to demand EXACTLY two, and that is how the bug it was written to
+      // prevent still shipped: `loadSpaceActivity` had its two — one in `next:`, one in `error:` — and two
+      // early `return`s in between that reached neither. A space with no recorded usage showed its card
+      // spinning for ever, and so did every space just after the usage reset.
+      //
+      // Counting calls answers "did somebody write a settle". The property is "does every PATH reach one",
+      // which is what the early-return check below actually tests.
+      if (clears < 2) bad.push(`${p.loader} clears '${p.key}' ${clears}x, expected at least 2 (next: + error:)`);
       if (!/error:/.test(body)) bad.push(`${p.loader} has no error handler at all`);
+
+      // Every `return` inside the loader must have settled first. Looked for on the same line or the two
+      // before it, which is how these are written — a settle further away than that is worth re-reading anyway.
+      const lines = body.split('\n');
+      lines.forEach((line, i) => {
+        if (!/^\s*(\}\s*)?return;/.test(line) && !/\breturn;\s*\}/.test(line)) return;
+        const near = lines.slice(Math.max(0, i - 2), i + 1).join('\n');
+        if (!near.includes(`settled('${p.key}')`)) {
+          bad.push(`${p.loader} returns at line ${i + 1} of its body without settling '${p.key}' — that path `
+            + 'leaves the skeleton up');
+        }
+      });
     }
     assert.deepEqual(bad, [], 'a pending flag that is never lowered is a skeleton that never goes away — and a '
       + `non-admin never gets tokenAccess at all:\n  ${bad.join('\n  ')}`);

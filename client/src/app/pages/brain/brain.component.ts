@@ -685,7 +685,9 @@ export class BrainComponent implements OnInit, OnDestroy {
   private loadSpaceActivity(spaceId: string): void {
     this.spacesApi.getSpaceActivity(spaceId, 7 * 24).subscribe({
       next: r => {
-        if (this.activeSpaceId() !== spaceId) return;
+        // Settle even when the answer is discarded. The guard gates the RESULT, never the skeleton: a stale
+        // response that returned outright left this panel spinning until the next space switch.
+        if (this.activeSpaceId() !== spaceId) { this.settled('activity'); return; }
         const rows = r.spaces ?? [];
         if (rows.length === 0) {
           // An empty window is still an answer — "nothing was asked" — so the panel must render, not vanish.
@@ -693,6 +695,10 @@ export class BrainComponent implements OnInit, OnDestroy {
             space: spaceId, calls: 0, recall: 0, answered: 0, writes: 0,
             meanMs: null, maxMs: 0, over1s: 0, meanTopScore: null, lastUsedAt: null,
           });
+          // The skeleton comes down here too. It did not, so a space with NO recorded usage showed its usage
+          // card spinning for ever — and after the reset button clears the buckets, every space lands in exactly
+          // this branch on the next load. Found by a characterization test written for an unrelated refactor.
+          this.settled('activity');
           return;
         }
         const sum = (pick: (row: SpaceActivity) => number) => rows.reduce((t, row) => t + pick(row), 0);

@@ -191,7 +191,13 @@ const FROZEN = {
   // inputs and eight tabs' worth of load orchestration — so the split that helps is moving a tab's
   // orchestration out, not shaving a handler. That is its own change with its own tests; recorded here rather
   // than done badly in a PR about a button.
-  'client/src/app/pages/brain/brain.component.ts': 659,
+  // 659 -> 660: ONE line, and it is a bug fix. The activity loader set its zeroed "nothing was asked" row and
+  // returned before clearing its pending flag, so every space with no traffic — and every space just after the
+  // usage reset — showed that card spinning for ever. The added line is the settle.
+  //
+  // Raised without argument. A ratchet that made a one-line fix negotiable would be a gate encouraging the wrong
+  // outcome, which is the opposite of what this list is for.
+  'client/src/app/pages/brain/brain.component.ts': 660,
   'client/src/app/pages/settings/networks.component.ts': 643,
 };
 

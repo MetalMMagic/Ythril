@@ -6,6 +6,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Fixed
+- **A space with no recorded usage showed its usage card loading for ever.** The Overview activity loader set the
+  zeroed "nothing was asked" row and then returned **before** clearing its pending flag, so the skeleton stayed
+  up. Two paths in one function skipped it: the empty-window branch, and the guard that discards a response for a
+  space the user has already left.
+  - Every space with no traffic was in that state, and so is **every space immediately after the new usage-reset
+    button clears its buckets** — the reset made the panel spin instead of reading zero.
+  - Found by a characterization test written for an unrelated refactor. The invariant it pins is the one the code
+    got half right: the guard gates the **result**, never the skeleton.
+
+### Internal
+- **The Overview load cascade is characterized**, ahead of splitting it out of `brain.component.ts` (which crossed
+  the god-file ceiling at 659 lines).
+  - Seven tests, proven against the current code, pinning the two invariants that are invisible in its shape: a
+    response for a space the user has left is discarded, and every loader clears its pending flag regardless.
+    Those pull in opposite directions, which is what makes them worth writing down before anything moves.
+
 ### Added
 - **The Overview usage panel has a reset button**, completing the route that shipped alongside it. Clearing a
   space's recorded usage no longer needs an API call.

@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Fixed
+- **`POST /api/spaces/:id/reembed` could not converge, and a page of suppressed records blocked every embeddable
+  record behind it — permanently.** Second finding of the Data Integrity & Correctness audit lens.
+  - A suppressed record matches the candidate query *"has no vector"* **by construction**: suppression is what
+    removed the vector. The sweep filtered on that alone and skipped suppressed documents inside the loop.
+  - `find(filter).limit(n)` carries **no sort**, so the same first `n` documents came back on every call, and the
+    sweep never writes to a suppressed record — so they never left the result set. A suppressed page at the front
+    of a collection therefore hid the embeddable records behind it from every subsequent call, while
+    `truncated: true` documented *"call again to continue"*.
+  - Fixed by expressing all three tiers **in the query** rather than in the loop, so the cursor advances: enqueued
+    records gain a vector and drop out, suppressed ones were never in. `excludeFromVectorSearch` becomes
+    `$ne: true` — not `$exists: false`, which would also exclude a record that carries the flag as `false`, an
+    explicit opt-**in**. Suppressed type names come from `meta.typeSchemas` as a `$nin`, on `label` for edges and
+    `type` for everything else.
+  - **`remaining` now counts only work that can be done.** A space whose suppression is still on answers
+    `remaining: 0`, `truncated: false`, with every candidate under `skippedSuppressed` — *there is no work*, which
+    is a different statement from *there is work left*.
+  - The space-wide tier is resolved before any query, and claims "nothing to do" **only** when no lower tier can
+    lift a record back out: a type schema saying `false` overrides it, and a type schema saying nothing falls
+    through rather than counting as `false`.
+  - `suppressionExclusion` is pure and exported, so the three tiers are tested by construction rather than by
+    reading source — and the gate that pins the exclusion into the *query* is mutation-tested by moving it back
+    into the loop.
+
 - **The audit log's record-change retention swept the wrong collection, so a documented privacy window was
   never enforced — for fourteen releases.** `change-retention.ts` declared its own
   `const COLLECTION = '_audit_log'` when it was introduced in 2.0.0. The audit log has been `audit_log` since

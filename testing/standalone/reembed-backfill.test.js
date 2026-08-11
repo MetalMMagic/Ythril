@@ -147,3 +147,82 @@ describe('the comment that promised a sweep that never existed', () => {
     assert.match(QUEUE, /on demand, not periodic/);
   });
 });
+
+/**
+ * ── The convergence property, and why it is a BEHAVIOURAL test rather than a source-reading one ──
+ *
+ * The first version of this sweep filtered on "has no vector" alone and skipped suppressed documents inside
+ * the loop. That does not terminate, and the failure is worse than a misleading counter:
+ *
+ *  - a suppressed record matches "has no vector" BY CONSTRUCTION — suppression is what removed the vector;
+ *  - `find(filter).limit(n)` carries no sort, so the same first `n` documents come back on every call;
+ *  - the sweep never writes to a suppressed record, so they never leave the result set.
+ *
+ * So a page of suppressed records at the front of a collection blocked every embeddable record behind it,
+ * permanently, while `truncated: true` documented "call again to continue".
+ *
+ * `suppressionExclusion` is pure and exported precisely so this can be checked without a database.
+ */
+describe('suppression is expressible as a query, which is what makes the sweep terminate', () => {
+  it('excludes the record tier with $ne, not $exists', async () => {
+    const { suppressionExclusion } = await import('../../server/dist/brain/reembed.js');
+    const { query } = suppressionExclusion(undefined, 'memory');
+    assert.deepEqual(query['excludeFromVectorSearch'], { $ne: true },
+      '$exists:false would also exclude a record that carries the flag as FALSE — an explicit opt-in');
+  });
+
+  it('excludes suppressed TYPE NAMES, on the right field per kind', async () => {
+    const { suppressionExclusion } = await import('../../server/dist/brain/reembed.js');
+    const meta = {
+      typeSchemas: {
+        memory: { note: { suppressEmbeddings: false }, task: { suppressEmbeddings: true } },
+        edge: { blocks: { suppressEmbeddings: true } },
+      },
+    };
+    assert.deepEqual(suppressionExclusion(meta, 'memory').query['type'], { $nin: ['task'] });
+    // Edges key on `label`. Reading `type` for an edge finds no schema, looks like it worked, and excludes
+    // nothing — for the one record kind suppression was specifically widened to cover.
+    assert.deepEqual(suppressionExclusion(meta, 'edge').query['label'], { $nin: ['blocks'] });
+    assert.equal(suppressionExclusion(meta, 'edge').query['type'], undefined);
+  });
+
+  it('says ALL when the space-wide tier is on and nothing can override it', async () => {
+    const { suppressionExclusion } = await import('../../server/dist/brain/reembed.js');
+    assert.equal(suppressionExclusion({ suppressEmbeddings: true }, 'memory'), 'all',
+      'a space that suppresses everything has NO WORK, which is a different report from work left over');
+  });
+
+  it('does NOT say ALL when a type schema releases a type', async () => {
+    // `record > schema > space`: a schema saying false lifts its type back out, so the sweep still has work.
+    const { suppressionExclusion } = await import('../../server/dist/brain/reembed.js');
+    const meta = { suppressEmbeddings: true, typeSchemas: { memory: { note: { suppressEmbeddings: false } } } };
+    const res = suppressionExclusion(meta, 'memory');
+    assert.notEqual(res, 'all', 'claiming ALL here would skip the types an operator explicitly released');
+    assert.deepEqual(res.query['type'], { $in: ['note'] });
+  });
+
+  it('treats a type schema that says NOTHING as falling through, not as false', async () => {
+    // The tier rule is "absent means not stated". A silent type under space-wide suppression stays suppressed.
+    const { suppressionExclusion } = await import('../../server/dist/brain/reembed.js');
+    const meta = { suppressEmbeddings: true, typeSchemas: { memory: { note: {} } } };
+    assert.equal(suppressionExclusion(meta, 'memory'), 'all');
+  });
+
+  it('a file has no type tier, so no type field appears in its exclusion', async () => {
+    const { suppressionExclusion } = await import('../../server/dist/brain/reembed.js');
+    const meta = { typeSchemas: { memory: { task: { suppressEmbeddings: true } } } };
+    const { query } = suppressionExclusion(meta, 'file');
+    assert.deepEqual(Object.keys(query), ['excludeFromVectorSearch'],
+      'indexing typeSchemas with "file" would miss every time and silently exclude nothing');
+  });
+
+  it('the sweep applies the exclusion to the QUERY, not only to the loop', () => {
+    // The mutation that reintroduces the bug is moving this back into the loop, which no pure test can see.
+    const src = readFileSync('server/src/brain/reembed.ts', 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+    assert.match(src, /suppressionExclusion\(/, 'the sweep must call the exclusion builder');
+    assert.match(src, /\.\.\.vectorless,\s*\.\.\.exclusion\.query/,
+      'the exclusion must be spread INTO the find filter — skipping in the loop alone never advances the cursor');
+    assert.match(src, /=== 'all'/, "the space-wide short-circuit must be handled before querying");
+  });
+});

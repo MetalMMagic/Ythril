@@ -88,6 +88,10 @@ const ROUTE_RULES: RouteRule[] = [
   // if it goes wrong (see the stale-spaceId fixes), that is exactly the operation you want a
   // record of. It must be listed BEFORE the generic space.update rule so it wins.
   { method: 'PATCH',  pattern: /^\/api\/spaces\/([^/]+)\/rename$/,                 operation: 'space.rename',   spaceGroup: 1 },
+  // Clearing a space's recorded usage. Audited because the panel reads zero either way afterwards, so nothing
+  // on screen distinguishes a reset from a genuinely idle space — and an operator asking "was this reset, or has
+  // it really been quiet?" has no other place to look. The deleted count is in the snapshot.
+  { method: 'POST',   pattern: /^\/api\/spaces\/([^/]+)\/activity\/reset$/,          operation: 'space.activity.reset', spaceGroup: 1 },
   // Rebuilding vector indexes leaves recall returning empty until the build finishes, so it is an
   // availability-affecting admin action and belongs in the trail alongside rename and wipe.
   { method: 'POST',   pattern: /^\/api\/spaces\/([^/]+)\/rebuild-indexes$/,        operation: 'space.indexes.rebuild', spaceGroup: 1 },

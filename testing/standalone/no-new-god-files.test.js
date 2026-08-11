@@ -111,7 +111,11 @@ const FROZEN = {
   // +28 (route body plus its Zod schema), which would have been the SECOND double-digit raise of this file in two
   // PRs — so the route moved to `api/spaces-reembed.ts` instead and only its mount point stayed. That is what the
   // ratchet is for: not to forbid growth, but to make the second raise in two PRs visible enough to answer.
-  'server/src/api/spaces.ts': 849,
+  // RAISED 849 -> 851 for the usage-reset route: an import and a registration call, nothing else. The route
+  // body itself is +47 lines and lives in `api/spaces-activity.ts`, the same shape `spaces-reembed.ts` took and
+  // for the reason written above it — this file has been raised four times, and the answer to the fifth is to
+  // put the route beside its mount point rather than inside it.
+  'server/src/api/spaces.ts': 851,
   // 769 -> 773: `openBrainDrawer` gained two overload signatures and its `lastSaved` effect reads the
   // record inside each branch so the discriminant narrows it. Four lines of TYPES, no new behaviour —
   // raised deliberately rather than worked around, which is what this list is for.

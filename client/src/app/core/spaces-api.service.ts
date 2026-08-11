@@ -125,6 +125,22 @@ export class SpacesApi {
    * while this aggregates hourly buckets. Folding them together would make the whole Overview wait on the
    * slower half, and the panel is designed to render its tiles before this arrives.
    */
+  /**
+   * Clear a space's recorded usage.
+   *
+   * Note the path: the READ is under /api/brain, the reset is under /api/spaces. They are not siblings, and that
+   * is deliberate rather than sloppy — reading usage is a brain query, clearing it is an administrative act on
+   * the space, and it lives with rebuild-indexes and wipe behind the same admin guard.
+   *
+   * Returns how many hourly buckets were removed, because afterwards the panel reads zero either way and
+   * nothing on screen tells a reset apart from a space that was genuinely idle.
+   */
+  resetSpaceActivity(spaceId: string): Observable<{ ok: boolean; spaceId: string; cleared: number }> {
+    return this.http.post<{ ok: boolean; spaceId: string; cleared: number }>(
+      `/api/spaces/${spaceId}/activity/reset`, {},
+    );
+  }
+
   getSpaceActivity(spaceId: string, hours = 24): Observable<SpaceActivityResponse> {
     return this.http.get<SpaceActivityResponse>(
       `/api/brain/spaces/${spaceId}/activity?hours=${hours}`,

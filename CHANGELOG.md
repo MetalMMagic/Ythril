@@ -6,6 +6,32 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- **A space's recorded usage can be reset** — `POST /api/spaces/:spaceId/activity/reset`, admin + MFA, scoped to
+  the space. Deletes the hourly buckets behind the Overview usage panel, so a space hammered once during a
+  migration stops reading as busy for the rest of the window.
+  - **"Reset" means clear, and that was a corrected decision.** The first design stored a per-space marker and
+    clamped the read window to it, on the reasoning that deleting nothing is always safer. That was priced before
+    looking: `purgeSpaceActivity` already existed and was already exercised by the space-delete cascade, so a
+    marker would have added a stored field, a merge path and a read-time clamp to reproduce — less well — what
+    one tested call already does.
+  - The data justifies it too: these are hourly counters with a **90-day TTL**, so the store deletes them on its
+    own schedule anyway. A marker would also leave the panel technically honest and practically confusing — the
+    rows still there, just uncounted, so two operators reading one instance disagree about what happened.
+  - **Admin, not write.** Clearing a usage record changes no memory, entity, edge or file. It is bookkeeping on
+    the space itself, so it sits behind the same guard as rebuild-indexes and wipe.
+  - In-memory counters are **flushed first**. Without that, up to a minute of already-counted traffic would land
+    moments later and the panel would appear to un-reset itself.
+  - The response carries how many buckets were `cleared`, and the action is audited as `space.activity.reset` —
+    because afterwards the panel reads zero either way, and nothing on screen tells a reset apart from a space
+    that was genuinely idle.
+  - The route lives in `api/spaces-activity.ts`, not inline: `api/spaces.ts` is on the god-file ratchet and its
+    own entry says a route belongs beside its mount point once the raises stack. Only the import and the
+    registration call landed there.
+  - **The button is not in this change.** The Brain shell has no confirmation-dialog service and its established
+    idiom is an inline confirm; wiring a destructive control through the wrong one would have shipped either a
+    dead button or an unconfirmed delete.
+
 ### Internal
 - **A sync wait's timeout is now sized from a measurement, and a comment that lied about it is fixed.** The
   first propagation wait in `entity created on A syncs to B` read *"60s default"* while `waitFor`'s default is

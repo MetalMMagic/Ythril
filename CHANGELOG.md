@@ -6,6 +6,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Internal
+- **A sync wait that only just passed now reports its margin.** A pub/sub propagation test timed out at its 25 s
+  budget in CI on a diff of client CSS, docs and a changelog — none of which can touch sync — and passed on
+  rerun with no code change.
+  - The tempting fix is a bigger number, and it is a guess. Nothing recorded how long a PASSING wait took, so
+    nobody could tell whether a green run takes 20 s and the margin is thin, or takes 3 s and something
+    occasionally **stalls** — in which case a bigger budget hides the stall instead of fixing it.
+  - So the measurement was added rather than the number changed: any wait that consumes more than 60% of its
+    budget prints the elapsed time, the budget and the percentage. For every wait in the suite, not just the one
+    that went red, and while the margin is still a margin.
+  - A warning rather than a failure: propagation time legitimately varies with what else the runner is doing,
+    and a slow pass failing the build would make CI stricter than the product.
 ### Added
 - **Rotate and revoke moved into the token editor, as a danger zone.** They were reachable only as two small
   icons on the list row, so a token was managed in two places.

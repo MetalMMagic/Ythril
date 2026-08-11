@@ -4,6 +4,8 @@ import { PhIconComponent } from '../../shared/ph-icon.component';
 import { ModalDirective } from '../../shared/modal.directive';
 import { AuthApi } from '../../core/auth-api.service';
 import { RightsMatrixComponent } from './rights-matrix.component';
+import { DIALOG_STYLES } from './dialog.styles';
+import { FormsModule } from '@angular/forms';
 import type { TokenRights } from './rights-glyph.component';
 import type { Space, TokenRecord } from '../../core/api.types';
 
@@ -32,7 +34,8 @@ import type { Space, TokenRecord } from '../../core/api.types';
   selector: 'app-token-rights-dialog',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [TranslocoPipe, PhIconComponent, ModalDirective, RightsMatrixComponent],
+  imports: [TranslocoPipe, PhIconComponent, ModalDirective, RightsMatrixComponent, FormsModule],
+  styles: [DIALOG_STYLES],
   template: `
     <div class="dialog-backdrop">
       <div class="dialog" [appModal]="'tokens.rights.title' | transloco"
@@ -50,6 +53,17 @@ import type { Space, TokenRecord } from '../../core/api.types';
           <p class="form-error" role="alert" style="white-space:pre-wrap;">{{ error() }}</p>
         }
 
+        <!-- The label, editable here and nowhere else. This dialog used to edit the rights matrix ALONE, so a
+             token's name was write-once: it could be set while minting and never corrected afterwards, even
+             though PATCH has always accepted it. The two travel in one request, so a rename and a rights
+             change are one audited edit rather than two that can half-fail. -->
+        <div class="field" style="margin-bottom:14px;">
+          <label for="tokenLabel">{{ 'tokens.create.label' | transloco }}</label>
+          <input id="tokenLabel" type="text" [(ngModel)]="draftName" name="name"
+                 [placeholder]="'tokens.create.labelPlaceholder' | transloco" maxlength="200" />
+        </div>
+
+        <label style="display:block;margin-bottom:6px;">{{ 'tokens.create.permission' | transloco }}</label>
         <app-rights-matrix [rights]="draft()" [spaces]="spaceIds()" (changed)="draft.set($event)"/>
 
         <div class="form-grid-bottom" style="margin-top:12px;">
@@ -79,18 +93,28 @@ export class TokenRightsDialogComponent {
 
   /** Starts from what the token HAS — an empty start would make every save narrow everything not re-entered. */
   draft = signal<TokenRights>({ instanceAdmin: false, createSpaces: false, floor: null, perSpace: {} });
+  /** Same reasoning for the label: prefilled, so saving without touching it is not a rename to empty. */
+  draftName = '';
 
   spaceIds = () => this.availableSpaces().map(s => s.id);
 
   ngOnInit(): void {
     const r = this.token().rights;
     if (r) this.draft.set({ ...r } as TokenRights);
+    this.draftName = this.token().name;
   }
 
   save(): void {
     this.saving.set(true);
     this.error.set('');
-    this.authApi.setTokenRights(this.token().id, this.draft()).subscribe({
+    // The name goes only when it actually changed. Sending it unchanged would work — PATCH accepts it — but
+    // it would write a `token.update` audit entry claiming a rename that did not happen.
+    const trimmed = this.draftName.trim();
+    const renamed = trimmed && trimmed !== this.token().name;
+    this.authApi.updateToken(this.token().id, {
+      rights: this.draft(),
+      ...(renamed ? { name: trimmed } : {}),
+    }).subscribe({
       next: ({ token }) => { this.saving.set(false); this.saved.emit(token); },
       error: (err) => {
         this.saving.set(false);

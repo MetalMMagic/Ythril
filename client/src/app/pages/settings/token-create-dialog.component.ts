@@ -6,30 +6,48 @@ import { PhIconComponent } from '../../shared/ph-icon.component';
 import { ModalDirective } from '../../shared/modal.directive';
 import { AuthApi } from '../../core/auth-api.service';
 import { RightsMatrixComponent } from './rights-matrix.component';
+import { DIALOG_STYLES } from './dialog.styles';
 import type { TokenRights } from './rights-glyph.component';
 import type { Space, TokenRecord } from '../../core/api.types';
 
 /**
- * The create-token dialog.
+ * The create-token dialog: a label, an optional expiry, and the rights matrix.
  *
  * ## Why it is its own component
  *
- * It was over a quarter of `tokens.component.ts` and pushed that file past the god-file ceiling. It is also
- * a self-contained flow: thirteen pieces of state that exist only while the dialog is open, and one decision
- * — legacy permission fields or the per-space matrix — that the rest of the page has no opinion about.
+ * It was over a quarter of `tokens.component.ts` and pushed that file past the god-file ceiling.
+ *
+ * That extraction also produced the bug this file's styles now fix. `.dialog-backdrop` and `.dialog` were
+ * defined in `tokens.component.ts`, and Angular scopes component styles — so moving the markup out left the
+ * CSS behind and the "dialog" rendered as a plain full-width block at the top of the page, no backdrop, no
+ * centring, pushing the token list down. Nothing failed: it compiled, it rendered, the tests passed, and it
+ * was simply wrong to look at. The shell now comes from `DIALOG_STYLES`, which a move cannot leave behind.
+ *
+ * ## Why three controls became one
+ *
+ * The form used to carry a spaces checkbox list, a three-way permission radio (read-only / standard / admin)
+ * AND the matrix behind a "Use the per-space matrix" button. Those are two vocabularies for one decision, and
+ * the server treats them as **mutually exclusive** — so the form could compose a body the API refuses, and
+ * the operator would read that 400 as a bug rather than as a choice they had made.
+ *
+ * The matrix expresses everything the radio and the checkbox list expressed, and things they could not
+ * (admin on Files in one space and nothing anywhere else). So they are gone, not kept beside it.
+ *
+ * The second-factor selector is gone from CREATE for a different reason: MFA is a property of the token, set
+ * on the token, not a decision folded into minting it.
  *
  * ## The contract this must not change
  *
- * The REQUEST BODY. It is what the server's mint cap and the audit log see, and
- * `tokens.component.spec.ts` characterizes it: legacy fields and `rights` are mutually exclusive, `mfa` is
- * omitted when `inherit`, `spaces` only when some are selected. Those tests were written and proven green
- * against the pre-extraction code precisely so this move could be judged by them rather than by the diff.
+ * The REQUEST BODY. It is what the server's mint cap and the audit log see, and `tokens.component.spec.ts`
+ * characterizes it. Those tests were rewritten with this change rather than around it: the body is now always
+ * `{ name, rights }` plus an optional `expiresAt`, and never the legacy trio.
  */
 @Component({
   selector: 'app-token-create-dialog',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, ModalDirective, RightsMatrixComponent],
+  styles: [DIALOG_STYLES],
   template: `
       <div class="dialog-backdrop">
         <div class="dialog" [appModal]="'tokens.create.title' | transloco" (dismiss)="close.emit()" (click)="$event.stopPropagation()">
@@ -54,95 +72,24 @@ import type { Space, TokenRecord } from '../../core/api.types';
               </div>
             </div>
 
-            <div class="field" style="margin-top:12px; margin-bottom:0;">
-              <label>{{ 'tokens.create.spaces' | transloco }}</label>
+            <!-- The per-space matrix, and it is the whole permission model now.
+                 It used to sit behind a "Use the per-space matrix" button, below a spaces checkbox list and a
+                 three-way permission radio that described the SAME access in the pre-2.6.0 vocabulary. Three
+                 controls for one decision, two of which the server treats as mutually exclusive with the
+                 third — so the form could express bodies the API refuses. The matrix says everything they
+                 said and things they could not (admin on Files in one space and nothing anywhere else), so
+                 they are gone rather than kept beside it. -->
+            <div class="field" style="margin-top:14px; margin-bottom:0;">
+              <label>{{ 'tokens.create.permission' | transloco }}</label>
+              <p class="permission-help">
+                <ph-icon name="info" [size]="14" />
+                <span>{{ 'tokens.matrix.help' | transloco }}</span>
+              </p>
               @if (spacesLoadFailed()) {
-                <div class="alert alert-error" style="margin-bottom:6px; font-size:12px;">{{ 'tokens.create.spacesLoadFailed' | transloco }}</div>
-                <input type="text" [(ngModel)]="newSpacesFallback" name="spaces" [placeholder]="'tokens.create.spacesFallbackPlaceholder' | transloco" />
+                <div class="alert alert-error" style="margin-top:6px; font-size:12px;">{{ 'tokens.create.spacesLoadFailed' | transloco }}</div>
               } @else if (availableSpaces().length === 0) {
                 <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">{{ 'tokens.create.loadingSpaces' | transloco }}</div>
               } @else {
-                <div class="table-wrapper" hscrollTop style="max-height:200px; overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius-sm);">
-                  <table style="margin:0;">
-                    <thead>
-                      <tr>
-                        <th style="width:40px; text-align:center;">
-                          <input type="checkbox" [checked]="newSelectedSpaces.length === 0" (change)="selectAllSpaces()" [attr.title]="'tokens.create.allSpacesTitle' | transloco" />
-                        </th>
-                        <th>{{ 'auditLog.filter.space' | transloco }} <span style="font-size:10px; color:var(--text-muted); font-weight:400;">— {{ 'tokens.create.spacesCheckNoneHint' | transloco }}</span></th>
-                        <th>{{ 'spaces.table.column.id' | transloco }}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      @for (s of availableSpaces(); track s.id) {
-                        <tr style="cursor:pointer;" (click)="toggleSpace(s.id)">
-                          <td style="text-align:center;">
-                            <input type="checkbox" [checked]="isSpaceSelected(s.id)" (click)="$event.stopPropagation()" (change)="toggleSpace(s.id)" />
-                          </td>
-                          <td>{{ s.label }}</td>
-                          <td><span class="badge badge-gray mono">{{ s.id }}</span></td>
-                        </tr>
-                      }
-                    </tbody>
-                  </table>
-                </div>
-              }
-              <div class="scope-hint">{{ 'tokens.create.spacesHint' | transloco }}</div>
-            </div>
-
-            <!-- Second factor, per token. The instance-wide switch is all-or-nothing, which is what makes
-                 MFA mutually exclusive with automation — a scheduler cannot type a code. Inherit is the
-                 default and means exactly what it means today. -->
-            <div class="field" style="margin-top:12px; margin-bottom:0;">
-              <label for="tokenMfa">{{ 'tokens.create.mfa' | transloco }}</label>
-              <select id="tokenMfa" [(ngModel)]="newMfa" name="mfa">
-                <option value="inherit">{{ 'tokens.mfa.inherit' | transloco }}</option>
-                <option value="exempt">{{ 'tokens.mfa.exempt' | transloco }}</option>
-                <option value="required">{{ 'tokens.mfa.required' | transloco }}</option>
-              </select>
-              <p class="permission-help">
-                <ph-icon name="info" [size]="14" />
-                <span>{{ ('tokens.mfa.' + newMfa + '.desc') | transloco }}</span>
-              </p>
-            </div>
-
-            <div class="field" style="margin-top:12px; margin-bottom:0;">
-              <label>{{ 'tokens.create.permission' | transloco }}</label>
-              <div class="permission-radio-group">
-                <label class="permission-radio-item">
-                  <input type="radio" name="permission" value="readOnly" [(ngModel)]="newPermission" />
-                  {{ 'tokens.permission.readOnly' | transloco }}
-                </label>
-                <label class="permission-radio-item">
-                  <input type="radio" name="permission" value="standard" [(ngModel)]="newPermission" />
-                  {{ 'tokens.permission.standard' | transloco }}
-                </label>
-                @if (callerIsAdmin()) {
-                  <label class="permission-radio-item">
-                    <input type="radio" name="permission" value="admin" [(ngModel)]="newPermission" />
-                    {{ 'tokens.permission.admin' | transloco }}
-                  </label>
-                }
-              </div>
-              <p class="permission-help">
-                <ph-icon name="info" [size]="14" />
-                <span>{{ ('tokens.permission.' + newPermission + '.desc') | transloco }}</span>
-              </p>
-            </div>
-
-            <!-- The per-space matrix, shown only when the operator asks for it. Collapsed by default because
-                 the legacy permission control above already answers the common case, and the two are
-                 mutually exclusive on the wire: the server refuses a body carrying both rather than
-                 silently preferring one. Opening this is therefore a deliberate switch, not an extra. -->
-            <div style="margin-top:14px;">
-              <button class="btn-secondary btn btn-sm" type="button" (click)="useMatrix.set(!useMatrix())">
-                {{ useMatrix() ? ('tokens.matrix.hide' | transloco) : ('tokens.matrix.show' | transloco) }}
-              </button>
-              @if (useMatrix()) {
-                <p class="permission-help" style="margin-top:8px;">
-                  <ph-icon name="info" [size]="14" />
-                  <span>{{ 'tokens.matrix.help' | transloco }}</span>
-                </p>
                 <app-rights-matrix
                   [rights]="draftRights()"
                   [spaces]="spaceIds()"
@@ -168,9 +115,6 @@ export class TokenCreateDialogComponent {
 
   availableSpaces = input<Space[]>([]);
   spacesLoadFailed = input(false);
-  /** Whether the CALLER is an admin — only an admin may offer the admin permission. Passed in rather than
-   *  re-fetched: two components asking `getMe()` is two answers that can disagree mid-dialog. */
-  callerIsAdmin = input(false);
   close = output<void>();
   created = output<{ token: TokenRecord; plaintext: string }>();
 
@@ -178,56 +122,23 @@ export class TokenCreateDialogComponent {
   createError = signal('');
   /** Just the ids: the matrix keys rows by id and does not need the rest of a space. */
   spaceIds = computed(() => this.availableSpaces().map(s => s.id));
-  useMatrix = signal(false);
   draftRights = signal<TokenRights>({ instanceAdmin: false, createSpaces: false, floor: null, perSpace: {} });
   newName = '';
   newExpiry = '';
-  newPermission: 'readOnly' | 'standard' | 'admin' = 'standard';
-  newMfa: 'inherit' | 'exempt' | 'required' = 'inherit';
-  newSelectedSpaces: string[] = [];
-  newSpacesFallback = '';
-
-  /** Empty selection means "all spaces" in this form, matching what the server does with an absent list. */
-  selectAllSpaces(): void { this.newSelectedSpaces = []; }
-
-  isSpaceSelected(id: string): boolean { return this.newSelectedSpaces.includes(id); }
-
-  toggleSpace(id: string): void {
-    this.newSelectedSpaces = this.isSpaceSelected(id)
-      ? this.newSelectedSpaces.filter(s => s !== id)
-      : [...this.newSelectedSpaces, id];
-  }
 
   createToken(): void {
     if (!this.newName.trim()) return;
     this.creating.set(true);
     this.createError.set('');
 
-    const body: {
-      name: string; expiresAt?: string; admin?: boolean; readOnly?: boolean; spaces?: string[];
-      mfa?: 'exempt' | 'required'; rights?: TokenRights;
-    } = { name: this.newName.trim() };
-    // Sent only when it says something — `inherit` is the absent state on the server too.
-    if (this.newMfa !== 'inherit') body.mfa = this.newMfa;
+    // ONE description of access, always the matrix. The legacy `spaces`/`admin`/`readOnly` trio is mutually
+    // exclusive with `rights` on the server, so a form offering both could compose a body the API refuses —
+    // and the operator would read that 400 as a bug rather than as a choice they had made.
+    const body: { name: string; expiresAt?: string; rights: TokenRights } = {
+      name: this.newName.trim(),
+      rights: this.draftRights(),
+    };
     if (this.newExpiry) body.expiresAt = new Date(this.newExpiry).toISOString();
-
-    if (this.useMatrix()) {
-      // EITHER the matrix OR the legacy fields, never both. The server refuses a body carrying both rather
-      // than silently preferring one, so sending the permission radio alongside would turn a deliberate
-      // choice into a 400 the operator did not make.
-      body.rights = this.draftRights();
-    } else {
-      if (this.newPermission === 'admin') body.admin = true;
-      if (this.newPermission === 'readOnly') body.readOnly = true;
-
-      let spaceIds: string[];
-      if (this.spacesLoadFailed()) {
-        spaceIds = this.newSpacesFallback.split(',').map(s => s.trim()).filter(Boolean);
-      } else {
-        spaceIds = [...this.newSelectedSpaces];
-      }
-      if (spaceIds.length) body.spaces = spaceIds;
-    }
 
     this.authApi.createToken(body).subscribe({
       next: ({ token, plaintext }) => {
@@ -236,9 +147,6 @@ export class TokenCreateDialogComponent {
         this.created.emit({ token, plaintext });
         this.newName = '';
         this.newExpiry = '';
-        this.newPermission = 'standard';
-        this.newSelectedSpaces = [];
-        this.newSpacesFallback = '';
       },
       error: (err) => {
         this.creating.set(false);

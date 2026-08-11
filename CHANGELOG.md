@@ -26,6 +26,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     compared, with its own per-row cog.
 
 ### Fixed
+- **Both token dialogs rendered as flat blocks instead of pop-ups.** `.dialog-backdrop` and `.dialog` were
+  defined in `tokens.component.ts`, and Angular **scopes** component styles — so when the create-token markup
+  was extracted into its own component, the CSS stayed behind. The "dialog" became a full-width slab at the
+  top of the page: no backdrop, no centring, pushing the token list down.
+  - Nothing failed. It compiled, it rendered, every test passed, and the page was simply wrong to look at. A
+    missing style is not an error anywhere in the toolchain.
+  - The shell is now a shared `DIALOG_STYLES` constant, which a move cannot leave behind, and a gate fails any
+    component that renders `.dialog-backdrop` without carrying rules for it.
+  - **The gate immediately found a second one:** the *rights* dialog — the one for editing an existing token —
+    had the same problem and had never been styled at all. Editing a token appeared not to work because the
+    editor did not look like an editor.
+- **A token's label was write-once.** `PATCH /api/tokens/:id` has always accepted `name`, but the UI only ever
+  sent `rights`, so a label could be set while minting and never corrected. The edit dialog now edits the
+  label and the matrix, in **one** request — a rename and a rights change are one audited edit rather than two
+  that can half-fail.
 - **A token you read back could not be written back: `PATCH /api/tokens/:id` refused ten of the twelve fields
   `GET /api/tokens` emits.** Read a token, change its name, send it back, and the answer was
   `400 Unrecognized key(s) in object: 'spaces'`.
@@ -80,6 +95,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The empty-versus-absent asymmetry is asserted inside the narrowing too — `spaces === undefined` is
     unrestricted, an empty allowlist reaches nothing. That conflation granted whole instances on three routes in
     2.6.0 and must not come back where it would turn the narrowest token into the widest.
+
+### Changed
+- **The create-token form is a label, an expiry and the rights matrix.** It also carried a spaces checkbox
+  list, a three-way permission radio (read-only / standard / admin), and the matrix hidden behind a "Use the
+  per-space matrix" button.
+  - Those are **two vocabularies for one decision**, and the server treats them as mutually exclusive — so the
+    form could compose a body the API refuses, and the operator would read that 400 as a bug rather than as a
+    choice they had made.
+  - The matrix expresses everything the radio and the checkbox list expressed, and things they could not
+    (`admin` on Files in one space and nothing anywhere else). So they are gone, not kept beside it.
+  - The **second-factor** selector is gone from create for a different reason: MFA is a property of the token,
+    set on the token, not a decision folded into minting it.
+
 
 ### Internal
 - **The space-settings pop-up is its own component.** No behaviour change: 84 lines of template moved out of

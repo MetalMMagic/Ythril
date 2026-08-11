@@ -275,7 +275,6 @@ import { httpErrorReason } from '../../core/http-error';
       <app-token-create-dialog
         [availableSpaces]="availableSpaces()"
         [spacesLoadFailed]="spacesLoadFailed()"
-        [callerIsAdmin]="!!selfToken()?.admin"
         (close)="showCreateDialog.set(false)"
         (created)="onTokenCreated($event)"/>
     }

@@ -42,6 +42,25 @@ function make(token: Record<string, unknown>) {
   return { fixture, c: fixture.componentInstance as any, updateSpy };
 }
 
+/** A harness whose API spies record calls, so "the dialog did not do it itself" is checkable. */
+function makeWithSpies() {
+  const api = {
+    updateToken: vi.fn().mockReturnValue(of({ token: { id: 't1', name: 'CI' } })),
+    regenerateToken: vi.fn(),
+    revokeToken: vi.fn(),
+  };
+  TestBed.resetTestingModule();
+  TestBed.configureTestingModule({
+    imports: [TokenRightsDialogComponent, getTranslocoModule()],
+    providers: [{ provide: AuthApi, useValue: api as any }],
+  });
+  const fixture = TestBed.createComponent(TokenRightsDialogComponent);
+  fixture.componentRef.setInput('token', { id: 't1', name: 'CI', rights: RIGHTS });
+  fixture.componentRef.setInput('availableSpaces', []);
+  fixture.detectChanges();
+  return { fixture, c: fixture.componentInstance as any, api };
+}
+
 describe('the token editor: second factor', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
@@ -131,5 +150,56 @@ describe('the token editor: second factor', () => {
     c.save();
     expect(c.error()).toBe('needs a current TOTP code');
     expect(c.saving()).toBe(false);
+  });
+});
+
+/**
+ * ── The danger zone REQUESTS, it does not act ─────────────────────────────────────────────────────
+ *
+ * Rotate and revoke were reachable only as two small icons on the list row, so a token was managed in two
+ * places. They belong in the editor — but the editor must not perform them.
+ *
+ * The page owns the confirmation dialog, the failure toast, the list removal, and the **copy-once banner** that
+ * a rotated secret appears in. A second implementation inside the modal would mean a second confirmation flow
+ * and, for rotate, a second place a credential is shown exactly once.
+ *
+ * And the ordering is load-bearing rather than tidy: that banner renders on the PAGE, behind the modal. A
+ * rotate that left the dialog open would put the only copy of a new credential underneath it.
+ */
+describe('the token editor danger zone', () => {
+  it('emits rotate instead of calling the API', () => {
+    const rotated: unknown[] = [];
+    const { c, api } = makeWithSpies();
+    c.rotate.subscribe(() => rotated.push(1));
+    c.rotate.emit();
+    expect(rotated).toHaveLength(1);
+    expect(api.regenerateToken).not.toHaveBeenCalled();
+  });
+
+  it('emits revoke instead of calling the API', () => {
+    const revoked: unknown[] = [];
+    const { c, api } = makeWithSpies();
+    c.revoke.subscribe(() => revoked.push(1));
+    c.revoke.emit();
+    expect(revoked).toHaveLength(1);
+    expect(api.revokeToken).not.toHaveBeenCalled();
+  });
+
+  it('renders both controls, with revoke marked destructive', () => {
+    const { fixture } = makeWithSpies();
+    const zone = fixture.nativeElement.querySelector('.danger-zone');
+    expect(zone).toBeTruthy();
+    const buttons = [...zone.querySelectorAll('button')];
+    expect(buttons).toHaveLength(2);
+    // The destructive one has to look destructive; two identical buttons is a mis-click waiting to happen.
+    expect(buttons.some((b: HTMLElement) => b.classList.contains('btn-danger'))).toBe(true);
+  });
+
+  it('the danger zone is the LAST thing in the dialog', () => {
+    // A destructive control beside Save is a mis-click. The reader should have to travel to reach it.
+    const { fixture } = makeWithSpies();
+    const html = fixture.nativeElement.innerHTML;
+    // Save lives in the footer; the danger zone must appear before it in the DOM but after the editable fields.
+    expect(html.indexOf('danger-zone')).toBeGreaterThan(html.indexOf('tokenMfa'));
   });
 });

@@ -221,3 +221,43 @@ describe('TokensComponent — create payload, characterized before the Q-5 extra
     expect(body.rights.perSpace.qa).toEqual({ knowledge: 'admin', files: 'write', schema: 'none', dataQuality: 'read' });
   });
 });
+
+/**
+ * ── The host closes the editor BEFORE acting ──────────────────────────────────────────────────────
+ *
+ * Rotate's new secret appears in a copy-once banner on the PAGE. If the editor stayed open, the only copy of a
+ * new credential would render behind the modal — visible to nobody, and unrecoverable, because a secret is
+ * shown exactly once.
+ */
+describe('TokensComponent — danger actions from the editor', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('closes the editor before running the action', () => {
+    const { c } = makeList([{ id: 't1', name: 'CI', admin: false }]);
+    // Stubbed, because this test is about the ORDERING and letting the real handler run would fire a
+    // confirm-dialog promise and an API call into a list harness that has neither — passing the assertion
+    // while leaving an unhandled rejection behind it. That shape is how 11 of those accumulated once before.
+    vi.spyOn(c, 'regenerate').mockResolvedValue(undefined as never);
+    c.editRightsFor.set({ id: 't1', name: 'CI' } as never);
+    expect(c.editRightsFor()).not.toBeNull();
+
+    c.dangerFromEditor({ id: 't1', name: 'CI' } as never, 'rotate');
+    // Synchronous: the confirm dialog is awaited inside `regenerate`, so by the time that promise settles the
+    // modal must already be gone.
+    expect(c.editRightsFor()).toBeNull();
+  });
+
+  it('routes rotate and revoke to the page handlers rather than duplicating them', () => {
+    const { c } = makeList([{ id: 't1', name: 'CI', admin: false }]);
+    const rotate = vi.spyOn(c, 'regenerate').mockResolvedValue(undefined as never);
+    const revoke = vi.spyOn(c, 'revoke').mockResolvedValue(undefined as never);
+
+    c.dangerFromEditor({ id: 't1', name: 'CI' } as never, 'rotate');
+    expect(rotate).toHaveBeenCalledTimes(1);
+    expect(revoke).not.toHaveBeenCalled();
+
+    c.dangerFromEditor({ id: 't1', name: 'CI' } as never, 'revoke');
+    expect(revoke).toHaveBeenCalledTimes(1);
+    expect(rotate).toHaveBeenCalledTimes(1);
+  });
+});

@@ -35,7 +35,37 @@ import type { Space, TokenRecord } from '../../core/api.types';
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [TranslocoPipe, PhIconComponent, ModalDirective, RightsMatrixComponent, FormsModule],
-  styles: [DIALOG_STYLES],
+  styles: [DIALOG_STYLES, `
+    /* Visually separated, and last. A destructive control beside Save is a mis-click; the reader should have
+       to travel to reach it. The border is the boundary, not decoration. */
+    .danger-zone {
+      margin-top: 20px;
+      border: 1px solid var(--danger-border, var(--border));
+      border-radius: var(--radius-md);
+      padding: 12px 14px;
+    }
+    .danger-title {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      color: var(--danger, var(--text-secondary));
+      margin-bottom: 10px;
+    }
+    .danger-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .danger-row + .danger-row {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+    }
+    .danger-label { font-size: 13px; font-weight: 500; }
+    .danger-hint { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
+  `],
   template: `
     <div class="dialog-backdrop">
       <div class="dialog" [appModal]="'tokens.rights.title' | transloco"
@@ -98,6 +128,33 @@ import type { Space, TokenRecord } from '../../core/api.types';
           </div>
         }
 
+        <!-- Danger zone. Present because this editor is where a token is managed, and rotate/revoke were
+             reachable only as two small icons on the list row — so the whole token was managed in two places.
+             Both EMIT rather than acting: the page owns the confirmation, the failure toast, the list removal,
+             and the copy-once banner that a rotated secret appears in. It also closes this dialog first,
+             because that banner renders behind it. -->
+        <div class="danger-zone">
+          <div class="danger-title">{{ 'tokens.danger.title' | transloco }}</div>
+          <div class="danger-row">
+            <div>
+              <div class="danger-label">{{ 'tokens.rotateButton' | transloco }}</div>
+              <div class="danger-hint">{{ 'tokens.danger.rotateHint' | transloco }}</div>
+            </div>
+            <button class="btn btn-secondary btn-sm" type="button" (click)="rotate.emit()">
+              {{ 'tokens.rotateButton' | transloco }}
+            </button>
+          </div>
+          <div class="danger-row">
+            <div>
+              <div class="danger-label">{{ 'common.revoke' | transloco }}</div>
+              <div class="danger-hint">{{ 'tokens.danger.revokeHint' | transloco }}</div>
+            </div>
+            <button class="btn btn-danger btn-sm" type="button" (click)="revoke.emit()">
+              {{ 'common.revoke' | transloco }}
+            </button>
+          </div>
+        </div>
+
         <div class="form-grid-bottom" style="margin-top:12px;">
           <button class="btn-secondary btn" type="button" (click)="close.emit()">
             {{ 'common.cancel' | transloco }}
@@ -119,6 +176,16 @@ export class TokenRightsDialogComponent {
   availableSpaces = input<Space[]>([]);
   close = output<void>();
   saved = output<TokenRecord>();
+  /**
+   * The danger actions, as requests rather than deeds.
+   *
+   * Neither is performed here. The host owns the confirm dialog, the failure toast, the list removal, and the
+   * copy-once banner a rotated secret appears in — and it closes this dialog before acting, because that
+   * banner renders behind the modal. Doing either here would mean a second confirmation flow and, for rotate,
+   * a second place a credential is shown once.
+   */
+  rotate = output<void>();
+  revoke = output<void>();
 
   saving = signal(false);
   error = signal('');

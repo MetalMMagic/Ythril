@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **Rotate and revoke moved into the token editor, as a danger zone.** They were reachable only as two small
+  icons on the list row, so a token was managed in two places.
+  - The editor **requests** them rather than performing them. The page owns the confirmation, the failure toast,
+    the list removal, and the copy-once banner a rotated secret appears in — a second implementation inside the
+    modal would mean a second confirmation flow and, for rotate, a second place a credential is shown once.
+  - The dialog **closes before the action runs**, and that is load-bearing rather than tidy: the banner renders
+    on the page, behind the modal. A rotate that left the editor open would put the only copy of a new
+    credential underneath it.
+  - Last in the dialog and visually separated, with revoke marked destructive. A destructive control beside Save
+    is a mis-click, and two identical buttons are worse.
 - **The data-model diagram shows memories, chrono entries and files**, not just entity types. One box per kind
   carrying that kind's total, joined to each entity type it links to with the per-type count on the join.
   - The owner found this by asking whether memories were missing from the diagram. They were — **entirely**.

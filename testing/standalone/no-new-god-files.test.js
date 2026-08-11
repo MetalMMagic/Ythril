@@ -77,7 +77,14 @@ const FROZEN = {
   // `token-rights-dialog.component.ts`; what landed here is the entry point, which belongs to the page that
   // owns the rows. Raised rather than worked around — hiding a row action somewhere it does not belong to
   // keep a number down is the trade this list exists to let us decline.
-  'client/src/app/pages/settings/tokens.component.ts': 526,
+  // 526 -> 532: the danger zone moved into the token editor, which added the routing method the editor emits
+  // into plus its two bindings. Six code lines.
+  //
+  // Note the direction this file COULD go instead: rotate and revoke are now in the editor, so the two row
+  // icons on the list are a second way to reach the same actions and removing them would pay this back with
+  // change to spare. Not done here, because dropping a familiar affordance from a page is the owner's call and
+  // not a side effect of adding one elsewhere. Recorded under G-1.
+  'client/src/app/pages/settings/tokens.component.ts': 532,
   // RAISED 1617 -> 1618 by one line: the Q-10 timestamp swap replaced a `| date:` cell with `<app-timestamp>` and
   // needed an import, gaining an import line while losing none. At 1618 code lines this file is by far the largest
   // here and wants splitting on its own terms — but not inside a one-cell rendering change, where the split would be

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Fixed
+- **An unknown rights AREA was accepted at 200 and granted nothing — it took a live agent offline for four
+  minutes.** `POST` and `PATCH /api/tokens` validated the rung *values* against `none|read|write|admin` and left
+  the area *name* unvalidated, so `{"brain": "write"}` stored happily while the real area is `knowledge`.
+  - Reported by the operator it happened to, while probing: *"A 400 naming the valid areas would have cost us
+    one request instead of six, and would not have taken an agent offline."*
+  - It is the same conflation fixed for token mints in 2.6.0 — unknown keys accepted and silently dropped — one
+    level deeper. Fixing the outer shape and leaving the inner one is how a bug class survives its own fix.
+  - **Four hand-written copies of the area names existed** — the type plus three `AREAS` arrays — and nothing
+    compared any copy to any other, which is exactly what allowed a validator to be written without them.
+    `SPACE_AREAS` is now the one list, the type is *derived* from it, and the schemas and guards import it.
+  - `perSpace`'s outer key stays a plain string, deliberately: that key is a space id, which is caller-chosen
+    text and not an enum. It was the inner area map that was open.
 - **The proxy lens shipped grantable and never narrowing, so a scoped token reading a proxy got nothing.**
   Reported by an operator who deployed 2.6.0 the same day it was published.
   - The ask it answered named the shape exactly: *"expand it through the token's own scope rather than through

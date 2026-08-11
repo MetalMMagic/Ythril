@@ -12,8 +12,26 @@
 /** Rungs, lowest first. Each CONTAINS the one below, so "write but not read" is unrepresentable. */
 export type Rung = 'none' | 'read' | 'write' | 'admin';
 
+/**
+ * The four space-scoped areas, as VALUES — so a validator can reject an unknown one.
+ *
+ * The type alone was not enough. `POST`/`PATCH /api/tokens` validated the rung values against
+ * `none|read|write|admin` and left the area NAME unvalidated, so `{"brain": "write"}` stored happily at 200
+ * and granted nothing, because the real area is `knowledge`. An operator wrote that onto a live token while
+ * probing and took an agent offline for four minutes; the only thing that named the true area was a later
+ * 403's own wording.
+ *
+ * That is the same conflation fixed for token mints in 2.6.0 — unknown keys accepted and silently dropped —
+ * one level deeper. Exported as a tuple so `z.enum` can consume it and there is one list rather than the four
+ * hand-written copies that existed before.
+ */
+export const SPACE_AREAS = ['knowledge', 'files', 'schema', 'dataQuality'] as const;
+
 /** The four space-scoped areas. Instance capabilities are not here — they have no space to scope to. */
-export type SpaceArea = 'knowledge' | 'files' | 'schema' | 'dataQuality';
+export type SpaceArea = typeof SPACE_AREAS[number];
+
+/** The rungs as values, for the same reason. */
+export const RUNGS = ['none', 'read', 'write', 'admin'] as const;
 
 export type AreaRungs = Record<SpaceArea, Rung>;
 

@@ -98,7 +98,7 @@ No refresh-token flow is used: when a connector token expires (see above), the c
 
 1. Set `config.publicUrl` (or the `PUBLIC_BASE_URL` env var) to your external HTTPS URL — e.g. `https://brain.example.com` — and **restart** the server. Confirm the startup log shows `MCP OAuth authorization server enabled (issuer https://…)` rather than the "OAuth disabled" warning.
 2. Create (or copy) a Ythril access token with the scope you want the connector to have — an admin PAT for full access, or a space-scoped / read-only PAT to limit it. Get it from **Settings → Tokens**.
-3. In claude.ai, go to **Settings → Connectors → Add custom connector** and enter the MCP URL: `https://brain.example.com/mcp`. Claude discovers the authorization server and opens Ythril's consent page.
+3. In claude.ai, go to **claude.ai → Settings → Connectors → Add custom connector** and enter the MCP URL: `https://brain.example.com/mcp`. Claude discovers the authorization server and opens Ythril's consent page.
 4. On the consent page, paste the token from step 2 and click **Approve access**. Claude receives a new connector token and the connection goes live.
 5. To disconnect later, revoke the `MCP connector: <client>` token under **Settings → Tokens** (revoking the token you pasted in step 2 does *not* disconnect it — the connector holds its own minted token).
 

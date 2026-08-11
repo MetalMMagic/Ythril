@@ -42,7 +42,7 @@ precedence as the model settings:
 operator's call, and it was the only infra-shaped setting with no way to bind it from the Deployment —
 `allowPrivateModelEndpoints`, `modelPath` and the model endpoints have all been env-pinnable for exactly
 this reason. A pinned field is reported in `lockedByInfra` on `GET /api/spaces` and rendered read-only
-with an **env** badge on **Settings → Storage**.
+with an **env** badge on **Settings → Metrics**.
 
 Each of the six is independent, so `total` can be pinned while the per-area limits stay editable, or the
 reverse. A value of `0` is a real limit (refuse everything), not an absent one. A malformed value is

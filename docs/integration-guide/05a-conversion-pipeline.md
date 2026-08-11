@@ -68,7 +68,7 @@ A chunk is identified by **carrying a `chunkIndex`**, not by the shape of its id
 `<path>#chunk<n>` and audio chunks are `<path>#media-chunk<n>`, two spellings of one thing. Read-only: it
 mutates nothing and sends no content anywhere.
 
-**Settings → Files** surfaces this as an **Extract** tab on the file detail pane, shown only for files that
+**Brain → Files** surfaces this as an **Extract** tab on the file detail pane, shown only for files that
 have been through the pipeline.
 
 **While a file is in flight the record also carries step progress**, so a caller can report *which
@@ -298,7 +298,7 @@ so reaching a structured response is the result.
 
 Results are cached for 20 seconds and single-flighted, so several admins on **Settings → Media Processing** produce one set of probes rather than one per viewer per step. Stages sharing an endpoint (typically `doc-vlm` / `doc-repair` / `doc-verify` on one Ollama) are probed once.
 
-**Per-space override (F11-c).** The `mode` above is a **ceiling, not a default**: a space may choose anything up to it and nothing beyond it. Set the override from the space's **Settings → Document extraction** picker, or via `PATCH /api/spaces/:id` with `{ "documentExtraction": "off" | "ocr" | "vlm" | "repair" | "auto" }` (send `null` to clear it and follow the instance setting again). A request **above** the ceiling is **capped to the ceiling** before it is stored — the API never persists a level the runtime would only clamp later, and the Settings picker offers only the modes at or below the ceiling. Like dupe rules and record-TTL, this is a **local, per-instance** operational setting: it is never governed or synced across a network.
+**Per-space override (F11-c).** The `mode` above is a **ceiling, not a default**: a space may choose anything up to it and nothing beyond it. Set the override from the space's **Settings → Spaces → Document extraction** picker, or via `PATCH /api/spaces/:id` with `{ "documentExtraction": "off" | "ocr" | "vlm" | "repair" | "auto" }` (send `null` to clear it and follow the instance setting again). A request **above** the ceiling is **capped to the ceiling** before it is stored — the API never persists a level the runtime would only clamp later, and the Settings picker offers only the modes at or below the ceiling. Like dupe rules and record-TTL, this is a **local, per-instance** operational setting: it is never governed or synced across a network.
 
 The effective level is `min(instance mode, space override)`, which has three consequences worth stating outright:
 

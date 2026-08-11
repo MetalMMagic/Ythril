@@ -6,7 +6,7 @@
 
 ## Settings — Storage
 
-**Settings → Storage** shows how much disk space your Brain data and files are using against the configured quota. A usage bar with a **Healthy / Warning / Full** indicator shows how close total usage is to the limit; **Refresh** re-checks the current figures.
+**Settings → Metrics** shows how much disk space your Brain data and files are using against the configured quota. A usage bar with a **Healthy / Warning / Full** indicator shows how close total usage is to the limit; **Refresh** re-checks the current figures.
 
 When usage approaches the quota limit, writes will first return warnings and eventually be rejected. Contact your administrator to raise the quota.
 
@@ -14,7 +14,7 @@ When usage approaches the quota limit, writes will first return warnings and eve
 
 ## Settings — Data
 
-**Settings → Data** (admin only) gives you control over the underlying MongoDB database: maintenance mode, manual backups, point-in-time restore, and — when enabled by the infrastructure administrator — live database migration. An **overview strip** at the top summarises the database source, whether maintenance mode is on, how many backups exist, and the active backup schedule. The disruptive and irreversible operations — **maintenance mode** and **database migration** — are grouped in a red **Danger Zone** at the bottom of the page, separated from the routine backup controls.
+**Settings → Database** (admin only) gives you control over the underlying MongoDB database: maintenance mode, manual backups, point-in-time restore, and — when enabled by the infrastructure administrator — live database migration. An **overview strip** at the top summarises the database source, whether maintenance mode is on, how many backups exist, and the active backup schedule. The disruptive and irreversible operations — **maintenance mode** and **database migration** — are grouped in a red **Danger Zone** at the bottom of the page, separated from the routine backup controls.
 
 ### MongoDB connection
 
@@ -44,7 +44,7 @@ The **Backups** table lists all available backups with their timestamp and the c
 
 > **This feature must be explicitly enabled by your infrastructure administrator** (`YTHRIL_DB_MIGRATION_ENABLED=true`). It is disabled by default.
 
-Configure automatic backups and an optional offsite destination from **Settings → Data** using the **Backup Destination** and **Scheduled Backups** cards. Settings are saved to `backup.json` (alongside `config.json`, typically `/config/backup.json`). You can also create or edit this file directly — see `config/backup.example.json` in the repository for the full schema.
+Configure automatic backups and an optional offsite destination from **Settings → Database** using the **Backup Destination** and **Scheduled Backups** cards. Settings are saved to `backup.json` (alongside `config.json`, typically `/config/backup.json`). You can also create or edit this file directly — see `config/backup.example.json` in the repository for the full schema.
 
 **Example `backup.json`:**
 
@@ -76,7 +76,7 @@ Configure automatic backups and an optional offsite destination from **Settings 
 
 A backup is a **complete plaintext copy of the database** by default — every memory, entity, edge, chrono entry,
 file-meta record and audit entry. Note that an encrypted `mongod` does not protect it: the dump is read *through*
-mongod, so it comes out decrypted. Setting `encrypt: true` (or the toggle on **Settings → Data**) encrypts every
+mongod, so it comes out decrypted. Setting `encrypt: true` (or the toggle on **Settings → Database**) encrypts every
 record with the instance master secret, using the same AES-256-GCM envelope as the encrypted state files.
 
 **It is off by default, deliberately.** A backup you cannot restore is not a backup, and encrypting by default
@@ -204,7 +204,7 @@ Migration is a one-way operation. Keep your old database available until you hav
 
 ## Settings — Audit Log
 
-**Settings → Audit Log** (admin only) shows a searchable log of every API operation on this instance. The page has two sub-tabs, toggled at the top: **Audit Log** (the operation table below) and **Server Log** (the live server log described at the end).
+**Settings → Logs** (admin only) shows a searchable log of every API operation on this instance. The page has two sub-tabs, toggled at the top: **Audit Log** (the operation table below) and **Server Log** (the live server log described at the end).
 
 **Filtering:** Filter by date range, operation type, space, HTTP status, or client IP.
 

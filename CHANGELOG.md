@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Fixed
+- **Fourteen documented navigation paths named a label the sidebar does not say.** A wrong menu path is the most
+  concrete documentation defect there is — the reader is looking at the screen while they read it, and the word is
+  not there.
+  - **Three routes are labelled differently from their name**, which accounts for seven of them:
+    `/settings/storage` reads **Metrics**, `/settings/audit-log` reads **Logs**, `/settings/data` reads
+    **Database**. The docs said Storage, Audit Log and Data.
+  - **Two were not Settings pages at all**: Conflicts is a **Workspace** item, and Files is a Brain tab.
+  - **Two named a card rather than a nav entry** — the per-space Danger Zone and the Document extraction picker
+    are both reached through **Settings → Spaces**, and the paths now say so.
+  - **One described a page that no longer exists.** The global Duplicates page became per-space; it is now named
+    by the route it used to answer on (which still redirects), because a nav label describes what is on screen.
+  - **Two were someone else's Settings.** The MCP guides walk a reader through claude.ai's connector setup; those
+    paths are now rooted in the product, which is clearer for a reader and takes them out of scope for a check
+    that can only know our own sidebar.
+
+### Added
+- **A gate: `Settings → X` in the docs must name something the sidebar actually says.** The nav is parsed out of
+  `shell.component.ts` and the labels resolved through `en.json`, so no hand-kept copy exists to go stale —
+  **renaming a nav item now fails the documentation** instead of silently orphaning it, which matters because the
+  rename is exactly the moment nobody is thinking about the docs.
+  - Only the first segment is checked. `Settings → Spaces → Danger Zone` is checked as `Spaces`; everything past
+    the first arrow is a card, tab or button, none of which is enumerable from one component, and asserting on
+    them would mean an exemption list.
+  - No exemption list at all, in fact: a `Settings →` that is itself preceded by an arrow is a segment of a path
+    rooted elsewhere, so third-party paths are excluded by *shape* rather than by name.
+  - **Its own self-checks caught a broken parse.** A three-way regex alternation put `nav.section.workspace` in
+    the wrong capture group — the quote comes first in the text, so the general branch matched before the
+    specific one — and the section stayed null, making every documented path read as wrong, correct ones
+    included. The offender list alone looked like a documentation catastrophe; the assertions that the parse
+    finds Tokens and resolves Metrics/Logs/Database are what said otherwise.
+
+### Fixed
+
 - **The egress matrix named the deprecated variable for the vision slot, one row above the current one for
   speech-to-text.** `02-hosting.md`'s table gave `OLLAMA_URL` for vision and `STT_BASE_URL` for STT — two
   spellings of the same 2.1 decision, one table apart. An operator reading it to find which variable controls

@@ -182,7 +182,7 @@ POST /api/spaces/:spaceId/rebuild-indexes
 ```
 
 Recreates the space's `$vectorSearch` indexes. Requires **admin + MFA** and is recorded in the audit
-log as `space.indexes.rebuild`. Also available in the UI at **Settings → Space → Danger Zone →
+log as `space.indexes.rebuild`. Also available in the UI at **Settings → Spaces → Danger Zone →
 Rebuild search indexes**.
 
 **Runs asynchronously** — the call returns as soon as the build is submitted. **Recall returns empty

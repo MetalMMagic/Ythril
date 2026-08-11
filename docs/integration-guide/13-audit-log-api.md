@@ -303,7 +303,7 @@ Entries expire automatically after `retentionDays` (default 90). MongoDB's TTL d
 
 ### Admin UI
 
-**Settings → Audit Log** provides a searchable, filterable view of the audit trail with:
+**Settings → Logs** provides a searchable, filterable view of the audit trail with:
 
 - Date range, operation, space, status, and IP filters
 - Paginated table with colour-coded status badges

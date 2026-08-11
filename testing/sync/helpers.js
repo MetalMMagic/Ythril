@@ -163,11 +163,42 @@ export async function get(baseUrl, token, path) {
 export async function waitFor(condition, timeout = 15_000, interval = 500, diagnose) {
   const start = Date.now();
   while (Date.now() - start < timeout) {
-    if (await condition()) return true;
+    if (await condition()) {
+      warnIfTight(Date.now() - start, timeout);
+      return true;
+    }
     await new Promise(r => setTimeout(r, interval));
   }
   const detail = typeof diagnose === 'function' ? diagnose() : diagnose;
   throw new Error(`waitFor timed out after ${timeout}ms${detail ? ` — ${detail}` : ''}`);
+}
+
+/** Above this share of the budget, a PASS is worth reporting: it is one slow runner from being a failure. */
+const TIGHT_MARGIN = 0.6;
+
+/**
+ * Say so when a wait only just made it.
+ *
+ * ## Why a passing wait needs to report anything
+ *
+ * `Subscriber-local content survives publisher tombstone` failed in CI on a diff of client CSS, docs and a
+ * changelog — nothing that can touch sync propagation — and passed on rerun with no code change. The obvious
+ * move is to raise the 25 s and move on. It is also a guess: nobody knows whether a green run takes 3 s or 24 s,
+ * so nobody knows whether the margin is thin or whether something occasionally STALLS and the deadline is
+ * merely how we found out. Those are different problems and only one of them is fixed by a bigger number.
+ *
+ * The measurement was missing, so this adds it — for every wait in the suite rather than the one that went red.
+ * A pass that consumed most of its budget now prints the numbers, so the next person deciding a timeout has
+ * evidence instead of a hunch, and a wait that is drifting toward its ceiling says so BEFORE it starts failing.
+ *
+ * Deliberately not a failure. Turning a slow pass into a red build would make CI stricter than the product,
+ * and the propagation time legitimately varies with what else the runner is doing.
+ */
+function warnIfTight(elapsed, timeout) {
+  if (elapsed <= timeout * TIGHT_MARGIN) return;
+  const pct = Math.round((elapsed / timeout) * 100);
+  console.warn(`[waitFor] passed after ${elapsed}ms of a ${timeout}ms budget (${pct}%) — thin margin, and a `
+    + 'slower runner turns this into a timeout. Raise the budget only if this is normal rather than a stall.');
 }
 
 /**

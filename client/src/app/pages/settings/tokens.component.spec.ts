@@ -44,25 +44,61 @@ function make(createSpy = vi.fn().mockReturnValue(of({ token: 'tok_x' }))) {
   return { fixture, c: fixture.componentInstance, createSpy };
 }
 
-describe('TokensComponent — permission → create payload', () => {
+/**
+ * The create body: one description of access, always the matrix.
+ *
+ * This replaces a characterization of the OLD form, which offered a spaces checkbox list, a three-way
+ * permission radio and the matrix behind a button — two vocabularies for one decision, mutually exclusive on
+ * the wire. That form could compose a body the server refuses, and the operator would read the 400 as a bug
+ * rather than as a choice they had made.
+ *
+ * The old tests asserted `admin: true` / `readOnly: true` came out of the radio. They are not adapted here,
+ * they are REPLACED: those fields must now never be sent, which is a different claim and the one worth
+ * pinning. Keeping them adapted would have meant asserting the legacy path still works, on a form that no
+ * longer has it.
+ */
+describe('TokensComponent — create payload is the matrix, and only the matrix', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
-  it('read-only sends readOnly:true; standard sends neither flag; admin sends admin:true', () => {
-    const cases = [
-      { perm: 'readOnly', admin: undefined, readOnly: true },
-      { perm: 'standard', admin: undefined, readOnly: undefined },
-      { perm: 'admin',    admin: true,      readOnly: undefined },
-    ] as const;
-    for (const { perm, admin, readOnly } of cases) {
-      const { c, createSpy } = make();
-      c.newName = 'ci-token';
-      c.newPermission = perm;
-      c.createToken();
-      const body = createSpy.mock.calls[0][0];
-      expect(body.name).toBe('ci-token');
-      expect(body.admin).toBe(admin);
-      expect(body.readOnly).toBe(readOnly);
+  it('sends name + rights, and NONE of the legacy scope fields', () => {
+    const { c, createSpy } = make();
+    c.newName = 'ci-token';
+    c.draftRights.set({ instanceAdmin: false, createSpaces: false, floor: null, perSpace: { qa: { knowledge: 'write', files: 'none', schema: 'none', dataQuality: 'none' } } });
+    c.createToken();
+
+    const body = createSpy.mock.calls[0][0];
+    expect(body.name).toBe('ci-token');
+    expect(body.rights?.perSpace?.['qa']?.knowledge).toBe('write');
+    // The four that made the body ambiguous. `rights` plus any of these is a 400 from the server.
+    for (const legacy of ['admin', 'readOnly', 'spaces', 'mfa']) {
+      expect(body[legacy]).toBeUndefined();
     }
+  });
+
+  it('always sends rights, even when nothing was granted', () => {
+    // An empty matrix is a real answer — a token that reaches nothing yet — and it must go as an explicit
+    // empty `rights`, not as an absent field. Absent would fall back to the legacy model on the server,
+    // where an absent `spaces` means EVERY space: the widest possible token from the narrowest input.
+    const { c, createSpy } = make();
+    c.newName = 'nothing-yet';
+    c.createToken();
+
+    const body = createSpy.mock.calls[0][0];
+    expect(body.rights).toEqual({ instanceAdmin: false, createSpaces: false, floor: null, perSpace: {} });
+    expect(body.spaces).toBeUndefined();
+  });
+
+  it('omits expiresAt when no date was picked, and sends an ISO string when one was', () => {
+    const { c, createSpy } = make();
+    c.newName = 't';
+    c.createToken();
+    expect(createSpy.mock.calls[0][0].expiresAt).toBeUndefined();
+
+    const second = make();
+    second.c.newName = 't';
+    second.c.newExpiry = '2027-01-31';
+    second.c.createToken();
+    expect(second.createSpy.mock.calls[0][0].expiresAt).toMatch(/^2027-01-31T/);
   });
 });
 
@@ -141,11 +177,14 @@ describe('TokensComponent — permission capability help (U6)', () => {
 describe('TokensComponent — create payload, characterized before the Q-5 extraction', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
-  it('sends only the name when nothing else is chosen', () => {
+  it('trims the label, and sends nothing but the label and the matrix', () => {
     const { c, createSpy } = make();
     c.newName = '  spaced  ';
     c.createToken();
-    expect(createSpy.mock.calls[0][0]).toEqual({ name: 'spaced' });
+    expect(createSpy.mock.calls[0][0]).toEqual({
+      name: 'spaced',
+      rights: { instanceAdmin: false, createSpaces: false, floor: null, perSpace: {} },
+    });
   });
 
   it('refuses to fire at all on an empty name', () => {
@@ -155,55 +194,30 @@ describe('TokensComponent — create payload, characterized before the Q-5 extra
     expect(createSpy).not.toHaveBeenCalled();
   });
 
-  it('omits mfa when it is `inherit`, because absent IS inherit on the server', () => {
+  it('never sends `mfa` — the second factor is a property of the token, not of minting it', () => {
+    // The create form used to carry a three-way second-factor selector. It is gone: MFA is set ON the token,
+    // so folding it into the mint request meant deciding it before there was a token to decide it about.
     const { c, createSpy } = make();
-    c.newName = 't'; c.newMfa = 'inherit';
+    c.newName = 't';
     c.createToken();
     expect('mfa' in createSpy.mock.calls[0][0]).toBe(false);
-    const second = make();
-    second.c.newName = 't'; second.c.newMfa = 'exempt';
-    second.c.createToken();
-    expect(second.createSpy.mock.calls[0][0].mfa).toBe('exempt');
   });
 
-  it('sends spaces only when some are selected', () => {
+  it('a granted matrix survives into the body unchanged', () => {
+    // Not "rights is present" — the VALUES. A matrix that reached the server flattened or defaulted would
+    // still pass a presence check while granting something nobody chose.
     const { c, createSpy } = make();
     c.newName = 't';
-    c.newSelectedSpaces = new Set(['qa', 'research']);
-    c.createToken();
-    expect(createSpy.mock.calls[0][0].spaces.sort()).toEqual(['qa', 'research']);
-    const none = make();
-    none.c.newName = 't';
-    none.c.createToken();
-    expect('spaces' in none.createSpy.mock.calls[0][0]).toBe(false);
-  });
-
-  it('with the matrix on, sends `rights` and NONE of the legacy fields', () => {
-    // The mutual exclusion is the part most likely to be lost in an extraction: the server refuses a body
-    // carrying both, so a refactor that leaves the permission radio wired would turn every matrix create
-    // into a 400.
-    const { c, createSpy } = make();
-    c.newName = 't';
-    c.newPermission = 'admin';
-    c.newSelectedSpaces = new Set(['qa']);
-    c.useMatrix.set(true);
-    c.draftRights.set({ instanceAdmin: false, createSpaces: false, floor: null, perSpace: { qa: { knowledge: 'read', files: 'none', schema: 'none', dataQuality: 'none' } } });
+    c.draftRights.set({
+      instanceAdmin: false,
+      createSpaces: true,
+      floor: { knowledge: 'read', files: 'none', schema: 'none', dataQuality: 'none' },
+      perSpace: { qa: { knowledge: 'admin', files: 'write', schema: 'none', dataQuality: 'read' } },
+    });
     c.createToken();
     const body = createSpy.mock.calls[0][0];
-    expect(body.rights.perSpace.qa.knowledge).toBe('read');
-    expect('admin' in body).toBe(false);
-    expect('readOnly' in body).toBe(false);
-    expect('spaces' in body).toBe(false);
-  });
-
-  it('with the matrix OFF, never sends `rights` — even if a draft was edited first', () => {
-    // Someone can open the matrix, edit it, change their mind and close it. The draft survives in memory,
-    // and sending it anyway would be the same mutual-exclusion 400 from the other direction.
-    const { c, createSpy } = make();
-    c.newName = 't';
-    c.draftRights.set({ instanceAdmin: true, createSpaces: false, floor: null, perSpace: {} });
-    c.useMatrix.set(false);
-    c.createToken();
-    expect('rights' in createSpy.mock.calls[0][0]).toBe(false);
+    expect(body.rights.createSpaces).toBe(true);
+    expect(body.rights.floor.knowledge).toBe('read');
+    expect(body.rights.perSpace.qa).toEqual({ knowledge: 'admin', files: 'write', schema: 'none', dataQuality: 'read' });
   });
 });

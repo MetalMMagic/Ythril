@@ -121,11 +121,21 @@ Tokens can also be **space-scoped** — restricted to a specific list of spaces.
 
 ### Creating a token
 
-Click **Create Token**. Enter a name, choose a permission level, optionally set an expiry date, and optionally restrict it to specific spaces. A help line under the permission choices spells out exactly what the selected level can and cannot do (Read-only reads only; Standard reads and writes data; Admin adds token/space/config management). Click **Create** — the token value is shown **once**. Copy it immediately. The tokens list shows each token's permission level and space scope at any time, with the permission pill **colour-coded by privilege** so the riskiest tokens stand out at a glance: **admin is red**, **standard is green**, and **read-only is yellow** (Library Access tokens keep their own blue).
+Click **Create Token**. The dialog asks for three things: a **label**, an optional **expiry date**, and the
+**per-space rights matrix**. Click **Create** — the token value is shown **once**. Copy it immediately.
+
+The matrix is the whole permission model. Earlier versions also offered a spaces checkbox list and a
+three-way Read-only / Standard / Admin choice; those described the same access in an older vocabulary, and
+the server refuses a request that uses both at once. The matrix says everything they said and things they
+could not — such as **admin on Files in one space and nothing anywhere else**.
+
+The tokens list shows each token’s scope at any time, with the permission pill **colour-coded by privilege**
+so the riskiest tokens stand out: **admin is red**, **standard is green**, **read-only is yellow** (Library
+Access tokens keep their own blue).
 
 This dialog has no "Library Access" toggle. Library Access tokens (for sharing your schema library with other instances) are created separately, from the **Schema Library** page's own **Create token** dialog — see [Schema Library](03-files-and-schemas.md#schema-library).
 
-**Renaming a token.** Each row in the tokens list has a pencil button — click it to rename the token inline (Enter saves, Esc cancels). Only the label changes; the token's secret, permission level and space scope stay exactly as they were.
+**Editing a token.** Each row has a pencil button. It opens the token editor, where the **label** and the **rights matrix** are both editable and are saved together in one request — so a rename and a scope change are one audited edit, not two that can half-fail. The secret is untouched; use **Rotate** for that.
 
 ### Rotating a token
 

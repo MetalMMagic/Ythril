@@ -59,6 +59,17 @@ export class AuthApi {
     return this.http.patch<{ token: TokenRecord }>(`/api/tokens/${id}`, { rights });
   }
 
+  /**
+   * Edit a token's label and rights in ONE request.
+   *
+   * The route has always taken both; the UI sent them separately, and only ever sent `rights` — so a token's
+   * name was write-once in practice. Two requests would also mean a rename that lands while the rights change
+   * 403s on the mint cap, leaving the operator with half of what they asked for and one audit entry for it.
+   */
+  updateToken(id: string, patch: { name?: string; rights?: TokenRights }): Observable<{ token: TokenRecord }> {
+    return this.http.patch<{ token: TokenRecord }>(`/api/tokens/${id}`, patch);
+  }
+
   renameToken(id: string, name: string): Observable<{ token: TokenRecord }> {
     return this.http.patch<{ token: TokenRecord }>(`/api/tokens/${id}`, { name });
   }

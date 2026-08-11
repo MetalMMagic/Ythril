@@ -161,9 +161,13 @@ describe('space purpose is one field', () => {
       // Typed as `{ space: Space }` unconditionally, the 202 body destructured to undefined and threw
       // inside `next` — which RxJS does not route to `error`. Save did nothing, said nothing, and left
       // the editor dirty, so closing it offered to discard a change that had just been submitted.
-      assert.ok(has('client/src/app/pages/settings/spaces.component.ts', /result\.status === 'vote_pending'/),
+      // The save handler moved with the dialog: the pop-up is its own component now, hosted by the Spaces
+      // page and (next) by the Brain page. The path follows the code — and the first assertion is positive,
+      // so a path resolving to a file without the branch fails loudly instead of passing vacuously.
+      const POPUP = 'client/src/app/pages/settings/space-settings-popup.component.ts';
+      assert.ok(has(POPUP, /result\.status === 'vote_pending'/),
         'the save handler must branch on the vote-pending response');
-      assert.ok(!has('client/src/app/pages/settings/spaces.component.ts', /next: \(\{ space \}\)/),
+      assert.ok(!has(POPUP, /next: \(\{ space \}\)/),
         'destructuring `space` off a 202 body is the defect');
     });
   });

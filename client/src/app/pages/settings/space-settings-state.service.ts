@@ -5,6 +5,7 @@ import {
 } from '../../core/api.types';
 import { TranslocoService } from '@jsverse/transloco';
 import { SpacesApi } from '../../core/spaces-api.service';
+import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 import {
   addProp as addPropTo,
   removeProp as removePropFrom,
@@ -157,6 +158,25 @@ function positiveDays(v: number | null): number | undefined {
 export class SpaceSettingsState {
   private spacesApi = inject(SpacesApi);
   private transloco = inject(TranslocoService);
+  private confirmDialog = inject(ConfirmDialogService);
+
+  /**
+   * Ask before losing unsaved edits. Resolves true when it is safe to proceed.
+   *
+   * On the SERVICE rather than a component because two callers need the identical question: the pop-up's (X)
+   * and the Spaces route's CanDeactivate hook. It answers true immediately when nothing is dirty, so no
+   * caller has to pair it with its own isDirty() check and risk inverting one of them.
+   */
+  async confirmDiscardIfDirty(): Promise<boolean> {
+    if (!this.isDirty()) return true;
+    return this.confirmDialog.confirm({
+      title:   this.transloco.translate('spaces.unsaved.title'),
+      message: this.transloco.translate('spaces.unsaved.message'),
+      confirmLabel: this.transloco.translate('spaces.unsaved.confirm'),
+      cancelLabel:  this.transloco.translate('spaces.unsaved.cancel'),
+      danger: true,
+    });
+  }
 
   readonly KINDS: KnowledgeType[] = ['entity', 'memory', 'edge', 'chrono'];
   readonly KIND_LABELS: Record<KnowledgeType, string> = {

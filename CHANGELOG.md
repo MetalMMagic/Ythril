@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Fixed
+- **Reindexing a proxy space answered `200` and then did the work twice.** It re-embedded the member spaces —
+  which the caller was usually reindexing individually as well, because they are in the same space list. It is
+  idempotent, so nothing broke: on the reporting operator's largest instance it was simply the longest job of
+  the run, and all of it waste.
+  - Now a `400` naming the members, so the remedy is the response rather than a second lookup. A proxy has no
+    index of its own, and a *write* to a proxy already requires an explicit `targetSpace` — accepting one here
+    without comment was the inconsistency.
+  - Refused **before** the singleton check, so a proxy request during a running reindex is not answered `409`
+    "already in progress" — which reads as *try again later*, and would have the caller retrying a request that
+    can never be right. And before any flag is set, since leaving that global flag set would block every real
+    reindex on the instance until a restart.
+- **The docs said the reindex `409` was "for the space". It is instance-wide.** One reindex runs at a time
+  across the whole instance and a second request is *refused rather than queued* — the operator who found this
+  fired thirteen and got one `200` and twelve `409`s. A loop counting only non-200s as failures reports thirteen
+  dispatched having dispatched one. Retry-on-409 is documented as the correct client, since it self-paces.
+  - Two other parts of the same report were already true and are now pinned rather than changed: the async
+    response is documented, `GET /api/brain/spaces/:spaceId/reindex-status` exists, and `GET /api/spaces` already
+    carries `proxyFor` — so a client can skip proxies without discovering the refusal by trying it.
+
+### Fixed
 - **A transient `429` from the embedding endpoint no longer kills the query.** It went straight to the caller
   with no retry, no jitter and no backoff, so one busy moment lost the search outright.
   - Reported by an operator who moved their text embedder onto a shared GPU endpoint: while a reindex saturated

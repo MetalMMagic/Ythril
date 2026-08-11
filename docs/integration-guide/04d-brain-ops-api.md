@@ -167,7 +167,23 @@ Re-computes all embeddings with the current model. **Runs asynchronously** — t
 { "spaceId": "general", "reindexed": 0, "errors": 0, "status": "started" }
 ```
 
-Returns `409 { "error": "Reindex already in progress" }` if one is already running for the space.
+Returns `409 { "error": "Reindex already in progress" }` if one is already running — **instance-wide, not
+per space.** One reindex runs at a time across the whole instance, and a second request is *refused rather
+than queued*. An operator who fired thirteen at once got one `200` and twelve `409`s; a loop that counts only
+non-200s as failures would report thirteen dispatched having dispatched one. **Retry on 409** is the correct
+client, and it self-paces.
+
+Returns `400` with the member spaces named if `:spaceId` is a **proxy**:
+
+```json
+{ "error": "'team' is a proxy space and has no index of its own. Reindex its members instead: qa, research.",
+  "proxyFor": ["qa", "research"] }
+```
+
+A proxy has no index of its own — its members do. This used to answer `200` and re-embed those members, which
+the caller was usually reindexing individually as well, so everything under the proxy was embedded twice.
+`GET /api/spaces` carries `proxyFor` on any space that has one, so a client can skip proxies without
+discovering this by trying.
 
 > **Reindexing does NOT repair "search returns nothing".** It re-computes the embeddings *stored on*
 > your records. Recall queries those vectors through a separate `$vectorSearch` index, and that index

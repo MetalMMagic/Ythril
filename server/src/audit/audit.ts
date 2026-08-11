@@ -16,7 +16,16 @@ import type { AuditLogEntry } from '../config/types.js';
 import type { AuditChange } from './audit-changes.js';
 import type { Collection, Filter, Sort } from 'mongodb';
 
-const COLLECTION = 'audit_log';
+/**
+ * The audit collection, EXPORTED so nothing has to spell it a second time.
+ *
+ * `change-retention.ts` had its own copy and spelled it `_audit_log`. Nothing has ever written to that
+ * name, so its sweep ran on an empty collection every ten minutes for fourteen releases and reported
+ * nothing, because `updateMany` on a collection that does not exist returns `modifiedCount: 0` and the
+ * sweep only logs when the count is above zero. A silence indistinguishable from success.
+ */
+export const AUDIT_COLLECTION = 'audit_log';
+const COLLECTION = AUDIT_COLLECTION;
 const DEFAULT_RETENTION_DAYS = 90;
 
 function col(): Collection<AuditLogEntry> {

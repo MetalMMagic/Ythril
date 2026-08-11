@@ -1870,5 +1870,9 @@
   "brain.overview.er.linkedRecords": "Verknüpfte Datensätze",
   "tokens.danger.title": "Gefahrenzone",
   "tokens.danger.rotateHint": "Erzeugt ein neues Secret; das alte funktioniert sofort nicht mehr. Der neue Wert wird nur einmal angezeigt.",
-  "tokens.danger.revokeHint": "Löscht dieses Token. Es kann nie wieder verwendet werden."
+  "tokens.danger.revokeHint": "Löscht dieses Token. Es kann nie wieder verwendet werden.",
+  "brain.overview.useReset": "Nutzung zurücksetzen",
+  "brain.overview.useResetHint": "Aufgezeichnete Nutzung dieses Space löschen. Nicht umkehrbar.",
+  "brain.overview.confirmUsageResetTitle": "Aufgezeichnete Nutzung zurücksetzen?",
+  "brain.overview.confirmUsageReset": "Dies löscht die aufgezeichnete Nutzungshistorie von {{label}}. Das Panel zeigt dann null und zählt neu. Nicht umkehrbar."
 }

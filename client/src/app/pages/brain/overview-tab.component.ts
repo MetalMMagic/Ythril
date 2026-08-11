@@ -276,6 +276,29 @@ interface StatCard { key: CollectionTab; icon: string; label: string; value: num
             <app-skeleton-lines [rows]="4" />
           }
 
+          <!-- Reset. Inside the calls>0 branch on purpose: with nothing recorded there is nothing to clear,
+               and a control that does nothing is worse than an absent one. Admin only, matching the server —
+               clearing a usage record is bookkeeping rather than a knowledge write, but it is still an
+               irreversible delete. -->
+          @if (canEditSchema() && activity(); as act) {
+            @if (act.calls > 0) {
+              <div class="store-row" style="margin-top:12px;justify-content:flex-end;">
+                <button class="btn btn-secondary btn-sm" type="button"
+                        [disabled]="resettingUsage()"
+                        [attr.title]="'brain.overview.useResetHint' | transloco"
+                        (click)="requestUsageReset()">
+                  @if (resettingUsage()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
+                  {{ 'brain.overview.useReset' | transloco }}
+                </button>
+                <!-- The outcome, beside the button. Afterwards the panel reads zero either way, so without this
+                     the cleared count — which the route returns for exactly this reason — reaches nobody. -->
+                @if (usageResetResult()) {
+                  <span class="muted" style="margin-left:10px;font-size:12px;">{{ usageResetResult() }}</span>
+                }
+              </div>
+            }
+          }
+
           <!-- Storage: a SECTION of usage, not a card of its own. Disk consumed IS usage, and one number does
                not earn a card in a grid of panels. It sits OUTSIDE the activity branch above, so it renders
                whether or not anyone has ever called this space. -->
@@ -554,6 +577,12 @@ export class OverviewTabComponent {
   space = input.required<Space>();
   /** Admin tokens get the schema pen on each type card. */
   canEditSchema = input(false);
+  /** Set by the host while the reset request is in flight, so a second press cannot fire a second delete. */
+  resettingUsage = input(false);
+  /** What the last reset did, reported inline the way runReindex reports its result. */
+  usageResetResult = input('');
+  /** The panel confirms; the host performs the request and reloads. Same split as reindex and retry-failed. */
+  resetUsage = output<void>();
   /** The SHELL owns the schema dialog: this tab reports which type was asked for and nothing more. */
   editSchemaType = output<string>();
   stats = input<SpaceStats | undefined>(undefined);
@@ -730,6 +759,29 @@ export class OverviewTabComponent {
       case 'failed': return 'error';
       default: return 'off';
     }
+  }
+
+  /**
+   * Confirm, then ask the host to clear this space's recorded usage.
+   *
+   * Exactly the shape `requestReindex` and `requestRetryFailed` already have: the panel owns the confirmation
+   * because the panel is where the button is, and the host owns the request and the reload.
+   *
+   * `danger: true` because the buckets are deleted, not hidden — the usage history for this space is gone and
+   * there is no undo. Guarded on `resettingUsage()` so a second press during the request cannot fire a second
+   * delete.
+   */
+  async requestUsageReset(): Promise<void> {
+    if (this.resettingUsage()) return;
+
+    const ok = await this.confirmDialog.confirm({
+      title: this.transloco.translate('brain.overview.confirmUsageResetTitle'),
+      message: this.transloco.translate('brain.overview.confirmUsageReset', { label: this.space().label }),
+      confirmLabel: this.transloco.translate('brain.overview.useReset'),
+      danger: true,
+    });
+    if (!ok) return;
+    this.resetUsage.emit();
   }
 
   async requestReindex(): Promise<void> {

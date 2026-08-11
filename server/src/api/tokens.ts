@@ -186,6 +186,63 @@ tokensRouter.post('/', authRateLimit, requireAdminMfa, async (req, res) => {
   res.status(201).json({ token: safeRecord, plaintext });
 });
 
+/**
+ * Fields `GET /api/tokens` emits that `PATCH` does not edit — and the remedy for each, where one exists.
+ *
+ * ## Why this list exists at all
+ *
+ * A reporter round-tripped a token — GET it, change the name, PATCH it back — and got
+ * `Unrecognized key(s) in object: 'spaces'`. Their words: *"the shape you read is not the shape you may
+ * write, and nothing says which fields are which."* The response carries twelve fields; PATCH accepted two.
+ *
+ * ## Why neither obvious fix is right
+ *
+ * **Stripping them** (the `SERVER_OWNED_TOKEN_FIELDS` treatment) recreates a bug this route already fixed:
+ * a body carrying `spaces` or `admin` beside the name was dropped and answered **200**, so an attempt to
+ * widen a token through the legacy field looked exactly like one that had worked.
+ *
+ * **Rejecting them** is what produced the report.
+ *
+ * So the rule distinguishes an ECHO from a CHANGE, which is the distinction both of those answers lose:
+ * the same value back is a round-trip and is ignored; a different value is a refusal that names the field
+ * to use instead. `spaces`/`admin`/`readOnly` have a real remedy in the rights matrix and say so — the rest
+ * are set at mint and cannot be edited on any route, which the message states rather than implying.
+ */
+export const ECHOABLE: Record<string, string | null> = {
+  spaces: 'set `rights.perSpace` (or `rights.floor` for every space)',
+
+  admin: 'set `rights.instanceAdmin`',
+  readOnly: 'set the area rungs in `rights` to `read`',
+  createdAt: null,
+  lastUsed: null,
+  expiresAt: null,
+  peerInstanceId: null,
+  schemaLibrary: null,
+  oauthClientId: null,
+  mfa: null,
+};
+
+const ECHOABLE_FIELDS = Object.keys(ECHOABLE);
+
+/**
+ * Is this the value already stored, or an attempted change?
+ *
+ * `spaces` is compared as a SET, because a round-trip may reorder it and an allowlist has no order — but
+ * `undefined` is only ever equal to `undefined`. Absent means "all spaces" and `[]` means "no spaces", the
+ * conflation this repo has now fixed in four separate files, and it must not come back inside an equality
+ * check where reading them as the same would let a token be widened to the whole instance in silence.
+ */
+export function isEcho(field: string, sent: unknown, stored: unknown): boolean {
+  if (field === 'spaces') {
+    if (sent === undefined || stored === undefined) return sent === stored;
+    if (!Array.isArray(sent) || !Array.isArray(stored) || sent.length !== stored.length) return false;
+    return [...sent].sort().join(' ') === [...stored].sort().join(' ');
+  }
+  // `admin: false` and an absent `admin` are the same token. Only the booleans get this reading.
+  if (typeof stored === 'boolean' || typeof sent === 'boolean') return !!sent === !!stored;
+  return JSON.stringify(sent ?? null) === JSON.stringify(stored ?? null);
+}
+
 const RenameTokenBody = z.object({
   // Same bound as create's `name`, so a label can't be edited to something the create flow would reject.
   name: z.string().min(1).max(200).optional(),
@@ -201,9 +258,14 @@ const RenameTokenBody = z.object({
     floor: z.record(z.enum(SPACE_AREAS), z.enum(RUNGS)).nullable(),
     perSpace: z.record(z.string(), z.record(z.enum(SPACE_AREAS), z.enum(RUNGS))),
   }).strict().optional(),
-}).strict().refine(d => d.name !== undefined || d.rights !== undefined, {
-  message: 'Provide `name`, `rights`, or both',
-});
+  // ── The rest of the record, accepted ONLY unchanged ──────────────────────────────────────────────
+  //
+  // These are declared so that echoing back a token you just read does not 400 on the first field the
+  // schema had never heard of. They are NOT editable here; the handler compares each one it was sent
+  // against what is stored, and a DIFFERENT value is a 400 that names what to write instead. See
+  // `ECHOABLE` below for why "ignore it" and "reject it" are both wrong answers on their own.
+  ...Object.fromEntries(ECHOABLE_FIELDS.map(f => [f, z.unknown()])),
+}).strict();
 
 // PATCH /api/tokens/:id — rename a token's label (only) — admin + MFA
 tokensRouter.patch('/:id', requireAdminMfa, (req, res) => {
@@ -217,6 +279,31 @@ tokensRouter.patch('/:id', requireAdminMfa, (req, res) => {
   const previous = listTokens().find(t => t.id === id);
   if (!previous) {
     res.status(404).json({ error: 'Token not found' });
+    return;
+  }
+
+  // An echoed field is a round-trip and is ignored; a CHANGED one is refused by name. Presence is read off
+  // the raw body rather than the parsed data, because `z.unknown()` cannot distinguish an absent key from
+  // one explicitly set to `undefined` — and "absent" vs "present and null" is the whole question here.
+  const sentBody = (stripServerOwnedToken(req.body) ?? {}) as Record<string, unknown>;
+  const stored = previous as unknown as Record<string, unknown>;
+  const attempted = ECHOABLE_FIELDS
+    .filter(f => Object.prototype.hasOwnProperty.call(sentBody, f))
+    .filter(f => !isEcho(f, sentBody[f], stored[f]));
+  if (attempted.length > 0) {
+    res.status(400).json({
+      error: `Cannot change ${attempted.map(f => `\`${f}\``).join(', ')} on this route. `
+        + attempted.map(f => ECHOABLE[f] ? `For \`${f}\`, ${ECHOABLE[f]}.` : `\`${f}\` is set when the token is minted.`).join(' ')
+        + ' Sending these fields UNCHANGED is fine — a token you read back round-trips.',
+    });
+    return;
+  }
+
+  // Checked after the above so a body that only echoes the record gets the "nothing to change" answer
+  // rather than a bare unknown-key refusal. It was a `.refine()` until the echo fields existed; a schema
+  // cannot see the stored record, so it could not tell an echo from an edit.
+  if (name === undefined && rights === undefined) {
+    res.status(400).json({ error: 'Provide `name`, `rights`, or both' });
     return;
   }
 

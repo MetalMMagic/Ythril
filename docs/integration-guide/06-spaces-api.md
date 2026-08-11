@@ -213,7 +213,7 @@ all of it would be worse off than one who got an error.
 | `enqueued` | Records a job was queued for. Embedding happens in the background afterwards. |
 | `skippedSuppressed` | Candidates skipped because suppression **still applies**. See the note below. |
 | `byKind` | Where the gap was, per record kind. |
-| `remaining` | Candidates left after `limit`. Counted over the whole space, not over this page. |
+| `remaining` | Candidates left after `limit` **that can actually be embedded**. Counted over the whole space, not over this page. Suppressed records are never counted here — see the note below. |
 | `truncated` | `true` when `remaining > 0` — call again to continue. |
 
 > **Turn suppression off first.** A record that is still suppressed at any tier is skipped, so that a backfill
@@ -225,6 +225,16 @@ partial work with no record of where it stopped. Queuing is idempotent per recor
 same space converges instead of duplicating work.
 
 **Nothing is truncated silently** — when more candidates remain than `limit` allowed, `remaining` says how many.
+
+**`remaining` counts only work that can be done, and that distinction is load-bearing.** Suppression is applied
+in the query, so a suppressed record never reaches `remaining`; it is reported under `skippedSuppressed` instead.
+A space whose suppression is still on therefore answers `remaining: 0`, `truncated: false` — *there is no work*,
+which is a different statement from *there is work left* and the one you can act on.
+
+> **Fixed in 2.6.1.** Before that, `remaining` counted every record without a vector, suppressed ones included,
+> and the candidate query had no sort. So a page of suppressed records at the front of a collection came back
+> unchanged on every call, blocked every embeddable record behind it, and `truncated: true` said "call again to
+> continue" — a loop that could not converge. If you scripted against `truncated`, it terminates now.
 
 ---
 

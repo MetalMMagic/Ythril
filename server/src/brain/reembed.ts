@@ -30,17 +30,36 @@
  * error and reports honestly — every candidate comes back under `skippedSuppressed`, which tells the operator the
  * setting is still on rather than leaving them to wonder why nothing happened.
  *
+ * ## Suppression is excluded in the QUERY, and that is what makes the sweep terminate
+ *
+ * The first version filtered on "has no vector" alone and skipped suppressed documents inside the loop. It did
+ * not converge, and the failure was worse than a misleading counter:
+ *
+ *  - a suppressed record matches "has no vector" **by construction** — suppression is what removed the vector;
+ *  - `find(filter).limit(n)` has no sort, so the same first `n` documents come back on every call;
+ *  - the sweep never writes to a suppressed record, so they never leave the result set.
+ *
+ * So a page of suppressed records at the front of a collection **blocked every embeddable record behind it,
+ * permanently**, while `truncated: true` told the caller to keep calling. All three tiers are expressible as a
+ * filter (see `suppressionExclusion`), so now the cursor advances: enqueued records gain a vector and drop out,
+ * and suppressed records were never in.
+ *
  * ## Nothing is capped silently
  *
  * `limit` bounds one call. When more candidates remain, `remaining` says how many and `truncated` is `true`. A
  * backfill that quietly stopped at a round number would read as "the space is fully indexed now", which is the
  * same class of lie as the missing sweep this replaces.
+ *
+ * `remaining` counts only work that CAN be done. A space whose suppression is still on reports `remaining: 0`
+ * with every candidate under `skippedSuppressed` — "there is no work", which is a different statement from
+ * "there is work left", and the one an operator can act on.
  */
 
 import { col, asFilter } from '../db/mongo.js';
 import { COLLECTION, } from './embed-record.js';
 import { enqueueEmbedJob } from './embed-queue.js';
 import { embeddingSuppressed, schemaKeyFor } from './suppress-embeddings.js';
+import { TYPE_FIELD } from './ttl.js';
 import { getSpaceMeta } from '../spaces/schema-validation.js';
 import type { KnowledgeType } from '../config/types-knowledge.js';
 import type { BrainEmbedRecordType } from '../config/types.js';
@@ -66,12 +85,73 @@ export interface ReembedResult {
   truncated: boolean;
 }
 
+/** Just the fields the exclusion decision reads, so a test can build the tiers by hand. */
+export interface SuppressMeta {
+  suppressEmbeddings?: boolean | undefined;
+  typeSchemas?: Partial<Record<KnowledgeType, Record<string, { suppressEmbeddings?: boolean } | undefined>>> | undefined;
+}
+
+/**
+ * The three suppression tiers as a Mongo filter fragment — or `'all'` when nothing can be embedded.
+ *
+ * Exported for testing because this is the part with the reasoning in it. Each tier separately:
+ *
+ *  - **record**: `excludeFromVectorSearch: true` is a plain field, so `$ne: true` excludes it. It must be
+ *    `$ne` rather than `{ $exists: false }` — the flag can legitimately be present and `false`, and a record
+ *    that explicitly opts IN must not be excluded.
+ *  - **schema**: the suppressed type NAMES are enumerable from `meta.typeSchemas`, so they become a `$nin` on
+ *    the type field. Edges key on `label` while everything else keys on `type`, which `TYPE_FIELD` already
+ *    encodes — reading `type` for an edge would find no schema, look like it worked, and silently exclude
+ *    nothing for the one record kind this was widened to cover.
+ *  - **space**: knowable before any query. On its own it suppresses everything, so the sweep can say "no work"
+ *    instead of reporting a backlog it can never clear. But a type schema saying `false` OVERRIDES it, and so
+ *    does a record — `record > schema > space`, where "not stated" falls through. So `'all'` is only correct
+ *    when no lower tier can lift a record back out, which is what `releasedTypes` checks.
+ *
+ * Takes the meta rather than a space id, so it is **pure** and a test can build the three tiers by hand —
+ * the same idiom `embeddingSuppressed` and `changesCutoff` already use here: the part with a decision in it
+ * is the part that must be testable without a database.
+ */
+export function suppressionExclusion(
+  meta: SuppressMeta | undefined,
+  kind: BrainEmbedRecordType,
+): 'all' | { query: Record<string, unknown> } {
+  const spaceWide = meta?.suppressEmbeddings === true;
+  const knowledgeType: KnowledgeType | undefined = kind === 'file' ? undefined : kind;
+  const schemas = knowledgeType === undefined ? undefined : meta?.typeSchemas?.[knowledgeType];
+
+  const suppressedTypes: string[] = [];
+  const releasedTypes: string[] = [];
+  for (const [name, schema] of Object.entries(schemas ?? {})) {
+    const v = (schema as { suppressEmbeddings?: boolean } | undefined)?.suppressEmbeddings;
+    if (v === true) suppressedTypes.push(name);
+    else if (v === false) releasedTypes.push(name);
+  }
+
+  const field = knowledgeType === undefined ? undefined : TYPE_FIELD[knowledgeType];
+
+  if (spaceWide) {
+    // A record-level opt-in can also lift a record out, and unlike a type name that is not enumerable from
+    // meta — so `'all'` is claimed only when neither escape hatch exists for this kind.
+    if (releasedTypes.length === 0) return 'all';
+    // Some types are explicitly released: only those, minus any record opting out.
+    return { query: { ...(field ? { [field]: { $in: releasedTypes } } : {}), excludeFromVectorSearch: { $ne: true } } };
+  }
+
+  const query: Record<string, unknown> = { excludeFromVectorSearch: { $ne: true } };
+  if (field && suppressedTypes.length > 0) query[field] = { $nin: suppressedTypes };
+  return { query };
+}
+
 /**
  * Whether this stored document is still suppressed.
  *
  * Mirrors `embedStoredRecord` exactly, including the file asymmetry: a file has no type and therefore no type
  * schema, so it skips the middle tier. Narrowed rather than cast — a cast would index `typeSchemas` with
  * `'file'` and miss every time, which here would mean re-embedding files an operator had suppressed.
+ *
+ * Still consulted per document even though `suppressionExclusion` now removes suppressed records in the query.
+ * The query is derived from `meta`; this reads the record. A tier the query cannot express keeps working.
  */
 function stillSuppressed(spaceId: string, kind: BrainEmbedRecordType, doc: Record<string, unknown>): boolean {
   const meta = getSpaceMeta(spaceId);
@@ -102,23 +182,54 @@ export async function reembedSpace(
   };
 
   for (const kind of kinds) {
+    const collName = `${spaceId}_${COLLECTION[kind]}`;
+
     // `$exists: false` on `embedding`, NOT a null check: the suppressed path `$unset`s the field, so a record
     // that was suppressed and later released has no key at all rather than a null one. A `null` filter would
     // find nothing and report a clean sweep over a space that is entirely unindexed.
-    const filter = asFilter({ embedding: { $exists: false } });
-    const collName = `${spaceId}_${COLLECTION[kind]}`;
+    const vectorless = { embedding: { $exists: false } } as Record<string, unknown>;
+
+    // ── Suppression is EXCLUDED IN THE QUERY, and that is a correctness requirement, not a speed one ──
+    //
+    // Suppressed records match `vectorless` by construction — suppression is what removed their vector. The
+    // first version of this sweep filtered on `vectorless` alone and skipped suppressed docs in the loop.
+    // That does not converge, and the failure is worse than a wrong counter:
+    //
+    //   `find(vectorless).limit(50)` has no sort, so it returns the same first 50 documents on every call.
+    //   The sweep never modifies a suppressed record, so those 50 never leave the result set. A page of
+    //   suppressed records at the front of a collection therefore BLOCKS every embeddable record behind it,
+    //   permanently, while `truncated: true` tells the caller to "call again to continue".
+    //
+    // All three tiers are expressible here, so the cursor advances: enqueued records gain a vector and drop
+    // out, and suppressed ones were never in.
+    const exclusion = suppressionExclusion(getSpaceMeta(spaceId), kind);
+    if (exclusion === 'all') {
+      // The space-wide tier is on with nothing that can override it upward. Every candidate is suppressed, so
+      // report them as skipped and leave `remaining` at zero: there is no work, as opposed to work left.
+      result.skippedSuppressed += await col(collName).countDocuments(asFilter(vectorless));
+      continue;
+    }
+
+    const filter = asFilter({ ...vectorless, ...exclusion.query });
+    // Candidates the filter removed — reported so "nothing happened" is never silent, which is what tells an
+    // operator the setting is still on.
+    result.skippedSuppressed += await col(collName).countDocuments(asFilter(vectorless)) -
+      await col(collName).countDocuments(filter);
 
     // Counted before the cap is applied, so `remaining` is the truth about the space rather than about this
     // page. Without this a truncated sweep could not tell an operator that more work is left.
     const total = await col(collName).countDocuments(filter);
 
-    const budget = cap - result.enqueued - result.skippedSuppressed;
+    const budget = cap - result.enqueued;
     if (budget <= 0) { result.remaining += total; continue; }
 
     const docs = await col(collName).find(filter).limit(budget).toArray() as Array<Record<string, unknown>>;
     for (const doc of docs) {
       const id = doc['_id'];
       if (typeof id !== 'string') continue;
+      // Belt and braces: the query already excluded suppressed records, and the resolver is still consulted
+      // per document. The query is derived from `meta`, so a shape the exclusion cannot express — a future
+      // fourth tier, say — would otherwise re-index exactly what an operator asked to keep out of recall.
       if (stillSuppressed(spaceId, kind, doc)) { result.skippedSuppressed++; continue; }
       await enqueueEmbedJob(spaceId, kind, id);
       result.enqueued++;

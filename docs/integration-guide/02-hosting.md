@@ -444,7 +444,7 @@ Four things worth reading twice:
 - Each slot's private-address permission is **its own** (`allowPrivateModelEndpointsBySlot`, or
   `YTHRIL_ALLOW_PRIVATE_<SLOT>`), resolved per-slot → instance-wide → closed. The full precedence rules
   are with the assist-model settings under
-  [Document Processing Configuration](05-files-api.md#document-processing-configuration).
+  [Document Processing Configuration](05a-conversion-pipeline.md#document-processing-configuration).
 
 So a green sidecar next to a refused model endpoint tells you cluster DNS and reachability are fine, and
 the difference is policy. That is the point at which `allowPrivateModelEndpoints` is the answer.

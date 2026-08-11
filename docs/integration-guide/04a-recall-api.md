@@ -141,7 +141,7 @@ unavailable, and **none of them can fail a search** — a stage that cannot answ
 
    It has no index, so it can only re-order what stages 1–2 found — hence `candidateMultiplier`, which
    widens the pool it gets to choose from. Unreachable or unconfigured means no opinion, and the fused
-   order stands. See the `mediaEmbedding.rerank.*` rows in [Configuration](05-files-api.md#configuration).
+   order stands. See the `mediaEmbedding.rerank.*` rows in [Configuration](05b-media-embedding.md#configuration).
 
 **Ordering precedence is `rerankScore` → `fusedScore` → `score`** — the order of how much each signal
 actually knows.

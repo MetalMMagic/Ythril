@@ -56,7 +56,7 @@ describe('NLI verdict parsing', () => {
   it('the wrong-shape case is explained where it is configured', () => {
     // The cheapest half of the fix, and the one the reporter asked for by name: the requirement stated in
     // the row where the model is set, not only in a log line they would have to reach.
-    const doc = readFileSync(join(process.cwd(), 'docs/integration-guide/05-files-api.md'), 'utf8');
+    const doc = readFileSync(join(process.cwd(), 'docs/integration-guide/05b-media-embedding.md'), 'utf8');
     const row = doc.split(/\r?\n/).find(l => l.includes('`mediaEmbedding.nli.model`'));
     assert.ok(row, 'the nli.model config row still exists');
     assert.match(row, /3-class/, 'it states that a 3-class MNLI head is required');
@@ -67,7 +67,7 @@ describe('NLI verdict parsing', () => {
     // `cross-encoder/nli-deberta-v3-base` is {0: contradiction, 1: entailment, 2: neutral}, not the
     // standard MNLI ordering the fallback assumes — so an index-emitting server is misread as agreeing
     // for two labels in three, silently. Naming it is cheaper than guessing per-model orderings.
-    const doc = readFileSync(join(process.cwd(), 'docs/integration-guide/05-files-api.md'), 'utf8');
+    const doc = readFileSync(join(process.cwd(), 'docs/integration-guide/05b-media-embedding.md'), 'utf8');
     const row = doc.split(/\r?\n/).find(l => l.includes('`mediaEmbedding.nli.model`'));
     assert.match(row, /LABEL_/, 'the index-label case is mentioned');
     assert.match(row, /ordering/i, 'and flagged as an ordering hazard rather than a naming detail');

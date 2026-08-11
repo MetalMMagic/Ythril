@@ -6,7 +6,29 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Fixed
+- **Two identifiers in the contribution guide named nothing.** Both were in the migration-strategy section — the
+  one a contributor reads to decide how to write a migration.
+  - `sizeFileBytes` should be **`sizeBytes`**, and it was the *worked example* of the self-healing rule, so it is
+    the name a reader would have gone looking for in the code.
+  - `ensureIndex` was removed from the MongoDB driver in 4.0. Our code uses `createIndex` and always has.
+  - Found by the new gate below rather than by reading, which is the point: `plannedRoute` was found by reading,
+    and reading does not scale to 44 documents.
+
 ### Added
+- **A gate: a backticked camelCase identifier in the docs must exist somewhere in the repository.** `plannedRoute`
+  was documented as a response field for thirteen releases after the feature was removed. Nothing failed — no test
+  names a field that does not exist, and prose is not compiled.
+  - **Narrow on purpose.** Earlier attempts at generic doc↔code matching produced 69, then 36, then 89 false
+    proposals, and a check nobody trusts gets skipped. So: camelCase only (an identifier, not a word), backticked
+    only (the doc is *naming* it), and existence only (not whether it is used correctly). 291 identifiers, three
+    findings, two of them real.
+  - The exemption list holds exactly one entry — `podPidsLimit`, a kubelet flag — and each row must give a reason
+    naming whose software owns the identifier. A second assertion fails if an exempted identifier later appears in
+    our own code, so the list cannot quietly outlive its reason.
+  - **It excludes its own file, and that was a real bug.** The header names `sizeFileBytes` and `ensureIndex` while
+    explaining they were wrong, so with itself in the haystack the gate passed *on the comment describing the bug
+    it exists to catch*. Verified by re-introducing the wrong name and watching it stay green.
 - **A gate: no shipped document over 900 lines.** Splitting the five oversized guides fixed the instances; it did
   not fix the mechanism, which is that a document grows one paragraph at a time and no single commit ever looks
   like the one that made it unreadable.

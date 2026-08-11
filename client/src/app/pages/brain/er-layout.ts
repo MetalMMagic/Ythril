@@ -35,6 +35,23 @@ export interface ErBox {
    * from the joined ones without re-deriving degree.
    */
   col: 0 | 1 | 2 | 3;
+  /**
+   * What this box represents.
+   *
+   * `'entity'` for a declared or observed entity type — every box was one of these until memories, chrono and
+   * files joined the diagram. The other three are one box per KIND, carrying that kind's total, and they must
+   * be drawn differently: they have no properties and no naming pattern, so styling them as an entity box
+   * would present them as a type somebody declared.
+   */
+  kind: 'entity' | 'memory' | 'chrono' | 'file';
+  /**
+   * How many records this box stands for.
+   *
+   * Carried on the box so a KIND box is self-describing: its total lives on a synthetic type the caller cannot
+   * look up in `entityTypes`, and having the renderer sum `linkedFrom` again would be a second computation of
+   * a number the layout already had.
+   */
+  count: number;
 }
 
 export interface ErPath {
@@ -69,6 +86,79 @@ const ROW_H = 16;
 /** A box is its header plus a row per property, floored so an empty type is still a box and not a line. */
 const boxHeight = (t: ErEntityType): number => HEAD_H + Math.max(2, t.properties.length + 1) * ROW_H + 12;
 
+/** The three kinds that link INTO entities, and the label each one's box carries. */
+const KINDS = [
+  { key: 'memories', kind: 'memory' as const, label: 'Memories' },
+  { key: 'chrono', kind: 'chrono' as const, label: 'Chrono' },
+  { key: 'files', kind: 'file' as const, label: 'Files' },
+] as const;
+
+/**
+ * Turn `linkedFrom` into boxes and joins.
+ *
+ * ## Why this exists at all
+ *
+ * The server scans three extra collections per space to count, for every entity type, how many memories,
+ * chrono entries and files point AT it through their `entityIds`. It has always sent that as `linkedFrom`, and
+ * the client rendered it in **zero places** — so the diagram claimed to be the data model while showing one of
+ * four record kinds, and the space paid for the scan on every Overview load and got nothing back.
+ *
+ * The owner asked the question that found it: *"are memories and chronotypes missing in the er diagram?"*
+ *
+ * ## One box per KIND, not per record
+ *
+ * A space has thousands of memories and one idea of what a memory is. The box is the kind and its total; the
+ * joins carry the per-type counts. Drawing a box per record would be a different diagram and an unreadable one.
+ *
+ * ## A kind with no links gets NO box
+ *
+ * Not an empty one. A space that has never linked a file must not reserve a lane for files — an empty box is a
+ * claim that something is there.
+ *
+ * ## The names have to survive a collision
+ *
+ * A space may legitimately declare an entity type called `Memories`. Two types with one name would have the
+ * layout place one box and draw both sets of joins into it, silently. So a synthetic name that is already
+ * taken gets a suffix until it is not, and the kind is tracked by name in a map rather than by guessing from
+ * the label later.
+ */
+function syntheticKinds(realTypes: ErEntityType[]): {
+  types: ErEntityType[];
+  rels: ErRelationship[];
+  kindOf: Map<string, 'memory' | 'chrono' | 'file'>;
+} {
+  const taken = new Set(realTypes.map(t => t.type));
+  const types: ErEntityType[] = [];
+  const rels: ErRelationship[] = [];
+  const kindOf = new Map<string, 'memory' | 'chrono' | 'file'>();
+
+  for (const { key, kind, label } of KINDS) {
+    const linked = realTypes.filter(t => (t.linkedFrom?.[key] ?? 0) > 0);
+    if (linked.length === 0) continue;
+
+    // Annotated, because `KINDS` is `as const` and an inferred literal type refuses the suffixed reassignment.
+    let name: string = label;
+    while (taken.has(name)) name = `${name} (${kind})`;
+    taken.add(name);
+    kindOf.set(name, kind);
+
+    types.push({
+      type: name,
+      count: linked.reduce((n, t) => n + (t.linkedFrom?.[key] ?? 0), 0),
+      declared: false,
+      // No properties and no naming pattern: a memory has no schema of its own here, so the box is a name and
+      // a count. `boxHeight`'s floor of two rows is what keeps it a box rather than a line.
+      properties: [],
+      linkedFrom: { memories: 0, chrono: 0, files: 0 },
+    });
+
+    for (const t of linked) {
+      rels.push({ from: name, to: t.type, label: 'links', count: t.linkedFrom![key] });
+    }
+  }
+  return { types, rels, kindOf };
+}
+
 /** Relationship endpoints touching a type — how "central" it is, and so which type earns the middle. */
 function degree(rels: ErRelationship[], type: string): number {
   return rels.reduce((n, r) => n + (r.from === type ? 1 : 0) + (r.to === type ? 1 : 0), 0);
@@ -80,11 +170,23 @@ function degree(rels: ErRelationship[], type: string): number {
  * Deterministic for a given model: the same input produces the same picture, so a re-render does not shuffle
  * the diagram under someone's cursor.
  */
-export function layoutErModel(types: ErEntityType[], rels: ErRelationship[]): ErLayout {
-  if (types.length === 0) return { boxes: [], paths: [], width: 0, height: 0 };
+export function layoutErModel(realTypes: ErEntityType[], realRels: ErRelationship[]): ErLayout {
+  if (realTypes.length === 0) return { boxes: [], paths: [], width: 0, height: 0 };
 
-  // The hub is the most connected type; ties break on record count, which the server already sorted by.
-  const hub = [...types].sort((a, b) =>
+  // Memories, chrono and files join the picture as boxes of their own — see `syntheticKinds`. From here down
+  // they are ordinary types and relationships, deliberately: one placement algorithm, not two.
+  const synth = syntheticKinds(realTypes);
+  const types = [...realTypes, ...synth.types];
+  const rels = [...realRels, ...synth.rels];
+
+  /**
+   * The hub is the most connected type; ties break on record count, which the server already sorted by.
+   *
+   * Chosen from the REAL types only. A memories box is frequently the most connected thing on the diagram —
+   * memories link to everything — and letting it win would put "Memories" in the centre of a picture that is
+   * supposed to describe the entity model. The kinds are context around that model, not the subject of it.
+   */
+  const hub = [...realTypes].sort((a, b) =>
     degree(rels, b.type) - degree(rels, a.type) || b.count - a.count)[0]!;
 
   const pointsAtHub = new Set(rels.filter(r => r.to === hub.type && r.from !== hub.type).map(r => r.from));
@@ -160,12 +262,16 @@ export function layoutErModel(types: ErEntityType[], rels: ErRelationship[]): Er
 
   const colX = [PAD, PAD + BOX_W + gapL, PAD + BOX_W + gapL + HUB_W + gapR];
 
+  /** A synthetic kind box, or an ordinary entity type. Read from the map rather than re-derived from the
+   *  label, because a space may declare an entity type whose name matches one. */
+  const kindFor = (name: string): ErBox['kind'] => synth.kindOf.get(name) ?? 'entity';
+
   const boxes: ErBox[] = [];
   const stack = (list: ErEntityType[], col: 0 | 2): void => {
     let y = PAD;
     for (const t of list) {
       const h = boxHeight(t);
-      boxes.push({ type: t.type, x: colX[col]!, y, w: BOX_W, h, col });
+      boxes.push({ type: t.type, x: colX[col]!, y, w: BOX_W, h, col, kind: kindFor(t.type), count: t.count });
       y += h + GAP_Y;
     }
   };
@@ -179,7 +285,7 @@ export function layoutErModel(types: ErEntityType[], rels: ErRelationship[]): Er
   };
   const hubH = boxHeight(hub);
   const tallest = Math.max(colHeight(0), colHeight(2), hubH);
-  boxes.push({ type: hub.type, x: colX[1]!, y: PAD + Math.max(0, (tallest - hubH) / 2), w: HUB_W, h: hubH, col: 1 });
+  boxes.push({ type: hub.type, x: colX[1]!, y: PAD + Math.max(0, (tallest - hubH) / 2), w: HUB_W, h: hubH, col: 1, kind: kindFor(hub.type), count: hub.count });
 
   const byType = new Map(boxes.map(b => [b.type, b]));
   const paths: ErPath[] = [];
@@ -279,7 +385,7 @@ export function layoutErModel(types: ErEntityType[], rels: ErRelationship[]): Er
       const row = shelf.slice(i, i + perRow);
       const rowH = Math.max(...row.map(boxHeight));
       row.forEach((t, j) => {
-        boxes.push({ type: t.type, x: PAD + j * (BOX_W + GAP_X), y, w: BOX_W, h: boxHeight(t), col: 3 });
+        boxes.push({ type: t.type, x: PAD + j * (BOX_W + GAP_X), y, w: BOX_W, h: boxHeight(t), col: 3, kind: kindFor(t.type), count: t.count });
       });
       y += rowH + GAP_Y;
       shelfBottom = y - GAP_Y;

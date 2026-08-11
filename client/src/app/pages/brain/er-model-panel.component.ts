@@ -59,6 +59,12 @@ import { layoutErModel } from './er-layout';
     .box-head { fill: var(--bg-elevated); }
     .box-name { font-size: 12.5px; font-weight: 600; fill: var(--text-primary); }
     .box-prop { font-size: 10.5px; fill: var(--text-muted); font-family: var(--font-mono); }
+    /* A kind box is context, not a declared type. Dashed and unfilled so it reads as "these records point
+       here" rather than "somebody defined this" — the entity boxes are the subject of the diagram and must
+       stay the thing your eye lands on. No pencil either: there is no schema here to edit. */
+    .kind-bg { fill: none; stroke: var(--border); stroke-dasharray: 4 3; }
+    .kind-head { fill: color-mix(in srgb, var(--bg-elevated) 55%, transparent); }
+    .kind-note { font-style: italic; font-family: inherit; }
     .join { fill: none; stroke: var(--graph-edge); stroke-width: 1.25; transition: stroke .1s ease, stroke-width .1s ease; }
     /* The pointer target. Wide, invisible, and it must NOT paint: a stroke of transparent still receives
        pointer events, which is exactly what a 1.25 px line cannot do on its own. */
@@ -123,7 +129,31 @@ import { layoutErModel } from './er-layout';
             }
 
             @for (b of view().boxes; track b.type) {
-              @if (typeOf(b.type); as t) {
+              <!-- A KIND box: memories, chrono or files, one per kind with that kind's total.
+                   Deliberately not styled as an entity box. It has no properties and no naming pattern, so
+                   giving it the schema treatment would present it as a type somebody declared — and it has no
+                   pencil, because there is no schema here to edit.
+                   The count links to that kind's own tab, which is the whole point of drawing it: the diagram
+                   is the map, and every box on it should be a way in. -->
+              @if (b.kind !== 'entity') {
+                <g class="card kind-card" [class.empty-type]="b.count === 0">
+                  <rect class="box-bg kind-bg" [attr.x]="b.x" [attr.y]="b.y"
+                        [attr.width]="b.w" [attr.height]="b.h" rx="8" />
+                  <rect class="box-head kind-head" [attr.x]="b.x" [attr.y]="b.y" [attr.width]="b.w" height="26" rx="8" />
+                  <rect class="box-head kind-head" [attr.x]="b.x" [attr.y]="b.y + 18" [attr.width]="b.w" height="8" />
+                  <text class="box-name" [attr.x]="b.x + 14" [attr.y]="b.y + 18">{{ b.type }}</text>
+
+                  <a class="count-link" [routerLink]="['/brain']"
+                     [queryParams]="{ space: spaceId(), tab: tabForKind(b.kind) }"
+                     [attr.aria-label]="('brain.overview.er.openRecords' | transloco) + ' ' + b.type">
+                    <text class="count" [attr.x]="b.x + b.w - 12" [attr.y]="b.y + 18" text-anchor="end">{{ b.count }}</text>
+                  </a>
+
+                  <text class="box-prop kind-note" [attr.x]="b.x + 14" [attr.y]="b.y + 44">
+                    {{ 'brain.overview.er.linkedRecords' | transloco }}
+                  </text>
+                </g>
+              } @else if (typeOf(b.type); as t) {
                 <g class="card" [class.empty-type]="t.count === 0">
                   <rect class="box-bg" [class.undeclared]="!t.declared" [attr.x]="b.x" [attr.y]="b.y"
                         [attr.width]="b.w" [attr.height]="b.h" rx="8" />
@@ -191,6 +221,18 @@ export class ErModelPanelComponent {
     const m = this.model();
     return m ? layoutErModel(m.entityTypes, m.relationships) : { boxes: [], paths: [], width: 0, height: 0 };
   });
+
+  /**
+   * Which Brain tab a kind box opens.
+   *
+   * A map rather than the kind string itself, because the two vocabularies are not the same and pretending
+   * they are is how the first version of this panel shipped a count that navigated nowhere: the box kinds are
+   * singular (`memory`), the tabs are plural (`memories`). One of them is a route and changing it breaks a
+   * bookmark; the other is a layout concept. Named here so a rename on either side is a compile error.
+   */
+  tabForKind(kind: 'memory' | 'chrono' | 'file'): 'memories' | 'chrono' | 'files' {
+    return kind === 'memory' ? 'memories' : kind === 'file' ? 'files' : 'chrono';
+  }
 
   typeOf(name: string): ErEntityType | undefined {
     return this.model()?.entityTypes.find(t => t.type === name);

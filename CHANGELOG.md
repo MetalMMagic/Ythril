@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Fixed
+- **The data-model diagram: four reported defects, three of them geometry.** Owner report 2026-08-11, tested
+  against an emulated 30-type model because the small, evenly-filled one always looked fine.
+  - **Clicking a record count rewrote the URL and changed nothing.** The Brain page read its query params once
+    from the snapshot, deliberately, fearing that re-reading its own writes would fight the tab setter. Now
+    subscribed and applying only *differences* — when the page writes `tab=x` it has already set that, so the
+    handler no-ops. Idempotence rather than abstinence, and it cannot loop because a no-op writes no URL.
+  - **Unconnected types now sit on a shelf along the bottom**, a wrapping grid that fills each row, instead of
+    falling into the right column and being centred against the hub — which pushed the meaningful part of the
+    diagram off-screen on any real space.
+  - **Edges left the diagram entirely.** A join between two boxes in the *same* column fell through the
+    `a.x < b.x` test as right-to-left and ran leftwards out of its own column: negative x for column 0. It now
+    borrows the adjacent gap and leaves and enters the face looking at it.
+  - **Lanes and labels overlapped past four joins.** The lane index was `(n++ % 4)`, so the fifth join on a side
+    reused the first one's line. One lane per join now, the gap sized from the real count, and labels stepped
+    down their own lane with a `paint-order` halo so one crossing another stays readable.
+  - **Both geometry bugs were one question answered twice:** the side was guessed from `pointsAtHub` to size the
+    gaps, then decided again from geometry when drawing. It is answered once now and both readers use that
+    answer, so a lane cannot be drawn into a gap that was not measured for it.
+  - **Hover highlighting needed a hit target.** Each join is a group carrying the visible stroke, an invisible
+    14 px path, and the label. A 1.25 px line is not a pointer target — without it the feature would have been
+    untriggerable. Hovering also dims the other joins, so one edge can be followed across a busy model.
 - **An entity merge left every FILE linked to the absorbed entity pointing at a record it had just deleted.**
   Third finding of the Data Integrity & Correctness audit lens.
   - A file metadata record is a knowledge-graph document like any other and carries `entityIds` — that is how a

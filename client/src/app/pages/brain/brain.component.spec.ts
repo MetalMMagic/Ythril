@@ -15,6 +15,7 @@
  */
 import { TestBed, DeferBlockBehavior } from '@angular/core/testing';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { EMPTY } from 'rxjs';
 import { of } from 'rxjs';
 import { ActivatedRoute } from '@angular/router';
 import { SpacesApi } from '../../core/spaces-api.service';
@@ -67,7 +68,7 @@ describe('BrainComponent (OnPush)', () => {
         { provide: AdminApi, useValue: makeApi() },
         { provide: NetworksApi, useValue: makeApi() },
         { provide: AuthService, useValue: { token: () => '' } },
-        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => '' } } } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => '' } }, queryParamMap: EMPTY } },
       ],
     });
     const fixture = TestBed.createComponent(BrainComponent);
@@ -142,7 +143,7 @@ describe('BrainComponent (OnPush)', () => {
         { provide: AdminApi, useValue: makeApi() },
         { provide: NetworksApi, useValue: makeApi() },
         { provide: AuthService, useValue: { token: () => '' } },
-        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => '' } } } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => '' } }, queryParamMap: EMPTY } },
       ],
     });
     const fixture = TestBed.createComponent(BrainComponent);
@@ -189,7 +190,7 @@ describe('BrainComponent (OnPush)', () => {
         { provide: AdminApi, useValue: makeApi() },
         { provide: NetworksApi, useValue: makeApi() },
         { provide: AuthService, useValue: { token: () => '' } },
-        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => '' } } } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => '' } }, queryParamMap: EMPTY } },
       ],
     });
     const fixture = TestBed.createComponent(BrainComponent);

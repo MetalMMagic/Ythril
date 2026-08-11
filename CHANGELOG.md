@@ -6,6 +6,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Fixed
+- **The proxy lens shipped grantable and never narrowing, so a scoped token reading a proxy got nothing.**
+  Reported by an operator who deployed 2.6.0 the same day it was published.
+  - The ask it answered named the shape exactly: *"expand it through the token's own scope rather than through
+    its full member list."* Instead `spaceTargets()` returned the **full** member list and the area/rung check
+    walked it, refusing on the first member the token lacked. A token scoped to 22 spaces with the commons
+    deliberately absent got `403 Token needs 'read' on knowledge in space 'general'` for the whole proxy — so a
+    token holding `['qa','team']` recalled across **nothing**.
+  - **The reporter located it for us:** a proxy over the same members *minus* the commons read 200 and returned
+    results. Proxy-to-a-scoped-token worked; only the narrowing did not, and the difference between the two
+    cases was a member the token cannot see.
+  - The reach check had already computed that narrowed subset and thrown it away, so two callers went on asking
+    the un-narrowed question. The narrowing now lives in the one place both read from, using the same
+    `reachesSpace` predicate rather than a second rule — a member the token cannot reach is **dropped from the
+    expansion**, never converted into a refusal for the whole proxy.
+  - Narrowing to nothing still refuses, from the reach guard: an empty target list would mean "check no space at
+    all", which is access rather than a refusal.
+  - The empty-versus-absent asymmetry is asserted inside the narrowing too — `spaces === undefined` is
+    unrestricted, an empty allowlist reaches nothing. That conflation granted whole instances on three routes in
+    2.6.0 and must not come back where it would turn the narrowest token into the widest.
+
 ### Internal
 - **The space-settings pop-up is its own component.** No behaviour change: 84 lines of template moved out of
   `spaces.component` into `space-settings-popup.component`, asserted **byte-identical** against the original

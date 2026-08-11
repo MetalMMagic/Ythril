@@ -6,6 +6,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- **A gate: no shipped document over 900 lines.** Splitting the five oversized guides fixed the instances; it did
+  not fix the mechanism, which is that a document grows one paragraph at a time and no single commit ever looks
+  like the one that made it unreadable.
+  - **900 is measured, not round.** With all five splits in, the largest surviving document is `02-hosting.md` at
+    817 lines and the next is 611. A limit of 1,000 could not fire against anything that exists — a gate that
+    passes forever and reads like protection. There is a second assertion for exactly that failure: it fails if
+    the largest tracked doc drops below half the limit, so the number has to come down with the documentation
+    rather than sit there unreachable.
+  - The predicate is mutation-checked against fabricated input, because a size gate that can never fire looks
+    identical to one with nothing to report.
+  - The failure message names each file and its length, and says what splitting actually involves — the line-range
+    tooling, plus adding the parts to `HELP_DOCS`, linking them from the index, and re-pointing every gate that
+    pins a path or anchor into a moved section.
+
 ### Changed
 - **The use-case catalogue is three chapters instead of one 1,038-line file, and it finally has a table of
   contents.** 27 numbered examples and one appendix, each 25–58 lines, with no way to see what was in the file

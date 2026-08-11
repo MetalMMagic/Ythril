@@ -66,8 +66,16 @@ export class AuthApi {
    * name was write-once in practice. Two requests would also mean a rename that lands while the rights change
    * 403s on the mint cap, leaving the operator with half of what they asked for and one audit entry for it.
    */
-  updateToken(id: string, patch: { name?: string; rights?: TokenRights }): Observable<{ token: TokenRecord }> {
-    return this.http.patch<{ token: TokenRecord }>(`/api/tokens/${id}`, patch);
+  updateToken(
+    id: string,
+    patch: { name?: string; rights?: TokenRights; mfa?: 'inherit' | 'exempt' | 'required' },
+    totpCode?: string,
+  ): Observable<{ token: TokenRecord }> {
+    // Granting an MFA exemption costs a live TOTP code on this request, even from a token that is itself
+    // exempt — otherwise one exemption grants the next. The header goes only when there is a code to send:
+    // an empty one turns the server's "you need a code" into "your code is wrong".
+    return this.http.patch<{ token: TokenRecord }>(`/api/tokens/${id}`, patch,
+      totpCode ? { headers: { 'x-totp-code': totpCode } } : {});
   }
 
   renameToken(id: string, name: string): Observable<{ token: TokenRecord }> {

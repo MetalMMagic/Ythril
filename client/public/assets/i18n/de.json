@@ -1864,5 +1864,7 @@
   "tokens.rights.saved": "Rechte aktualisiert",
   "tokens.error.rightsFailed": "Rechte konnten nicht aktualisiert werden",
   "brain.tab.spaceSettings": "Space-Einstellungen",
-  "brain.tab.spaceSettingsTitle": "Diesen Space konfigurieren — Bezeichnung, Schema, Duplikate, Gefahrenzone"
+  "brain.tab.spaceSettingsTitle": "Diesen Space konfigurieren — Bezeichnung, Schema, Duplikate, Gefahrenzone",
+  "tokens.mfa.codeLabel": "Authenticator-Code",
+  "tokens.mfa.codeHint": "Eine Ausnahme zu erteilen erfordert einen aktuellen Code aus deiner Authenticator-App — auch wenn dieses Token selbst ausgenommen ist."
 }

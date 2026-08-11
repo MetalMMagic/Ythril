@@ -1864,5 +1864,7 @@
   "tokens.rights.saved": "Uprawnienia zaktualizowane",
   "tokens.error.rightsFailed": "Nie udało się zaktualizować uprawnień",
   "brain.tab.spaceSettings": "Ustawienia przestrzeni",
-  "brain.tab.spaceSettingsTitle": "Skonfiguruj tę przestrzeń — etykieta, schemat, duplikaty, strefa zagrożenia"
+  "brain.tab.spaceSettingsTitle": "Skonfiguruj tę przestrzeń — etykieta, schemat, duplikaty, strefa zagrożenia",
+  "tokens.mfa.codeLabel": "Kod z aplikacji",
+  "tokens.mfa.codeHint": "Nadanie wyjątku wymaga aktualnego kodu z aplikacji uwierzytelniającej — nawet jeśli ten token sam jest wyłączony."
 }

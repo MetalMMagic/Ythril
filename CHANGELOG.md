@@ -27,6 +27,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     this route can change, and a diff that omitted it would record a rename beside it and not the exemption.
 
 ### Added
+- **The token editor carries the second factor**, alongside the label and the rights matrix — *Follow the
+  instance setting*, *Exempt*, or *Required*.
+  - It is on the token rather than on the create form because that is what it is a property of. Before this,
+    changing a scheduler's exemption meant revoking the token and minting a replacement: rotating a secret to
+    change a flag.
+  - **Granting an exemption asks for your authenticator code in the dialog**, before the request, rather than
+    surfacing a `403` afterwards. The server's refusal is correct and unactionable — nothing in it tells the
+    operator that the field they changed is the reason.
+  - The field appears only when **granting** one: not when editing an already-exempt token, and not when taking
+    an exemption away. Save is not gated on it, because whether a code is needed depends on the instance-wide
+    switch and the server owns that answer — a local guess would refuse a save the instance would accept.
+  - An **absent** `mfa` reads as `inherit`, so opening any pre-existing token and pressing Save does not record
+    an edit nobody made. Each field is sent only when it actually changed, which matters most here: that audit
+    entry is what someone will read to find out when an exemption was granted.
+
+### Added
 - **A cog at the far right of the Brain's tab strip opens the settings for the space you are already in.**
   Same editor as **Settings → Spaces** — Settings, Schema, Duplicates, Danger Zone — over the page you were
   reading, so closing it returns you to the tab you were on.

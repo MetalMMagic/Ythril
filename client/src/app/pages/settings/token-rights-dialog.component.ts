@@ -66,6 +66,38 @@ import type { Space, TokenRecord } from '../../core/api.types';
         <label style="display:block;margin-bottom:6px;">{{ 'tokens.create.permission' | transloco }}</label>
         <app-rights-matrix [rights]="draft()" [spaces]="spaceIds()" (changed)="draft.set($event)"/>
 
+        <!-- The second factor, on the token rather than on the mint request. It was settable only while
+             minting, so changing a scheduler's exemption meant revoking the token and minting a replacement —
+             rotating a secret to change a flag. -->
+        <div class="field" style="margin-top:14px;margin-bottom:0;">
+          <label for="tokenMfa">{{ 'tokens.create.mfa' | transloco }}</label>
+          <select id="tokenMfa" [(ngModel)]="draftMfa" name="mfa">
+            <option value="inherit">{{ 'tokens.mfa.inherit' | transloco }}</option>
+            <option value="exempt">{{ 'tokens.mfa.exempt' | transloco }}</option>
+            <option value="required">{{ 'tokens.mfa.required' | transloco }}</option>
+          </select>
+          <p class="permission-help">
+            <ph-icon name="info" [size]="14" />
+            <span>{{ ('tokens.mfa.' + draftMfa + '.desc') | transloco }}</span>
+          </p>
+        </div>
+
+        <!-- Granting an exemption costs a live TOTP code on the request, even from a token that is itself
+             exempt — otherwise one exemption grants the next. Asked for HERE rather than after a 403, because
+             the server's refusal is correct and unactionable: the operator cannot tell from it that the field
+             they changed is the reason. Shown only when it is actually needed. -->
+        @if (needsCode()) {
+          <div class="field" style="margin-top:12px;margin-bottom:0;">
+            <label for="tokenTotp">{{ 'tokens.mfa.codeLabel' | transloco }}</label>
+            <input id="tokenTotp" type="text" inputmode="numeric" autocomplete="one-time-code"
+                   [(ngModel)]="totpCode" name="totp" maxlength="10" />
+            <p class="permission-help">
+              <ph-icon name="info" [size]="14" />
+              <span>{{ 'tokens.mfa.codeHint' | transloco }}</span>
+            </p>
+          </div>
+        }
+
         <div class="form-grid-bottom" style="margin-top:12px;">
           <button class="btn-secondary btn" type="button" (click)="close.emit()">
             {{ 'common.cancel' | transloco }}
@@ -95,6 +127,23 @@ export class TokenRightsDialogComponent {
   draft = signal<TokenRights>({ instanceAdmin: false, createSpaces: false, floor: null, perSpace: {} });
   /** Same reasoning for the label: prefilled, so saving without touching it is not a rename to empty. */
   draftName = '';
+  /** An absent `mfa` on the record IS `inherit`, so the two spellings must land on the same option. */
+  draftMfa: 'inherit' | 'exempt' | 'required' = 'inherit';
+  totpCode = '';
+
+  /**
+   * Ask for a code only when GRANTING an exemption — not when a token already has one and something else is
+   * being edited, and not when moving away from one.
+   *
+   * Deliberately not conditioned on whether MFA is enabled instance-wide: this component would have to fetch
+   * that, and a second source for "is MFA on" is a second answer that can disagree with the server's. When the
+   * switch is off the server ignores the code, so offering the field costs nothing; when it is on, the code is
+   * required and asking here beats a 403 the operator cannot connect to the field they changed.
+   *
+   * Save is NOT gated on it for the same reason — the server owns that decision, and gating locally would
+   * refuse a save the instance would have accepted.
+   */
+  needsCode = () => this.draftMfa === 'exempt' && (this.token().mfa ?? 'inherit') !== 'exempt';
 
   spaceIds = () => this.availableSpaces().map(s => s.id);
 
@@ -102,23 +151,30 @@ export class TokenRightsDialogComponent {
     const r = this.token().rights;
     if (r) this.draft.set({ ...r } as TokenRights);
     this.draftName = this.token().name;
+    this.draftMfa = this.token().mfa ?? 'inherit';
   }
 
   save(): void {
     this.saving.set(true);
     this.error.set('');
-    // The name goes only when it actually changed. Sending it unchanged would work — PATCH accepts it — but
-    // it would write a `token.update` audit entry claiming a rename that did not happen.
+    // Each field goes only when it actually changed. Sending one unchanged would work — PATCH accepts it — but
+    // it would write a `token.update` audit entry claiming an edit that did not happen, and for the second
+    // factor that is the entry someone will one day read to find out when an exemption was granted.
     const trimmed = this.draftName.trim();
     const renamed = trimmed && trimmed !== this.token().name;
+    const mfaChanged = this.draftMfa !== (this.token().mfa ?? 'inherit');
     this.authApi.updateToken(this.token().id, {
       rights: this.draft(),
       ...(renamed ? { name: trimmed } : {}),
-    }).subscribe({
+      ...(mfaChanged ? { mfa: this.draftMfa } : {}),
+    }, this.totpCode.trim() || undefined).subscribe({
       next: ({ token }) => { this.saving.set(false); this.saved.emit(token); },
       error: (err) => {
         this.saving.set(false);
-        this.error.set(err.error?.error ?? this.transloco.translate('tokens.error.rightsFailed'));
+        // The exemption refusal is a 403 whose `message` carries the actionable half; `error` is the code
+        // `MFA_REQUIRED`, which on its own reads as "you are not allowed" rather than "type your code".
+        this.error.set(err.error?.message ?? err.error?.error
+          ?? this.transloco.translate('tokens.error.rightsFailed'));
       },
     });
   }

@@ -1864,5 +1864,7 @@
   "tokens.rights.saved": "Rights updated",
   "tokens.error.rightsFailed": "Could not update rights",
   "brain.tab.spaceSettings": "Space settings",
-  "brain.tab.spaceSettingsTitle": "Configure this space — label, schema, duplicates, danger zone"
+  "brain.tab.spaceSettingsTitle": "Configure this space — label, schema, duplicates, danger zone",
+  "tokens.mfa.codeLabel": "Authenticator code",
+  "tokens.mfa.codeHint": "Granting an exemption needs a current code from your authenticator, even if this token is exempt itself."
 }

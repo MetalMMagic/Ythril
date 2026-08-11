@@ -6,7 +6,7 @@ import { ssrfSafeFetch } from '../util/ssrf.js';
 import { allowPrivateForSlot } from '../config/model-egress-policy.js';
 import { embeddingsUrlFor } from '../files/converters/vlm-endpoint.js';
 import { log } from '../util/log.js';
-import { embeddingDurationSeconds, embeddingQueueDepth } from '../metrics/registry.js';
+import { embeddingDurationSeconds, embeddingQueueDepth, embeddingRetryTotal } from '../metrics/registry.js';
 
 export interface EmbeddingResult {
   vector: number[];
@@ -181,6 +181,106 @@ function getLocalPipeline(modelId: string): Promise<LocalPipeline> {
 
 // ── HTTP endpoint fallback ─────────────────────────────────────────────────
 /** `input` is already task-prefixed by `prepareInput` — do not prefix again here. */
+/**
+ * A refusal from the embedding endpoint, carrying enough to decide whether trying again is sensible.
+ *
+ * The message is unchanged from what it was — `Embedding request failed (HTTP 429): …` — because operators
+ * have that string in their runbooks and their logs, and it is what a caller shows a requester.
+ */
+export class EmbeddingHttpError extends Error {
+  constructor(
+    readonly status: number,
+    readonly body: string,
+    /** From `Retry-After`, when the server sent one and it was a number we can act on. */
+    readonly retryAfterMs: number | null,
+  ) {
+    super(`Embedding request failed (HTTP ${status}): ${body}`);
+    this.name = 'EmbeddingHttpError';
+  }
+}
+
+/**
+ * Statuses where trying again is the right move, and nothing else.
+ *
+ * A 400 or a 413 means the REQUEST is wrong and will be wrong every time — retrying it burns the caller's
+ * deadline to arrive at the same answer more slowly. A 401 retried is a lockout waiting to happen.
+ */
+const RETRYABLE_EMBED_STATUS = new Set([429, 502, 503, 504]);
+
+/**
+ * Three attempts, and the delays are deliberately SMALL.
+ *
+ * This sits inside `recall`, which has a deadline the operator set and the caller may have lowered. A textbook
+ * 1s/2s/4s backoff would turn one busy moment into a recall that misses its budget and degrades — trading a
+ * clear failure for a slow partial answer, which is worse.
+ *
+ * The refusals that prompted this came back in under 3 milliseconds: the upstream was refusing instantly, not
+ * queueing. Against that, a short pause is all it takes for a concurrent burst to clear, and the total added
+ * latency in the worst case is under half a second.
+ */
+const EMBED_RETRY_DELAYS_MS = [120, 360] as const;
+
+/** Half the delay as fixed floor, half as jitter — so N concurrent callers do not retry in lockstep. */
+function jittered(baseMs: number): number {
+  return Math.round(baseMs / 2 + Math.random() * (baseMs / 2));
+}
+
+function retryAfterMs(response: Response): number | null {
+  const raw = response.headers.get('retry-after');
+  if (!raw) return null;
+  const seconds = Number(raw.trim());
+  // Only a plain number of seconds. The HTTP-date form is legal and we do not honour it: parsing a date
+  // against our clock to decide a sub-second sleep is more ways to be wrong than it is worth.
+  return Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : null;
+}
+
+const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+
+/**
+ * Ask the endpoint, retrying only a transient refusal.
+ *
+ * ## Why this exists
+ *
+ * An operator moved their embedder to a shared GPU endpoint. While a reindex saturated it, EVERY recall
+ * failed — the 429 went straight to the caller with no retry, no jitter and no backoff, and the user's query
+ * was simply gone. Their words: *"a single retry with a little jitter would absorb this entirely."*
+ *
+ * The file pipeline had all of this already: persisted jobs, backoff, a terminal `failed` state and a
+ * `retry_embedding` recovery path. Recall had none of it, on the same dependency.
+ *
+ * A `Retry-After` longer than our own budget is a refusal to wait, not an instruction to: we give up and let
+ * the caller see the 429, rather than sleeping past a deadline somebody set.
+ */
+export async function embedViaHttpWithRetry(
+  attempt: (n: number) => Promise<EmbeddingResult>,
+): Promise<EmbeddingResult> {
+  let lastErr: unknown;
+  for (let i = 0; i <= EMBED_RETRY_DELAYS_MS.length; i++) {
+    try {
+      return await attempt(i);
+    } catch (err) {
+      lastErr = err;
+      const retryable = err instanceof EmbeddingHttpError && RETRYABLE_EMBED_STATUS.has(err.status);
+      const delayLeft = i < EMBED_RETRY_DELAYS_MS.length;
+      if (!retryable || !delayLeft) break;
+
+      const base = EMBED_RETRY_DELAYS_MS[i]!;
+      const asked = (err as EmbeddingHttpError).retryAfterMs;
+      if (asked !== null && asked > base * 4) {
+        // The server named a wait we are not willing to take inside a request. Surface the refusal.
+        log.warn(`Embedding endpoint asked for ${asked}ms via Retry-After; longer than this request will wait.`);
+        break;
+      }
+      const delay = jittered(asked !== null && asked > 0 ? Math.min(asked, base * 4) : base);
+      embeddingRetryTotal.labels({ status: String((err as EmbeddingHttpError).status) }).inc();
+      log.warn(`Embedding endpoint refused (HTTP ${(err as EmbeddingHttpError).status}); `
+        + `retrying in ${delay}ms (attempt ${i + 2} of ${EMBED_RETRY_DELAYS_MS.length + 1}).`);
+      await sleep(delay);
+    }
+  }
+  throw lastErr;
+}
+
 async function embedViaHttp(
   input: string,
   cfg: ReturnType<typeof getEmbeddingConfig>,
@@ -222,7 +322,7 @@ async function embedViaHttp(
   }
   if (!response.ok) {
     const body = await boundedErrorText(response);
-    throw new Error(`Embedding request failed (HTTP ${response.status}): ${body}`);
+    throw new EmbeddingHttpError(response.status, body, retryAfterMs(response));
   }
   const json = await boundedJson<{
     data?: { embedding?: number[] }[];
@@ -275,7 +375,10 @@ export async function embed(
   try {
     if (cfg.baseUrl) {
       // External HTTP endpoint configured — delegate entirely
-      return await embedViaHttp(input, cfg);
+      // Retried here rather than inside `embedViaHttp` so the whole request — including building it — is what
+      // gets re-attempted, and so the local-pipeline path below is untouched: an in-process model does not
+      // refuse you because it is busy.
+      return await embedViaHttpWithRetry(() => embedViaHttp(input, cfg));
     }
 
     const pipe = await getLocalPipeline(cfg.model);

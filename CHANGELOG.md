@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Fixed
+- **A transient `429` from the embedding endpoint no longer kills the query.** It went straight to the caller
+  with no retry, no jitter and no backoff, so one busy moment lost the search outright.
+  - Reported by an operator who moved their text embedder onto a shared GPU endpoint: while a reindex saturated
+    it, **every** recall failed. The refusals came back in under 3ms — the upstream was refusing instantly, not
+    queueing — so there was nothing to wait for except a concurrent burst to clear.
+  - Two extra attempts, with **small** delays (~120ms then ~360ms, half of each as jitter so concurrent callers
+    do not retry in lockstep). Deliberately not a textbook 1s/2s/4s: this runs inside recall's deadline, and a
+    long backoff would trade a clear failure for a slow partial answer.
+  - `502`, `503` and `504` are retried on the same reasoning. **`400`, `401` and `413` are not** — the request
+    is wrong and will be wrong every time, so retrying burns the caller's deadline to reach the same answer more
+    slowly. A retried `401` is a lockout waiting to happen.
+  - `Retry-After` is honoured when it is short, and **refused** when it is long: a server naming a 30-second
+    wait inside a request budgeted in hundreds of milliseconds is telling us to give up, not to sleep.
+  - The message an operator sees is unchanged — `Embedding request failed (HTTP 429): …` — because it is in
+    runbooks and log searches. A wrapper that replaced it with "all retries failed" would break every alert
+    written against it.
+  - New metric `ythril_embedding_retry_total`, labelled by status. The retry makes the problem invisible by
+    design, so this is the only trace that a shared endpoint is saturating while it is still transient.
+  - The file pipeline already had all of this — persisted jobs, backoff, a terminal `failed` state, and
+    `retry_embedding` to recover. Recall had none of it, against the same dependency.
+
+### Fixed
 - **A cross-space recall embedded the identical query once per space.** Five accessible spaces meant five
   `POST /v1/embeddings` for one search — same text, same vector, five times the cost, the concurrency footprint
   and the failure surface. `recallGlobal` now embeds once and hands the vector down.

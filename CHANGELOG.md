@@ -6,6 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Internal
+- **Infra-managed now locks the Media Processing page by rule, not by 35 separate bindings.** A gate sweeps every
+  control on that page **by shape** — every `input`, `select` and `textarea` bound to `ngModel` — and requires
+  each to be locked, either by its own `[disabled]` or by an enclosing `@if` that removes it when managed.
+  - Prompted by the owner asking whether editable API-key fields under infra-managed were intended. They are
+    not: the API refuses that write outright, so a control that still accepts typing composes a request the
+    server rejects.
+  - **No unlocked control was found.** All 35 are already locked, and the page's wiring is correct end to end:
+    `isLocked()` short-circuits on managed rather than consulting a list, and the loader spreads the whole
+    response onto the form so the flag arrives. The gate exists because "most is blocked" is exactly what 35
+    correct-today decisions produce as soon as somebody adds the thirty-sixth.
+  - The gate is deliberately not UI-only: it also asserts the server still refuses an infra-managed write. A
+    lock that lived only in the client would be the two-surfaces-one-weaker shape this repo keeps finding.
+
 ### Fixed
 - **A space with no recorded usage showed its usage card loading for ever.** The Overview activity loader set the
   zeroed "nothing was asked" row and then returned **before** clearing its pending flag, so the skeleton stayed

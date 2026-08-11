@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [2.6.0] — 2026-08-11
 ### Added
 - **A gate: `Settings → X` in the docs must name something the sidebar actually says.** The nav is parsed out of
   `shell.component.ts` and the labels resolved through `en.json`, so no hand-kept copy exists to go stale —
@@ -435,6 +437,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **A tracker edit does not count as work in progress**, which is the specific failure it catches: a reply
     whose newest work is bookkeeping, with nothing running and no PR open.
   - Not wired into preflight — preflight guards a *push*, and this guards a *turn ending*.
+
+- **A gate: every locked version must describe the artefact it resolves to.** npm encodes the version in the
+  tarball URL, so the lockfile carries the answer next to the claim and comparing them needs no network.
+  - Mutation-checked against a planted mismatch, because a check that cannot fire looks exactly like a clean
+    lockfile — and this one looked clean through three releases while being wrong.
 
 ### Changed
 - **The use-case catalogue is three chapters instead of one 1,038-line file, and it finally has a table of
@@ -922,6 +929,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     *transience*. Now narrowed by the server error **code** for that one name: 11600, 91, 11602, 189, 13436.
   - `AuthenticationFailed` (18) still fails immediately, and an unrecognised name with a transient code is still
     rejected — widening by code alone would re-admit everything the allowlist exists to reject.
+
+- **Seven dependencies in `package-lock.json` recorded a version their own tarball contradicts.** They claimed
+  2.4.0 while resolving to 2.3.0 artefacts — collateral from the 2.3.0 → 2.4.0 release, whose version bump was
+  done with a find-and-replace on `"version": "<old>"`. That string is not unique: any dependency sitting at
+  the version being bumped FROM is rewritten with it, while its `resolved` URL and `integrity` hash go on
+  describing the real artefact.
+  - It had shipped that way for three releases. **This release reproduced it live** on `watchpack`, which is
+    what made the old damage visible — the same mistake, caught in the act.
+  - `npm ci` never notices: it installs from `resolved` and verifies `integrity`, so the wrong `version` is a
+    lie that works. What reads the field is everything that reports *about* the tree — SBOMs, attribution and
+    licence tooling, `npm ls`, and CVE matching, where an advisory against 2.3.0 does not match a record
+    claiming 2.4.0.
 
 ### Internal
 - **The per-type schema editor is a component two hosts can open.** Its ~224 template lines lived inside the

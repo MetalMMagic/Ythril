@@ -313,6 +313,29 @@ export function renameToken(id: string, name: string): boolean {
   return true;
 }
 
+/**
+ * Set a token's relationship to the second factor: `inherit`, `exempt` or `required`.
+ *
+ * Separate from the two above for the same reason they are separate from each other, and here the stakes are
+ * higher: this is the only one of the three that can weaken an instance-wide control. The route guards it —
+ * granting `exempt` costs a live TOTP code on the request even from a token that is itself exempt — and that
+ * guard must not be reachable around. A combined setter taking an optional `mfa` would let a caller change it
+ * while believing it had renamed.
+ *
+ * `inherit` is stored as ABSENT rather than as the string. It is the default, every existing token has no
+ * `mfa` field at all, and writing `'inherit'` explicitly would make a token that follows the instance switch
+ * look different on disk depending on whether anyone had ever opened its editor.
+ */
+export function setTokenMfa(id: string, mfa: 'inherit' | 'exempt' | 'required'): boolean {
+  const config = getConfig();
+  const idx = config.tokens.findIndex(t => t.id === id);
+  if (idx < 0) return false;
+  if (mfa === 'inherit') delete config.tokens[idx]!.mfa;
+  else config.tokens[idx]!.mfa = mfa;
+  saveConfig(config);
+  return true;
+}
+
 /** Revoke a token by ID */
 export async function revokeToken(id: string): Promise<boolean> {
   const config = getConfig();

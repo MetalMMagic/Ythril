@@ -53,9 +53,14 @@ describe('every field the list route emits is answerable by the edit route', () 
     const fields = [...body.slice(0, body.indexOf('\n}')).matchAll(/^\s{2}(\w+)\??:/gm)].map(m => m[1]);
     assert.ok(fields.length >= 10, `parsed only ${fields.length} fields off TokenRecord — re-point this`);
 
-    // `hash` never leaves the server; `id`/`prefix` are stripped; `name` and `rights` are the two the route
-    // actually edits. Everything else must be echoable or the round-trip 400s on it.
-    const accountedFor = new Set(['hash', 'id', 'prefix', 'name', 'rights', ...Object.keys(ECHOABLE)]);
+    // `hash` never leaves the server; `id`/`prefix` are stripped; `name`, `rights` and `mfa` are the three the
+    // route actually edits. Everything else must be echoable or the round-trip 400s on it.
+    //
+    // `mfa` joined the editable set rather than the echoable one: it was settable only while minting, which
+    // meant changing a scheduler's second factor required revoking the token and minting a replacement —
+    // rotating a secret to change a flag. Granting an exemption still costs a live TOTP code on the request,
+    // pinned by `mfa-is-editable-and-still-guarded.test.js`.
+    const accountedFor = new Set(['hash', 'id', 'prefix', 'name', 'rights', 'mfa', ...Object.keys(ECHOABLE)]);
     const orphans = fields.filter(f => !accountedFor.has(f));
     assert.deepEqual(orphans, [],
       `${orphans.join(', ')} are returned by GET and would be refused by PATCH — a token read back cannot `

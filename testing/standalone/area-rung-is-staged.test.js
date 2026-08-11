@@ -70,8 +70,12 @@ describe('the area check', () => {
     // contents would be governed at different levels — and the weaker one would win silently.
     assert.ok(body('spaceTargets'), 'the shared resolver is gone; the two checks can now drift');
     assert.match(body('spaceTargets'), /resolveMemberSpaces\(/);
-    assert.match(code, /enforceAreaRung\(res, record, req, spaceTargets\(spaceId\)\)/,
-      'the area check no longer uses the shared target resolution');
+    // The record is now part of that resolution, and deliberately: `spaceTargets` NARROWS a proxy to the
+    // members the token may see, so both checks read the same narrowed list. Passing only the id asks the
+    // un-narrowed question, which is what made a scoped token's proxy read refuse on the first member it
+    // lacked — the container governed by a member the caller was never granted.
+    assert.match(code, /enforceAreaRung\(res, record, req, spaceTargets\(spaceId, record\)\)/,
+      'the area check must use the shared, NARROWED target resolution');
   });
 
   it('refuses with the area and the level, not a bare 403', () => {

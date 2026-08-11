@@ -280,10 +280,50 @@ function enforceMfa(
  */
 /** The spaces a request actually touches: a proxy's members, or the space itself. Shared so the reach check
  *  and the area check can never disagree about WHAT they are checking. */
-function spaceTargets(spaceId: string | undefined): string[] {
+/**
+ * The members of `spaceId` this token may actually see — the proxy NARROWED, not the proxy expanded.
+ *
+ * ## The defect this closes
+ *
+ * A proxy space became grantable to a scoped token in 2.6.0, and the ask it answered was explicit about the
+ * shape: *"expand it through the token's own scope rather than through its full member list. A token holding
+ * ['qa','team'] would recall across qa and nothing else."*
+ *
+ * It shipped grantable and never narrowing. This function returned the FULL member list, and
+ * `enforceAreaRung` then walked it refusing on the first member the token lacked — so a token scoped to 22
+ * spaces, with the commons deliberately absent, got `403 Token needs 'read' on knowledge in space 'general'`
+ * for the whole proxy. A token holding `['qa','team']` recalled across **nothing**.
+ *
+ * The reporter located it precisely: a proxy over the same members MINUS the commons read 200 and returned
+ * results. So proxy-to-a-scoped-token worked; only the narrowing did not, and the difference between the two
+ * cases was a member the token cannot see.
+ *
+ * ## Why here rather than in the area guard
+ *
+ * The reach check already computed this subset and threw it away. Two callers then asked the un-narrowed
+ * question, which is the same "one rule, two answers" shape that produced the ER lane bug the same day. So the
+ * narrowing lives in the one place both the reach check and the area check read from, and a member the token
+ * cannot reach is DROPPED from the expansion — never converted into a refusal for the whole proxy.
+ *
+ * A caller that may see NO member still gets a 403, from the reach check: narrowing to nothing is not access.
+ */
+function spaceTargets(spaceId: string | undefined, record?: Omit<TokenRecord, 'hash'> | OidcTokenRecord): string[] {
   if (!spaceId) return [];
   const memberIds = resolveMemberSpaces(spaceId);
-  return memberIds.length > 0 ? memberIds : [spaceId];
+  const all = memberIds.length > 0 ? memberIds : [spaceId];
+  if (!record) return all;
+
+  const rights = (record as { rights?: Parameters<typeof reachesSpace>[0] }).rights;
+  const reachable = rights
+    ? all.filter(sid => reachesSpace(rights, sid))
+    // Same asymmetry as the reach check, for the same reason: `spaces === undefined` is unrestricted and
+    // reaches everything, while an EMPTY allowlist reaches nothing. Reading empty as absent would turn the
+    // narrowest token into the widest — the bug we removed three copies of in 2.6.0.
+    : record.spaces === undefined ? all : all.filter(sid => record.spaces!.includes(sid));
+
+  // Narrowing a real (non-proxy) space to nothing must not silently become "check no space at all": the reach
+  // guard owns that refusal, and handing back the original keeps its 403 the one a caller sees.
+  return reachable.length > 0 ? reachable : all;
 }
 
 function enforceAreaRung(
@@ -463,7 +503,7 @@ export async function requireSpaceAuth(
 
   const spaceId = req.params['spaceId'] as string | undefined;
   if (!enforceSpaceScope(res, record, spaceId)) return;
-  if (!enforceAreaRung(res, record, req, spaceTargets(spaceId))) return;
+  if (!enforceAreaRung(res, record, req, spaceTargets(spaceId, record))) return;
 
   authAttemptsTotal.inc({ result: 'success' });
   attachToken(req, record, bearer);
@@ -492,7 +532,7 @@ export function requireAdminMfaScoped(paramName: string) {
     // Tokens without a spaces allowlist (unrestricted admin) are always allowed.
     const spaceId = req.params[paramName] as string | undefined;
     if (!enforceSpaceScope(res, record, spaceId)) return;
-  if (!enforceAreaRung(res, record, req, spaceTargets(spaceId))) return;
+  if (!enforceAreaRung(res, record, req, spaceTargets(spaceId, record))) return;
 
     attachToken(req, record, bearer);
     next();

@@ -15,6 +15,7 @@
  */
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 let memberSpacesForToken, narrowsOnly, mayUseProxy;
 before(async () => {
@@ -155,5 +156,63 @@ describe('the rule is reached through ONE seam', () => {
     const hits = execSync('git grep --untracked -l "memberSpacesForToken(" -- server/src || true',
       { encoding: 'utf8' }).trim().split('\n').filter(Boolean).sort();
     assert.deepEqual(hits, ['server/src/auth/proxy-reach.ts', 'server/src/spaces/proxy-scoped.ts']);
+  });
+});
+
+/**
+ * ── The proxy lens must NARROW, not fail closed on the whole member list ────────────────────────────
+ *
+ * Shipped grantable in 2.6.0 and never narrowing. `spaceTargets()` returned the full member list, and
+ * `enforceAreaRung` then walked it refusing on the first member the token lacked. So a token scoped to 22
+ * spaces with the commons deliberately absent got, for the whole proxy:
+ *
+ *     403 Token needs 'read' on knowledge in space 'general'
+ *
+ * A token holding ['qa','team'] recalled across NOTHING — the exact opposite of the ask it answered.
+ *
+ * The reporter located it for us: a proxy over the same members MINUS the commons read 200 and returned
+ * results. So proxy-to-a-scoped-token worked; only the narrowing did not, and the difference between the two
+ * cases was a member the token cannot see.
+ *
+ * Asserted on the source because the behaviour needs a live proxy, a scoped token and a route inventory to
+ * observe, and the mechanism is what regressed: the area check must read the NARROWED list. A test that
+ * mocked all three would be asserting its own mock.
+ */
+describe('the proxy lens narrows instead of failing closed', () => {
+  const src = readFileSync('server/src/auth/middleware.ts', 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+
+  it('the area/rung check is handed the token record, so it can narrow', () => {
+    // The regression is exactly this argument going missing: without the record there is nothing to narrow by,
+    // and the function silently falls back to the full member list.
+    const calls = [...src.matchAll(/enforceAreaRung\(res, record, req, spaceTargets\(([^)]*)\)\)/g)]
+      .map(m => m[1].replace(/\s/g, ''));
+    assert.ok(calls.length >= 2, `expected the space-auth call sites, found ${calls.length}`);
+    assert.deepEqual([...new Set(calls)], ['spaceId,record'],
+      'every call must pass the record — a call site that passes only the id asks the un-narrowed question');
+  });
+
+  it('spaceTargets filters the members by reach', () => {
+    const fn = src.slice(src.indexOf('function spaceTargets'), src.indexOf('function enforceAreaRung'));
+    assert.match(fn, /reachesSpace\(rights, sid\)/,
+      'the narrowing must use the same reach predicate the reach guard uses, not a second rule');
+  });
+
+  it('reads an EMPTY allowlist as reaching nothing, and an ABSENT one as reaching everything', () => {
+    // The conflation that granted whole instances on three routes in 2.6.0. It must not come back inside the
+    // narrowing, where it would turn the narrowest token into the widest.
+    const fn = src.slice(src.indexOf('function spaceTargets'), src.indexOf('function enforceAreaRung'));
+    assert.match(fn, /record\.spaces === undefined \? all :/,
+      'absent means unrestricted; length === 0 would read empty as absent');
+    assert.ok(!/spaces\?\.length === 0|spaces\.length === 0/.test(fn),
+      'an empty allowlist must not be treated as unrestricted');
+  });
+
+  it('a narrowing that empties still refuses, via the reach guard', () => {
+    // Returning [] here would mean "check no space at all", which is access rather than a refusal. The reach
+    // guard owns that 403, so the fallback hands back the original list and lets it answer.
+    const fn = src.slice(src.indexOf('function spaceTargets'), src.indexOf('function enforceAreaRung'));
+    assert.match(fn, /reachable\.length > 0 \? reachable : all/,
+      'an empty narrowing must fall back so the reach guard produces the refusal');
   });
 });

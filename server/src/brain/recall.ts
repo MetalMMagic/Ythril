@@ -8,6 +8,7 @@
 import { col, isVectorSearchAvailable, asFilter } from '../db/mongo.js';
 import { NotFoundError } from '../util/errors.js';
 import { embed } from './embedding.js';
+import type { EmbeddingResult } from './embedding.js';
 import { getEmbeddingConfig } from '../config/loader.js';
 import { needsReindex } from '../spaces/_shared.js';
 import { vectorFilterFieldsFor } from '../spaces/vector-index.js';
@@ -224,6 +225,16 @@ export async function recall(
      */
     degraded?: string[];
     /**
+     * The query, already embedded — set by `recallGlobal` so a fan-out over N spaces costs ONE embedding
+     * instead of N identical ones.
+     *
+     * Not a public option: nothing outside this module should be computing a query vector, because a caller
+     * that embedded with a different `task` than `'query'` would search with a vector prepared for a
+     * different purpose and quietly get worse results. It is here rather than as a positional argument
+     * because this signature was already eight parameters long.
+     */
+    embedded?: EmbeddingResult;
+    /**
      * Also scan the newest records straight from each collection, so a record written seconds ago is
      * findable before the index has ingested it.
      *
@@ -284,7 +295,15 @@ export async function recall(
   const searchDeadline = (): number =>
     Math.max(MIN_SEARCH_DEADLINE_MS, effectiveBudgetMs - (Date.now() - startedAt));
 
-  const embResult = await embed(query, 'query');
+  // One text, one vector. `recallGlobal` embeds the query ONCE and hands it down, because it fans out over
+  // spaces and every one of those calls would otherwise embed the identical string again — N spaces, N calls,
+  // N times the cost, the concurrency footprint and the failure surface, for a byte-identical vector.
+  //
+  // breituai-platform found this from the outside while a reindex saturated their shared embedder: every
+  // recall produced exactly five `POST /v1/embeddings`, all five 429'd, and the query died. They read the five
+  // as one per knowledge type; it is one per SPACE, which is why the fix lives at the fan-out and not in the
+  // per-type search. A 1-wide request fits where an N-wide burst does not.
+  const embResult = opts?.embedded ?? await embed(query, 'query');
 
   const activeTypes: RecallKnowledgeType[] = (types && types.length > 0)
     ? types
@@ -1173,7 +1192,14 @@ export async function recallGlobal(
     degraded?: string[];
   },
 ): Promise<RecallResult[]> {
-  const results = await Promise.all(spaceIds.map(id => recall(id, query, topK, tags, types, minPerType, minScore, filter, opts)));
+  // Embed ONCE for the whole fan-out. Every space below searches the same text, so without this the query is
+  // embedded once per space: identical input, identical vector, N times the cost and N times the chance that
+  // a busy embedder refuses one of them and takes the whole recall with it.
+  const embedded = await embed(query, 'query');
+
+  const results = await Promise.all(spaceIds.map(
+    id => recall(id, query, topK, tags, types, minPerType, minScore, filter, { ...opts, embedded }),
+  ));
   const flat = results.flat();
   // Sort by score descending, deduplicate by _id
   const seen = new Set<string>();

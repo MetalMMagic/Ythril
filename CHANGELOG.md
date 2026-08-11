@@ -6,6 +6,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Fixed
+- **A cross-space recall embedded the identical query once per space.** Five accessible spaces meant five
+  `POST /v1/embeddings` for one search — same text, same vector, five times the cost, the concurrency footprint
+  and the failure surface. `recallGlobal` now embeds once and hands the vector down.
+  - Found from the outside by an operator who moved their text embedder onto a shared GPU endpoint: with the
+    endpoint saturated by a reindex, **every** recall failed, and their access log showed exactly five 429s per
+    recall, never four, never six.
+  - The fan-out is also what made the failure certain: a 1-wide request fits where a 5-wide burst does not.
+  - **They read the five as one call per knowledge type**, and said plainly they were inferring from the count.
+    It is one per *space* — there has only ever been one `embed` call in the module. The count was real and the
+    mechanism was not, which is the difference between a two-line fix at the fan-out and a fruitless read of
+    the per-type search.
+  - Single-space recall is unchanged: it embeds for itself, so the per-space routes and traverse are untouched.
+  - `findSimilar` already had this right — it loops spaces with one vector taken from the source record — and a
+    gate now pins that it never grows an `embed` call inside that loop.
+
 ### Changed
 - **A token's second factor is editable, instead of being fixed when the token was minted.** `PATCH
   /api/tokens/:id` now accepts `mfa` (`inherit` | `exempt` | `required`).

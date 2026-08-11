@@ -178,7 +178,20 @@ const FROZEN = {
   // diagram supersedes the counts, and instance identity belongs to the About page, not a space overview.
   // Ratcheted DOWN to what the file now measures, which is what makes this a ratchet: leaving 660 would
   // have handed the file 59 lines of free headroom it did not earn.
-  'client/src/app/pages/brain/overview-tab.component.ts': 601,
+  // 601 -> 634 for the usage reset: the button, its confirmation handler, the two inputs and the inline result.
+  // The confirmation lives HERE rather than in the shell because this panel already owns the dialog for reindex
+  // and retry-failed, and a third destructive action confirming somewhere else would be a second pattern for one
+  // decision. Raised rather than split: the alternative was a component wrapping one button.
+  'client/src/app/pages/brain/overview-tab.component.ts': 634,
+  // FIRST entry for this file: 659, over the 650 ceiling, for the usage-reset handler (request, in-flight flag,
+  // result string, reload) and its bindings.
+  //
+  // It crossed on a ~25-line addition, which is the honest reading: this file was already at 634 and the ceiling
+  // was one small feature away. It is the Brain SHELL — it owns the tab strip, the space list, every panel's
+  // inputs and eight tabs' worth of load orchestration — so the split that helps is moving a tab's
+  // orchestration out, not shaving a handler. That is its own change with its own tests; recorded here rather
+  // than done badly in a PR about a button.
+  'client/src/app/pages/brain/brain.component.ts': 659,
   'client/src/app/pages/settings/networks.component.ts': 643,
 };
 

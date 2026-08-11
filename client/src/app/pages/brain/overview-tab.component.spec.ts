@@ -520,4 +520,88 @@ describe('OverviewTabComponent — first-load skeletons', () => {
     expect(lines.length).toBe(4 + 4 + 4 + 3 + 3);      // per-card row counts, incl. the data-model panel
     expect(el.querySelector('.panel[aria-busy="true"] .spinner')).toBeNull();
   });
+
+/**
+ * ── The usage reset button ────────────────────────────────────────────────────────────────────────
+ *
+ * The owner asked for it: a space hammered once during a migration reads as busy for the rest of the window, so
+ * the panel stops being useful for the thing it is for.
+ *
+ * The panel confirms and the host performs — the same split `reindex` and `retryFailed` already use. What is
+ * worth testing is not that a button exists, but the four ways it can be wrong: showing when there is nothing to
+ * clear, showing to someone who cannot do it, deleting without asking, and deleting twice.
+ */
+describe('the usage reset button', () => {
+  const ACTIVE = {
+    space: 'general', calls: 120, recall: 90, answered: 70, writes: 12,
+    meanMs: 40, maxMs: 900, over1s: 0, meanTopScore: 0.7, lastUsedAt: null,
+  } as never;
+  const IDLE = { ...(ACTIVE as never), calls: 0, recall: 0, answered: 0, writes: 0 } as never;
+
+  function panel(activity: unknown, over: { canEdit?: boolean; confirm?: boolean; resetting?: boolean } = {}) {
+    const s = setup({ confirm: over.confirm ?? true });
+    s.fixture.componentRef.setInput('activity', activity);
+    s.fixture.componentRef.setInput('canEditSchema', over.canEdit ?? true);
+    s.fixture.componentRef.setInput('resettingUsage', over.resetting ?? false);
+    s.fixture.detectChanges();
+    return s;
+  }
+
+  const resetBtn = (fixture: ComponentFixture<OverviewTabComponent>) =>
+    [...(fixture.nativeElement as HTMLElement).querySelectorAll('button')]
+      .find(b => /useResetHint|Reset usage/i.test(b.getAttribute('title') ?? '')) ?? null;
+
+  it('is absent when the space has no recorded calls', () => {
+    // Nothing to clear. A control that does nothing is worse than an absent one: pressing it and seeing no
+    // change reads as a broken feature rather than as an empty one.
+    expect(resetBtn(panel(IDLE).fixture)).toBeNull();
+  });
+
+  it('is absent for someone who cannot administer the space', () => {
+    // The server refuses it, so showing it offers an action that can only answer 403.
+    expect(resetBtn(panel(ACTIVE, { canEdit: false }).fixture)).toBeNull();
+  });
+
+  it('is present when there is usage AND the rights to clear it', () => {
+    expect(resetBtn(panel(ACTIVE).fixture)).not.toBeNull();
+  });
+
+  it('does NOT emit until the confirmation is accepted', async () => {
+    // The buckets are deleted, not hidden. An unconfirmed press is an irreversible delete on one click.
+    const { c } = panel(ACTIVE, { confirm: false });
+    const emitted: unknown[] = [];
+    c.resetUsage.subscribe(() => emitted.push(1));
+    await c.requestUsageReset();
+    expect(emitted).toHaveLength(0);
+  });
+
+  it('emits once the confirmation is accepted', async () => {
+    const { c } = panel(ACTIVE, { confirm: true });
+    const emitted: unknown[] = [];
+    c.resetUsage.subscribe(() => emitted.push(1));
+    await c.requestUsageReset();
+    expect(emitted).toHaveLength(1);
+  });
+
+  it('cannot fire a second delete while one is in flight', async () => {
+    // Two presses are two DELETEs, and the second clears whatever accumulated in between — a small, silent,
+    // extra loss that nothing on screen would report.
+    const { c, confirm } = panel(ACTIVE, { confirm: true, resetting: true });
+    const emitted: unknown[] = [];
+    c.resetUsage.subscribe(() => emitted.push(1));
+    await c.requestUsageReset();
+    expect(emitted).toHaveLength(0);
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it('asks with danger styling, and names the space in the question', async () => {
+    // A confirmation that does not say WHICH space is one an operator accepts against the wrong one.
+    const { c, confirm } = panel(ACTIVE, { confirm: true });
+    await c.requestUsageReset();
+    expect(confirm).toHaveBeenCalledTimes(1);
+    const arg = confirm.mock.calls[0][0];
+    expect(arg.danger).toBe(true);
+    expect(JSON.stringify(arg)).toMatch(/confirmUsageReset/);
+  });
+});
 });

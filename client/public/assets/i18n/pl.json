@@ -1870,5 +1870,9 @@
   "brain.overview.er.linkedRecords": "Powiązane rekordy",
   "tokens.danger.title": "Strefa zagrożenia",
   "tokens.danger.rotateHint": "Generuje nowy sekret; stary natychmiast przestaje działać. Nowa wartość jest pokazywana tylko raz.",
-  "tokens.danger.revokeHint": "Usuwa ten token. Nie będzie już nigdy działać."
+  "tokens.danger.revokeHint": "Usuwa ten token. Nie będzie już nigdy działać.",
+  "brain.overview.useReset": "Zeruj użycie",
+  "brain.overview.useResetHint": "Usuń zapisane użycie tej przestrzeni. Nieodwracalne.",
+  "brain.overview.confirmUsageResetTitle": "Wyzerować zapisane użycie?",
+  "brain.overview.confirmUsageReset": "To usunie historię użycia dla {{label}}. Panel pokaże zero i zacznie liczyć od nowa. Nie da się tego cofnąć."
 }

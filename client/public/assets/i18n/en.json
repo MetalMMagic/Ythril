@@ -1870,5 +1870,9 @@
   "brain.overview.er.linkedRecords": "Records linking here",
   "tokens.danger.title": "Danger zone",
   "tokens.danger.rotateHint": "Generates a new secret and stops the old one working immediately. The new value is shown once.",
-  "tokens.danger.revokeHint": "Deletes this token. It can never be used again."
+  "tokens.danger.revokeHint": "Deletes this token. It can never be used again.",
+  "brain.overview.useReset": "Reset usage",
+  "brain.overview.useResetHint": "Clear this space’s recorded usage. Irreversible.",
+  "brain.overview.confirmUsageResetTitle": "Reset recorded usage?",
+  "brain.overview.confirmUsageReset": "This deletes the recorded usage history for {{label}}. The panel will read zero and start counting again. This cannot be undone."
 }

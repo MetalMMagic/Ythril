@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **The Overview usage panel has a reset button**, completing the route that shipped alongside it. Clearing a
+  space's recorded usage no longer needs an API call.
+  - Shown only when the panel has calls to clear **and** the viewer can administer the space. Nothing recorded
+    means nothing to clear, and a control that does nothing reads as broken rather than as empty.
+  - Behind a confirmation that **names the space** and is styled as destructive: the hourly buckets are deleted,
+    not hidden. A confirmation that does not say which space is one an operator accepts against the wrong one.
+  - Disabled while the request is in flight. Two presses would be two deletes, and the second would clear
+    whatever accumulated in between — a small, silent extra loss that nothing on screen would report.
+  - The panel confirms and the shell performs, the same split `reindex` and `retryFailed` already use. The panel
+    then reloads from the server rather than zeroing locally, because a local zero would be a guess about what
+    the server actually did.
 - **A space's recorded usage can be reset** — `POST /api/spaces/:spaceId/activity/reset`, admin + MFA, scoped to
   the space. Deletes the hourly buckets behind the Overview usage panel, so a space hammered once during a
   migration stops reading as busy for the rest of the window.

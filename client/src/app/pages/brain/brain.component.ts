@@ -358,7 +358,9 @@ interface SpaceView {
               [openVotes]="overviewVotes()" [tokenAccess]="tokenAccess()" [completeness]="completeness()" [activity]="spaceActivity()"
               [pending]="overviewPending()"
               (reindex)="runReindex()" (retryFailed)="runRetryFailedEmbeddings()"
-              (openTab)="setTab($event)" />
+              (openTab)="setTab($event)"
+              [resettingUsage]="resettingUsage()" [usageResetResult]="usageResetResult()"
+              (resetUsage)="resetSpaceUsage()" />
           }
         }
         @if (activeTab() === 'query') { <app-query-tab [spaceId]="activeSpaceId()" /> }
@@ -872,6 +874,37 @@ export class BrainComponent implements OnInit, OnDestroy {
 
   requestDelete(id: string): void { this.recordList.confirmDeleteId.set(id); }
   cancelDelete(): void { this.recordList.confirmDeleteId.set(''); }
+
+
+  /** Set while the usage reset is in flight, so the panel can disable its own button. */
+  resettingUsage = signal(false);
+  /** The cleared-bucket count from the last reset, reported inline the way runReindex reports its result. */
+  usageResetResult = signal('');
+
+  /**
+   * Clear this space's recorded usage. The PANEL confirmed already — it owns the dialog, the same way it does
+   * for reindex and retry-failed — so this performs the request and reloads.
+   *
+   * Reloaded rather than zeroed locally: a local zero would be a guess about what the server did, and the count
+   * in the response exists precisely because a reset and a genuinely idle space look identical afterwards.
+   */
+  resetSpaceUsage(): void {
+    const spaceId = this.activeSpaceId();
+    if (!spaceId || this.resettingUsage()) return;
+    this.resettingUsage.set(true);
+    this.usageResetResult.set('');
+    this.spacesApi.resetSpaceActivity(spaceId).subscribe({
+      next: ({ cleared }) => {
+        this.resettingUsage.set(false);
+        this.usageResetResult.set(`Cleared ${cleared} usage buckets.`);
+        this.loadSpaceActivity(spaceId);
+      },
+      error: () => {
+        this.resettingUsage.set(false);
+        this.usageResetResult.set('Usage reset failed — check server logs.');
+      },
+    });
+  }
 
   runReindex(): void {
     this.reindexing.set(true);

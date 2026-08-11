@@ -58,30 +58,48 @@ function clickLink(f: { nativeElement: unknown }, selector = 'a'): MouseEvent {
  */
 const flush = async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); };
 
+/**
+ * The files an entry actually fetches: its parts if it is a split guide, otherwise the file itself.
+ *
+ * Both split guides are ordinary entries, so a test that hardcodes "one fetch, `assets/docs/<file>`" is
+ * asserting a storage detail rather than the behaviour. Four of the tests below did, and all four broke the
+ * day the user guide became six chapters — none of them because anything was wrong.
+ *
+ * The parameter is typed as the whole union deliberately: with `as const`, `HELP_DOCS[0]` has a literal type
+ * that already carries `parts`, so an inline `'parts' in d ? … : d.file` narrows the false branch to `never`
+ * and stops compiling. Widening here keeps both branches real.
+ */
+const filesOf = (d: typeof HELP_DOCS[number]): readonly string[] => ('parts' in d ? d.parts : [d.file]);
+const assetsOf = (d: typeof HELP_DOCS[number]) => filesOf(d).map(f => `assets/docs/${f}`);
+
 describe('HelpComponent', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('lands on the first guide and fetches it from the bundled assets', () => {
     const { c, get } = setup();
     expect(c.active()).toBe(HELP_DOCS[0].id);
-    expect(get).toHaveBeenCalledWith(`assets/docs/${HELP_DOCS[0].file}`, { responseType: 'text' });
+    for (const url of assetsOf(HELP_DOCS[0])) {
+      expect(get).toHaveBeenCalledWith(url, { responseType: 'text' });
+    }
   });
 
   it('opens the guide named by ?doc=', () => {
     const target = HELP_DOCS[2];
     const { c, get } = setup({ doc: target.id });
     expect(c.active()).toBe(target.id);
-    expect(get).toHaveBeenCalledWith(`assets/docs/${target.file}`, { responseType: 'text' });
+    for (const url of assetsOf(target)) {
+      expect(get).toHaveBeenCalledWith(url, { responseType: 'text' });
+    }
   });
 
   it('an unknown ?doc= falls back to the first guide instead of fetching it', () => {
     // The path must never be built from the query param — this is what keeps `?doc=../../etc/passwd`
-    // a no-op rather than a request.
+    // a no-op rather than a request. The fetch count is the fallback guide's own file count, so the
+    // assertion that matters is that the requested URLs are EXACTLY that guide's and nothing else.
     const { c, get } = setup({ doc: '../../../etc/passwd' });
     expect(c.active()).toBe(HELP_DOCS[0].id);
-    expect(get).toHaveBeenCalledTimes(1);
-    expect(get.mock.calls[0][0]).toBe(`assets/docs/${HELP_DOCS[0].file}`);
-    expect(get.mock.calls[0][0]).not.toContain('..');
+    expect(get.mock.calls.map(call => call[0])).toEqual(assetsOf(HELP_DOCS[0]));
+    for (const call of get.mock.calls) expect(call[0]).not.toContain('..');
   });
 
   it('every offered guide resolves to a path inside assets/docs', () => {
@@ -105,7 +123,10 @@ describe('HelpComponent', () => {
     await flush();
     f.detectChanges();
     expect(c.loading()).toBe(false);
-    expect((f.nativeElement as HTMLElement).querySelector('.doc article')?.innerHTML).toContain('# Title');
+    // `body`, not the fixture's `# Title`: the first guide is split, and `joinParts` strips each part's own
+    // H1 by design. The point here is that the RAW markdown reaches the renderer — the render mock wraps
+    // whatever it is given in a `<p>` — so any surviving line of the fixture proves it.
+    expect((f.nativeElement as HTMLElement).querySelector('.doc article')?.innerHTML).toContain('body');
   });
 
   it('a failed load surfaces the reason rather than rendering an empty guide', async () => {
@@ -237,15 +258,20 @@ describe('HelpComponent', () => {
     });
     const { c } = setup({ get });
 
-    // A SINGLE-FILE guide, so `calls[1]` is unambiguously the second selection's fetch. A split guide
-    // would issue one call per part and this test is about the race, not about splitting.
+    // A SINGLE-FILE guide for the SECOND selection, so its fetch is one identifiable call. The FIRST
+    // selection is whatever HELP_DOCS opens with — six chapters today — so the second guide's call is
+    // indexed past however many the first issued, not at a hardcoded `calls[1]`.
     const second = HELP_DOCS.slice(1).find(d => !('parts' in d))!;
+    const firstLoadCalls = calls.length;
     c.open(second.id);                 // switch while the first is still in flight
     slow.next('# First');              // …and let the stale one answer
     slow.complete();
     await flush();
 
     expect(c.active()).toBe(second.id);
-    expect(calls[1]).toBe(`assets/docs/${second.file}`);
+    expect(calls[firstLoadCalls]).toBe(`assets/docs/${second.file}`);
+    // The stale answer must not have rendered: only the first part of the first guide was made slow, so
+    // without the guard the joined first guide would resolve last and win.
+    expect(calls.slice(firstLoadCalls)).toEqual([`assets/docs/${second.file}`]);
   });
 });

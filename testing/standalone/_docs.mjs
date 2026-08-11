@@ -11,7 +11,7 @@
  * The split is a fact about how the guide is STORED. A check that cares whether a sentence exists should
  * not have to know it, which is exactly what `readGuide()` provides.
  */
-import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -37,20 +37,38 @@ export function allDocsText() {
 }
 
 /**
- * The integration guide as one document: its parts in order, not its index.
+ * A guide as one document: its parts in order, not its index.
  *
- * `docs/integration-guide.md` is a link list by design — a check that reads it is reading a contents
- * page and concluding the guide says nothing.
+ * `docs/integration-guide.md` and `docs/userguide.md` are link lists by design — a check that reads one
+ * is reading a contents page and concluding the guide says nothing.
+ *
+ * **A split is detected, not listed.** The first version named `integration-guide` literally, and the
+ * userguide split then needed every caller found and changed by hand. The rule is structural instead: if
+ * `docs/x.md` has a sibling `docs/x/` directory, `docs/x.md` is that guide's index and the guide is its
+ * parts. A guide that is later split needs no edit here, and one that is merged back needs none either.
  */
-export function readGuide() {
-  const dir = join(DOCS_ROOT, 'integration-guide');
-  if (!existsSync(dir)) return readFileSync(join(DOCS_ROOT, 'integration-guide.md'), 'utf8');
+export function readSplit(rel) {
+  const name = rel.replace(/^docs\//, '').replace(/\.md$/, '');
+  const dir = join(DOCS_ROOT, name);
+  // `isDirectory`, not merely `existsSync`: `docs/network-types.md` exists as a file at the stripped path
+  // on no platform, but the day one does, an existence check would hand a file to `readdirSync`.
+  if (!existsSync(dir) || !statSync(dir).isDirectory()) return readFileSync(join(DOCS_ROOT, `${name}.md`), 'utf8');
   return readdirSync(dir).filter(f => f.endsWith('.md')).sort()
     .map(f => readFileSync(join(dir, f), 'utf8')).join('\n');
 }
 
-/** One named doc, with the guide resolved to its parts. */
+/** The integration guide as one document. Kept as a name because most callers ask for exactly this one. */
+export function readGuide() {
+  return readSplit('integration-guide.md');
+}
+
+/**
+ * One named doc, with a split guide resolved to its parts.
+ *
+ * NOT for a check that compares two documents against each other. `16-mcp.md` is a part of the
+ * integration guide, so resolving both sides of a "REST doc and MCP doc both say X" comparison through
+ * here makes them the same string and the check vacuous. Name the parts in that case.
+ */
 export function readDoc(rel) {
-  const name = rel.replace(/^docs\//, '');
-  return name === 'integration-guide.md' ? readGuide() : readFileSync(join(DOCS_ROOT, name), 'utf8');
+  return readSplit(rel);
 }

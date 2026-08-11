@@ -33,6 +33,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     field no endpoint returns becomes a confidently retrieved false fact, which is the same failure mode that
     produced `doc-links-resolve`.
 
+### Changed
+- **The user guide is six chapters instead of one 1,300-line file**, with `docs/userguide.md` kept as its table
+  of contents. Every existing link to it still lands somewhere sensible, and the Help page renders the chapters as
+  one continuous guide exactly as before.
+  - `01-getting-started` (59), `02-brain` (292), `03-files-and-schemas` (168), `04-settings` (361),
+    `05-storage-data-and-audit` (271), `06-connecting-an-ai-assistant` (143).
+  - **Two sections moved to where they belong.** *Brain — Review tab* was filed between Audit Log and Webhooks,
+    two thirds of the guide away from *Brain*; Webhooks and About sat after it. Both are anchor-stable, so grouping
+    them cost nothing.
+  - **The 37 anchor links were re-pointed by derivation, not by hand.** The headings of each chapter are read back
+    and every link is rewritten to whichever chapter actually contains its target — hand-mapping 37 anchors across
+    six files is how one ends up in the wrong chapter with nothing to complain about it.
+  - Same conserved-total check as the Brain API split: no prose line disappeared, and the comparison normalises
+    heading depth and link targets on both sides so it asks only whether a sentence is still in the documentation.
+
+### Fixed
+- **Four gates read a split guide's index and would have concluded the guide says nothing.** `doc-cited-constants`
+  looked for the offsite-backup retention figure — the exact drift (#489) that gate exists for — in what is now a
+  table of contents; `help-anchor-coverage` looked for every per-page help anchor there; `hybrid-retrieval` looked
+  for the plain-English ranking sentence.
+  - Fixed at the root: **a split is now detected, not listed.** `docs/x.md` with a sibling `docs/x/` directory is
+    that guide's index, and the guide is its parts. Naming `integration-guide` literally is what turned this split
+    into a hunt for callers, and the next split needs no edit.
+  - The one place that deliberately still names files is `recall-include-content-both-surfaces`: it compares the
+    REST doc against `16-mcp.md`, which is *itself* a part of the integration guide, so resolving both sides
+    through the helper would make them the same string and the check vacuous.
+  - `integration-guide-index.test.js` is now `split-guide-indexes.test.js` and covers both front doors. The two
+    guides' indexes are checked separately rather than merged: the integration guide links each part exactly once
+    in numbered order, while the user guide's contents page points several anchors into each chapter — merging them
+    would have meant loosening the stricter assertion to whatever both satisfy.
+
 ### Added
 - **The semantic-search advanced panel now reaches every fillable recall field.** `maxPerType`,
   `includeFreshWrites` and `includeContent` had no control — they could only be set by hand-writing a request.

@@ -4,7 +4,7 @@ API and MCP reference for developers building on Ythril. The guide is split by t
 stands on its own.
 
 > This page is **only an index** — every statement lives in exactly one part, so there is no second
-> place to keep in sync. `integration-guide-index.test.js` fails if this list and the files on disk
+> place to keep in sync. `split-guide-indexes.test.js` fails if this list and the files on disk
 > disagree.
 
 ## Contents

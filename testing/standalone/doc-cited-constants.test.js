@@ -25,22 +25,29 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..', '..');
 /**
- * Read a doc — and treat `docs/integration-guide.md` as **the whole guide**, not its index.
+ * Read a file — and treat a SPLIT guide as **the whole guide**, not its index.
  *
- * The guide is 17 files under `docs/integration-guide/` now. Naming a part here would tie every row to a
- * numeric prefix, so renumbering on insert would break checks that have nothing to do with the change.
- * The rows say "this number is documented in the integration guide", which stays true wherever inside it
- * the statement lives.
+ * Both the integration guide and the user guide are directories of parts with a link-list index at the
+ * old path. Naming a part in a row here would tie it to a numeric prefix, so renumbering on insert would
+ * break checks that have nothing to do with the change. The rows say "this number is documented in the
+ * guide", which stays true wherever inside it the statement lives.
+ *
+ * **The split is detected, not listed.** Naming `integration-guide` literally is what made the userguide
+ * split a hunt for callers — and the offsite-backup row would have gone on passing against an index that
+ * no longer contains the number, which is the exact bug (#489) this file exists for.
  */
 const read = (rel) => {
-  if (rel === 'docs/integration-guide.md') {
-    const dir = join(ROOT, 'docs', 'integration-guide');
+  // `.md` stripped and then tested for being a DIRECTORY, not merely existing: rows also pass source
+  // paths through here (`server/src/config/types.ts`), and an existence check alone matches the file
+  // itself and hands it to `readdirSync`.
+  const dir = join(ROOT, rel.replace(/\.md$/, ''));
+  if (rel.endsWith('.md') && existsSync(dir) && statSync(dir).isDirectory()) {
     return readdirSync(dir).filter(f => f.endsWith('.md')).sort()
       .map(f => readFileSync(join(dir, f), 'utf8')).join('\n');
   }

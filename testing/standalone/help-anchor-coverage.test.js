@@ -14,7 +14,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
 
 const ANCHORS_FILE = 'client/src/app/shared/help-anchors.ts';
 const HELP_COMPONENT = 'client/src/app/pages/settings/help.component.ts';
@@ -22,11 +22,31 @@ const HELP_COMPONENT = 'client/src/app/pages/settings/help.component.ts';
 /** GitHub's heading slug: lowercase, drop anything but word chars / space / hyphen, spaces to hyphens. */
 const slug = text => text.trim().toLowerCase().replace(/[^\w\s-]/g, '').replace(/\s/g, '-');
 
+/**
+ * A guide's text — its parts joined, if it is split.
+ *
+ * `docs/userguide.md` and `docs/integration-guide.md` are link-list indexes with the real chapters in a
+ * sibling directory. Reading the index alone would leave this gate looking for `settings--tokens` in a
+ * table of contents, finding no such heading, and reporting every per-page help link as broken — or worse,
+ * being "fixed" by deleting the assertion.
+ *
+ * The Help page joins the same parts at runtime, so the joined text is what a reader's anchor resolves
+ * against. This mirrors that, and detects the split structurally rather than naming the two guides.
+ */
+function guideText(file) {
+  const dir = `docs/${file.replace(/\.md$/, '')}`;
+  if (existsSync(dir) && statSync(dir).isDirectory()) {
+    return readdirSync(dir).filter(f => f.endsWith('.md')).sort()
+      .map(f => readFileSync(`${dir}/${f}`, 'utf8')).join('\n');
+  }
+  return readFileSync(`docs/${file}`, 'utf8');
+}
+
 /** Every ATX heading in a markdown file, as its anchor slug (with GitHub's duplicate suffixes). */
 function anchorsOf(file) {
   const seen = new Map();
   const out = new Set();
-  for (const line of readFileSync(`docs/${file}`, 'utf8').split('\n')) {
+  for (const line of guideText(file).split('\n')) {
     const m = /^#{1,6}\s+(.*?)\s*$/.exec(line);
     if (!m) continue;
     // Strip inline markdown so `## **Bold** heading` slugs the way it renders.
@@ -76,10 +96,24 @@ describe('per-page help links resolve to a real heading', () => {
 describe('the guides own internal links resolve too', () => {
   // The Help page renders the documents' own tables of contents; a dead entry there is the same silent
   // nothing-happens. This covers the userguide, which is the one a help link lands in.
-  it('every intra-document anchor link in userguide.md points at one of its headings', () => {
+  //
+  // Its table of contents now points ACROSS files — `](userguide/02-brain.md#memories)` rather than
+  // `](#memories)` — because the chapters live in a directory. The anchors are still checked against the
+  // JOINED text, which is what the Help page renders and therefore what the reader's click resolves
+  // against; on GitHub the same link resolves to the part directly. Both forms are accepted so this keeps
+  // working whether or not a guide is split.
+  it('every table-of-contents link in userguide.md points at a heading the guide has', () => {
     const available = anchorsOf('userguide.md');
-    const links = [...readFileSync('docs/userguide.md', 'utf8').matchAll(/\]\(#([^)]+)\)/g)].map(m => m[1]);
-    assert.ok(links.length > 0, 'expected userguide.md to contain a table of contents');
+    const index = readFileSync('docs/userguide.md', 'utf8');
+    const links = [
+      ...[...index.matchAll(/\]\(#([^)]+)\)/g)].map(m => m[1]),
+      ...[...index.matchAll(/\]\(userguide\/[^)#]+#([^)]+)\)/g)].map(m => m[1]),
+    ];
+    // Not merely "> 0": before the split there were 37, and a rewrite that dropped the contents page
+    // entirely would satisfy any lower bound of one. The guide has six chapters and twenty numbered
+    // entries; twenty is the number that says the table of contents is still a table of contents.
+    assert.ok(links.length >= 20,
+      `only ${links.length} table-of-contents links in docs/userguide.md — it had 37 before the split`);
     const dead = links.filter(a => !available.has(a));
     assert.deepEqual(dead, [], 'these table-of-contents links point at no heading');
   });

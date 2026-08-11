@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Internal
+- **A sync wait's timeout is now sized from a measurement, and a comment that lied about it is fixed.** The
+  first propagation wait in `entity created on A syncs to B` read *"60s default"* while `waitFor`'s default is
+  **15 s** — four times off, and a wrong comment about a timeout is worse than none, because it is what stops
+  the next person looking.
+  - #823's margin warning caught that wait at **9925 ms of 15000 ms (66%)**, the first number anyone has had for
+    how long propagation actually takes there. The budget is now an explicit 25 s: the measurement plus room for
+    a loaded runner, and still bounded, because the re-trigger below it is the real safety net and a first
+    attempt that never gave up would never reach it.
+  - The test that originally timed out is **not** this one and its 25 s budget is deliberately unchanged. It
+    passed with no margin warning at all, so a green run finishes comfortably inside its budget — which makes
+    that failure a **stall**, and raising the number would have hidden it until it grew past the new one too.
 - **`recall.ts` gave up its pure half.** Merge, rank and the two text projections moved to
   `brain/recall-shape.ts` — 124 lines out, leaving the part that genuinely needs a database.
   - This **pays** a ratchet raise rather than adding another. The file went 739 -> 744 earlier in this release to

@@ -359,4 +359,98 @@ describe('BrainComponent (OnPush)', () => {
       expect(after?.stats).toEqual(before?.stats);
     });
   });
+  describe('BrainComponent — Overview load cascade (characterization for G-2)', () => {
+    beforeEach(() => TestBed.resetTestingModule());
+
+    /** Every loader the Overview panel depends on, with the signal it fills and the pending key it clears. */
+    const LOADERS = [
+      { fn: 'loadSpaceActivity', signal: 'spaceActivity', pending: 'activity' },
+      { fn: 'loadCompleteness', signal: 'completeness', pending: 'completeness' },
+      { fn: 'loadEmbeddingQueue', signal: 'embeddingQueue', pending: 'queue' },
+      { fn: 'loadTokenAccess', signal: 'tokenAccess', pending: 'tokens' },
+    ] as const;
+
+    it('names every loader that exists, so a new one cannot be added unpinned', () => {
+      // A list that silently omits a loader would let the next one be written without either guard.
+      const c = create().componentInstance as any;
+      for (const { fn } of LOADERS) {
+        expect(typeof c[fn], fn).toBe('function');
+      }
+    });
+
+    it('a response that arrives after the user switched space is DISCARDED', () => {
+      // The failure this prevents: switching from 'work' to 'other' while six requests are in flight, and the
+      // panel then showing work's numbers labelled 'other'. Nothing errors, and the layout is perfect.
+      const c = create().componentInstance as any;
+      expect(c.activeSpaceId()).toBe('work');
+
+      // Load for a space that is NOT the active one — the same situation a late response creates.
+      c.spaceActivity.set(null);
+      c.loadSpaceActivity('some-other-space');
+      expect(c.spaceActivity()).toBeNull();
+    });
+
+    it('but it still clears the pending flag, so no skeleton is left up', () => {
+      // The opposite pull. The guard must gate the RESULT and not the settle: a stale response that returned
+      // early would leave that panel's skeleton spinning until the next space switch.
+      const c = create().componentInstance as any;
+      c.loadCompleteness('some-other-space');
+      expect(c.overviewPending().completeness).toBe(false);
+    });
+
+    it('a response for the ACTIVE space is stored', () => {
+      // The control. Without it the two tests above pass on a loader that stores nothing at all.
+      const c = create().componentInstance as any;
+      c.spaceActivity.set(null);
+      c.loadSpaceActivity('work');
+      expect(c.spaceActivity()).not.toBeNull();
+    });
+
+    it('an empty activity window becomes a ZEROED row, not null', () => {
+      // "Nothing was asked" is an answer and the panel must render it. Returning null would blank the card and
+      // read as a loading failure — which is what it did before the zeroed fallback existed.
+      const c = create().componentInstance as any;
+      c.loadSpaceActivity('work');
+      const a = c.spaceActivity();
+      expect(a).not.toBeNull();
+      expect(a.calls).toBe(0);
+      expect(a.space).toBe('work');
+    });
+
+    it('every pending flag is false once the cascade has run', () => {
+      // The skeletons come down. Asserted over the whole record rather than per key, so a loader added later
+      // without a settle is caught here even if nobody adds it to LOADERS above.
+      const c = create().componentInstance as any;
+      const stuck = Object.entries(c.overviewPending()).filter(([, v]) => v === true).map(([k]) => k);
+      expect(stuck, 'these panels still show a skeleton after the cascade').toEqual([]);
+    });
+
+    it('a space with no networks resolves votes to an empty list without a request', () => {
+      // The one loader that can skip its request entirely. It must still leave a rendered empty state rather
+      // than null, or the Governance panel decides it is loading for ever.
+      const c = create().componentInstance as any;
+      c.overviewVotes.set(null);
+      c.loadOverviewVotes('work');
+      expect(c.overviewVotes()).toEqual([]);
+    });
+  });
 });
+
+/**
+ * ── Characterization: the Overview load cascade ───────────────────────────────────────────────────
+ *
+ * Written BEFORE the split recorded as G-2, and proven against the current code. `brain.component.ts` crossed the
+ * god-file ceiling at 659 lines and the move that helps is lifting the Overview panel's loaders out of the shell.
+ * These tests exist so that move can be judged by them rather than by reading the diff.
+ *
+ * Two invariants matter, and neither is visible in the shape of the code:
+ *
+ *  1. **A response for a space the user has left is DISCARDED.** Six loaders run concurrently per space switch,
+ *     each guarding with `if (this.activeSpaceId() === spaceId)`. Drop one guard in a move and the panel shows the
+ *     previous space's numbers under the new space's name — wrong data, right-looking layout, no error anywhere.
+ *  2. **Every loader clears its pending flag, whatever happens.** The flag drives a skeleton. A loader that
+ *     returns without settling leaves a skeleton up for ever, and the failure looks like a slow network.
+ *
+ * They pull in opposite directions, which is the whole difficulty: the RESULT is conditional on still being on
+ * that space, the SETTLE is not. A move that treats them as one thing breaks exactly one of them.
+ */

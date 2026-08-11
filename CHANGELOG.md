@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Changed
+- **The use-case catalogue is three chapters instead of one 1,038-line file, and it finally has a table of
+  contents.** 27 numbered examples and one appendix, each 25–58 lines, with no way to see what was in the file
+  short of scrolling all of it — which is a large part of why 1,038 lines of catalogue was hard to use.
+  - `01-sharing-and-distribution.md` (278, examples 1–9), `02-operations-research-and-agents.md` (217, 10–16),
+    `03-proxy-multi-space-and-personal.md` (548, 17–27 plus the Entity Merge appendix).
+  - **Split by contiguous range, not by theme.** The numbers are the reader's handle on an example, so
+    regrouping thematically would have renumbered all 27 to gain nothing the new contents page cannot give.
+  - The contents page is generated from the headings each chapter actually ended up with, and the splitter
+    refuses unless the chapters carry exactly 28 entries — a contents page that silently lost one is worse than
+    none, because the reader concludes the example does not exist.
+  - `split-guide-indexes` now covers three front doors. The two table-of-contents guides share a loop, since a
+    third hand-written copy of the same six assertions is where duplication stops being cheaper than a table;
+    the integration guide keeps its own stricter block, because merging all three would have meant loosening
+    its "each part linked exactly once, in numbered order" to whatever the other two also satisfy.
+
+### Changed
 - **The Files API reference is four files instead of one 1,130-line file.** `05-files-api.md` (214) keeps the file
   operations — upload, chunked upload, download, directory, move, delete — and the three pipelines a file can go
   through are their own parts: `05a-conversion-pipeline.md` (598), `05b-media-embedding.md` (202),

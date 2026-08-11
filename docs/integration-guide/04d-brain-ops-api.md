@@ -245,7 +245,7 @@ Each item accepts the same fields as its corresponding individual endpoint (`POS
 
 Entity items in the `entities` array accept an optional `id` field (UUID v4). If `id` is supplied, the entity with that ID is updated (or created with that ID). If `id` is omitted, a new entity is always inserted. See [Upsert an Entity](04b-graph-api.md#upsert-an-entity) for full identity semantics.
 
-**Schema validation:** When the target space has `validationMode` set to `strict` or `warn`, each item is validated against the space schema before writing. In strict mode, violating items are skipped and recorded in `errors` (e.g. `"schema_violation: not in entityTypes allowlist: Person, Service"`). In warn mode, violations are recorded as warnings but the item is written. See [Schema Validation](06-spaces-api.md#schema-validation) for the full schema specification.
+**Schema validation:** When the target space has `validationMode` set to `strict` or `warn`, each item is validated against the space schema before writing. In strict mode, violating items are skipped and recorded in `errors` (e.g. `"schema_violation: not in entityTypes allowlist: Person, Service"`). In warn mode, violations are recorded as warnings but the item is written. See [Schema Validation](06a-schema-api.md#schema-validation) for the full schema specification.
 
 **Proxy spaces:** add `?targetSpace=<member>` to route all writes to a specific member space.
 

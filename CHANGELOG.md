@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Changed
+- **The Spaces API reference is three files instead of one 1,248-line file.** `06-spaces-api.md` (500) keeps the
+  space endpoints; `06a-schema-api.md` (348) holds the type-definition endpoints and the schema specification, which
+  is what an integrator reads while writing a `typeSchemas` block; `06b-schema-library-api.md` (406) holds the
+  instance-wide library, a separate feature that happens to reuse the same shape.
+  - The two links that crossed the new boundaries — `#schema-validation` from the space `meta` table, and
+    `#re-embed-backfill` from the `suppressEmbeddings` row — now name the part that holds them, as does the one
+    inbound link from the Brain API's bulk-write section.
+  - `documented-interfaces-match-code` pins the `TypeSchema` and `PropertySchema` blocks by path and now reads
+    `06a-schema-api.md`. That gate exists because those blocks listed three of the real fields, so a path silently
+    resolving to a file without them is precisely the failure it was written to prevent.
+  - Same line-range split, asserted range starts, conserved total and prose-line comparison as the two before it.
+
+### Changed
 - **The Brain API reference is five files instead of one 2,037-line file.** It was the largest document in the
   repository and roughly twice the next; a reader looking for chrono scrolled past recall, and the canary's vector
   store held it as two chunks, from which nothing specific could be retrieved.

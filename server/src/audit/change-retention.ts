@@ -27,7 +27,21 @@ import { col, asFilter } from '../db/mongo.js';
 import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
 
-const COLLECTION = '_audit_log';
+/**
+ * IMPORTED, not spelled again.
+ *
+ * This file had `const COLLECTION = '_audit_log'` from the day it was written (#491, 2026-07-28). The audit
+ * log has been `audit_log` since #61. So the sweep ran every ten minutes against a collection nothing has
+ * ever written to, across **fourteen releases**, and redacted nothing — while the documentation promised a
+ * 14-day window on the `changes` payload and `doc-cited-constants` kept the number honest.
+ *
+ * It was silent rather than wrong-looking because `updateMany` on a non-existent collection succeeds with
+ * `modifiedCount: 0`, and the sweep logs only when the count is above zero. Zero redacted is exactly what a
+ * healthy instance with nothing aged out also reports.
+ */
+import { AUDIT_COLLECTION } from './audit.js';
+
+const COLLECTION = AUDIT_COLLECTION;
 
 /** Days a `changes` payload survives when the operation is a brain record edit. */
 export const DEFAULT_RECORD_CHANGE_RETENTION_DAYS = 14;
@@ -106,6 +120,24 @@ export async function redactExpiredChanges(now: number = Date.now()): Promise<nu
     );
     const n = res.modifiedCount ?? 0;
     if (n > 0) log.info(`Audit: redacted changes on ${n} record-edit entr${n === 1 ? 'y' : 'ies'} older than ${cutoff.toISOString()}`);
+    // The FIRST sweep of a process reports even when it redacted nothing, and names the collection and how
+    // many candidate entries it can see.
+    //
+    // This is the line that would have exposed the wrong-collection bug on day one. A sweep that speaks only
+    // on success is indistinguishable from a sweep pointed at nothing: `updateMany` on a collection that does
+    // not exist returns `modifiedCount: 0`, which is also what a healthy instance with nothing aged out
+    // returns. Once per process is the whole cost — this runs every six hours, and a per-sweep info line
+    // would be noise nobody reads, which is its own way of hiding.
+    if (!_announced) {
+      _announced = true;
+      const seen = await col(COLLECTION).countDocuments(
+        asFilter({ operation: { $in: RECORD_CHANGE_OPERATIONS } }),
+        { limit: 1_000 },
+      ).catch(() => -1);
+      log.info(`Audit change-retention: sweeping '${COLLECTION}', ${recordChangeRetentionDays()}d window, `
+        + `${seen < 0 ? 'count unavailable' : `${seen} record-edit entr${seen === 1 ? 'y' : 'ies'} present`}, `
+        + `${n} redacted this pass`);
+    }
     return n;
   } catch (err) {
     log.warn(`Audit change-retention sweep: ${err}`);
@@ -115,6 +147,9 @@ export async function redactExpiredChanges(now: number = Date.now()): Promise<nu
 
 const SWEEP_INTERVAL_MS = 6 * 60 * 60 * 1000;   // 6h — the same cadence as the other housekeeping sweeps
 let _timer: NodeJS.Timeout | null = null;
+
+/** Whether this process has already reported one sweep. Reset by `stopAuditChangeRetention` for tests. */
+let _announced = false;
 
 /**
  * Start the sweep. Always on: it only removes content that policy says should already be gone, and an
@@ -129,4 +164,7 @@ export function startAuditChangeRetention(): void {
 
 export function stopAuditChangeRetention(): void {
   if (_timer) { clearInterval(_timer); _timer = null; }
+  // Also clear the once-per-process announcement, so a test that starts the sweep twice sees it twice.
+  // A latch that outlives its owner is a test seam that lies about the second run.
+  _announced = false;
 }

@@ -6,6 +6,31 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Fixed
+- **The audit log's record-change retention swept the wrong collection, so a documented privacy window was
+  never enforced — for fourteen releases.** `change-retention.ts` declared its own
+  `const COLLECTION = '_audit_log'` when it was introduced in 2.0.0. The audit log has been `audit_log` since
+  the feature existed. So the sweep ran every six hours against a collection **nothing has ever written to**
+  and redacted nothing.
+  - The `changes` payload on a brain record edit is allowlisted **user content** — the old text of a memory,
+    the previous description of an entity — held in a store with different access rules, since any admin can
+    read the audit log including for spaces their token could not otherwise reach. That is exactly why it has
+    a shorter window than the entry around it. It kept its content for the full `retentionDays` instead.
+  - **Every check was green.** `doc-cited-constants` verified the docs quote `recordChangeRetentionDays: 14`
+    faithfully; they do. The documentation described the sweep correctly. The constant, the prose and the gate
+    all agreed with each other about behaviour that never ran.
+  - **Why it was silent rather than broken-looking:** `updateMany` against a collection that does not exist
+    *succeeds* with `modifiedCount: 0`, and the sweep logged only when the count was above zero. Zero redacted
+    is also what a healthy instance with nothing aged out reports. There was no failure to notice.
+  - Fixed by **exporting** the name from `audit.ts` and importing it, so there is one copy rather than two
+    that agree. The gate asserts that shape: it fails on a second collection literal in the pruner **even when
+    spelled correctly**, because the second copy is the defect and the typo was only its symptom.
+  - **The sweep now reports its first pass of each process even when it redacts nothing**, naming the
+    collection and how many record-edit entries it can see. That is the line that would have exposed this on
+    day one; a housekeeping sweep that speaks only on success cannot be told apart from one pointed at
+    nothing.
+  - **Upgrade note:** the first sweep after upgrading redacts the whole accumulated backlog in one pass and
+    logs the count. A large number there is the backlog, not a fault.
 
 ## [2.6.0] — 2026-08-11
 ### Added
@@ -1823,7 +1848,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   memories and edges all leave, and bypassed the property validation the same space applies on create. Now
   `PATCH`, like the other three types. Both verbs reach the same writer, so records are unaffected.
 
-
 ### Fixed
 
 - **The duplicate check could not see the batch you were writing** (reported by two integrators
@@ -1863,7 +1887,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reach an excluded record even deliberately, while `query`, `list`, `traverse` and reads by id return it
   unchanged. An audit that must include retired records has to be a structured read.
 
-
 ### Fixed
 
 - **`excludeFromVectorSearch` was not settable over REST.** It was wired into the four update functions
@@ -1874,7 +1897,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     the writer beneath them is invisible from where the request is parsed.
   - It may be the **only** field in a request: retiring a record from vector search is a complete edit in
     itself, not a modifier on some other change.
-
 
 ### Fixed
 
@@ -1891,7 +1913,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `cross-encoder/nli-deberta-v3-base` is `0=contradiction, 1=entailment, 2=neutral`, so an
     index-emitting server is misread as agreeing for two labels in three.
 
-
 ### Added
 
 - **`GET /stats` now reports the embedding backlog** as `embedQueue: { pending, processing, failed }`.
@@ -1903,7 +1924,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     Rewriting a record requeues it, so there is a way back without touching the queue.
   - Summed across members for a proxy space, matching the record counts beside it — a zero there would
     read as "nothing pending" rather than "not counted".
-
 
 ### Fixed
 
@@ -1920,7 +1940,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     parked with `ttlDays: 1`.
   - Gated across **both** write surfaces, not just the one that broke.
 
-
 ### Added
 
 - **`GET /stats` now reports the embedding backlog** as `embedQueue: { pending, processing, failed }`.
@@ -1932,7 +1951,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     Rewriting a record requeues it, so there is a way back without touching the queue.
   - Summed across members for a proxy space, matching the record counts beside it — a zero there would
     read as "nothing pending" rather than "not counted".
-
 
 ### Fixed
 
@@ -1946,7 +1964,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Gated on CONSISTENCY, not on presence** — the check fails when the four routes disagree, so it holds
     whichever way a future change moves, and it also requires each route to validate the flag rather than
     trust the body. Mutation-verified.
-
 
 ### Documentation
 

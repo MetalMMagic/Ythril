@@ -99,6 +99,17 @@ used to say" ages out.
 `changesRedacted` exists so a reader can distinguish *"this operation records no changes"* from *"it did, and
 they have expired"*. Without it an absent `changes` would quietly imply nothing was ever captured.
 
+> **Upgrading from 2.6.0 or earlier: expect one large redaction, once.** The sweep was pointed at the wrong
+> collection name from the release it was introduced in (2.0.0) until 2.6.1, so it matched nothing and this
+> window was never enforced — record-edit `changes` kept their content for the full `retentionDays` instead.
+> After upgrading, the first sweep redacts everything that had accumulated past the window in a single pass,
+> and logs the count. A four-figure number there is the backlog, not a fault.
+>
+> The sweep now also logs its first pass of each process even when it redacts nothing, naming the collection
+> and how many record-edit entries it can see. That line is what makes "working" distinguishable from
+> "pointed at nothing" — the two were identical before, because an update against a collection that does not
+> exist succeeds and reports zero.
+
 #### What a record edit records
 
 | Operation | Recorded fields |

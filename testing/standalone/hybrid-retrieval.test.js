@@ -25,7 +25,7 @@ let rrfFuse, RRF_K, hybridSearchEnabled, mergeRecallResults;
 
 before(async () => {
   ({ rrfFuse, RRF_K, hybridSearchEnabled } = await import('../../server/dist/brain/lexical-search.js'));
-  ({ mergeRecallResults } = await import('../../server/dist/brain/recall.js'));
+  ({ mergeRecallResults } = await import('../../server/dist/brain/recall-shape.js'));
 });
 
 const ids = m => [...m.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id);
@@ -132,7 +132,12 @@ describe('minScore stays on the VECTOR score', () => {
 
 describe('the source keeps its contracts', () => {
   const lex = readFileSync(new URL('../../server/src/brain/lexical-search.ts', import.meta.url), 'utf8');
-  const rec = readFileSync(new URL('../../server/src/brain/recall.ts', import.meta.url), 'utf8');
+  // recall.ts holds the database work; the pure merge/rank/text functions moved to recall-shape.ts when that
+  // file was split to pay back its god-file ratchet raise. Both halves are the recall implementation, so the
+  // source these assertions read is both — a gate that followed only one half would go quietly vacuous the
+  // next time a function moves between them.
+  const rec = readFileSync(new URL('../../server/src/brain/recall.ts', import.meta.url), 'utf8')
+    + readFileSync(new URL('../../server/src/brain/recall-shape.ts', import.meta.url), 'utf8');
 
   it('the lexical query applies the caller\'s eligibility match', () => {
     // Without it, a tag- or filter-scoped recall would resurrect records the caller excluded — a
@@ -242,7 +247,10 @@ describe('every aggregation site orders by rankOf, not by raw score', () => {
   // ordered as if neither feature had shipped.
   const rest = readFileSync(new URL('../../server/src/api/brain/search.ts', import.meta.url), 'utf8');
   const mcp = readFileSync(new URL('../../server/src/mcp/tools/search.ts', import.meta.url), 'utf8');
-  const recall = readFileSync(new URL('../../server/src/brain/recall.ts', import.meta.url), 'utf8');
+  // Both halves of the recall implementation: recall.ts kept the database work, recall-shape.ts took the
+  // pure merge/rank/text functions when the file was split. rankOf is in the second one now.
+  const recall = readFileSync(new URL('../../server/src/brain/recall.ts', import.meta.url), 'utf8')
+    + readFileSync(new URL('../../server/src/brain/recall-shape.ts', import.meta.url), 'utf8');
 
   const sortsByRawScore = src =>
     (src.match(/\.sort\(\([^)]*\)\s*=>\s*\(?[a-z]\.score\s*\?\?\s*0\)?\s*-/g) ?? []).length;

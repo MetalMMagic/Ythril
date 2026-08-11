@@ -34,13 +34,14 @@ import { col, asFilter, asUpdate, isVectorSearchAvailable } from '../db/mongo.js
 import { getConfig } from '../config/loader.js';
 import { needsReindex } from '../spaces/_shared.js';
 import { log } from '../util/log.js';
-import { findSimilar, summariseRecall, DEFAULT_DUPE_THRESHOLD, type RecallKnowledgeType, type RecallResult } from './recall.js';
+import { findSimilar, DEFAULT_DUPE_THRESHOLD, type RecallKnowledgeType, type RecallResult } from './recall.js';
 import { judgePair, consultedModel, type JudgeableRecord } from './contradiction-judge.js';
 import { extraClaimFields, fetchStructuredClaims, type ClaimMap } from './structured-claims.js';
 import { recordContradiction, contradictionPairId } from './contradiction-candidates.js';
 import { nliConfigured, nliIsLocal } from './nli-client.js';
 import type { ContradictionScannerConfig, DupeScanStateDoc, DupeScanType } from '../config/types.js';
 import { runExclusive } from '../util/single-flight.js';
+import { summariseRecall } from './recall-shape.js';
 
 const SCAN_STATE = 'ythril_dupe_scan_state';
 const DEFAULT_BATCH_SIZE = 200;

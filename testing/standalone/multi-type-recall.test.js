@@ -33,7 +33,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 const { formatRecallSummary, toRecallRecord } = await import('../../server/dist/mcp/tools/shared.js');
-const { mergeRecallResults } = await import('../../server/dist/brain/recall.js');
+const { mergeRecallResults } = await import('../../server/dist/brain/recall-shape.js');
 
 // ── Fixtures: the real RecallResult shapes ───────────────────────────────────
 

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Internal
+- **`recall.ts` gave up its pure half.** Merge, rank and the two text projections moved to
+  `brain/recall-shape.ts` — 124 lines out, leaving the part that genuinely needs a database.
+  - This **pays** a ratchet raise rather than adding another. The file went 739 -> 744 earlier in this release to
+    ship a 5x embedding fix an operator was already paying for; that raise named its debt instead of forgetting
+    it, and this is the debt. The freeze is now set to what the file actually is (689), not left at the old
+    ceiling — a freeze above the real number is a budget for lines nobody argued for.
+  - Those four were the four that could move without writing a characterization pass first: **81 existing
+    assertions across three suites** already pin them, and they were green against the original code before the
+    new file existed. Nothing about their behaviour changed.
+  - The three source-reading gates that referenced them now read **both** halves. A gate that followed only one
+    would go quietly vacuous the next time a function moves between them.
+  - `recall-shape.ts` imports its two types back from `recall.ts`, which is **not** a runtime cycle — a type-only
+    import is erased. It is still the wrong shape to keep: the follow-up is a leaf types module, which is exactly
+    what `config/rights-shape.ts` already exists to be.
+### Internal
 - **A sync wait that only just passed now reports its margin.** A pub/sub propagation test timed out at its 25 s
   budget in CI on a diff of client CSS, docs and a changelog — none of which can touch sync — and passed on
   rerun with no code change.

@@ -11,7 +11,7 @@ import { NotFoundError } from '../../util/errors.js';
 import { countMemories } from '../../brain/memory.js';
 import { getEmbedJobCounts } from '../../brain/embed-queue.js';
 import { queryBrain } from '../../brain/query.js';
-import { findSimilar, recall, rankOf, mergeRecallResults, type RecallKnowledgeType, type RecallResult } from '../../brain/recall.js';
+import { findSimilar, recall, type RecallKnowledgeType, type RecallResult } from '../../brain/recall.js';
 import { validateFilterExpression, type FilterExpression } from '../../brain/filter.js';
 import { traverseGraph, traverseRecallSeeds, MAX_RECALL_TRAVERSE, resolveEdgeEntityNames } from '../../brain/edges.js';
 import { memoryEmbedText, entityEmbedText, edgeEmbedText, chronoEmbedText, fileEmbedText } from '../../brain/embed-text.js';
@@ -26,6 +26,7 @@ import type { MemoryDoc, EntityDoc, EdgeDoc, ChronoEntry, FileMetaDoc } from '..
 import { reindexInProgress } from '../../metrics/registry.js';
 import { UUID_V4_RE } from './_shared.js';
 import { buildErModel } from '../../brain/er-model.js';
+import { rankOf, mergeRecallResults } from '../../brain/recall-shape.js';
 
 export const searchRouter = Router();
 

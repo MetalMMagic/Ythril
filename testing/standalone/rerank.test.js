@@ -149,7 +149,12 @@ describe('the source keeps its contracts', () => {
 });
 
 describe('recall wiring', () => {
-  const src = readFileSync(new URL('../../server/src/brain/recall.ts', import.meta.url), 'utf8');
+  // recall.ts holds the database work; the pure merge/rank/text functions moved to recall-shape.ts when that
+  // file was split to pay back its god-file ratchet raise. Both halves are the recall implementation, so the
+  // source these assertions read is both — a gate that followed only one half would go quietly vacuous the
+  // next time a function moves between them.
+  const src = readFileSync(new URL('../../server/src/brain/recall.ts', import.meta.url), 'utf8')
+    + readFileSync(new URL('../../server/src/brain/recall-shape.ts', import.meta.url), 'utf8');
 
   it('over-fetches when a reranker is configured', () => {
     // Reranking exactly topK candidates returns the same set in a different order and buys nothing.
@@ -164,7 +169,7 @@ describe('recall wiring', () => {
     // Asserted BEHAVIOURALLY, not by grepping the sort expression. The grep that used to live here
     // (`r.rerankScore ?? r.score`) broke the moment hybrid retrieval inserted `fusedScore` between the
     // two — a correct change failing a test that was only ever watching a string.
-    const { mergeRecallResults } = await import('../../server/dist/brain/recall.js');
+    const { mergeRecallResults } = await import('../../server/dist/brain/recall-shape.js');
     const rec = (id, score, rerankScore) => ({ _id: id, type: 'memory', score, rerankScore, fact: id });
 
     // Ordering follows the cross-encoder even when it inverts the vector order.

@@ -558,6 +558,34 @@ searchRouter.post('/spaces/:spaceId/reindex', globalRateLimit, requireSpaceAuth,
     return;
   }
 
+  /**
+   * A PROXY is refused, by name, with its members listed.
+   *
+   * It used to answer `200 {"status":"started"}` and then re-embed the member spaces — which the caller was
+   * also reindexing individually, because they are in the same space list. Everything under the proxy got
+   * embedded twice. It is idempotent, so nothing broke: on the reporting operator's largest instance it was
+   * simply the longest job of the run and all of it was waste.
+   *
+   * The caller could not avoid it either. `GET /api/spaces` returns ids with no indication of which are
+   * proxies, so there was nothing to branch on — which is why this is a refusal here rather than a note in
+   * the docs.
+   *
+   * It is also what the rest of the model already does: a WRITE to a proxy requires an explicit
+   * `targetSpace`, because a proxy is not a place records live. Accepting one here without comment was the
+   * inconsistency.
+   *
+   * The members are named in the message so the remedy is the response rather than a second lookup.
+   */
+  const space = cfg.spaces.find(s => s.id === spaceId)!;
+  if (space.proxyFor && space.proxyFor.length > 0) {
+    res.status(400).json({
+      error: `'${spaceId}' is a proxy space and has no index of its own. `
+        + `Reindex its members instead: ${space.proxyFor.join(', ')}.`,
+      proxyFor: space.proxyFor,
+    });
+    return;
+  }
+
   if (reindexJobRunning) {
     res.status(409).json({ error: 'Reindex already in progress' });
     return;

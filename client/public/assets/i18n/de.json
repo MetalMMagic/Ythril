@@ -1867,5 +1867,8 @@
   "brain.tab.spaceSettingsTitle": "Diesen Space konfigurieren — Bezeichnung, Schema, Duplikate, Gefahrenzone",
   "tokens.mfa.codeLabel": "Authenticator-Code",
   "tokens.mfa.codeHint": "Eine Ausnahme zu erteilen erfordert einen aktuellen Code aus deiner Authenticator-App — auch wenn dieses Token selbst ausgenommen ist.",
-  "brain.overview.er.linkedRecords": "Verknüpfte Datensätze"
+  "brain.overview.er.linkedRecords": "Verknüpfte Datensätze",
+  "tokens.danger.title": "Gefahrenzone",
+  "tokens.danger.rotateHint": "Erzeugt ein neues Secret; das alte funktioniert sofort nicht mehr. Der neue Wert wird nur einmal angezeigt.",
+  "tokens.danger.revokeHint": "Löscht dieses Token. Es kann nie wieder verwendet werden."
 }

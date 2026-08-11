@@ -265,7 +265,9 @@ import { httpErrorReason } from '../../core/http-error';
         [token]="t"
         [availableSpaces]="availableSpaces()"
         (close)="editRightsFor.set(null)"
-        (saved)="onRightsSaved($event)"/>
+        (saved)="onRightsSaved($event)"
+        (rotate)="dangerFromEditor(t, 'rotate')"
+        (revoke)="dangerFromEditor(t, 'revoke')"/>
     }
 
     <!-- The create dialog lives in TokenCreateDialogComponent. It was over a quarter of this file and
@@ -474,6 +476,23 @@ export class TokensComponent implements OnInit {
 
 
 
+
+  /**
+   * A danger action asked for from inside the editor.
+   *
+   * The editor emits rather than doing it: this page already owns the confirm dialog, the toast on failure,
+   * the list removal, and — the part that decides the shape — the **copy-once banner** that rotate's new
+   * secret appears in. A second implementation inside the modal would mean a second banner, and a secret is
+   * shown exactly once.
+   *
+   * The editor CLOSES first, and that is not tidiness: the banner renders on this page, behind the modal. A
+   * rotate that left the dialog open would put the only copy of a new credential underneath it.
+   */
+  dangerFromEditor(t: TokenRecord, action: 'rotate' | 'revoke'): void {
+    this.editRightsFor.set(null);
+    if (action === 'rotate') void this.regenerate(t);
+    else void this.revoke(t);
+  }
 
   async regenerate(t: TokenRecord): Promise<void> {
     const ok = await this.confirmDialog.confirm({

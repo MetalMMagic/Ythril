@@ -1867,5 +1867,8 @@
   "brain.tab.spaceSettingsTitle": "Skonfiguruj tę przestrzeń — etykieta, schemat, duplikaty, strefa zagrożenia",
   "tokens.mfa.codeLabel": "Kod z aplikacji",
   "tokens.mfa.codeHint": "Nadanie wyjątku wymaga aktualnego kodu z aplikacji uwierzytelniającej — nawet jeśli ten token sam jest wyłączony.",
-  "brain.overview.er.linkedRecords": "Powiązane rekordy"
+  "brain.overview.er.linkedRecords": "Powiązane rekordy",
+  "tokens.danger.title": "Strefa zagrożenia",
+  "tokens.danger.rotateHint": "Generuje nowy sekret; stary natychmiast przestaje działać. Nowa wartość jest pokazywana tylko raz.",
+  "tokens.danger.revokeHint": "Usuwa ten token. Nie będzie już nigdy działać."
 }

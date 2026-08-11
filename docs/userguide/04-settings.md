@@ -137,6 +137,16 @@ This dialog has no "Library Access" toggle. Library Access tokens (for sharing y
 
 **Editing a token.** Each row has a pencil button. It opens the token editor, where the **label** and the **rights matrix** are both editable and are saved together in one request — so a rename and a scope change are one audited edit, not two that can half-fail. The secret is untouched; use **Rotate** for that.
 
+The editor also carries the **second factor** for this token — *Follow the instance setting* (the default),
+*Exempt*, or *Required*. It lives here rather than on the create form because it is a property of the token:
+before this, changing a scheduler’s exemption meant revoking the token and minting a replacement, rotating a
+secret to change a flag.
+
+> **Granting an exemption asks for your authenticator code**, even if the token you are using is itself
+> exempt. Without that, one exemption could grant the next until the instance-wide MFA switch protected
+> nothing. The field appears only when you are granting one — not when you are editing an already-exempt
+> token, and not when you are taking an exemption away.
+
 ### Rotating a token
 
 Click the ↺ icon on any token row. A new secret is generated; the old one stops working immediately. The new value is shown once.

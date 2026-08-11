@@ -6,6 +6,29 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- **The data-model diagram shows memories, chrono entries and files**, not just entity types. One box per kind
+  carrying that kind's total, joined to each entity type it links to with the per-type count on the join.
+  - The owner found this by asking whether memories were missing from the diagram. They were — **entirely**.
+  - The server had always sent the numbers. `linkedFrom: { memories, chrono, files }` is on every entity type,
+    filled in by scanning three more collections per space, and the client rendered it in **zero places**. So
+    the diagram called itself the data model while showing one of four record kinds, and every Overview load
+    paid for that scan and got nothing back.
+  - A kind box's count **links to that kind's tab**, so every box on the map is a way in.
+  - A kind with no links anywhere gets **no box at all**, not an empty one: a space that has never linked a file
+    must not reserve a lane for files.
+  - Drawn deliberately unlike an entity box — dashed and unfilled, no properties, no pencil. It has no schema of
+    its own, and styling it as a type would present it as something somebody declared.
+  - Placed by the **same** column/lane/shelf machinery as the entity types. A second placement algorithm is how
+    the two would come to disagree about spacing, and the lane work that fixed overlapping joins would then have
+    applied to only half the picture.
+  - A kind box can never become the diagram's hub. Memories link to everything, so it would usually win the
+    most-connected contest and put "Memories" in the centre of a picture about the entity model.
+  - A space that declares an entity type called `Memories` still gets two distinct boxes; merging them would
+    have drawn both sets of joins into one, silently.
+  - New gate: a field the ER model pays to compute must have a real consumer in the client — not a type
+    declaration and not a test fixture, which is exactly what made this one look used.
+
 ### Fixed
 - **Reindexing a proxy space answered `200` and then did the work twice.** It re-embedded the member spaces —
   which the caller was usually reindexing individually as well, because they are in the same space list. It is

@@ -5,6 +5,7 @@ import { authRateLimit, globalRateLimit } from '../rate-limit/middleware.js';
 import { createToken, listTokens, revokeToken, regenerateToken, renameToken, setTokenRights } from '../auth/tokens.js';
 import { isMfaEnabled, verifyMfaCode } from '../auth/totp.js';
 import { z } from 'zod';
+import { SPACE_AREAS, RUNGS } from '../config/rights-shape.js';
 import { capRights, describeExcess } from '../auth/mint-cap.js';
 import { refuseSelfFloorRaise } from '../auth/floor-guard.js';
 import { migrateToken } from '../auth/rights-migration.js';
@@ -75,8 +76,8 @@ const CreateTokenBody = z.object({
   rights: z.object({
     instanceAdmin: z.boolean(),
     createSpaces: z.boolean(),
-    floor: z.record(z.string(), z.enum(['none', 'read', 'write', 'admin'])).nullable(),
-    perSpace: z.record(z.string(), z.record(z.string(), z.enum(['none', 'read', 'write', 'admin']))),
+    floor: z.record(z.enum(SPACE_AREAS), z.enum(RUNGS)).nullable(),
+    perSpace: z.record(z.string(), z.record(z.enum(SPACE_AREAS), z.enum(RUNGS))),
   }).strict().optional(),
 }).strict();
 
@@ -197,8 +198,8 @@ const RenameTokenBody = z.object({
   rights: z.object({
     instanceAdmin: z.boolean(),
     createSpaces: z.boolean(),
-    floor: z.record(z.string(), z.enum(['none', 'read', 'write', 'admin'])).nullable(),
-    perSpace: z.record(z.string(), z.record(z.string(), z.enum(['none', 'read', 'write', 'admin']))),
+    floor: z.record(z.enum(SPACE_AREAS), z.enum(RUNGS)).nullable(),
+    perSpace: z.record(z.string(), z.record(z.enum(SPACE_AREAS), z.enum(RUNGS))),
   }).strict().optional(),
 }).strict().refine(d => d.name !== undefined || d.rights !== undefined, {
   message: 'Provide `name`, `rights`, or both',

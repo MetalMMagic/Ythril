@@ -21,10 +21,13 @@
  *  - **Never the instance-administrator switch**, and never `createSpaces`, from a non-administrator. Those
  *    are not areas and do not cap — they are held or they are not.
  */
+import { SPACE_AREAS } from '../config/rights-shape.js';
 import type { TokenRights, AreaRungs, Rung, SpaceArea } from '../config/rights-shape.js';
 
 const ORDER: readonly Rung[] = ['none', 'read', 'write', 'admin'];
-const AREAS: readonly SpaceArea[] = ['knowledge', 'files', 'schema', 'dataQuality'];
+// The one list, imported. Four hand-written copies of these names is how an unvalidated area name
+// went unnoticed: nothing compared any copy to any other.
+const AREAS: readonly SpaceArea[] = SPACE_AREAS;
 
 const rank = (r: Rung): number => ORDER.indexOf(r);
 

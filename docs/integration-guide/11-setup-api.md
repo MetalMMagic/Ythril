@@ -76,6 +76,7 @@ ythril_http_requests_total{method="GET",route="/health",status_code="200"} 42
 | `ythril_spaces_total` | gauge | Number of configured spaces |
 | `ythril_embedding_duration_seconds` | histogram | Time to compute a single embedding |
 | `ythril_embedding_queue_depth` | gauge | Pending embedding operations |
+| `ythril_embedding_retry_total` | counter | Transient embedding-endpoint refusals that were retried, labelled by HTTP `status`. A rising 429 count means a shared endpoint is at capacity while recalls are still succeeding — the retry hides the symptom, so this is the warning. |
 | `ythril_reindex_in_progress` | gauge | 1 if a reindex is running, 0 otherwise |
 | `ythril_storage_used_bytes` | gauge | Storage used in bytes by area (brain, files, total). **From a cached measurement, not re-walked per scrape** — see `ythril_storage_usage_age_seconds` below and the note on why. |
 | `ythril_storage_limit_bytes` | gauge | Configured storage limits by area and tier (soft, hard) |

@@ -433,6 +433,23 @@ export const embeddingQueueDepth = new Gauge({
   registers: [register],
 });
 
+/**
+ * Transient refusals from the embedding endpoint that we retried.
+ *
+ * A counter rather than nothing, because the retry makes the problem INVISIBLE by design: the recall now
+ * succeeds, so the only trace that a shared endpoint is saturating is this. An operator whose embedder is at
+ * capacity should be able to see it before it stops being transient.
+ *
+ * Labelled by status so 429 (busy) is distinguishable from 503 (down) — different problems with different
+ * fixes, and averaging them into one number hides both.
+ */
+export const embeddingRetryTotal = new Counter({
+  name: 'ythril_embedding_retry_total',
+  help: 'Transient embedding-endpoint refusals that were retried, by HTTP status',
+  labelNames: ['status'],
+  registers: [register],
+});
+
 export const reindexInProgress = new Gauge({
   name: 'ythril_reindex_in_progress',
   help: '1 if a reindex operation is currently running, 0 otherwise',

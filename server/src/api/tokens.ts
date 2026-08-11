@@ -2,7 +2,7 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { requireAuth, requireAdmin, requireAdminMfa } from '../auth/middleware.js';
 import { authRateLimit, globalRateLimit } from '../rate-limit/middleware.js';
-import { createToken, listTokens, revokeToken, regenerateToken, renameToken, setTokenRights } from '../auth/tokens.js';
+import { createToken, listTokens, revokeToken, regenerateToken, renameToken, setTokenRights, setTokenMfa } from '../auth/tokens.js';
 import { isMfaEnabled, verifyMfaCode } from '../auth/totp.js';
 import { z } from 'zod';
 import { SPACE_AREAS, RUNGS } from '../config/rights-shape.js';
@@ -219,7 +219,6 @@ export const ECHOABLE: Record<string, string | null> = {
   peerInstanceId: null,
   schemaLibrary: null,
   oauthClientId: null,
-  mfa: null,
 };
 
 const ECHOABLE_FIELDS = Object.keys(ECHOABLE);
@@ -258,6 +257,19 @@ const RenameTokenBody = z.object({
     floor: z.record(z.enum(SPACE_AREAS), z.enum(RUNGS)).nullable(),
     perSpace: z.record(z.string(), z.record(z.enum(SPACE_AREAS), z.enum(RUNGS))),
   }).strict().optional(),
+  /**
+   * This token's relationship to the second factor — editable HERE and nowhere else.
+   *
+   * It used to be settable only while minting, which put the decision before there was a token to decide it
+   * about: an operator who wanted their scheduler exempt had to revoke it and mint a replacement, rotating a
+   * secret to change a flag. It is a property of the token, so it is set on the token.
+   *
+   * Granting `exempt` costs a live TOTP code on THIS request when the instance switch is on — the same rule
+   * create has, applied here for the same reason. `requireAdminMfa` is satisfied by an admin token that is
+   * itself exempt, so without it one exemption could grant another by the shorter route, and editing yourself
+   * is shorter still than minting.
+   */
+  mfa: z.enum(['inherit', 'exempt', 'required']).optional(),
   // ── The rest of the record, accepted ONLY unchanged ──────────────────────────────────────────────
   //
   // These are declared so that echoing back a token you just read does not 400 on the first field the
@@ -275,7 +287,7 @@ tokensRouter.patch('/:id', requireAdminMfa, (req, res) => {
     return;
   }
   const id = req.params['id'] as string;
-  const { name, rights } = parsed.data;
+  const { name, rights, mfa } = parsed.data;
   const previous = listTokens().find(t => t.id === id);
   if (!previous) {
     res.status(404).json({ error: 'Token not found' });
@@ -302,10 +314,16 @@ tokensRouter.patch('/:id', requireAdminMfa, (req, res) => {
   // Checked after the above so a body that only echoes the record gets the "nothing to change" answer
   // rather than a bare unknown-key refusal. It was a `.refine()` until the echo fields existed; a schema
   // cannot see the stored record, so it could not tell an echo from an edit.
-  if (name === undefined && rights === undefined) {
-    res.status(400).json({ error: 'Provide `name`, `rights`, or both' });
+  if (name === undefined && rights === undefined && mfa === undefined) {
+    res.status(400).json({ error: 'Provide `name`, `rights`, `mfa`, or any combination' });
     return;
   }
+
+  // The same live-code rule create has. `requireAdminMfa` is satisfied by an admin token that is itself
+  // exempt, so without this one exemption could grant another — and editing yourself is a shorter route to
+  // that than minting a replacement. Checked before anything is written, so a refused exemption leaves the
+  // token exactly as it was rather than renamed-but-not-exempted.
+  if (!exemptionNeedsLiveCode(req, res, mfa)) return;
 
   if (rights) {
     // A token may never GRANT above itself, edit or mint. Same rule, same function — a second
@@ -335,9 +353,16 @@ tokensRouter.patch('/:id', requireAdminMfa, (req, res) => {
     }
   }
 
+  // `mfa` is in the snapshot on both sides because an exemption is the most security-relevant thing this
+  // route can change, and a diff that omitted it would record the rename beside it and not the exemption.
+  // `previous.mfa` is absent on every token that follows the instance switch, which reads as `inherit`.
   req.auditSnapshots = {
-    before: { name: previous.name, rights: previous.rights },
-    after: { name: name?.trim() ?? previous.name, rights: rights ?? previous.rights },
+    before: { name: previous.name, rights: previous.rights, mfa: previous.mfa ?? 'inherit' },
+    after: {
+      name: name?.trim() ?? previous.name,
+      rights: rights ?? previous.rights,
+      mfa: mfa ?? previous.mfa ?? 'inherit',
+    },
   };
 
   if (name !== undefined && !renameToken(id, name.trim())) {
@@ -345,6 +370,10 @@ tokensRouter.patch('/:id', requireAdminMfa, (req, res) => {
     return;
   }
   if (rights && !setTokenRights(id, rights as never)) {
+    res.status(404).json({ error: 'Token not found' });
+    return;
+  }
+  if (mfa !== undefined && !setTokenMfa(id, mfa)) {
     res.status(404).json({ error: 'Token not found' });
     return;
   }

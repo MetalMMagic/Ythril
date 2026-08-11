@@ -162,9 +162,17 @@ PATCH /api/tokens/:id
 { "name": "new label" }
 ```
 
-Two fields are editable: **`name`** (1–200 chars, same bound as create) and **`rights`** (the per-space
-matrix — see [Create a Token](#create-a-token) for the shape and the capping rules). Send either or both. The secret and the
-expiry are untouched; use regenerate to rotate the secret. Audited as `token.update`.
+Three fields are editable: **`name`** (1–200 chars, same bound as create), **`rights`** (the per-space matrix
+— see [Create a Token](#create-a-token) for the shape and the capping rules), and **`mfa`**
+(`inherit` | `exempt` | `required`). Send any combination. The secret and the expiry are untouched; use
+regenerate to rotate the secret. Audited as `token.update`, with the second factor recorded on both sides of
+the diff.
+
+> **Granting `mfa: "exempt"` costs a live TOTP code on the request** whenever MFA is enabled instance-wide —
+> the same rule create has, and for the same reason. Admin authentication here is satisfied by an admin token
+> that is itself exempt, so without it one exemption could grant the next until the instance-wide switch
+> protected nothing. Send the code as `x-totp-code`; without it the answer is `403 MFA_REQUIRED`. The check
+> runs before anything is written, so a refused exemption never leaves a half-applied edit.
 
 **Response** `200`: the updated token record (hash excluded).
 
@@ -191,7 +199,7 @@ dropped:
 ```
 
 `spaces`, `admin` and `readOnly` are the pre-2.6.0 scope model; their replacement is `rights`. The rest
-(`createdAt`, `lastUsed`, `expiresAt`, `peerInstanceId`, `schemaLibrary`, `oauthClientId`, `mfa`) are set
+(`createdAt`, `lastUsed`, `expiresAt`, `peerInstanceId`, `schemaLibrary`, `oauthClientId`) are set
 when the token is minted and are not editable on any route.
 
 A field name this route has never heard of is still a `400` — a mis-spelled `spaceIds` must not be accepted

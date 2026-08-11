@@ -6,6 +6,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Changed
+- **A token's second factor is editable, instead of being fixed when the token was minted.** `PATCH
+  /api/tokens/:id` now accepts `mfa` (`inherit` | `exempt` | `required`).
+  - Setting it only at mint time put the decision before there was a token to decide it about: an operator who
+    wanted their scheduler exempt had to **revoke the token and mint a replacement** — rotating a secret, and
+    re-deploying it, to change a flag.
+  - **Granting `exempt` still costs a live TOTP code on the request.** Admin authentication on this route is
+    satisfied by an admin token that is *itself* exempt, so adding the field without that check would have
+    opened the same escalation create was already protected against, by a shorter route: editing yourself is
+    shorter than minting a replacement, and the new path would look like an ordinary token edit afterwards.
+    Both routes reach one function for it — two implementations of "does this exemption need a code" is how
+    they come to disagree, and the weaker one wins.
+  - The check runs **before anything is written**, so a refused exemption leaves the token exactly as it was
+    rather than renamed-but-not-exempted.
+  - `inherit` is stored as an **absent** field, not the string. Every existing token has no `mfa` at all, and
+    writing it explicitly would make a token that follows the instance switch look different on disk depending
+    on whether anyone had opened its editor.
+  - The audit diff carries the second factor on both sides. An exemption is the most security-relevant thing
+    this route can change, and a diff that omitted it would record a rename beside it and not the exemption.
+
 ### Added
 - **A cog at the far right of the Brain's tab strip opens the settings for the space you are already in.**
   Same editor as **Settings → Spaces** — Settings, Schema, Duplicates, Danger Zone — over the page you were

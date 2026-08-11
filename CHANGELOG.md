@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Fixed
+- **A token you read back could not be written back: `PATCH /api/tokens/:id` refused ten of the twelve fields
+  `GET /api/tokens` emits.** Read a token, change its name, send it back, and the answer was
+  `400 Unrecognized key(s) in object: 'spaces'`.
+  - Reported by an integrator: *"the shape you read is not the shape you may write, and nothing says which
+    fields are which."* `spaces` was only the first field alphabetically — `createdAt`, `lastUsed`,
+    `expiresAt`, `admin`, `readOnly`, `mfa`, `schemaLibrary`, `peerInstanceId` and `oauthClientId` were all in
+    the same position. Worse, the message *denied the field existed*, when in truth its remedy had moved to
+    `rights`.
+  - **The distinction that was missing is echo versus change.** Stripping these fields the way `id`/`hash`/
+    `prefix` are stripped would have recreated a bug this route already fixed — a body carrying
+    `spaces: ['other']` beside the name was dropped and answered **200**, so an attempt to widen a token looked
+    exactly like one that had worked. Refusing them is what produced the report. So the same value back is a
+    round-trip and is ignored; a **different** value is a `400` that names the field to write instead.
+  - That check needs the stored record, which is why it cannot be a `.refine()`: a schema sees only the body and
+    is structurally unable to tell an echo from an edit.
+  - `.strict()` is unchanged, so a mis-spelled `spaceIds` is still refused rather than accepted and dropped.
+  - `spaces` is compared as a **set**, since a round-trip may reorder an allowlist — but `undefined` stays equal
+    only to `undefined`. Absent means every space including future ones and `[]` means none; reading them as
+    equal inside an equality check is how that conflation would have come back for a fifth time.
+  - An absent boolean and an explicit `false` are the same token, so `admin: false` on a non-admin token is an
+    echo. A *demotion* is still a change and still refused by name.
+  - The docs described this route as editing "**only** the token's label", which had been untrue since `rights`
+    became editable in 2.6.0. They now document both editable fields and the round-trip.
 - **An unknown rights AREA was accepted at 200 and granted nothing — it took a live agent offline for four
   minutes.** `POST` and `PATCH /api/tokens` validated the rung *values* against `none|read|write|admin` and left
   the area *name* unvalidated, so `{"brain": "write"}` stored happily while the real area is `knowledge`.

@@ -155,15 +155,16 @@ Issues a new plaintext credential for an existing token record. The old value is
 
 ---
 
-### Rename a Token
+### Edit a Token
 
 ```http
 PATCH /api/tokens/:id
 { "name": "new label" }
 ```
 
-Updates **only** the token's human-readable label. The secret, permissions, spaces and expiry are
-untouched. `name` follows the same bound as create (1–200 chars). Audited as `token.update`.
+Two fields are editable: **`name`** (1–200 chars, same bound as create) and **`rights`** (the per-space
+matrix — see [Create a Token](#create-a-token) for the shape and the capping rules). Send either or both. The secret and the
+expiry are untouched; use regenerate to rotate the secret. Audited as `token.update`.
 
 **Response** `200`: the updated token record (hash excluded).
 
@@ -171,7 +172,32 @@ untouched. `name` follows the same bound as create (1–200 chars). Audited as `
 { "token": { "id": "…", "name": "new label", "admin": false, "...": "…" } }
 ```
 
-Returns `404` if no token has that id, `400` for an empty/oversized name.
+#### Sending a token you read back
+
+The response carries the whole record. You can PATCH that record straight back — the fields this route does
+not edit are accepted **as long as they are unchanged**, so read-modify-write works without stripping
+anything first:
+
+```http
+GET  /api/tokens          →  { "tokens": [ { "id": "t_1", "name": "old", "spaces": ["qa"], … } ] }
+PATCH /api/tokens/t_1        { "id": "t_1", "name": "new", "spaces": ["qa"], … }   →  200
+```
+
+Changing one of those fields is a `400` that names what to write instead, rather than being silently
+dropped:
+
+```json
+{ "error": "Cannot change `spaces` on this route. For `spaces`, set `rights.perSpace` (or `rights.floor` for every space). Sending these fields UNCHANGED is fine — a token you read back round-trips." }
+```
+
+`spaces`, `admin` and `readOnly` are the pre-2.6.0 scope model; their replacement is `rights`. The rest
+(`createdAt`, `lastUsed`, `expiresAt`, `peerInstanceId`, `schemaLibrary`, `oauthClientId`, `mfa`) are set
+when the token is minted and are not editable on any route.
+
+A field name this route has never heard of is still a `400` — a mis-spelled `spaceIds` must not be accepted
+and dropped.
+
+Returns `404` if no token has that id, `400` for an empty/oversized name or a body that changes nothing.
 
 ---
 

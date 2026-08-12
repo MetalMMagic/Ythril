@@ -45,11 +45,16 @@ export interface RestOnlyCapability {
  * reindex, a token list, a `retry_embedding` or a space create. `update_space` existed but accepted only `label`,
  * `purpose` and `description`, so nothing on MCP wrote a schema — their reading was right on every one.
  *
- * **Four rows have now been deleted by being built**, which is the only way a row leaves this list:
- * `retry_embedding`, `list_tokens`, `update_space_schema`, and — with it — the belief that these were wrappers.
- * The last two of the five, `reindex` and `create_space`, each still need their route's validation extracted before
- * a tool can call it without skipping the refusals. `mcp-rest-parity.test.js` asserts both halves of every surviving
- * row, so a row cannot rot in either direction.
+ * **Four of the five rows have now been deleted by being built**, which is the only way a row leaves this list:
+ * `retry_embedding`, `list_tokens`, `update_space_schema`, `create_space`. Two of those needed their route's
+ * validation extracted into a shared function first, because `createSpace()` and `updateSpace()` both already
+ * existed — which is what made a "just add a tool" fix dangerous rather than easy.
+ *
+ * **One row left: `reindex`.** Its re-embedding loop is written inline in the route handler, so there is genuinely no
+ * function for a tool to call; that extraction is its own work, behind its own characterization tests.
+ *
+ * `mcp-rest-parity.test.js` asserts both halves of every surviving row — the REST route exists, and no MCP tool by
+ * that name does — so a row cannot rot in either direction.
  */
 export const REST_ONLY_CAPABILITIES: readonly RestOnlyCapability[] = [
   {
@@ -59,14 +64,6 @@ export const REST_ONLY_CAPABILITIES: readonly RestOnlyCapability[] = [
     wouldBeTool: 'reindex',
     why: 'Not built. They reindexed 19 spaces by hand in a shell loop because the agent that planned their '
       + 'embedder migration could not run it. Async already, with /reindex-status to poll, so a tool is a thin wrapper.',
-  },
-  {
-    capability: 'Create a space',
-    restEndpoint: '/api/spaces',
-    method: 'POST',
-    wouldBeTool: 'create_space',
-    why: 'Not built, including the descriptor-width parameter. A token holding `createSpaces` in the rights '
-      + 'matrix cannot exercise it over MCP, which is the exact shape of their complaint.',
   },
 ] as const;
 

@@ -79,19 +79,50 @@ describe('a caller-supplied id must be a UUID', () => {
     assert.ok(total >= 8, `expected several id declarations across the tools, found ${total}`);
   });
 
+  /**
+   * The SPACE-id slug, which is a different identity from a record id and constrained differently on purpose.
+   *
+   * A record id is server-generated and a caller supplies one only to be idempotent, so anything but a UUID
+   * destroys the field's purpose. A space id is **chosen by a human**, appears in every URL and collection name,
+   * and is documented as a slug — `create_space` would be unusable if it demanded a UUID.
+   *
+   * So this is an allowlist of identity SHAPES, not of tools. That distinction is the whole point: a per-tool
+   * exemption is what let the original defect hide in a fourth tool nobody named, and it would let the next
+   * unconstrained record id in behind a name. Two shapes are recognised, both explicit, and everything else is
+   * still refused.
+   */
+  const SPACE_ID_PATTERN = "'^[a-z0-9-]+$'";
+
   it('every id declaration is constrained, not merely described', () => {
     const open = [];
     for (const f of files) {
       for (const d of idDeclarations(readFileSync(f, 'utf8'))) {
-        if (d.addressesExisting) continue;                       // update/delete — see idDeclarations
-        if (d.helper) continue;                                  // uuidSchema() carries the pattern
-        if (/pattern:\s*UUID_V4_PATTERN/.test(d.blob)) continue;  // spelled out inline is fine too
+        if (d.addressesExisting) continue;                          // update/delete — see idDeclarations
+        if (d.helper) continue;                                     // uuidSchema() carries the pattern
+        if (/pattern:\s*UUID_V4_PATTERN/.test(d.blob)) continue;     // spelled out inline is fine too
+        if (d.blob.includes(`pattern: ${SPACE_ID_PATTERN}`)) continue; // a space id is a slug, not a record id
         open.push(`${f.split('/').pop()}:${d.line}`);
       }
     }
     assert.deepEqual(open, [],
       'these accept any string as an id, so a corrupted one stores silently and the idempotent retry the field '
       + `exists for can never fire:\n  ${open.join('\n  ')}`);
+  });
+
+  it('the space-id slug the exemption recognises is the one the REST body enforces', () => {
+    // This is what keeps the second shape from being a hole. If the tool and the route disagreed about what a space
+    // id may contain, the looser one would decide — and the exemption above would be the reason nobody noticed.
+    // Asserted against the request-body schema rather than against a copy of the regex.
+    const bodies = readFileSync('server/src/spaces/body-schemas.ts', 'utf8');
+    const create = bodies.slice(bodies.indexOf('export const CreateSpaceBody'));
+    assert.match(create.slice(0, 400), /id: z\.string\(\)\.min\(1\)\.max\(40\)\.regex\(\/\^\[a-z0-9-\]\+\$\/\)/,
+      'the REST create body no longer enforces the slug this exemption is written against — reconcile them');
+
+    const tools = readFileSync('server/src/mcp/tools/spaces.ts', 'utf8');
+    assert.ok(tools.includes(`pattern: ${SPACE_ID_PATTERN}`),
+      'no tool declares the space-id slug, so this exemption is either unused or misspelled');
+    assert.match(tools, /maxLength: 40, pattern: '\^\[a-z0-9-\]\+\$'/,
+      'the tool must also carry the same 40-character bound as the body, or the two surfaces accept different ids');
   });
 
   it('a DESCRIPTION mentioning UUID does not count as a constraint', () => {

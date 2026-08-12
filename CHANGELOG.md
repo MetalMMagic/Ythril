@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **`create_space` is an MCP tool.** Fourth of the five, and the one where "just call the existing function" was most
+  tempting and most dangerous: `createSpace()` has existed all along, so a tool could have called it on day one — and
+  produced spaces a REST caller cannot. Un-seeded, with no validation and no strict linkage. Or proxying a space that
+  does not exist. Or nesting a proxy inside a proxy.
+  - Calls `planSpaceCreate` + `applySpaceCreate`, so every refusal is the route's: both proxy checks, `422` for a
+    missing schema-library `$ref`, the `faceDescriptorDims` bounds, and the strict-posture seeding — including that a
+    `proxyFor` space is left un-seeded, because it stores nothing of its own to validate.
+  - **`faceDescriptorDims` is on the tool deliberately.** It is the parameter breituai-platform was blocked on, and it
+    is create-only by design: a populated gallery cannot be re-dimensioned. Leaving it off would have meant an agent
+    could create a space but never one that works with a 512-float recogniser — the exact shape of their complaint.
+  - **A taken id is reported as a `conflict`**, machine-readably, rather than as a generic failure. It is often a
+    successful retry whose response was lost, and an agent that can tell the two apart stops retrying.
+  - Its row is deleted from the capability map, leaving **one**: `reindex`, whose re-embedding loop is inline in its
+    route handler, so there is genuinely no function for a tool to call yet.
 - **`update_space_schema` is an MCP tool.** Third of the five REST-only capabilities, and the first that was not a
   wrapper. Their case for it was not ergonomics: they designed an 11-entity / 7-memory / 13-edge / 10-chrono
   research model with an agent, and the agent could not apply it — `get_space_meta` read the schema and nothing

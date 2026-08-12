@@ -325,6 +325,120 @@ export const update_space_schemaTool: ToolHandler = {
   },
 };
 
+/**
+ * Create a space — the last of the five REST-only capabilities that needed an extraction first.
+ *
+ * ## Why it is not a wrapper over `createSpace()`
+ *
+ * `createSpace()` has existed all along, which is exactly what made this dangerous rather than easy. The REST route
+ * wraps it in checks a direct call skips: proxy member existence, proxy nesting, the schema-library `$ref`, and the
+ * strict-posture seeding. A tool calling it directly would let a token holding `createSpaces` produce spaces that a
+ * REST caller could not — an un-seeded space with no validation, or a proxy pointing at a space that does not exist.
+ * That is the *two surfaces, one rule, one weaker* defect this batch closes, so the chain was extracted first
+ * (`spaces/space-create.ts`, pinned by `space-create-contract.test.js`) and this calls it.
+ *
+ * ## `faceDescriptorDims` is on the tool deliberately
+ *
+ * It is the parameter breituai-platform was blocked on for a week, and it is **create-only by design**: a populated
+ * gallery cannot be re-dimensioned, so `PATCH` does not offer it. Leaving it off the tool would mean an agent could
+ * create a space but never one that works with a 512-float recogniser — the exact shape of their complaint.
+ */
+export const create_spaceTool: ToolHandler = {
+  name: 'create_space',
+  description: 'Create a new space. Requires an admin token. The id is derived from the label when omitted. '
+    + 'A new space is seeded with a fully strict schema posture (validationMode: strict, strictLinkage: true) '
+    + 'unless you pass meta saying otherwise — with no typeSchemas defined yet that accepts every type, so it does '
+    + 'not block an empty space. A proxy space (proxyFor) holds no data of its own and is left un-seeded. '
+    + '`faceDescriptorDims` is CREATE-ONLY: a populated gallery cannot be re-dimensioned, so it cannot be changed '
+    + 'afterwards. Refusals match POST /api/spaces exactly, including 422 for a $ref to a schema-library entry that '
+    + 'does not exist and 409 when the id is taken.',
+  mutating: true,
+  admin: true,
+  inputSchema: (_s: ToolSchemas) => ({
+    type: 'object',
+    properties: {
+      label: { type: 'string', minLength: 1, maxLength: 200, description: 'Display label (1–200 chars). Required.' },
+      id: {
+        type: 'string', minLength: 1, maxLength: 40, pattern: '^[a-z0-9-]+$',
+        description: 'Space id — lowercase letters, digits and hyphens. Derived from the label when omitted.',
+      },
+      purpose: {
+        type: 'string', maxLength: SPACE_PURPOSE_MAX,
+        description: `The space-level directive injected into MCP instructions at handshake (max ${SPACE_PURPOSE_MAX} chars).`,
+      },
+      maxGiB: { type: 'number', exclusiveMinimum: 0, description: 'Storage quota in GiB. Omit for unlimited.' },
+      proxyFor: {
+        type: 'array', items: { type: 'string', minLength: 1, maxLength: 40 }, minItems: 1,
+        description: 'Make this a PROXY space that reads across the listed member spaces, or ["*"] for all of them. '
+          + 'Members must exist and must not themselves be proxies — nesting is refused. A proxy holds no data of '
+          + 'its own.',
+      },
+      faceDescriptorDims: {
+        type: 'integer', minimum: 64, maximum: 4096,
+        description: 'Face-descriptor width for this space. CREATE-ONLY and permanent: 128 for MobileFaceNet-class '
+          + 'models, 512 for ArcFace / AdaFace / FaceNet / EdgeFace. Omit to take the instance default.',
+      },
+      meta: {
+        type: 'object',
+        description: 'Initial meta: typeSchemas, validationMode, strictLinkage, usageNotes, suppressEmbeddings. '
+          + 'An explicit value here wins over the seeded strict defaults.',
+      },
+    },
+    required: ['label'],
+    additionalProperties: false,
+  }),
+  async handle(ctx: ToolContext): Promise<ToolResult> {
+    const { args: a, isAdmin } = ctx;
+    if (!isAdmin) {
+      return {
+        content: [{ type: 'text' as const, text: 'Error: create_space requires an admin token' }],
+        isError: true,
+      };
+    }
+
+    // `purpose` is the current name for what the create body still calls `description`. Translated here rather than
+    // widening the body schema: the REST field is the deprecated spelling, and a tool that took the deprecated name
+    // would be a new surface adopting an old one on the day it is written.
+    const body: Record<string, unknown> = {};
+    for (const k of ['label', 'id', 'maxGiB', 'proxyFor', 'faceDescriptorDims', 'meta']) {
+      if (a[k] !== undefined) body[k] = a[k];
+    }
+    if (a['purpose'] !== undefined) body['description'] = a['purpose'];
+
+    const { planSpaceCreate, applySpaceCreate } = await import('../../spaces/space-create.js');
+    const decision = planSpaceCreate(body);
+    if (!decision.ok) {
+      return {
+        content: [{ type: 'text' as const, text: `Error (${decision.refusal.status}): ${decision.refusal.body.error}` }],
+        isError: true,
+      };
+    }
+
+    const result = await applySpaceCreate(decision.plan);
+    if (result.outcome === 'conflict') {
+      // 409, and reported as its own thing rather than as a generic failure: the id being taken is often a successful
+      // retry of a request whose response was lost, and an agent that can tell the two apart stops retrying.
+      return {
+        content: [{ type: 'text' as const, text: `Error (409): ${result.error}` }],
+        isError: true,
+        structuredContent: { outcome: 'conflict' },
+      };
+    }
+    if (result.outcome === 'failed') {
+      return { content: [{ type: 'text' as const, text: `Error (500): ${result.error}` }], isError: true };
+    }
+
+    const s = result.space;
+    return {
+      content: [{ type: 'text' as const, text:
+        `Created space '${s.id}' (${s.label})`
+        + `${s.proxyFor ? ` as a proxy over ${s.proxyFor.join(', ')}` : ''}`
+        + `${s.meta?.validationMode ? `, validationMode: ${s.meta.validationMode}` : ''}.` }],
+      structuredContent: { outcome: 'created', id: s.id, label: s.label },
+    };
+  },
+};
+
 export const wipe_spaceTool: ToolHandler = {
   name: 'wipe_space',
   description: 'Wipe data from the specified space. By default wipes all collections (memories, entities, edges, chrono, files). Pass `types` to wipe only specific collections. The space itself and its configuration are preserved. Requires an admin token. Idempotent — wiping an empty space returns zero counts.',

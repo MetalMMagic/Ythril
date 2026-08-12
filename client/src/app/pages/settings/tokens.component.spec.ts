@@ -31,6 +31,9 @@ function make(createSpy = vi.fn().mockReturnValue(of({ token: 'tok_x' }))) {
     providers: [
       { provide: AuthApi, useValue: {
         getMe: () => of({ admin: true }),
+        // The page renders <app-own-token-rights/>, which reads the caller's own record. Stubbed with a
+        // legacy-shaped response so the panel renders its no-grid sentence and stays out of these assertions.
+        verifyToken: () => of({ id: 'self', name: 'self' }),
         listTokens: () => of({ tokens: [] }),
         createToken: createSpy,
       } },
@@ -113,6 +116,9 @@ function makeList(tokens: unknown[] = []) {
     providers: [
       { provide: AuthApi, useValue: {
         getMe: () => of({ admin: true }),
+        // The page renders <app-own-token-rights/>, which reads the caller's own record. Stubbed with a
+        // legacy-shaped response so the panel renders its no-grid sentence and stays out of these assertions.
+        verifyToken: () => of({ id: 'self', name: 'self' }),
         listTokens: () => of({ tokens }),
         createToken: vi.fn().mockReturnValue(of({ token: 'tok_x' })),
       } },

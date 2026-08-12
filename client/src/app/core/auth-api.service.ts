@@ -11,8 +11,15 @@ export class AuthApi {
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 
-  /** Verify the supplied PAT is valid and return its metadata */
-  verifyToken(): Observable<{ id: string; name: string; spaces?: string[] }> {
+  /**
+   * Verify the supplied PAT is valid and return its metadata.
+   *
+   * `rights` is declared because the route has always RETURNED it — `/api/tokens/me` responds with the whole
+   * record minus its hash. Typed as `{ id, name, spaces? }`, the matrix was discarded on arrival, so nothing
+   * could show a caller the rights they hold. That is the same shape as three other gaps closed this week: the
+   * capability exists on the API and the client's own type is what withholds it.
+   */
+  verifyToken(): Observable<{ id: string; name: string; spaces?: string[] | null; admin?: boolean; rights?: TokenRights }> {
     return this.http.get<any>('/api/tokens/me');
   }
 

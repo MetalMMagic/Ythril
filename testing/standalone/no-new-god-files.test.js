@@ -84,7 +84,11 @@ const FROZEN = {
   // icons on the list are a second way to reach the same actions and removing them would pay this back with
   // change to spare. Not done here, because dropping a familiar affordance from a page is the owner's call and
   // not a side effect of adding one elsewhere. Recorded under G-1.
-  'client/src/app/pages/settings/tokens.component.ts': 532,
+  // 532 -> 341 on 2026-08-12. The own-rights panel pushed this file 8 lines past its ceiling, and the ratchet's
+  // own rule is to pay that with an extraction rather than raise the number: 199 lines of CSS moved to
+  // `tokens.styles.ts`, beside the `dialog.styles.ts` already there. Lowered to what it now measures and KEPT,
+  // because deleting the entry is how a file quietly earns the right to grow back.
+  'client/src/app/pages/settings/tokens.component.ts': 341,
   // RAISED 1617 -> 1618 by one line: the Q-10 timestamp swap replaced a `| date:` cell with `<app-timestamp>` and
   // needed an import, gaining an import line while losing none. At 1618 code lines this file is by far the largest
   // here and wants splitting on its own terms — but not inside a one-cell rendering change, where the split would be

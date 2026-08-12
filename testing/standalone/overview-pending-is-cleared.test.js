@@ -26,7 +26,12 @@ const ROOT = process.cwd();
 const BRAIN = 'client/src/app/pages/brain/brain.component.ts';
 const OVERVIEW = 'client/src/app/pages/brain/overview-tab.component.ts';
 
-const src = readFileSync(join(ROOT, BRAIN), 'utf8');
+// The loaders and their pending flags moved to `overview-data.service.ts` in the G-2 split; the shell still
+// owns when a space switch happens. Both halves are the subject here, so both are read — a gate that followed
+// only the shell would have gone quietly vacuous the moment the loaders left it, which is worse than the red
+// it actually gave.
+const DATA = 'client/src/app/pages/brain/overview-data.service.ts';
+const src = [BRAIN, DATA].map(f => readFileSync(join(ROOT, f), 'utf8')).join('\n');
 
 /** The four panels, and the loader whose two handlers must clear each one. */
 const PANELS = [
@@ -107,8 +112,14 @@ describe('an Overview skeleton can always be dismissed', () => {
 
     // Anchored on the METHOD, not the first textual match — `selectSpace(` appears in the template first, and
     // slicing from there measured 19k characters of the wrong thing.
-    const at = src.indexOf('  selectSpace(id: string): void {');
-    assert.ok(at > 0, 'selectSpace method not found');
+    // The blanks and the raise moved together into `blankForSpaceSwitch()` when the loaders left the shell
+    // (G-2). The guarantee is unchanged and so is its shape — raised beside the blanks, in one place — so this
+    // anchors on that method, and separately requires the space switch to still call it. Splitting the two is
+    // what keeps "blanked on a switch" true rather than merely "blanked somewhere".
+    assert.match(src, /selectSpace\(id: string\): void \{[\s\S]{0,2000}?this\.ov\.blankForSpaceSwitch\(\)/,
+      'a space switch must still blank the panels, or the skeletons never go up in the first place');
+    const at = src.indexOf('  blankForSpaceSwitch(): void {');
+    assert.ok(at > 0, 'blankForSpaceSwitch method not found');
     const selectSpace = src.slice(at, src.indexOf('\n  }', at));
     for (const key of ['activity', 'completeness', 'queue', 'tokens']) {
       assert.match(selectSpace, new RegExp(`${key}: true`),

@@ -359,7 +359,12 @@ describe('BrainComponent (OnPush)', () => {
       expect(after?.stats).toEqual(before?.stats);
     });
   });
-  describe('BrainComponent — Overview load cascade (characterization for G-2)', () => {
+    /**
+   * Repointed for G-2: these loaders and their signals moved to `OverviewDataService`, reached through `ov`.
+   * The ASSERTIONS are unchanged — same invariants, same expectations — which is the point of having written
+   * them before the move. Only the address changed.
+   */
+describe('BrainComponent — Overview load cascade (characterization for G-2)', () => {
     beforeEach(() => TestBed.resetTestingModule());
 
     /** Every loader the Overview panel depends on, with the signal it fills and the pending key it clears. */
@@ -374,7 +379,7 @@ describe('BrainComponent (OnPush)', () => {
       // A list that silently omits a loader would let the next one be written without either guard.
       const c = create().componentInstance as any;
       for (const { fn } of LOADERS) {
-        expect(typeof c[fn], fn).toBe('function');
+        expect(typeof c.ov[fn], fn).toBe('function');
       }
     });
 
@@ -385,33 +390,33 @@ describe('BrainComponent (OnPush)', () => {
       expect(c.activeSpaceId()).toBe('work');
 
       // Load for a space that is NOT the active one — the same situation a late response creates.
-      c.spaceActivity.set(null);
-      c.loadSpaceActivity('some-other-space');
-      expect(c.spaceActivity()).toBeNull();
+      c.ov.spaceActivity.set(null);
+      c.ov.loadSpaceActivity('some-other-space', () => c.activeSpaceId() === 'some-other-space');
+      expect(c.ov.spaceActivity()).toBeNull();
     });
 
     it('but it still clears the pending flag, so no skeleton is left up', () => {
       // The opposite pull. The guard must gate the RESULT and not the settle: a stale response that returned
       // early would leave that panel's skeleton spinning until the next space switch.
       const c = create().componentInstance as any;
-      c.loadCompleteness('some-other-space');
-      expect(c.overviewPending().completeness).toBe(false);
+      c.ov.loadCompleteness('some-other-space', () => c.activeSpaceId() === 'some-other-space');
+      expect(c.ov.overviewPending().completeness).toBe(false);
     });
 
     it('a response for the ACTIVE space is stored', () => {
       // The control. Without it the two tests above pass on a loader that stores nothing at all.
       const c = create().componentInstance as any;
-      c.spaceActivity.set(null);
-      c.loadSpaceActivity('work');
-      expect(c.spaceActivity()).not.toBeNull();
+      c.ov.spaceActivity.set(null);
+      c.ov.loadSpaceActivity('work', () => c.activeSpaceId() === 'work');
+      expect(c.ov.spaceActivity()).not.toBeNull();
     });
 
     it('an empty activity window becomes a ZEROED row, not null', () => {
       // "Nothing was asked" is an answer and the panel must render it. Returning null would blank the card and
       // read as a loading failure — which is what it did before the zeroed fallback existed.
       const c = create().componentInstance as any;
-      c.loadSpaceActivity('work');
-      const a = c.spaceActivity();
+      c.ov.loadSpaceActivity('work', () => c.activeSpaceId() === 'work');
+      const a = c.ov.spaceActivity();
       expect(a).not.toBeNull();
       expect(a.calls).toBe(0);
       expect(a.space).toBe('work');
@@ -421,7 +426,7 @@ describe('BrainComponent (OnPush)', () => {
       // The skeletons come down. Asserted over the whole record rather than per key, so a loader added later
       // without a settle is caught here even if nobody adds it to LOADERS above.
       const c = create().componentInstance as any;
-      const stuck = Object.entries(c.overviewPending()).filter(([, v]) => v === true).map(([k]) => k);
+      const stuck = Object.entries(c.ov.overviewPending()).filter(([, v]) => v === true).map(([k]) => k);
       expect(stuck, 'these panels still show a skeleton after the cascade').toEqual([]);
     });
 
@@ -429,9 +434,9 @@ describe('BrainComponent (OnPush)', () => {
       // The one loader that can skip its request entirely. It must still leave a rendered empty state rather
       // than null, or the Governance panel decides it is loading for ever.
       const c = create().componentInstance as any;
-      c.overviewVotes.set(null);
-      c.loadOverviewVotes('work');
-      expect(c.overviewVotes()).toEqual([]);
+      c.ov.overviewVotes.set(null);
+      c.ov.loadOverviewVotes('work', () => c.activeSpaceId() === 'work', []);
+      expect(c.ov.overviewVotes()).toEqual([]);
     });
   });
 });

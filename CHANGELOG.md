@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Internal
+- **The Brain shell gave up the Overview panel's data.** Five loaders, their five signals and the pending flags
+  moved to `brain/overview-data.service.ts` — 136 lines out, and `brain.component.ts` goes **660 → 571**, from
+  over the god-file ceiling to well under it.
+  - The shell is the tab strip, the space chips, every panel's inputs and eight tabs' worth of orchestration.
+    Shaving handlers would have lowered the number while leaving the shape; moving one tab's data out changes it.
+  - **`activeSpaceId` deliberately did not move.** It arrives as a callback per load. A response for a space the
+    user has left must be discarded, and that question belongs to whoever owns the selection — a copy in the
+    service would be a second answer able to disagree with the shell's.
+  - `loadOverviewVotes` now takes the space's networks directly instead of reaching into a space list, so the
+    service knows nothing about `SpaceView`, which is a shell concept.
+  - The seven characterization tests written before the move (#828) pass with their **assertions unchanged** —
+    only the address changed. That is what they were written first for.
+  - The ratchet entry is **lowered, not deleted**: an entry here is a ratchet, and removing it would hand the
+    file back the 89 lines of headroom the extraction just took away.
+
+### Internal
 - **Infra-managed now locks the Media Processing page by rule, not by 35 separate bindings.** A gate sweeps every
   control on that page **by shape** — every `input`, `select` and `textarea` bound to `ngModel` — and requires
   each to be locked, either by its own `[disabled]` or by an enclosing `@if` that removes it when managed.

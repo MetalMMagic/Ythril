@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **`help` now reports which capabilities exist over REST and not over MCP, and why.** breituai-platform,
+  2026-08-11T1722Z, whose principle is the right one: *"The rights matrix decides what a token may do; the
+  surface should not also decide whether it can."*
+  - The sharp part of their report was not the five capabilities they hit. It was that they **could not tell
+    absent from gated** — a tool hidden because their token lacks a right and a tool that was never built look
+    identical from outside, and one is a documentation fix while the other is an afternoon. So they had to ask.
+  - `help` returns `structuredContent.restOnly`: every REST-only capability with its route, method and the
+    reason it is not a tool yet. Machine-readable because their agents branch on it. A client reading only
+    `content` loses nothing.
+  - The five are confirmed **absent, not gated**, read from the registry: 34 tools, none of them a reindex, a
+    token list, a `retry_embedding` or a space create. `update_space` exists but takes only label, purpose and
+    description, so nothing on MCP writes a schema.
+  - `mcp-rest-parity.test.js` checks each row in **both** directions: the REST route must exist, and no tool of
+    that name may exist. The second is the one that matters — the day somebody builds `reindex`, the gate fails
+    until the row is deleted, so the map cannot go on advertising a gap that has closed. That is the direction a
+    hand-maintained list always rots in, because closing a gap feels like the end of the job.
+  - A row must also carry a real reason: mutation testing showed a length check alone passed a `TODO` with a long
+    sentence after it, so placeholders are refused by name.
+  - Parity itself is not done — this ships the map first, because it makes the remaining work legible to the
+    people waiting on it.
 - **You can see the rights your own token holds, without being an administrator.** Owner: *"everyone else at
   least view their own"*.
   - `GET /api/tokens/me` has always returned the caller`s whole record, `rights` included. The typed client

@@ -16,6 +16,7 @@ import { ReviewTabComponent } from './review-tab.component';
 import { FormsModule } from '@angular/forms';
 import { Space, SpaceStats, AboutInfo, EmbeddingQueue, VoteRound, TokenAccessEntry, CompletenessReport, SpaceActivity } from '../../core/api.types';
 import { SpacesApi } from '../../core/spaces-api.service';
+import { OverviewDataService } from './overview-data.service';
 import { SpaceSettingsPopupComponent } from '../settings/space-settings-popup.component';
 import { SpacesStore } from '../settings/spaces-store.service';
 import { SpaceSettingsState } from '../settings/space-settings-state.service';
@@ -52,7 +53,7 @@ interface SpaceView {
   // load-bearing and pinned by the specs (the drawer's own version lives in the drawer component).
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [ProxySpaceBadgeComponent, CommonModule, FormsModule, GraphComponent, FileManagerComponent, PhIconComponent, RecordDrawerComponent, QueryTabComponent, MemoriesTabComponent, EntitiesTabComponent, EdgesTabComponent, ChronoTabComponent, OverviewTabComponent, ReviewTabComponent, ErrorStateComponent, TranslocoPipe, SpaceSettingsPopupComponent],
-  providers: [BrainStore, EntityRefPicker, RecordDrawerState, RecordListState, SpacesStore, SpaceSettingsState],
+  providers: [BrainStore, EntityRefPicker, RecordDrawerState, RecordListState, OverviewDataService, SpacesStore, SpaceSettingsState],
   styles: [`
     .space-tabs {
       display: flex;
@@ -354,9 +355,9 @@ interface SpaceView {
         @if (activeTab() === 'overview') {
           @if (activeSpace(); as sp) {
             <app-overview-tab [space]="sp" [stats]="activeStats()" [needsReindex]="needsReindex()"
-              [reindexing]="reindexing()" [about]="aboutInfo()" [embeddingQueue]="embeddingQueue()"
-              [openVotes]="overviewVotes()" [tokenAccess]="tokenAccess()" [completeness]="completeness()" [activity]="spaceActivity()"
-              [pending]="overviewPending()"
+              [reindexing]="reindexing()" [about]="aboutInfo()" [embeddingQueue]="ov.embeddingQueue()"
+              [openVotes]="ov.overviewVotes()" [tokenAccess]="ov.tokenAccess()" [completeness]="ov.completeness()" [activity]="ov.spaceActivity()"
+              [pending]="ov.overviewPending()"
               (reindex)="runReindex()" (retryFailed)="runRetryFailedEmbeddings()"
               (openTab)="setTab($event)"
               [resettingUsage]="resettingUsage()" [usageResetResult]="usageResetResult()"
@@ -381,6 +382,8 @@ export class BrainComponent implements OnInit, OnDestroy {
   readonly drawerState = inject(RecordDrawerState);
   readonly recordList = inject(RecordListState);
   private spacesApi = inject(SpacesApi);
+  /** The Overview panel's data, moved out of this shell — see overview-data.service.ts. */
+  readonly ov = inject(OverviewDataService);
   /**
    * The dialog's state, provided by this component so it opens and closes with the page.
    *
@@ -436,48 +439,8 @@ export class BrainComponent implements OnInit, OnDestroy {
   spacesError = signal<string | null>(null);
   /** Instance identity/health for the Overview's Instance panel — fetched once (instance-wide, not per space). */
   aboutInfo = signal<AboutInfo | null>(null);
-  /** Embedding-job backlog for the ACTIVE space (Overview embedding-queue panel); refreshed on space switch + live events. */
-  embeddingQueue = signal<EmbeddingQueue | null>(null);
-  /** Open governance votes across the ACTIVE space's networks (Overview Governance panel). */
-  overviewVotes = signal<VoteRound[]>([]);
-  /** Tokens that can reach the ACTIVE space (Overview token-access matrix). Null unless the caller is
-   *  admin — the endpoint 403s otherwise, so a null keeps the panel hidden for non-admins. */
-  tokenAccess = signal<TokenAccessEntry[] | null>(null);
-  /** Completeness report for the ACTIVE space (Overview panel). Null until it lands or on failure —
-   *  a governance panel that cannot load is hidden, not rendered as a zero. */
-  completeness = signal<CompletenessReport | null>(null);
-  /**
-   * This space's usage over the window below — one already-summed row, so a proxy space reports the total of
-   * its members rather than a list the panel would have to add up itself.
-   */
-  spaceActivity = signal<SpaceActivity | null>(null);
 
-  /**
-   * Which Overview panels have been blanked for a space switch and are still awaiting their first answer.
-   *
-   * The Overview's cards each render only when their own value arrives, so the board assembled itself one card at
-   * a time and every arrival pushed the ones below it down — the milder half of a canary flicker report. A
-   * skeleton at the card's final size fixes that, but only if it can tell "not yet" from "never".
-   *
-   * `null` alone cannot: `tokenAccess` is null **permanently** for a non-admin (the endpoint 403s), and
-   * `completeness` is null after a failure. A skeleton keyed on null would sit there forever in both cases.
-   *
-   * So pending is set ONLY where the value is blanked — in `selectSpace` — and cleared by both the success and
-   * the failure handler. It is deliberately not set by the live-event refresh: that has good data on screen, and
-   * covering it with a skeleton would be the same defect this exists to remove.
-   */
-  overviewPending = signal<Record<'activity' | 'completeness' | 'queue' | 'tokens', boolean>>({
-    // `stats` and `about` left with the statistics strip and the Instance card (owner, 2026-08-08). `about`
-    // was the one key with a different lifetime — fetched once at init, cleared exactly once — and that
-    // asymmetry is gone with the panel it existed for.
-    activity: false, completeness: false, queue: false, tokens: false,
-  });
 
-  /** Clear one panel's pending flag — called from both handlers of each loader, success or failure. */
-  private settled(key: 'activity' | 'completeness' | 'queue' | 'tokens'): void {
-    if (!this.overviewPending()[key]) return;
-    this.overviewPending.update(p => ({ ...p, [key]: false }));
-  }
 
   // Reindex
   needsReindex = signal(false);
@@ -629,7 +592,7 @@ export class BrainComponent implements OnInit, OnDestroy {
     clearTimeout(this.liveRefreshTimer);
     this.liveRefreshTimer = setTimeout(() => {
       this.loadStats(spaceId);
-      this.loadEmbeddingQueue(spaceId); // file/embed events change the queue
+      this.ov.loadEmbeddingQueue(spaceId, () => this.activeSpaceId() === spaceId); // file/embed events change the queue
       const collection = event.split('.')[0] ?? '';
       if (event.startsWith('bulk') || BrainComponent.TAB_FOR_COLLECTION[collection] === this.activeTab()) {
         this.store.liveRefreshTick.update(t => t + 1);
@@ -653,125 +616,16 @@ export class BrainComponent implements OnInit, OnDestroy {
     this.store.chronoSearch.set('');
     this.recordList.confirmDeleteId.set('');
     this.reindexResult.set('');
-    this.embeddingQueue.set(null);
-    this.overviewVotes.set([]);
-    this.tokenAccess.set(null);
-    this.completeness.set(null);
-    this.spaceActivity.set(null);
-    // Blanked and awaiting a first answer — the ONLY place pending is raised. See `overviewPending`.
-    // update(), not set(): `about` is one-shot and must keep whatever it already resolved to.
-    this.overviewPending.update(p => ({
-      ...p, activity: true, completeness: true, queue: true, tokens: true,
-    }));
+    this.ov.blankForSpaceSwitch();
     this.loadStats(id);
     this.loadSpaceMeta(id);
-    this.loadEmbeddingQueue(id);
-    this.loadOverviewVotes(id);
-    this.loadTokenAccess(id);
-    this.loadCompleteness(id);
-    this.loadSpaceActivity(id);
+    this.ov.loadAll(id, () => this.activeSpaceId() === id, this.spaces().find(sv => sv.space.id === id)?.space.networks ?? []);
   }
 
-  /**
-   * Usage over the last 7 days, for the Overview's usage panel.
-   *
-   * A week rather than a day on purpose: "is this space useful" is a question about a habit, and a space that
-   * is queried every Monday reads as dead in a 24-hour window.
-   *
-   * The endpoint returns one row per member space; they are summed here so the panel receives a single row.
-   * Summing in the shell rather than server-side keeps the endpoint honest for an API caller who wants to see
-   * WHICH member of a proxy is carrying it.
-   */
-  private loadSpaceActivity(spaceId: string): void {
-    this.spacesApi.getSpaceActivity(spaceId, 7 * 24).subscribe({
-      next: r => {
-        // Settle even when the answer is discarded. The guard gates the RESULT, never the skeleton: a stale
-        // response that returned outright left this panel spinning until the next space switch.
-        if (this.activeSpaceId() !== spaceId) { this.settled('activity'); return; }
-        const rows = r.spaces ?? [];
-        if (rows.length === 0) {
-          // An empty window is still an answer — "nothing was asked" — so the panel must render, not vanish.
-          this.spaceActivity.set({
-            space: spaceId, calls: 0, recall: 0, answered: 0, writes: 0,
-            meanMs: null, maxMs: 0, over1s: 0, meanTopScore: null, lastUsedAt: null,
-          });
-          // The skeleton comes down here too. It did not, so a space with NO recorded usage showed its usage
-          // card spinning for ever — and after the reset button clears the buckets, every space lands in exactly
-          // this branch on the next load. Found by a characterization test written for an unrelated refactor.
-          this.settled('activity');
-          return;
-        }
-        const sum = (pick: (row: SpaceActivity) => number) => rows.reduce((t, row) => t + pick(row), 0);
-        const calls = sum(r2 => r2.calls);
-        const answered = sum(r2 => r2.answered);
-        // Means are recombined from their weights, never averaged: averaging per-space means would give a
-        // one-call member the same say as a thousand-call one.
-        const weightedMs = rows.reduce((t, row) => t + (row.meanMs ?? 0) * row.calls, 0);
-        const weightedScore = rows.reduce((t, row) => t + (row.meanTopScore ?? 0) * row.answered, 0);
-        const lastUsed = rows.map(r2 => r2.lastUsedAt).filter((v): v is string => !!v).sort().at(-1) ?? null;
-        this.spaceActivity.set({
-          space: spaceId,
-          calls,
-          recall: sum(r2 => r2.recall),
-          answered,
-          writes: sum(r2 => r2.writes),
-          meanMs: calls > 0 ? Math.round(weightedMs / calls) : null,
-          maxMs: rows.reduce((m, row) => Math.max(m, row.maxMs), 0),
-          over1s: sum(r2 => r2.over1s),
-          meanTopScore: answered > 0 ? Number((weightedScore / answered).toFixed(3)) : null,
-          lastUsedAt: lastUsed,
-        });
-        this.settled('activity');
-      },
-      // A failure leaves the signal null and the panel does not render — the same rule completeness follows.
-      error: () => { if (this.activeSpaceId() === spaceId) this.spaceActivity.set(null); this.settled('activity'); },
-    });
-  }
 
-  /** Fetch the completeness report for a space (Overview panel). Only stores it while that space is
-   *  still active; a failure leaves the signal null and the panel simply does not render. */
-  private loadCompleteness(spaceId: string): void {
-    this.spacesApi.getCompleteness(spaceId).subscribe({
-      next: r => { if (this.activeSpaceId() === spaceId) this.completeness.set(r); this.settled('completeness'); },
-      error: () => { if (this.activeSpaceId() === spaceId) this.completeness.set(null); this.settled('completeness'); },
-    });
-  }
 
-  /** Fetch the embedding-job backlog for a space; only stores it while that space is still active. */
-  private loadEmbeddingQueue(spaceId: string): void {
-    this.brainApi.getEmbeddingQueue(spaceId).subscribe({
-      next: q => { if (this.activeSpaceId() === spaceId) this.embeddingQueue.set(q); this.settled('queue'); },
-      // A failed refresh keeps the last good value on purpose; it only has to stop the skeleton.
-      error: () => this.settled('queue'),
-    });
-  }
 
-  /** Fetch the token-access matrix for a space (Overview panel). ADMIN-only: a 403 for a non-admin
-   *  caller leaves the signal null, which keeps the panel hidden. Only stores it while still active. */
-  private loadTokenAccess(spaceId: string): void {
-    this.brainApi.getTokenAccess(spaceId).subscribe({
-      next: r => { if (this.activeSpaceId() === spaceId) this.tokenAccess.set(r.tokens); this.settled('tokens'); },
-      // A 403 for a non-admin lands here and is permanent — clearing pending is what stops a forever-skeleton.
-      error: () => { if (this.activeSpaceId() === spaceId) this.tokenAccess.set(null); this.settled('tokens'); },
-    });
-  }
 
-  /** Fetch OPEN governance votes across the space's networks (Overview Governance panel). One listVotes
-   *  per network the space belongs to; only stores the result while that space is still active. */
-  private loadOverviewVotes(spaceId: string): void {
-    const nets = this.spaces().find(sv => sv.space.id === spaceId)?.space.networks ?? [];
-    if (nets.length === 0) { this.overviewVotes.set([]); return; }
-    forkJoin(nets.map(n => this.networksApi.listVotes(n.id).pipe(
-      catchError(() => of({ rounds: [] as VoteRound[] })), // one unreachable network must not hide the rest
-    ))).subscribe({
-      next: results => {
-        if (this.activeSpaceId() !== spaceId) return;
-        const open = results.flatMap(r => r.rounds).filter(v => v.status === 'open');
-        this.overviewVotes.set(open);
-      },
-      error: () => {},
-    });
-  }
 
   /**
    * Deep-link state: which space and which tab, read from the URL.
@@ -903,7 +757,7 @@ export class BrainComponent implements OnInit, OnDestroy {
       next: ({ cleared }) => {
         this.resettingUsage.set(false);
         this.usageResetResult.set(`Cleared ${cleared} usage buckets.`);
-        this.loadSpaceActivity(spaceId);
+        this.ov.loadSpaceActivity(spaceId, () => this.activeSpaceId() === spaceId);
       },
       error: () => {
         this.resettingUsage.set(false);
@@ -931,7 +785,7 @@ export class BrainComponent implements OnInit, OnDestroy {
   runRetryFailedEmbeddings(): void {
     const spaceId = this.activeSpaceId();
     this.brainApi.retryFailedEmbeddings(spaceId).subscribe({
-      next: () => { if (this.activeSpaceId() === spaceId) this.loadEmbeddingQueue(spaceId); },
+      next: () => { if (this.activeSpaceId() === spaceId) this.ov.loadEmbeddingQueue(spaceId, () => this.activeSpaceId() === spaceId); },
       error: () => {},
     });
   }

@@ -229,3 +229,60 @@ export const wipe_spaceTool: ToolHandler = {
     };
   },
 };
+
+/**
+ * List the instance's tokens.
+ *
+ * ## Why this is a tool
+ *
+ * breituai-platform, 2026-08-11T1722Z, third of five: *"The rights matrix decides what a token may do; the
+ * surface should not also decide whether it can."* Their workaround was a Kubernetes CronJob that curls
+ * `GET /api/tokens` and posts the result into a space as a chrono entry so an agent can read it — a scheduler
+ * standing in for a tool call. That workaround also means the inventory an agent reads is as stale as the last
+ * tick, which is the part that makes it wrong rather than merely inconvenient.
+ *
+ * ## The hash cannot leak from here, and not because this code is careful
+ *
+ * `listTokens()` is typed `Omit<TokenRecord, 'hash'>[]` and destructures the hash out, so the omission is the
+ * function's contract rather than this call site's discipline. That matters: a tool that stripped the hash
+ * itself would be one edit away from forgetting to, and the compiler would not object.
+ *
+ * Admin-gated exactly as the REST route is. The response is credential METADATA — names, prefixes, expiry,
+ * rights — which is what an audit of who-can-reach-what needs and is no wider than the REST answer.
+ */
+export const list_tokensTool: ToolHandler = {
+  name: 'list_tokens',
+  description: 'List this instance\'s API tokens with their names, prefixes, expiry and rights matrix. Admin '
+    + 'only. Secrets are never included — a token\'s value exists only at the moment it is minted, and the '
+    + 'stored hash is not returned by this or any other surface. Use it to audit which tokens can reach which '
+    + 'spaces and at what level.',
+  admin: true,
+  inputSchema: () => ({
+    type: 'object',
+    properties: {},
+    required: [],
+    additionalProperties: false,
+  }),
+  async handle(_ctx: ToolContext): Promise<ToolResult> {
+    // Same call the REST route makes, and its return type is what guarantees no hash rides along.
+    const { listTokens } = await import('../../auth/tokens.js');
+    const tokens = listTokens();
+
+    const lines = tokens.map(t => {
+      const bits = [
+        t.admin ? 'instance-admin' : null,
+        t.readOnly ? 'read-only' : null,
+        t.expiresAt ? `expires ${t.expiresAt}` : 'no expiry',
+        t.rights ? 'rights matrix' : 'legacy scope',
+      ].filter(Boolean).join(', ');
+      return `- ${t.name} (${t.id}) — ${bits}`;
+    });
+
+    const text = tokens.length > 0
+      ? `${tokens.length} token(s):\n${lines.join('\n')}`
+      : 'No tokens are configured on this instance.';
+
+    // The full records ride here so an audit can branch on the matrix rather than parse the summary above.
+    return { content: [{ type: 'text' as const, text }], structuredContent: { tokens } };
+  },
+};

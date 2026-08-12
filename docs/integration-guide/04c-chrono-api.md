@@ -12,7 +12,7 @@ POST /api/brain/spaces/:spaceId/chrono
 
 **Body**:
 
-`id` is optional here too — a **UUID v4** you supply to make the create idempotent, exactly as for a
+`id` is optional here too — a **UUID v4** naming an **existing** entry to update, exactly as for a
 memory. See [Retry Safety](04-brain-api.md#retry-safety).
 
 ```json

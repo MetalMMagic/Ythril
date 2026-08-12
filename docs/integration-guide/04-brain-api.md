@@ -26,43 +26,55 @@ anything an agent writes is retried.
 
 | type | retried create | how |
 |---|---|---|
-| **memory** | idempotent **if you supply `id`** | a UUID v4 you generate; the retry converges on that record |
-| **chrono** | idempotent **if you supply `id`** | same |
-| **entity** | idempotent **if you supply `id`** | same |
-| **edge** | **always idempotent** | the natural key `(from, to, label)` — no id needed |
+| **edge** | **idempotent** | the natural key `(from, to, label)` — a retry lands on the same edge |
+| **memory** | **not idempotent** | see below; a blind retry can produce a second record |
+| **chrono** | **not idempotent** | same |
+| **entity** | **not idempotent** | same; reconcile by `name` if your space treats names as unique |
 
-### How to make a write retry-safe
+### Identity is server-generated
 
-Generate the UUID **before your first attempt** and reuse it on every retry. That is the whole technique:
+**You cannot choose a record's id.** `id` on a create names an **existing** record to update; an id that matches
+nothing is ignored and the record is created with a fresh, server-minted UUID.
+
+This changed deliberately. Adopting a caller's id made the caller a co-author of the primary key, and that has a
+sharp edge across a network: the natural way to produce a stable id is to derive it from a stable key, so two
+instances following the same convention collide **by design** — and sync resolves a collision by `seq` alone,
+so one version silently replaces the other with every reference still resolving to the survivor. Nothing dangles,
+so nothing reports it.
+
+If you need to carry your own reference into Ythril, put it in **`name`**, **`description`**, or a property. Those
+fields are for describing a record. `id` identifies one.
+
+### How to make a create retry-safe
+
+Use the duplicate check, which is on by default:
 
 ```js
-const id = crypto.randomUUID();          // once, before the first attempt
-
-async function writeWithRetry(fact) {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      return await post('/api/brain/spaces/general/memories', { id, fact });
-    } catch (err) {
-      // A timeout here may mean the write SUCCEEDED and the response was lost. Retrying with the same `id`
-      // converges on the same record instead of writing a second one.
-      if (attempt === 2) throw err;
-    }
-  }
+// checkDuplicates is TRUE by default: the response carries `similar` when the write matched
+// something already stored, so a retry that landed twice is detectable rather than silent.
+const res = await post('/api/brain/spaces/general/memories', { fact });
+if (res.similar?.length) {
+  // The first attempt probably succeeded and its response was lost. Reconcile instead of retrying:
+  // read the match, and delete this one if it is a duplicate of it.
 }
 ```
 
-### What "idempotent" means here, precisely
+Two things follow from that:
 
-**It is not a no-op.** The second write really happens — it just lands on the same record:
+- **A duplicate check costs a vector.** `checkDuplicates: true` computes the embedding before the insert, so the
+  write waits on the embedder and fails if it is unreachable. That is the trade: an answerable "is this already
+  here?" in exchange for a synchronous dependency. Pass `checkDuplicates: false` to opt out, and accept that a
+  retry after an ambiguous failure may duplicate.
+- **For an edge, just retry.** `(from, to, label)` is the natural key and a second write converges.
 
-- `seq` and `updatedAt` advance, so the retry is a real write and appears in the audit log and in
+### What happens on a genuine update
+
+When `id` names a record that exists, the write lands on it:
+
+- `seq` and `updatedAt` advance, so it is a real write and appears in the audit log and in
   `ythril_brain_write_seq_total`;
-- **tags union and properties shallow-merge**, they do not replace. A retry sends the identical payload so this
-  makes no difference to it, but reusing an id later with different content behaves as a merge;
-- the webhook event is `memory.updated` / `chrono.updated` / `entity.updated`, **not**
-  `*.created`, so a subscriber can tell a converged retry from a new record.
-
-What you get is the guarantee that matters: **the same content, in one record, however many times you send it.**
+- **tags union and properties shallow-merge**, they do not replace;
+- the webhook event is `memory.updated` / `chrono.updated` / `entity.updated`, **not** the created event.
 
 ### Rules
 
@@ -113,7 +125,7 @@ POST /api/brain/spaces/:spaceId/memories
 }
 ```
 
-**Constraints**: `id` optional — a **UUID v4** you supply to make the write idempotent (a retry with the same id converges on that record instead of creating a second one); anything else is a `400`, and omitting it generates one. See [Retry Safety](#retry-safety). **Constraints**: `fact` max 50 000 chars. `type` optional string — stored on the document and validated against the space's `typeSchemas.memory` allowlist when set. `tags` must be an array of strings. `description` optional string. `properties` optional object; property values should be a string, number, or boolean (unlike the entity endpoint, the memory/edge/chrono write paths don't reject non-primitive values at the API layer — schema validation is the gate when the space defines the property). Every id in `entityIds` must be a UUID v4 **and** name an entity that exists — passing a name, a malformed id, or an id that resolves to nothing returns `400` and stores nothing. This is the default; a space can opt out with `meta.strictLinkage: false` (see [Reference integrity](12-admin-api.md#reference-integrity)). `ttlDays` optional — see [Record Expiry (TTL)](#record-expiry-ttl). `waitForEmbedding` optional boolean — see below.
+**Constraints**: `id` optional — a **UUID v4** naming an **existing** record to update. It is not a way to choose an id: identity is server-generated, so an id that matches nothing is ignored rather than adopted, and the record is created with a fresh one. Anything that is not a UUID v4 is a `400`. To carry your own reference, put it in `name` or `description`. See [Retry Safety](#retry-safety). **Constraints**: `fact` max 50 000 chars. `type` optional string — stored on the document and validated against the space's `typeSchemas.memory` allowlist when set. `tags` must be an array of strings. `description` optional string. `properties` optional object; property values should be a string, number, or boolean (unlike the entity endpoint, the memory/edge/chrono write paths don't reject non-primitive values at the API layer — schema validation is the gate when the space defines the property). Every id in `entityIds` must be a UUID v4 **and** name an entity that exists — passing a name, a malformed id, or an id that resolves to nothing returns `400` and stores nothing. This is the default; a space can opt out with `meta.strictLinkage: false` (see [Reference integrity](12-admin-api.md#reference-integrity)). `ttlDays` optional — see [Record Expiry (TTL)](#record-expiry-ttl). `waitForEmbedding` optional boolean — see below.
 
 #### Catching a near-duplicate at write time (`checkDuplicates`, `checkContradictions`)
 

@@ -1,151 +1,97 @@
 /**
- * The retry-safety contract, in the parts that can be checked without a database.
+ * ID IS ID: a record's identity is minted by the server, never supplied by the caller.
  *
- * The behaviour itself — "how many records are in the collection after the second call" — is a database question
- * and lives in `testing/integration/idempotent-writes.test.js`. This file holds everything else, because the
- * integration suite needs Docker and therefore only runs in CI, while the contract is the part somebody breaks
- * accidentally while editing a route.
+ * Owner ruling, 2026-08-12: *"we do not accept custom ids. on write time one is mongodb-generated … they can use
+ * name or description for descriptive fields. id is id."*
  *
- * ## What it defends
+ * ## What it used to do
  *
- *  1. **All four record types are documented**, with their different mechanisms. Two of them (entity by id, edge
- *     by natural key) were already idempotent and nobody was told — the only mention of supplying an id was inside
- *     a *warning string* about updating an existing entity. Documented capability is the whole point of this work.
- *  2. **A caller-supplied id is validated as a UUID v4** on the new paths. It becomes the `_id` of a record that
- *     replicates across every peer in every network the space belongs to, so an arbitrary string must not reach it.
- *  3. **The MCP tools advertise it.** An MCP agent is precisely the "external caller that retries" this exists for;
- *     leaving it REST-only would have fixed the case that matters least.
- *  4. **The convergence emits `*.updated`, not `*.created`.** A subscriber has to be able to tell a converged
- *     retry from a new record, and getting this backwards would be invisible to any count-based test.
+ * `create_chrono`, `remember`, `upsert_entity` and `bulk_write` all adopted a supplied id when it named nothing:
+ *
+ *     _id: fields.id ?? uuidv4()
+ *
+ * documented as an idempotency feature — retry with the same id and converge on the same record. That made the
+ * caller a co-author of our primary key, and it has a sharp edge across a network: the natural way to get a
+ * stable id is to DERIVE it from a stable key, so two instances following one convention collide **by design**.
+ * Inbound sync resolves a collision purely by `seq` (`api/sync/docs.ts` — replaceOne when the incoming seq is
+ * higher), with no author comparison, so the loser is overwritten silently. The link-violation machinery cannot
+ * see it either: both records are internally valid and every reference still resolves, to whichever survived.
+ *
+ * A supplied id may still ADDRESS an existing record — that is what an id is for. It may not become one.
+ *
+ * ## Why this is a gate rather than four fixes
+ *
+ * Because it was four, and the report that prompted the audit named two. A rule enforced by reading every write
+ * path is a rule; four correct lines are a coincidence that holds until someone adds a fifth collection.
+ *
+ * ## This file replaced the gate that enforced the opposite
+ *
+ * It was `idempotent-writes-contract.test.js`, and it asserted the old contract explicitly — *"memory: a supplied
+ * id becomes the new record's identity"*, and that the docs *"tell the reader to generate the id BEFORE the first
+ * attempt"*. Those were correct assertions about a contract that no longer exists.
+ *
+ * It keeps the old FILENAME on purpose: `scripts/release-gate.mjs` lists it by name, and the release gate must go
+ * on checking this area. A gate whose subject is reversed gets rewritten, not deleted — deleting it would have
+ * removed the release gate's only check here and nothing would have said so.
+ *
+ * The behavioural half — how many records exist after a second call — is a database question and lives in
+ * `testing/integration/idempotent-writes.test.js`, which needs Docker and runs in CI.
  *
  * Run: node --test testing/standalone/idempotent-writes-contract.test.js
  */
-import { describe, it, before } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { execSync } from 'node:child_process';
 
-const ROOT = process.cwd();
-const DOC = 'docs/integration-guide/04-brain-api.md';
-const doc = readFileSync(join(ROOT, DOC), 'utf8');
+const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+const serverFiles = execSync('git ls-files "server/src/**/*.ts"', { encoding: 'utf8' })
+  .trim().split('\n').filter(f => f && !f.endsWith('.spec.ts'));
 
-const src = (p) => readFileSync(join(ROOT, p), 'utf8');
+describe('identity is minted by the server', () => {
+  it('finds the write paths it is meant to be checking', () => {
+    // A sweep that enumerates nothing passes vacuously. Every record family must assign an `_id` somewhere.
+    const assigning = serverFiles.filter(f => /_id:\s*uuidv4\(\)|_id:\s*randomUUID\(\)/.test(strip(readFileSync(f, 'utf8'))));
+    assert.ok(assigning.length >= 3,
+      `expected the create paths that mint an id, found ${assigning.length} — if these moved, re-point this test`);
+  });
 
-/** The two writers that gained the path, and the one it was modelled on. */
-const WRITERS = [
-  { label: 'memory', impl: 'server/src/brain/memory.ts', route: 'server/src/api/brain/memories.ts', event: 'memory.updated' },
-  { label: 'chrono', impl: 'server/src/brain/chrono.ts', route: 'server/src/api/brain/chrono.ts', event: 'chrono.updated' },
-];
-
-describe('the contract is documented', () => {
-  it('a Retry Safety section exists and names all four record types', () => {
-    assert.match(doc, /## Retry Safety/,
-      'the Retry Safety section is gone. Two of these four types were already idempotent and nobody knew, which is '
-      + 'the failure this section exists to prevent.');
-    const region = doc.slice(doc.indexOf('## Retry Safety'), doc.indexOf('## Retry Safety') + 4000);
-    for (const t of ['memory', 'chrono', 'entity', 'edge']) {
-      assert.ok(region.includes(t), `the Retry Safety section does not mention ${t}`);
+  it('no write path adopts a caller-supplied id as the record identity', () => {
+    // The exact shape that shipped, in every spelling of it. `?? uuidv4()` is the tell: a fallback means the
+    // first operand was a caller's value.
+    const bad = [];
+    for (const f of serverFiles) {
+      const src = strip(readFileSync(f, 'utf8'));
+      for (const m of src.matchAll(/_id:\s*([^,\n]*\?\?\s*(?:uuidv4|randomUUID)\(\))/g)) {
+        bad.push(`${f}: ${m[1].trim()}`);
+      }
     }
+    assert.deepEqual(bad, [],
+      'these adopt a caller-supplied id as a new record\'s identity, which makes the caller a co-author of the '
+      + `primary key and lets two instances collide by design across sync:\n  ${bad.join('\n  ')}`);
   });
 
-  it("says plainly that idempotent does NOT mean no-op", () => {
-    // "Idempotent" is routinely read as "the second call does nothing". Here the second write really happens and
-    // moves seq — an integrator who believes otherwise will be confused by their own audit log.
-    assert.match(doc, /not a no-op/i,
-      'the doc does not warn that the retry is a real write; seq and updatedAt advance and it appears in the audit '
-      + 'log, which contradicts the usual reading of "idempotent"');
-    assert.match(doc, /\bseq\b/, 'the doc does not mention that seq advances');
+  it('the tool schemas do not advertise choosing an id', () => {
+    // The docs promised idempotency-by-id. Leaving that text while removing the behaviour is worse than either:
+    // a caller reads the description, retries with the same id, and gets a second record.
+    const tools = execSync('git ls-files "server/src/mcp/tools/*.ts"', { encoding: 'utf8' })
+      .trim().split('\n').filter(f => f && !f.endsWith('.spec.ts'));
+    const stale = [];
+    for (const f of tools) {
+      const src = readFileSync(f, 'utf8');
+      if (/Optional UUID v4/.test(src)) stale.push(`${f.split('/').pop()} still says "Optional UUID v4"`);
+      if (/inserts with this ID/.test(src)) stale.push(`${f.split('/').pop()} still promises insert-with-id`);
+      if (/make this call IDEMPOTENT/.test(src)) stale.push(`${f.split('/').pop()} still promises idempotency by id`);
+    }
+    assert.deepEqual(stale, [],
+      `a description that outlives its behaviour is how a caller builds on a contract that is gone:\n  ${stale.join('\n  ')}`);
   });
 
-  it('states the UUID v4 requirement and that omitting the id is unchanged', () => {
-    assert.match(doc, /UUID v4/, 'the id format is not stated');
-    assert.match(doc, /Omitting .{0,6}id.{0,6} is unchanged|every call creates a new record/i,
-      'the doc does not reassure that existing clients which omit the id are unaffected — the first question any '
-      + 'reader of a new write parameter has');
+  it('an id may still ADDRESS an existing record', () => {
+    // The half that must NOT be removed. Update and delete take an id, and records written before this ruling
+    // may carry a non-UUID one — so those paths stay permissive, or the junk they created becomes undeletable.
+    const chrono = strip(readFileSync('server/src/brain/chrono.ts', 'utf8'));
+    assert.match(chrono, /_id: fields\.id, spaceId/,
+      'the lookup-by-supplied-id path is gone, so an update can no longer find its record');
   });
-
-  it('tells the reader to generate the id BEFORE the first attempt', () => {
-    // The technique is worthless if the id is generated per attempt, and that is the natural mistake.
-    assert.match(doc, /before your first attempt|before the first attempt/i,
-      'the doc does not say to generate the id before the first attempt, which is the one detail that makes the '
-      + 'technique work');
-  });
-});
-
-describe('the routes validate a caller-supplied id', () => {
-  for (const w of WRITERS) {
-    it(`${w.label}: refuses anything that is not a UUID v4`, () => {
-      // Asserts the id is tested against the pattern, not merely that the pattern is imported. The first version
-      // matched `UUID_V4_RE` anywhere in the file — and both routes already use it for `entityIds` — so a mutation
-      // replacing the id check with `true` passed while nothing validated the id at all.
-      const s = src(w.route);
-      assert.match(s, /UUID_V4_RE\.test\(rawId\)/,
-        `${w.route} does not test the supplied id against UUID_V4_RE. It becomes the _id of a record that replicates `
-        + 'across every peer in every network the space belongs to, so an arbitrary string must not reach it.');
-      assert.match(s, /rawId !== undefined/,
-        `${w.route} does not let the id be omitted, which every existing client relies on`);
-      assert.match(s, /status\(400\)/, `${w.route} has no 400 path for a malformed id`);
-    });
-  }
-});
-
-describe('the implementation converges rather than duplicating', () => {
-  for (const w of WRITERS) {
-    it(`${w.label}: looks the record up by the supplied id before inserting`, () => {
-      const s = src(w.impl);
-      assert.match(s, /const existing/,
-        `${w.impl} never looks for an existing record, so a supplied id cannot converge on anything`);
-      assert.match(s, /_id: (id|fields\.id|existing\._id)/,
-        `${w.impl} does not query by the supplied id`);
-    });
-
-    it(`${w.label}: a supplied id becomes the new record's identity`, () => {
-      // Without this the FIRST call generates its own id, the caller's id names nothing, and the retry inserts a
-      // second record — the bug, with a lookup in front of it that never matches.
-      const s = src(w.impl);
-      assert.match(s, /_id: (id|fields\.id) \?\? uuidv4\(\)/,
-        `${w.impl} ignores the supplied id when inserting, so the caller's retry can never find the record`);
-    });
-
-    it(`${w.label}: emits ${w.event} on convergence, not *.created`, () => {
-      // SCOPED to the converge branch, not the whole file. The first version asserted the file merely CONTAINED
-      // `${w.event}` — which it does anyway, from the separate update function — so a mutation flipping the
-      // converge branch to `*.created` passed. Scoping is the difference between checking the branch and checking
-      // that the string exists somewhere.
-      const s = src(w.impl);
-      const branchAt = s.indexOf('if (existing) {');
-      assert.ok(branchAt > 0, `${w.impl} has no convergence branch at all`);
-      const branch = s.slice(branchAt, s.indexOf('\n  }', branchAt));
-      assert.ok(branch.includes(`'${w.event}'`),
-        `the convergence branch in ${w.impl} does not emit ${w.event}. A webhook subscriber cannot tell a converged `
-        + 'retry from a new record, and no count-based test would catch it.');
-      assert.ok(!branch.includes(`'${w.label}.created'`),
-        `the convergence branch emits ${w.label}.created — it is an update to an existing record, and a subscriber `
-        + 'would create a duplicate downstream from it');
-    });
-  }
-});
-
-describe('the MCP tools advertise it', () => {
-  let ALL_TOOLS;
-  before(async () => { ({ ALL_TOOLS } = await import('../../server/dist/mcp/tools/index.js')); });
-
-  const schemas = {
-    requiredSpace: { type: 'string', description: 'Space ID.' },
-    optionalSpace: { type: 'string', description: 'Optional space ID.' },
-  };
-
-  for (const name of ['remember', 'create_chrono']) {
-    it(`${name} takes an optional id, and says what it is for`, () => {
-      const tool = ALL_TOOLS.find(t => t.name === name);
-      assert.ok(tool, `the ${name} tool is gone`);
-      const schema = tool.inputSchema(schemas);
-      assert.ok(schema.properties.id, `${name} does not advertise an id — an MCP agent is exactly the caller that `
-        + 'retries, so leaving this REST-only would fix the case that matters least');
-      assert.match(schema.properties.id.description, /idempotent/i,
-        `${name}'s id has no description explaining what it is for; an agent reads the schema and nothing else`);
-      assert.ok(!(schema.required ?? []).includes('id'),
-        `${name} made id REQUIRED, which breaks every existing agent call`);
-    });
-  }
 });

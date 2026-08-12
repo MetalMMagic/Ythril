@@ -6,6 +6,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Fixed
+- **A caller-supplied `id` is now constrained to a UUID on every write tool that accepts one.** `create_chrono`,
+  `remember` and `bulk_write` took any non-empty string and stored it verbatim.
+  - Reported by an operator who passed a corrupted UUID **by accident** — a Devanagari digit where a hex nibble
+    belonged — and had it accepted silently. Nothing broke: the record came back and its `entityIds` resolved.
+  - What was lost is the only reason the field exists. A caller supplies `id` to make the call **idempotent**;
+    an id no generator would ever produce again cannot serve that, so the retry it was there to enable can never
+    fire.
+  - `upsert_entity` had it right through a shared `uuidSchema()` helper. The other three hand-rolled the
+    declaration and only **described** *"Optional UUID v4"* in prose, with no `pattern` — the docs promised a
+    constraint the schema never applied, which is why it survived review.
+  - **The report named two tools and inferred a third; the sweep found a fourth.** `bulk_write` had the same
+    hand-rolled declaration — on the tool most likely to be handed machine-generated ids in volume. The new gate
+    reads the tool schemas by shape rather than checking file names, because a per-tool fix leaves the instance
+    nobody happened to hit.
+  - **`update_*` and `delete_*` ids are deliberately left permissive.** Records written before this fix may carry
+    a non-UUID id — the reporting operator has one — and constraining those paths would make exactly those
+    records unfixable and undeletable. Being unable to delete the junk record you were warned not to create is
+    worse than the bug being fixed.
+
 
 ## [2.7.0] — 2026-08-12
 ### Internal

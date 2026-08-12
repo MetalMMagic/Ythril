@@ -1,5 +1,5 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
-import { UUID_V4_RE, TTL_DAYS_SCHEMA, EXCLUDE_FROM_VECTOR_SEARCH_SCHEMA, ttlDaysFromArgs, unitScoreSchema } from './shared.js';
+import { UUID_V4_RE, TTL_DAYS_SCHEMA, EXCLUDE_FROM_VECTOR_SEARCH_SCHEMA, ttlDaysFromArgs, unitScoreSchema, uuidSchema } from './shared.js';
 import { ChronoFilter, createChrono, deleteChrono, getChronoById, listChrono, updateChrono, parseRecurrence } from '../../brain/chrono.js';
 // The API layer's write gate, imported rather than reimplemented — see the note in memory.ts.
 import { assertUpdateAllowed, classifyUpdateViolations, locateForUpdate } from '../../brain/write-validation.js';
@@ -19,7 +19,7 @@ export const create_chronoTool: ToolHandler = {
           type: 'object',
           properties: {
             space: s.requiredSpace,
-            id: { type: 'string', description: 'Optional UUID v4. Supply one to make this call IDEMPOTENT: retrying with the same id converges on the same entry instead of creating a second one. Generate it before your first attempt and reuse it on every retry. Omit it and each call creates a new entry.' },
+            id: uuidSchema('Optional UUID v4. Supply one to make this call IDEMPOTENT: retrying with the same id converges on the same entry instead of creating a second one. Generate it before your first attempt and reuse it on every retry. Omit it and each call creates a new entry.'),
             title: { type: 'string', minLength: 1, description: 'Entry title.' },
             type: { type: 'string', minLength: 1, description: 'Entry type. Rejected unless it is one of the space\'s allowed chrono types: the defaults are event, deadline, plan, prediction, milestone, or the custom set declared in the space\'s typeSchemas.chrono.' },
             startsAt: { type: 'string', minLength: 1, description: 'ISO 8601 start date/time.' },

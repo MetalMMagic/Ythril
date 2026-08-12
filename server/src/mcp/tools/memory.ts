@@ -18,7 +18,7 @@ import { getConfig } from '../../config/loader.js';
 import { checkQuota } from '../../quota/quota.js';
 import { resolveWriteTarget, findFirstAcrossMembers, isStrictLinkage } from '../../spaces/proxy.js';
 import { resolveMetaRefs, validateMemory } from '../../spaces/schema-validation.js';
-import { TTL_DAYS_SCHEMA, EXCLUDE_FROM_VECTOR_SEARCH_SCHEMA, ttlDaysFromArgs, unitScoreSchema } from './shared.js';
+import { TTL_DAYS_SCHEMA, EXCLUDE_FROM_VECTOR_SEARCH_SCHEMA, ttlDaysFromArgs, unitScoreSchema, uuidSchema } from './shared.js';
 import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
 
 export const rememberTool: ToolHandler = {
@@ -29,10 +29,7 @@ export const rememberTool: ToolHandler = {
   inputSchema: (s: ToolSchemas) => ({
           type: 'object',
           properties: {
-            id: {
-              type: 'string',
-              description: 'Optional UUID v4. Supply one to make this call IDEMPOTENT: retrying with the same id converges on the same record instead of creating a second one. Generate it before your first attempt and reuse it on every retry. Omit it and each call creates a new record.',
-            },
+            id: uuidSchema('Optional UUID v4. Supply one to make this call IDEMPOTENT: retrying with the same id converges on the same record instead of creating a second one. Generate it before your first attempt and reuse it on every retry. Omit it and each call creates a new record.'),
             space: s.requiredSpace,
             fact: { type: 'string', minLength: 1, maxLength: 50000, description: 'The fact, observation, or memory to store (1–50 000 characters).' },
             entityIds: {

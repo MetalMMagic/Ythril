@@ -93,6 +93,52 @@ export function applyDeleteFields(
 }
 
 /**
+ * Write `field` into `$set` — unless the same update is REMOVING it, in which case `$unset` wins.
+ *
+ * ## Why this is a function and not four lines at each call site
+ *
+ * It was four lines at each call site, and seven of the eight were wrong in the same way. `entities.ts` and
+ * `edges.ts` each guarded with
+ *
+ *     if (updates.tags !== undefined || (deleteFieldsPaths && !$unset['tags'])) $set['tags'] = newTags;
+ *
+ * and `$unset` entries are written as `$unset['tags'] = ''`, which is Mongo's convention and also FALSY. So
+ * `!$unset['tags']` was always true, `$set['tags']` was always written, and the update reached Mongo naming one
+ * path in both `$set` and `$unset`. Mongo rejects that outright — *"Updating the path 'tags' would create a
+ * conflict at 'tags'"* — so `deleteFields` on a whole field could never work on either record type. Reported by
+ * breituai-platform 2026-08-12 against `deleteFields: ["tags"]`, which returned a 500.
+ *
+ * **Nested paths were unaffected**, which is why it survived: deleting `properties.region` leaves `properties`
+ * present, so no `$unset` is written for it and the guard never mattered. Every documented example used a nested
+ * path.
+ *
+ * ## The precedence, and why `$unset` wins
+ *
+ * `deleteFields` is documented as applying AFTER the normal merge, so a request that both updates a field and
+ * deletes it has asked for the deletion last. The `in` test is what makes that expressible at all: with the old
+ * guard, that combination did not resolve one way or the other — it produced a rejected write.
+ *
+ * `memory.ts` had this right by a different route (it writes the `$set` first, then `delete $set[field]` beside the
+ * `$unset`), and both broken files used the correct idiom a few lines away for a different field: `'_expireAt' in
+ * $unset`. The test that was missing is the one that drives the real write path; `delete-fields.test.js` covered
+ * the pure helper above, which was never the broken part.
+ */
+export function setUnlessDeleted(
+  $set: Record<string, unknown>,
+  $unset: Record<string, unknown>,
+  field: string,
+  value: unknown,
+  requested: boolean,
+): void {
+  if (field in $unset) {
+    // Defensive: the caller may have written the `$set` before deciding on the `$unset`, as `memory.ts` does.
+    delete $set[field];
+    return;
+  }
+  if (requested) $set[field] = value;
+}
+
+/**
  * Recursively apply a single deleteFields path starting at `depth`.
  * Handles `*` wildcard segments by iterating over array elements.
  */

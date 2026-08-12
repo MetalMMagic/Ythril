@@ -87,7 +87,7 @@ const EMPTY = (): WireRungs => ({ knowledge: 'none', files: 'none', schema: 'non
           <td class="l">{{ 'tokens.rights.allSpaces' | transloco }}<small>{{ 'tokens.rights.allSpacesHint' | transloco }}</small></td>
           @for (a of areas; track a) {
             <td>
-              <app-rung-picker [value]="floorOf(a)" (changed)="setFloor(a, $event)"/>
+              <app-rung-picker [value]="floorOf(a)" [readonlyView]="readonlyView()" (changed)="setFloor(a, $event)"/>
             </td>
           }
         </tr>
@@ -96,7 +96,7 @@ const EMPTY = (): WireRungs => ({ knowledge: 'none', files: 'none', schema: 'non
             <td class="l">{{ s }}</td>
             @for (a of areas; track a) {
               <td>
-                <app-rung-picker [value]="cellOf(s, a)" [floor]="floorOf(a)" (changed)="setCell(s, a, $event)"/>
+                <app-rung-picker [value]="cellOf(s, a)" [floor]="floorOf(a)" [readonlyView]="readonlyView()" (changed)="setCell(s, a, $event)"/>
               </td>
             }
           </tr>
@@ -152,6 +152,8 @@ export class RightsMatrixComponent implements OnInit {
   rights = input.required<TokenRights>();
   spaces = input.required<string[]>();
   changed = output<TokenRights>();
+  /** Display only — passed through to every cell. Used by the read-only view of your own rights. */
+  readonlyView = input(false);
 
   readonly areas = RIGHT_AREAS;
   /** Every rung EXCEPT `none`, which needs no explanation beyond the word. */

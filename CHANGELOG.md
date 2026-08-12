@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **You can see the rights your own token holds, without being an administrator.** Owner: *"everyone else at
+  least view their own"*.
+  - `GET /api/tokens/me` has always returned the caller`s whole record, `rights` included. The typed client
+    declared it as `{ id, name, spaces? }`, so the matrix was **discarded on arrival** and nothing could render
+    it. Settings → Tokens lists through the admin-only `GET /api/tokens`, so a non-admin opening that page saw
+    an ERROR where their own access should be. Same shape as three other gaps closed this week: the capability
+    is on the API and the client`s own type is what withholds it.
+  - The panel reuses the matrix an admin edits, in a new `readonlyView` mode, rather than rendering a second
+    copy. Two renderers of a permission grid are two places the clamping and the colours can disagree, and the
+    one a reader trusts would be whichever they happened to open. Every control is asserted disabled.
+  - Rows are the spaces the token`s own grid names — not every space on the instance, which would need a right
+    this caller may not hold and would draw a row per space it cannot reach.
+  - A pre-2.6 token with no grid gets a sentence saying so, because an empty grid reads as "you have nothing".
+  - When the list 403s, the page now says listing every token needs administrator rights, instead of leaving a
+    bare reason next to a retry button that cannot help.
+  - Still open (U-9): a SPACE admin can neither list nor edit tokens for their own space. That is an
+    escalation boundary and lands as its own PR with its own red-team test — a partial one reads as enforced.
 - **`traverse` gained `includeMemories`, `includeFiles` and `includeEdges`, beside the existing `includeChrono`.** Owner ruling:
   the three inclusion flags should exist for consistency, with one asymmetry spelled out — *"edges need to be
   traversed regardless, just about if its included in results"*.

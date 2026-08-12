@@ -44,7 +44,7 @@ const LABEL: Record<Rung, string> = { none: '—', read: 'R', write: 'W', admin:
     @for (s of segments(); track s.rung) {
       <button type="button"
               [class]="s.classes"
-              [disabled]="s.clamped"
+              [disabled]="s.clamped || readonlyView()"
               [attr.aria-pressed]="s.filled"
               [attr.title]="s.title"
               (click)="pick(s.rung)">{{ s.label }}</button>
@@ -55,6 +55,14 @@ export class RungPickerComponent {
   value = input.required<Rung>();
   /** The floor for this area. A cell may never sit below it — see the class comment. */
   floor = input<Rung>('none');
+  /**
+   * Display only: every segment is disabled and no click emits.
+   *
+   * Added for the read-only view of a token`s OWN rights, so that view reuses this renderer instead of a
+   * second one. Two renderers of a permission grid is two places the colours and the clamping can disagree,
+   * and the one people trust would be whichever they happened to open.
+   */
+  readonlyView = input(false);
   changed = output<Rung>();
 
   segments = computed(() => {
@@ -76,6 +84,8 @@ export class RungPickerComponent {
   });
 
   pick(rung: Rung): void {
+    // Belt and braces: a disabled button cannot be clicked, but a caller could still call this.
+    if (this.readonlyView()) return;
     if (RANK[rung] < RANK[this.floor()]) return;
     // Clicking the rung you are already on steps down one, never below the floor. A control that can only
     // climb reads as resisting being narrowed, which is the direction anyone auditing wants to move.

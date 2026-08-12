@@ -86,11 +86,25 @@ console.log(`\n${YELLOW}todo/ consistency${R}  ${DIM}(owner rules 2026-08-02 and
   // shipped in #678, and P1 sat in section 1b with "CLOSED" in its own heading. Both announced their closure in a
   // *heading* rather than with a checkbox, so a checkbox-only check reported the queue clean. The rule is about
   // closed work being tracked as work, not about one syntax for saying so.
+  // 2026-08-13: four MORE shapes got through, and the owner had to say the rule again — *"only open and actionable
+  // items here. everything else in parked, reference or changelog"*. All four announced closure somewhere this
+  // check was not looking: inside a bullet rather than a heading, or in bold body text rather than a marker.
+  //
+  //   - [ ] **W-8 — PROMOTED TO WORK AND FIXED: …**        a bullet, not a heading
+  //   - `retry_embedding` — **DONE** (#842).               a nested bullet under an open item
+  //   **PROGRESS. The map shipped in #841 …**              bold body text
+  //
+  // The last one is the instructive one: it was ADDED during a tracker update, by me, with a note saying the
+  // history was "kept because its reasoning is what made the extraction necessary". That is always the argument,
+  // and the answer is that reasoning goes in `_REFERENCE.md` where it is read on demand.
   const CLOSED = [
     [/^\s*[-*]\s*\[x\]/im, 'a checked `[x]` item'],
     [/^\s*[-*]?\s*\*\*?SHIPPED/im, 'a SHIPPED marker'],
     [/^\s*#{1,4}\s+.*\b(SHIPPED|CLOSED|RESOLVED|DONE)\b/im, 'a heading announcing the item is finished'],
     [/^\s*[-*]\s*\[ \]\s*~~/im, 'a struck-through open item — delete it rather than crossing it out'],
+    [/\*\*DONE\*\*|\bDONE \(#\d+\)/i, 'a DONE marker inside an item — the closed part belongs in the CHANGELOG'],
+    [/\bAND FIXED\b|\bPROMOTED TO WORK AND\b/i, 'an item announcing its own fix'],
+    [/^\s*\*\*PROGRESS[.:]/im, 'a PROGRESS block — a record of what shipped, which is the CHANGELOG\'s job'],
   ];
   let clean = true;
   for (const f of files) {
@@ -195,6 +209,48 @@ console.log(`\n${YELLOW}todo/ consistency${R}  ${DIM}(owner rules 2026-08-02 and
   }
 }
 
+
+// ── rule 3b: a tracker holds WORK — not watches, and not things blocked on the owner
+{
+  /**
+   * The other half of *"only open and actionable items"* (owner, 2026-08-13). Rule 1 catches work that is FINISHED;
+   * this catches material that was never actionable in the first place, which is how the trackers actually grew:
+   *
+   *  - **a watch item.** Five of them, each saying so in its own text — *"A watch item, not work"*, *"WATCH, not
+   *    work"*. Nothing to do until it produces evidence, so it is a note. Its trigger belongs in
+   *    `_TODO-ORDERED.md §2` as one line, and its reasoning in `_REFERENCE.md`.
+   *  - **something blocked on the owner.** That is `_PARKED-DECISIONS.md`, and putting it in the open list is worse
+   *    than useless: it makes the queue look longer than the work, and "the queue is empty" — the release gate —
+   *    unreachable. Two were sitting in section 1 when this rule was written, one of them filed there by me the same
+   *    night.
+   *
+   * Both are matched on the item's OWN words, so an item does not become exempt by being described differently
+   * somewhere else. The phrasings are the ones that actually occurred, plus the obvious near-misses.
+   */
+  const NOT_WORK = [
+    [/\bwatch item\b/i, 'a watch item', 'its trigger goes in `_TODO-ORDERED.md §2`, its reasoning in `_REFERENCE.md`'],
+    [/\bWATCH,?\s+not\s+(a\s+)?(work|task)\b/i, 'an item labelled WATCH rather than work', 'same — §2 plus `_REFERENCE.md`'],
+    [/\bnot\s+work\s*[.:]/i, 'an item saying it is not work', 'same — §2 plus `_REFERENCE.md`'],
+    [/\bneeds? (an? )?owner (decision|call|word|sign.?off)\b/i, 'an item waiting on the owner', 'it belongs in `_PARKED-DECISIONS.md` with a recommended default'],
+    [/\bthat is a question for the owner\b/i, 'a question for the owner', 'it belongs in `_PARKED-DECISIONS.md` with a recommended default'],
+    [/\bis the owner['’]s call\b/i, "an owner's call", 'it belongs in `_PARKED-DECISIONS.md` with a recommended default'],
+  ];
+  let clean = true;
+  for (const f of files) {
+    if (NOT_A_QUEUE.has(f) || f === ORDERED) continue;   // §2 of the ordered file is where watch ROWS are allowed
+    const src = readFileSync(join(TODO, f), 'utf8');
+    for (const [re, what, where] of NOT_WORK) {
+      const m = re.exec(src);
+      if (!m) continue;
+      const line = src.slice(0, m.index).split(/\r?\n/).length;
+      fail(`${f}:${line} holds ${what}, which is not actionable work — ${where}.`);
+      clean = false;
+    }
+  }
+  console.log(clean
+    ? `${GREEN}  ✓${R} every tracker item is WORK, not a watch or an owner decision`
+    : `${RED}  ✗${R} a tracker holds something that is not actionable work`);
+}
 
 // ── rule 4: the working plan must describe work that is still ahead
 {

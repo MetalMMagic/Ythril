@@ -42,7 +42,7 @@ let tok;
 before(() => { tok = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim(); });
 
 /** A fresh UUID v4 per test, so one test's id can never make another's assertion pass. */
-const uuid = () => crypto.uuid();
+const uuid = () => crypto.randomUUID();
 
 /**
  * Identity, not count.

@@ -29,7 +29,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const ROOT = process.cwd();
-const API    = 'server/src/api/spaces.ts';
+// `TypeSchemaZ` moved out of the router into `spaces/body-schemas.ts`; this gate reads the schema, not the route.
+const API    = 'server/src/spaces/body-schemas.ts';
 const LIB    = 'server/src/api/schema-library.ts';
 const EDITOR = 'client/src/app/pages/settings/space-settings-state.service.ts';
 const TAB    = 'client/src/app/pages/settings/space-schema-tab.component.ts';

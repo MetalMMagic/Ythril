@@ -236,6 +236,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     records unfixable and undeletable. Being unable to delete the junk record you were warned not to create is
     worse than the bug being fixed.
 
+### Internal
+- **The space update's refusal chain is now a function both surfaces can call, and the router lost 195 lines.**
+  Three of the five REST-only capabilities breituai-platform reported are not wrappers: `updateSpace()` exists, but
+  `PATCH /api/spaces/:id` wrapped it in a chain of refusals, and a tool calling `updateSpace()` directly would skip
+  every one. That is *two surfaces, one rule, one weaker* — the defect being reintroduced by the fix for it.
+  - `spaces/meta-update.ts` owns the decisions: existence, the `If-Match` precondition, the strict parse, the
+    server-owned strip, the schema-library `$ref` check, the `description` → `meta.purpose` fold, the extraction-mode
+    cap, the record-TTL merge, and the audit snapshot. It returns a refusal carrying its HTTP status, or a plan. It
+    writes nothing — no config, no vote, no peer call — so the chain is testable without standing up Docker.
+  - `spaces/body-schemas.ts` holds the request bodies. Four of the router's five god-file ratchet raises were single
+    Zod lines, because `SpaceMetaBody` and `TypeSchemaZ` are `.strict()` and a field the API must accept has nowhere
+    smaller to go. The ratchet entry is **lowered 851 → 656** rather than deleted: dropping it is how a file quietly
+    earns back headroom it did not ask for.
+  - **No `apply` function yet, deliberately.** The writes stay in the route until the MCP tool needs them — an
+    interface extracted with one caller is designed against a guess.
+  - **Two gates could not simply be re-pointed, and that is the interesting part.** The broken-`$ref` sweep and the
+    `If-Match` ordering gate both required an INLINE call, which a delegating route does not have. Rather than
+    weaken them per route, each now resolves the delegate from the import list and requires the delegate's own
+    source to do the checking — so "the handler calls a function" is not an escape hatch. Both were mutation-tested
+    by removing the planner's check and confirming they still name `PATCH /:id`.
+  - Behaviour-preserving by construction: the code moved verbatim, and the ten-assertion contract suite that landed
+    against the unmoved handler passes unchanged against the extracted one.
+
 ### Testing
 - **The `PATCH /api/spaces/:id` refusal chain is pinned before it moves.** Three of the five REST-only
   capabilities need route-level validation extracted into something both MCP and REST call, and this route is the

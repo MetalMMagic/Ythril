@@ -28,291 +28,14 @@ import { proposedMetaFields } from '../sync/meta-round-merge.js';
 import type { SpaceMeta, KnowledgeType, TypeSchema } from '../config/types.js';
 import { DOC_EXTRACTION_MODES_IN, IMAGE_LEVELS, AUDIO_LEVELS, VIDEO_LEVELS, TEXT_LEVELS, normalizeDocExtractionMode } from '../config/types.js';
 import { writeFile as writeSpaceFile } from '../files/files.js';
-import { normaliseRecordTtl } from '../spaces/record-ttl.js';
+import {
+  TypeSchemaZ, TypeSchemasZ, SpaceMetaBody, SERVER_OWNED_META_FIELDS,
+  stripServerOwnedMeta, findBrokenLibraryRefs, brokenRefsError,
+  CreateSpaceBody, DeleteSpaceBody, RenameSpaceBody, ReorderSpacesBody, PutSchemaBody,
+} from '../spaces/body-schemas.js';
+import { planSpaceMetaUpdate } from '../spaces/meta-update.js';
 
 export const spacesRouter = Router();
-
-// ── Zod schema for PropertySchema ──────────────────────────────────────────
-/**
- * Exported for the standalone tests, which used to keep a hand-copy of this schema and drifted:
- * the copy was missing `required`, `default` and `type: "date"`, so it REJECTED bodies this accepts —
- * including every property the Schema tab sends, since `required` is an inline flag on the property.
- */
-export const PropertySchemaZ = z.object({
-  type: z.enum(['string', 'number', 'boolean', 'date']).optional(),
-  enum: z.array(z.union([z.string(), z.number(), z.boolean()])).optional(),
-  minimum: z.number().optional(),
-  maximum: z.number().optional(),
-  pattern: z.string().max(500).optional(),
-  mergeFn: z.enum(['avg', 'min', 'max', 'sum', 'and', 'or', 'xor']).optional(),
-  required: z.boolean().optional(),
-  default: z.union([z.string(), z.number(), z.boolean()]).optional(),
-}).strict().refine(data => {
-  if (!data.mergeFn) return true;
-  const numericFns = new Set(['avg', 'min', 'max', 'sum']);
-  const booleanFns = new Set(['and', 'or', 'xor']);
-  if (data.type === 'number') return numericFns.has(data.mergeFn);
-  if (data.type === 'boolean') return booleanFns.has(data.mergeFn);
-  // mergeFn requires a compatible type declaration
-  if (data.type === 'string' || data.type === 'date') return false;
-  // No type declared but mergeFn given — allow if the fn could be valid for some type
-  return numericFns.has(data.mergeFn) || booleanFns.has(data.mergeFn);
-}, {
-  message: 'mergeFn is incompatible with the declared type (numeric fns require type "number", boolean fns require type "boolean")',
-});
-
-const TypeSchemaZ = z.union([
-  // Reference to a schema library entry
-  z.object({
-    $ref: z.string().regex(/^library:[a-zA-Z0-9][a-zA-Z0-9._-]{0,199}$/, '$ref must be in format "library:<name>"'),
-  }).strict(),
-  // Inline schema definition
-  z.object({
-    namingPattern: z.string().max(500).optional(),
-    tagSuggestions: z.array(z.string().min(1).max(200)).max(200).optional(),
-    propertySchemas: z.record(z.string().min(1).max(200), PropertySchemaZ).optional(),
-    // The schema tier of record > schema > space. `.strict()` above means an unlisted key is REJECTED, so
-    // without this the field would be stripped from every PATCH and the feature would silently not exist.
-    retention: z.object({
-      days: z.number().int().positive().max(36500).optional(),
-      contentDays: z.number().int().positive().max(36500).optional(),
-    }).strict().refine(v => v.days !== undefined || v.contentDays !== undefined, {
-      message: 'retention needs days, contentDays, or both',
-    }).optional(),
-    // Same reasoning as `retention` above, and the same tier. Absent means NOT STATED and falls through to the
-    // space setting — which is why this is a plain optional boolean and not defaulted to `false` here. A default
-    // would turn "said nothing" into "said no" at the edge, and the tier resolver would never see the space.
-    suppressEmbeddings: z.boolean().optional(),
-  }).strict(),
-]);
-
-const TypeSchemasZ = z.object({
-  entity: z.record(z.string().min(1).max(200), TypeSchemaZ).optional(),
-  memory: z.record(z.string().min(1).max(200), TypeSchemaZ).optional(),
-  edge:   z.record(z.string().min(1).max(200), TypeSchemaZ).optional(),
-  chrono: z.record(z.string().min(1).max(200), TypeSchemaZ).optional(),
-}).strict();
-
-/**
- * Return names of any `$ref` library entries referenced in typeSchemas that do not
- * exist in the instance schema library.  Used to reject PATCH/PUT early with 422.
- */
-function findBrokenLibraryRefs(typeSchemas: z.infer<typeof TypeSchemasZ> | undefined): string[] {
-  if (!typeSchemas) return [];
-  const library = getSchemaLibrary();
-  const broken: string[] = [];
-  for (const ktMap of Object.values(typeSchemas)) {
-    if (!ktMap) continue;
-    for (const schema of Object.values(ktMap)) {
-      if (typeof schema === 'object' && schema !== null && '$ref' in schema) {
-        const ref = (schema as { $ref: string }).$ref;
-        const name = ref.startsWith('library:') ? ref.slice('library:'.length) : ref;
-        if (!library.some(e => e.name === name) && !broken.includes(name)) {
-          broken.push(name);
-        }
-      }
-    }
-  }
-  return broken;
-}
-
-const SpaceMetaBody = z.object({
-  purpose: z.string().max(SPACE_PURPOSE_MAX).optional(),
-  usageNotes: z.string().max(50_000).optional(),
-  validationMode: z.enum(['off', 'warn', 'strict']).optional(),
-  typeSchemas: TypeSchemasZ.optional(),
-  tagSuggestions: z.array(z.string().min(1).max(200)).max(200).optional(),
-  strictLinkage: z.boolean().optional(),
-  // The lowest of the three suppression tiers. `.strict()` above is why this has to be listed at all: without
-  // it the field would be REJECTED as unknown, not silently ignored — which is the right failure, but still a
-  // failure for a field the type now declares.
-  suppressEmbeddings: z.boolean().optional(),
-}).strict();
-
-/**
- * The three fields the server OWNS: it writes them, `GET` returns them, and a caller may not set them.
- *
- * They are stripped from an incoming `meta` rather than rejected by `.strict()`. Reported by an integrator
- * doing the obvious thing — `GET` a space, edit one field of `meta.typeSchemas`, `PATCH` it back — and getting
- * `unrecognized_keys` for three fields they never wrote and cannot omit without knowing to. Their ask was
- * *"either merge, or do not return what you will not accept"*, and this is the second half; the merge half
- * already shipped as `mergeSpaceMeta`.
- *
- * **Only these three, and `.strict()` still rejects everything else.** That distinction is the whole design:
- * a key the server itself emitted is echo-back noise and dropping it costs the caller nothing, while an
- * unknown key is a typo — and silently ignoring `validationMdoe` would let someone believe they had turned
- * validation on. Stripping everything would trade a real diagnostic for a convenience.
- *
- * The dry-run endpoint at the bottom of this file has stripped exactly these three since it was written, so
- * before this the two endpoints disagreed about whether a round-tripped body was acceptable. One of them had
- * to be wrong; the one that accepted it was right.
- */
-const SERVER_OWNED_META_FIELDS = ['version', 'updatedAt', 'previousVersions'] as const;
-
-/** Drop the server-owned housekeeping fields from an incoming `meta`, leaving everything else to Zod. */
-function stripServerOwnedMeta(meta: unknown): unknown {
-  if (meta == null || typeof meta !== 'object' || Array.isArray(meta)) return meta;
-  const copy: Record<string, unknown> = { ...(meta as Record<string, unknown>) };
-  for (const f of SERVER_OWNED_META_FIELDS) delete copy[f];
-  return copy;
-}
-
-// proxyFor accepts either the wildcard sentinel ['*'] or a list of specific space IDs
-const ProxyForZ = z.union([
-  z.tuple([z.literal('*')]),
-  z.array(z.string().min(1).max(40)).min(1),
-]);
-
-const CreateSpaceBody = z.object({
-  id: z.string().min(1).max(40).regex(/^[a-z0-9-]+$/).optional(),
-  label: z.string().min(1).max(200),
-  description: z.string().max(SPACE_PURPOSE_MAX).optional(),
-  folders: z.array(z.string()).optional(),
-  maxGiB: z.number().positive().optional(),
-  // Create-only, and deliberately absent from the update body: a populated gallery cannot be re-dimensioned,
-  // so offering the field on PATCH would be offering a change the index build then refuses.
-  // Bounds rather than an enum — 128 (MobileFaceNet class) and 512 (ArcFace, AdaFace, FaceNet, EdgeFace) are
-  // today's answers, and pinning an enum would make the next model a code change.
-  faceDescriptorDims: z.number().int().min(64).max(4096).optional(),
-  proxyFor: ProxyForZ.optional(),
-  meta: SpaceMetaBody.optional(),
-});
-
-const DeleteSpaceBody = z.object({
-  confirm: z.literal(true),
-});
-
-const RenameSpaceBody = z.object({
-  newId: z.string().min(1).max(40).regex(/^[a-z0-9-]+$/),
-});
-
-const DupeActionRuleBody = z.object({
-  minScore: z.number().min(0).max(1),
-  action: z.enum(['flag', 'automerge', 'notify']),
-  types: z.array(z.enum(['memory', 'entity', 'edge', 'chrono', 'file'])).optional(),
-  webhookUrl: z.string().url().refine(isSsrfSafeUrl, { message: SSRF_SAFE_MESSAGE }).optional(),
-}).strict();
-
-/** One bucket's window: a positive day count, or 0/null to clear it. Same bounds as the legacy scalar. */
-const TtlWindowZ = z.number().int().nonnegative().max(36500).nullable().optional();
-
-const UpdateSpaceBody = z.object({
-  label: z.string().min(1).max(200).optional(),
-  description: z.string().max(SPACE_PURPOSE_MAX).optional(),
-  maxGiB: z.number().positive().nullable().optional(),
-  meta: SpaceMetaBody.optional(),
-  /**
-   * How `meta.typeSchemas` combines with what is already stored. Default `merge`, which is the behaviour
-   * this endpoint has always had and which an integrator specifically asked for — a caller that edits one
-   * type must not have to resend the other forty.
-   *
-   * `replace` makes the payload authoritative: types absent from it are REMOVED. It exists because there
-   * was otherwise no way to delete a type at all. The settings UI deleted one, sent a payload that simply
-   * did not mention it, and `mergeSpaceMeta` faithfully preserved it — so a deletion could be performed,
-   * saved, and silently not happen. Reported by an integrator whose space had 21 foreign types they could
-   * not remove by any sequence of UI actions.
-   *
-   * Deliberately NOT a new endpoint. `PUT /:id/schema` already replaces wholesale, but it calls
-   * `updateSpace()` directly and so bypasses the network vote that a meta change on a networked space
-   * has to go through. Routing the UI's Save there would have traded a silent no-op for a silent
-   * consensus bypass.
-   */
-  typeSchemasMode: z.enum(['merge', 'replace']).optional(),
-  dupeRules: z.array(DupeActionRuleBody).max(20).optional(),
-  dupeMergeSurvivor: z.enum(['older', 'newer']).optional(),
-  dupeRulesOnInsert: z.boolean().optional(),
-  // F10: auto-TTL in days — the SPACE tier of record > schema > space. 0/null clears it; a positive value
-  // stamps every new/updated record with no closer window.
-  //
-  // TWO shapes. The scalar came first and is accepted forever, because a space that set one keeps working and
-  // this is local config a read-side widening can absorb. The object is per BUCKET, five of them: a space does
-  // not hold one kind of thing, and files share this tier while having no type for the schema tier to reach.
-  //
-  // A bucket set to 0 or null clears that bucket. `{}` is rejected: it says nothing, and accepting it would make
-  // "clear everything" and "change nothing" the same request.
-  recordTtlDays: z.union([
-    z.number().int().nonnegative().max(36500),
-    z.object({
-      entity: TtlWindowZ, memory: TtlWindowZ, edge: TtlWindowZ, chrono: TtlWindowZ, file: TtlWindowZ,
-    }).strict().refine(v => Object.values(v).some(x => x !== undefined), {
-      message: 'recordTtlDays needs at least one of entity, memory, edge, chrono or file',
-    }),
-  ]).nullable().optional(),
-  // F11-c: per-space document-extraction mode override. null clears it (inherit the instance default).
-  // `max` is accepted as the legacy spelling of `repair` and normalised on the way in.
-  documentExtraction: z.enum(DOC_EXTRACTION_MODES_IN).nullable().optional(),
-  // Per-space analysis level for the other media classes, capped by the instance ceiling.
-  // null clears the override so the space follows the instance again.
-  imageAnalysis: z.enum(IMAGE_LEVELS).nullable().optional(),
-  audioAnalysis: z.enum(AUDIO_LEVELS).nullable().optional(),
-  videoAnalysis: z.enum(VIDEO_LEVELS).nullable().optional(),
-  textAnalysis: z.enum(TEXT_LEVELS).nullable().optional(),
-}).refine(d => d.label !== undefined || d.description !== undefined || d.meta !== undefined || d.maxGiB !== undefined || d.dupeRules !== undefined || d.dupeMergeSurvivor !== undefined || d.dupeRulesOnInsert !== undefined || d.recordTtlDays !== undefined || d.documentExtraction !== undefined || d.imageAnalysis !== undefined || d.audioAnalysis !== undefined || d.videoAnalysis !== undefined || d.textAnalysis !== undefined, {
-  message: 'At least one of label, description, maxGiB, meta, dupeRules, dupeMergeSurvivor, dupeRulesOnInsert, recordTtlDays, documentExtraction, imageAnalysis, audioAnalysis, videoAnalysis, or textAnalysis must be provided',
-});
-
-const ReorderSpacesBody = z.object({
-  ids: z.array(z.string().min(1).max(40)).min(1),
-});
-
-const PutSchemaBody = z.object({
-  typeSchemas: TypeSchemasZ,
-});
-
-/**
- * Deep-merge an incoming PATCH `meta` payload into the existing SpaceMeta.
- *
- * - Scalar fields (purpose, usageNotes, validationMode, tagSuggestions,
- *   strictLinkage) overwrite the existing value when present in `incoming`.
- * - `typeSchemas` is merged per-knowledge-type, then per-type-name:
- *   types present in `incoming` are added or updated; types *not* mentioned
- *   in the request body are left untouched.
- *
- * The `version`, `updatedAt`, and `previousVersions` housekeeping fields are
- * intentionally omitted from the return value — `updateSpace()` re-adds them.
- */
-// Exported for testing only. The merge/replace decision is pure and is where a deletion was silently lost
-// for as long as it was; a unit test that reaches it directly is worth more than one that has to stand up
-// Docker and a network to observe the same branch.
-export function mergeSpaceMeta(
-  existing: SpaceMeta,
-  incoming: Partial<SpaceMeta>,
-  typeSchemasMode: 'merge' | 'replace' = 'merge',
-): Omit<SpaceMeta, 'version' | 'updatedAt' | 'previousVersions'> {
-  // Spread the existing base (drop housekeeping fields that updateSpace re-adds)
-  const { version: _v, updatedAt: _u, previousVersions: _pv, ...existingBase } = existing;
-  const merged: Omit<SpaceMeta, 'version' | 'updatedAt' | 'previousVersions'> = { ...existingBase };
-
-  // Scalar fields — replace if present in incoming
-  if (incoming.purpose !== undefined) merged.purpose = incoming.purpose;
-  if (incoming.usageNotes !== undefined) merged.usageNotes = incoming.usageNotes;
-  if (incoming.validationMode !== undefined) merged.validationMode = incoming.validationMode;
-  if (incoming.tagSuggestions !== undefined) merged.tagSuggestions = incoming.tagSuggestions;
-  if (incoming.strictLinkage !== undefined) merged.strictLinkage = incoming.strictLinkage;
-  // Guarded on `!== undefined`, not on truthiness. `suppressEmbeddings: false` is how an operator turns
-  // suppression back OFF, and a truthy guard would drop that patch and leave the space suppressed while
-  // answering 200 — the flag reporting one thing and the write path doing another.
-  if (incoming.suppressEmbeddings !== undefined) merged.suppressEmbeddings = incoming.suppressEmbeddings;
-
-  // typeSchemas — merge per-KT, per-type: incoming types add/update, existing untouched types preserved.
-  // Under `replace` the payload is authoritative instead, so a type absent from it is deleted. Note the
-  // guard is on `!== undefined`, so `replace` with `typeSchemas: {}` clears every type — which is the only
-  // way to express "this space declares nothing" and has to be reachable.
-  if (incoming.typeSchemas !== undefined && typeSchemasMode === 'replace') {
-    merged.typeSchemas = incoming.typeSchemas;
-  } else if (incoming.typeSchemas !== undefined) {
-    const existingTs = existingBase.typeSchemas ?? {};
-    const mergedTs: Partial<Record<KnowledgeType, Record<string, TypeSchema>>> = { ...existingTs };
-    for (const [kt, ktMap] of Object.entries(incoming.typeSchemas) as
-        [KnowledgeType, Record<string, TypeSchema> | undefined][]) {
-      if (!ktMap) continue;
-      mergedTs[kt] = { ...(existingTs[kt] ?? {}), ...ktMap };
-    }
-    merged.typeSchemas = mergedTs;
-  }
-
-  return merged;
-}
 
 // POST /api/spaces/:id/rebuild-indexes
 //
@@ -580,115 +303,53 @@ spacesRouter.post('/', globalRateLimit, requireAdminMfa, async (req, res) => {
 });
 
 // PATCH /api/spaces/:id
+//
+// Every refusal, and every value that has to be normalised before it is stored, is decided by
+// `planSpaceMetaUpdate` — so an MCP tool can reach the same rules instead of a weaker copy of them (B-2). What
+// stays here is the WRITE and how it is reported: the local settings, the network vote's 202, the peer notify.
+//
+// `space-meta-update-contract.test.js` pins the chain the planner now owns, including its ORDER, and it was proven
+// against this handler before the move.
 spacesRouter.patch('/:id', globalRateLimit, requireAdminMfaScoped('id'), async (req, res) => {
   const id = req.params['id'] as string;
   const cfg = getConfig();
-
   const space = cfg.spaces.find(s => s.id === id);
-  if (!space) {
-    res.status(404).json({ error: `Space '${id}' not found` });
+
+  const decision = planSpaceMetaUpdate({ spaceId: id, space, body: req.body, ifMatch: req.get('If-Match') });
+  if (!decision.ok) {
+    res.status(decision.refusal.status).json(decision.refusal.body);
     return;
   }
+  // `spaceRec` rather than the `space` above: the planner returns the record it validated, already narrowed to
+  // non-undefined by the 404 it would otherwise have produced.
+  const { space: spaceRec, data: patchData, mergedMeta, hasDocExtraction,
+    documentExtraction: cappedDocExtraction, hasRecordTtl, recordTtlDays: normalisedTtl, audit } = decision.plan;
 
-  // Optimistic concurrency: honour If-Match against the current meta version, if the client sent one.
-  // Runs before validation, the audit snapshot and every side effect — a rejected write must change
-  // nothing and record nothing.
-  const precondition = checkMetaPrecondition(req.get('If-Match'), space.meta?.version ?? 0);
-  if (!precondition.ok) {
-    res.status(precondition.status).json(preconditionErrorBody(precondition));
-    return;
-  }
-
-  // Accept what we emit: a caller who GETs a space, edits one field and PATCHes it back is doing the obvious
-  // thing, and `version`/`updatedAt`/`previousVersions` come straight out of our own response. Stripped, not
-  // rejected — and ONLY these three, so `.strict()` still catches a typo like `validationMdoe`, which someone
-  // would otherwise believe had turned validation on. See SERVER_OWNED_META_FIELDS.
-  const bodyForParse = req.body != null && typeof req.body === 'object' && !Array.isArray(req.body)
-    ? { ...(req.body as Record<string, unknown>), ...('meta' in (req.body as object) ? { meta: stripServerOwnedMeta((req.body as { meta?: unknown }).meta) } : {}) }
-    : req.body;
-
-  const parsed = UpdateSpaceBody.safeParse(bodyForParse);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
-
-  // `description` is the deprecated spelling of `meta.purpose`. Rewrite it into meta HERE, before any
-  // branching, so it travels the meta path in full: the $ref check, the merge, the version bump, and —
-  // the one that matters — the network vote. Applying it further down as a "non-meta update" would let a
-  // directive change skip governance in exactly the spaces that voted to govern it.
-  // `meta.purpose` wins when both are sent; it is the current name.
-  if (parsed.data.description !== undefined) {
-    const legacy = parsed.data.description.trim();
-    parsed.data.meta = { ...(parsed.data.meta ?? {}), ...(parsed.data.meta?.purpose === undefined ? { purpose: legacy } : {}) };
-    delete parsed.data.description;
-  }
-
-  // Snapshot for the audit log's change list, taken BEFORE anything is applied. Handing the whole record
-  // over is safe: `audit-changes.ts` reads only the fields allowlisted for `space.update` and never
-  // touches the rest, so this cannot publish something by carrying it. The middleware only records it on
-  // a <400 response, so a request rejected below logs no change.
-  req.auditSnapshots = {
-    before: { ...space, ...space.meta },
-    after: { ...space, ...space.meta, ...parsed.data, ...(parsed.data.meta ?? {}) },
-  };
-
-  // Validate any $ref values in the incoming meta against the instance schema library
-  if (parsed.data.meta?.typeSchemas) {
-    const brokenRefs = findBrokenLibraryRefs(parsed.data.meta.typeSchemas as z.infer<typeof TypeSchemasZ>);
-    if (brokenRefs.length > 0) {
-      res.status(422).json({ error: `Schema library ${brokenRefs.length === 1 ? 'entry' : 'entries'} not found: ${brokenRefs.join(', ')}. Create ${brokenRefs.length === 1 ? 'it' : 'them'} via POST /api/schema-library before referencing.` });
-      return;
-    }
-  }
+  // The audit middleware records this only on a <400 response, so a request the planner refused above logs no
+  // change. The snapshot pair was taken before anything was applied, which is what makes the change list honest.
+  req.auditSnapshots = audit;
 
   // Duplicate rules are local (never governed) — apply them now, so they are
   // not silently dropped when a meta change on the same request opens a
   // network vote and returns 202 below.
-  if (parsed.data.dupeRules !== undefined || parsed.data.dupeMergeSurvivor !== undefined || parsed.data.dupeRulesOnInsert !== undefined) {
-    updateSpace(id, { dupeRules: parsed.data.dupeRules, dupeMergeSurvivor: parsed.data.dupeMergeSurvivor, dupeRulesOnInsert: parsed.data.dupeRulesOnInsert });
+  if (patchData.dupeRules !== undefined || patchData.dupeMergeSurvivor !== undefined || patchData.dupeRulesOnInsert !== undefined) {
+    updateSpace(id, { dupeRules: patchData.dupeRules, dupeMergeSurvivor: patchData.dupeMergeSurvivor, dupeRulesOnInsert: patchData.dupeRulesOnInsert });
   }
 
   // Record TTL (F10) is a local operational setting (like dupe rules) — apply immediately, never voted.
-  // 0/null clears it. When enabled, ensure the sweep's `_expireAt` index (best-effort).
-  //
-  // A PARTIAL object MERGES over the stored windows, so `{"chrono":90}` does not silently clear the other four.
-  // That is the opposite of the `typeSchemas` rule one level down, and deliberately so: there a named type is a
-  // whole definition the caller holds, here each bucket is one independent number.
-  if (parsed.data.recordTtlDays !== undefined) {
-    const ttl = normaliseRecordTtl(space.recordTtlDays, parsed.data.recordTtlDays);
-    updateSpace(id, { recordTtlDays: ttl });
-    if (ttl !== undefined) void ensureTtlIndex(id).catch(err => log.warn(`ensureTtlIndex ${id}: ${err}`));
+  // 0/null clears it. When enabled, ensure the sweep's `_expireAt` index (best-effort). The value arrives
+  // already MERGED over what was stored (see the planner), so a partial write does not clear the buckets it
+  // did not mention; `hasRecordTtl` gates the write so a clear is applied rather than skipped as if absent.
+  if (hasRecordTtl) {
+    updateSpace(id, { recordTtlDays: normalisedTtl });
+    if (normalisedTtl !== undefined) void ensureTtlIndex(id).catch(err => log.warn(`ensureTtlIndex ${id}: ${err}`));
   }
 
-
-  // A space may pick any extraction mode up to the instance ceiling and nothing beyond. The client only
-  // offers valid options, but an API caller (or a space whose stored value predates a lowered ceiling)
-  // could still send more — so cap it here rather than store a value the runtime would only clamp later
-  // anyway. Distinguish field ABSENT (leave the override alone) from an explicit value: `null`/legacy
-  // clears it (stored as undefined), `auto` follows the ceiling, a concrete mode is capped to the
-  // ceiling. `hasDocExtraction` gates the write so a clear is applied, not skipped as if absent.
-  const hasDocExtraction = parsed.data.documentExtraction !== undefined;
-  const cappedDocExtraction = !hasDocExtraction
-    ? undefined
-    : (() => {
-        const requested = normalizeDocExtractionMode(parsed.data.documentExtraction);
-        if (!requested || requested === 'auto') return requested;  // null (clear → undefined) / auto pass through
-        return capDocExtractionMode(getDocumentProcessingConfig().mode ?? 'auto', requested);
-      })();
-
+  // Already capped to the instance ceiling by the planner. `hasDocExtraction` gates the write so a clear is
+  // applied, not skipped as if absent.
   if (hasDocExtraction) {
     updateSpace(id, { documentExtraction: cappedDocExtraction });
   }
-
-  // Merge the incoming meta with the existing meta so that PATCH has true
-  // RFC-7396 semantics: scalar fields overwrite, typeSchemas entries are
-  // added/updated, and types *not* mentioned in the body are preserved.
-  // `typeSchemasMode: 'replace'` opts out of that last clause so a deletion can be expressed at all.
-  const mergedMeta: SpaceMeta | undefined =
-    parsed.data.meta !== undefined
-      ? mergeSpaceMeta(space.meta ?? {}, parsed.data.meta, parsed.data.typeSchemasMode ?? 'merge')
-      : undefined;
 
   // ── Network voting for meta changes ──────────────────────────────────────
   // If this space is part of a network and a meta change is requested,
@@ -717,8 +378,8 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminMfaScoped('id'), async (
           // stay open for `votingDeadlineHours`, so a second proposal landing before the first concludes
           // is ordinary, and without these two fields the later one reverts the earlier one's edit with
           // no error anywhere. See sync/meta-round-merge.ts.
-          metaChangedFields: proposedMetaFields(parsed.data.meta ?? {}),
-          baseMetaVersion: space.meta?.version ?? 0,
+          metaChangedFields: proposedMetaFields(patchData.meta ?? {}),
+          baseMetaVersion: spaceRec.meta?.version ?? 0,
         });
         rounds.push({ networkId: net.id, networkLabel: net.label, roundId });
       }
@@ -726,8 +387,8 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminMfaScoped('id'), async (
       // Apply non-meta updates immediately (label, maxGiB). `description` is not among them any more:
       // it was rewritten into `meta.purpose` above, so it is in the vote with the rest of the meta.
       const nonMetaUpdates: { label?: string; maxGiB?: number | null } = {};
-      if (parsed.data.label !== undefined) nonMetaUpdates.label = parsed.data.label;
-      if (parsed.data.maxGiB !== undefined) nonMetaUpdates.maxGiB = parsed.data.maxGiB;
+      if (patchData.label !== undefined) nonMetaUpdates.label = patchData.label;
+      if (patchData.maxGiB !== undefined) nonMetaUpdates.maxGiB = patchData.maxGiB;
       if (Object.keys(nonMetaUpdates).length > 0) {
         updateSpace(id, nonMetaUpdates);
       } else {
@@ -747,7 +408,7 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminMfaScoped('id'), async (
               networkId: net.id,
               instanceId: cfg.instanceId,
               event: 'meta_change_pending',
-              data: { spaceId: id, spaceLabel: space.label },
+              data: { spaceId: id, spaceLabel: spaceRec.label },
             }),
             signal: AbortSignal.timeout(5_000),
           }).catch(err => log.warn(`notify ${member.label} of meta_change_pending: ${err}`));
@@ -766,7 +427,7 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminMfaScoped('id'), async (
   // stored and normalised. Letting the raw body through here overwrote that with itself — so a partial write
   // cleared the four buckets it did not mention, and an all-cleared write stored five explicit nulls instead of
   // nothing. Found by driving the UI; both paths returned 200 and looked like they had worked.
-  const { documentExtraction: _rawMode, recordTtlDays: _rawTtl, ...restPatch } = parsed.data;
+  const { documentExtraction: _rawMode, recordTtlDays: _rawTtl, ...restPatch } = patchData;
   const updated = updateSpace(id, {
     ...restPatch,
     meta: mergedMeta,

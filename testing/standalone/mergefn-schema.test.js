@@ -24,7 +24,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-const { PropertySchemaZ } = await import('../../server/dist/api/spaces.js');
+const { PropertySchemaZ } = await import('../../server/dist/spaces/body-schemas.js');
 
 const accepts = (input, why = '') => assert.ok(
   PropertySchemaZ.safeParse(input).success,

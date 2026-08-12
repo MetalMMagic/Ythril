@@ -142,6 +142,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     nothing would have said so.
 
 ### Fixed
+- **`npm run loop:check` reported the work queue as drained while eleven rows were open** — a development gate, so
+  nothing shipped wrong because of it, but the one gate whose whole job is refusing that exact claim.
+  - It counted rows whose ID began `Q-`, from a period when every row did. The queue was later re-keyed per domain
+    — `B-` architecture, `U-` UX, `T-` sync — and a prefix filter that matches nothing returns nothing, so the
+    count was zero and the verdict was printed in green.
+  - **A row's tier is now the section it sits under, not the letter in its ID.** Sections are what is maintained by
+    hand, and one row proves the ID cannot stand in for a tier: `W-8` is open work carrying a watch-tier ID because
+    its home tracker keyed it that way. The rule defaults to *work* for any heading it does not recognise —
+    over-counting says "keep working", under-counting drains the queue silently.
+  - **A second under-count, on healthy rows:** a status was read as finished if `done`, `shipped` or `merged`
+    appeared anywhere in it, so `2 wrappers shipped (#842, #843)` — three fifths remaining — dropped out of the
+    queue. The marker now has to be the entire cell.
 - **A token stored with `spaces: null` came out of the 2.6 rights migration reaching NOTHING.** Reported from a
   live instance (aigents, 2026-08-12T1620Z) with the evidence attached: an unscoped persona token kept answering
   reads and was refused every write, so nothing alerted and it lost writes quietly for two days.

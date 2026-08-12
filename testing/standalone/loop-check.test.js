@@ -17,31 +17,65 @@ import { parseRows, sourceFiles } from '../../scripts/loop-check.mjs';
 
 const TABLE = `# Ordered queue
 
-| # | What | Home | Status | Remark |
+## 1 · Open work, in shipping order
+
+| # | Task | Home | Status | Remark |
 |---|------|------|--------|--------|
 | Q-2 | suppressEmbeddings per type | QA | in progress | tier resolver merged |
-| Q-3 | Split config/types.ts | ARCH | open | |
-| Q-4 | Authenticate CI compose pull | ARCH | open | measure first |
+| B-3 | Split config/types.ts | ARCH | open | |
+| U-9 | token rights: admin edit tier | UX | tiers 1+3 done, #840 shipped the self-view | own PR |
+| W-8 | Dockerfile still fetches CUDA | QA | fixed in CI, owner call on the image | 3x npm ci |
 
-## Watching
+## 2 · Watch items — NOT work
 
-| # | What | Home | Status | Remark |
+| # | Watch item | Home | Status | Remark |
 |---|------|------|--------|--------|
 | W-1 | Mongo boot race | QA | watching | |
 
-## Parked
+## 3 · Parked — an owner decision is missing
 
 | # | What | Home | Status | Remark |
 |---|------|------|--------|--------|
 | P-1 | F11-b assist model | FEAT | parked | owner decision |
+
+## 4 · The release
+
+| # | What | Home | Status | Remark |
+|---|------|------|--------|--------|
+| R-1 | Cut the tag | LOOP | after the drain | |
 `;
 
 describe('the queue rows', () => {
-  it('counts the Q- tier and nothing else', () => {
-    // W- and P- rows are why the file can be "drained" while still listing things. Counting them would make
-    // the queue permanently non-empty, and "cut the tag when the queue is empty" unreachable — the same defect
-    // the retired `behind the tag` tier had.
-    assert.deepEqual(parseRows(TABLE).map((r) => r.id), ['Q-2', 'Q-3', 'Q-4']);
+  it('counts every ID prefix the open section uses', () => {
+    // The bug this replaced: the filter was `id.startsWith('Q-')`, from a period when every row was a `Q-`. The
+    // queue was later re-keyed per domain — `B-` architecture, `U-` UX, `T-` sync — and the gate went on counting
+    // a prefix that no longer existed. It reported "the queue is drained" with eleven rows open, which is the
+    // exact state it was written to refuse, and it reported it in green.
+    assert.deepEqual(parseRows(TABLE).map((r) => r.id), ['Q-2', 'B-3', 'U-9', 'W-8']);
+  });
+
+  it('reads the SECTION, not the prefix — so a W- row of real work counts', () => {
+    // `W-8` is open work that happens to carry a watch-tier ID, because its home tracker keyed it that way. Under
+    // the old prefix rule it was invisible; under the section rule it counts, and `W-1` two headings down does not.
+    // Membership is where a row was filed, which is the thing the owner actually maintains.
+    const ids = parseRows(TABLE).map((r) => r.id);
+    assert.ok(ids.includes('W-8'), 'a W- row inside the open section is work');
+    assert.ok(!ids.includes('W-1'), 'a W- row under Watch items is not');
+  });
+
+  it('excludes the watch, parked and release sections', () => {
+    // These are why the file can be "drained" while still listing things. Counting them would make the queue
+    // permanently non-empty, and "cut the tag when the queue is empty" unreachable — the same defect the retired
+    // `behind the tag` tier had.
+    const ids = parseRows(TABLE).map((r) => r.id);
+    assert.ok(!ids.includes('P-1'));
+    assert.ok(!ids.includes('R-1'));
+  });
+
+  it('counts rows that appear before any heading', () => {
+    // A bare table with no `##` above it is the shape every earlier version of this file had, and the shape a
+    // hand-written fixture takes. Defaulting an unlabelled section to CLOSED would silently drain the queue.
+    assert.deepEqual(parseRows('| B-1 | a thing | ARCH | open | |\n').map((r) => r.id), ['B-1']);
   });
 
   it('keeps what the next row IS, so the refusal can name it', () => {
@@ -57,8 +91,26 @@ describe('the queue rows', () => {
   it('a row marked done is not open', () => {
     // The queue is what is left, not what was listed. `todo/` is supposed to hold open items only, but a status
     // cell is the one place a shipped row can linger before the tracker reconcile catches it.
-    const done = TABLE.replace('| Q-3 | Split config/types.ts | ARCH | open |', '| Q-3 | Split config/types.ts | ARCH | shipped |');
-    assert.deepEqual(parseRows(done).map((r) => r.id), ['Q-2', 'Q-4']);
+    const done = TABLE.replace('| B-3 | Split config/types.ts | ARCH | open |', '| B-3 | Split config/types.ts | ARCH | shipped (#812) |');
+    assert.deepEqual(parseRows(done).map((r) => r.id), ['Q-2', 'U-9', 'W-8']);
+  });
+
+  it('a status reporting PARTIAL progress is still open', () => {
+    // The second under-count, and the more dangerous one because it fires on healthy rows. The test was
+    // `/\b(done|shipped|merged)\b/` anywhere in the cell, so `2 wrappers shipped (#842, #843)` — a row three
+    // fifths finished — read as finished, as did `tiers 1+3 done, #840 shipped the self-view`. A partially
+    // shipped row is the most common status in this file.
+    const partial = TABLE.replace('| B-3 | Split config/types.ts | ARCH | open |', '| B-3 | Split config/types.ts | ARCH | 2 wrappers shipped (#842, #843) |');
+    assert.ok(parseRows(partial).map((r) => r.id).includes('B-3'));
+    assert.ok(parseRows(TABLE).map((r) => r.id).includes('U-9'), 'tiers 1+3 done, #840 shipped ... is open work');
+  });
+
+  it('treats a done marker with prose after it as open', () => {
+    // Deliberately conservative: over-counting makes the gate say "keep working", under-counting makes it say
+    // "drained" on a queue that is not. Only one of those two failures is survivable, so anything the rule cannot
+    // read as unambiguously finished stays in the queue.
+    const hedged = TABLE.replace('| B-3 | Split config/types.ts | ARCH | open |', '| B-3 | Split config/types.ts | ARCH | done except the migration |');
+    assert.ok(parseRows(hedged).map((r) => r.id).includes('B-3'));
   });
 
   it('an empty file is a drained queue, not a parse failure', () => {

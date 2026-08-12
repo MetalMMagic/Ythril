@@ -29,7 +29,14 @@ before(async () => {
 });
 
 /** The legacy rule, written out so the comparison is against a statement of it rather than against itself. */
-const legacyReaches = (t, spaceId) => (t.schemaLibrary ? false : t.spaces === undefined || t.spaces.includes(spaceId));
+/**
+ * The legacy rule, written out so the comparison is against a statement of it rather than against itself.
+ *
+ * `t.spaces == null` and not `=== undefined`. This helper carried the SAME blind spot as the code it checks,
+ * which is why a stored `spaces: null` passed every test here and still lost an unscoped token every space it
+ * had on a live instance. A measurement that shares its subject`s assumption cannot contradict it.
+ */
+const legacyReaches = (t, spaceId) => (t.schemaLibrary ? false : t.spaces == null || t.spaces.includes(spaceId));
 
 describe('rights-based reach agrees with the legacy allowlist', () => {
   it('agrees for every token shape, on listed, unlisted and future spaces', () => {
@@ -39,6 +46,8 @@ describe('rights-based reach agrees with the legacy allowlist', () => {
       { admin: true, spaces: ['qa'] }, { readOnly: true, spaces: ['qa'] },
       { schemaLibrary: true, readOnly: true, spaces: [] },
       { peerInstanceId: 'i-1', spaces: ['fleet'] },
+      // Reported from a live instance: an unscoped token stored as `null` rather than as an absent key.
+      { spaces: null }, { readOnly: true, spaces: null }, { admin: true, spaces: null },
     ];
     // 'created-later' is in nobody's list: it stands for a space that did not exist when the token was
     // minted, which is the case the floor exists to express and the one an allowlist answers by omission.
@@ -55,7 +64,7 @@ describe('rights-based reach agrees with the legacy allowlist', () => {
       }
     }
     // Asserted so a loop that silently stops iterating cannot pass as agreement.
-    assert.equal(compared, shapes.length * spaces.length, `expected 50 comparisons, made ${compared}`);
+    assert.equal(compared, shapes.length * spaces.length, `expected ${shapes.length * spaces.length} comparisons, made ${compared}`);
   });
 
   it('an unscoped token reaches a space created after it was minted', () => {
@@ -77,5 +86,54 @@ describe('rights-based reach agrees with the legacy allowlist', () => {
     const neverReaches = { floor: null, perSpace: {} };
     assert.equal(reachesSpace(neverReaches, 'anything'), false,
       'a token with no floor and no rows must reach nothing — otherwise the check cannot refuse at all');
+  });
+});
+
+/**
+ * `spaces: null` — reported from a live instance, and the case every test here was blind to.
+ *
+ * aigents, 2026-08-12: a token stored with `spaces: null` (unscoped in the legacy model) came out of the
+ * migration reaching NOTHING. It kept answering reads and refused every write, so nothing alerted and it lost
+ * writes quietly for two days — a silent downgrade rather than a refusal.
+ *
+ * The cause was a type that said `null` was impossible (`spaces?: string[]`) and a check that tested
+ * `=== undefined`. A stored `null` fell through to the loop that iterates the allowlist, which threw on it.
+ * `grantsMoreThan` in the same file already wrote `t.spaces ?? []`, so one migration disagreed with itself
+ * about whether `null` could occur.
+ */
+describe('an unscoped token stored as null is still unscoped', () => {
+  it('gets a FLOOR, exactly as an absent allowlist does', () => {
+    const fromNull = migrateToken({ spaces: null });
+    const fromAbsent = migrateToken({});
+    assert.deepEqual(fromNull, fromAbsent,
+      'null and absent both mean "no allowlist", so they must migrate identically');
+    assert.ok(fromNull.floor, 'a floor is what carries "every space, including future ones"');
+  });
+
+  it('reaches the spaces it reached before, and a space created later', () => {
+    const r = migrateToken({ spaces: null });
+    for (const s of ['qa', 'liaison', 'invented-tomorrow']) {
+      assert.equal(reachesSpace(r, s), true, `an unscoped token must still reach '${s}'`);
+    }
+  });
+
+  it('keeps its RUNG — the downgrade was to none, which is what hid it', () => {
+    // A write token that can read everywhere and write nowhere still talks. That is why two days passed.
+    assert.equal(migrateToken({ spaces: null }).floor.knowledge, 'write');
+    assert.equal(migrateToken({ readOnly: true, spaces: null }).floor.knowledge, 'read');
+    assert.equal(migrateToken({ admin: true, spaces: null }).floor.knowledge, 'admin');
+  });
+
+  it('does not throw on it, which is how the reach was lost', () => {
+    // The original failure mode: `for (const id of null)` is a TypeError, not a 403.
+    assert.doesNotThrow(() => migrateToken({ spaces: null }));
+    assert.doesNotThrow(() => migrateToken({ admin: true, spaces: null }));
+  });
+
+  it('and `[]` still means NOTHING — the fix must not widen the narrowest token', () => {
+    // The other direction, asserted alongside: an empty allowlist reached nothing before and must still.
+    const r = migrateToken({ spaces: [] });
+    assert.equal(r.floor, null, 'an empty allowlist must not acquire a floor');
+    assert.equal(reachesSpace(r, 'qa'), false);
   });
 });

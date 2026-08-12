@@ -6,6 +6,53 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- **`traverse` gained `includeMemories`, `includeFiles` and `includeEdges`, beside the existing `includeChrono`.** Owner ruling:
+  the three inclusion flags should exist for consistency, with one asymmetry spelled out — *"edges need to be
+  traversed regardless, just about if its included in results"*.
+  - `includeMemories` (default **false**) follows `memory.entityIds` the way `includeChrono` follows
+    `chrono.entityIds`. Memory nodes carry `kind: "memory"`, their `name` is the `fact`, and the synthetic edge
+    is labelled `memory.entityIds` with the memory's own id — so `edgeLabels` filters it like any relationship.
+  - **It is opt-in where chrono is opt-out, deliberately.** Chrono entries are sparse and were invisible without
+    traversal; memories are usually the most numerous record type, and every node counts against `limit`. On by
+    default, a memory-heavy space would fill the answer with memories and truncate away the entities the caller
+    traversed for — a flag that starves the primary result is worse than one you have to know about.
+  - `includeFiles` (default **false**) does the same through `file.entityIds`, and returns **file meta only** —
+    path, `description`, `tags`. Never passage text: a file body is its chunks, the largest thing the product
+    stores, and a structural walk must not pay for them. Owner: *"what about files btw (return only the
+    filemeta of course)"*.
+  - That one has a trap worth naming: **chunks live in the same collection as their file**, told apart only by
+    `parentFileId`. Without excluding them, a forty-passage document would arrive as forty nodes carrying text
+    and exhaust `limit` on one file. The predicate is the same one the space-stats file count already uses.
+  - `includeEdges` (default true) drops the `edges` list from the response and **does not change the walk**:
+    edges are how the graph is traversed, so the node set is identical either way. An integration test asserts
+    exactly that, comparing node ids across both calls rather than only checking the array is empty.
+  - All three land on **both surfaces** — REST and the MCP `traverse` tool, whose schema is
+    `additionalProperties: false`, so an undeclared flag there is rejected rather than ignored. `TraverseNode.kind`
+    on the client had never declared even `'chrono'`; it now types both kinds.
+  - The three return sites in `traverseGraph` route through one `answer()` helper. A rule copied three times is a
+    rule that will eventually disagree with itself.
+- **The rights grid now says what each right grants — in plain language and as the endpoints it reaches.**
+  Owner: *"tooltips are missing on what a right grants (non-technical and technical endpoints list)"*. An
+  operator setting a token`s rights was choosing from a 4×4 grid of bare words; `grep -c "tokens.rights"` over
+  the locale file returned **3**, none of them an explanation, and the column headers printed the code`s own
+  identifiers — `dataQuality` included, untranslated.
+  - New `GET /api/tokens/rights-catalog` serves `ROUTE_RIGHTS` — the 76-route table the server **enforces**
+    against, each row carrying its area and the lowest rung that reaches it. **Authenticated, not admin:** the
+    caller who most needs the explanation is the non-admin reading their own rights.
+  - The client holds **no copy** of that table. A second list of endpoints would be a second copy of a security
+    control, and when two copies disagree the one people read is the wrong one. A gate asserts the client never
+    spells out a governed route.
+  - The endpoint list is **cumulative**, because a rung contains the one below: `write` shows every `read` route
+    too, each annotated with the rung it comes from. Listing only what a rung adds would understate the grant,
+    and on a permissions screen the safe direction to be wrong in is to overstate.
+  - **Eight authored sentences, not sixteen.** A rung means the same thing in every area, so four area
+    descriptions plus three rung descriptions say everything an area×rung matrix would — without the twelve
+    restatements that can drift apart. Gated for completeness across en/de/pl, so a fifth area cannot ship
+    without saying what it grants.
+  - The grid keeps working when the catalog does not load: the plain-language half still renders and the panel
+    says the endpoint list is unavailable. A tooltip must not take the editor with it.
+
 ### Changed
 - **BREAKING: a record's id is server-generated. A caller can no longer choose one.** Owner ruling: *"we do not
   accept custom ids … id is id."*
@@ -33,6 +80,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     nothing would have said so.
 
 ### Fixed
+- **A token stored with `spaces: null` came out of the 2.6 rights migration reaching NOTHING.** Reported from a
+  live instance (aigents, 2026-08-12T1620Z) with the evidence attached: an unscoped persona token kept answering
+  reads and was refused every write, so nothing alerted and it lost writes quietly for two days.
+  - `spaces` was typed `string[] | undefined`, so the compiler agreed `null` was impossible. The migration then
+    tested `=== undefined`, a stored `null` fell through to the loop that iterates the allowlist, and iterating
+    `null` throws. **`null` and an absent key mean the same thing** — no allowlist, therefore every space — and
+    both now map to a floor.
+  - `grantsMoreThan` in the same file already wrote `t.spaces ?? []`, so one migration disagreed with itself
+    about whether `null` could occur. That disagreement was the bug, not the operator`s data.
+  - **The test suite shared the blind spot.** `rights-reach-matches-legacy` wrote its own statement of the legacy
+    rule as `t.spaces === undefined` — the same assumption as the code it checks — so a `null` passed every
+    assertion. A measurement that shares its subject`s assumption cannot contradict it. Fixed, and three `null`
+    shapes joined the matrix sweep.
+  - `spaces: []` still means nothing, asserted alongside: the fix must not widen the narrowest token.
+  - Putting the old check back is now a COMPILE error (`TS18047`), which is a stronger guarantee than a test.
+    Mutation-tested with a variant that does compile, and the tests catch that too.
 - **The recall panel could not ask for two things the API has always accepted.** The owner asked where the search
   is that has every field `recall` takes via MCP. It is Brain → Query → Semantic Search, and the answer was ten of
   the twelve.
@@ -112,31 +175,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     hole the audit turned up on the way.
 
 ### Added
-- **`traverse` gained `includeMemories`, `includeFiles` and `includeEdges`, beside the existing `includeChrono`.** Owner ruling:
-  the three inclusion flags should exist for consistency, with one asymmetry spelled out — *"edges need to be
-  traversed regardless, just about if its included in results"*.
-  - `includeMemories` (default **false**) follows `memory.entityIds` the way `includeChrono` follows
-    `chrono.entityIds`. Memory nodes carry `kind: "memory"`, their `name` is the `fact`, and the synthetic edge
-    is labelled `memory.entityIds` with the memory's own id — so `edgeLabels` filters it like any relationship.
-  - **It is opt-in where chrono is opt-out, deliberately.** Chrono entries are sparse and were invisible without
-    traversal; memories are usually the most numerous record type, and every node counts against `limit`. On by
-    default, a memory-heavy space would fill the answer with memories and truncate away the entities the caller
-    traversed for — a flag that starves the primary result is worse than one you have to know about.
-  - `includeFiles` (default **false**) does the same through `file.entityIds`, and returns **file meta only** —
-    path, `description`, `tags`. Never passage text: a file body is its chunks, the largest thing the product
-    stores, and a structural walk must not pay for them. Owner: *"what about files btw (return only the
-    filemeta of course)"*.
-  - That one has a trap worth naming: **chunks live in the same collection as their file**, told apart only by
-    `parentFileId`. Without excluding them, a forty-passage document would arrive as forty nodes carrying text
-    and exhaust `limit` on one file. The predicate is the same one the space-stats file count already uses.
-  - `includeEdges` (default true) drops the `edges` list from the response and **does not change the walk**:
-    edges are how the graph is traversed, so the node set is identical either way. An integration test asserts
-    exactly that, comparing node ids across both calls rather than only checking the array is empty.
-  - All three land on **both surfaces** — REST and the MCP `traverse` tool, whose schema is
-    `additionalProperties: false`, so an undeclared flag there is rejected rather than ignored. `TraverseNode.kind`
-    on the client had never declared even `'chrono'`; it now types both kinds.
-  - The three return sites in `traverseGraph` route through one `answer()` helper. A rule copied three times is a
-    rule that will eventually disagree with itself.
 - **A space's recorded usage can be reset** — `POST /api/spaces/:spaceId/activity/reset`, admin + MFA, scoped to
   the space. Deletes the hourly buckets behind the Overview usage panel, so a space hammered once during a
   migration stops reading as busy for the rest of the window.

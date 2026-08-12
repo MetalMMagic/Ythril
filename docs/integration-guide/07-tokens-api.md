@@ -38,6 +38,38 @@ Returns the full stored token record minus its `hash`. Besides the fields above 
 
 ---
 
+### What a right grants
+
+```http
+GET /api/tokens/rights-catalog
+Authorization: Bearer <token>
+```
+
+**Authenticated, not admin** — the caller who most needs this is one reading the rights they themselves hold.
+
+```json
+{
+  "areas": ["knowledge", "files", "schema", "dataQuality"],
+  "rungs": ["none", "read", "write", "admin"],
+  "routes": [
+    { "area": "knowledge", "method": "POST", "route": "/api/brain/spaces/:spaceId/recall", "needs": "read" },
+    { "area": "files", "method": "DELETE", "route": "/api/files/:spaceId", "needs": "write" }
+  ]
+}
+```
+
+This is the table the server **enforces** against, not a description of it, so it cannot disagree with the gate.
+Use it instead of maintaining your own map of rights to endpoints.
+
+**`needs` is the lowest sufficient rung, and rungs contain the ones below.** So the endpoints reachable at
+`write` are every route in that area whose `needs` is `read` *or* `write` — filter with
+`rungs.indexOf(needs) <= rungs.indexOf(yourRung)`. A list of only the routes whose `needs` equals your rung
+would understate what you hold.
+
+`none` reaches nothing, and no route is ever listed with `needs: "none"`.
+
+---
+
 ### List Tokens
 
 ```http

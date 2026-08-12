@@ -41,7 +41,15 @@ export interface MigratedRights {
 export interface LegacyToken {
   admin?: boolean;
   readOnly?: boolean;
-  spaces?: string[];
+  /**
+   * `null` is declared, not tolerated by accident.
+   *
+   * This shape comes from `config.json`, so anything JSON can hold, it can hold — and a stored `spaces: null`
+   * is exactly as real as an absent key. Typing it `string[] | undefined` let the compiler agree that `null`
+   * was impossible, and the migration below then tested `=== undefined` and fell through on it. Reported from
+   * a live instance (aigents, 2026-08-12): an unscoped token stored as `null` lost every space it had.
+   */
+  spaces?: string[] | null;
   schemaLibrary?: boolean;
   peerInstanceId?: string;
 }
@@ -79,8 +87,17 @@ export function migrateToken(t: LegacyToken): MigratedRights {
   // `spaces` absent means "all spaces" in the old model, including future ones. That is exactly a floor.
   // `spaces: []` is NOT the same as absent — an empty allowlist reaches nothing, and the create route can
   // produce one (a schemaLibrary token stores `[]`). Treating empty as absent would turn the narrowest
-  // token into the widest, so the check is on `undefined`, never on length.
-  if (t.spaces === undefined) {
+  // token into the widest, so the check is on ABSENCE, never on length.
+  //
+  // `== null` and not `=== undefined`: a stored `null` means the same thing as an absent key — no allowlist,
+  // therefore every space — and it reached this function from real config. Under `=== undefined` a `null` fell
+  // through to the loop below, which then iterated `null` and threw, so an unscoped token ended up reaching
+  // NOTHING. It is a silent downgrade rather than a refusal: the token keeps answering reads and every write
+  // is refused, which is why it went unnoticed for two days on the instance that reported it.
+  //
+  // `grantsMoreThan` in this same file already wrote `t.spaces ?? []`, so the two halves of one migration
+  // disagreed about whether `null` could happen. That disagreement is the bug, not the operator's data.
+  if (t.spaces == null) {
     return {
       instanceAdmin: t.admin === true,
       // Creating spaces was an admin-only act, so only an admin token carries it forward. A non-admin token
@@ -111,7 +128,10 @@ export function migrateToken(t: LegacyToken): MigratedRights {
  * anything about one nobody thought of.
  */
 export function grantsMoreThan(t: LegacyToken, r: MigratedRights): boolean {
-  const legacyReachesAllSpaces = !t.schemaLibrary && t.spaces === undefined;
+  // `== null` for the same reason as the migration itself: absent and `null` both mean "no allowlist". Left as
+  // `=== undefined`, this predicate would call the CORRECTED migration a widening and refuse it — the guard
+  // would block the fix rather than the bug.
+  const legacyReachesAllSpaces = !t.schemaLibrary && t.spaces == null;
   if (r.floor && !legacyReachesAllSpaces) return true;                   // a floor where there was no reach
   if (r.instanceAdmin && t.admin !== true) return true;                  // admin from a non-admin token
   if (r.createSpaces && t.admin !== true) return true;                   // ditto

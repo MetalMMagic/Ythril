@@ -1,9 +1,32 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { signal } from '@angular/core';
 import { RightsMatrixComponent } from './rights-matrix.component';
+import { RightsCatalogService } from './rights-catalog.service';
+import { getTranslocoModule } from '../../testing/transloco-testing';
 import type { TokenRights } from './rights-glyph.component';
 
 const rights = (over: Partial<TokenRights> = {}): TokenRights =>
   ({ instanceAdmin: false, createSpaces: false, floor: null, perSpace: {}, ...over });
+
+/** A stub catalog, so the grid's own tests never depend on the endpoint that explains it. */
+const CATALOG_ROUTES = [
+  { area: 'knowledge', method: 'POST', route: '/api/x/recall', needs: 'read' as const },
+  { area: 'knowledge', method: 'DELETE', route: '/api/x/memories/:id', needs: 'write' as const },
+  { area: 'files', method: 'GET', route: '/api/x/files', needs: 'read' as const },
+];
+function stubCatalog(loaded = true) {
+  const catalog = signal(loaded
+    ? { areas: ['knowledge', 'files', 'schema', 'dataQuality'], rungs: ['none', 'read', 'write', 'admin'] as const, routes: CATALOG_ROUTES }
+    : null);
+  return {
+    catalog, failed: signal(!loaded), load: () => {},
+    routesFor: (area: string, rung: string) => {
+      const order = ['none', 'read', 'write', 'admin'].indexOf(rung);
+      return CATALOG_ROUTES.filter(r => r.area === area && ['none', 'read', 'write', 'admin'].indexOf(r.needs) <= order);
+    },
+    countFor: (area: string) => CATALOG_ROUTES.filter(r => r.area === area).length,
+  };
+}
 
 describe('RightsMatrixComponent', () => {
   let fixture: ComponentFixture<RightsMatrixComponent>;
@@ -20,7 +43,10 @@ describe('RightsMatrixComponent', () => {
   };
 
   beforeEach(async () => {
-    await TestBed.configureTestingModule({ imports: [RightsMatrixComponent] }).compileComponents();
+    await TestBed.configureTestingModule({
+      imports: [RightsMatrixComponent, getTranslocoModule()],
+      providers: [{ provide: RightsCatalogService, useValue: stubCatalog() }],
+    }).compileComponents();
   });
 
   it('puts the floor row FIRST, then one row per space', () => {
@@ -28,7 +54,7 @@ describe('RightsMatrixComponent', () => {
     const rows = [...el.querySelectorAll('tbody tr')];
     expect(rows.length).toBe(3);
     expect(rows[0]!.className).toContain('floor');
-    expect(rows[0]!.querySelector('td.l')!.textContent).toContain('All spaces');
+    expect(rows[0]!.querySelector('td.l')!.textContent).toContain('tokens.rights.allSpaces');
     expect(rows[1]!.querySelector('td.l')!.textContent).toContain('qa');
   });
 
@@ -87,5 +113,108 @@ describe('RightsMatrixComponent', () => {
     const el = render(rights(), []);
     expect(el.querySelectorAll('tbody tr').length).toBe(1);
     expect(el.querySelector('tbody tr')!.className).toContain('floor');
+  });
+});
+
+/**
+ * The owner's ask: a right must say what it grants, in plain language AND as the endpoints it reaches.
+ * Before this the grid was 4×4 bare words, and the column headers printed the code identifiers.
+ */
+describe('RightsMatrixComponent — what a right grants', () => {
+  const render = (r: TokenRights, spaces = ['qa']) => {
+    const fixture = TestBed.createComponent(RightsMatrixComponent);
+    fixture.componentRef.setInput('rights', r);
+    fixture.componentRef.setInput('spaces', spaces);
+    fixture.detectChanges();
+    return fixture;
+  };
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [RightsMatrixComponent, getTranslocoModule()],
+      providers: [{ provide: RightsCatalogService, useValue: stubCatalog() }],
+    }).compileComponents();
+  });
+
+  it('every column header carries the plain-language description as a tooltip', () => {
+    const el = render(rights()).nativeElement as HTMLElement;
+    const buttons = [...el.querySelectorAll('thead .area-info')];
+    expect(buttons.length).toBe(4);
+    for (const b of buttons) {
+      // The non-technical half needs no click — it is on the header itself.
+      expect(b.getAttribute('title')).toMatch(/^tokens\.rights\.area\.\w+\.desc$/);
+    }
+  });
+
+  it('no panel is open until asked, and it opens for the area clicked', () => {
+    const fixture = render(rights());
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('.explain')).toBeNull();
+
+    (el.querySelectorAll('thead .area-info')[0] as HTMLButtonElement).click();
+    fixture.detectChanges();
+    const panel = el.querySelector('.explain')!;
+    expect(panel).toBeTruthy();
+    expect(panel.querySelector('h4')!.textContent).toContain('tokens.rights.area.knowledge');
+  });
+
+  it('the panel lists the endpoints CUMULATIVELY, with the rung each comes from', () => {
+    const fixture = render(rights());
+    const el = fixture.nativeElement as HTMLElement;
+    (el.querySelectorAll('thead .area-info')[0] as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    const rows = [...el.querySelectorAll('.explain tbody tr')];
+    // knowledge has a read route AND a write route in the stub; both must appear, because admin contains both.
+    expect(rows.length).toBe(2);
+    expect(rows.map(r => r.textContent).join(' ')).toContain('/api/x/recall');
+    expect(rows.map(r => r.textContent).join(' ')).toContain('/api/x/memories/:id');
+    // And each says which rung first reaches it, or the list cannot answer "what does write grant".
+    expect(rows[0]!.querySelector('.needs')!.textContent).toContain('read');
+  });
+
+  it('clicking the same header again closes it', () => {
+    const fixture = render(rights());
+    const el = fixture.nativeElement as HTMLElement;
+    const btn = el.querySelectorAll('thead .area-info')[1] as HTMLButtonElement;
+    btn.click(); fixture.detectChanges();
+    expect(el.querySelector('.explain')).toBeTruthy();
+    btn.click(); fixture.detectChanges();
+    expect(el.querySelector('.explain')).toBeNull();
+  });
+
+  it('a rung explanation is shown once per rung, not once per area', () => {
+    const fixture = render(rights());
+    const el = fixture.nativeElement as HTMLElement;
+    (el.querySelectorAll('thead .area-info')[0] as HTMLButtonElement).click();
+    fixture.detectChanges();
+    const items = [...el.querySelectorAll('.explain .rungs li')];
+    // read / write / admin. `none` is excluded: the word is its own explanation.
+    expect(items.length).toBe(3);
+    expect(items.map(i => i.textContent).join(' ')).not.toContain('rung.none');
+  });
+});
+
+describe('RightsMatrixComponent — the grid survives its explanation failing', () => {
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [RightsMatrixComponent, getTranslocoModule()],
+      providers: [{ provide: RightsCatalogService, useValue: stubCatalog(false) }],
+    }).compileComponents();
+  });
+
+  it('renders the grid and says the endpoint list is unavailable', () => {
+    // A tooltip that cannot load must not take the editor with it.
+    const fixture = TestBed.createComponent(RightsMatrixComponent);
+    fixture.componentRef.setInput('rights', rights());
+    fixture.componentRef.setInput('spaces', ['qa']);
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelectorAll('app-rung-picker').length).toBeGreaterThan(0);
+
+    (el.querySelectorAll('thead .area-info')[0] as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(el.querySelector('.explain tbody')).toBeNull();
+    expect(el.querySelector('.explain .miss')!.textContent).toContain('tokens.rights.endpointsUnavailable');
   });
 });

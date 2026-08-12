@@ -6,6 +6,7 @@ import { createToken, listTokens, revokeToken, regenerateToken, renameToken, set
 import { isMfaEnabled, verifyMfaCode } from '../auth/totp.js';
 import { z } from 'zod';
 import { SPACE_AREAS, RUNGS } from '../config/rights-shape.js';
+import { ROUTE_RIGHTS } from '../auth/space-rights.js';
 import { capRights, describeExcess } from '../auth/mint-cap.js';
 import { refuseSelfFloorRaise } from '../auth/floor-guard.js';
 import { migrateToken } from '../auth/rights-migration.js';
@@ -15,6 +16,33 @@ export const tokensRouter = Router();
 // GET /api/auth/me — returns the current token's metadata (used by the Angular SPA to verify a PAT)
 tokensRouter.get('/me', globalRateLimit, requireAuth, (req, res) => {
   res.json(req.authToken);
+});
+
+/**
+ * GET /api/tokens/rights-catalog — what each area and rung actually GRANTS.
+ *
+ * The rights grid is four areas × four rungs of bare words, and nothing told an operator what any cell does.
+ * The answer already exists and is authoritative: `ROUTE_RIGHTS` is the table the server ENFORCES against, so
+ * it is the only description of a right that cannot be wrong. A list typed into the client would be a second
+ * copy of a security control, and the copy that drifts is the one people read.
+ *
+ * **Authenticated, not admin.** It is capability documentation — every route in it is published in the
+ * integration guide — and the caller who most needs it is the non-admin trying to understand the rights they
+ * hold. Gating it to admins would withhold the explanation from exactly that person.
+ *
+ * The table is sent FLAT and the cumulative view is computed by the caller, because rungs contain the ones
+ * below: `write` grants every `read` route as well. Sending pre-expanded lists would ship the same route many
+ * times and put the containment rule in two places.
+ *
+ * `scope` is deliberately omitted — how a route learns which space it is about is internal, and a tooltip has
+ * no use for it.
+ */
+tokensRouter.get('/rights-catalog', globalRateLimit, requireAuth, (_req, res) => {
+  res.json({
+    areas: SPACE_AREAS,
+    rungs: RUNGS,
+    routes: ROUTE_RIGHTS.map(r => ({ area: r.area, method: r.method, route: r.route, needs: r.needs })),
+  });
 });
 
 /**

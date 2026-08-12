@@ -132,6 +132,12 @@ import { TimestampComponent } from '../../shared/timestamp.component';
                     <input class="col-filter-input" type="text" [ngModel]="recordFilter().toName" (ngModelChange)="setNameFilter('toName', $event)"
                       [placeholder]="'brain.filter.entityNamePlaceholder' | transloco" [attr.aria-label]="'brain.filter.entityNamePlaceholder' | transloco" />
                   </th><th app-sort-th field="weight" label="brain.edges.table.weight" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th>
+                  <th app-sort-th field="type" label="brain.edges.table.type" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)">
+                    <select class="col-filter-select" [ngModel]="recordFilter().type" (ngModelChange)="setTypeFilter($event)" [attr.aria-label]="'brain.filter.label' | transloco">
+                      <option value="">{{ 'brain.filter.allTypes' | transloco }}</option>
+                      @for (t of store.edgeTypeOptions(); track t) { <option [value]="t">{{ t }}</option> }
+                    </select>
+                  </th>
                   <th app-sort-th label="brain.edges.table.tags">
                     <input class="col-filter-input" type="text" [ngModel]="recordFilter().tag" (ngModelChange)="setTagFilter($event)"
                       [attr.list]="tagListId" [placeholder]="'brain.filter.tagPlaceholder' | transloco" [attr.aria-label]="'brain.filter.tagPlaceholder' | transloco" />
@@ -150,7 +156,7 @@ import { TimestampComponent } from '../../shared/timestamp.component';
                 @for (edge of store.edges(); track edge._id) {
                   @if (recordList.editingId() === edge._id) {
                     <tr>
-                      <td colspan="9">
+                      <td colspan="10">
                         <div class="create-form" style="border:none; padding:8px 0;">
                           <div class="field" style="min-width:200px; margin-bottom:0;">
                             <label style="font-size:11px; color:var(--text-muted);">{{ 'brain.edges.form.editingLabel' | transloco }}</label>
@@ -206,6 +212,7 @@ import { TimestampComponent } from '../../shared/timestamp.component';
                       <td><span class="badge badge-blue">{{ edge.label }}</span></td>
                       <td style="font-size:12px; white-space:nowrap;">{{ edge.toName || edge.to }}</td>
                       <td style="color:var(--text-muted);">{{ edge.weight ?? '—' }}</td>
+                      <td style="font-size:11px; white-space:nowrap;">{{ edge.type || '—' }}</td>
                       <td style="font-size:11px;">
                         @for (tag of (edge.tags ?? []); track tag) { <span class="tag">{{ tag }}</span> }
                         @if (!(edge.tags?.length)) { <span style="color:var(--text-muted)">—</span> }
@@ -231,7 +238,7 @@ import { TimestampComponent } from '../../shared/timestamp.component';
                     </tr>
                   }
                 } @empty {
-                  <tr><td colspan="9">
+                  <tr><td colspan="10">
                     @if (recordList.loadError() !== null) {
                       <app-error-state [message]="'brain.error.loadEdges' | transloco" [reason]="recordList.loadError() ?? ''" (retry)="retryCurrentTab()" />
                     } @else {

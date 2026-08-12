@@ -115,6 +115,11 @@ import { TimestampComponent } from '../../shared/timestamp.component';
                   </th><th app-sort-th label="brain.memories.table.description">
                     <input class="col-filter-input" type="text" [ngModel]="recordFilter().description" (ngModelChange)="setDescriptionFilter($event)"
                       [placeholder]="'brain.filter.descriptionPlaceholder' | transloco" [attr.aria-label]="'brain.filter.descriptionPlaceholder' | transloco" />
+                  </th><th app-sort-th field="type" label="brain.memories.table.type" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)">
+                    <select class="col-filter-select" [ngModel]="recordFilter().type" (ngModelChange)="setTypeFilter($event)" [attr.aria-label]="'brain.filter.label' | transloco">
+                      <option value="">{{ 'brain.filter.allTypes' | transloco }}</option>
+                      @for (t of store.memoryTypeOptions(); track t) { <option [value]="t">{{ t }}</option> }
+                    </select>
                   </th><th app-sort-th label="brain.memories.table.tags">
                     <input class="col-filter-input" type="text" [ngModel]="recordFilter().tag" (ngModelChange)="setTagFilter($event)"
                       [attr.list]="tagListId" [placeholder]="'brain.filter.tagPlaceholder' | transloco" [attr.aria-label]="'brain.filter.tagPlaceholder' | transloco" />
@@ -133,7 +138,7 @@ import { TimestampComponent } from '../../shared/timestamp.component';
                 @for (mem of store.memories(); track mem._id) {
                   @if (recordList.editingId() === mem._id) {
                     <tr>
-                      <td colspan="7">
+                      <td colspan="8">
                         <div class="create-form" style="border:none; padding:8px 0;">
                           <div class="field" style="flex:2; min-width:200px; margin-bottom:0;">
                             <label>{{ 'common.form.fact' | transloco }}</label>
@@ -175,6 +180,7 @@ import { TimestampComponent } from '../../shared/timestamp.component';
                       <td class="desc-cell" style="max-width:180px;" [title]="mem.description ?? ''">
                         <div class="desc-clamp">{{ mem.description || '—' }}</div>
                       </td>
+                      <td style="font-size:11px; white-space:nowrap;">{{ mem.type || '—' }}</td>
                       <td style="font-size:11px;">
                         @for (tag of (mem.tags ?? []); track tag) { <span class="tag tag-clickable" (click)="applyFilter('tag', tag)">{{ tag }}</span> }
                         @if (!(mem.tags?.length)) { <span style="color:var(--text-muted)">—</span> }
@@ -205,7 +211,7 @@ import { TimestampComponent } from '../../shared/timestamp.component';
                     </tr>
                   }
                 } @empty {
-                  <tr><td colspan="7">
+                  <tr><td colspan="8">
                     @if (recordList.loadError() !== null) {
                       <app-error-state [message]="'brain.error.loadMemories' | transloco" [reason]="recordList.loadError() ?? ''" (retry)="retryCurrentTab()" />
                     } @else {

@@ -33,6 +33,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     nothing would have said so.
 
 ### Fixed
+
+- **The memories and edges tabs have a Type column, so their type filter is reachable.** Both tabs already sent
+  `type` to the list endpoint and the store already exposed the option list — `memoryTypeOptions()` and
+  `edgeTypeOptions()`, both unit-tested — but **no template bound either one**, and neither tab had a type column
+  to host the control. `grep -c "<select" memories-tab` was `0`. The filter worked end to end with no way to set it.
+  - Both fields are server-sortable (`SORTABLE_FIELDS.memories`, `.edges`), so the header sorts as well as filters.
+  - `sortable-fields-have-columns.test.js` now derives the check from the server's own `SORTABLE_FIELDS` and
+    applies it to all four record tabs. The chrono spec had pinned this for one tab and named the failure exactly —
+    *"a field could be sortable server-side and simply never offered"* — but a per-tab test cannot catch it, since
+    the tab missing the column is the tab missing the test.
+  - Still open: memory `type` has no editor in the UI at all (edge `type` is drawer-editable). Filed as U-6.
 - **The Chrono tab offered five chrono types the server refuses, and hid the ones it requires.** Reported as a
   wording bug — the type filter was labelled "kind" and listed standard values rather than schema-derived ones.
   The label was real; what sat under it stopped the tab working.

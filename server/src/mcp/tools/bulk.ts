@@ -8,7 +8,7 @@
  */
 
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
-import { TTL_DAYS_SCHEMA } from './shared.js';
+import { TTL_DAYS_SCHEMA, uuidSchema } from './shared.js';
 import { bulkWrite, bulkWriteTotal } from '../../brain/bulk.js';
 import { resolveWriteTarget } from '../../spaces/proxy.js';
 import { emitWebhookEvent } from '../../webhooks/dispatcher.js';
@@ -52,7 +52,7 @@ export const bulk_writeTool: ToolHandler = {
                 type: 'object',
                 additionalProperties: false,
                 properties: {
-                  id:          { type: 'string', description: 'Optional UUID v4 — if provided, updates the entity with this ID (or inserts with this ID). If omitted, a new entity is always inserted.' },
+                  id:          uuidSchema('Optional UUID v4 — if provided, updates the entity with this ID (or inserts with this ID). If omitted, a new entity is always inserted.'),
                   name:        { type: 'string', description: 'Entity name.' },
                   type:        { type: 'string', description: 'Entity type.' },
                   tags:        { type: 'array', items: { type: 'string' } },

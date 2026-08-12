@@ -33,6 +33,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     nothing would have said so.
 
 ### Fixed
+- **The Chrono tab offered five chrono types the server refuses, and hid the ones it requires.** Reported as a
+  wording bug — the type filter was labelled "kind" and listed standard values rather than schema-derived ones.
+  The label was real; what sat under it stopped the tab working.
+  - `getAllowedChronoTypes` is **exclusive**: a space that declares `typeSchemas.chrono` allows those names and
+    **only** those, and rejects the five built-ins. That gate is on REST create, REST update, sync, bulk and MCP.
+  - The client held **no copy of that rule**. Every chrono select — create form, inline edit, drawer — bound a
+    hardcoded `['event','deadline','plan','prediction','milestone']`. So in a space with declared chrono types,
+    **every option in the dropdown was a value the API answers `type must be one of: …` to**, the type the space
+    actually required was offered nowhere, and the form opened pre-armed on `event`. Chrono could not be created
+    from the UI in such a space.
+  - The free-text "custom type" box beside the presets is **removed**, not repaired. It predated the allowlist and
+    carried a comment claiming *"the server accepts free-text values beyond the predefined enum"* — true when
+    written, false since the allowlist landed, and a typed value could only ever come back 400.
+  - Selects now bind `chronoAllowedTypes()`, which mirrors the server branch for branch. The column **filter**
+    binds `chronoTypeOptions()` — the allowlist **union the types the loaded rows hold** — so a record written
+    before a schema change stays reachable even though its type is no longer writable.
+  - Wording follows the field: the column, the form label and the filter all read **Type**, matching the `type`
+    they sort and write. Three Polish and German strings were machine-translated from the English word *kind* in
+    its unrelated sense (`"Uprzejmy"` is kind-hearted, `"Brauch"` is a tradition) and went out with the keys.
 - **A caller-supplied `id` is now constrained to a UUID on every write tool that accepts one.** `create_chrono`,
   `remember` and `bulk_write` took any non-empty string and stored it verbatim.
   - Reported by an operator who passed a corrupted UUID **by accident** — a Devanagari digit where a hex nibble

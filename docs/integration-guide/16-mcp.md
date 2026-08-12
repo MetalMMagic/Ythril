@@ -152,7 +152,7 @@ Content-Type: application/json
 | `update_edge` | Update an existing edge by ID (label, type, weight, description, tags, properties, `excludeFromVectorSearch`); supports `deleteFields` for field removal |
 | `delete_edge` | Delete an edge by ID |
 | `traverse` | BFS graph traversal — follow edges from a starting entity up to `maxDepth` hops. Chrono entries referencing a reached node come back too, marked `kind: "chrono"` (`includeChrono: false` for entity-only) |
-| `create_chrono` | Create a chrono entry (event, deadline, plan, prediction, milestone) |
+| `create_chrono` | Create a chrono entry (the five built-in types, or the space's own declared chrono types, which replace them) |
 | `update_chrono` | Update an existing chrono entry, including `excludeFromVectorSearch`. Requires at least one field beyond `id` |
 | `delete_chrono` | Delete a chrono entry by ID |
 | `list_chrono` | List chrono entries, optionally filtered by status, type, tags, date range, or text search |

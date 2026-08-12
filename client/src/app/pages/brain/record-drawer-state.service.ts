@@ -67,16 +67,16 @@ export class RecordDrawerState {
   drawerEditMemory = { fact: '', tags: [] as string[], entityIds: '', description: '', properties: {} as Record<string, string | number | boolean> };
   drawerEditEntity = { name: '', type: '', tags: [] as string[], description: '', properties: {} as Record<string, string | number | boolean> };
   drawerEditEdge = { label: '', type: '', weight: null as number | null, tags: [] as string[], description: '', properties: {} as Record<string, string | number | boolean> };
-  drawerEditChrono = { title: '', kind: 'event' as string, customKind: '', status: 'upcoming' as string, startsAt: '', endsAt: '', description: '', tags: [] as string[], entityIds: '', confidence: null as number | null, memoryIds: [] as string[], properties: {} as Record<string, string | number | boolean> };
+  drawerEditChrono = { title: '', kind: 'event' as string, status: 'upcoming' as string, startsAt: '', endsAt: '', description: '', tags: [] as string[], entityIds: '', confidence: null as number | null, memoryIds: [] as string[], properties: {} as Record<string, string | number | boolean> };
 
   /** Re-seed a drawer entity's properties when its type changes (mirrors the create/inline forms). */
   onEntityTypeChange(type: string): void {
     this.drawerEditEntity.properties = this.store.buildPropertiesObject('entity', this.drawerEditEntity.properties, type);
   }
 
-  /** Effective chrono type for schema lookup: the free-text custom kind, else the selected preset. */
+  /** Effective chrono type for schema lookup. */
   drawerChronoKind(): string {
-    return this.drawerEditChrono.kind === '__custom__' ? this.drawerEditChrono.customKind.trim() : this.drawerEditChrono.kind;
+    return this.drawerEditChrono.kind;
   }
 
   /** Re-seed the drawer chrono's properties when its kind changes (mirrors the create/inline forms). */
@@ -136,11 +136,11 @@ export class RecordDrawerState {
       };
     } else {
       const r = target.record;
-      const isPredefined = this.store.chronoKinds.includes(r.type as ChronoType);
       this.drawerEditChrono = {
         title: r.title,
-        kind: isPredefined ? r.type : '__custom__',
-        customKind: isPredefined ? '' : r.type,
+        // Verbatim. The old split routed anything outside the five built-ins into a free-text box —
+        // which is where a space's own declared types landed, and the box could only ever save a 400.
+        kind: r.type,
         status: r.status,
         startsAt: r.startsAt ? toLocalDatetime(r.startsAt) : '',
         endsAt: r.endsAt ? toLocalDatetime(r.endsAt) : '',
@@ -220,9 +220,7 @@ export class RecordDrawerState {
         error: (err) => { this.drawerSaving.set(false); this.drawerError.set(fmtApiError(err, 'Failed to save')); },
       });
     } else if (dr.kind === 'chrono') {
-      const resolvedKind = this.drawerEditChrono.kind === '__custom__'
-        ? (this.drawerEditChrono.customKind.trim() as ChronoType)
-        : this.drawerEditChrono.kind as ChronoType;
+      const resolvedKind = this.drawerEditChrono.kind as ChronoType;
       const chronoProps = this.store.stripEmptyOptionalProps(this.drawerEditChrono.properties, this.store.chronoSchema(resolvedKind));
       this.brainApi.updateChrono(spaceId, id, {
         title: this.drawerEditChrono.title.trim(),

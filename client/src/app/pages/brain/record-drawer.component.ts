@@ -202,18 +202,10 @@ import { BRAIN_CHIP_STYLES, BRAIN_DRAWER_STYLES } from './brain-form.styles';
                   <input type="text" [(ngModel)]="state.drawerEditChrono.title" name="drwChronoTitle" />
                 </div>
                 <div class="drawer-field">
-                  <div class="drawer-label">{{ 'common.form.kind' | transloco }} <span style="color:var(--error)">*</span></div>
-                  @if (state.drawerEditChrono.kind !== '__custom__') {
-                    <select [(ngModel)]="state.drawerEditChrono.kind" name="drwChronoKind" (ngModelChange)="state.onDrawerChronoKindChange()">
-                      @for (k of store.chronoKinds; track k) { <option [value]="k">{{ k }}</option> }
-                      <option value="__custom__">{{ 'brain.chrono.form.customKind' | transloco }}</option>
-                    </select>
-                  } @else {
-                    <div style="display:flex; gap:4px;">
-                      <input type="text" [(ngModel)]="state.drawerEditChrono.customKind" name="drwChronoCustomKind" style="flex:1;" (ngModelChange)="state.onDrawerChronoKindChange()" />
-                      <button type="button" class="btn-secondary btn btn-sm" style="padding:4px 8px;" (click)="state.drawerEditChrono.kind = 'event'; state.drawerEditChrono.customKind = ''" [attr.title]="'brain.chrono.form.backToPresets' | transloco"><ph-icon name="x" [size]="14"/></button>
-                    </div>
-                  }
+                  <div class="drawer-label">{{ 'common.form.type' | transloco }} <span style="color:var(--error)">*</span></div>
+                  <select [(ngModel)]="state.drawerEditChrono.kind" name="drwChronoKind" (ngModelChange)="state.onDrawerChronoKindChange()">
+                    @for (k of store.chronoTypeOptions(); track k) { <option [value]="k">{{ k }}</option> }
+                  </select>
                 </div>
                 <div class="drawer-field">
                   <div class="drawer-label">{{ 'brain.chrono.table.status' | transloco }}</div>

@@ -128,9 +128,26 @@ export class BrainStore {
     return this.typeOptionsFrom([], this.edges().map(e => e.type));
   }
 
+  /** Types a chrono write is ACCEPTED with — the client's mirror of `getAllowedChronoTypes`
+   *  (server/src/spaces/schema-validation.ts). That rule is EXCLUSIVE, not additive: a space that
+   *  declares `typeSchemas.chrono` allows those names and ONLY those, and 400s on the built-ins.
+   *  Offering the built-ins unconditionally is why the create form could not save in such a space. */
+  chronoAllowedTypes(): string[] {
+    const declared = Object.keys(this.spaceMeta()?.typeSchemas?.chrono ?? {});
+    return declared.length > 0 ? declared.slice().sort() : [...this.chronoKinds];
+  }
+
+  /** Filter options: the allowed types UNION whatever the loaded rows actually hold, so a record
+   *  written before a schema change stays reachable even though its type is no longer writable. */
+  chronoTypeOptions(): string[] {
+    return this.typeOptionsFrom(this.chronoAllowedTypes(), this.chrono().map(c => c.type));
+  }
+
   // ── Schema-driven property helpers (shared by every create/edit form + the drawer) ──
 
-  /** The predefined chrono kinds offered before "custom". */
+  /** The five built-in chrono types — the FALLBACK allowlist, used only by a space that declares no
+   *  `typeSchemas.chrono` of its own. Never bind this in a template: it is the fallback, not the
+   *  answer. Forms bind `chronoAllowedTypes()`, the filter binds `chronoTypeOptions()`. */
   readonly chronoKinds: ChronoType[] = ['event', 'deadline', 'plan', 'prediction', 'milestone'];
 
   /** The chrono lifecycle statuses. */

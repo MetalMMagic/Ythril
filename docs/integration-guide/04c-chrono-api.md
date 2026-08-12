@@ -29,7 +29,12 @@ memory. See [Retry Safety](04-brain-api.md#retry-safety).
 }
 ```
 
-- `type` — `event`, `deadline`, `plan`, `prediction`, `milestone`
+- `type` — `event`, `deadline`, `plan`, `prediction`, `milestone` **unless the space declares its own chrono
+  types**, in which case those **replace** this list rather than extending it. A space with
+  `typeSchemas.chrono` set accepts its declared type names and **rejects all five built-ins**; a write with a
+  type outside the space's list returns `400` naming the ones it will accept
+  (`` `type` must be one of: … ``). Read the current list from `typeSchemas.chrono` in
+  `GET /api/spaces/:id/meta` before offering a choice.
 - `status` — `upcoming` (default), `active`, `completed`, `overdue`, `cancelled`. You never need to set
   `overdue` yourself: it is **derived on read** — an entry whose due moment (`endsAt`, or `startsAt` if
   it has none) has passed and that is not `completed`/`cancelled` is returned as `overdue`.
@@ -69,7 +74,7 @@ GET /api/brain/spaces/:spaceId/chrono?limit=50&skip=0
 | `tagsAny` | comma-separated strings | Return entries where `tags` contains **ANY** listed value (OR semantics) |
 | `search` | string | Case-insensitive substring match on `title` and `description` |
 | `status` | string | Filter by status (`upcoming`, `active`, `completed`, `overdue`, `cancelled`). `overdue` is derived on read (past due + not completed/cancelled); filtering by `upcoming`/`active` excludes now-overdue entries |
-| `type` | string | Filter by type (`event`, `deadline`, `plan`, `prediction`, `milestone`) |
+| `type` | string | Filter by type (the five built-ins, or the space's own declared chrono types — see above) |
 | `limit` | number | Max entries to return (default 50, max 500) |
 | `skip` | number | Pagination offset (default 0) |
 | `sort` | string | Sort field: `createdAt`, `title`, `startsAt`, or `type` (see [Sorting](04-brain-api.md#sorting-all-brain-list-endpoints)). Unknown field → `400` |

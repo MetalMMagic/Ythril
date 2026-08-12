@@ -86,6 +86,9 @@ export const MCP_TOOL_OPERATIONS: Record<string, string | null> = {
   // Lists configured peers from local config. There is no `network.list` operation on the REST side
   // either — peer topology is read from `/api/networks`, which is itself unaudited as a read.
   list_peers: null,
+  // Reads the token inventory from local config. `GET /api/tokens` is not audited either — it is a
+  // read, and the acts worth an entry are the mint, the edit and the revoke, all of which are.
+  list_tokens: null,
 };
 
 /**

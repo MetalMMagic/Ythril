@@ -63,14 +63,6 @@ export const REST_ONLY_CAPABILITIES: readonly RestOnlyCapability[] = [
       + '11-entity model and not apply it. The write is the same route; the tool is the missing part.',
   },
   {
-    capability: 'List the instance\'s tokens',
-    restEndpoint: '/api/tokens',
-    method: 'GET',
-    wouldBeTool: 'list_tokens',
-    why: 'Not built, and admin-only over REST. They audit tokens with a Kubernetes CronJob that curls this and '
-      + 'posts the result into a space as a chrono entry, so an agent can read it — a workaround with a scheduler in it.',
-  },
-  {
     capability: 'Create a space',
     restEndpoint: '/api/spaces',
     method: 'POST',

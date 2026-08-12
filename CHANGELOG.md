@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **`list_tokens` is an MCP tool.** Second of the five, and their workaround was the tell: a Kubernetes CronJob
+  that curls `GET /api/tokens` and posts the result into a space as a chrono entry so an agent can read it. A
+  scheduler standing in for a tool call, and an inventory as stale as the last tick.
+  - Admin-gated exactly as the REST route is, and read-only, so it is hidden from a non-admin`s `tools/list`
+    rather than refused on call.
+  - **The hash cannot leak from here, and not because this code is careful.** `listTokens()` is typed
+    `Omit<TokenRecord, 'hash'>[]` and destructures it out, so the omission is that function`s contract rather
+    than this call site`s discipline. A tool that stripped the hash itself would be one edit from forgetting to,
+    and the compiler would not object.
+  - Not audited, matching REST: `GET /api/tokens` is a read, and the acts worth a log entry — the mint, the edit,
+    the revoke — are all audited already.
+  - Three rows left in the capability map: `reindex`, `update_space_schema` and `create_space`.
 - **`retry_embedding` is an MCP tool.** First of the five REST-only capabilities breituai-platform reported, and
   the sharpest one: it is the documented recovery path for a failed file embedding, so the surface that could SEE
   the failure was the surface that could not act on it.

@@ -22,7 +22,7 @@
  *
  * Usage:  npm run preflight
  */
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 
 import { join } from 'node:path';
@@ -106,7 +106,12 @@ for (const [file, why] of BUILT_GATES) gate(file, why, file);
 // the very gate that polices this split, because that file necessarily mentions the marker in its
 // assertions — the same "matched test data, not behaviour" mistake the heuristic made, one level up.
 const NEEDS_INSTANCE = /^\s*\*\s*@needs-instance/m;
-const allStandalone = readdirSync('testing/standalone').filter(f => f.endsWith('.test.js')).sort();
+// TRACKED files, not whatever is on disk. `readdirSync` picks up untracked ones too, so a scratch
+// `*.test.js` left in this folder would run here and NOT in CI — preflight and CI disagreeing about which
+// gates exist is the one divergence that makes a green preflight worthless. The counts match today (331 = 331);
+// this keeps them matching on the day somebody leaves a probe behind.
+const allStandalone = execFileSync('git', ['ls-files', 'testing/standalone'], { encoding: 'utf8' })
+  .split('\n').map(f => f.split('/').pop()).filter(f => f && f.endsWith('.test.js')).sort();
 const pure = allStandalone.filter(f => !NEEDS_INSTANCE.test(readFileSync(`testing/standalone/${f}`, 'utf8')));
 console.log(`\n── standalone tests that need no running instance (${pure.length} of ${allStandalone.length}; ` +
   `${allStandalone.length - pure.length} declare @needs-instance and run in CI) ──`);

@@ -1,6 +1,8 @@
-import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, computed, inject, input, output, signal } from '@angular/core';
+import { TranslocoPipe } from '@jsverse/transloco';
 import { RungPickerComponent } from './rung-picker.component';
 import { RIGHT_AREAS, type Rung, type TokenRights, type WireRungs } from './rights-glyph.component';
+import { RightsCatalogService } from './rights-catalog.service';
 
 const EMPTY = (): WireRungs => ({ knowledge: 'none', files: 'none', schema: 'none', dataQuality: 'none' });
 
@@ -26,7 +28,7 @@ const EMPTY = (): WireRungs => ({ knowledge: 'none', files: 'none', schema: 'non
   selector: 'app-rights-matrix',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RungPickerComponent],
+  imports: [RungPickerComponent, TranslocoPipe],
   styles: [`
     :host { display: block; overflow-x: auto; }
     table { border-collapse: collapse; width: 100%; font-size: 13px; }
@@ -37,18 +39,52 @@ const EMPTY = (): WireRungs => ({ knowledge: 'none', files: 'none', schema: 'non
     tr.floor { border-bottom: 2px solid var(--accent); }
     tr.floor td.l { color: var(--accent); }
     td.l small { display: block; font-weight: 400; font-size: 11px; color: var(--text-muted); }
+    .area-info {
+      margin-left: 5px; width: 15px; height: 15px; padding: 0; line-height: 1;
+      border: 1px solid var(--border); border-radius: 50%;
+      background: var(--bg-surface); color: var(--text-muted);
+      font-size: 10px; font-weight: 700; cursor: pointer; vertical-align: middle;
+    }
+    .area-info:hover { border-color: var(--accent); color: var(--accent); }
+    .area-info[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+    .explain {
+      margin: 10px 0 2px; padding: 10px 12px; text-align: left;
+      border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-elevated);
+    }
+    .explain h4 { margin: 0 0 4px; font-size: 12.5px; }
+    .explain p { margin: 0 0 8px; font-size: 12px; color: var(--text-secondary); }
+    .explain .rungs { margin: 0 0 8px; padding: 0; list-style: none; font-size: 12px; }
+    .explain .rungs li { margin: 2px 0; color: var(--text-secondary); }
+    .explain .rungs code { font-weight: 650; color: var(--text-primary); }
+    .explain table { font-size: 11.5px; font-family: var(--font-mono, monospace); }
+    .explain table th, .explain table td { padding: 3px 8px; text-align: left; border-bottom: none; }
+    .explain .meth { color: var(--accent); font-weight: 650; }
+    .explain .needs { color: var(--text-muted); }
+    .explain .scroll { max-height: 240px; overflow-y: auto; }
+    .explain .miss { font-size: 12px; color: var(--text-muted); }
   `],
   template: `
     <table>
       <thead>
         <tr>
-          <th class="l">Space</th>
-          @for (a of areas; track a) { <th>{{ a }}</th> }
+          <th class="l">{{ 'tokens.rights.space' | transloco }}</th>
+          @for (a of areas; track a) {
+            <th>
+              {{ 'tokens.rights.area.' + a | transloco }}
+              <!-- The non-technical half rides on the header as a title, so it needs no click. The technical
+                   half is a click, because a 37-route list is not a tooltip. -->
+              <button class="area-info" type="button"
+                      [attr.title]="'tokens.rights.area.' + a + '.desc' | transloco"
+                      [attr.aria-label]="'tokens.rights.explain' | transloco"
+                      [attr.aria-expanded]="explaining() === a"
+                      (click)="toggleExplain(a)">?</button>
+            </th>
+          }
         </tr>
       </thead>
       <tbody>
         <tr class="floor">
-          <td class="l">All spaces<small>minimum, incl. future</small></td>
+          <td class="l">{{ 'tokens.rights.allSpaces' | transloco }}<small>{{ 'tokens.rights.allSpacesHint' | transloco }}</small></td>
           @for (a of areas; track a) {
             <td>
               <app-rung-picker [value]="floorOf(a)" (changed)="setFloor(a, $event)"/>
@@ -67,14 +103,74 @@ const EMPTY = (): WireRungs => ({ knowledge: 'none', files: 'none', schema: 'non
         }
       </tbody>
     </table>
+
+    <!-- One panel, under the table, rather than a popover per column: the endpoint list for knowledge is 37
+         rows, and a floating layer that long is unreadable inside a dialog that already scrolls.
+         NOTE no backticks anywhere in this template, comments included — one ends the template string and the
+         error points at @Component, never at the line that caused it. -->
+    @if (explaining(); as a) {
+      <div class="explain">
+        <h4>{{ 'tokens.rights.area.' + a | transloco }}</h4>
+        <p>{{ 'tokens.rights.area.' + a + '.desc' | transloco }}</p>
+
+        <!-- The rung meanings are stated once, not once per area: a rung means the same thing everywhere,
+             because each contains the one below. Four sentences instead of sixteen that can disagree. -->
+        <ul class="rungs">
+          @for (r of rungs; track r) {
+            <li><code>{{ r }}</code> — {{ 'tokens.rights.rung.' + r + '.desc' | transloco }}</li>
+          }
+        </ul>
+
+        @if (catalog.catalog()) {
+          <div class="scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>{{ 'tokens.rights.endpoint' | transloco }}</th>
+                  <th>{{ 'tokens.rights.fromRung' | transloco }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (r of catalog.routesFor(a, 'admin'); track r.method + r.route) {
+                  <tr>
+                    <td><span class="meth">{{ r.method }}</span> {{ r.route }}</td>
+                    <td class="needs">{{ r.needs }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        } @else if (catalog.failed()) {
+          <!-- The grid must not depend on its own explanation loading. -->
+          <p class="miss">{{ 'tokens.rights.endpointsUnavailable' | transloco }}</p>
+        }
+      </div>
+    }
   `,
 })
-export class RightsMatrixComponent {
+export class RightsMatrixComponent implements OnInit {
   rights = input.required<TokenRights>();
   spaces = input.required<string[]>();
   changed = output<TokenRights>();
 
   readonly areas = RIGHT_AREAS;
+  /** Every rung EXCEPT `none`, which needs no explanation beyond the word. */
+  readonly rungs: Rung[] = ['read', 'write', 'admin'];
+
+  readonly catalog = inject(RightsCatalogService);
+
+  /** Which area's explanation is open, or null. One at a time — two open panels stack the table off-screen. */
+  readonly explaining = signal<string | null>(null);
+
+  ngOnInit(): void {
+    // Asked for here rather than in the parent: any grid that renders is a grid someone may want explained,
+    // and the service call is idempotent, so a second grid on the page costs nothing.
+    this.catalog.load();
+  }
+
+  toggleExplain(area: string): void {
+    this.explaining.update(cur => (cur === area ? null : area));
+  }
 
   floorOf = (area: string): Rung => this.rights().floor?.[area] ?? 'none';
 

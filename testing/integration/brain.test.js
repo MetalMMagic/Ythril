@@ -2073,11 +2073,18 @@ describe('Brain — PATCH chrono by ID', () => {
   });
 });
 
-// ── Entity creation with explicit UUID id ────────────────────────────────────
+// ── A supplied id does NOT become a new record's identity ────────────────────────
 
-describe('Brain — entity creation with explicit UUID id', () => {
+/**
+ * Reversed by the owner's 2026-08-12 ruling: "id is id". This block used to assert the opposite — that a
+ * supplied UUID became the created entity's `_id` — which was the documented idempotency contract.
+ *
+ * It is rewritten rather than deleted. The behaviour it covers still needs a database to observe, and deleting
+ * it would leave the new rule checked only by a source-reading gate: nothing would prove the SERVER honours it.
+ */
+describe('Brain — a supplied id does not become a new entity id', () => {
   const RUN = Date.now();
-  const validUuid = `550e8400-e29b-41d4-a716-${String(RUN).padStart(12, '0').slice(0, 12)}`;
+  const unusedUuid = `550e8400-e29b-41d4-a716-${String(RUN).padStart(12, '0').slice(0, 12)}`;
   const createdIds = [];
 
   before(() => {
@@ -2090,61 +2097,50 @@ describe('Brain — entity creation with explicit UUID id', () => {
     }
   });
 
-  it('Create entity with valid UUID id uses that id', async () => {
+  it('a create with an id that names nothing IGNORES it and mints a fresh one', async () => {
     const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/entities', {
-      id: validUuid,
-      name: `ExplicitId-${RUN}`,
+      id: unusedUuid,
+      name: `IgnoredId-${RUN}`,
       type: 'concept',
     });
     assert.equal(r.status, 201, JSON.stringify(r.body));
-    assert.equal(r.body._id, validUuid, 'Entity _id must match supplied UUID');
-    createdIds.push(validUuid);
+    assert.notEqual(r.body._id, unusedUuid,
+      'a supplied id must not become the identity — that made the caller a co-author of the primary key');
+    assert.match(r.body._id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+      'the server must have minted a UUID v4 of its own');
+    createdIds.push(r.body._id);
   });
 
-  it('Retrieve entity by explicit UUID id', async () => {
-    const r = await get(INSTANCES.a, token(), `/api/brain/spaces/general/entities/${validUuid}`);
-    assert.equal(r.status, 200, JSON.stringify(r.body));
-    assert.equal(r.body._id, validUuid);
-    assert.equal(r.body.name, `ExplicitId-${RUN}`);
+  it('the ignored id addresses nothing afterwards', async () => {
+    // The other half: if the id had been quietly adopted anyway, this would return the record.
+    const r = await get(INSTANCES.a, token(), `/api/brain/spaces/general/entities/${unusedUuid}`);
+    assert.equal(r.status, 404, `expected the supplied id to name nothing, got ${r.status}`);
   });
 
-  it('Second POST with same UUID id updates (upserts) the entity', async () => {
+  it('a create with the SAME unused id again produces a SECOND record', async () => {
+    // This is the cost of the ruling, asserted rather than described: retry-by-reused-id no longer converges.
+    // A caller relying on it duplicates, which is why `checkDuplicates` returning `similar` is the replacement.
     const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/entities', {
-      id: validUuid,
-      name: `ExplicitId-${RUN}`,
+      id: unusedUuid,
+      name: `IgnoredIdTwice-${RUN}`,
       type: 'concept',
-      description: 'updated via id-based upsert',
     });
     assert.equal(r.status, 201, JSON.stringify(r.body));
-    assert.equal(r.body._id, validUuid, 'Same UUID must be reused');
-    assert.equal(r.body.description, 'updated via id-based upsert');
+    assert.notEqual(r.body._id, createdIds[0], 'the second create must be its own record');
+    createdIds.push(r.body._id);
   });
 
-  it('Rejects invalid UUID (ObjectId format) with 400', async () => {
+  it('but an id that DOES name a record still updates it', async () => {
+    // The half that must survive: an id addresses an existing record. Losing this would make every update a
+    // create, which is a far worse bug than the one the ruling removes.
+    const existing = createdIds[0];
     const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/entities', {
-      id: '507f1f77bcf86cd799439011',
-      name: `BadId-${RUN}`,
+      id: existing,
+      name: `IgnoredId-${RUN}-renamed`,
       type: 'concept',
     });
-    assert.equal(r.status, 400, `Expected 400 for ObjectId, got ${r.status}: ${JSON.stringify(r.body)}`);
-  });
-
-  it('Rejects UUID v1 with 400', async () => {
-    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/entities', {
-      id: '550e8400-e29b-11d4-a716-446655440000',
-      name: `V1Id-${RUN}`,
-      type: 'concept',
-    });
-    assert.equal(r.status, 400, `Expected 400 for UUID v1, got ${r.status}`);
-  });
-
-  it('Rejects empty string id with 400', async () => {
-    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/entities', {
-      id: '',
-      name: `EmptyId-${RUN}`,
-      type: 'concept',
-    });
-    assert.equal(r.status, 400, `Expected 400 for empty id, got ${r.status}`);
+    assert.ok([200, 201].includes(r.status), JSON.stringify(r.body));
+    assert.equal(r.body._id, existing, 'an id naming a real record must land on that record');
   });
 });
 

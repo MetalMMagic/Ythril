@@ -29,7 +29,7 @@ export const rememberTool: ToolHandler = {
   inputSchema: (s: ToolSchemas) => ({
           type: 'object',
           properties: {
-            id: uuidSchema('Optional UUID v4. Supply one to make this call IDEMPOTENT: retrying with the same id converges on the same record instead of creating a second one. Generate it before your first attempt and reuse it on every retry. Omit it and each call creates a new record.'),
+            id: uuidSchema('UUID v4 of an EXISTING record to update. It is not a way to choose an id: identity is server-generated, so an id that names nothing is ignored rather than adopted. To carry your own reference, use `name` or `description`.'),
             space: s.requiredSpace,
             fact: { type: 'string', minLength: 1, maxLength: 50000, description: 'The fact, observation, or memory to store (1–50 000 characters).' },
             entityIds: {

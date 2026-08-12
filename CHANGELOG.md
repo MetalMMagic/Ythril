@@ -6,6 +6,32 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Changed
+- **BREAKING: a record's id is server-generated. A caller can no longer choose one.** Owner ruling: *"we do not
+  accept custom ids … id is id."*
+  - `create_chrono`, `remember`, `upsert_entity` and `bulk_write` used to **adopt** a supplied id when it named
+    nothing (`_id: fields.id ?? uuidv4()`), documented as idempotency-by-id. A supplied `id` now names an
+    **existing** record to update; one that matches nothing is **ignored**, and the record is created with a
+    fresh server-minted UUID.
+  - **What this removes:** the retry-safety technique of generating a UUID before your first attempt and reusing
+    it. A retried create of a memory, chrono entry or entity can now produce a second record. `checkDuplicates`
+    is on by default and returns `similar`, which is how a duplicated retry becomes detectable instead of silent;
+    edges are unaffected, being idempotent on their natural key `(from, to, label)`.
+  - **Why.** Adopting a caller's id made the caller a co-author of the primary key, and that has a sharp edge
+    across a network: the natural way to produce a stable id is to derive it from a stable key, so two instances
+    following one convention collide **by design**. Inbound sync resolves a collision by `seq` alone with no
+    author comparison — one version silently replaces the other, every reference still resolves to the survivor,
+    nothing dangles, and the link-violation machinery therefore never sees it.
+  - Carry your own reference in `name`, `description` or a property. Those describe a record; `id` identifies one.
+  - `update_*` and `delete_*` ids stay permissive: records written before this ruling may carry a non-UUID id, and
+    constraining those paths would make exactly those records unfixable and undeletable.
+  - `docs/integration-guide/04-brain-api.md`'s Retry Safety section is rewritten rather than patched — it taught
+    the removed technique end to end, including a worked example.
+  - The gate that enforced the OLD contract (*"a supplied id becomes the new record's identity"*) is rewritten to
+    enforce this one, keeping its filename because `release-gate.mjs` lists it by name. A gate whose subject is
+    reversed gets rewritten, not deleted — deleting it would have removed the release gate's only check here and
+    nothing would have said so.
+
 ### Fixed
 - **A caller-supplied `id` is now constrained to a UUID on every write tool that accepts one.** `create_chrono`,
   `remember` and `bulk_write` took any non-empty string and stored it verbatim.

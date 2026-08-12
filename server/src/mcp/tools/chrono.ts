@@ -19,7 +19,7 @@ export const create_chronoTool: ToolHandler = {
           type: 'object',
           properties: {
             space: s.requiredSpace,
-            id: uuidSchema('Optional UUID v4. Supply one to make this call IDEMPOTENT: retrying with the same id converges on the same entry instead of creating a second one. Generate it before your first attempt and reuse it on every retry. Omit it and each call creates a new entry.'),
+            id: uuidSchema('UUID v4 of an EXISTING record to update. It is not a way to choose an id: identity is server-generated, so an id that names nothing is ignored rather than adopted. To carry your own reference, use `name` or `description`.'),
             title: { type: 'string', minLength: 1, description: 'Entry title.' },
             type: { type: 'string', minLength: 1, description: 'Entry type. Rejected unless it is one of the space\'s allowed chrono types: the defaults are event, deadline, plan, prediction, milestone, or the custom set declared in the space\'s typeSchemas.chrono.' },
             startsAt: { type: 'string', minLength: 1, description: 'ISO 8601 start date/time.' },

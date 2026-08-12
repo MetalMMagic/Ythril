@@ -52,7 +52,7 @@ export const bulk_writeTool: ToolHandler = {
                 type: 'object',
                 additionalProperties: false,
                 properties: {
-                  id:          uuidSchema('Optional UUID v4 — if provided, updates the entity with this ID (or inserts with this ID). If omitted, a new entity is always inserted.'),
+                  id:          uuidSchema('UUID v4 of an EXISTING entity to update. It is not a way to choose an id: identity is server-generated, so an id that names nothing is ignored rather than adopted. To carry your own reference, use `name` or `description`.'),
                   name:        { type: 'string', description: 'Entity name.' },
                   type:        { type: 'string', description: 'Entity type.' },
                   tags:        { type: 'array', items: { type: 'string' } },

@@ -19,7 +19,7 @@ export const upsert_entityTool: ToolHandler = {
           type: 'object',
           properties: {
             space: s.requiredSpace,
-            id: uuidSchema('Optional UUID v4 — if provided, updates the entity with this ID (or inserts with this ID if it does not exist). If omitted, a new entity is always inserted.'),
+            id: uuidSchema('UUID v4 of an EXISTING record to update. It is not a way to choose an id: identity is server-generated, so an id that names nothing is ignored rather than adopted. To carry your own reference, use `name` or `description`.'),
             name: { type: 'string', minLength: 1, description: 'Entity name.' },
             type: { type: 'string', minLength: 1, description: 'Entity type (person, place, concept, …).' },
             tags: { type: 'array', items: { type: 'string' } },

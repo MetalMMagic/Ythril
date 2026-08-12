@@ -180,7 +180,12 @@ export async function upsertEntity(
   }
 
   const doc: EntityDoc = {
-    _id: id ?? uuidv4(),
+    // ID IS ID (owner ruling, 2026-08-12): the identity is ours to mint, always. A supplied id may
+    // ADDRESS an existing record — the update path above — but it never becomes a new record's identity.
+    // It used to: a supplied id that named nothing was adopted, which made the caller a co-author of our
+    // primary key and, across a sync, let two instances deriving ids from the same key collide by design.
+    // A caller wanting to carry their own reference puts it in `name` or `description`, which are for that.
+    _id: uuidv4(),
     spaceId,
     name,
     type,

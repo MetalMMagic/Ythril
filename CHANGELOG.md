@@ -236,6 +236,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     records unfixable and undeletable. Being unable to delete the junk record you were warned not to create is
     worse than the bug being fixed.
 
+### Testing
+- **The `PATCH /api/spaces/:id` refusal chain is pinned before it moves.** Three of the five REST-only
+  capabilities need route-level validation extracted into something both MCP and REST call, and this route is the
+  first of them. Its own PR, against the unmoved handler, because a characterization test written in the same
+  commit as the change it guards cannot show which behaviour it was describing.
+  - Ten assertions over five distinct statuses — 404 · 400 malformed `If-Match` · 412 stale `If-Match` · 400
+    strict-parse · 422 broken schema-library `$ref` — plus that each refusal leaves `version` unmoved, which is
+    the observable that separates *refused* from *partly applied* once the chain returns a plan instead of writing
+    as it goes.
+  - **The ORDER is pinned too**, and it is the part a refactor loses silently: a request carrying two faults must
+    answer for the earlier one. A precondition evaluated after validation is not a precondition — it reports a
+    body problem for a write that was never allowed to be applied.
+  - **The server-owned strip is pinned as behaviour**, not as a schema: `version`, `updatedAt` and
+    `previousVersions` come out of our own `GET` and are dropped from an incoming body while a fourth typo still
+    400s. It lives at the call site, so an extraction can move the parse and leave the strip behind — and the
+    failure would land on the most ordinary thing a client does.
+
 
 ## [2.7.0] — 2026-08-12
 ### Internal

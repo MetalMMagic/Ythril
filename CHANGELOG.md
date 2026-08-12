@@ -357,6 +357,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     against the unmoved handler passes unchanged against the extracted one.
 
 ### Testing
+- **The `reindex` contract is pinned before its inline loop moves — in two files, because there are two failure
+  modes.** `reindex` is the last REST-only capability and the only one that could never have been wrapped: the
+  re-embedding work is written inline in the route handler as five near-identical batch loops (memories, entities,
+  edges, chrono, files), each with its own projection and its own `*EmbedText` builder.
+  - **Runtime** (`integration/reindex-contract.test.js`): `404` unknown space · `400` on a proxy, with its members
+    named in both the message and a `proxyFor` field · `409` while a job runs · `200 started` with **zeroed
+    counters**, because the response is sent before the work and an extraction that awaited it would turn a
+    multi-minute job into a request timeout · the job guard being released afterwards.
+  - **The assertion that is genuinely attributable to a reindex: it does NOT bump `seq` or `updatedAt`.** The loop
+    writes the embedding fields with a direct `$set`, deliberately not through the record update path. Routing it
+    through `updateMemory` for tidiness would look correct and would bump `seq` on every record in the space — a
+    sync-visible change on every peer for a local re-embed that changed no content. Mutation-tested: touching
+    `updatedAt` in one branch fails it.
+  - **Source** (`standalone/reindex-embeds-the-same-text.test.js`): each branch must call the builder its
+    collection's WRITE path uses. This cannot be a runtime test — the loop stores `embedding` and `embeddingModel`
+    and deliberately not `matchedText`, so a vector built from the wrong argument order is indistinguishable from a
+    right one through the API. It would keep recall working and quietly disagreeing with itself.
+  - The `excerpt` argument on the file branch and the `parentFileId` chunk exclusion are asserted by name — the first
+    because without it a reindex re-embeds converted documents without their own text, the second because
+    re-embedding a chunk overwrites a passage vector with file metadata. Both were comments; now they are checks.
 - **`POST /api/spaces` refusals are pinned before that chain moves too.** `create_space` is the 9-refusal member of
   the REST-only set, and the checks a tool calling `createSpace()` directly would skip are the ones nothing tested.
   Its own PR against the unmoved route, same reason as the `PATCH` pair.

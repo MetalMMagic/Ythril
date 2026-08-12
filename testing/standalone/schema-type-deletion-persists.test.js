@@ -32,7 +32,7 @@ import assert from 'node:assert/strict';
 let mergeSpaceMeta;
 
 before(async () => {
-  ({ mergeSpaceMeta } = await import('../../server/dist/api/spaces.js'));
+  ({ mergeSpaceMeta } = await import('../../server/dist/spaces/meta-update.js'));
 });
 
 /** A space declaring two entity types and one edge label. */

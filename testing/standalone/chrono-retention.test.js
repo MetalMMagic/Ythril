@@ -235,7 +235,8 @@ describe('the feature is reachable and wired', () => {
   it('the space PATCH accepts retention inside a type schema', () => {
     // `TypeSchemaZ` is `.strict()`, so an unlisted key is REJECTED — without this the field would be stripped
     // from every request and the whole tier would silently not exist.
-    const src = readFileSync(join(ROOT, 'server/src/api/spaces.ts'), 'utf8');
+    // `TypeSchemaZ` moved to `spaces/body-schemas.ts` with the rest of the space request bodies.
+    const src = readFileSync(join(ROOT, 'server/src/spaces/body-schemas.ts'), 'utf8');
     assert.match(src, /retention: z\.object\(\{[\s\S]{0,200}contentDays: z\.number\(\)/);
   });
 

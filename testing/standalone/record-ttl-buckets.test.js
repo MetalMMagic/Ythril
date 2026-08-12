@@ -116,7 +116,8 @@ describe('normaliseRecordTtl — what a write stores', () => {
 
 describe('the API and the storage type agree', () => {
   it('the route accepts both shapes and refuses an empty object', () => {
-    const src = readFileSync(join(ROOT, 'server/src/api/spaces.ts'), 'utf8');
+    // `UpdateSpaceBody` lives in `spaces/body-schemas.ts` with the rest of the space request bodies.
+    const src = readFileSync(join(ROOT, 'server/src/spaces/body-schemas.ts'), 'utf8');
     assert.match(src, /recordTtlDays: z\.union\(\[/, 'recordTtlDays must accept a union of both shapes');
     assert.match(src, /entity: TtlWindowZ, memory: TtlWindowZ, edge: TtlWindowZ, chrono: TtlWindowZ, file: TtlWindowZ/,
       'all five buckets must be accepted');
@@ -125,7 +126,9 @@ describe('the API and the storage type agree', () => {
   });
 
   it('the route normalises through the shared helper rather than deciding again', () => {
-    const src = readFileSync(join(ROOT, 'server/src/api/spaces.ts'), 'utf8');
+    // The normalisation is a DECISION, so it moved into the planner both surfaces call — a second surface that
+    // normalised for itself is exactly how the two would drift.
+    const src = readFileSync(join(ROOT, 'server/src/spaces/meta-update.ts'), 'utf8');
     assert.match(src, /normaliseRecordTtl\(space\.recordTtlDays, parsed\.data\.recordTtlDays\)/,
       'the merge must read what is stored, or a partial write clears the buckets it did not mention');
     const store = readFileSync(join(ROOT, 'server/src/spaces/spaces.ts'), 'utf8');
@@ -139,7 +142,7 @@ describe('the API and the storage type agree', () => {
     // top of it. So a partial write cleared the four buckets it did not mention, and an all-cleared write stored
     // five explicit nulls instead of nothing — both with a 200 and no visible symptom.
     const src = readFileSync(join(ROOT, 'server/src/api/spaces.ts'), 'utf8');
-    assert.match(src, /const \{ documentExtraction: _rawMode, recordTtlDays: _rawTtl, \.\.\.restPatch \} = parsed\.data;/,
+    assert.match(src, /const \{ documentExtraction: _rawMode, recordTtlDays: _rawTtl, \.\.\.restPatch \} = patchData;/,
       'recordTtlDays must be destructured OUT of the spread that reaches updateSpace, like documentExtraction');
   });
 

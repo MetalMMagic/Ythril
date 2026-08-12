@@ -94,7 +94,11 @@ describe('the field exists on both tiers of the type', () => {
 
 describe('both write surfaces accept it', () => {
   it('the space meta body lists it, or .strict() would reject the field', () => {
-    const spaces = readFileSync(new URL('../../server/src/api/spaces.ts', import.meta.url), 'utf8');
+    // Two files now: the field is declared with the space request bodies, and the merge guard is in the planner
+    // both write surfaces call. Read together, because the pair IS the guarantee — a field the body accepts and
+    // the merge drops is the same silent failure as one the body rejects.
+    const spaces = ['server/src/spaces/body-schemas.ts', 'server/src/spaces/meta-update.ts']
+      .map(p => readFileSync(new URL(`../../${p}`, import.meta.url), 'utf8')).join('\n');
     assert.match(spaces, /suppressEmbeddings: z\.boolean\(\)\.optional\(\)/);
     // Guarded on `!== undefined`: `false` is how suppression is turned back OFF, and a truthy guard would drop
     // that patch while answering 200.

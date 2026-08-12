@@ -119,7 +119,15 @@ const FROZEN = {
   // body itself is +47 lines and lives in `api/spaces-activity.ts`, the same shape `spaces-reembed.ts` took and
   // for the reason written above it — this file has been raised four times, and the answer to the fifth is to
   // put the route beside its mount point rather than inside it.
-  'server/src/api/spaces.ts': 851,
+  //
+  // 851 -> 656, and this is the raise being PAID rather than taken. Four of the five raises above were Zod lines,
+  // because `SpaceMetaBody` and `TypeSchemaZ` are `.strict()` and an unlisted field is REJECTED — so there was no
+  // "put it beside the feature" for a field the API must accept. The schemas were what kept pulling this file up,
+  // so the schemas left: `spaces/body-schemas.ts`. The PATCH decision chain went to `spaces/meta-update.ts` in the
+  // same change, because an MCP tool has to reach the same refusals rather than a weaker copy of them (B-2).
+  // Lowered to what it now measures and KEPT on this list — deleting the entry is how a file quietly earns the
+  // right to grow back into 195 lines of headroom it did not ask for.
+  'server/src/api/spaces.ts': 656,
   // 769 -> 773: `openBrainDrawer` gained two overload signatures and its `lastSaved` effect reads the
   // record inside each branch so the discriminant narrows it. Four lines of TYPES, no new behaviour —
   // raised deliberately rather than worked around, which is what this list is for.

@@ -151,7 +151,9 @@ describe('space purpose is one field', () => {
       // The one that would be silent: a governed space votes on meta changes. If `description` were
       // still applied as a non-meta update, a directive change would skip the vote in exactly the
       // spaces that voted to govern it.
-      assert.ok(has('server/src/api/spaces.ts', /parsed\.data\.meta = \{[\s\S]{0,300}?purpose: legacy/),
+      // The fold happens in the planner now, which is still BEFORE the router's vote branch — and further from
+      // it than before, since a caller cannot reach the branch without going through the plan.
+      assert.ok(has('server/src/spaces/meta-update.ts', /parsed\.data\.meta = \{[\s\S]{0,300}?purpose: legacy/),
         'description must become meta.purpose before the networked branch is reached');
       assert.ok(!has('server/src/api/spaces.ts', /nonMetaUpdates\.description/),
         'applying it as a non-meta update is the bypass this test exists to prevent');

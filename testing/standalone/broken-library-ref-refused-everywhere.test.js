@@ -28,7 +28,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 
 const ROOT = process.cwd();
 const SRC = 'server/src/api/spaces.ts';
@@ -44,6 +44,59 @@ function routes() {
     ...s,
     body: src.slice(s.at, i + 1 < starts.length ? starts[i + 1].at : src.length),
   }));
+}
+
+/**
+ * Local name → source text, for every module this router imports from `../…`.
+ *
+ * Needed because a handler is allowed to DELEGATE the check. `PATCH /:id` now calls `planSpaceMetaUpdate`, which
+ * owns the whole refusal chain so an MCP tool can reach the same rules — and a gate that only accepted an inline
+ * call would have to be weakened for every such extraction, one route at a time.
+ *
+ * The delegate is RESOLVED and READ rather than named in an allowlist. That is the difference between following
+ * the check and taking a route's word for it: `effectiveChecker` below only accepts a delegate whose own source
+ * calls the checker, so "I call a function" is not an escape hatch — the function has to do the work.
+ */
+function resolveImports(text, fromDir) {
+  const byName = new Map();
+  const re = /import\s+(?:type\s+)?\{([^}]+)\}\s+from\s+'(\.\.?\/[^']+)\.js'/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const file = join(fromDir, `${m[2]}.ts`);
+    let body;
+    try { body = readFileSync(file, 'utf8'); } catch { continue; }
+    for (const raw of m[1].split(',')) {
+      const name = raw.trim().split(/\s+as\s+/).pop().trim();
+      if (name) byName.set(name, { text: body, dir: dirname(file) });
+    }
+  }
+  return byName;
+}
+
+const ROUTER_IMPORTS = resolveImports(src, join(ROOT, 'server/src/api'));
+
+/**
+ * The source that actually performs the ref check for a handler: its own body, plus — when it delegates — the
+ * delegate's source and the source of whatever the delegate calls to build the message.
+ *
+ * **Two hops, and no more.** The check and its wording are allowed to live one module apart: `planSpaceMetaUpdate`
+ * calls `findBrokenLibraryRefs` and answers with `brokenRefsError`, which is declared beside the schema it reads.
+ * A third hop would mean this gate no longer reads as "this route refuses"; at that distance it is asserting the
+ * shape of a call graph rather than a guarantee, and it would start passing for reasons nobody intended.
+ *
+ * `null` means nothing in reach checks, which is the defect this file exists to catch.
+ */
+function effectiveChecker(handlerBody) {
+  if (/findBrokenLibraryRefs\(/.test(handlerBody)) return handlerBody;
+  for (const [name, mod] of ROUTER_IMPORTS) {
+    if (!new RegExp(`\\b${name}\\s*\\(`).test(handlerBody)) continue;
+    if (!/findBrokenLibraryRefs\(/.test(mod.text)) continue;
+    // Second hop: whatever this delegate calls, so the 422 and its message count wherever they are declared.
+    let bundle = mod.text;
+    for (const [, dep] of resolveImports(mod.text, mod.dir)) bundle += `\n${dep.text}`;
+    return bundle;
+  }
+  return null;
 }
 
 describe('a broken schema-library $ref is refused on every route that accepts one', () => {
@@ -65,14 +118,18 @@ describe('a broken schema-library $ref is refused on every route that accepts on
       // from the body and never named `typeSchemas` at all — a detector keyed on that word would have
       // reported the tree clean on the day the bug was live, which is the one day it needed to speak.
       const takesSchemas = /typeSchemas/.test(r.body)
-        || /const \{[^}]*\bmeta\b[^}]*\} = parsed\.data/.test(r.body);
+        || /const \{[^}]*\bmeta\b[^}]*\} = parsed\.data/.test(r.body)
+        // A handler that hands the whole body to a planner names neither `typeSchemas` nor `meta`. It still
+        // accepts schemas — via `req.body` — so it is in scope, and the delegate is what has to check.
+        || /planSpaceMetaUpdate\(/.test(r.body);
       if (!takesSchemas) continue;
-      if (!/findBrokenLibraryRefs\(/.test(r.body)) offenders.push(`${r.verb.toUpperCase()} ${r.path}`);
+      if (!effectiveChecker(r.body)) offenders.push(`${r.verb.toUpperCase()} ${r.path}`);
     }
     assert.deepEqual(offenders, [],
-      'these accept `typeSchemas` from a request without checking its library refs. An unresolvable ref '
-      + 'degrades to an empty schema, so in a strict space the type silently loses every constraint while '
-      + 'the call reports success — and the other routes answer 422 for the same input.');
+      'these accept `typeSchemas` from a request without checking its library refs — directly or through a '
+      + 'delegate that checks. An unresolvable ref degrades to an empty schema, so in a strict space the type '
+      + 'silently loses every constraint while the call reports success — and the other routes answer 422 for '
+      + 'the same input.');
   });
 
   it('the create route refuses BEFORE the space exists', () => {
@@ -86,11 +143,14 @@ describe('a broken schema-library $ref is refused on every route that accepts on
   });
 
   it('all four answer with the same status and a message naming what is missing', () => {
-    const checking = all.filter(r => /findBrokenLibraryRefs\(/.test(r.body));
+    // Read from the EFFECTIVE checker, so a route that delegates is held to the same two requirements as one that
+    // checks inline. A delegate reports the status in its refusal rather than by calling `res`, which is why 422
+    // is matched as a bare status here rather than as `res.status(422)`.
+    const checking = all.map(r => ({ r, src: effectiveChecker(r.body) })).filter(x => x.src);
     assert.ok(checking.length >= 4, `only ${checking.length} routes check refs; expected the create route plus three editors`);
-    for (const r of checking) {
-      assert.match(r.body, /res\.status\(422\)/, `${r.verb.toUpperCase()} ${r.path} must answer 422`);
-      assert.match(r.body, /Schema library[^\n]*not found/,
+    for (const { r, src: checker } of checking) {
+      assert.match(checker, /422/, `${r.verb.toUpperCase()} ${r.path} must answer 422`);
+      assert.match(checker, /Schema library[^\n]*not found/,
         `${r.verb.toUpperCase()} ${r.path} must name the missing entry — "invalid schema" sends the caller looking in the wrong place`);
     }
   });

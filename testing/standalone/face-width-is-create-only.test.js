@@ -29,7 +29,11 @@ const read = (p) => readFileSync(join(ROOT, p), 'utf8');
 const withoutComments = (text) =>
   text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
 
-const api = withoutComments(read('server/src/api/spaces.ts'));
+// The space request bodies live in `spaces/body-schemas.ts`, not in the router. They moved there because four of
+// the router's five ratchet raises were single Zod lines — both `SpaceMetaBody` and `TypeSchemaZ` are `.strict()`,
+// so a field the API must accept has nowhere smaller to go. The "finds the two body schemas" assertion below is
+// what turns a move like that into a failure to re-point rather than three tests quietly passing on nothing.
+const api = withoutComments(read('server/src/spaces/body-schemas.ts'));
 const idx = withoutComments(read('server/src/spaces/vector-index.ts'));
 const life = withoutComments(read('server/src/spaces/lifecycle.ts'));
 

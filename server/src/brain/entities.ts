@@ -11,7 +11,7 @@ import { entityEmbedText } from './embed-text.js';
 import { getConfig } from '../config/loader.js';
 import { stampExpiryOnCreate, applyExpiryToUpdate } from './ttl.js';
 import { writeFilterFor, writeOutcome } from './write-precondition.js';
-import { applyDeleteFields } from './delete-fields.js';
+import { applyDeleteFields, setUnlessDeleted } from './delete-fields.js';
 import { mergeTagsAndProperties, mergePropertiesOrKeep, mergeTagsOrKeep } from './merge-fields.js';
 import { enqueueEmbedJob } from './embed-queue.js';
 import { checkDuplicates, type SimilarMatch, type DupeCheckOpts } from './recall.js';
@@ -312,9 +312,11 @@ export async function updateEntityById(
   if (updates.excludeFromVectorSearch !== undefined) $set['excludeFromVectorSearch'] = updates.excludeFromVectorSearch;
   if (updates.name !== undefined) $set['name'] = newName;
   if (updates.type !== undefined) $set['type'] = newType;
-  if (updates.description !== undefined || (deleteFieldsPaths && !$unset['description'])) $set['description'] = newDesc;
-  if (updates.tags !== undefined || (deleteFieldsPaths && !$unset['tags'])) $set['tags'] = newTags;
-  if (updates.properties !== undefined || (deleteFieldsPaths && !$unset['properties'])) $set['properties'] = newProps;
+  // `setUnlessDeleted` rather than a guard on `$unset['x']`: that value is the empty string, so the old test was
+  // always true and every whole-field `deleteFields` produced a rejected write. See its doc comment.
+  setUnlessDeleted($set, $unset, 'description', newDesc, updates.description !== undefined || !!deleteFieldsPaths);
+  setUnlessDeleted($set, $unset, 'tags', newTags, updates.tags !== undefined || !!deleteFieldsPaths);
+  setUnlessDeleted($set, $unset, 'properties', newProps, updates.properties !== undefined || !!deleteFieldsPaths);
 
   // The re-embed is ENQUEUED after the write, not computed here. See `embedStoredRecord` for why computing
   // it inline was wrong rather than merely slow: the text would come from this function's stale read.

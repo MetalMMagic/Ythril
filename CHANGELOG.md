@@ -142,6 +142,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     nothing would have said so.
 
 ### Fixed
+- **`deleteFields` could never remove a whole field from an entity or an edge — it answered 500.** Reported by
+  breituai-platform (2026-08-12T2140Z) against `deleteFields: ["tags"]`, which the integration guide documents.
+  Confirmed by reading the write paths, because the cause is total rather than conditional.
+  - The guard meant to suppress the `$set` was `!$unset['tags']`, and `$unset` entries are written as
+    `$unset['tags'] = ''` — Mongo's own convention. **The empty string is falsy**, so the test was always true, the
+    `$set` was always written, and the update reached Mongo naming one path in both `$set` and `$unset`. Mongo
+    rejects that outright: *"Updating the path 'tags' would create a conflict at 'tags'"*.
+  - **Eight sites, two files** (`brain/entities.ts`, `brain/edges.ts`), covering `description`, `tags`, `properties`
+    and an edge's `weight`.
+  - **Nested paths were never affected, which is why it survived.** Deleting `properties.region` leaves `properties`
+    present, so no `$unset` is written for it and the guard never mattered — and every documented example, plus the
+    only prior integration coverage, used a nested path. The working half looked like proof the feature worked.
+  - **`brain/memory.ts` was already correct**, by a different route: it writes the `$set` first and then
+    `delete $set[field]` beside the `$unset`. Both broken files also used the right idiom a few lines away for a
+    different field (`'_expireAt' in $unset`). Three surfaces, one correct, two wrong, and the correct test spelled
+    out twice inside each wrong file — so this was a slip, not a convention.
+  - Replaced by one `setUnlessDeleted` helper in `brain/delete-fields.ts`, the module that owns the feature, rather
+    than seven corrected copies of a four-line guard. **`$unset` wins over a `$set` of the same field**, which makes
+    "update it and delete it in one request" resolve as documented instead of being rejected — now stated explicitly
+    in the integration guide.
+  - **A gate now refuses reading any `$unset` entry as a boolean**, with comments stripped so the doc comment that
+    quotes the defect does not trip it, and with the real shipped line asserted as a positive match so the pattern
+    cannot rot. Mutation-tested: restoring the old guard makes it fail and name the file.
 - **`npm run loop:check` reported the work queue as drained while eleven rows were open** — a development gate, so
   nothing shipped wrong because of it, but the one gate whose whole job is refusing that exact claim.
   - It counted rows whose ID began `Q-`, from a period when every row did. The queue was later re-keyed per domain

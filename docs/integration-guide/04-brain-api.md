@@ -669,6 +669,7 @@ PATCH /api/brain/spaces/:spaceId/memories/:id
 **Rules:**
 
 - `deleteFields` is applied **after** the normal merge — so you can add new properties and delete stale ones in the same request.
+- **Naming the same field in both halves is allowed, and the deletion wins.** `{"tags": ["a"], "deleteFields": ["tags"]}` stores no tags, because the delete is the later instruction. This follows from the rule above rather than being a separate one, but it is the case worth stating: it used to be rejected.
 - Paths targeting non-existent keys are silently ignored (no error).
 - System fields (`id`, `_id`, `name`, `type`, `spaceId`, `createdAt`, `updatedAt`) **cannot** be deleted. Attempting to do so returns `400`.
 - Paths with empty segments (e.g. `"properties..key"`) are rejected with `400`.

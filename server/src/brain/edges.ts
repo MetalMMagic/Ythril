@@ -10,7 +10,7 @@ import { embed } from './embedding.js';
 import { edgeEmbedText } from './embed-text.js';
 import { getConfig } from '../config/loader.js';
 import { stampExpiryOnCreate, applyExpiryToUpdate } from './ttl.js';
-import { applyDeleteFields } from './delete-fields.js';
+import { applyDeleteFields, setUnlessDeleted } from './delete-fields.js';
 import { mergePropertiesOrKeep, mergeTagsOrKeep } from './merge-fields.js';
 import { enqueueEmbedJob } from './embed-queue.js';
 import { getEntityById } from './entities.js';
@@ -318,11 +318,13 @@ export async function updateEdgeById(
   }
 
   if (updates.label !== undefined) $set['label'] = newLabel;
-  if (updates.description !== undefined || (deleteFieldsPaths && !$unset['description'])) $set['description'] = newDesc;
-  if (updates.tags !== undefined || (deleteFieldsPaths && !$unset['tags'])) $set['tags'] = newTags;
-  if (updates.properties !== undefined || (deleteFieldsPaths && !$unset['properties'])) $set['properties'] = newProps;
+  // `setUnlessDeleted` rather than a guard on `$unset['x']`: that value is the empty string, so the old test was
+  // always true and every whole-field `deleteFields` produced a rejected write. See its doc comment.
+  setUnlessDeleted($set, $unset, 'description', newDesc, updates.description !== undefined || !!deleteFieldsPaths);
+  setUnlessDeleted($set, $unset, 'tags', newTags, updates.tags !== undefined || !!deleteFieldsPaths);
+  setUnlessDeleted($set, $unset, 'properties', newProps, updates.properties !== undefined || !!deleteFieldsPaths);
   if (updates.type !== undefined) $set['type'] = newType;
-  if (updates.weight !== undefined || (deleteFieldsPaths && !$unset['weight'])) $set['weight'] = newWeight;
+  setUnlessDeleted($set, $unset, 'weight', newWeight, updates.weight !== undefined || !!deleteFieldsPaths);
 
   // The re-embed is ENQUEUED after the write — see `embedStoredRecord`. Computing it here would build the
   // text from this function's stale read, which is how a record's vector ends up describing a record that
@@ -355,7 +357,10 @@ export async function updateEdgeById(
     updatedAt: now,
     seq,
     ...(updates.description !== undefined ? { description: newDesc } : {}),
-    ...(updates.properties !== undefined || (deleteFieldsPaths && !$unset['properties']) ? { properties: newProps } : {}),
+    // Same `in` test as the write above. `applyDeleteFields` runs over this object a few lines down and would have
+    // removed the key anyway, so this was right by accident rather than by decision — and an accident that agrees
+    // with the write only while both stay wrong the same way.
+    ...(!('properties' in $unset) && (updates.properties !== undefined || deleteFieldsPaths) ? { properties: newProps } : {}),
     ...(updates.type !== undefined ? { type: newType } : {}),
     ...(updates.weight !== undefined ? { weight: newWeight } : {}),
   } as EdgeDoc;

@@ -21,7 +21,8 @@
  *
  *  - **In flight** — an open PR I authored. Then "Running" is a fact with a number attached, which is what the
  *    reply format's last slot is supposed to carry.
- *  - **Drained** — no open `Q-` rows. That is the release boundary the loop is designed to stop at.
+ *  - **Drained** — no open rows in the queue's work section. That is the release boundary the loop is designed to
+ *    stop at. Work sections are identified by heading, not by row ID; see `parseRows`.
  *
  * Anything else means work is available and nothing is executing, so the turn must continue. It prints the next
  * row, so the verdict is "keep going, on this" rather than just "keep going".
@@ -60,25 +61,51 @@ const sh = (cmd) => {
 };
 
 /**
+ * Sections that are listed in the ordered file but are NOT the queue.
+ *
+ * `W-` (watching), `P-` (parked) and the release section are exactly why the file can be drained while still
+ * listing things; counting them would make "the queue is empty" unreachable, which is the defect the retired
+ * *behind the tag* tier had.
+ *
+ * Matched on the HEADING rather than on the row ID, and the direction of the rule is deliberate: everything is
+ * work unless its section says otherwise. A new non-work section nobody taught this script about gets COUNTED,
+ * so the gate says "keep working" — an annoyance. The reverse default drains the queue silently, which is the
+ * failure this file exists to prevent and the one it shipped with for two weeks.
+ */
+const NOT_WORK_HEADING = /watch|parked|not work|release|reference|note/i;
+
+/** A done marker and nothing else: `shipped`, `merged (#812)`, `done 2026-08-04`. */
+const DONE_ONLY = /^(?:done|shipped|merged)\b[^a-z]*$/i;
+
+/**
  * Open rows in the ordered queue.
  *
  * The file is a table, one task per line (owner, 2026-08-09), so a row is a `|`-delimited line whose first cell
- * is an ID like `Q-2`. Anything else — headers, the `|---|` separator, prose between tables — is not a task.
+ * is an ID like `B-2`. Anything else — headers, the `|---|` separator, prose between tables — is not a task.
  *
- * Only the `Q-` tier counts. `W-` (watching) and `P-` (parked) rows are exactly why the file can be drained
- * while still listing things; counting them would make "the queue is empty" unreachable, which is the defect the
- * retired *behind the tag* tier had. A row whose status says it shipped is not open either — the queue is what
- * is left, not what was listed.
+ * **A row's tier is the section it sits under, never the letter in its ID.** The first version keyed on
+ * `id.startsWith('Q-')`, from a period when every row was a `Q-`. The queue was later re-keyed per domain — `B-`
+ * architecture, `U-` UX, `T-` sync — and this went on counting a prefix that no longer existed: it reported *the
+ * queue is drained* with eleven rows open, in green. Sections are what the owner maintains by hand, and `W-8`
+ * proves the ID cannot stand in for one — it is open work carrying a watch-tier ID because its home tracker keyed
+ * it that way.
+ *
+ * A row whose status is *only* a done marker is not open either — the queue is what is left, not what was listed.
+ * That test used to match `done|shipped|merged` anywhere in the cell, which read `2 wrappers shipped (#842,
+ * #843)` as finished when it means three fifths remain. Partial progress is the most common status in this file,
+ * so the marker now has to be the whole cell.
  */
 export function parseRows(text) {
   const rows = [];
+  let inWork = true; // Rows above the first heading are work; an unlabelled table is the file's oldest shape.
   for (const line of text.split('\n')) {
-    if (!line.trim().startsWith('|')) continue;
+    const heading = /^#{1,6}\s+(.*)$/.exec(line.trim());
+    if (heading) { inWork = !NOT_WORK_HEADING.test(heading[1]); continue; }
+    if (!inWork || !line.trim().startsWith('|')) continue;
     const cells = line.split('|').map((c) => c.trim()).filter((_, i, a) => i > 0 && i < a.length - 1);
     const id = cells[0];
     if (!id || !/^[A-Z]-\d+$/.test(id)) continue;
-    if (!id.startsWith('Q-')) continue;
-    if (/\b(done|shipped|merged)\b/.test((cells[3] ?? '').toLowerCase())) continue;
+    if (DONE_ONLY.test(cells[3] ?? '')) continue;
     rows.push({ id, what: cells[1] ?? '', status: cells[3] ?? '' });
   }
   return rows;
@@ -135,7 +162,8 @@ function main() {
   }
 
   const inFlight = prs !== null && prs.length > 0;
-  console.log(`  open Q- rows in ${ORDERED}: ${rows.length}`);
+  console.log(`  open work rows in ${ORDERED}: ${rows.length}` +
+    (rows.length ? ` ${C.dim}-> ${rows.slice(0, 4).map((r) => r.id).join(', ')}${rows.length > 4 ? ', …' : ''}${C.off}` : ''));
   console.log(`  open PRs authored by me:    ${prs === null ? '(gh unavailable)' : prs.length}` +
     (inFlight ? ` ${C.dim}-> #${prs.map((p) => p.number).join(', #')}${C.off}` : ''));
   console.log(`  uncommitted source files:   ${dirty.length}` +
@@ -156,7 +184,7 @@ function main() {
     if (/owner|decision|your move|sign.?off|approval/i.test(reason)) {
       const parkedOpen = existsSync(PARKED) && !/^\s*##\s+Nothing open\s*$/mi.test(readFileSync(PARKED, 'utf8'));
       if (rows.length > 0) {
-        console.log(`${C.red}NOT A STOP${C.off} — an owner decision is claimed, but ${rows.length} Q- row(s) are open.`);
+        console.log(`${C.red}NOT A STOP${C.off} — an owner decision is claimed, but ${rows.length} work row(s) are open.`);
         console.log('Parked never blocks while other work exists. Go build the next row and batch the decision.');
         console.log(`${C.bold}Next: ${rows[0].id} — ${rows[0].what}${C.off}`);
         process.exit(1);

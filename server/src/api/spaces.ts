@@ -34,6 +34,7 @@ import {
   CreateSpaceBody, DeleteSpaceBody, RenameSpaceBody, ReorderSpacesBody, PutSchemaBody,
 } from '../spaces/body-schemas.js';
 import { planSpaceMetaUpdate, applySpaceMetaUpdate } from '../spaces/meta-update.js';
+import { planSpaceCreate, applySpaceCreate } from '../spaces/space-create.js';
 
 export const spacesRouter = Router();
 
@@ -231,75 +232,29 @@ spacesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
 });
 
 // POST /api/spaces
+// Every refusal — the parse, the two proxy checks, the schema-library `$ref` — and the strict-posture seeding are
+// decided by `planSpaceCreate`, so an MCP `create_space` reaches the same rules instead of a weaker copy of them
+// (B-2). What stays here is turning an outcome into a status.
+//
+// `space-create-contract.test.js` pins that chain, including that a refusal leaves NO SPACE BEHIND, and it was proven
+// against this handler before the move.
 spacesRouter.post('/', globalRateLimit, requireAdminMfa, async (req, res) => {
-  const parsed = CreateSpaceBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
+  const decision = planSpaceCreate(req.body);
+  if (!decision.ok) {
+    res.status(decision.refusal.status).json(decision.refusal.body);
     return;
   }
-  const { id: rawId, label, description, folders, maxGiB, proxyFor, meta, faceDescriptorDims } = parsed.data;
-  const id = rawId ?? slugify(label);
 
-  // Validate proxy members exist and are not themselves proxies
-  // '*' is the wildcard sentinel — skip per-member validation
-  if (proxyFor && !(proxyFor.length === 1 && proxyFor[0] === '*')) {
-    const cfg = getConfig();
-    for (const memberId of proxyFor) {
-      const member = cfg.spaces.find(s => s.id === memberId);
-      if (!member) {
-        res.status(400).json({ error: `Proxy member space '${memberId}' not found` });
-        return;
-      }
-      if (member.proxyFor) {
-        res.status(400).json({ error: `Proxy member '${memberId}' is itself a proxy space (nesting not allowed)` });
-        return;
-      }
-    }
+  const result = await applySpaceCreate(decision.plan);
+  if (result.outcome === 'conflict') {
+    res.status(409).json({ error: result.error });
+    return;
   }
-
-  // New user-created spaces default to a fully-strict schema posture (owner decision 2026-07-25):
-  // validationMode:'strict' + strictLinkage:true, so a space enforces its schema and referential
-  // integrity from day one. An explicit value in the request wins (spread last). Proxy spaces hold no
-  // data of their own, so they are left un-defaulted. The federation-join path (networks/join) calls
-  // createSpace directly and is intentionally NOT affected — defaulting strict there would reject
-  // incoming off-schema federated records on ingest. With no typeSchemas yet defined, 'strict' still
-  // accepts every type/label (nothing to violate), so this never blocks a brand-new empty space.
-  const requestMeta = meta as SpaceMeta | undefined;
-
-  // Same broken-`$ref` refusal the three UPDATE routes make, which this one did not.
-  //
-  // Reported by an operator setting up a NEW space: a type declared `{"$ref": "library:…"}` came back as an
-  // empty schema, and the create reported success. Every path that EDITS meta — `PATCH /:id`,
-  // `PUT /:id/schema`, `PUT /:id/meta/typeSchemas/…` — already answers 422 here; only creation did not, so
-  // the identical mistake was loud on one route and silent on another.
-  //
-  // It matters most in a `strict` space, which is the default this very handler seeds two lines below: one
-  // mistyped ref leaves that type with no constraints at all, and the space then accepts anything for it
-  // while its schema looks authored. A refusal naming the missing entry costs one call to fix; a silent
-  // empty schema costs however long it takes someone to notice their rules are not being applied.
-  if (requestMeta?.typeSchemas) {
-    const brokenRefs = findBrokenLibraryRefs(requestMeta.typeSchemas as z.infer<typeof TypeSchemasZ>);
-    if (brokenRefs.length > 0) {
-      res.status(422).json({ error: `Schema library ${brokenRefs.length === 1 ? 'entry' : 'entries'} not found: ${brokenRefs.join(', ')}. Create ${brokenRefs.length === 1 ? 'it' : 'them'} via POST /api/schema-library before referencing.` });
-      return;
-    }
+  if (result.outcome === 'failed') {
+    res.status(500).json({ error: result.error });
+    return;
   }
-
-  const seededMeta: SpaceMeta | undefined = proxyFor
-    ? requestMeta
-    : { validationMode: 'strict', strictLinkage: true, ...(requestMeta ?? {}) };
-
-  try {
-    const space = await createSpace({ id, label, description, folders, maxGiB, proxyFor, meta: seededMeta, faceDescriptorDims });
-    res.status(201).json({ space: spaceResponse(space) });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes('already exists')) {
-      res.status(409).json({ error: msg });
-    } else {
-      res.status(500).json({ error: 'Failed to create space' });
-    }
-  }
+  res.status(201).json({ space: spaceResponse(result.space) });
 });
 
 // PATCH /api/spaces/:id

@@ -180,7 +180,9 @@ describe('numbers quoted in the docs match the constants they quote', () => {
 });
 
 describe('the defaults a new space is seeded with are documented as such', () => {
-  const spacesSrc = read('server/src/api/spaces.ts');
+  // The seeding moved to `spaces/space-create.ts` with the rest of the create chain, so both surfaces seed the same
+  // posture rather than the route seeding it and a tool not. The pairing is unchanged; only where the code lives is.
+  const spacesSrc = read('server/src/spaces/space-create.ts');
   const guide = read('docs/integration-guide.md');
 
   for (const row of SEEDED_SPACE_DEFAULTS) {

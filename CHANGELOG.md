@@ -290,6 +290,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     worse than the bug being fixed.
 
 ### Internal
+- **The space CREATE chain is now a function both surfaces can call.** Last of the three extractions B-2 needs, and
+  the reason it was needed: `createSpace()` already exists in `lifecycle.ts`, so a tool could call it today — and
+  would skip the two proxy refusals, the schema-library `$ref` check, and the strict-posture seeding. A token holding
+  `createSpaces` would have got a materially weaker create over MCP than over REST.
+  - `spaces/space-create.ts`: `planSpaceCreate` decides (parse → proxy member existence → proxy nesting → `$ref` →
+    seed the strict flags) and `applySpaceCreate` writes. It reads config and writes nothing, so the refusals are
+    reachable without a request.
+  - **`conflict` and `failed` are separate outcomes**, not one error. A taken id means *pick another, or you already
+    have it* — often a successful retry whose response was lost — while a failure means *retry, or read the log*.
+    REST maps them to 409 and 500; a tool can say which.
+  - **The ordering guarantee is now a type.** `applySpaceCreate` takes a `SpaceCreatePlan`, a plan is only
+    constructed by `planSpaceCreate` after the `$ref` check, and exactly one place constructs one — so `createSpace`
+    cannot be reached without having passed the checks. The gate that used to compare two line positions inside one
+    handler now asserts that, which is a stronger claim than the one it replaced.
+  - Behaviour-preserving by construction: the code moved verbatim, and the 11-assertion contract suite that landed
+    against the unmoved route passes unchanged against the extracted one.
 - **The space update's refusal chain is now a function both surfaces can call, and the router lost 195 lines.**
   Three of the five REST-only capabilities breituai-platform reported are not wrappers: `updateSpace()` exists, but
   `PATCH /api/spaces/:id` wrapped it in a chain of refusals, and a tool calling `updateSpace()` directly would skip

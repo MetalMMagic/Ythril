@@ -133,13 +133,28 @@ describe('a broken schema-library $ref is refused on every route that accepts on
   });
 
   it('the create route refuses BEFORE the space exists', () => {
-    // Ordering is the guarantee: a check after `createSpace` would leave a space behind whose schema is the
-    // thing being rejected, and the caller would have to clean it up.
+    // Ordering is the guarantee: a check after `createSpace` would leave a space behind whose schema is the thing
+    // being rejected, and the caller would have to clean it up.
+    //
+    // The route delegates now, and the two halves live in different functions of `spaces/space-create.ts` — so a
+    // position test would be comparing two things that have no order at runtime. What actually holds the ordering is
+    // the signature: `applySpaceCreate` takes a `SpaceCreatePlan`, and a plan is only ever constructed by
+    // `planSpaceCreate`, after the `$ref` check, in the expression that returns `ok: true`. A caller cannot reach
+    // `createSpace` without having passed the check, which is stronger than what this assertion used to say.
     const create = all.find(r => r.verb === 'post' && r.path === '/');
-    const check = create.body.indexOf('findBrokenLibraryRefs(');
-    const write = create.body.indexOf('await createSpace(');
-    assert.ok(check > 0, 'the create route must call the checker');
-    assert.ok(write > check, 'the ref check must run before the space is created');
+    assert.ok(effectiveChecker(create.body), 'the create route must reach the checker, directly or by delegation');
+
+    const planner = readFileSync(join(ROOT, 'server/src/spaces/space-create.ts'), 'utf8');
+    assert.match(planner, /export async function applySpaceCreate\(plan: SpaceCreatePlan\)/,
+      'apply must take a SpaceCreatePlan and nothing looser, or a caller could assemble one without the checks');
+    assert.match(planner, /await createSpace\(plan\.args\)/, 'and it must create from the PLAN, not from a body');
+
+    const planFn = planner.slice(planner.indexOf('export function planSpaceCreate'));
+    const check = planFn.indexOf('findBrokenLibraryRefs(');
+    const built = planFn.indexOf('ok: true');
+    assert.ok(check > 0 && built > check, 'the ref check must run before a plan is returned');
+    assert.equal((planner.match(/ok: true,\s*\n\s*plan: \{/g) ?? []).length, 1,
+      'a second place constructing a plan is a second way to reach createSpace without the check');
   });
 
   it('all four answer with the same status and a message naming what is missing', () => {

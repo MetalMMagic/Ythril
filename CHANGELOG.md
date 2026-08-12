@@ -6,6 +6,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Internal
+- **Preflight lists TRACKED test files, not whatever is on disk.** It used `readdirSync`, which picks up
+  untracked files too — so a scratch `*.test.js` left in `testing/standalone/` would run locally and **not** in
+  CI. Preflight and CI disagreeing about which gates exist is the one divergence that makes a green preflight
+  worthless.
+  - The counts match today (331 tracked, 331 on disk, 314 of them offline). This keeps them matching on the day
+    somebody leaves a probe behind, which is the only day it matters.
+  - Found by auditing whether every gate written this release is actually RUN. All of them are; this was the
+    hole the audit turned up on the way.
+
 ### Added
 - **A space's recorded usage can be reset** — `POST /api/spaces/:spaceId/activity/reset`, admin + MFA, scoped to
   the space. Deletes the hourly buckets behind the Overview usage panel, so a space hammered once during a

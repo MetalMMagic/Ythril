@@ -6,7 +6,7 @@ import { bulk_writeTool } from './bulk.js';
 import { merge_entitiesTool, upsert_entityTool, find_entities_by_nameTool, update_entityTool, delete_entityTool } from './entity.js';
 import { upsert_edgeTool, traverseTool, update_edgeTool, delete_edgeTool } from './edge.js';
 import { create_chronoTool, update_chronoTool, list_chronoTool, delete_chronoTool } from './chrono.js';
-import { read_fileTool, write_fileTool, list_dirTool, delete_fileTool, create_dirTool, move_fileTool } from './file.js';
+import { read_fileTool, write_fileTool, list_dirTool, delete_fileTool, create_dirTool, move_fileTool, retry_embeddingTool } from './file.js';
 import { list_peersTool, sync_nowTool } from './sync.js';
 import { helpTool } from './help.js';
 
@@ -49,6 +49,7 @@ export const ALL_TOOLS: ToolHandler[] = [
   write_fileTool,
   list_dirTool,
   delete_fileTool,
+  retry_embeddingTool,
   create_dirTool,
   move_fileTool,
   update_spaceTool,

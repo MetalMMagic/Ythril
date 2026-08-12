@@ -246,3 +246,69 @@ export const move_fileTool: ToolHandler = {
     return { content: [{ type: 'text' as const, text: `Moved '${src}' → '${dst}'.` }] };
   },
 };
+
+/**
+ * Re-queue a failed file embedding.
+ *
+ * ## Why this is a tool now
+ *
+ * breituai-platform, 2026-08-11T1722Z, listed it among five capabilities a token could HOLD and not exercise:
+ * *"The rights matrix decides what a token may do; the surface should not also decide whether it can."* This one
+ * is the sharpest of the five, because it is the documented recovery path for a failed embedding — so the surface
+ * that could see the failure was the surface that could not act on it.
+ *
+ * ## A wrapper, deliberately
+ *
+ * `retryJob` is the same function `POST /api/files/:spaceId/retry_embedding` calls. Reimplementing the reset
+ * (status, attempts, lastError, claim fields) here would be a second copy of a state machine, and the copy that
+ * drifts is the one nobody is watching. The three outcomes are reported verbatim rather than collapsed into
+ * success/failure: `processing` means someone else already has it, which is not an error and not a retry.
+ */
+export const retry_embeddingTool: ToolHandler = {
+  name: 'retry_embedding',
+  description: 'Re-queue a file whose media embedding failed or was skipped, so the worker picks it up again. '
+    + 'Resets the job to pending and clears its attempt count and last error. Returns `processing` unchanged if '
+    + 'the worker already holds it — that is not a failure, and retrying it would take the job away from a run in '
+    + 'progress. Use the file path as it appears in list_dir.',
+  mutating: true,
+  spaceRequired: true,
+  inputSchema: (s: ToolSchemas) => ({
+    type: 'object',
+    properties: {
+      space: s.requiredSpace,
+      path: { type: 'string', minLength: 1, description: 'File path relative to the space root.' },
+      targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
+    },
+    required: ['space', 'path'],
+    additionalProperties: false,
+  }),
+  async handle(ctx: ToolContext): Promise<ToolResult> {
+    const { args: a, callSpace } = ctx;
+    const filePath = String(a['path'] ?? '');
+    if (!filePath.trim()) throw new Error('path must not be empty');
+    const wt = resolveWriteTarget(callSpace, a['targetSpace'] as string | undefined);
+    if (!wt.ok) throw new Error(wt.error);
+
+    // Normalised the same way the REST route does it, so a path that works there works here. A raw path would
+    // miss the job whose id is the normalised form, and report `not_found` for a file that exists.
+    const { toDocId } = await import('../../util/paths.js');
+    let docId: string;
+    try {
+      docId = toDocId(filePath);
+    } catch (err: unknown) {
+      throw new Error(err instanceof Error ? err.message : `Invalid path '${filePath}'`);
+    }
+
+    const { retryJob } = await import('../../files/media/job-queue.js');
+    const result = await retryJob(wt.target, docId);
+
+    const text = result === 'ok'
+      ? `Re-queued '${filePath}' for embedding.`
+      : result === 'processing'
+        ? `'${filePath}' is being processed right now — left alone rather than reset, so the run in progress is not interrupted.`
+        : `No embedding job exists for '${filePath}'. Either it was never queued, or the path does not match a stored file.`;
+
+    // The outcome verbatim, so a caller can branch without reading English.
+    return { content: [{ type: 'text' as const, text }], structuredContent: { result, path: filePath } };
+  },
+};

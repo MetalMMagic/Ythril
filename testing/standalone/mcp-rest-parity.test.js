@@ -113,13 +113,23 @@ describe('the declared MCP/REST gap is real in both directions', () => {
       + `partner who asked): ${built.map(c => c.wouldBeTool).join(', ')}`);
   });
 
-  it('the five reported capabilities are all still accounted for', () => {
+  it('the five reported capabilities are each either still mapped or now BUILT', () => {
     // Named outright rather than counted: these are the ones an integrator was told about, and a refactor that
-    // dropped one from the map would quietly un-answer their report.
-    const covered = new Set(REST_ONLY_CAPABILITIES.map(c => c.wouldBeTool));
+    // dropped one would quietly un-answer their report.
+    //
+    // "Still in the map" is the wrong invariant on its own, and using the gate is what showed it: a row LEAVES
+    // the map when its tool ships, which is the whole lifecycle this file enforces. So the requirement is that
+    // each reported capability is accounted for one way or the other — mapped as missing, or present as a tool.
+    // Neither is the failure worth catching, and that is what this now catches.
+    const mapped = new Set(REST_ONLY_CAPABILITIES.map(c => c.wouldBeTool));
+    const built = toolNames();
+    const lost = [];
     for (const t of ['reindex', 'update_space_schema', 'list_tokens', 'retry_embedding', 'create_space']) {
-      assert.ok(covered.has(t), `\`${t}\` was reported as a gap and is no longer in the map`);
+      if (!mapped.has(t) && !built.has(t)) lost.push(t);
     }
+    assert.deepEqual(lost, [],
+      `reported as a gap, and now neither in the map nor built as a tool — the report has been silently `
+      + `un-answered: ${lost.join(', ')}`);
   });
 
   it('help() reports the map, with mcpTool null on every row', () => {

@@ -39,9 +39,9 @@ export interface RestOnlyCapability {
 }
 
 /**
- * The five they reported, and nothing invented alongside them.
+ * The five they reported, minus the ones now built. Nothing invented alongside them.
  *
- * Confirmed absent rather than gated on 2026-08-12 by reading the tool registry: 34 tools, none of which is a
+ * Confirmed absent rather than gated on 2026-08-12 by reading the tool registry: 34 tools, none of which was a
  * reindex, a token list, a `retry_embedding` or a space create. `update_space` exists but accepts only `label`,
  * `purpose` and `description`, so nothing on MCP writes a schema — their reading was right on every one.
  */
@@ -69,14 +69,6 @@ export const REST_ONLY_CAPABILITIES: readonly RestOnlyCapability[] = [
     wouldBeTool: 'list_tokens',
     why: 'Not built, and admin-only over REST. They audit tokens with a Kubernetes CronJob that curls this and '
       + 'posts the result into a space as a chrono entry, so an agent can read it — a workaround with a scheduler in it.',
-  },
-  {
-    capability: 'Re-queue a failed file embedding',
-    restEndpoint: '/api/files/:spaceId/retry_embedding',
-    method: 'POST',
-    wouldBeTool: 'retry_embedding',
-    why: 'Not built. This is the documented recovery path for a failed embedding, so the surface that cannot '
-      + 'reach it cannot recover from a failure it can see.',
   },
   {
     capability: 'Create a space',

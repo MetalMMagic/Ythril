@@ -105,6 +105,39 @@ describe('BrainStore — type options for the filter bar', () => {
   });
 });
 
+/**
+ * Chrono is the one collection whose type rule is EXCLUSIVE, and the client had no copy of it at all:
+ * `getAllowedChronoTypes` (server/src/spaces/schema-validation.ts) returns the declared
+ * `typeSchemas.chrono` keys when there are any, and the five built-ins ONLY as a fallback. The forms
+ * offered the built-ins unconditionally, so in a space with declared chrono types every option in the
+ * dropdown was a value the API answers `type must be one of: …` to.
+ */
+describe('BrainStore — the chrono type allowlist mirrors the server', () => {
+  it('declared chrono types REPLACE the built-ins rather than extending them', () => {
+    const c = create();
+    c.spaceMeta.set({ typeSchemas: { chrono: { launch: {}, audit: {} } } } as unknown as SpaceMetaResponse);
+    expect(c.chronoAllowedTypes()).toEqual(['audit', 'launch']);
+    for (const builtIn of c.chronoKinds) {
+      expect(c.chronoAllowedTypes()).not.toContain(builtIn);
+    }
+  });
+
+  it('falls back to the five built-ins when the space declares none', () => {
+    const c = create();
+    c.spaceMeta.set({ typeSchemas: { memory: { note: {} } } } as unknown as SpaceMetaResponse);
+    expect(c.chronoAllowedTypes()).toEqual(['event', 'deadline', 'plan', 'prediction', 'milestone']);
+  });
+
+  it('the FILTER also offers a type no longer writable, so old rows stay reachable', () => {
+    const c = create();
+    c.spaceMeta.set({ typeSchemas: { chrono: { launch: {} } } } as unknown as SpaceMetaResponse);
+    c.chrono.set([{ _id: 'c1', type: 'event' } as never]);
+    // 'event' is not writable here, but a record already holds it — filtering to it must be possible.
+    expect(c.chronoTypeOptions()).toEqual(['event', 'launch']);
+    expect(c.chronoAllowedTypes()).toEqual(['launch']);
+  });
+});
+
 describe('BrainStore — buildPropertiesObject (schema-seeded defaults)', () => {
   const withEntitySchema = (c: BrainStore, propertySchemas: Record<string, unknown>) =>
     c.spaceMeta.set({ typeSchemas: { entity: { Person: { propertySchemas } } } } as unknown as SpaceMetaResponse);

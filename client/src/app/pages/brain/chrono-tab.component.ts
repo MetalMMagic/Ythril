@@ -28,8 +28,9 @@ import { TimestampComponent } from '../../shared/timestamp.component';
  * (semantic-only top bar via `store.chronoSearch` + a docked Title column freetext filter, 2b-iii-c) +
  * type-tag filter + pagination + loader. Self-loads via a `spaceId` effect.
  *
- * Chrono deltas: create resolves a `__custom__` kind to the free-text `customKind` while inline-edit
- * sends `editChrono.kind` VERBATIM (both pinned by A17.9b-6b). It has NO `mutated` output: chrono
+ * Chrono deltas: every type select offers `store.chronoAllowedTypes()` — the client's mirror of the
+ * server's per-space chrono allowlist. There is no free-text type any more; that path predated the
+ * allowlist and could only ever return 400. It has NO `mutated` output: chrono
  * create AND delete never refreshed the space stats in the original shell (unlike memory/entity), so
  * there is nothing for the shell to re-fetch.
  */
@@ -58,18 +59,10 @@ import { TimestampComponent } from '../../shared/timestamp.component';
                   <input type="text" [(ngModel)]="chronoForm.title" name="title" required />
                 </div>
                 <div class="field" style="width:160px;">
-                  <label>{{ 'brain.chrono.form.kind' | transloco }}</label>
-                  @if (chronoForm.kind !== '__custom__') {
-                    <select [(ngModel)]="chronoForm.kind" name="kind" (ngModelChange)="onChronoFormKindChange()">
-                      @for (k of store.chronoKinds; track k) { <option [value]="k">{{ k }}</option> }
-                      <option value="__custom__">{{ 'brain.chrono.form.customKind' | transloco }}</option>
-                    </select>
-                  } @else {
-                    <div style="display:flex; gap:4px;">
-                      <input type="text" [(ngModel)]="chronoForm.customKind" name="customKind" style="flex:1;" (ngModelChange)="onChronoFormKindChange()" />
-                      <button type="button" class="btn-secondary btn btn-sm" style="padding:4px 8px;" (click)="chronoForm.kind = 'event'; chronoForm.customKind = ''" [attr.title]="'brain.chrono.form.backToPresets' | transloco"><ph-icon name="x" [size]="14"/></button>
-                    </div>
-                  }
+                  <label>{{ 'common.form.type' | transloco }}</label>
+                  <select [(ngModel)]="chronoForm.kind" name="kind" (ngModelChange)="onChronoFormKindChange()">
+                    @for (k of store.chronoAllowedTypes(); track k) { <option [value]="k">{{ k }}</option> }
+                  </select>
                 </div>
                 <div class="field" style="width:200px;">
                   <label>{{ 'brain.chrono.form.startsAt' | transloco }}</label>
@@ -111,7 +104,7 @@ import { TimestampComponent } from '../../shared/timestamp.component';
                 </div>
               </div>
               <div style="display:flex; gap:8px;">
-                <button class="btn-primary btn btn-sm" type="submit" [disabled]="creatingChrono() || !chronoForm.title.trim() || !chronoForm.startsAt || (chronoForm.kind === '__custom__' && !chronoForm.customKind.trim())">
+                <button class="btn-primary btn btn-sm" type="submit" [disabled]="creatingChrono() || !chronoForm.title.trim() || !chronoForm.startsAt || !chronoForm.kind">
                   @if (creatingChrono()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
                   {{ 'common.save' | transloco }}
                 </button>
@@ -134,10 +127,10 @@ import { TimestampComponent } from '../../shared/timestamp.component';
                   </th><th app-sort-th label="brain.chrono.table.description">
                     <input class="col-filter-input" type="text" [ngModel]="recordFilter().description" (ngModelChange)="setDescriptionFilter($event)"
                       [placeholder]="'brain.filter.descriptionPlaceholder' | transloco" [attr.aria-label]="'brain.filter.descriptionPlaceholder' | transloco" />
-                  </th><th app-sort-th field="type" label="brain.chrono.table.kind" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)">
+                  </th><th app-sort-th field="type" label="brain.chrono.table.type" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)">
                     <select class="col-filter-select" [ngModel]="recordFilter().type" (ngModelChange)="setTypeFilter($event)" [attr.aria-label]="'brain.filter.label' | transloco">
-                      <option value="">{{ 'brain.filter.allKinds' | transloco }}</option>
-                      @for (k of store.chronoKinds; track k) { <option [value]="k">{{ k }}</option> }
+                      <option value="">{{ 'brain.filter.allTypes' | transloco }}</option>
+                      @for (k of store.chronoTypeOptions(); track k) { <option [value]="k">{{ k }}</option> }
                     </select>
                   </th><th app-sort-th field="status" label="brain.chrono.table.status" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)">
                     <select class="col-filter-select" [ngModel]="statusFilter()" (ngModelChange)="setStatusFilter($event)" [attr.aria-label]="'brain.filter.statusLabel' | transloco">
@@ -166,9 +159,9 @@ import { TimestampComponent } from '../../shared/timestamp.component';
                             <input type="text" [(ngModel)]="editChrono.title" name="editChronoTitle" />
                           </div>
                           <div class="field" style="width:130px; margin-bottom:0;">
-                            <label>{{ 'brain.chrono.form.kind' | transloco }}</label>
+                            <label>{{ 'common.form.type' | transloco }}</label>
                             <select [(ngModel)]="editChrono.kind" name="editChronoKind" (ngModelChange)="onEditChronoKindChange()">
-                              @for (k of store.chronoKinds; track k) { <option [value]="k">{{ k }}</option> }
+                              @for (k of store.chronoAllowedTypes(); track k) { <option [value]="k">{{ k }}</option> }
                             </select>
                           </div>
                           <div class="field" style="width:130px; margin-bottom:0;">
@@ -288,7 +281,7 @@ export class ChronoTabComponent extends RecordTabBase {
   showChronoForm = signal(false);
   creatingChrono = signal(false);
   createChronoError = signal('');
-  chronoForm = { title: '', kind: 'event' as ChronoType | '__custom__', customKind: '', startsAt: '', endsAt: '', description: '', tags: [] as string[], entityIds: '', memoryIds: [] as string[], properties: {} as Record<string, string | number | boolean> };
+  chronoForm = { title: '', kind: 'event' as string, startsAt: '', endsAt: '', description: '', tags: [] as string[], entityIds: '', memoryIds: [] as string[], properties: {} as Record<string, string | number | boolean> };
   editChrono = { title: '', kind: '' as string, status: '' as string, startsAt: '', endsAt: '', description: '', tags: [] as string[], entityIds: '', memoryIds: [] as string[], properties: {} as Record<string, string | number | boolean> };
 
   private _chronoSemTimer: ReturnType<typeof setTimeout> | null = null;
@@ -371,13 +364,16 @@ export class ChronoTabComponent extends RecordTabBase {
     });
   }
 
-  /** Effective chrono type for schema lookup: the free-text custom kind, else the selected preset. */
+  /** Effective chrono type for schema lookup. */
   chronoFormKind(): string {
-    return this.chronoForm.kind === '__custom__' ? this.chronoForm.customKind.trim() : this.chronoForm.kind;
+    return this.chronoForm.kind;
   }
 
   openChronoForm(): void {
-    this.chronoForm = { title: '', kind: 'event', customKind: '', startsAt: '', endsAt: '', description: '', tags: [], entityIds: '', memoryIds: [], properties: this.store.buildPropertiesObject('chrono', {}, 'event') };
+    // Seed from the space's OWN allowlist, not from 'event': a space that declares `typeSchemas.chrono`
+    // does not allow the built-ins, so opening on 'event' there armed the form with a value the server 400s on.
+    const kind = this.store.chronoAllowedTypes()[0] ?? 'event';
+    this.chronoForm = { title: '', kind, startsAt: '', endsAt: '', description: '', tags: [], entityIds: '', memoryIds: [], properties: this.store.buildPropertiesObject('chrono', {}, kind) };
     this.showChronoForm.set(true);
   }
 
@@ -393,10 +389,9 @@ export class ChronoTabComponent extends RecordTabBase {
 
   createChrono(): void {
     if (!this.chronoForm.title.trim() || !this.chronoForm.startsAt) return;
-    const resolvedKind = this.chronoForm.kind === '__custom__'
-      // Custom kind: the server accepts free-text values beyond the predefined enum.
-      ? (this.chronoForm.customKind.trim() as ChronoType)
-      : this.chronoForm.kind as ChronoType;
+    // No free-text branch any more: every chrono write is gated on the space's allowlist, so a typed
+    // value that is not already a declared type could only ever come back 400.
+    const resolvedKind = this.chronoForm.kind as ChronoType;
     if (!resolvedKind) return;
     this.creatingChrono.set(true);
     this.createChronoError.set('');
@@ -417,7 +412,7 @@ export class ChronoTabComponent extends RecordTabBase {
       next: () => {
         this.creatingChrono.set(false);
         this.showChronoForm.set(false);
-        this.chronoForm = { title: '', kind: 'event', customKind: '', startsAt: '', endsAt: '', description: '', tags: [], entityIds: '', memoryIds: [], properties: this.store.buildPropertiesObject('chrono', {}, 'event') };
+        this.chronoForm = { title: '', kind: resolvedKind, startsAt: '', endsAt: '', description: '', tags: [], entityIds: '', memoryIds: [], properties: this.store.buildPropertiesObject('chrono', {}, resolvedKind) };
         this.load();
       },
       error: (err) => { this.creatingChrono.set(false); this.createChronoError.set(fmtApiError(err, 'Failed to create chrono entry')); },

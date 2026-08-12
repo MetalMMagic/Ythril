@@ -32,8 +32,23 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
+      # ONNXRUNTIME_NODE_INSTALL_CUDA=skip is not an optimisation, it is what makes this step hermetic.
+      #
+      # onnxruntime-node ships its CUDA execution-provider binaries OUTSIDE npm (too large for the registry) and
+      # its postinstall downloads them from a GitHub release. On a runner with no nvcc the script logs
+      # "`nvcc` not found. Assuming CUDA 12" and downloads the GPU tarball anyway - so every build depended on a
+      # GitHub release fetch succeeding, for binaries no runner here can use.
+      #
+      # It failed twice in 35 minutes on 2026-08-12 with ECONNRESET / socket hang up, killing the job in ~37
+      # seconds. Reading it as a test failure wastes the diagnosis; a job that dies that fast died before the
+      # tests. `skip` is the flag the install script documents for exactly this.
+      #
+      # NOT a retry. A retry around a network fetch hides the non-hermeticity and still fails when the release
+      # host is down; removing the fetch removes the dependency.
       - name: Install dependencies
         run: npm ci
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
 
       # A change to shipped code needs a CHANGELOG entry under [Unreleased].
       #

@@ -1,4 +1,5 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
+import { restOnlyCapabilityMap } from '../parity.js';
 
 /**
  * `help` — self-documenting system guide (F1).
@@ -150,6 +151,12 @@ ${toolLines}
 
 ${REST_SUMMARY}`;
 
-    return { content: [{ type: 'text' as const, text }] };
+    // The gap, machine-readable, beside the prose. breituai-platform asked for a capability map because their
+    // agents BRANCH on it, and because a hole they can read is an afternoon they do not spend discovering it.
+    // `structuredContent` rather than more text: a client that reads only `content` loses nothing.
+    return {
+      content: [{ type: 'text' as const, text }],
+      structuredContent: { restOnly: restOnlyCapabilityMap() },
+    };
   },
 };

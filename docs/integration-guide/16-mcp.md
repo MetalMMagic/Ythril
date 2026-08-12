@@ -114,6 +114,38 @@ Authorization: Bearer <token>
 Content-Type: application/json
 ```
 
+### Telling "absent" from "your token cannot see it"
+
+Two different situations look identical from outside: a tool that was never built, and a tool hidden from your
+`tools/list` because your token is read-only or non-admin. One is a gap in the product; the other is a
+permission. You should not have to ask which.
+
+**Hidden by scope:** a mutating tool is omitted for a `readOnly` token, and an admin tool for a non-admin. The
+`help` tool's prose says outright when tools are being hidden from you and how many.
+
+**Never built:** `help` returns a `structuredContent.restOnly` block listing every capability that exists over
+REST and not yet over MCP — each with the route, the method, and *why* it is not a tool yet:
+
+```json
+{
+  "restOnly": {
+    "note": "These capabilities exist over REST and are NOT yet on MCP. Each row is a confirmed absence, not a permission you lack …",
+    "capabilities": [
+      {
+        "capability": "Rebuild a space's vector indexes",
+        "mcpTool": null,
+        "restEndpoint": "/api/brain/spaces/:spaceId/reindex",
+        "method": "POST",
+        "why": "Not built. …"
+      }
+    ]
+  }
+}
+```
+
+`mcpTool` is `null` on every row by definition. A row disappearing means the tool now exists — a gate fails if a
+row survives its own tool being built, so the list cannot keep advertising a gap that has closed.
+
 ### Available Tools
 
 > **After an instance upgrade, reconnect before concluding a tool is missing.** MCP negotiates the tool list

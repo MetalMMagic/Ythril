@@ -1,0 +1,111 @@
+/**
+ * Capabilities that exist over REST and not over MCP, declared rather than discovered.
+ *
+ * ## Why this file exists
+ *
+ * breituai-platform, 2026-08-11T1722Z, and the principle is theirs: *"The rights matrix decides what a token may
+ * do; the surface should not also decide whether it can."* They hit five of these in one day of ordinary work —
+ * none from auditing the API — and the worst part of the report is not the five. It is that they could not tell
+ * **absent** from **gated**: a capability hidden behind a right they lacked and a capability that was never
+ * built look identical from outside, and one is a documentation fix while the other is an afternoon.
+ *
+ * So the gap is written down, machine-readable, with the reason beside it. A hole becomes a row with a blank
+ * rather than a discovery. Their own smaller ask was exactly this, and it is worth shipping ahead of parity
+ * itself because it makes the remaining work legible to the people waiting on it.
+ *
+ * ## The rule this file is under
+ *
+ * A row here is a PROMISE THAT SOMETHING IS MISSING. `mcp-rest-parity.test.js` asserts both halves of every row:
+ * the REST route named actually exists, and no MCP tool by that name exists. So a row cannot rot in either
+ * direction — the day someone builds `reindex` as a tool, the gate fails until the row is deleted, and the day
+ * someone renames the REST route, the gate fails until the row is corrected.
+ *
+ * That is deliberate. A hand-maintained list is what produced five gaps; a hand-maintained list of the gaps
+ * would produce the same problem one level up.
+ */
+
+/** One capability reachable over REST and not over MCP. */
+export interface RestOnlyCapability {
+  /** What an operator would call it. */
+  capability: string;
+  /** The REST route, exactly as the router declares it. Asserted to exist. */
+  restEndpoint: string;
+  /** HTTP method, for a caller building the request. */
+  method: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  /** The tool name it WOULD have, asserted NOT to exist while this row stands. */
+  wouldBeTool: string;
+  /** Why it is not on MCP yet — never "no reason", because that is what a blank invites. */
+  why: string;
+}
+
+/**
+ * The five they reported, and nothing invented alongside them.
+ *
+ * Confirmed absent rather than gated on 2026-08-12 by reading the tool registry: 34 tools, none of which is a
+ * reindex, a token list, a `retry_embedding` or a space create. `update_space` exists but accepts only `label`,
+ * `purpose` and `description`, so nothing on MCP writes a schema — their reading was right on every one.
+ */
+export const REST_ONLY_CAPABILITIES: readonly RestOnlyCapability[] = [
+  {
+    capability: 'Rebuild a space\'s vector indexes',
+    restEndpoint: '/api/brain/spaces/:spaceId/reindex',
+    method: 'POST',
+    wouldBeTool: 'reindex',
+    why: 'Not built. They reindexed 19 spaces by hand in a shell loop because the agent that planned their '
+      + 'embedder migration could not run it. Async already, with /reindex-status to poll, so a tool is a thin wrapper.',
+  },
+  {
+    capability: 'Write a space\'s type schemas',
+    restEndpoint: '/api/spaces/:id',
+    method: 'PATCH',
+    wouldBeTool: 'update_space_schema',
+    why: 'Not built. `update_space` covers label, purpose and description only, so an agent can design an '
+      + '11-entity model and not apply it. The write is the same route; the tool is the missing part.',
+  },
+  {
+    capability: 'List the instance\'s tokens',
+    restEndpoint: '/api/tokens',
+    method: 'GET',
+    wouldBeTool: 'list_tokens',
+    why: 'Not built, and admin-only over REST. They audit tokens with a Kubernetes CronJob that curls this and '
+      + 'posts the result into a space as a chrono entry, so an agent can read it — a workaround with a scheduler in it.',
+  },
+  {
+    capability: 'Re-queue a failed file embedding',
+    restEndpoint: '/api/files/:spaceId/retry_embedding',
+    method: 'POST',
+    wouldBeTool: 'retry_embedding',
+    why: 'Not built. This is the documented recovery path for a failed embedding, so the surface that cannot '
+      + 'reach it cannot recover from a failure it can see.',
+  },
+  {
+    capability: 'Create a space',
+    restEndpoint: '/api/spaces',
+    method: 'POST',
+    wouldBeTool: 'create_space',
+    why: 'Not built, including the descriptor-width parameter. A token holding `createSpaces` in the rights '
+      + 'matrix cannot exercise it over MCP, which is the exact shape of their complaint.',
+  },
+] as const;
+
+/**
+ * The capability map `help()` reports, so a caller can see the gap without asking anyone.
+ *
+ * Shaped as rows rather than prose because they asked for something machine-readable: their agents branch on it.
+ */
+export function restOnlyCapabilityMap(): {
+  note: string;
+  capabilities: { capability: string; mcpTool: null; restEndpoint: string; method: string; why: string }[];
+} {
+  return {
+    note: 'These capabilities exist over REST and are NOT yet on MCP. Each row is a confirmed absence, not a '
+      + 'permission you lack — a tool you cannot see because of your token is hidden from tools/list instead.',
+    capabilities: REST_ONLY_CAPABILITIES.map(c => ({
+      capability: c.capability,
+      mcpTool: null,
+      restEndpoint: c.restEndpoint,
+      method: c.method,
+      why: c.why,
+    })),
+  };
+}

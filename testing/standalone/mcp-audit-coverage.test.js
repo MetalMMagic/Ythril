@@ -80,9 +80,17 @@ describe('MCP audit coverage', () => {
   it('every operation it names is one the REST surface already uses', () => {
     // The point of reusing the vocabulary: the same act through two transports must read the same in the
     // log. An operation that exists only for MCP would split every compliance query in two.
+    // `_` is in the character class because operation names contain it — `file.retry_embedding` and
+    // `file.retry_embedding_all` are both real REST operations. Without it this regex captured `file.retry`,
+    // so the set of "operations REST uses" held a name nothing uses and lacked the two that exist. It went
+    // unnoticed because no MCP tool had mapped to an underscored operation yet: a comparison that cannot
+    // express part of its own vocabulary reports a mismatch the moment something legitimate arrives.
     const restOperations = new Set(
-      [...readFileSync(MIDDLEWARE, 'utf8').matchAll(/operation: '([a-z][a-zA-Z.]+)'/g)].map(m => m[1]),
+      [...readFileSync(MIDDLEWARE, 'utf8').matchAll(/operation: '([a-z][a-zA-Z._]+)'/g)].map(m => m[1]),
     );
+    // Proof the parse works, rather than trusting a green result: an operation known to exist must be found.
+    assert.ok(restOperations.has('file.retry_embedding'),
+      'the REST operation parse is broken — it cannot see an operation that is plainly there');
     const invented = [...new Set(Object.values(MCP_TOOL_OPERATIONS))]
       .filter(op => op && !restOperations.has(op));
     assert.deepEqual(invented, [],

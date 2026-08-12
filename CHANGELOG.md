@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **`retry_embedding` is an MCP tool.** First of the five REST-only capabilities breituai-platform reported, and
+  the sharpest one: it is the documented recovery path for a failed file embedding, so the surface that could SEE
+  the failure was the surface that could not act on it.
+  - A wrapper over the same `retryJob` the REST route calls. Reimplementing the reset — status, attempts,
+    lastError, claim fields — would be a second copy of a state machine, and the copy that drifts is the one
+    nobody watches.
+  - The three outcomes are reported verbatim rather than collapsed into success/failure. `processing` means the
+    worker already holds the file: not an error, and not something to retry, because resetting it would take the
+    job away from a run in progress.
+  - Audited under `file.retry_embedding`, the same operation string the REST route uses, so one query finds a
+    retry however it arrived.
+  - **It landed by DELETING its row from the capability map**, which is the lifecycle that map is built around:
+    `help` now lists four REST-only capabilities instead of five, with no separate changelog needed to say so.
 - **`help` now reports which capabilities exist over REST and not over MCP, and why.** breituai-platform,
   2026-08-11T1722Z, whose principle is the right one: *"The rights matrix decides what a token may do; the
   surface should not also decide whether it can."*

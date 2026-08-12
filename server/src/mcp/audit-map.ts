@@ -55,6 +55,8 @@ export const MCP_TOOL_OPERATIONS: Record<string, string | null> = {
   write_file: 'file.create',
   move_file: 'file.update',
   delete_file: 'file.delete',
+  // Same operation string the REST route audits under, so one query finds a retry however it arrived.
+  retry_embedding: 'file.retry_embedding',
   create_dir: 'file.mkdir',
   // The tool registry flags this `mutating: true`, and it is right: a sync cycle pulls records from
   // peers and writes them locally, so "who started the run that brought in these records" is a fair

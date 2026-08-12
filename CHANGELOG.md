@@ -6,65 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
-### Internal
-- **The Brain shell gave up the Overview panel's data.** Five loaders, their five signals and the pending flags
-  moved to `brain/overview-data.service.ts` — 136 lines out, and `brain.component.ts` goes **660 → 571**, from
-  over the god-file ceiling to well under it.
-  - The shell is the tab strip, the space chips, every panel's inputs and eight tabs' worth of orchestration.
-    Shaving handlers would have lowered the number while leaving the shape; moving one tab's data out changes it.
-  - **`activeSpaceId` deliberately did not move.** It arrives as a callback per load. A response for a space the
-    user has left must be discarded, and that question belongs to whoever owns the selection — a copy in the
-    service would be a second answer able to disagree with the shell's.
-  - `loadOverviewVotes` now takes the space's networks directly instead of reaching into a space list, so the
-    service knows nothing about `SpaceView`, which is a shell concept.
-  - The seven characterization tests written before the move (#828) pass with their **assertions unchanged** —
-    only the address changed. That is what they were written first for.
-  - The ratchet entry is **lowered, not deleted**: an entry here is a ratchet, and removing it would hand the
-    file back the 89 lines of headroom the extraction just took away.
-
-### Internal
-- **Infra-managed now locks the Media Processing page by rule, not by 35 separate bindings.** A gate sweeps every
-  control on that page **by shape** — every `input`, `select` and `textarea` bound to `ngModel` — and requires
-  each to be locked, either by its own `[disabled]` or by an enclosing `@if` that removes it when managed.
-  - Prompted by the owner asking whether editable API-key fields under infra-managed were intended. They are
-    not: the API refuses that write outright, so a control that still accepts typing composes a request the
-    server rejects.
-  - **No unlocked control was found.** All 35 are already locked, and the page's wiring is correct end to end:
-    `isLocked()` short-circuits on managed rather than consulting a list, and the loader spreads the whole
-    response onto the form so the flag arrives. The gate exists because "most is blocked" is exactly what 35
-    correct-today decisions produce as soon as somebody adds the thirty-sixth.
-  - The gate is deliberately not UI-only: it also asserts the server still refuses an infra-managed write. A
-    lock that lived only in the client would be the two-surfaces-one-weaker shape this repo keeps finding.
-
-### Fixed
-- **A space with no recorded usage showed its usage card loading for ever.** The Overview activity loader set the
-  zeroed "nothing was asked" row and then returned **before** clearing its pending flag, so the skeleton stayed
-  up. Two paths in one function skipped it: the empty-window branch, and the guard that discards a response for a
-  space the user has already left.
-  - Every space with no traffic was in that state, and so is **every space immediately after the new usage-reset
-    button clears its buckets** — the reset made the panel spin instead of reading zero.
-  - Found by a characterization test written for an unrelated refactor. The invariant it pins is the one the code
-    got half right: the guard gates the **result**, never the skeleton.
-
-### Internal
-- **The Overview load cascade is characterized**, ahead of splitting it out of `brain.component.ts` (which crossed
-  the god-file ceiling at 659 lines).
-  - Seven tests, proven against the current code, pinning the two invariants that are invisible in its shape: a
-    response for a space the user has left is discarded, and every loader clears its pending flag regardless.
-    Those pull in opposite directions, which is what makes them worth writing down before anything moves.
-
 ### Added
-- **The Overview usage panel has a reset button**, completing the route that shipped alongside it. Clearing a
-  space's recorded usage no longer needs an API call.
-  - Shown only when the panel has calls to clear **and** the viewer can administer the space. Nothing recorded
-    means nothing to clear, and a control that does nothing reads as broken rather than as empty.
-  - Behind a confirmation that **names the space** and is styled as destructive: the hourly buckets are deleted,
-    not hidden. A confirmation that does not say which space is one an operator accepts against the wrong one.
-  - Disabled while the request is in flight. Two presses would be two deletes, and the second would clear
-    whatever accumulated in between — a small, silent extra loss that nothing on screen would report.
-  - The panel confirms and the shell performs, the same split `reindex` and `retryFailed` already use. The panel
-    then reloads from the server rather than zeroing locally, because a local zero would be a guess about what
-    the server actually did.
 - **A space's recorded usage can be reset** — `POST /api/spaces/:spaceId/activity/reset`, admin + MFA, scoped to
   the space. Deletes the hourly buckets behind the Overview usage panel, so a space hammered once during a
   migration stops reading as busy for the rest of the window.
@@ -89,46 +31,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **The button is not in this change.** The Brain shell has no confirmation-dialog service and its established
     idiom is an inline confirm; wiring a destructive control through the wrong one would have shipped either a
     dead button or an unconfirmed delete.
-
-### Internal
-- **A sync wait's timeout is now sized from a measurement, and a comment that lied about it is fixed.** The
-  first propagation wait in `entity created on A syncs to B` read *"60s default"* while `waitFor`'s default is
-  **15 s** — four times off, and a wrong comment about a timeout is worse than none, because it is what stops
-  the next person looking.
-  - #823's margin warning caught that wait at **9925 ms of 15000 ms (66%)**, the first number anyone has had for
-    how long propagation actually takes there. The budget is now an explicit 25 s: the measurement plus room for
-    a loaded runner, and still bounded, because the re-trigger below it is the real safety net and a first
-    attempt that never gave up would never reach it.
-  - The test that originally timed out is **not** this one and its 25 s budget is deliberately unchanged. It
-    passed with no margin warning at all, so a green run finishes comfortably inside its budget — which makes
-    that failure a **stall**, and raising the number would have hidden it until it grew past the new one too.
-- **`recall.ts` gave up its pure half.** Merge, rank and the two text projections moved to
-  `brain/recall-shape.ts` — 124 lines out, leaving the part that genuinely needs a database.
-  - This **pays** a ratchet raise rather than adding another. The file went 739 -> 744 earlier in this release to
-    ship a 5x embedding fix an operator was already paying for; that raise named its debt instead of forgetting
-    it, and this is the debt. The freeze is now set to what the file actually is (689), not left at the old
-    ceiling — a freeze above the real number is a budget for lines nobody argued for.
-  - Those four were the four that could move without writing a characterization pass first: **81 existing
-    assertions across three suites** already pin them, and they were green against the original code before the
-    new file existed. Nothing about their behaviour changed.
-  - The three source-reading gates that referenced them now read **both** halves. A gate that followed only one
-    would go quietly vacuous the next time a function moves between them.
-  - `recall-shape.ts` imports its two types back from `recall.ts`, which is **not** a runtime cycle — a type-only
-    import is erased. It is still the wrong shape to keep: the follow-up is a leaf types module, which is exactly
-    what `config/rights-shape.ts` already exists to be.
-### Internal
-- **A sync wait that only just passed now reports its margin.** A pub/sub propagation test timed out at its 25 s
-  budget in CI on a diff of client CSS, docs and a changelog — none of which can touch sync — and passed on
-  rerun with no code change.
-  - The tempting fix is a bigger number, and it is a guess. Nothing recorded how long a PASSING wait took, so
-    nobody could tell whether a green run takes 20 s and the margin is thin, or takes 3 s and something
-    occasionally **stalls** — in which case a bigger budget hides the stall instead of fixing it.
-  - So the measurement was added rather than the number changed: any wait that consumes more than 60% of its
-    budget prints the elapsed time, the budget and the percentage. For every wait in the suite, not just the one
-    that went red, and while the margin is still a margin.
-  - A warning rather than a failure: propagation time legitimately varies with what else the runner is doing,
-    and a slow pass failing the build would make CI stricter than the product.
-### Added
 - **Rotate and revoke moved into the token editor, as a danger zone.** They were reachable only as two small
   icons on the list row, so a token was managed in two places.
   - The editor **requests** them rather than performing them. The page owns the confirmation, the failure toast,
@@ -139,6 +41,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     credential underneath it.
   - Last in the dialog and visually separated, with revoke marked destructive. A destructive control beside Save
     is a mis-click, and two identical buttons are worse.
+- **The token editor carries the second factor**, alongside the label and the rights matrix — *Follow the
+  instance setting*, *Exempt*, or *Required*.
+  - It is on the token rather than on the create form because that is what it is a property of. Before this,
+    changing a scheduler's exemption meant revoking the token and minting a replacement: rotating a secret to
+    change a flag.
+  - **Granting an exemption asks for your authenticator code in the dialog**, before the request, rather than
+    surfacing a `403` afterwards. The server's refusal is correct and unactionable — nothing in it tells the
+    operator that the field they changed is the reason.
+  - The field appears only when **granting** one: not when editing an already-exempt token, and not when taking
+    an exemption away. Save is not gated on it, because whether a code is needed depends on the instance-wide
+    switch and the server owns that answer — a local guess would refuse a save the instance would accept.
+  - An **absent** `mfa` reads as `inherit`, so opening any pre-existing token and pressing Save does not record
+    an edit nobody made. Each field is sent only when it actually changed, which matters most here: that audit
+    entry is what someone will read to find out when an exemption was granted.
+- **The Overview usage panel has a reset button**, completing the route that shipped alongside it. Clearing a
+  space's recorded usage no longer needs an API call.
+  - Shown only when the panel has calls to clear **and** the viewer can administer the space. Nothing recorded
+    means nothing to clear, and a control that does nothing reads as broken rather than as empty.
+  - Behind a confirmation that **names the space** and is styled as destructive: the hourly buckets are deleted,
+    not hidden. A confirmation that does not say which space is one an operator accepts against the wrong one.
+  - Disabled while the request is in flight. Two presses would be two deletes, and the second would clear
+    whatever accumulated in between — a small, silent extra loss that nothing on screen would report.
+  - The panel confirms and the shell performs, the same split `reindex` and `retryFailed` already use. The panel
+    then reloads from the server rather than zeroing locally, because a local zero would be a guess about what
+    the server actually did.
 - **The data-model diagram shows memories, chrono entries and files**, not just entity types. One box per kind
   carrying that kind's total, joined to each entity type it links to with the per-type count on the join.
   - The owner found this by asking whether memories were missing from the diagram. They were — **entirely**.
@@ -160,64 +87,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     have drawn both sets of joins into one, silently.
   - New gate: a field the ER model pays to compute must have a real consumer in the client — not a type
     declaration and not a test fixture, which is exactly what made this one look used.
-
-### Fixed
-- **Reindexing a proxy space answered `200` and then did the work twice.** It re-embedded the member spaces —
-  which the caller was usually reindexing individually as well, because they are in the same space list. It is
-  idempotent, so nothing broke: on the reporting operator's largest instance it was simply the longest job of
-  the run, and all of it waste.
-  - Now a `400` naming the members, so the remedy is the response rather than a second lookup. A proxy has no
-    index of its own, and a *write* to a proxy already requires an explicit `targetSpace` — accepting one here
-    without comment was the inconsistency.
-  - Refused **before** the singleton check, so a proxy request during a running reindex is not answered `409`
-    "already in progress" — which reads as *try again later*, and would have the caller retrying a request that
-    can never be right. And before any flag is set, since leaving that global flag set would block every real
-    reindex on the instance until a restart.
-- **The docs said the reindex `409` was "for the space". It is instance-wide.** One reindex runs at a time
-  across the whole instance and a second request is *refused rather than queued* — the operator who found this
-  fired thirteen and got one `200` and twelve `409`s. A loop counting only non-200s as failures reports thirteen
-  dispatched having dispatched one. Retry-on-409 is documented as the correct client, since it self-paces.
-  - Two other parts of the same report were already true and are now pinned rather than changed: the async
-    response is documented, `GET /api/brain/spaces/:spaceId/reindex-status` exists, and `GET /api/spaces` already
-    carries `proxyFor` — so a client can skip proxies without discovering the refusal by trying it.
-
-### Fixed
-- **A transient `429` from the embedding endpoint no longer kills the query.** It went straight to the caller
-  with no retry, no jitter and no backoff, so one busy moment lost the search outright.
-  - Reported by an operator who moved their text embedder onto a shared GPU endpoint: while a reindex saturated
-    it, **every** recall failed. The refusals came back in under 3ms — the upstream was refusing instantly, not
-    queueing — so there was nothing to wait for except a concurrent burst to clear.
-  - Two extra attempts, with **small** delays (~120ms then ~360ms, half of each as jitter so concurrent callers
-    do not retry in lockstep). Deliberately not a textbook 1s/2s/4s: this runs inside recall's deadline, and a
-    long backoff would trade a clear failure for a slow partial answer.
-  - `502`, `503` and `504` are retried on the same reasoning. **`400`, `401` and `413` are not** — the request
-    is wrong and will be wrong every time, so retrying burns the caller's deadline to reach the same answer more
-    slowly. A retried `401` is a lockout waiting to happen.
-  - `Retry-After` is honoured when it is short, and **refused** when it is long: a server naming a 30-second
-    wait inside a request budgeted in hundreds of milliseconds is telling us to give up, not to sleep.
-  - The message an operator sees is unchanged — `Embedding request failed (HTTP 429): …` — because it is in
-    runbooks and log searches. A wrapper that replaced it with "all retries failed" would break every alert
-    written against it.
-  - New metric `ythril_embedding_retry_total`, labelled by status. The retry makes the problem invisible by
-    design, so this is the only trace that a shared endpoint is saturating while it is still transient.
-  - The file pipeline already had all of this — persisted jobs, backoff, a terminal `failed` state, and
-    `retry_embedding` to recover. Recall had none of it, against the same dependency.
-
-### Fixed
-- **A cross-space recall embedded the identical query once per space.** Five accessible spaces meant five
-  `POST /v1/embeddings` for one search — same text, same vector, five times the cost, the concurrency footprint
-  and the failure surface. `recallGlobal` now embeds once and hands the vector down.
-  - Found from the outside by an operator who moved their text embedder onto a shared GPU endpoint: with the
-    endpoint saturated by a reindex, **every** recall failed, and their access log showed exactly five 429s per
-    recall, never four, never six.
-  - The fan-out is also what made the failure certain: a 1-wide request fits where a 5-wide burst does not.
-  - **They read the five as one call per knowledge type**, and said plainly they were inferring from the count.
-    It is one per *space* — there has only ever been one `embed` call in the module. The count was real and the
-    mechanism was not, which is the difference between a two-line fix at the fan-out and a fruitless read of
-    the per-type search.
-  - Single-space recall is unchanged: it embeds for itself, so the per-space routes and traverse are untouched.
-  - `findSimilar` already had this right — it loops spaces with one vector taken from the source record — and a
-    gate now pins that it never grows an `embed` call inside that loop.
+- **A cog at the far right of the Brain's tab strip opens the settings for the space you are already in.**
+  Same editor as **Settings → Spaces** — Settings, Schema, Duplicates, Danger Zone — over the page you were
+  reading, so closing it returns you to the tab you were on.
+  - Renaming a space you were working in previously meant leaving the Brain, finding the row in the admin
+    table, and navigating back: three moves to edit something already on screen.
+  - Deliberately **not** a ninth tab, and deliberately icon-only. It opens a modal, so it selects nothing —
+    among the tabs it would read as another destination and leave the strip looking wrong when the dialog
+    closed. A visible "Settings" label would also compete with the instance-wide Settings page, which is a
+    different scope; the name lives in the accessible label and the tooltip instead.
+  - Greyed out until a space is selected, rather than opening an empty dialog.
+  - The dialog's code is fetched **when the cog is pressed**, not with the page. Loading it eagerly pulled the
+    schema editor, duplicate rules and danger zone into the app's heaviest route — and moved shared code out
+    of the `spaces-component` chunk, which took that chunk off the bundle-budget list entirely.
+  - A save made here patches the space chip behind the dialog. It keeps the per-space record counts already
+    loaded rather than refetching the list, since a label or quota edit changes no count.
+  - **The admin list at Settings → Spaces is unchanged** and remains where spaces are created, reordered and
+    compared, with its own per-row cog.
 
 ### Changed
 - **A token's second factor is editable, instead of being fixed when the token was minted.** `PATCH
@@ -238,41 +124,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     on whether anyone had opened its editor.
   - The audit diff carries the second factor on both sides. An exemption is the most security-relevant thing
     this route can change, and a diff that omitted it would record a rename beside it and not the exemption.
-
-### Added
-- **The token editor carries the second factor**, alongside the label and the rights matrix — *Follow the
-  instance setting*, *Exempt*, or *Required*.
-  - It is on the token rather than on the create form because that is what it is a property of. Before this,
-    changing a scheduler's exemption meant revoking the token and minting a replacement: rotating a secret to
-    change a flag.
-  - **Granting an exemption asks for your authenticator code in the dialog**, before the request, rather than
-    surfacing a `403` afterwards. The server's refusal is correct and unactionable — nothing in it tells the
-    operator that the field they changed is the reason.
-  - The field appears only when **granting** one: not when editing an already-exempt token, and not when taking
-    an exemption away. Save is not gated on it, because whether a code is needed depends on the instance-wide
-    switch and the server owns that answer — a local guess would refuse a save the instance would accept.
-  - An **absent** `mfa` reads as `inherit`, so opening any pre-existing token and pressing Save does not record
-    an edit nobody made. Each field is sent only when it actually changed, which matters most here: that audit
-    entry is what someone will read to find out when an exemption was granted.
-
-### Added
-- **A cog at the far right of the Brain's tab strip opens the settings for the space you are already in.**
-  Same editor as **Settings → Spaces** — Settings, Schema, Duplicates, Danger Zone — over the page you were
-  reading, so closing it returns you to the tab you were on.
-  - Renaming a space you were working in previously meant leaving the Brain, finding the row in the admin
-    table, and navigating back: three moves to edit something already on screen.
-  - Deliberately **not** a ninth tab, and deliberately icon-only. It opens a modal, so it selects nothing —
-    among the tabs it would read as another destination and leave the strip looking wrong when the dialog
-    closed. A visible "Settings" label would also compete with the instance-wide Settings page, which is a
-    different scope; the name lives in the accessible label and the tooltip instead.
-  - Greyed out until a space is selected, rather than opening an empty dialog.
-  - The dialog's code is fetched **when the cog is pressed**, not with the page. Loading it eagerly pulled the
-    schema editor, duplicate rules and danger zone into the app's heaviest route — and moved shared code out
-    of the `spaces-component` chunk, which took that chunk off the bundle-budget list entirely.
-  - A save made here patches the space chip behind the dialog. It keeps the per-space record counts already
-    loaded rather than refetching the list, since a label or quota edit changes no count.
-  - **The admin list at Settings → Spaces is unchanged** and remains where spaces are created, reordered and
-    compared, with its own per-row cog.
+- **The create-token form is a label, an expiry and the rights matrix.** It also carried a spaces checkbox
+  list, a three-way permission radio (read-only / standard / admin), and the matrix hidden behind a "Use the
+  per-space matrix" button.
+  - Those are **two vocabularies for one decision**, and the server treats them as mutually exclusive — so the
+    form could compose a body the API refuses, and the operator would read that 400 as a bug rather than as a
+    choice they had made.
+  - The matrix expresses everything the radio and the checkbox list expressed, and things they could not
+    (`admin` on Files in one space and nothing anywhere else). So they are gone, not kept beside it.
+  - The **second-factor** selector is gone from create for a different reason: MFA is a property of the token,
+    set on the token, not a decision folded into minting it.
 
 ### Fixed
 - **Both token dialogs rendered as flat blocks instead of pop-ups.** `.dialog-backdrop` and `.dialog` were
@@ -344,35 +205,112 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The empty-versus-absent asymmetry is asserted inside the narrowing too — `spaces === undefined` is
     unrestricted, an empty allowlist reaches nothing. That conflation granted whole instances on three routes in
     2.6.0 and must not come back where it would turn the narrowest token into the widest.
-
-### Changed
-- **The create-token form is a label, an expiry and the rights matrix.** It also carried a spaces checkbox
-  list, a three-way permission radio (read-only / standard / admin), and the matrix hidden behind a "Use the
-  per-space matrix" button.
-  - Those are **two vocabularies for one decision**, and the server treats them as mutually exclusive — so the
-    form could compose a body the API refuses, and the operator would read that 400 as a bug rather than as a
-    choice they had made.
-  - The matrix expresses everything the radio and the checkbox list expressed, and things they could not
-    (`admin` on Files in one space and nothing anywhere else). So they are gone, not kept beside it.
-  - The **second-factor** selector is gone from create for a different reason: MFA is a property of the token,
-    set on the token, not a decision folded into minting it.
-
-
-### Internal
-- **The space-settings pop-up is its own component.** No behaviour change: 84 lines of template moved out of
-  `spaces.component` into `space-settings-popup.component`, asserted **byte-identical** against the original
-  rather than retyped, along with `governedBy`, `saveSettings` and `attemptClose`.
-  - Groundwork for U-1 — a cog at the far right of the Brain tab strip opening these settings for the space you
-    are already looking at. The modal is driven by one signal, so a second host was only ever a question of who
-    provides the service; this is the step that makes that a re-host rather than a rewrite.
-  - `canLeave` and the `beforeunload` handler stayed on the Spaces page: those are route concerns, and a modal
-    openable from two pages must not own either page's navigation guard. The discard prompt moved to the
-    **service** rather than being copied, because both the (X) and the route guard need the same question.
-  - Two tests followed the code into a new spec, and the stale path in `space-purpose-one-field` was re-pointed
-    at the pop-up — the gate keeps a *positive* assertion, so a path resolving to a file without the
-    vote-pending branch fails loudly instead of passing vacuously.
-
-### Fixed
+- **The audit log's record-change retention swept the wrong collection, so a documented privacy window was
+  never enforced — for fourteen releases.** `change-retention.ts` declared its own
+  `const COLLECTION = '_audit_log'` when it was introduced in 2.0.0. The audit log has been `audit_log` since
+  the feature existed. So the sweep ran every six hours against a collection **nothing has ever written to**
+  and redacted nothing.
+  - The `changes` payload on a brain record edit is allowlisted **user content** — the old text of a memory,
+    the previous description of an entity — held in a store with different access rules, since any admin can
+    read the audit log including for spaces their token could not otherwise reach. That is exactly why it has
+    a shorter window than the entry around it. It kept its content for the full `retentionDays` instead.
+  - **Every check was green.** `doc-cited-constants` verified the docs quote `recordChangeRetentionDays: 14`
+    faithfully; they do. The documentation described the sweep correctly. The constant, the prose and the gate
+    all agreed with each other about behaviour that never ran.
+  - **Why it was silent rather than broken-looking:** `updateMany` against a collection that does not exist
+    *succeeds* with `modifiedCount: 0`, and the sweep logged only when the count was above zero. Zero redacted
+    is also what a healthy instance with nothing aged out reports. There was no failure to notice.
+  - Fixed by **exporting** the name from `audit.ts` and importing it, so there is one copy rather than two
+    that agree. The gate asserts that shape: it fails on a second collection literal in the pruner **even when
+    spelled correctly**, because the second copy is the defect and the typo was only its symptom.
+  - **The sweep now reports its first pass of each process even when it redacts nothing**, naming the
+    collection and how many record-edit entries it can see. That is the line that would have exposed this on
+    day one; a housekeeping sweep that speaks only on success cannot be told apart from one pointed at
+    nothing.
+  - **Upgrade note:** the first sweep after upgrading redacts the whole accumulated backlog in one pass and
+    logs the count. A large number there is the backlog, not a fault.
+- **Reindexing a proxy space answered `200` and then did the work twice.** It re-embedded the member spaces —
+  which the caller was usually reindexing individually as well, because they are in the same space list. It is
+  idempotent, so nothing broke: on the reporting operator's largest instance it was simply the longest job of
+  the run, and all of it waste.
+  - Now a `400` naming the members, so the remedy is the response rather than a second lookup. A proxy has no
+    index of its own, and a *write* to a proxy already requires an explicit `targetSpace` — accepting one here
+    without comment was the inconsistency.
+  - Refused **before** the singleton check, so a proxy request during a running reindex is not answered `409`
+    "already in progress" — which reads as *try again later*, and would have the caller retrying a request that
+    can never be right. And before any flag is set, since leaving that global flag set would block every real
+    reindex on the instance until a restart.
+- **The docs said the reindex `409` was "for the space". It is instance-wide.** One reindex runs at a time
+  across the whole instance and a second request is *refused rather than queued* — the operator who found this
+  fired thirteen and got one `200` and twelve `409`s. A loop counting only non-200s as failures reports thirteen
+  dispatched having dispatched one. Retry-on-409 is documented as the correct client, since it self-paces.
+  - Two other parts of the same report were already true and are now pinned rather than changed: the async
+    response is documented, `GET /api/brain/spaces/:spaceId/reindex-status` exists, and `GET /api/spaces` already
+    carries `proxyFor` — so a client can skip proxies without discovering the refusal by trying it.
+- **A transient `429` from the embedding endpoint no longer kills the query.** It went straight to the caller
+  with no retry, no jitter and no backoff, so one busy moment lost the search outright.
+  - Reported by an operator who moved their text embedder onto a shared GPU endpoint: while a reindex saturated
+    it, **every** recall failed. The refusals came back in under 3ms — the upstream was refusing instantly, not
+    queueing — so there was nothing to wait for except a concurrent burst to clear.
+  - Two extra attempts, with **small** delays (~120ms then ~360ms, half of each as jitter so concurrent callers
+    do not retry in lockstep). Deliberately not a textbook 1s/2s/4s: this runs inside recall's deadline, and a
+    long backoff would trade a clear failure for a slow partial answer.
+  - `502`, `503` and `504` are retried on the same reasoning. **`400`, `401` and `413` are not** — the request
+    is wrong and will be wrong every time, so retrying burns the caller's deadline to reach the same answer more
+    slowly. A retried `401` is a lockout waiting to happen.
+  - `Retry-After` is honoured when it is short, and **refused** when it is long: a server naming a 30-second
+    wait inside a request budgeted in hundreds of milliseconds is telling us to give up, not to sleep.
+  - The message an operator sees is unchanged — `Embedding request failed (HTTP 429): …` — because it is in
+    runbooks and log searches. A wrapper that replaced it with "all retries failed" would break every alert
+    written against it.
+  - New metric `ythril_embedding_retry_total`, labelled by status. The retry makes the problem invisible by
+    design, so this is the only trace that a shared endpoint is saturating while it is still transient.
+  - The file pipeline already had all of this — persisted jobs, backoff, a terminal `failed` state, and
+    `retry_embedding` to recover. Recall had none of it, against the same dependency.
+- **A cross-space recall embedded the identical query once per space.** Five accessible spaces meant five
+  `POST /v1/embeddings` for one search — same text, same vector, five times the cost, the concurrency footprint
+  and the failure surface. `recallGlobal` now embeds once and hands the vector down.
+  - Found from the outside by an operator who moved their text embedder onto a shared GPU endpoint: with the
+    endpoint saturated by a reindex, **every** recall failed, and their access log showed exactly five 429s per
+    recall, never four, never six.
+  - The fan-out is also what made the failure certain: a 1-wide request fits where a 5-wide burst does not.
+  - **They read the five as one call per knowledge type**, and said plainly they were inferring from the count.
+    It is one per *space* — there has only ever been one `embed` call in the module. The count was real and the
+    mechanism was not, which is the difference between a two-line fix at the fan-out and a fruitless read of
+    the per-type search.
+  - Single-space recall is unchanged: it embeds for itself, so the per-space routes and traverse are untouched.
+  - `findSimilar` already had this right — it loops spaces with one vector taken from the source record — and a
+    gate now pins that it never grows an `embed` call inside that loop.
+- **`POST /api/spaces/:id/reembed` could not converge, and a page of suppressed records blocked every embeddable
+  record behind it — permanently.** Second finding of the Data Integrity & Correctness audit lens.
+  - A suppressed record matches the candidate query *"has no vector"* **by construction**: suppression is what
+    removed the vector. The sweep filtered on that alone and skipped suppressed documents inside the loop.
+  - `find(filter).limit(n)` carries **no sort**, so the same first `n` documents came back on every call, and the
+    sweep never writes to a suppressed record — so they never left the result set. A suppressed page at the front
+    of a collection therefore hid the embeddable records behind it from every subsequent call, while
+    `truncated: true` documented *"call again to continue"*.
+  - Fixed by expressing all three tiers **in the query** rather than in the loop, so the cursor advances: enqueued
+    records gain a vector and drop out, suppressed ones were never in. `excludeFromVectorSearch` becomes
+    `$ne: true` — not `$exists: false`, which would also exclude a record that carries the flag as `false`, an
+    explicit opt-**in**. Suppressed type names come from `meta.typeSchemas` as a `$nin`, on `label` for edges and
+    `type` for everything else.
+  - **`remaining` now counts only work that can be done.** A space whose suppression is still on answers
+    `remaining: 0`, `truncated: false`, with every candidate under `skippedSuppressed` — *there is no work*, which
+    is a different statement from *there is work left*.
+  - The space-wide tier is resolved before any query, and claims "nothing to do" **only** when no lower tier can
+    lift a record back out: a type schema saying `false` overrides it, and a type schema saying nothing falls
+    through rather than counting as `false`.
+  - `suppressionExclusion` is pure and exported, so the three tiers are tested by construction rather than by
+    reading source — and the gate that pins the exclusion into the *query* is mutation-tested by moving it back
+    into the loop.
+- **A space with no recorded usage showed its usage card loading for ever.** The Overview activity loader set the
+  zeroed "nothing was asked" row and then returned **before** clearing its pending flag, so the skeleton stayed
+  up. Two paths in one function skipped it: the empty-window branch, and the guard that discards a response for a
+  space the user has already left.
+  - Every space with no traffic was in that state, and so is **every space immediately after the new usage-reset
+    button clears its buckets** — the reset made the panel spin instead of reading zero.
+  - Found by a characterization test written for an unrelated refactor. The invariant it pins is the one the code
+    got half right: the guard gates the **result**, never the skeleton.
 - **The data-model diagram: four reported defects, three of them geometry.** Owner report 2026-08-11, tested
   against an emulated 30-type model because the small, evenly-filled one always looked fine.
   - **Clicking a record count rewrote the URL and changed nothing.** The Brain page read its query params once
@@ -411,53 +349,87 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The new gate **derives** the record kinds from `config/types.ts` rather than listing collection names: every
     interface declaring an `entityIds` field must have its collection relinked by the merge. A future record
     type with entity links fails the gate by name instead of quietly repeating this.
-- **`POST /api/spaces/:id/reembed` could not converge, and a page of suppressed records blocked every embeddable
-  record behind it — permanently.** Second finding of the Data Integrity & Correctness audit lens.
-  - A suppressed record matches the candidate query *"has no vector"* **by construction**: suppression is what
-    removed the vector. The sweep filtered on that alone and skipped suppressed documents inside the loop.
-  - `find(filter).limit(n)` carries **no sort**, so the same first `n` documents came back on every call, and the
-    sweep never writes to a suppressed record — so they never left the result set. A suppressed page at the front
-    of a collection therefore hid the embeddable records behind it from every subsequent call, while
-    `truncated: true` documented *"call again to continue"*.
-  - Fixed by expressing all three tiers **in the query** rather than in the loop, so the cursor advances: enqueued
-    records gain a vector and drop out, suppressed ones were never in. `excludeFromVectorSearch` becomes
-    `$ne: true` — not `$exists: false`, which would also exclude a record that carries the flag as `false`, an
-    explicit opt-**in**. Suppressed type names come from `meta.typeSchemas` as a `$nin`, on `label` for edges and
-    `type` for everything else.
-  - **`remaining` now counts only work that can be done.** A space whose suppression is still on answers
-    `remaining: 0`, `truncated: false`, with every candidate under `skippedSuppressed` — *there is no work*, which
-    is a different statement from *there is work left*.
-  - The space-wide tier is resolved before any query, and claims "nothing to do" **only** when no lower tier can
-    lift a record back out: a type schema saying `false` overrides it, and a type schema saying nothing falls
-    through rather than counting as `false`.
-  - `suppressionExclusion` is pure and exported, so the three tiers are tested by construction rather than by
-    reading source — and the gate that pins the exclusion into the *query* is mutation-tested by moving it back
-    into the loop.
 
-- **The audit log's record-change retention swept the wrong collection, so a documented privacy window was
-  never enforced — for fourteen releases.** `change-retention.ts` declared its own
-  `const COLLECTION = '_audit_log'` when it was introduced in 2.0.0. The audit log has been `audit_log` since
-  the feature existed. So the sweep ran every six hours against a collection **nothing has ever written to**
-  and redacted nothing.
-  - The `changes` payload on a brain record edit is allowlisted **user content** — the old text of a memory,
-    the previous description of an entity — held in a store with different access rules, since any admin can
-    read the audit log including for spaces their token could not otherwise reach. That is exactly why it has
-    a shorter window than the entry around it. It kept its content for the full `retentionDays` instead.
-  - **Every check was green.** `doc-cited-constants` verified the docs quote `recordChangeRetentionDays: 14`
-    faithfully; they do. The documentation described the sweep correctly. The constant, the prose and the gate
-    all agreed with each other about behaviour that never ran.
-  - **Why it was silent rather than broken-looking:** `updateMany` against a collection that does not exist
-    *succeeds* with `modifiedCount: 0`, and the sweep logged only when the count was above zero. Zero redacted
-    is also what a healthy instance with nothing aged out reports. There was no failure to notice.
-  - Fixed by **exporting** the name from `audit.ts` and importing it, so there is one copy rather than two
-    that agree. The gate asserts that shape: it fails on a second collection literal in the pruner **even when
-    spelled correctly**, because the second copy is the defect and the typo was only its symptom.
-  - **The sweep now reports its first pass of each process even when it redacts nothing**, naming the
-    collection and how many record-edit entries it can see. That is the line that would have exposed this on
-    day one; a housekeeping sweep that speaks only on success cannot be told apart from one pointed at
-    nothing.
-  - **Upgrade note:** the first sweep after upgrading redacts the whole accumulated backlog in one pass and
-    logs the count. A large number there is the backlog, not a fault.
+### Internal
+- **`recall.ts` gave up its pure half.** Merge, rank and the two text projections moved to
+  `brain/recall-shape.ts` — 124 lines out, leaving the part that genuinely needs a database.
+  - This **pays** a ratchet raise rather than adding another. The file went 739 -> 744 earlier in this release to
+    ship a 5x embedding fix an operator was already paying for; that raise named its debt instead of forgetting
+    it, and this is the debt. The freeze is now set to what the file actually is (689), not left at the old
+    ceiling — a freeze above the real number is a budget for lines nobody argued for.
+  - Those four were the four that could move without writing a characterization pass first: **81 existing
+    assertions across three suites** already pin them, and they were green against the original code before the
+    new file existed. Nothing about their behaviour changed.
+  - The three source-reading gates that referenced them now read **both** halves. A gate that followed only one
+    would go quietly vacuous the next time a function moves between them.
+  - `recall-shape.ts` imports its two types back from `recall.ts`, which is **not** a runtime cycle — a type-only
+    import is erased. It is still the wrong shape to keep: the follow-up is a leaf types module, which is exactly
+    what `config/rights-shape.ts` already exists to be.
+- **The Brain shell gave up the Overview panel's data.** Five loaders, their five signals and the pending flags
+  moved to `brain/overview-data.service.ts` — 136 lines out, and `brain.component.ts` goes **660 → 571**, from
+  over the god-file ceiling to well under it.
+  - The shell is the tab strip, the space chips, every panel's inputs and eight tabs' worth of orchestration.
+    Shaving handlers would have lowered the number while leaving the shape; moving one tab's data out changes it.
+  - **`activeSpaceId` deliberately did not move.** It arrives as a callback per load. A response for a space the
+    user has left must be discarded, and that question belongs to whoever owns the selection — a copy in the
+    service would be a second answer able to disagree with the shell's.
+  - `loadOverviewVotes` now takes the space's networks directly instead of reaching into a space list, so the
+    service knows nothing about `SpaceView`, which is a shell concept.
+  - The seven characterization tests written before the move (#828) pass with their **assertions unchanged** —
+    only the address changed. That is what they were written first for.
+  - The ratchet entry is **lowered, not deleted**: an entry here is a ratchet, and removing it would hand the
+    file back the 89 lines of headroom the extraction just took away.
+- **The Overview load cascade is characterized**, ahead of splitting it out of `brain.component.ts` (which crossed
+  the god-file ceiling at 659 lines).
+  - Seven tests, proven against the current code, pinning the two invariants that are invisible in its shape: a
+    response for a space the user has left is discarded, and every loader clears its pending flag regardless.
+    Those pull in opposite directions, which is what makes them worth writing down before anything moves.
+- **The space-settings pop-up is its own component.** No behaviour change: 84 lines of template moved out of
+  `spaces.component` into `space-settings-popup.component`, asserted **byte-identical** against the original
+  rather than retyped, along with `governedBy`, `saveSettings` and `attemptClose`.
+  - Groundwork for U-1 — a cog at the far right of the Brain tab strip opening these settings for the space you
+    are already looking at. The modal is driven by one signal, so a second host was only ever a question of who
+    provides the service; this is the step that makes that a re-host rather than a rewrite.
+  - `canLeave` and the `beforeunload` handler stayed on the Spaces page: those are route concerns, and a modal
+    openable from two pages must not own either page's navigation guard. The discard prompt moved to the
+    **service** rather than being copied, because both the (X) and the route guard need the same question.
+  - Two tests followed the code into a new spec, and the stale path in `space-purpose-one-field` was re-pointed
+    at the pop-up — the gate keeps a *positive* assertion, so a path resolving to a file without the
+    vote-pending branch fails loudly instead of passing vacuously.
+- **A sync wait's timeout is now sized from a measurement, and a comment that lied about it is fixed.** The
+  first propagation wait in `entity created on A syncs to B` read *"60s default"* while `waitFor`'s default is
+  **15 s** — four times off, and a wrong comment about a timeout is worse than none, because it is what stops
+  the next person looking.
+  - #823's margin warning caught that wait at **9925 ms of 15000 ms (66%)**, the first number anyone has had for
+    how long propagation actually takes there. The budget is now an explicit 25 s: the measurement plus room for
+    a loaded runner, and still bounded, because the re-trigger below it is the real safety net and a first
+    attempt that never gave up would never reach it.
+  - The test that originally timed out is **not** this one and its 25 s budget is deliberately unchanged. It
+    passed with no margin warning at all, so a green run finishes comfortably inside its budget — which makes
+    that failure a **stall**, and raising the number would have hidden it until it grew past the new one too.
+- **A sync wait that only just passed now reports its margin.** A pub/sub propagation test timed out at its 25 s
+  budget in CI on a diff of client CSS, docs and a changelog — none of which can touch sync — and passed on
+  rerun with no code change.
+  - The tempting fix is a bigger number, and it is a guess. Nothing recorded how long a PASSING wait took, so
+    nobody could tell whether a green run takes 20 s and the margin is thin, or takes 3 s and something
+    occasionally **stalls** — in which case a bigger budget hides the stall instead of fixing it.
+  - So the measurement was added rather than the number changed: any wait that consumes more than 60% of its
+    budget prints the elapsed time, the budget and the percentage. For every wait in the suite, not just the one
+    that went red, and while the margin is still a margin.
+  - A warning rather than a failure: propagation time legitimately varies with what else the runner is doing,
+    and a slow pass failing the build would make CI stricter than the product.
+- **Infra-managed now locks the Media Processing page by rule, not by 35 separate bindings.** A gate sweeps every
+  control on that page **by shape** — every `input`, `select` and `textarea` bound to `ngModel` — and requires
+  each to be locked, either by its own `[disabled]` or by an enclosing `@if` that removes it when managed.
+  - Prompted by the owner asking whether editable API-key fields under infra-managed were intended. They are
+    not: the API refuses that write outright, so a control that still accepts typing composes a request the
+    server rejects.
+  - **No unlocked control was found.** All 35 are already locked, and the page's wiring is correct end to end:
+    `isLocked()` short-circuits on managed rather than consulting a list, and the loader spreads the whole
+    response onto the form so the flag arrives. The gate exists because "most is blocked" is exactly what 35
+    correct-today decisions produce as soon as somebody adds the thirty-sixth.
+  - The gate is deliberately not UI-only: it also asserts the server still refuses an infra-managed write. A
+    lock that lived only in the client would be the two-surfaces-one-weaker shape this repo keeps finding.
 
 ## [2.6.0] — 2026-08-11
 ### Added

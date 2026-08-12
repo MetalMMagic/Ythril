@@ -42,7 +42,7 @@ let tok;
 before(() => { tok = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim(); });
 
 /** A fresh UUID v4 per test, so one test's id can never make another's assertion pass. */
-const uuid = () => crypto.randomUUID();
+const uuid = () => crypto.uuid();
 
 /**
  * Identity, not count.
@@ -58,125 +58,79 @@ const uuid = () => crypto.randomUUID();
  */
 const idOf = (r) => r.body?._id ?? r.body?.entity?._id ?? r.body?.edge?._id;
 
-describe('memories: a retry with the same id converges', () => {
-  it('two identical creates with one id produce ONE record', async () => {
-    const id = uuid();
-    const fact = `idempotency probe ${id}`;
-
-    const first = await post(INSTANCES.a, tok, '/api/brain/spaces/general/memories', { id, fact });
-    assert.equal(first.status, 201, `first create failed: ${JSON.stringify(first.body)}`);
-    assert.equal(first.body._id, id, 'the supplied id did not become the record id, so a retry cannot find it');
-
-    // The retry. Byte-identical payload, which is what a client resending after a timeout actually sends.
-    const second = await post(INSTANCES.a, tok, '/api/brain/spaces/general/memories', { id, fact });
-    assert.equal(second.status, 201, `retry failed: ${JSON.stringify(second.body)}`);
-    assert.equal(second.body._id, id, 'the retry produced a different id');
-
-    assert.equal(idOf(second), idOf(first),
-      `the retry produced a DIFFERENT record (${idOf(first)} then ${idOf(second)}). This is the bug: an agent `
-      + 'whose request timed out and retried used to double every record it wrote.');
+/**
+ * ── Reversed by the "id is id" ruling, 2026-08-12 ────────────────────────────────────────────────
+ *
+ * Every describe in this file used to assert that a retry with the same id CONVERGES: two creates, one record.
+ * That was the documented contract and it is gone — identity is server-minted, and a supplied id that names
+ * nothing is ignored rather than adopted.
+ *
+ * The file is rewritten rather than deleted, for the reason it existed in the first place: "how many records are
+ * in the collection after the second call" is a database question, and only a real instance can answer it. A
+ * source-reading gate can prove the code says `_id: uuidv4()`; only this can prove the server behaves that way.
+ *
+ * What is asserted now is the COST as well as the rule, because the cost is the part callers have to plan for:
+ * a retried create really does duplicate, and the duplicate-check is what makes that visible.
+ */
+describe('memories: a supplied id is not adopted', () => {
+  it('a create with an unused id mints a server id instead', async () => {
+    const unused = uuid();
+    const r = await post(INSTANCES.a, tok, `/api/brain/spaces/general/memories`,
+      { id: unused, fact: `unadopted-${Date.now()}` });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    assert.notEqual(idOf(r), unused, 'the caller must not choose the identity');
+    assert.match(idOf(r), /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   });
 
-  it('the retry moves seq and updatedAt — it converges, it is not a no-op', async () => {
-    // Stated in the docs and asserted here, because "idempotent" is often read as "no effect" and that would be
-    // wrong: the second write really happens, it just lands on the same record.
-    const id = uuid();
-    const fact = `seq probe ${id}`;
-    const first = await post(INSTANCES.a, tok, '/api/brain/spaces/general/memories', { id, fact });
-    const second = await post(INSTANCES.a, tok, '/api/brain/spaces/general/memories', { id, fact });
-
-    assert.ok(second.body.seq > first.body.seq,
-      `seq did not advance (${first.body.seq} -> ${second.body.seq}); the second write did not happen at all, which `
-      + 'is a different behaviour from the one documented');
+  it('two creates with the SAME unused id produce TWO records', async () => {
+    // The cost of the ruling, stated as a fact rather than a caveat. A caller still reusing an id across a
+    // retry gets duplicates, which is exactly why the release note calls this breaking.
+    const unused = uuid();
+    const fact = `duplicating-${Date.now()}`;
+    const a = await post(INSTANCES.a, tok, `/api/brain/spaces/general/memories`, { id: unused, fact });
+    const b = await post(INSTANCES.a, tok, `/api/brain/spaces/general/memories`, { id: unused, fact });
+    assert.equal(a.status, 201);
+    assert.equal(b.status, 201);
+    assert.notEqual(idOf(a), idOf(b), 'these are two records now, and that is the documented consequence');
   });
 
-  it('tags and properties MERGE on convergence, matching the entity path', async () => {
-    const id = uuid();
-    const fact = `merge probe ${id}`;
-    await post(INSTANCES.a, tok, '/api/brain/spaces/general/memories',
-      { id, fact, tags: ['first'], properties: { a: '1' } });
-    const second = await post(INSTANCES.a, tok, '/api/brain/spaces/general/memories',
-      { id, fact, tags: ['second'], properties: { b: '2' } });
+  it('an id that NAMES a record still updates it', async () => {
+    // The surviving half. If this broke, every update would silently become a create — worse than the bug the
+    // ruling removes, and invisible until a collection doubled.
+    const created = await post(INSTANCES.a, tok, `/api/brain/spaces/general/memories`,
+      { fact: `addressable-${Date.now()}` });
+    assert.equal(created.status, 201);
+    const id = idOf(created);
 
-    assert.deepEqual([...second.body.tags].sort(), ['first', 'second'],
-      'tags replaced rather than merged — entities merge, and one rule across four record types is the point');
-    assert.deepEqual(second.body.properties, { a: '1', b: '2' }, 'properties did not shallow-merge');
+    const again = await post(INSTANCES.a, tok, `/api/brain/spaces/general/memories`,
+      { id, fact: `addressable-${Date.now()}-v2` });
+    assert.ok([200, 201].includes(again.status), JSON.stringify(again.body));
+    assert.equal(idOf(again), id, 'an id naming a real record must land on it');
   });
 
-  it('omitting the id still creates a new record every time', async () => {
-    // The default must not change. Every existing client omits the id and relies on this.
-    const fact = `no-id probe ${uuid()}`;
-    const a = await post(INSTANCES.a, tok, '/api/brain/spaces/general/memories', { fact });
-    const b = await post(INSTANCES.a, tok, '/api/brain/spaces/general/memories', { fact });
-    assert.ok(idOf(a) && idOf(b), `both creates must return an id (${idOf(a)}, ${idOf(b)})`);
-    assert.notEqual(idOf(b), idOf(a),
-      'omitting the id silently deduplicated, which would break every existing caller');
-  });
-
-  it('a malformed id is refused with 400, not stored', async () => {
-    // A caller-supplied id becomes the sync identity of a record that replicates across networks.
-    for (const bad of ['not-a-uuid', '', '../../etc/passwd', '12345']) {
-      const r = await post(INSTANCES.a, tok, '/api/brain/spaces/general/memories',
-        { id: bad, fact: `bad id ${bad}` });
-      assert.equal(r.status, 400, `id "${bad}" was accepted (status ${r.status}) and became a record identity`);
-    }
+  it('a malformed id is still refused with 400, not stored', async () => {
+    // Unchanged, and worth keeping: the format check is what stops a corrupted id being stored at all, which
+    // is the defect that started this whole audit.
+    const r = await post(INSTANCES.a, tok, `/api/brain/spaces/general/memories`,
+      { id: 'not-a-uuid', fact: `malformed-${Date.now()}` });
+    assert.equal(r.status, 400, JSON.stringify(r.body));
   });
 });
 
-describe('chrono: the same contract', () => {
-  it('two identical creates with one id produce ONE entry', async () => {
-    const id = uuid();
-    const title = `chrono idempotency ${id}`;
-    const body = { id, title, type: 'event', startsAt: '2026-01-01T00:00:00.000Z' };
+describe('edges: the one thing that IS still idempotent', () => {
+  it('an edge retry converges on its natural key, with no id involved', async () => {
+    // Deliberately kept: edges are unaffected by the ruling because `(from, to, label)` is their identity.
+    // A caller told "retries duplicate now" needs the exception stated, or they will work around a problem
+    // they do not have.
+    const from = (await post(INSTANCES.a, tok, `/api/brain/spaces/general/entities`,
+      { name: `EdgeFrom-${Date.now()}`, type: 'concept' })).body._id;
+    const to = (await post(INSTANCES.a, tok, `/api/brain/spaces/general/entities`,
+      { name: `EdgeTo-${Date.now()}`, type: 'concept' })).body._id;
 
-    const first = await post(INSTANCES.a, tok, '/api/brain/spaces/general/chrono', body);
-    assert.equal(first.status, 201, `first create failed: ${JSON.stringify(first.body)}`);
-    assert.equal(first.body._id, id, 'the supplied id did not become the entry id');
-
-    const second = await post(INSTANCES.a, tok, '/api/brain/spaces/general/chrono', body);
-    assert.equal(second.status, 201, `retry failed: ${JSON.stringify(second.body)}`);
-
-    assert.equal(idOf(second), idOf(first),
-      `the retry produced a different chrono entry (${idOf(first)} then ${idOf(second)})`);
-  });
-
-  it('a malformed id is refused with 400', async () => {
-    const r = await post(INSTANCES.a, tok, '/api/brain/spaces/general/chrono',
-      { id: 'nope', title: 'bad', type: 'event', startsAt: '2026-01-01T00:00:00.000Z' });
-    assert.equal(r.status, 400, `a malformed chrono id was accepted (status ${r.status})`);
-  });
-});
-
-describe('entities and edges: the behaviour that already existed still holds', () => {
-  it('an entity retry with the same id converges', async () => {
-    // Regression cover for the path the new ones were modelled on — if this changes, the "one rule across four
-    // types" claim in the docs stops being true and nothing else would notice.
-    const id = uuid();
-    const name = `idem entity ${id}`;
-    const first = await post(INSTANCES.a, tok, '/api/brain/spaces/general/entities', { id, name, type: 'person' });
-    assert.equal(first.status, 201, `entity create failed: ${JSON.stringify(first.body)}`);
-    const second = await post(INSTANCES.a, tok, '/api/brain/spaces/general/entities', { id, name, type: 'person' });
-    assert.ok(second.status === 200 || second.status === 201, `entity retry failed: ${second.status}`);
-    assert.equal(idOf(second), id, 'the entity retry did not converge on the same id');
-  });
-
-  it('an edge retry converges on its natural key without any id', async () => {
-    // `from`/`to` are entity IDs, not names — the API says so explicitly: "a name is not a reference". The first
-    // version passed names and got a 400 that had nothing to do with idempotency.
-    const suffix = uuid().slice(0, 8);
-    const ids = [];
-    for (const n of [`edge-from-${suffix}`, `edge-to-${suffix}`]) {
-      const e = await post(INSTANCES.a, tok, '/api/brain/spaces/general/entities', { name: n, type: 'person' });
-      assert.ok(idOf(e), `entity ${n} was not created: ${JSON.stringify(e.body)}`);
-      ids.push(idOf(e));
-    }
-    const body = { from: ids[0], to: ids[1], label: 'knows' };
-    const first = await post(INSTANCES.a, tok, '/api/brain/spaces/general/edges', body);
-    assert.ok(first.status === 200 || first.status === 201, `edge create failed: ${JSON.stringify(first.body)}`);
-    const second = await post(INSTANCES.a, tok, '/api/brain/spaces/general/edges', body);
-    assert.ok(second.status === 200 || second.status === 201, `edge retry failed: ${second.status}`);
-    assert.ok(idOf(first), `the edge create returned no id: ${JSON.stringify(first.body)}`);
-    assert.equal(idOf(second), idOf(first),
-      'the edge retry created a second edge — the (from, to, label) natural key stopped being idempotent');
+    const a = await post(INSTANCES.a, tok, `/api/brain/spaces/general/edges`, { from, to, label: 'relates_to' });
+    const b = await post(INSTANCES.a, tok, `/api/brain/spaces/general/edges`, { from, to, label: 'relates_to' });
+    assert.ok([200, 201].includes(a.status), JSON.stringify(a.body));
+    assert.ok([200, 201].includes(b.status), JSON.stringify(b.body));
+    assert.equal(idOf(a), idOf(b), 'the natural key must still converge');
   });
 });

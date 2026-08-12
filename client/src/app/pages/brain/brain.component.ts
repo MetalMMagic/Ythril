@@ -364,7 +364,7 @@ interface SpaceView {
               (resetUsage)="resetSpaceUsage()" />
           }
         }
-        @if (activeTab() === 'query') { <app-query-tab [spaceId]="activeSpaceId()" /> }
+        @if (activeTab() === 'query') { <app-query-tab [spaceId]="activeSpaceId()" (viewInGraph)="viewInGraph($event)" /> }
 
         <!-- Review (F-REVIEW): duplicate pairs for THIS space. Was a global Settings page; a duplicate
              pair only ever means something inside one space, so it belongs beside the space's data. -->

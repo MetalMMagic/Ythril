@@ -309,6 +309,9 @@ POST /api/brain/spaces/:spaceId/traverse
 | `maxDepth` | — | `3` | Maximum hops from `startId`; hard-capped at `10` |
 | `limit` | — | `100` | Maximum total nodes returned |
 | `includeChrono` | — | `true` | Also reach chrono entries whose `entityIds` reference a traversed node. Set `false` for entity-only results. A non-boolean is a `400`, never coerced |
+| `includeMemories` | — | `false` | Also reach memories whose `entityIds` reference a traversed node, marked `kind: "memory"`. **Opt-in, unlike `includeChrono`** — see the note below. A non-boolean is a `400` |
+| `includeFiles` | — | `false` | Also reach files whose `entityIds` reference a traversed node, marked `kind: "file"` and carrying **file meta only**. Opt-in. A non-boolean is a `400` |
+| `includeEdges` | — | `true` | Whether the response carries the `edges` list. **This does not change the walk** — edges are how the graph is traversed. A non-boolean is a `400` |
 
 **Response** `200`:
 
@@ -349,6 +352,43 @@ field is. No schema change was needed; the link already existed and simply had n
 - **A chrono is a leaf.** Traversal does not expand outward from one — a chrono links to entities, not to
   other chrono entries, so expanding would only walk back to entities already visited.
 - Set `includeChrono: false` for the previous entity-only behaviour.
+
+#### Memories are nodes too, on request
+
+`memory.entityIds` is the same kind of link, and `includeMemories: true` follows it. A memory node carries
+`kind: "memory"`, its `name` is the memory's `fact`, and its `type` may be an empty string — a memory's type is
+optional, unlike a chrono's. The synthetic label is `memory.entityIds`, and like the chrono label it is filtered
+by an explicit `edgeLabels`. A memory is a leaf, for the same reason a chrono is.
+
+**Why this one is opt-in when `includeChrono` is not.** Chrono entries are sparse — an incident has ten, not ten
+thousand — and were invisible without traversal. Memories are usually the most numerous record type in a space,
+and every node returned counts against `limit`. On by default, a memory-heavy space would fill the answer with
+memories and truncate away the entities you traversed for. Turn it on deliberately, and raise `limit` with it.
+
+#### Files are nodes too, and only their meta comes back
+
+`includeFiles: true` follows `file.entityIds`, so a document about an entity is reachable from it. The node is
+the **file**, not its passages: `_id` and `name` are the path, and `description` and `tags` ride along when set.
+
+**No passage text, ever.** A file's body is its chunks — the largest thing this product stores, and what
+`recall` returns when you search for content. A structural walk must not pay for them, so a file node carries
+none: no `content`, no `matchedText`, no `chunkIndex`. Once you know which document you want, read it with the
+file API.
+
+This also means **one node per file, not one per chunk**. Chunks live in the same collection as the file they
+belong to and are distinguished only by `parentFileId`; the traversal excludes them explicitly. A forty-passage
+document is one node.
+
+Opt-in for the same reason as memories, and the synthetic label is `file.entityIds`.
+
+#### Suppressing the edge list
+
+`includeEdges: false` returns the same `nodes` with `edges: []`. It is a **response** switch, not a traversal
+one: the walk still follows every edge it would otherwise, so the node set is byte-for-byte what you would get
+with the list included. Use it when you want what is reachable and the connecting relationships would only cost
+tokens — a large traversal spends much of its payload on edges.
+
+If you need fewer edges *followed*, that is `edgeLabels`, which genuinely narrows the walk.
 
 This closes a gap an integrator measured: reconstructing a 33-day hardware-RMA timeline took four `query()`
 calls plus two repository greps, and the first pass still missed the carrier ticket — it had to be found by a

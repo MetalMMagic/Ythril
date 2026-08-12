@@ -33,7 +33,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     nothing would have said so.
 
 ### Fixed
-
+- **The recall panel could not ask for two things the API has always accepted.** The owner asked where the search
+  is that has every field `recall` takes via MCP. It is Brain → Query → Semantic Search, and the answer was ten of
+  the twelve.
+  - `traverse` (graph expansion, 0–5 hops) and `maxTimeMS` (a deadline that returns a **partial** answer instead of
+    hanging) are both validated by `POST /api/brain/spaces/:id/recall` and both documented on the MCP tool. Neither
+    was declared on the client's typed `recallBrain` body, so no component could send them and no form could offer
+    them — a capability shipped on two surfaces that reached the operator on neither.
+  - `traverse > 0` also returns a **different shape**: each item is wrapped as `{ score, source, hops, path, type,
+    record }`. The grouping and rendering were written for the flat shape, so a graph-expanded answer would have
+    rendered as a dump of its own metadata with the record buried inside, and file grouping would have missed every
+    passage. The envelope is now unwrapped once on arrival rather than special-cased at each site.
+  - Recall results that exist in the graph carry the **View in graph** button the Entities and Edges tabs already had.
+    An entity jumps to itself, an edge to the entity it starts from; a memory, chrono entry or file passage has no
+    node and so gets no button rather than one that lands on an empty graph.
+  - `recall-params-reach-the-ui.test.js` parses the accepted set out of the route itself — a hand-written list would
+    go stale the moment the route gains a parameter, which is the same failure in a new place.
+  - The user guide's advanced-search list was itself behind: `maxPerType`, `includeFreshWrites` and `includeContent`
+    already existed and were undocumented. All are described now.
 - **The memories and edges tabs have a Type column, so their type filter is reachable.** Both tabs already sent
   `type` to the list endpoint and the store already exposed the option list — `memoryTypeOptions()` and
   `edgeTypeOptions()`, both unit-tested — but **no template bound either one**, and neither tab had a type column
@@ -95,6 +112,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     hole the audit turned up on the way.
 
 ### Added
+- **`traverse` gained `includeMemories`, `includeFiles` and `includeEdges`, beside the existing `includeChrono`.** Owner ruling:
+  the three inclusion flags should exist for consistency, with one asymmetry spelled out — *"edges need to be
+  traversed regardless, just about if its included in results"*.
+  - `includeMemories` (default **false**) follows `memory.entityIds` the way `includeChrono` follows
+    `chrono.entityIds`. Memory nodes carry `kind: "memory"`, their `name` is the `fact`, and the synthetic edge
+    is labelled `memory.entityIds` with the memory's own id — so `edgeLabels` filters it like any relationship.
+  - **It is opt-in where chrono is opt-out, deliberately.** Chrono entries are sparse and were invisible without
+    traversal; memories are usually the most numerous record type, and every node counts against `limit`. On by
+    default, a memory-heavy space would fill the answer with memories and truncate away the entities the caller
+    traversed for — a flag that starves the primary result is worse than one you have to know about.
+  - `includeFiles` (default **false**) does the same through `file.entityIds`, and returns **file meta only** —
+    path, `description`, `tags`. Never passage text: a file body is its chunks, the largest thing the product
+    stores, and a structural walk must not pay for them. Owner: *"what about files btw (return only the
+    filemeta of course)"*.
+  - That one has a trap worth naming: **chunks live in the same collection as their file**, told apart only by
+    `parentFileId`. Without excluding them, a forty-passage document would arrive as forty nodes carrying text
+    and exhaust `limit` on one file. The predicate is the same one the space-stats file count already uses.
+  - `includeEdges` (default true) drops the `edges` list from the response and **does not change the walk**:
+    edges are how the graph is traversed, so the node set is identical either way. An integration test asserts
+    exactly that, comparing node ids across both calls rather than only checking the array is empty.
+  - All three land on **both surfaces** — REST and the MCP `traverse` tool, whose schema is
+    `additionalProperties: false`, so an undeclared flag there is rejected rather than ignored. `TraverseNode.kind`
+    on the client had never declared even `'chrono'`; it now types both kinds.
+  - The three return sites in `traverseGraph` route through one `answer()` helper. A rule copied three times is a
+    rule that will eventually disagree with itself.
 - **A space's recorded usage can be reset** — `POST /api/spaces/:spaceId/activity/reset`, admin + MFA, scoped to
   the space. Deletes the hourly buckets behind the Overview usage panel, so a space hammered once during a
   migration stops reading as busy for the rest of the window.

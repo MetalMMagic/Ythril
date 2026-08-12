@@ -6,7 +6,7 @@
  * hits, and must not present six documents as though six passages matched.
  */
 import { describe, it, expect } from 'vitest';
-import { groupRecallResults, fileGroupKey, chunkLabel, passageText } from './recall-grouping';
+import { groupRecallResults, fileGroupKey, chunkLabel, passageText, flattenRecallItems } from './recall-grouping';
 import type { RecallResult } from '../../core/api.types';
 
 const chunk = (parent: string, id: string, score: number, heading?: string, path = 'papers/study.pdf'): RecallResult =>
@@ -130,5 +130,59 @@ describe('recall grouping — passage text', () => {
     const out = passageText(hit({ content: 'x'.repeat(900) }))!;
     expect(out.length).toBe(400);
     expect(out.endsWith('…')).toBe(true);
+  });
+});
+
+describe('recall grouping — the traverse envelope is unwrapped', () => {
+  // `traverse > 0` is the only recall shape that nests. Nothing downstream expected it, so a graph-expanded
+  // answer rendered as a dump of its own metadata with the record buried under `record`.
+  const envelope = (over: Partial<Record<string, unknown>> = {}): RecallResult => ({
+    score: 0.8, source: 'recall', hops: 0, path: [], spaceId: 'work', type: 'entity',
+    record: { _id: 'e1', name: 'Ada', tags: ['x'] },
+    ...over,
+  } as unknown as RecallResult);
+
+  it('lifts the record to the top level and keeps the envelope fields', () => {
+    const [out] = flattenRecallItems([envelope()]);
+    expect(out['_id']).toBe('e1');
+    expect(out['name']).toBe('Ada');
+    expect(out.type).toBe('entity');
+    expect(out['hops']).toBe(0);
+    expect(out['record']).toBeUndefined();
+  });
+
+  it('the envelope wins over the record for type and score', () => {
+    // A traverse NEIGHBOUR carries score null and its authoritative type on the envelope, not on the record.
+    const [out] = flattenRecallItems([envelope({
+      score: null, source: 'traverse', hops: 2,
+      record: { _id: 'e2', name: 'Grace', type: 'stale-inner-type', score: 0.99 },
+    })]);
+    expect(out.type).toBe('entity');
+    expect(out.score).toBe(null);
+    expect(out['hops']).toBe(2);
+    expect(out['name']).toBe('Grace');
+  });
+
+  it('a flat hit passes through untouched — the same object, not a copy', () => {
+    const flat = { type: 'memory', score: 0.5, _id: 'm1', fact: 'f' } as unknown as RecallResult;
+    const [out] = flattenRecallItems([flat]);
+    expect(out).toBe(flat);
+  });
+
+  it('a null or array `record` is not treated as an envelope', () => {
+    const withNull = { type: 'memory', record: null } as unknown as RecallResult;
+    const withArray = { type: 'memory', record: [1, 2] } as unknown as RecallResult;
+    expect(flattenRecallItems([withNull])[0]).toBe(withNull);
+    expect(flattenRecallItems([withArray])[0]).toBe(withArray);
+  });
+
+  it('grouping works on a flattened file envelope, which it could not before', () => {
+    const fileEnvelope = {
+      score: 0.7, source: 'recall', hops: 0, path: [], spaceId: 'work', type: 'file',
+      record: { _id: 'c1', parentFileId: 'f1', parentFile: { path: '/doc.md' }, content: 'hello' },
+    } as unknown as RecallResult;
+    const groups = groupRecallResults(flattenRecallItems([fileEnvelope]));
+    expect(groups.length).toBe(1);
+    expect(groups[0].file?.path).toBe('/doc.md');
   });
 });

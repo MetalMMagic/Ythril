@@ -148,3 +148,26 @@ export function passageText(r: RecallResult): string | undefined {
   const clean = text.replace(/\s+/g, ' ').trim();
   return clean.length > PASSAGE_MAX ? `${clean.slice(0, PASSAGE_MAX - 1)}…` : clean;
 }
+
+/**
+ * Recall answers in TWO shapes, and only one of them was ever handled here.
+ *
+ * A plain recall spreads each record's own fields at the top level. A recall with `traverse > 0` wraps every
+ * item in an envelope instead — `{ score, source, hops, path, spaceId, type, record }` — because the graph
+ * expansion needs somewhere to put `hops` and `path`. Everything downstream of this file was written for the
+ * flat shape: the file grouping reads `parentFile` off the hit, the passage fallback reads `content`, and the
+ * JSON fallback dumps the hit itself. Handed an envelope, all three read the wrong object and a traverse
+ * result renders as a dump of its own metadata with the record buried inside.
+ *
+ * So the envelope is unwrapped once, here, rather than special-cased at each of those sites. The envelope's
+ * own fields win over the record's, since `type` and `score` on the envelope are the authoritative ones, and
+ * `source`/`hops`/`path` survive so a caller can still tell a seed from a neighbour.
+ */
+export function flattenRecallItems(results: RecallResult[]): RecallResult[] {
+  return results.map(item => {
+    const nested = (item as Record<string, unknown>)['record'];
+    if (nested === null || typeof nested !== 'object' || Array.isArray(nested)) return item;
+    const { record: _unwrapped, ...envelope } = item as Record<string, unknown>;
+    return { ...(nested as Record<string, unknown>), ...envelope } as RecallResult;
+  });
+}

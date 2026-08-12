@@ -91,6 +91,17 @@ export class BrainApi {
        * recall look as though it has stopped returning passages.
        */
       includeContent?: boolean;
+      /**
+       * Graph expansion depth, 0–5. Each match is expanded along edges and the connected entities come back
+       * annotated with `source: 'traverse'`, `hops` and `path`. The route has accepted this since recall
+       * existed; it was simply never declared here, so no UI could ask for it.
+       */
+      traverse?: number;
+      /**
+       * Deadline in ms. It can only LOWER the instance budget, and on expiry the answer is PARTIAL rather
+       * than an error — whichever collections finished are returned, flagged as degraded.
+       */
+      maxTimeMS?: number;
     },
   ): Observable<RecallResponse> {
     return this.http.post<RecallResponse>(`/api/brain/spaces/${spaceId}/recall`, body);
@@ -232,7 +243,23 @@ export class BrainApi {
     }
   }
 
-  traverseGraph(spaceId: string, body: { startId: string; direction?: 'outbound' | 'inbound' | 'both'; maxDepth?: number; limit?: number }): Observable<TraverseResult> {
+  /**
+   * Walk the graph from an entity. The three `include*` flags decide what the answer CONTAINS, not what is
+   * walked: edges are always followed, and `includeEdges: false` only drops the edge list from the response.
+   * `includeMemories` is opt-in because memories are usually the most numerous record type and every node
+   * counts against `limit`.
+   */
+  traverseGraph(spaceId: string, body: {
+    startId: string;
+    direction?: 'outbound' | 'inbound' | 'both';
+    edgeLabels?: string[];
+    maxDepth?: number;
+    limit?: number;
+    includeChrono?: boolean;
+    includeMemories?: boolean;
+    includeFiles?: boolean;
+    includeEdges?: boolean;
+  }): Observable<TraverseResult> {
     return this.http.post<TraverseResult>(`/api/brain/spaces/${spaceId}/traverse`, body);
   }
 

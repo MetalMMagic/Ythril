@@ -29,14 +29,16 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
-const search = () => strip(readFileSync('server/src/api/brain/search.ts', 'utf8'));
+// The refusal moved into `planReindex` so both surfaces make it; the route only turns it into a status.
+const search = () => strip(readFileSync('server/src/brain/reindex.ts', 'utf8'));
 const spaces = () => strip(readFileSync('server/src/api/spaces.ts', 'utf8'));
 
 const handler = () => {
   const s = search();
-  const i = s.indexOf("searchRouter.post('/spaces/:spaceId/reindex'");
-  assert.ok(i > 0, 'the reindex route moved — re-point this test');
-  return s.slice(i, s.indexOf('setImmediate', i));
+  const i = s.indexOf('export function planReindex');
+  assert.ok(i > 0, 'planReindex moved — re-point this test at wherever the refusal is decided');
+  // To the end of the decision function: `startReindex` is the work, and nothing after it is a refusal.
+  return s.slice(i, s.indexOf('export function startReindex', i));
 };
 
 describe('a proxy is refused', () => {
@@ -44,7 +46,11 @@ describe('a proxy is refused', () => {
     const h = handler();
     assert.match(h, /space\.proxyFor && space\.proxyFor\.length > 0/,
       'an empty proxyFor array is not a proxy — treating it as one would refuse a normal space');
-    assert.match(h, /res\.status\(400\)/, 'a proxy must be refused, not started');
+    assert.match(h, /status: 400/, 'a proxy must be refused, not started');
+    // And the route must still send that status rather than inventing one.
+    const route = strip(readFileSync('server/src/api/brain/search.ts', 'utf8'));
+    assert.match(route, /res\.status\(decision\.refusal\.status\)\.json\(decision\.refusal\.body\)/,
+      'the route must answer with the refusal it was given, status and body both');
   });
 
   it('the message names the member spaces', () => {
@@ -71,9 +77,13 @@ describe('a proxy is refused', () => {
   it('nothing is marked running before the refusal', () => {
     // The flag is a global singleton. Setting it and then returning early would block every real reindex on
     // the instance until a restart — a worse bug than the one being fixed.
-    const h = handler();
-    assert.ok(h.indexOf('res.status(400)') < h.indexOf('reindexJobRunning = true'),
-      'the proxy refusal must not leave the singleton flag set');
+    // Stronger than the ordering check it replaces: the decision function does not SET the flag anywhere, so no
+    // refusal can leave it set. Taking the guard is `startReindex`'s job, and it is only reachable with a plan.
+    assert.doesNotMatch(handler(), /reindexJobRunning = true/,
+      'planReindex must not take the singleton — a refusal that set it would block every reindex until restart');
+    const work = search();
+    assert.match(work.slice(work.indexOf('export function startReindex')), /reindexJobRunning = true/,
+      'startReindex is where the guard is taken');
   });
 });
 

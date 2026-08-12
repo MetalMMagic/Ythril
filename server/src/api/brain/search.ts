@@ -14,11 +14,11 @@ import { queryBrain } from '../../brain/query.js';
 import { findSimilar, recall, type RecallKnowledgeType, type RecallResult } from '../../brain/recall.js';
 import { validateFilterExpression, type FilterExpression } from '../../brain/filter.js';
 import { traverseGraph, traverseRecallSeeds, MAX_RECALL_TRAVERSE, resolveEdgeEntityNames } from '../../brain/edges.js';
-import { memoryEmbedText, entityEmbedText, edgeEmbedText, chronoEmbedText, fileEmbedText } from '../../brain/embed-text.js';
 import { embed } from '../../brain/embedding.js';
 import { getConfig } from '../../config/loader.js';
 import { col, asFilter } from '../../db/mongo.js';
-import { needsReindex, clearReindexFlag } from '../../spaces/_shared.js';
+import { needsReindex } from '../../spaces/_shared.js';
+import { planReindex, startReindex } from '../../brain/reindex.js';
 import { log } from '../../util/log.js';
 import { collectAcrossMembers } from '../../spaces/proxy.js';
 import { memberSpacesForRequest } from '../../spaces/proxy-scoped.js';
@@ -562,222 +562,26 @@ searchRouter.get('/spaces/:spaceId/reindex-status', globalRateLimit, requireSpac
 // POST /api/brain/spaces/:spaceId/reindex
 // Re-embeds all memories in a space using the currently configured model.
 // Long-running: may take minutes for large spaces. Progress is logged server-side.
+// POST /api/brain/spaces/:spaceId/reindex
+//
+// Every refusal -- 404, the proxy 400, the single-job 409 -- and the work itself live in `brain/reindex.ts`, so an
+// MCP tool reaches the same rules and the same guard instead of a weaker copy of them (B-2). What stays here is
+// resolving the member spaces from the REQUEST (which is where the token's scope is known) and turning a refusal into
+// a status.
+//
+// The response is sent as soon as the job is SCHEDULED, with zeroed counters. That is deliberate and pinned:
+// `reindex-contract.test.js` asserts the shape, because awaiting the work here would answer the same 200 and turn a
+// multi-minute job into a request timeout.
 searchRouter.post('/spaces/:spaceId/reindex', globalRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
-  const cfg = getConfig();
-  if (!cfg.spaces.some(s => s.id === spaceId)) {
-    res.status(404).json({ error: `Space '${spaceId}' not found` });
+  const space = getConfig().spaces.find(s => s.id === spaceId);
+
+  const decision = planReindex({ spaceId, space, memberIds: memberSpacesForRequest(req, spaceId) });
+  if (!decision.ok) {
+    res.status(decision.refusal.status).json(decision.refusal.body);
     return;
   }
 
-  /**
-   * A PROXY is refused, by name, with its members listed.
-   *
-   * It used to answer `200 {"status":"started"}` and then re-embed the member spaces — which the caller was
-   * also reindexing individually, because they are in the same space list. Everything under the proxy got
-   * embedded twice. It is idempotent, so nothing broke: on the reporting operator's largest instance it was
-   * simply the longest job of the run and all of it was waste.
-   *
-   * The caller could not avoid it either. `GET /api/spaces` returns ids with no indication of which are
-   * proxies, so there was nothing to branch on — which is why this is a refusal here rather than a note in
-   * the docs.
-   *
-   * It is also what the rest of the model already does: a WRITE to a proxy requires an explicit
-   * `targetSpace`, because a proxy is not a place records live. Accepting one here without comment was the
-   * inconsistency.
-   *
-   * The members are named in the message so the remedy is the response rather than a second lookup.
-   */
-  const space = cfg.spaces.find(s => s.id === spaceId)!;
-  if (space.proxyFor && space.proxyFor.length > 0) {
-    res.status(400).json({
-      error: `'${spaceId}' is a proxy space and has no index of its own. `
-        + `Reindex its members instead: ${space.proxyFor.join(', ')}.`,
-      proxyFor: space.proxyFor,
-    });
-    return;
-  }
-
-  if (reindexJobRunning) {
-    res.status(409).json({ error: 'Reindex already in progress' });
-    return;
-  }
-
-  const memberIds = memberSpacesForRequest(req, spaceId);
-  reindexJobRunning = true;
-  reindexInProgress.set(1);
+  startReindex(decision.plan);
   res.json({ spaceId, reindexed: 0, errors: 0, status: 'started' });
-
-  // Start heavy work on the next turn so HTTP headers flush immediately.
-  setImmediate(() => {
-    void (async () => {
-      let reindexed = 0;
-      let errors = 0;
-      try {
-        for (const mid of memberIds) {
-        const BATCH = 50;
-
-        // Re-embed memories
-        {
-          let cursor: string | null = null;
-          // eslint-disable-next-line no-constant-condition
-          while (true) {
-            const q: Record<string, unknown> = cursor ? { _id: { $gt: cursor } } : {};
-            const batch: MemoryDoc[] = await col<MemoryDoc>(`${mid}_memories`)
-              .find(asFilter<MemoryDoc>(q), { projection: { _id: 1, fact: 1, tags: 1, entityIds: 1, description: 1, properties: 1 } })
-              .sort({ _id: 1 })
-              .limit(BATCH)
-              .toArray() as MemoryDoc[];
-            if (batch.length === 0) break;
-            for (const doc of batch) {
-              try {
-                const entityIds: string[] = Array.isArray(doc.entityIds) ? doc.entityIds : [];
-                const entityDocs = entityIds.length > 0
-                  ? await col<EntityDoc>(`${mid}_entities`)
-                      .find(asFilter<EntityDoc>({ _id: { $in: entityIds } }), { projection: { name: 1 } })
-                      .toArray() as Array<{ name: string }>
-                  : [];
-                const entityNames = entityDocs.map(e => e.name);
-                const result = await embed(memoryEmbedText(doc.fact, doc.tags ?? [], entityNames, doc.description, doc.properties));
-                await col<MemoryDoc>(`${mid}_memories`).updateOne(
-                  { _id: doc._id },
-                  { $set: { embedding: result.vector, embeddingModel: result.model } },
-                );
-                reindexed++;
-              } catch { errors++; }
-            }
-            cursor = batch[batch.length - 1]?._id ?? null;
-          }
-        }
-
-        // Re-embed entities (name + type + tags + description + properties)
-        {
-          let cursor: string | null = null;
-          // eslint-disable-next-line no-constant-condition
-          while (true) {
-            const q: Record<string, unknown> = cursor ? { _id: { $gt: cursor } } : {};
-            const batch: EntityDoc[] = await col<EntityDoc>(`${mid}_entities`)
-              .find(asFilter<EntityDoc>(q), { projection: { _id: 1, name: 1, type: 1, tags: 1, description: 1, properties: 1 } })
-              .sort({ _id: 1 })
-              .limit(BATCH)
-              .toArray() as EntityDoc[];
-            if (batch.length === 0) break;
-            for (const doc of batch) {
-              try {
-                const result = await embed(entityEmbedText(doc.name, doc.type, doc.tags ?? [], doc.description, doc.properties ?? {}));
-                await col<EntityDoc>(`${mid}_entities`).updateOne(
-                  { _id: doc._id },
-                  { $set: { embedding: result.vector, embeddingModel: result.model } },
-                );
-                reindexed++;
-              } catch { errors++; }
-            }
-            cursor = batch[batch.length - 1]?._id ?? null;
-          }
-        }
-
-        // Re-embed edges (tags + from-name + label + to-name + type + description + properties)
-        {
-          let cursor: string | null = null;
-          // eslint-disable-next-line no-constant-condition
-          while (true) {
-            const q: Record<string, unknown> = cursor ? { _id: { $gt: cursor } } : {};
-            const batch: EdgeDoc[] = await col<EdgeDoc>(`${mid}_edges`)
-              .find(asFilter<EdgeDoc>(q), { projection: { _id: 1, from: 1, label: 1, to: 1, type: 1, tags: 1, description: 1, properties: 1 } })
-              .sort({ _id: 1 })
-              .limit(BATCH)
-              .toArray() as EdgeDoc[];
-            if (batch.length === 0) break;
-            for (const doc of batch) {
-              try {
-                // Resolve from/to to entity NAMES (not IDs) and include properties — matching
-                // edgeEmbedText so a reindex reproduces exactly what upsertEdge embedded.
-                const [fromName, toName] = await resolveEdgeEntityNames(mid, doc.from, doc.to);
-                const result = await embed(edgeEmbedText(fromName, doc.label, toName, doc.tags ?? [], doc.type, doc.description, doc.properties));
-                await col<EdgeDoc>(`${mid}_edges`).updateOne(
-                  { _id: doc._id },
-                  { $set: { embedding: result.vector, embeddingModel: result.model } },
-                );
-                reindexed++;
-              } catch { errors++; }
-            }
-            cursor = batch[batch.length - 1]?._id ?? null;
-          }
-        }
-
-        // Re-embed chrono (type + status + title + tags + description + properties)
-        {
-          let cursor: string | null = null;
-          // eslint-disable-next-line no-constant-condition
-          while (true) {
-            const q: Record<string, unknown> = cursor ? { _id: { $gt: cursor } } : {};
-            const batch: ChronoEntry[] = await col<ChronoEntry>(`${mid}_chrono`)
-              .find(asFilter<ChronoEntry>(q), { projection: { _id: 1, title: 1, type: 1, status: 1, description: 1, tags: 1, properties: 1 } })
-              .sort({ _id: 1 })
-              .limit(BATCH)
-              .toArray() as ChronoEntry[];
-            if (batch.length === 0) break;
-            for (const doc of batch) {
-              try {
-                const result = await embed(chronoEmbedText(doc.title, doc.type, doc.status, doc.description, doc.tags ?? [], doc.properties));
-                await col<ChronoEntry>(`${mid}_chrono`).updateOne(
-                  { _id: doc._id },
-                  { $set: { embedding: result.vector, embeddingModel: result.model } },
-                );
-                reindexed++;
-              } catch { errors++; }
-            }
-            cursor = batch[batch.length - 1]?._id ?? null;
-          }
-        }
-
-        // Re-embed files (path + entity names + tags + description + property values)
-        {
-          let cursor: string | null = null;
-          // eslint-disable-next-line no-constant-condition
-          while (true) {
-            // Exclude chunk records (parentFileId set) — they have their own embedding logic
-            const q: Record<string, unknown> = cursor
-              ? { _id: { $gt: cursor }, parentFileId: { $exists: false } }
-              : { parentFileId: { $exists: false } };
-            const batch: FileMetaDoc[] = await col<FileMetaDoc>(`${mid}_files`)
-              .find(asFilter<FileMetaDoc>(q), { projection: { _id: 1, path: 1, tags: 1, description: 1, properties: 1, entityIds: 1 } })
-              .sort({ _id: 1 })
-              .limit(BATCH)
-              .toArray() as FileMetaDoc[];
-            if (batch.length === 0) break;
-            for (const doc of batch) {
-              try {
-                const entityIds: string[] = Array.isArray(doc.entityIds) ? doc.entityIds : [];
-                const entityDocs = entityIds.length > 0
-                  ? await col<EntityDoc>(`${mid}_entities`)
-                      .find(asFilter<EntityDoc>({ _id: { $in: entityIds } }), { projection: { name: 1 } })
-                      .toArray() as Array<{ name: string }>
-                  : [];
-                const entityNames = entityDocs.map(e => e.name);
-                // `excerpt` included, or a reindex would silently re-embed every converted document
-                // without the document's own text — dropping exactly the phrases a reader searches for.
-                const result = await embed(fileEmbedText(doc.path, doc.tags ?? [], doc.description, doc.properties, entityNames, doc.excerpt));
-                await col<FileMetaDoc>(`${mid}_files`).updateOne(
-                  { _id: doc._id },
-                  { $set: { embedding: result.vector, embeddingModel: result.model } },
-                );
-                reindexed++;
-              } catch { errors++; }
-            }
-            cursor = batch[batch.length - 1]?._id ?? null;
-          }
-        }
-
-          clearReindexFlag(mid);
-        }
-        log.info(`Reindex completed for space '${spaceId}': reindexed=${reindexed}, errors=${errors}`);
-      } catch (err) {
-        log.error(`Reindex job failed for space '${spaceId}': ${String(err)}`);
-      } finally {
-        reindexJobRunning = false;
-        reindexInProgress.set(0);
-      }
-    })();
-  });
 });

@@ -167,9 +167,17 @@ describe('If-Match — both meta-writing routes check it, and check it FIRST', (
     // Asserting a COUNT would rot the moment a fifth route appeared. So derive the set: every
     // `updateSpace(..., { meta })` call is a meta write, and each must sit in a handler that checked
     // the precondition first.
+    const planner = readFileSync(new URL('../../server/src/spaces/meta-update.ts', import.meta.url), 'utf8');
     const writeSites = [...src.matchAll(/updateSpace\([^)]*\{\s*[^}]*\bmeta\b/g)].map(m => m.index);
-    assert.ok(writeSites.length >= 4,
-      `expected at least 4 meta-write sites, found ${writeSites.length} — has the shape changed?`);
+    const plannerWrites = [...planner.matchAll(/updateSpace\([^)]*\{[\s\S]{0,120}?\bmeta\b/g)].map(m => m.index);
+
+    // The floor spans BOTH files, because one of the four writes moved. `PATCH /:id` no longer writes meta itself —
+    // `applySpaceMetaUpdate` does — so counting only the router would have quietly dropped a site from the sweep,
+    // and the sweep would have reported the tree clean because it was looking at three of four places.
+    assert.ok(writeSites.length + plannerWrites.length >= 4,
+      `expected at least 4 meta-write sites across the router and the planner, found `
+      + `${writeSites.length} + ${plannerWrites.length} — has the shape changed?`);
+    assert.ok(plannerWrites.length >= 1, 'the planner module must hold the write that left the router');
 
     // Inline calls AND verified delegates: a handler that hands the decision to something which checks is guarded.
     const checkSites = [...src.matchAll(new RegExp(guardPattern.source, 'g'))].map(m => m.index);
@@ -187,6 +195,31 @@ describe('If-Match — both meta-writing routes check it, and check it FIRST', (
         `that route can silently discard a concurrent edit. Handler starts at ${handlerStart}: ` +
         JSON.stringify(src.slice(handlerStart, handlerStart + 90)));
     }
+  });
+
+  it("the planner's own meta write cannot be reached without the precondition — by TYPE, not by position", () => {
+    // The write that left the router is in `applySpaceMetaUpdate`, a different function from the one that checks.
+    // Asserting "the check appears earlier in the file" would be true and would prove nothing: two functions in one
+    // file have no order at runtime.
+    //
+    // What actually guarantees it is the signature. `applySpaceMetaUpdate` takes a `MetaUpdatePlan`, and a plan is
+    // only ever constructed by `planSpaceMetaUpdate` — after the precondition, in the same expression that returns
+    // `ok: true`. So a caller cannot obtain the argument without having passed the check. That is what is asserted
+    // here, and it is the reason the extraction did not weaken the guarantee.
+    const planner = readFileSync(new URL('../../server/src/spaces/meta-update.ts', import.meta.url), 'utf8');
+
+    assert.match(planner, /export async function applySpaceMetaUpdate\(plan: MetaUpdatePlan\)/,
+      'apply must take a MetaUpdatePlan and nothing looser — an `unknown` or a spread of fields would let a caller '
+      + 'assemble one without going through the planner');
+
+    // Exactly one place builds the plan, and the precondition precedes it *within that function*.
+    const planFn = planner.slice(planner.indexOf('export function planSpaceMetaUpdate'));
+    const checkAt = planFn.indexOf('checkMetaPrecondition(');
+    const buildAt = planFn.indexOf('ok: true');
+    assert.ok(checkAt > 0 && buildAt > checkAt,
+      'planSpaceMetaUpdate must evaluate the precondition before it returns a plan');
+    assert.equal((planner.match(/ok: true,\s*\n\s*plan: \{/g) ?? []).length, 1,
+      'a second place constructing a plan is a second way to reach the write without a precondition');
   });
 
   it('the schema route checks BEFORE writing its backup file', () => {

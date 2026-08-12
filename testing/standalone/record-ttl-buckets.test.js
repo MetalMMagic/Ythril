@@ -141,7 +141,9 @@ describe('the API and the storage type agree', () => {
     // stored and normalised; the generic `...restPatch` spread further down then wrote the raw body over the
     // top of it. So a partial write cleared the four buckets it did not mention, and an all-cleared write stored
     // five explicit nulls instead of nothing — both with a 200 and no visible symptom.
-    const src = readFileSync(join(ROOT, 'server/src/api/spaces.ts'), 'utf8');
+    // The write moved into `applySpaceMetaUpdate` with the rest of the side effects, so the destructure that keeps
+    // the raw body out of it moved too. Same guarantee, one file over.
+    const src = readFileSync(join(ROOT, 'server/src/spaces/meta-update.ts'), 'utf8');
     assert.match(src, /const \{ documentExtraction: _rawMode, recordTtlDays: _rawTtl, \.\.\.restPatch \} = patchData;/,
       'recordTtlDays must be destructured OUT of the spread that reaches updateSpace, like documentExtraction');
   });

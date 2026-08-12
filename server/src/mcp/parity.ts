@@ -42,8 +42,14 @@ export interface RestOnlyCapability {
  * The five they reported, minus the ones now built. Nothing invented alongside them.
  *
  * Confirmed absent rather than gated on 2026-08-12 by reading the tool registry: 34 tools, none of which was a
- * reindex, a token list, a `retry_embedding` or a space create. `update_space` exists but accepts only `label`,
- * `purpose` and `description`, so nothing on MCP writes a schema — their reading was right on every one.
+ * reindex, a token list, a `retry_embedding` or a space create. `update_space` existed but accepted only `label`,
+ * `purpose` and `description`, so nothing on MCP wrote a schema — their reading was right on every one.
+ *
+ * **Four rows have now been deleted by being built**, which is the only way a row leaves this list:
+ * `retry_embedding`, `list_tokens`, `update_space_schema`, and — with it — the belief that these were wrappers.
+ * The last two of the five, `reindex` and `create_space`, each still need their route's validation extracted before
+ * a tool can call it without skipping the refusals. `mcp-rest-parity.test.js` asserts both halves of every surviving
+ * row, so a row cannot rot in either direction.
  */
 export const REST_ONLY_CAPABILITIES: readonly RestOnlyCapability[] = [
   {
@@ -53,14 +59,6 @@ export const REST_ONLY_CAPABILITIES: readonly RestOnlyCapability[] = [
     wouldBeTool: 'reindex',
     why: 'Not built. They reindexed 19 spaces by hand in a shell loop because the agent that planned their '
       + 'embedder migration could not run it. Async already, with /reindex-status to poll, so a tool is a thin wrapper.',
-  },
-  {
-    capability: 'Write a space\'s type schemas',
-    restEndpoint: '/api/spaces/:id',
-    method: 'PATCH',
-    wouldBeTool: 'update_space_schema',
-    why: 'Not built. `update_space` covers label, purpose and description only, so an agent can design an '
-      + '11-entity model and not apply it. The write is the same route; the tool is the missing part.',
   },
   {
     capability: 'Create a space',

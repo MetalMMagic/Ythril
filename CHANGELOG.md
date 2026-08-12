@@ -186,6 +186,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     nothing would have said so.
 
 ### Fixed
+- **`npm run todo:check` passed on trackers full of things that were not open work.** A development gate, and the
+  second one this cycle whose green verdict was the problem: the owner had to restate a rule it should have been
+  holding — *"only open and actionable items here. everything else in parked, reference or changelog"*.
+  - It caught work that was FINISHED, but only when announced as a checkbox, a `SHIPPED` marker or a heading. Four
+    other shapes walked past it: `**DONE** (#842)` in a nested bullet, `PROMOTED TO WORK AND FIXED` in an item title,
+    a bold `PROGRESS:` block, and `— DONE (#851)`.
+  - It had **no rule at all** for material that was never actionable: five watch items each saying so in their own
+    text (*"A watch item, not work"*), and two items blocked on an owner decision sitting in the open list rather than
+    in `_PARKED-DECISIONS.md`. That second kind is worse than clutter — it makes the queue look longer than the work,
+    and "the queue is empty" is the release gate.
+  - Both new rules are mutation-tested against the exact text that was removed: seven shapes, seven catches.
+  - **The `PROGRESS:` block was added by me**, three hours earlier, with a note saying the history was *"kept because
+    its reasoning is what made the extraction necessary"*. That is always the argument, which is why this is a gate
+    now and not a reminder.
 - **`deleteFields` could never remove a whole field from an entity or an edge — it answered 500.** Reported by
   breituai-platform (2026-08-12T2140Z) against `deleteFields: ["tags"]`, which the integration guide documents.
   Confirmed by reading the write paths, because the cause is total rather than conditional.

@@ -33,7 +33,7 @@ import {
   stripServerOwnedMeta, findBrokenLibraryRefs, brokenRefsError,
   CreateSpaceBody, DeleteSpaceBody, RenameSpaceBody, ReorderSpacesBody, PutSchemaBody,
 } from '../spaces/body-schemas.js';
-import { planSpaceMetaUpdate } from '../spaces/meta-update.js';
+import { planSpaceMetaUpdate, applySpaceMetaUpdate } from '../spaces/meta-update.js';
 
 export const spacesRouter = Router();
 
@@ -320,124 +320,21 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminMfaScoped('id'), async (
     res.status(decision.refusal.status).json(decision.refusal.body);
     return;
   }
-  // `spaceRec` rather than the `space` above: the planner returns the record it validated, already narrowed to
-  // non-undefined by the 404 it would otherwise have produced.
-  const { space: spaceRec, data: patchData, mergedMeta, hasDocExtraction,
-    documentExtraction: cappedDocExtraction, hasRecordTtl, recordTtlDays: normalisedTtl, audit } = decision.plan;
-
   // The audit middleware records this only on a <400 response, so a request the planner refused above logs no
   // change. The snapshot pair was taken before anything was applied, which is what makes the change list honest.
-  req.auditSnapshots = audit;
+  req.auditSnapshots = decision.plan.audit;
 
-  // Duplicate rules are local (never governed) — apply them now, so they are
-  // not silently dropped when a meta change on the same request opens a
-  // network vote and returns 202 below.
-  if (patchData.dupeRules !== undefined || patchData.dupeMergeSurvivor !== undefined || patchData.dupeRulesOnInsert !== undefined) {
-    updateSpace(id, { dupeRules: patchData.dupeRules, dupeMergeSurvivor: patchData.dupeMergeSurvivor, dupeRulesOnInsert: patchData.dupeRulesOnInsert });
-  }
-
-  // Record TTL (F10) is a local operational setting (like dupe rules) — apply immediately, never voted.
-  // 0/null clears it. When enabled, ensure the sweep's `_expireAt` index (best-effort). The value arrives
-  // already MERGED over what was stored (see the planner), so a partial write does not clear the buckets it
-  // did not mention; `hasRecordTtl` gates the write so a clear is applied rather than skipped as if absent.
-  if (hasRecordTtl) {
-    updateSpace(id, { recordTtlDays: normalisedTtl });
-    if (normalisedTtl !== undefined) void ensureTtlIndex(id).catch(err => log.warn(`ensureTtlIndex ${id}: ${err}`));
-  }
-
-  // Already capped to the instance ceiling by the planner. `hasDocExtraction` gates the write so a clear is
-  // applied, not skipped as if absent.
-  if (hasDocExtraction) {
-    updateSpace(id, { documentExtraction: cappedDocExtraction });
-  }
-
-  // ── Network voting for meta changes ──────────────────────────────────────
-  // If this space is part of a network and a meta change is requested,
-  // open a meta_change vote round instead of applying immediately.
-  if (mergedMeta !== undefined) {
-    const networkedIn = cfg.networks.filter(n => n.spaces.includes(id));
-    if (networkedIn.length > 0) {
-      const now = new Date().toISOString();
-      const rounds: { networkId: string; networkLabel: string; roundId: string }[] = [];
-
-      for (const net of networkedIn) {
-        const roundId = uuidv4();
-        const deadline = new Date(Date.now() + net.votingDeadlineHours * 3_600_000).toISOString();
-        net.pendingRounds.push({
-          roundId,
-          type: 'meta_change',
-          subjectInstanceId: cfg.instanceId,
-          subjectLabel: cfg.instanceLabel,
-          subjectUrl: '',
-          deadline,
-          openedAt: now,
-          votes: [{ instanceId: cfg.instanceId, vote: 'yes', castAt: now }],
-          spaceId: id,
-          pendingMeta: mergedMeta as SpaceMeta,
-          // Provenance, so conclusion can apply just this patch rather than this whole snapshot. Rounds
-          // stay open for `votingDeadlineHours`, so a second proposal landing before the first concludes
-          // is ordinary, and without these two fields the later one reverts the earlier one's edit with
-          // no error anywhere. See sync/meta-round-merge.ts.
-          metaChangedFields: proposedMetaFields(patchData.meta ?? {}),
-          baseMetaVersion: spaceRec.meta?.version ?? 0,
-        });
-        rounds.push({ networkId: net.id, networkLabel: net.label, roundId });
-      }
-
-      // Apply non-meta updates immediately (label, maxGiB). `description` is not among them any more:
-      // it was rewritten into `meta.purpose` above, so it is in the vote with the rest of the meta.
-      const nonMetaUpdates: { label?: string; maxGiB?: number | null } = {};
-      if (patchData.label !== undefined) nonMetaUpdates.label = patchData.label;
-      if (patchData.maxGiB !== undefined) nonMetaUpdates.maxGiB = patchData.maxGiB;
-      if (Object.keys(nonMetaUpdates).length > 0) {
-        updateSpace(id, nonMetaUpdates);
-      } else {
-        saveConfig(cfg);
-      }
-
-      // Notify peers (best-effort)
-      const secrets = getSecrets();
-      for (const net of networkedIn) {
-        for (const member of net.members) {
-          const peerToken = secrets.peerTokens[member.instanceId];
-          if (!peerToken) continue;
-          peerSafeFetch(`${member.url}/api/notify`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${peerToken}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              networkId: net.id,
-              instanceId: cfg.instanceId,
-              event: 'meta_change_pending',
-              data: { spaceId: id, spaceLabel: spaceRec.label },
-            }),
-            signal: AbortSignal.timeout(5_000),
-          }).catch(err => log.warn(`notify ${member.label} of meta_change_pending: ${err}`));
-        }
-      }
-
-      res.status(202).json({ status: 'vote_pending', rounds, message: 'Meta change requires network vote' });
-      return;
-    }
-  }
-
-  // Pull documentExtraction out of the spread: the parsed value may still be the legacy `max`,
-  // and only the normalised, ceiling-capped spelling is ever stored (see `cappedDocExtraction` above).
-  //
-  // And pull `recordTtlDays` out for the same reason: it was already applied above, MERGED over what was
-  // stored and normalised. Letting the raw body through here overwrote that with itself — so a partial write
-  // cleared the four buckets it did not mention, and an all-cleared write stored five explicit nulls instead of
-  // nothing. Found by driving the UI; both paths returned 200 and looked like they had worked.
-  const { documentExtraction: _rawMode, recordTtlDays: _rawTtl, ...restPatch } = patchData;
-  const updated = updateSpace(id, {
-    ...restPatch,
-    meta: mergedMeta,
-    ...(hasDocExtraction ? { documentExtraction: cappedDocExtraction } : {}),
-  });
-  if (!updated) {
+  const result = await applySpaceMetaUpdate(decision.plan);
+  if (result.outcome === 'not_found') {
+    // Only reachable if the space was deleted between the plan and the write.
     res.status(404).json({ error: `Space '${id}' not found` });
     return;
   }
-  res.json({ space: spaceResponse(updated) });
+  if (result.outcome === 'vote_pending') {
+    res.status(202).json({ status: 'vote_pending', rounds: result.rounds, message: 'Meta change requires network vote' });
+    return;
+  }
+  res.json({ space: spaceResponse(result.space) });
 });
 
 // PUT /api/spaces/:id/schema — full replacement of the space's typeSchemas.

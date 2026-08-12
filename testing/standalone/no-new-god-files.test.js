@@ -127,7 +127,12 @@ const FROZEN = {
   // same change, because an MCP tool has to reach the same refusals rather than a weaker copy of them (B-2).
   // Lowered to what it now measures and KEPT on this list — deleting the entry is how a file quietly earns the
   // right to grow back into 195 lines of headroom it did not ask for.
-  'server/src/api/spaces.ts': 656,
+  //
+  // 656 -> 589 in the follow-up: `applySpaceMetaUpdate` took the writes as well, so `PATCH /:id` is now the two
+  // jobs a route should have — read the header, turn an outcome into a status. The 67 lines are the vote round and
+  // the peer notify, which moved because the MCP tool needs them and a tool that skipped the vote would be a
+  // governance bypass rather than a missing feature.
+  'server/src/api/spaces.ts': 589,
   // 769 -> 773: `openBrainDrawer` gained two overload signatures and its `lastSaved` effect reads the
   // record inside each branch so the discriminant narrows it. Four lines of TYPES, no new behaviour —
   // raised deliberately rather than worked around, which is what this list is for.

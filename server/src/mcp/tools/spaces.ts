@@ -181,11 +181,147 @@ export const update_spaceTool: ToolHandler = {
     const updates: { label?: string; description?: string } = {};
     if (newLabel !== undefined) updates.label = newLabel;
     if (newDesc !== undefined) updates.description = newDesc;
-    const updated = updateSpace(callSpace, updates);
-    if (!updated) throw new Error(`Space '${callSpace}' not found`);
+
+    // Through the planner, NOT `updateSpace` directly — and this was a live governance bypass, not a tidy-up.
+    //
+    // `updateSpace` folds `description` into `meta.purpose` and bumps the meta version, so writing it here was a
+    // META write. On a networked space `PATCH /api/spaces/:id` opens a `meta_change` vote for exactly that edit;
+    // this tool applied it immediately. So a directive change made over MCP skipped the vote in precisely the
+    // spaces that had voted to govern directive changes — the same *two surfaces, one rule, one weaker* defect the
+    // rest of this batch is about, one field over. Found while adding `update_space_schema` below.
+    return await runSpaceMetaUpdate(callSpace, updates, `Space '${callSpace}' updated.`);
+  },
+};
+
+/**
+ * Plan → apply, and report the outcome in words.
+ *
+ * Both space-writing tools go through here so neither can drift from the REST route's rules: the same refusals, the
+ * same normalisation, the same network vote. The refusal's HTTP status is reported alongside the message rather
+ * than translated away — an agent that sees `412` can re-read and retry, where "it failed" leaves it guessing.
+ */
+async function runSpaceMetaUpdate(
+  spaceId: string,
+  body: Record<string, unknown>,
+  okText: string,
+): Promise<ToolResult> {
+  const { planSpaceMetaUpdate, applySpaceMetaUpdate } = await import('../../spaces/meta-update.js');
+  const space = getConfig().spaces.find(s => s.id === spaceId);
+
+  // No `If-Match`: MCP has no header to carry one, and absence means "no precondition asked for" — the same
+  // default a REST caller gets. A tool parameter for it would be inventing a concurrency protocol for a surface
+  // that has not asked for one.
+  const decision = planSpaceMetaUpdate({ spaceId, space, body, ifMatch: undefined });
+  if (!decision.ok) {
     return {
-      content: [{ type: 'text' as const, text: `Space '${callSpace}' updated.` }],
+      content: [{ type: 'text' as const, text: `Error (${decision.refusal.status}): ${decision.refusal.body.error}` }],
+      isError: true,
     };
+  }
+
+  const result = await applySpaceMetaUpdate(decision.plan);
+  if (result.outcome === 'not_found') {
+    return { content: [{ type: 'text' as const, text: `Space '${spaceId}' not found` }], isError: true };
+  }
+  if (result.outcome === 'vote_pending') {
+    // NOT reported as success. The space belongs to a network that votes on meta changes, so nothing is stored yet
+    // and an agent that read this as "done" would build on a schema that does not exist.
+    const nets = result.rounds.map(r => r.networkLabel).join(', ');
+    return {
+      content: [{ type: 'text' as const, text:
+        `Proposed, NOT yet applied: '${spaceId}' belongs to ${result.rounds.length === 1 ? 'a network' : 'networks'} `
+        + `that votes on meta changes (${nets}), so this opened a vote round instead of writing. The change takes `
+        + `effect if and when the round concludes in favour.` }],
+      structuredContent: { outcome: 'vote_pending', rounds: result.rounds },
+    };
+  }
+  return { content: [{ type: 'text' as const, text: okText }], structuredContent: { outcome: 'applied' } };
+}
+
+/**
+ * Write a space's type schemas — the second of the three REST-only capabilities that needed an extraction first.
+ *
+ * ## The report
+ *
+ * breituai-platform listed it among five capabilities a token could HOLD and not exercise, and gave the case that
+ * makes it more than ergonomics: they designed an 11-entity / 7-memory / 13-edge / 10-chrono research model with an
+ * agent, and the agent could not apply it. `get_space_meta` reads the schema; nothing wrote it. A sixth instance
+ * arrived on 2026-08-12 with the sharper consequence — under `validationMode: 'strict'` a stale enum makes every
+ * write fail, and a schema write is the documented way out. So this is the recovery path for a wedged space.
+ *
+ * ## Why it is not a wrapper
+ *
+ * `updateSpace()` exists, but `PATCH /api/spaces/:id` wraps it in a chain of refusals: the strict parse, the
+ * server-owned strip, the schema-library `$ref` check, and the network vote. A tool calling `updateSpace()` directly
+ * would skip all of them — so the chain was extracted first (`spaces/meta-update.ts`, pinned by
+ * `space-meta-update-contract.test.js`) and this tool calls it. **Merge semantics are the REST default**: types not
+ * mentioned are preserved, and `typeSchemasMode: 'replace'` is how a deletion is expressed.
+ */
+export const update_space_schemaTool: ToolHandler = {
+  name: 'update_space_schema',
+  description: 'Write a space\'s type schemas (and its other meta fields). Requires an admin token. '
+    + 'MERGES by default: types you do not mention are preserved, so editing one type does not require resending '
+    + 'the others. Pass `typeSchemasMode: "replace"` to make the payload authoritative — that is the only way to '
+    + 'DELETE a type. Knowledge-type keys are singular: entity, memory, edge, chrono. A `$ref` to a schema-library '
+    + 'entry that does not exist is refused (422) rather than silently stored as an empty schema. On a space whose '
+    + 'network votes on meta changes this opens a vote round instead of writing — the reply says so, and nothing is '
+    + 'stored until the round concludes.',
+  mutating: true,
+  admin: true,
+  spaceRequired: true,
+  inputSchema: (s: ToolSchemas) => ({
+    type: 'object',
+    properties: {
+      space: s.requiredSpace,
+      typeSchemas: {
+        type: 'object',
+        description: 'Per knowledge type, a map of type name to its schema. Keys are singular: `entity`, `memory`, '
+          + '`edge`, `chrono`. A schema is either `{"$ref": "library:<name>"}` or an inline definition with '
+          + '`namingPattern`, `propertySchemas`, `retention` and/or `suppressEmbeddings`.',
+      },
+      typeSchemasMode: {
+        type: 'string', enum: ['merge', 'replace'],
+        description: 'How `typeSchemas` combines with what is stored. `merge` (default) adds and updates named '
+          + 'types and preserves the rest; `replace` makes the payload authoritative, so types absent from it are '
+          + 'REMOVED. Use `replace` to delete a type.',
+      },
+      validationMode: {
+        type: 'string', enum: ['off', 'warn', 'strict'],
+        description: 'Whether records are validated against the schemas: not at all, warn on violation, or refuse '
+          + 'the write.',
+      },
+      strictLinkage: { type: 'boolean', description: 'Refuse a write whose entity references do not resolve.' },
+      usageNotes: { type: 'string', maxLength: 50_000, description: 'Free-text guidance about the space, returned to MCP clients with its meta.' },
+      suppressEmbeddings: { type: 'boolean', description: 'Space-level default for suppressing embeddings; a type schema can override it.' },
+    },
+    required: ['space'],
+    additionalProperties: false,
+  }),
+  async handle(ctx: ToolContext): Promise<ToolResult> {
+    const { args: a, callSpace, isAdmin } = ctx;
+    if (!isAdmin) {
+      return {
+        content: [{ type: 'text' as const, text: 'Error: update_space_schema requires an admin token' }],
+        isError: true,
+      };
+    }
+
+    // Everything except `space`/`typeSchemasMode` belongs inside `meta`, which is where the planner's `.strict()`
+    // schema expects it. Built by picking the declared names rather than by spreading `args`: a spread would carry
+    // `space` into `meta` and earn a 400 for a field the caller never sent.
+    const meta: Record<string, unknown> = {};
+    for (const k of ['typeSchemas', 'validationMode', 'strictLinkage', 'usageNotes', 'suppressEmbeddings']) {
+      if (a[k] !== undefined) meta[k] = a[k];
+    }
+    if (Object.keys(meta).length === 0) {
+      throw new Error('At least one of typeSchemas, validationMode, strictLinkage, usageNotes or suppressEmbeddings must be provided');
+    }
+
+    const body: Record<string, unknown> = { meta };
+    if (a['typeSchemasMode'] !== undefined) body['typeSchemasMode'] = a['typeSchemasMode'];
+
+    const wrote = Object.keys(meta).join(', ');
+    return await runSpaceMetaUpdate(callSpace, body, `Space '${callSpace}' schema updated (${wrote}).`);
   },
 };
 

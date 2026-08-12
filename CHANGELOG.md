@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **`update_space_schema` is an MCP tool.** Third of the five REST-only capabilities, and the first that was not a
+  wrapper. Their case for it was not ergonomics: they designed an 11-entity / 7-memory / 13-edge / 10-chrono
+  research model with an agent, and the agent could not apply it — `get_space_meta` read the schema and nothing
+  wrote it. A sixth instance arrived on 2026-08-12 with the sharper consequence: under `validationMode: 'strict'` a
+  stale enum makes every write fail, and a schema write is the documented way out. So this is the recovery path for
+  a wedged space, reachable from the surface that is wedged.
+  - Writes `typeSchemas` and the other meta fields — `validationMode`, `strictLinkage`, `usageNotes`,
+    `suppressEmbeddings`. **Merges by default**, so editing one type does not require resending the other forty;
+    `typeSchemasMode: 'replace'` makes the payload authoritative, which is the only way to DELETE a type.
+  - **It calls the same `planSpaceMetaUpdate` the REST route does**, so it inherits every refusal rather than a
+    weaker copy: the strict parse, the server-owned strip, and `422` for a `$ref` to a schema-library entry that
+    does not exist. A tool calling `updateSpace()` directly would have stored that ref as an empty schema and
+    reported success — in a strict space, silently removing every constraint from a type whose schema looks authored.
+  - **A networked space gets a vote, not a write.** `applySpaceMetaUpdate` owns the `meta_change` round, so the tool
+    cannot bypass governance. The reply says the change was *proposed and not applied* rather than reporting success,
+    because an agent that read it as success would build on a schema that does not exist.
+  - Its row is **deleted** from the REST-only capability map, which is how a row leaves that list; `help` now reports
+    two. `mcp-rest-parity.test.js` asserts both halves of every surviving row, so the map cannot rot in either
+    direction.
+
+### Fixed
+- **`update_space` over MCP skipped the network vote for a purpose change — in the spaces that had voted to govern
+  exactly that.** Found while adding the tool above, and the guide already documented the correct behaviour: *"in a
+  networked space a purpose change opens a meta vote rather than applying at once"*. The code did not do it.
+  - `update_space` wrote through `updateSpace()`, which folds `description` into `meta.purpose` and bumps the meta
+    version — so it was a **meta write** that looked like a label edit. `PATCH /api/spaces/:id` opens a
+    `meta_change` round for that same edit; the tool applied it immediately.
+  - Now routed through the shared planner, so the two surfaces agree. This is the same *two surfaces, one rule, one
+    weaker* defect the parity work is about, one field over — which is why it was not deferred to its own item.
+- **`npm run loop:check` reported the work queue as drained while eleven rows were open**
 - **`list_tokens` is an MCP tool.** Second of the five, and their workaround was the tell: a Kubernetes CronJob
   that curls `GET /api/tokens` and posts the result into a space as a chrono entry so an agent can read it. A
   scheduler standing in for a tool call, and an inventory as stale as the last tick.

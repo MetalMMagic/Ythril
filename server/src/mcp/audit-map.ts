@@ -51,6 +51,7 @@ export const MCP_TOOL_OPERATIONS: Record<string, string | null> = {
   delete_chrono: 'chrono.delete',
   bulk_write: 'bulk.write',
   update_space: 'space.update',
+  update_space_schema: 'space.update',
   wipe_space: 'space.wipe',
   write_file: 'file.create',
   move_file: 'file.update',

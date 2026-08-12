@@ -31,7 +31,13 @@
  */
 import type { SpaceConfig, SpaceMeta, KnowledgeType, TypeSchema, DocExtractionMode } from '../config/types.js';
 import { normalizeDocExtractionMode } from '../config/types.js';
-import { getDocumentProcessingConfig } from '../config/loader.js';
+import { getConfig, saveConfig, getSecrets, getDocumentProcessingConfig } from '../config/loader.js';
+import { updateSpace } from './spaces.js';
+import { ensureTtlIndex } from '../brain/ttl.js';
+import { peerSafeFetch } from '../sync/peer-fetch.js';
+import { proposedMetaFields } from '../sync/meta-round-merge.js';
+import { log } from '../util/log.js';
+import { v4 as uuidv4 } from 'uuid';
 import { capDocExtractionMode } from '../files/converters/extraction-level.js';
 import { checkMetaPrecondition, preconditionErrorBody } from './meta-precondition.js';
 import { normaliseRecordTtl } from './record-ttl.js';
@@ -109,6 +115,7 @@ export type MetaUpdateRefusal = {
 
 /** What a caller must write, with every decision already made. */
 export type MetaUpdatePlan = {
+  spaceId: string;
   /**
    * The space the plan was built against.
    *
@@ -241,6 +248,7 @@ export function planSpaceMetaUpdate(input: {
   return {
     ok: true,
     plan: {
+      spaceId,
       space,
       data: parsed.data,
       mergedMeta,
@@ -251,4 +259,131 @@ export function planSpaceMetaUpdate(input: {
       audit,
     },
   };
+}
+
+/**
+ * What actually happened, in terms both surfaces can report.
+ *
+ * `vote_pending` is neither a failure nor a success: the space belongs to a network that votes on meta changes, so
+ * the change is proposed rather than applied. REST answers 202 for it; the MCP tool says so in words. Collapsing it
+ * into "ok" would tell an agent its schema was written when it was not.
+ */
+export type MetaUpdateOutcome =
+  | { outcome: 'applied'; space: SpaceConfig }
+  | { outcome: 'vote_pending'; rounds: { networkId: string; networkLabel: string; roundId: string }[] }
+  | { outcome: 'not_found' };
+
+/**
+ * Apply a plan: the local settings, then either the network vote or the write.
+ *
+ * ## Why this exists now and not with the planner
+ *
+ * It was left out of the extraction deliberately — an interface with one caller is designed against a guess. The
+ * second caller is `update_space_schema`, and it settled two things one caller could not:
+ *
+ *  - **the vote branch belongs in here, not at the call site.** A tool that skipped it would let an agent write meta
+ *    directly in a space whose network votes on exactly that. That is a governance bypass, not a missing feature.
+ *  - **the outcome is a value, not a status code.** REST maps `vote_pending` to 202 and MCP maps it to a sentence;
+ *    neither of them decides what it means.
+ *
+ * Side effects only. Every refusal already happened in `planSpaceMetaUpdate`, which is why the only failure here is
+ * `not_found` — the one thing that can change between planning and writing.
+ */
+export async function applySpaceMetaUpdate(plan: MetaUpdatePlan): Promise<MetaUpdateOutcome> {
+  const { spaceId: id, space, data: patchData, mergedMeta } = plan;
+  const cfg = getConfig();
+
+  // Duplicate rules are local (never governed) — applied now, so they are not silently dropped when a meta change
+  // on the same request opens a network vote below.
+  if (patchData.dupeRules !== undefined || patchData.dupeMergeSurvivor !== undefined || patchData.dupeRulesOnInsert !== undefined) {
+    updateSpace(id, { dupeRules: patchData.dupeRules, dupeMergeSurvivor: patchData.dupeMergeSurvivor, dupeRulesOnInsert: patchData.dupeRulesOnInsert });
+  }
+
+  // Record TTL (F10) is a local operational setting, like dupe rules — applied immediately, never voted. The value
+  // arrives already MERGED over what was stored, so a partial write does not clear the buckets it did not mention;
+  // `hasRecordTtl` gates the write so a CLEAR is applied rather than skipped as if the field were absent.
+  if (plan.hasRecordTtl) {
+    updateSpace(id, { recordTtlDays: plan.recordTtlDays });
+    if (plan.recordTtlDays !== undefined) void ensureTtlIndex(id).catch(err => log.warn(`ensureTtlIndex ${id}: ${err}`));
+  }
+
+  // Already capped to the instance ceiling by the planner.
+  if (plan.hasDocExtraction) {
+    updateSpace(id, { documentExtraction: plan.documentExtraction });
+  }
+
+  // Network voting: a networked space PROPOSES a meta change rather than applying it.
+  if (mergedMeta !== undefined) {
+    const networkedIn = cfg.networks.filter(n => n.spaces.includes(id));
+    if (networkedIn.length > 0) {
+      const now = new Date().toISOString();
+      const rounds: { networkId: string; networkLabel: string; roundId: string }[] = [];
+
+      for (const net of networkedIn) {
+        const roundId = uuidv4();
+        const deadline = new Date(Date.now() + net.votingDeadlineHours * 3_600_000).toISOString();
+        net.pendingRounds.push({
+          roundId,
+          type: 'meta_change',
+          subjectInstanceId: cfg.instanceId,
+          subjectLabel: cfg.instanceLabel,
+          subjectUrl: '',
+          deadline,
+          openedAt: now,
+          votes: [{ instanceId: cfg.instanceId, vote: 'yes', castAt: now }],
+          spaceId: id,
+          pendingMeta: mergedMeta,
+          // Provenance, so conclusion can apply just this patch rather than this whole snapshot. Rounds stay open
+          // for `votingDeadlineHours`, so a second proposal landing before the first concludes is ordinary, and
+          // without these two fields the later one reverts the earlier one's edit with no error anywhere. See
+          // sync/meta-round-merge.ts.
+          metaChangedFields: proposedMetaFields(patchData.meta ?? {}),
+          baseMetaVersion: space.meta?.version ?? 0,
+        });
+        rounds.push({ networkId: net.id, networkLabel: net.label, roundId });
+      }
+
+      // Non-meta updates apply immediately (label, maxGiB). `description` is not among them: the planner rewrote it
+      // into `meta.purpose`, so it travels with the rest of the meta and is voted on.
+      const nonMetaUpdates: { label?: string; maxGiB?: number | null } = {};
+      if (patchData.label !== undefined) nonMetaUpdates.label = patchData.label;
+      if (patchData.maxGiB !== undefined) nonMetaUpdates.maxGiB = patchData.maxGiB;
+      if (Object.keys(nonMetaUpdates).length > 0) updateSpace(id, nonMetaUpdates);
+      else saveConfig(cfg);
+
+      // Notify peers (best-effort).
+      const secrets = getSecrets();
+      for (const net of networkedIn) {
+        for (const member of net.members) {
+          const peerToken = secrets.peerTokens[member.instanceId];
+          if (!peerToken) continue;
+          peerSafeFetch(`${member.url}/api/notify`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${peerToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              networkId: net.id,
+              instanceId: cfg.instanceId,
+              event: 'meta_change_pending',
+              data: { spaceId: id, spaceLabel: space.label },
+            }),
+            signal: AbortSignal.timeout(5_000),
+          }).catch(err => log.warn(`notify ${member.label} of meta_change_pending: ${err}`));
+        }
+      }
+
+      return { outcome: 'vote_pending', rounds };
+    }
+  }
+
+  // `documentExtraction` and `recordTtlDays` are pulled OUT of the spread. Both were applied above from normalised
+  // values, and letting the raw body through here overwrote that with itself — so a partial TTL write cleared the
+  // four buckets it did not mention, and an all-cleared write stored five explicit nulls instead of nothing. Both
+  // returned 200 and looked like they had worked; found by driving the UI.
+  const { documentExtraction: _rawMode, recordTtlDays: _rawTtl, ...restPatch } = patchData;
+  const updated = updateSpace(id, {
+    ...restPatch,
+    meta: mergedMeta,
+    ...(plan.hasDocExtraction ? { documentExtraction: plan.documentExtraction } : {}),
+  });
+  return updated ? { outcome: 'applied', space: updated } : { outcome: 'not_found' };
 }

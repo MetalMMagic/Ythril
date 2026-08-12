@@ -130,11 +130,22 @@ Two options sit next to the query box:
 - **topK** — how many results to return (1–100).
 - **minScore** — drop results below this similarity score (0–1). This is always the **meaning** score, even when word-matching or reranking has changed the order — so a threshold you set once keeps meaning the same thing.
 
-Click **Show advanced** for more control:
+Click **Show advanced** for more control. Everything the API accepts is here, so a search you can describe is a
+search you can run without writing a request by hand:
 
 - **Types** — restrict the search to specific record types (memory, entity, edge, chrono). For each ticked type you can also set a per-type **minimum** number of results to guarantee.
+- **Max per type** — the ceiling to that floor. This is how you stop one long file passage from crowding out several one-line records that would answer the question more cheaply; a slot freed by the cap goes to another type.
 - **Tags** — a tag filter applied to results.
 - **Filter** — a JSON object of extra field constraints, validated before the search runs. The recall filter accepts fields such as `status` and `label`, which are applied as native `$vectorSearch` pre-filters (they narrow the candidate set inside the vector index rather than filtering afterwards).
+- **Graph hops** — follow the knowledge graph outward from each match, 0–5 hops. Connected entities come back alongside the matches, each marked with how far away it is and which relationships connect it, so you can ask "what surrounds this answer" in one search. Leave it at 0 for an ordinary search; deep values on a densely connected space are slow, so narrow the matches with a filter or tags first.
+- **maxTimeMS** — a time limit for this one search. It can only make the search stricter than the instance's own budget, never looser. When the limit is reached you get a **partial** answer rather than an error or a hang: whatever finished is returned, and the result says it was cut short.
+- **Include fresh writes** — also scan the newest records directly, so something written seconds ago is findable before the index has caught up. It costs an extra scan per record type, so turn it on when you are looking for something you just wrote.
+- **Include content** — on by default. Turn it off to get passage *locations* without their text: useful when you want to find which document holds something and read only that part, since passage bodies are the largest thing a result carries.
+
+**Results that exist in the graph carry a graph button.** An entity result opens the Graph tab focused on that
+entity; an edge result opens it on the entity the relationship starts from — the same jump the Entities and Edges
+tabs offer. Memories, chrono entries and file passages have no node in the graph, so they show no button rather
+than one that lands nowhere.
 
 **File results are grouped by document.** Searching over files matches *passages*, not whole documents, so a
 long paper that is relevant in five places would otherwise fill the list with five near-identical rows. Each

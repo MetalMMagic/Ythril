@@ -1,5 +1,5 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
-import { groupRecallResults, chunkLabel, passageText } from './recall-grouping';
+import { ChangeDetectionStrategy, Component, computed, inject, input, output, signal } from '@angular/core';
+import { groupRecallResults, chunkLabel, passageText, flattenRecallItems } from './recall-grouping';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
@@ -138,6 +138,20 @@ import { BrainStore } from './brain-store.service';
                         </label>
                         <input type="number" [(ngModel)]="recallForm.maxPerType" name="recallMaxPerType" min="0" max="100"
                           [placeholder]="'brain.query.maxPerType.none' | transloco" style="width:90px;" />
+                      </div>
+                      <div class="field" style="min-width:90px;">
+                        <label>{{ 'brain.query.traverse' | transloco }}
+                          <span style="color:var(--text-muted);font-size:11px;" [attr.title]="'brain.query.traverse.tooltip' | transloco"><ph-icon name="info" [size]="11" style="display:inline-flex;vertical-align:middle;"/></span>
+                        </label>
+                        <input type="number" [(ngModel)]="recallForm.traverse" name="recallTraverse" min="0" max="5"
+                          [placeholder]="'brain.query.traverse.none' | transloco" style="width:80px;" />
+                      </div>
+                      <div class="field" style="min-width:100px;">
+                        <label>{{ 'brain.query.maxTimeMs' | transloco }}
+                          <span style="color:var(--text-muted);font-size:11px;" [attr.title]="'brain.query.recallMaxTimeMs.tooltip' | transloco"><ph-icon name="info" [size]="11" style="display:inline-flex;vertical-align:middle;"/></span>
+                        </label>
+                        <input type="number" [(ngModel)]="recallForm.maxTimeMS" name="recallMaxTimeMS" min="0" max="30000"
+                          [placeholder]="'brain.query.recallMaxTimeMs.none' | transloco" style="width:100px;" />
                       </div>
                       <label style="display:flex; align-items:center; gap:6px; align-self:flex-end; cursor:pointer;">
                         <input type="checkbox" [(ngModel)]="recallForm.includeFreshWrites" name="recallFresh" />
@@ -280,6 +294,13 @@ import { BrainStore } from './brain-store.service';
                         @if (g.score != null) {
                           <span style="font-size:11px; color:var(--text-muted);">{{ 'common.score' | transloco }}: {{ g.score.toFixed(3) }}</span>
                         }
+                        <!-- A hit that HAS a node in the graph gets the same jump the entities and edges tabs
+                             offer. Traverse results are entities too, so an expanded neighbour is reachable
+                             from here without going back to a list. -->
+                        @if (graphTargetOf(g.hits[0]); as target) {
+                          <button class="icon-btn" style="margin-left:auto;" [attr.title]="'common.viewInGraph' | transloco"
+                            [attr.aria-label]="'common.viewInGraph' | transloco" (click)="viewInGraph.emit(target)"><ph-icon name="graph" [size]="16"/></button>
+                        }
                       </div>
                       <div style="white-space:pre-wrap; word-break:break-all;">{{ formatQueryDoc(g.hits[0]) }}</div>
                     }
@@ -388,9 +409,16 @@ export class QueryTabComponent {
   // 0 means "no cap" and is omitted from the request, and `includeContent` starts true because sending false makes
   // recall look as though it has stopped returning passages. `includeFreshWrites` starts false because it is an
   // opt-in scan.
+  /** Focus an entity in the graph tab — the shell switches tab and sets the focus id, exactly as it does
+   *  for the entities and edges tabs. */
+  viewInGraph = output<string>();
+
   recallForm = {
     query: '', topK: 10, minScore: 0, filter: '', tags: '', type: '',
     maxPerType: 0, includeFreshWrites: false, includeContent: true,
+    // Both 0 = "don't send it". `traverse: 0` is also the server default (no expansion), and `maxTimeMS: 0`
+    // is not a legal deadline, so neither zero can be mistaken for a value the operator chose.
+    traverse: 0, maxTimeMS: 0,
   };
 
   /** Type names offered by the recall "filter by type" dropdown (F5): schema type
@@ -532,8 +560,12 @@ export class QueryTabComponent {
       ...(this.recallForm.maxPerType > 0 ? { maxPerType: this.recallForm.maxPerType } : {}),
       ...(this.recallForm.includeFreshWrites ? { includeFreshWrites: true } : {}),
       ...(this.recallForm.includeContent ? {} : { includeContent: false }),
+      ...(this.recallForm.traverse > 0 ? { traverse: this.recallForm.traverse } : {}),
+      ...(this.recallForm.maxTimeMS > 0 ? { maxTimeMS: this.recallForm.maxTimeMS } : {}),
     }).subscribe({
-      next: (res) => { this.recallRunning.set(false); this.recallResults.set(res.results); },
+      // Flattened on arrival: `traverse > 0` returns each item wrapped in an envelope, and the grouping and
+      // rendering below both read the record's own fields directly.
+      next: (res) => { this.recallRunning.set(false); this.recallResults.set(flattenRecallItems(res.results)); },
       error: (err) => { this.recallRunning.set(false); this.recallError.set(err.error?.error ?? 'Search failed'); },
     });
   }
@@ -545,5 +577,17 @@ export class QueryTabComponent {
 
   formatQueryDoc(doc: Record<string, unknown>): string {
     return JSON.stringify(doc, null, 2);
+  }
+
+  /**
+   * The graph node a recall hit corresponds to, or null when it has none.
+   *
+   * An entity IS a node. An edge is shown by focusing the entity it starts from — the same choice the edges
+   * tab makes, so the button means the same thing in both places. Memories, chrono entries and file chunks
+   * have no node, and get no button rather than one that lands on an empty graph.
+   */
+  graphTargetOf(hit: RecallResult): string | null {
+    const id = hit.type === 'entity' ? hit['_id'] : hit.type === 'edge' ? hit['from'] : undefined;
+    return typeof id === 'string' && id.length > 0 ? id : null;
   }
 }

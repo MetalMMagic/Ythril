@@ -91,6 +91,17 @@ export class BrainApi {
        * recall look as though it has stopped returning passages.
        */
       includeContent?: boolean;
+      /**
+       * Graph expansion depth, 0–5. Each match is expanded along edges and the connected entities come back
+       * annotated with `source: 'traverse'`, `hops` and `path`. The route has accepted this since recall
+       * existed; it was simply never declared here, so no UI could ask for it.
+       */
+      traverse?: number;
+      /**
+       * Deadline in ms. It can only LOWER the instance budget, and on expiry the answer is PARTIAL rather
+       * than an error — whichever collections finished are returned, flagged as degraded.
+       */
+      maxTimeMS?: number;
     },
   ): Observable<RecallResponse> {
     return this.http.post<RecallResponse>(`/api/brain/spaces/${spaceId}/recall`, body);

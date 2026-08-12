@@ -33,7 +33,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     nothing would have said so.
 
 ### Fixed
-
+- **The recall panel could not ask for two things the API has always accepted.** The owner asked where the search
+  is that has every field `recall` takes via MCP. It is Brain → Query → Semantic Search, and the answer was ten of
+  the twelve.
+  - `traverse` (graph expansion, 0–5 hops) and `maxTimeMS` (a deadline that returns a **partial** answer instead of
+    hanging) are both validated by `POST /api/brain/spaces/:id/recall` and both documented on the MCP tool. Neither
+    was declared on the client's typed `recallBrain` body, so no component could send them and no form could offer
+    them — a capability shipped on two surfaces that reached the operator on neither.
+  - `traverse > 0` also returns a **different shape**: each item is wrapped as `{ score, source, hops, path, type,
+    record }`. The grouping and rendering were written for the flat shape, so a graph-expanded answer would have
+    rendered as a dump of its own metadata with the record buried inside, and file grouping would have missed every
+    passage. The envelope is now unwrapped once on arrival rather than special-cased at each site.
+  - Recall results that exist in the graph carry the **View in graph** button the Entities and Edges tabs already had.
+    An entity jumps to itself, an edge to the entity it starts from; a memory, chrono entry or file passage has no
+    node and so gets no button rather than one that lands on an empty graph.
+  - `recall-params-reach-the-ui.test.js` parses the accepted set out of the route itself — a hand-written list would
+    go stale the moment the route gains a parameter, which is the same failure in a new place.
+  - The user guide's advanced-search list was itself behind: `maxPerType`, `includeFreshWrites` and `includeContent`
+    already existed and were undocumented. All are described now.
 - **The memories and edges tabs have a Type column, so their type filter is reachable.** Both tabs already sent
   `type` to the list endpoint and the store already exposed the option list — `memoryTypeOptions()` and
   `edgeTypeOptions()`, both unit-tested — but **no template bound either one**, and neither tab had a type column

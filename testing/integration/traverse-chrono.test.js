@@ -27,7 +27,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'url';
-import { INSTANCES, post } from '../sync/helpers.js';
+import { INSTANCES, post, reqJson } from '../sync/helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -66,6 +66,23 @@ before(async () => {
   });
   ids.chrono = c1.body?._id;
   ids.loneChrono = c2.body?._id;
+
+  // A memory about the same incident, for the includeMemories flag.
+  const m1 = await P(`/api/brain/spaces/${SPACE}/memories`, {
+    fact: 'The carrier lost the first replacement unit', entityIds: [ids.inc],
+  });
+  ids.memory = m1.body?._id;
+
+  // A file about the same incident, for includeFiles. TWO calls, because they are two records: the file write
+  // stores the bytes, and the brain's file META record is where `entityIds` — the link traverse follows — lives.
+  ids.file = 'rma/carrier-report.md';
+  const content = ['# Carrier report', '', 'The unit was lost in transit.', ''].join('\n');
+  const w = await P(`/api/files/${SPACE}?path=${encodeURIComponent(ids.file)}`, { content });
+  assert.ok(w.status < 300, `write file: ${w.status} ${JSON.stringify(w.body)}`);
+  const meta = await reqJson(INSTANCES.a, token(),
+    `/api/brain/spaces/${SPACE}/files?path=${encodeURIComponent(ids.file)}`,
+    { method: 'PATCH', body: JSON.stringify({ description: 'Carrier incident report', tags: ['rma'], entityIds: [ids.inc] }) });
+  assert.ok(meta.status < 300, `link file to entity: ${meta.status} ${JSON.stringify(meta.body)}`);
 });
 
 after(async () => {
@@ -134,5 +151,124 @@ describe('traverse reaches chrono entries', () => {
     const r = await traverse({ startId: ids.inc, includeChrono: 'false' });
     assert.equal(r.status, 400, JSON.stringify(r.body));
     assert.match(r.body.error, /includeChrono/);
+  });
+});
+
+/**
+ * The two flags the owner asked for alongside `includeChrono`, "for consistency" — with one asymmetry they
+ * spelled out: edges are traversed regardless, and the flag is only about whether they ride back in the answer.
+ */
+describe('traverse — includeMemories and includeEdges', () => {
+  it('memories are NOT included by default', async () => {
+    // Opt-in on purpose: memories are usually the most numerous record type and every node counts against
+    // `limit`, so on by default they would truncate away the entities the caller traversed for.
+    const r = await traverse({ startId: ids.inc, direction: 'both', maxDepth: 2 });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const mem = (r.body.nodes ?? []).find(n => n._id === ids.memory);
+    assert.ok(!mem, `a memory must not appear unless asked for: ${JSON.stringify(r.body.nodes)}`);
+  });
+
+  it('includeMemories:true reaches the memory and marks it', async () => {
+    const r = await traverse({ startId: ids.inc, direction: 'both', maxDepth: 2, includeMemories: true });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const mem = (r.body.nodes ?? []).find(n => n._id === ids.memory);
+    assert.ok(mem, `the memory must be reachable through entityIds: ${JSON.stringify(r.body.nodes)}`);
+    assert.equal(mem.kind, 'memory');
+    assert.equal(mem.name, 'The carrier lost the first replacement unit', 'the node name is the fact');
+    const link = (r.body.edges ?? []).find(e => e.to === ids.memory);
+    assert.ok(link, 'the synthetic link must be present');
+    assert.equal(link.label, 'memory.entityIds');
+  });
+
+  it('an explicit edgeLabels filter excludes memories unless it names the label', async () => {
+    const only = await traverse({
+      startId: ids.inc, direction: 'both', maxDepth: 2, includeMemories: true, edgeLabels: ['depends_on'],
+    });
+    assert.equal(only.status, 200, JSON.stringify(only.body));
+    assert.ok(!(only.body.nodes ?? []).some(n => n._id === ids.memory),
+      'asking for depends_on must not quietly return memories too');
+
+    const named = await traverse({
+      startId: ids.inc, direction: 'both', maxDepth: 2, includeMemories: true,
+      edgeLabels: ['depends_on', 'memory.entityIds'],
+    });
+    assert.ok((named.body.nodes ?? []).some(n => n._id === ids.memory),
+      'naming the label must bring them back');
+  });
+
+  it('includeEdges:false drops the edge list and leaves the NODES identical', async () => {
+    // The whole distinction. If this flag ever gated traversal instead of output, the node sets would differ —
+    // which is the failure this asserts against, not the empty array.
+    const withEdges = await traverse({ startId: ids.inc, direction: 'both', maxDepth: 3, includeMemories: true });
+    const without = await traverse({
+      startId: ids.inc, direction: 'both', maxDepth: 3, includeMemories: true, includeEdges: false,
+    });
+    assert.equal(without.status, 200, JSON.stringify(without.body));
+    assert.deepEqual(without.body.edges, [], 'the edge list must be empty');
+    assert.ok((withEdges.body.edges ?? []).length > 0, 'the comparison is meaningless if the walk found no edges');
+
+    const idsOf = r => (r.body.nodes ?? []).map(n => n._id).sort();
+    assert.deepEqual(idsOf(without), idsOf(withEdges),
+      'suppressing the edge LIST must not change which nodes were reached');
+  });
+
+  it('refuses a non-boolean on either new flag rather than coercing it', async () => {
+    for (const flag of ['includeMemories', 'includeEdges']) {
+      const r = await traverse({ startId: ids.inc, [flag]: 'false' });
+      assert.equal(r.status, 400, `${flag}: expected 400, got ${r.status}`);
+      assert.match(r.body?.error ?? '', new RegExp(flag), 'the error must name the offending flag');
+    }
+  });
+});
+
+/**
+ * Files, the owner's fourth flag — "what about files btw (return only the filemeta of course)".
+ *
+ * The meta-only rule has teeth here: chunks live in the SAME collection as the file they belong to, told apart
+ * only by `parentFileId`. A query that forgot that predicate would return one node per passage, each carrying
+ * text, and exhaust `limit` on a single document.
+ */
+describe('traverse — includeFiles returns file META only', () => {
+  it('files are NOT included by default', async () => {
+    const r = await traverse({ startId: ids.inc, direction: 'both', maxDepth: 2 });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.ok(!(r.body.nodes ?? []).some(n => n.kind === 'file'),
+      `a file must not appear unless asked for: ${JSON.stringify(r.body.nodes)}`);
+  });
+
+  it('includeFiles:true reaches the file, marked, with its meta and no passage text', async () => {
+    const r = await traverse({ startId: ids.inc, direction: 'both', maxDepth: 2, includeFiles: true });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const files = (r.body.nodes ?? []).filter(n => n.kind === 'file');
+    assert.equal(files.length, 1, `exactly one file node, not one per chunk: ${JSON.stringify(files)}`);
+
+    const [f] = files;
+    assert.equal(f._id, ids.file, 'the node id is the file path');
+    assert.equal(f.name, ids.file, 'the name is the path');
+    assert.equal(f.description, 'Carrier incident report');
+    assert.deepEqual(f.tags, ['rma']);
+
+    // The whole point of "only the filemeta": no passage body, under any of the names a chunk uses for it.
+    for (const forbidden of ['content', 'matchedText', 'parentFileId', 'chunkIndex']) {
+      assert.ok(!(forbidden in f), `a file node must not carry \`${forbidden}\`: ${JSON.stringify(f)}`);
+    }
+
+    const link = (r.body.edges ?? []).find(e => e.to === ids.file);
+    assert.ok(link, 'the synthetic link must be present');
+    assert.equal(link.label, 'file.entityIds');
+  });
+
+  it('an explicit edgeLabels filter excludes files unless it names the label', async () => {
+    const only = await traverse({
+      startId: ids.inc, direction: 'both', maxDepth: 2, includeFiles: true, edgeLabels: ['depends_on'],
+    });
+    assert.ok(!(only.body.nodes ?? []).some(n => n.kind === 'file'),
+      'asking for depends_on must not quietly return files too');
+  });
+
+  it('refuses a non-boolean includeFiles', async () => {
+    const r = await traverse({ startId: ids.inc, includeFiles: 'true' });
+    assert.equal(r.status, 400, JSON.stringify(r.body));
+    assert.match(r.body?.error ?? '', /includeFiles/);
   });
 });

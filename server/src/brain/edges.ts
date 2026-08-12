@@ -15,7 +15,7 @@ import { mergePropertiesOrKeep, mergeTagsOrKeep } from './merge-fields.js';
 import { enqueueEmbedJob } from './embed-queue.js';
 import { getEntityById } from './entities.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
-import type { EdgeDoc, EntityDoc, TombstoneDoc, ChronoEntry } from '../config/types.js';
+import type { EdgeDoc, EntityDoc, TombstoneDoc, ChronoEntry, MemoryDoc, FileMetaDoc } from '../config/types.js';
 import { tagContains, textContains, propertiesValueContains, PROPERTIES_SCAN_MAX_MS } from './tag-filter.js';
 import { writeFilterFor, writeOutcome } from './write-precondition.js';
 
@@ -28,12 +28,20 @@ export interface TraverseNode {
    * WHICH collection this node lives in.
    *
    * Absent on an entity — every node was one until chrono entries became reachable, so absence keeps every
-   * existing response byte-identical. Present and `'chrono'` on a chrono entry, because the two are looked
-   * up in different collections and a caller that follows `_id` needs to know where to look. Guessing from
-   * `type` does not work: a chrono's `type` is `event`/`deadline`/…, and an entity's is whatever the space
-   * calls it.
+   * existing response byte-identical. Present and `'chrono'` on a chrono entry, or `'memory'` on a memory,
+   * because each is looked up in a different collection and a caller that follows `_id` needs to know where
+   * to look. Guessing from `type` does not work: a chrono's `type` is `event`/`deadline`/…, a memory's is
+   * optional entirely, and an entity's is whatever the space calls it.
    */
-  kind?: 'chrono';
+  kind?: 'chrono' | 'memory' | 'file';
+  /**
+   * File META only, and only on a `kind: 'file'` node. A file's searchable body is its CHUNKS, which are
+   * large and are what recall returns; a traverse answer that carried passage text would blow up in size for
+   * a walk that asked about structure. So a file node reports what the file IS — its path as `name`, plus
+   * these two — and a caller who wants the content reads it with the file API.
+   */
+  description?: string;
+  tags?: string[];
 }
 
 export interface TraverseEdge {
@@ -416,6 +424,16 @@ export async function bulkDeleteEdges(spaceId: string): Promise<number> {
 export const CHRONO_LINK_LABEL = 'chrono.entityIds';
 
 /**
+ * The same device for memories: `memory.entityIds` is an inbound link in everything but name, so a memory
+ * about an entity is reachable from it. Named on the same pattern as the chrono label so `edgeLabels` can
+ * include or exclude it like any other relationship.
+ */
+export const MEMORY_LINK_LABEL = 'memory.entityIds';
+
+/** And for files, whose `entityIds` links a document to what it is about. */
+export const FILE_LINK_LABEL = 'file.entityIds';
+
+/**
  * BFS graph traversal from a starting entity.
  *
  * ── Chrono entries are nodes ──────────────────────────────────────────────────────────────────────────────
@@ -459,6 +477,32 @@ export async function traverseGraph(
    * about. Default ON — see the note above the function.
    */
   includeChrono = true,
+  /**
+   * Follow `memory.entityIds` the same way, so a memory about an entity is reachable from it.
+   *
+   * **Default OFF, unlike chrono, and the asymmetry is deliberate.** Chrono defaults on because chrono
+   * entries are both invisible otherwise and sparse — an incident has ten, not ten thousand. Memories are
+   * usually the most numerous record type in a space, and every node emitted counts against `limit`: on by
+   * default, a memory-heavy space would fill the answer with memories and truncate away the entities the
+   * caller traversed for. A flag that silently starves the primary result is worse than one you have to know
+   * about, so this one is opt-in.
+   */
+  includeMemories = false,
+  /**
+   * Follow `file.entityIds`, so a document about an entity is reachable from it. Opt-in for the same reason as
+   * memories, and the node carries **file meta only** — path, description, tags. Never chunk text: a file's
+   * body is its chunks, they are the largest thing the product stores, and a structural walk must not pay for
+   * them.
+   */
+  includeFiles = false,
+  /**
+   * Whether the returned answer carries the edge list.
+   *
+   * This does NOT change the walk. Edges are how the graph is traversed, so declining to follow them would
+   * return a different set of nodes rather than a smaller payload — the flag is about what comes back, not
+   * about what is visited.
+   */
+  includeEdges = true,
 ): Promise<TraverseResult> {
   const visited = new Set<string>([startId]);
   // frontier: nodes whose outgoing edges we need to explore at the current depth
@@ -474,6 +518,13 @@ export async function traverseGraph(
   // An explicit label filter excludes the chrono link unless it names it — otherwise asking for `depends_on`
   // would quietly return chrono entries too, and a filter that cannot exclude something is not a filter.
   const wantsChronoLabel = !edgeLabels || edgeLabels.length === 0 || edgeLabels.includes(CHRONO_LINK_LABEL);
+  const wantsMemoryLabel = !edgeLabels || edgeLabels.length === 0 || edgeLabels.includes(MEMORY_LINK_LABEL);
+  const wantsFileLabel = !edgeLabels || edgeLabels.length === 0 || edgeLabels.includes(FILE_LINK_LABEL);
+
+  // Three return sites below, and every one of them owed the same decision about the edge list. A rule copied
+  // three times is a rule that will eventually disagree with itself, so it is written once here.
+  const answer = (truncated: boolean): TraverseResult =>
+    ({ nodes: resultNodes, edges: includeEdges ? resultEdges : [], truncated });
 
   while (frontier.length > 0 && currentDepth < maxDepth) {
     // Batch-fetch all edges for the current frontier across all member spaces
@@ -535,7 +586,50 @@ export async function traverseGraph(
       }
     }
 
-    if (newNeighborIds.length === 0 && chronoHere.length === 0) break;
+    // Memories that point AT the current frontier — same device as chrono above, same reason for collecting
+    // it before the break: an entity whose only links are memories must not look like a dead end.
+    const memoriesHere: { doc: MemoryDoc; via: string }[] = [];
+    if (includeMemories && wantsMemoryLabel) {
+      for (const mid of memberIds) {
+        const linked = await col<MemoryDoc>(`${mid}_memories`)
+          .find(asFilter<MemoryDoc>({ spaceId: mid, entityIds: { $in: frontier } }),
+                { projection: { fact: 1, type: 1, entityIds: 1 } })
+          .toArray() as MemoryDoc[];
+        for (const m of linked) {
+          if (visited.has(m._id)) continue;
+          visited.add(m._id);
+          const via = m.entityIds.find(id => frontierSet.has(id)) ?? frontier[0];
+          memoriesHere.push({ doc: m, via });
+        }
+      }
+    }
+
+    // Files that point AT the current frontier.
+    //
+    // `parentFileId: { $exists: false }` is load-bearing, not tidiness. Chunks live in the SAME collection as
+    // the files they belong to and are told apart only by that field (see the space-stats count, which uses the
+    // identical predicate). Without it a document that recall split into forty passages would arrive as forty
+    // nodes carrying passage text — the opposite of returning file meta, and it would exhaust `limit` on one
+    // file. The projection then keeps it to what the file IS.
+    const filesHere: { doc: FileMetaDoc; via: string }[] = [];
+    if (includeFiles && wantsFileLabel) {
+      for (const mid of memberIds) {
+        const linked = await col<FileMetaDoc>(`${mid}_files`)
+          .find(asFilter<FileMetaDoc>({
+                  spaceId: mid, entityIds: { $in: frontier }, parentFileId: { $exists: false },
+                }),
+                { projection: { path: 1, description: 1, tags: 1, entityIds: 1 } })
+          .toArray() as FileMetaDoc[];
+        for (const f of linked) {
+          if (visited.has(f._id)) continue;
+          visited.add(f._id);
+          const via = (f.entityIds ?? []).find(id => frontierSet.has(id)) ?? frontier[0];
+          filesHere.push({ doc: f, via });
+        }
+      }
+    }
+
+    if (newNeighborIds.length === 0 && chronoHere.length === 0 && memoriesHere.length === 0 && filesHere.length === 0) break;
 
     // Batch-fetch entity docs for all new neighbors
     const entityMap = new Map<string, EntityDoc>();
@@ -559,7 +653,7 @@ export async function traverseGraph(
       resultNodes.push({ _id: entity._id, name: entity.name, type: entity.type, depth: currentDepth + 1 });
 
       if (resultNodes.length >= limit) {
-        return { nodes: resultNodes, edges: resultEdges, truncated: true };
+        return answer(true);
       }
 
       nextFrontier.push(neighborId);
@@ -571,7 +665,30 @@ export async function traverseGraph(
       resultEdges.push({ _id: doc._id, from: via, to: doc._id, label: CHRONO_LINK_LABEL });
       resultNodes.push({ _id: doc._id, name: doc.title, type: doc.type, depth: currentDepth + 1, kind: 'chrono' });
       if (resultNodes.length >= limit) {
-        return { nodes: resultNodes, edges: resultEdges, truncated: true };
+        return answer(true);
+      }
+    }
+
+    // Memories, for the same reason chrono nodes do not: a memory links to entities, never to another memory.
+    // `type` is optional on a memory, so an undeclared one reports an empty type rather than borrowing `kind`.
+    for (const { doc, via } of memoriesHere) {
+      resultEdges.push({ _id: doc._id, from: via, to: doc._id, label: MEMORY_LINK_LABEL });
+      resultNodes.push({ _id: doc._id, name: doc.fact, type: doc.type ?? '', depth: currentDepth + 1, kind: 'memory' });
+      if (resultNodes.length >= limit) {
+        return answer(true);
+      }
+    }
+
+    // Files, also leaves. `type` is empty because a file has none — borrowing `kind` for it would invent data.
+    for (const { doc, via } of filesHere) {
+      resultEdges.push({ _id: doc._id, from: via, to: doc._id, label: FILE_LINK_LABEL });
+      resultNodes.push({
+        _id: doc._id, name: doc.path, type: '', depth: currentDepth + 1, kind: 'file',
+        ...(doc.description ? { description: doc.description } : {}),
+        ...(doc.tags && doc.tags.length > 0 ? { tags: doc.tags } : {}),
+      });
+      if (resultNodes.length >= limit) {
+        return answer(true);
       }
     }
 
@@ -580,7 +697,7 @@ export async function traverseGraph(
     currentDepth++;
   }
 
-  return { nodes: resultNodes, edges: resultEdges, truncated: false };
+  return answer(false);
 }
 
 // ── Recall-augmenting traversal ──────────────────────────────────────────────

@@ -181,17 +181,28 @@ searchRouter.post('/spaces/:spaceId/traverse', globalRateLimit, requireSpaceAuth
   const rawLimit = typeof limit === 'number' ? limit : 100;
   const effectiveLimit = Math.min(Math.max(1, rawLimit), 1000);
 
-  // Chrono entries are reachable by default; a client that assumed every node is an entity opts out.
-  // Rejected rather than coerced, so `includeChrono: "false"` cannot silently mean true.
-  const includeChronoRaw = (req.body as { includeChrono?: unknown }).includeChrono;
-  if (includeChronoRaw !== undefined && typeof includeChronoRaw !== 'boolean') {
-    res.status(400).json({ error: '`includeChrono` must be a boolean' });
-    return;
+  // What the answer CONTAINS, as three flags rather than one. Chrono entries are reachable by default; a
+  // client that assumed every node is an entity opts out. Memories are opt-IN — they are usually the most
+  // numerous record type and every node counts against `limit`, so on by default they would truncate away the
+  // entities the caller traversed for. Edges are always FOLLOWED (they are the graph); the flag only decides
+  // whether the edge list rides along in the response.
+  //
+  // Each is rejected rather than coerced: `includeChrono: "false"` is a truthy string, and a flag that
+  // silently turns itself on is worse than one that errors.
+  const inclusions = { includeChrono: true, includeMemories: false, includeFiles: false, includeEdges: true };
+  for (const flag of Object.keys(inclusions) as (keyof typeof inclusions)[]) {
+    const raw = (req.body as Record<string, unknown>)[flag];
+    if (raw === undefined) continue;
+    if (typeof raw !== 'boolean') {
+      res.status(400).json({ error: `\`${flag}\` must be a boolean` });
+      return;
+    }
+    inclusions[flag] = raw;
   }
 
   const memberIds = memberSpacesForRequest(req, spaceId);
   const result = await traverseGraph(memberIds, startId.trim(), effectiveDirection, effectiveEdgeLabels, effectiveDepth, effectiveLimit,
-    includeChronoRaw !== false);
+    inclusions.includeChrono, inclusions.includeMemories, inclusions.includeFiles, inclusions.includeEdges);
   res.json(result);
 });
 

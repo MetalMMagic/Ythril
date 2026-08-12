@@ -39,29 +39,45 @@ function stripComments(src) {
   return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 }
 
-/**
- * Parameters the recall route accepts. Two sources, because the route reads them two ways: most arrive in one
- * destructure, while the two booleans are pulled off `req.body` individually so a non-boolean can be rejected
- * rather than coerced.
- */
-function routeParams() {
+/** One route handler's source, bounded to itself. */
+function handlerSource(path) {
   const whole = stripComments(readFileSync(ROUTE, 'utf8'));
-
-  // Bounded to the recall HANDLER. This file holds several routes, and an unbounded scan for `req.body`
-  // reads pulled in `includeChrono` from the traverse handler above — a parameter recall never accepts, so
-  // the gate failed on a route it was not looking at. Scope a sweep from the thing it is about.
-  const start = whole.indexOf("searchRouter.post('/spaces/:spaceId/recall'");
-  assert.ok(start > 0, `the recall route declaration was not found in ${ROUTE}`);
+  // Bounded to ONE handler. This file holds several routes, and an unbounded scan for `req.body` reads pulled
+  // `includeChrono` out of the traverse handler while the gate was looking at recall — so it failed on a route
+  // it was not about. Scope a sweep from the thing it is about.
+  const start = whole.indexOf(`searchRouter.post('${path}'`);
+  assert.ok(start > 0, `the ${path} route declaration was not found in ${ROUTE}`);
   const after = whole.indexOf('searchRouter.post(', start + 1);
-  const src = whole.slice(start, after > 0 ? after : undefined);
+  return whole.slice(start, after > 0 ? after : undefined);
+}
+
+/**
+ * Parameters a route accepts. Several sources, because a handler reads them more than one way: most arrive in
+ * one destructure, booleans are pulled off `req.body` individually so a non-boolean can be rejected rather
+ * than coerced, and a group of related flags may be read by iterating an object of defaults.
+ */
+function paramsOf(path) {
+  const src = handlerSource(path);
 
   const destructure = /const \{([^}]*)\} = req\.body \?\? \{\};/.exec(src);
-  assert.ok(destructure, `no recall destructure found in ${ROUTE}`);
+  assert.ok(destructure, `no destructure found for ${path}`);
   const names = new Set(destructure[1].split(',').map(s => s.trim()).filter(Boolean));
 
   for (const m of src.matchAll(/\(req\.body as \{\s*(\w+)\?: unknown\s*\}\)\.\1/g)) {
     names.add(m[1]);
   }
+
+  // The flags-with-defaults form: `const inclusions = { includeChrono: true, … }` iterated over `req.body`.
+  // Without this the traverse flags would be invisible to the gate, which is the same blindness in a new shape.
+  const defaults = /const \w+ = \{([^}]*)\};\s*for \(const \w+ of Object\.keys/.exec(src);
+  if (defaults) {
+    for (const m of defaults[1].matchAll(/(\w+):\s*(?:true|false)/g)) names.add(m[1]);
+  }
+  return names;
+}
+
+function routeParams() {
+  const names = paramsOf('/spaces/:spaceId/recall');
 
   // `space` is the path parameter, not a body field, and `query` is required rather than optional.
   assert.ok(names.has('query'), 'the parsed set does not contain `query` — the parser is reading the wrong statement');
@@ -94,6 +110,46 @@ describe('recall parameters reach the UI', () => {
     assert.deepEqual(unsent, [],
       `the recall panel never sends ${unsent.join(', ')} — declaring a parameter the form cannot set leaves ` +
       'the control missing, which is the gap this gate exists for');
+  });
+
+  it('the TRAVERSE route reaches the client too — same rule, the other door', () => {
+    // The gate's first version found this by accident, sweeping too widely. `includeChrono` was accepted by
+    // the traverse route, offered by the MCP tool, and absent from the client's typed body — the recall gap
+    // exactly, one route over. The owner then asked for `includeMemories` and `includeEdges` alongside it.
+    const params = [...paramsOf('/spaces/:spaceId/traverse')];
+    for (const flag of ['includeChrono', 'includeMemories', 'includeFiles', 'includeEdges']) {
+      assert.ok(params.includes(flag), `the traverse route no longer accepts \`${flag}\``);
+    }
+
+    const api = stripComments(readFileSync(API, 'utf8'));
+    const body = /traverseGraph\(spaceId: string, body: \{([\s\S]{0,700}?)\}\): Observable<TraverseResult>/.exec(api);
+    assert.ok(body, `traverseGraph's request body type not found in ${API}`);
+    const declared = new Set([...body[1].matchAll(/(\w+)\??:/g)].map(m => m[1]));
+    const missing = params.filter(p => !declared.has(p));
+    assert.deepEqual(missing, [],
+      `the traverse route accepts ${missing.join(', ')} and the client body type does not declare it`);
+
+    // MCP is the other consumer, and its schema is `additionalProperties: false` — an undeclared flag is not
+    // merely undocumented there, it is REJECTED. So the tool schema has to carry each one.
+    const mcp = stripComments(readFileSync('server/src/mcp/tools/edge.ts', 'utf8'));
+    for (const flag of ['includeChrono', 'includeMemories', 'includeFiles', 'includeEdges']) {
+      assert.match(mcp, new RegExp(`${flag}: \\{ type: 'boolean'`),
+        `the MCP traverse tool does not declare \`${flag}\`, so a caller passing it is rejected`);
+    }
+  });
+
+  it('includeEdges suppresses the LIST, never the walk', () => {
+    // The distinction the owner drew, and the one a future edit is most likely to collapse: edges are how the
+    // graph is traversed, so gating traversal on this flag would return a different set of nodes rather than a
+    // smaller payload. Checked structurally — the flag may only appear where the answer is assembled.
+    const src = stripComments(readFileSync('server/src/brain/edges.ts', 'utf8'));
+    const uses = [...src.matchAll(/includeEdges/g)].length;
+    assert.ok(uses >= 2, 'includeEdges is not used in edges.ts');
+    assert.match(src, /edges: includeEdges \? resultEdges : \[\]/,
+      'the edge list must be chosen where the answer is built');
+    // The traversal guards read `includeChrono`/`includeMemories`; `includeEdges` must not join them.
+    assert.ok(!/if \([^)]*includeEdges[^)]*\)\s*\{/.test(src),
+      'includeEdges guards a branch — it must not decide what is visited, only what is returned');
   });
 
   it('traverse and maxTimeMS specifically — the two that were missing', () => {

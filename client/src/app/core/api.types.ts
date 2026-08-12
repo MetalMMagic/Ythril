@@ -445,6 +445,13 @@ export interface TraverseNode {
   depth: number;
   description?: string;
   tags?: string[];
+  /**
+   * WHICH collection this node lives in — absent for an entity, so every pre-existing response is unchanged.
+   * A chrono entry or memory reached through its `entityIds` link carries its kind, because a caller that
+   * follows `_id` needs to know where to look it up and `type` cannot say: a chrono's is `event`/`deadline`/…,
+   * a memory's is optional entirely, and an entity's is whatever the space calls it.
+   */
+  kind?: 'chrono' | 'memory' | 'file';
 }
 
 export interface TraverseEdge {

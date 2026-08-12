@@ -78,16 +78,29 @@ describe('traverse follows chrono.entityIds', () => {
       'an entity node must stay exactly as it was, so no existing response changes shape');
   });
 
-  it('collects chrono BEFORE the early break', () => {
+  it('collects every non-entity kind BEFORE the early break, and the break counts each one', () => {
     // The defect this gate did not catch on its own: the BFS breaks out when a frontier yields no entity
     // neighbours, and the chrono lookup originally sat after that break — so an entity whose only link is a
     // timeline traversed to nothing, which is the reported scenario rather than an edge case. Behaviour
     // proved it; this pins the ordering that fixed it.
-    const chronoAt = code.indexOf('const chronoHere');
-    const breakAt = code.indexOf('length === 0 && chronoHere.length === 0) break');
-    assert.ok(chronoAt > 0, 'could not find the chrono lookup');
-    assert.ok(breakAt > chronoAt,
-      'the chrono lookup must run before the early break, and the break must count what it found');
+    //
+    // Read from the break STATEMENT rather than a literal substring of its condition. The condition gained a
+    // third clause when `includeMemories` landed, which broke the old exact-text match while the property it
+    // was protecting was still perfectly intact — a gate that fails on a shape change it does not care about
+    // teaches people to edit gates rather than believe them.
+    const collections = ['chronoHere', 'memoriesHere', 'filesHere'];
+    const breakLine = code.split('\n').find(l => l.includes('break;') && l.includes('newNeighborIds.length === 0'));
+    assert.ok(breakLine, 'could not find the early break');
+
+    for (const name of collections) {
+      // Word-boundary, not substring: `indexOf('const chronoHere')` also matches `const chronoHereMoved`, so a
+      // rename slid straight past this check when it was mutation-tested.
+      const declaredAt = code.search(new RegExp(`const ${name}\\b`));
+      assert.ok(declaredAt > 0, `could not find the ${name} lookup`);
+      assert.ok(code.indexOf(breakLine) > declaredAt, `${name} must be collected before the early break`);
+      assert.ok(breakLine.includes(`${name}.length === 0`),
+        `the break must count ${name} — otherwise an entity whose only links are that kind looks like a dead end`);
+    }
   });
 
   it('does not expand FROM a chrono node', () => {
@@ -114,10 +127,15 @@ describe('both surfaces take the same flag with the same default', () => {
   const rest = read('server/src/api/brain/search.ts');
   const mcp = read('server/src/mcp/tools/edge.ts');
 
-  it('REST accepts includeChrono and validates its type', () => {
-    assert.match(rest, /includeChrono/);
-    assert.match(rest, /`includeChrono` must be a boolean/,
-      'coercing a string would make includeChrono:"false" silently mean true');
+  it('REST accepts includeChrono, defaults it ON, and validates its type', () => {
+    // The three inclusion flags are now validated by one loop over an object of defaults, so the rejection
+    // message is templated (`\`${flag}\` must be a boolean`) rather than spelled out per flag. What matters is
+    // unchanged: the flag is known, its default is on, and a non-boolean is refused — coercing a string would
+    // make includeChrono:"false" silently mean true.
+    assert.match(rest, /includeChrono:\s*true/, 'includeChrono must still default to ON');
+    assert.match(rest, /must be a boolean/, 'a non-boolean must be rejected, not coerced');
+    assert.match(rest, /typeof raw !== 'boolean'|typeof includeChronoRaw !== 'boolean'/,
+      'the type check must be a real typeof test');
   });
 
   it('MCP advertises it in the tool schema, so an agent can discover it', () => {

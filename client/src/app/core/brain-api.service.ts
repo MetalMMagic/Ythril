@@ -243,7 +243,23 @@ export class BrainApi {
     }
   }
 
-  traverseGraph(spaceId: string, body: { startId: string; direction?: 'outbound' | 'inbound' | 'both'; maxDepth?: number; limit?: number }): Observable<TraverseResult> {
+  /**
+   * Walk the graph from an entity. The three `include*` flags decide what the answer CONTAINS, not what is
+   * walked: edges are always followed, and `includeEdges: false` only drops the edge list from the response.
+   * `includeMemories` is opt-in because memories are usually the most numerous record type and every node
+   * counts against `limit`.
+   */
+  traverseGraph(spaceId: string, body: {
+    startId: string;
+    direction?: 'outbound' | 'inbound' | 'both';
+    edgeLabels?: string[];
+    maxDepth?: number;
+    limit?: number;
+    includeChrono?: boolean;
+    includeMemories?: boolean;
+    includeFiles?: boolean;
+    includeEdges?: boolean;
+  }): Observable<TraverseResult> {
     return this.http.post<TraverseResult>(`/api/brain/spaces/${spaceId}/traverse`, body);
   }
 

@@ -313,6 +313,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     against the unmoved handler passes unchanged against the extracted one.
 
 ### Testing
+- **`POST /api/spaces` refusals are pinned before that chain moves too.** `create_space` is the 9-refusal member of
+  the REST-only set, and the checks a tool calling `createSpace()` directly would skip are the ones nothing tested.
+  Its own PR against the unmoved route, same reason as the `PATCH` pair.
+  - **The two proxy refusals** — member existence and nesting — are the only checks whose input is the rest of the
+    config rather than the request body, which makes them the likeliest to be dropped. The wildcard `['*']` is
+    asserted as a *sentinel*: an extraction that validated it as a member id would refuse every wildcard proxy space
+    and report *"space '*' not found"*.
+  - **`422` for a broken schema-library `$ref`, at RUNTIME.** `broken-library-ref-refused-everywhere.test.js` reads
+    source to assert the call site exists; nothing asserted the route answers 422. A source gate and a runtime test
+    fail for different reasons, and this is the route that shipped the defect — a create that reported success and
+    stored an empty schema, in the posture this handler itself seeds as `strict`.
+  - **Every refusal now asserts the space was NOT created.** That ordering is what a plan/apply split loses most
+    easily: validate, create, then check returns the right status while stranding a space the caller must clean up.
+  - **`faceDescriptorDims` bounds at runtime**, because the field is create-only by design and a width cannot be
+    changed afterwards — a value that slips through is unfixable without deleting the space. Both widths real
+    recognisers use (128, 512) are asserted accepted, so the bounds test cannot pass by refusing everything.
 - **The `PATCH /api/spaces/:id` refusal chain is pinned before it moves.** Three of the five REST-only
   capabilities need route-level validation extracted into something both MCP and REST call, and this route is the
   first of them. Its own PR, against the unmoved handler, because a characterization test written in the same

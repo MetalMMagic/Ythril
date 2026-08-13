@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { TranslocoPipe } from '@jsverse/transloco';
 import { PropertySchema } from '../core/api.types';
 import { PhIconComponent } from './ph-icon.component';
+import { CHIP_STYLES } from './chip.styles';
 
 export interface PropSchemaRow {
   key: string;
@@ -14,7 +15,7 @@ export interface PropSchemaRow {
   selector: 'app-prop-schema-table',
   standalone: true,
   imports: [FormsModule, TranslocoPipe, PhIconComponent],
-  styles: [`
+  styles: [CHIP_STYLES, `
     .prop-table { width:100%; border-collapse:collapse; font-size:13px; }
     .prop-table th { text-align:left; font-size:11px; font-weight:600; color:var(--text-muted); padding:5px 8px; border-bottom:1px solid var(--border); }
     .prop-table td { padding:6px 8px; border-bottom:1px solid var(--border); vertical-align:middle; }
@@ -28,11 +29,6 @@ export interface PropSchemaRow {
     .req-toggle { display:inline-flex; align-items:center; gap:6px; font-size:12px; cursor:pointer; color:var(--text-muted); background:none; border:1px solid var(--border); font-family:var(--font); padding:3px 10px; border-radius:var(--radius-sm); transition:all .15s; }
     .req-toggle:hover { background:var(--bg-elevated); color:var(--text-primary); border-color:color-mix(in srgb,var(--accent) 40%,transparent); }
     .req-toggle.is-req { color:var(--warning); border-color:color-mix(in srgb,var(--warning) 50%,transparent); background:color-mix(in srgb,var(--warning) 8%,transparent); font-weight:600; }
-    .chip-wrap { display:flex; flex-wrap:wrap; gap:4px; align-items:center; border:1px solid var(--border); border-radius:var(--radius-sm); padding:4px 8px; min-height:34px; background:var(--bg-surface); cursor:text; }
-    .chip { display:inline-flex; align-items:center; gap:3px; background:color-mix(in srgb,var(--accent) 15%,transparent); color:var(--accent); border-radius:3px; padding:1px 6px; font-size:12px; }
-    .chip-rm { background:none; border:none; color:var(--text-muted); cursor:pointer; padding:0 2px; font-size:14px; line-height:1; }
-    .chip-rm:hover { color:var(--danger); }
-    .chip-field { border:none; background:none; outline:none; font-size:12px; min-width:100px; flex:1; color:var(--text-primary); font-family:var(--font); padding:1px 0; }
     .add-prop-row { display:flex; gap:8px; align-items:center; margin-top:10px; padding-top:10px; border-top:1px solid var(--border); }
   `],
   template: `

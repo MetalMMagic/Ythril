@@ -46,13 +46,17 @@ import type { KnowledgeType, PropertySchema } from '../../core/api.types';
 import type { TypeSchemaState } from './space-settings-state.service';
 import { addProp, removeProp, addEnumVal, removeEnumVal } from './type-schema-edits';
 import { SCHEMA_MD_STYLES } from './schema-styles';
+import { CHIP_STYLES } from '../../shared/chip.styles';
 
 @Component({
   selector: 'app-schema-type-editor',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [FormsModule, TranslocoPipe, PhIconComponent, HscrollTopDirective],
-  styles: [SCHEMA_MD_STYLES],
+  // CHIP_STYLES is not decoration here: this component renders `.chip-wrap`/`.chip`/`.chip-rm`/`.chip-field`, and
+  // Angular scopes styles — without it those chips render as browser defaults, which is the oversized remove
+  // button breituai-platform reported. It came loose when this editor was extracted out of the schema TAB.
+  styles: [SCHEMA_MD_STYLES, CHIP_STYLES],
   template: `
 @if (libRef(); as libRef) {
   <!-- Linked library schema — editable only after unlinking; shown read-only meanwhile. -->

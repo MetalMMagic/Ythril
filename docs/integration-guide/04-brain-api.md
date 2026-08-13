@@ -343,6 +343,60 @@ Rules worth knowing before you configure it:
 
 ---
 
+### Stamp integrity — when a record's own timestamp disagrees with the server's
+
+A record may carry its own idea of when it happened, as a property: `stampedAt`, `postedAt`, or whatever your convention
+is. That value comes from the author, and **an estimated timestamp looks exactly like a measured one once it is written
+down**. The server holds a number the author did not supply — `createdAt` — so it can compare the two, and you cannot.
+
+On create, if the record carries one of the configured stamp properties and it disagrees with `createdAt` beyond the
+space's threshold, the record gets a `stampSkew` field:
+
+```json
+{
+  "property": "postedAt",
+  "stamp": "2026-08-09T0942Z",
+  "skewMs": -28800000,
+  "thresholdMs": 2400000
+}
+```
+
+`skewMs` is **signed**: negative means the author's stamp is *earlier* than the write. `stamp` is quoted back exactly as
+sent, because the point is that it looked right. `thresholdMs` is what it was judged against, so a record read years later
+still says what the rule was at the time.
+
+**It is a warning, never a refusal.** The record is stored exactly as sent. A legitimately backdated record is a normal
+thing — a historical import, a backfilled document — and what is being reported is a wrong number, not a corrupt record.
+
+**The field is set only when the threshold is exceeded.** Absence means agreed, or unstamped, or not checked. That makes
+presence the signal, and this the whole integrity check:
+
+```http
+POST /api/brain/spaces/:spaceId/query
+{ "collection": "memories", "filter": { "stampSkew": { "$exists": true } } }
+```
+
+The compact form `2026-08-09T0942Z` — no colon, no seconds — is parsed, as are ordinary ISO 8601, an explicit offset, and
+epoch seconds or milliseconds. A property that is not a timestamp at all is **not checked** rather than reported as skew.
+
+#### Configuring it, per space
+
+In the space's `meta`, so `PATCH /api/spaces/:id` and `update_space_schema` already write it:
+
+```json
+{ "meta": { "stampSkew": { "warnMinutes": 40, "properties": ["stampedAt", "postedAt"] } } }
+```
+
+| Field | Default | Meaning |
+|---|---|---|
+| `warnMinutes` | `40` | Warn beyond this much disagreement. **`0` disables the check** — it does *not* mean "warn on any difference", because a caller's stamp and the server's clock never agree to the millisecond |
+| `properties` | `["stampedAt", "postedAt"]` | Which properties to check, in order. The **first one that parses** decides; naming your own **replaces** the defaults rather than adding to them |
+
+The 40-minute default is not arbitrary: it is the clock tolerance the board protocol that prompted this already assumed
+between two parties.
+
+---
+
 ### Get a Memory by ID
 
 ```http

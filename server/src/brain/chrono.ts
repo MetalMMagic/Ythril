@@ -14,6 +14,8 @@ import { findInsertContradictions, type ContradictionWarning } from './insert-co
 import { deriveChronoStatus } from './chrono-status.js';
 import { getConfig } from '../config/loader.js';
 import { stampExpiryOnCreate, applyExpiryToUpdate } from './ttl.js';
+import { stampSkewOnCreate } from './stamp-skew.js';
+import { getSpaceMeta } from '../spaces/schema-validation.js';
 import { mergeTags, mergeProperties, mergePropertiesOrKeep } from './merge-fields.js';
 import { enqueueEmbedJob } from './embed-queue.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
@@ -215,6 +217,9 @@ export async function createChrono(
   // prunes deploy `event`s while keeping `health-snapshot`/`metrics-snapshot` for trending, which one
   // space-wide TTL cannot express.
   stampExpiryOnCreate(spaceId, doc, ttlDays, { collection: 'chrono', type: doc.type });
+  // Warn-not-refuse: a caller's own stamp checked against ours. Stored only when it disagrees beyond the space's
+  // threshold, so presence is the signal. The write proceeds either way -- a backdated import is legitimate.
+  stampSkewOnCreate(doc, getSpaceMeta(spaceId));
   await col<ChronoEntry>(`${spaceId}_chrono`).insertOne(asDoc<ChronoEntry>(doc));
   if (!embeddingFields.embedding) await enqueueEmbedJob(spaceId, 'chrono', doc._id);
   if (actor) emitWebhookEvent({ event: 'chrono.created', spaceId, entry: { ...doc, embedding: undefined }, ...actor });

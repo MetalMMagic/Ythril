@@ -159,6 +159,7 @@ describe('provenance is recorded, not assumed', () => {
   it('a reindex re-embeds the excerpt instead of dropping it', () => {
     // The whole-space reindex builds its own embed text. Missing the excerpt there would silently strip
     // the document's own words out of every converted record's embedding.
-    assert.match(src('server/src/api/brain/search.ts'), /fileEmbedText\([^)]*doc\.excerpt\)/);
+    // The reindex loops moved to `brain/reindex.ts`; the guarantee is unchanged.
+    assert.match(src('server/src/brain/reindex.ts'), /fileEmbedText\([^)]*doc\.excerpt\)/);
   });
 });

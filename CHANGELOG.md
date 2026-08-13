@@ -318,6 +318,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     worse than the bug being fixed.
 
 ### Internal
+- **The reindex loop is now a module both surfaces can call, and the router lost 196 lines.** Last of the three
+  extractions B-2 needed, and the only one where nothing existed to wrap: the re-embedding work was inline in the
+  route handler as five near-identical batch loops.
+  - `brain/reindex.ts`: `planReindex` decides (404 · the proxy 400 · the single-job 409) and `startReindex` runs.
+  - **The guard and the metric moved WITH the work, which is the part that matters.** `reindexJobRunning` was module
+    state in the router; a second surface calling the loop directly would have run a concurrent job the guard could not
+    see, and `reindexInProgress` would have been left at 1 by whichever job finished second.
+  - `startReindex` returns as soon as the job is scheduled — never awaits it — so both surfaces keep the existing
+    contract: `status: 'started'` with zeroed counters, work on the next turn, headers flushed immediately.
+  - **Two gates got stronger rather than re-pointed.** The proxy gate asserted that `res.status(400)` came before
+    `reindexJobRunning = true`; it now asserts that the decision function never sets the flag *at all*, so no refusal
+    can leave it set. And the builder gate gained a check that the ROUTE still delegates — everything else in it now
+    reads the module, so a handler that re-grew its own loop would have satisfied all of it.
+  - Behaviour-preserving by construction: the loops moved verbatim, and the two suites that landed against the unmoved
+    route pass unchanged — 237 tests with `brain` and `proxy-spaces` alongside them.
 - **The space CREATE chain is now a function both surfaces can call.** Last of the three extractions B-2 needs, and
   the reason it was needed: `createSpace()` already exists in `lifecycle.ts`, so a tool could call it today — and
   would skip the two proxy refusals, the schema-library `$ref` check, and the strict-posture seeding. A token holding

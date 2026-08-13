@@ -34,14 +34,21 @@ import { readFileSync } from 'node:fs';
 
 const stripComments = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
 
-/** The reindex handler, sliced out of the read/analytics router. */
-function reindexHandler() {
-  const src = stripComments(readFileSync('server/src/api/brain/search.ts', 'utf8'));
-  const start = src.indexOf("searchRouter.post('/spaces/:spaceId/reindex'");
-  assert.ok(start > 0, 'the reindex route moved — re-point this gate at wherever the loop now lives');
-  // To the end of the file or the next route, whichever comes first.
-  const next = src.indexOf('searchRouter.', start + 20);
-  return src.slice(start, next > 0 ? next : src.length);
+/**
+ * The five loops, wherever they live.
+ *
+ * They were inline in the route handler and now sit in `brain/reindex.ts`, so this reads the module. The route's own
+ * obligation — that it still DELEGATES rather than growing its own loop back — is a separate assertion below, because
+ * re-pointing a gate at moved code and forgetting the place it moved from is how a check quietly covers half of what
+ * it used to.
+ */
+const WORK = 'server/src/brain/reindex.ts';
+
+function reindexLoops() {
+  const src = stripComments(readFileSync(WORK, 'utf8'));
+  const start = src.indexOf('export function startReindex');
+  assert.ok(start > 0, `the reindex work moved out of ${WORK} — re-point this gate at wherever the loops now live`);
+  return src.slice(start);
 }
 
 /**
@@ -60,12 +67,12 @@ const BUILDERS = [
 ];
 
 describe('a reindex reproduces what the write path embedded', () => {
-  const handler = reindexHandler();
+  const handler = reindexLoops();
 
-  it('found the handler, and it is the whole loop rather than a stub', () => {
+  it('found the loops, and they are the whole job rather than a stub', () => {
     // Floors it: if the slice were empty or tiny, every check below would pass on nothing. The five loops are
-    // hundreds of lines today, which is exactly why they are being extracted.
-    assert.ok(handler.length > 3000, `the sliced handler is only ${handler.length} chars — the slice is wrong`);
+    // hundreds of lines, which is why they were extracted rather than duplicated for a second surface.
+    assert.ok(handler.length > 3000, `the sliced work is only ${handler.length} chars — the slice is wrong`);
   });
 
   it('every collection is re-embedded through its own write-path builder', () => {
@@ -80,11 +87,25 @@ describe('a reindex reproduces what the write path embedded', () => {
   it('the builders come from the shared module, not re-implemented locally', () => {
     // The other way to break the pairing above: keep the name, declare it here. A local `const edgeEmbedText = …`
     // would satisfy the regex and embed whatever it liked.
-    const src = readFileSync('server/src/api/brain/search.ts', 'utf8');
+    const src = readFileSync(WORK, 'utf8');
     for (const [, builder] of BUILDERS) {
       assert.match(src, new RegExp(`import \\{[^}]*\\b${builder}\\b[^}]*\\} from '[^']*embed-text\\.js'`, 's'),
-        `${builder} must be imported from brain/embed-text.js, not declared in the route file`);
+        `${builder} must be imported from brain/embed-text.js, not declared alongside the loops`);
     }
+  });
+
+  it('the ROUTE still delegates, rather than growing its own loop back', () => {
+    // The other half of re-pointing this gate. Everything above now reads `brain/reindex.ts`, so a handler that
+    // re-implemented the re-embed inline would satisfy all of it while embedding whatever it liked. Asserted where the
+    // route is: it must call `startReindex`, and must build no embed text of its own.
+    const route = stripComments(readFileSync('server/src/api/brain/search.ts', 'utf8'));
+    const at = route.indexOf("searchRouter.post('/spaces/:spaceId/reindex'");
+    assert.ok(at > 0, 'the reindex route is gone — if it moved, re-point this assertion too');
+    const next = route.indexOf('searchRouter.', at + 20);
+    const handlerSrc = route.slice(at, next > 0 ? next : route.length);
+    assert.match(handlerSrc, /startReindex\(/, 'the route must delegate the work');
+    assert.doesNotMatch(handlerSrc, /\bembed\(/, 'the route must not embed anything itself');
+    assert.doesNotMatch(handlerSrc, /EmbedText\(/, 'nor build embed text — that is the shared module’s job');
   });
 
   it('the file branch passes `excerpt`, or a reindex drops every document body', () => {

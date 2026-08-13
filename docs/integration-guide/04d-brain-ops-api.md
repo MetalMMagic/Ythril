@@ -191,6 +191,98 @@ discovering this by trying.
 > or if the database search process was not ready when the instance started. Reindexing every record
 > in the space will not create it. Use the rebuild endpoint below.
 
+### Reorder spaces
+
+```http
+POST /api/spaces/reorder
+```
+
+```json
+{ "ids": ["general", "research", "photos"] }
+```
+
+Admin + MFA. Sets the display order of spaces in the UI's sidebar and space pickers. `ids` must name **every** space you
+want ordered — a space whose id is absent keeps its existing position relative to the ones you did name.
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `ids` | ✅ | Space ids in the desired order, 1–40 characters each, at least one entry |
+
+**Response** `200`: the reordered spaces as `{ id, label, builtIn, folders, … }`. `400` if any id names no space — the
+whole call is rejected rather than partially applied, so a typo cannot silently reorder a subset.
+
+---
+
+### Which tokens can reach a space
+
+```http
+GET /api/brain/spaces/:spaceId/token-access
+```
+
+**Admin only** (on top of the space's own read right), because it enumerates the instance's tokens. Powers the Overview
+tab's token-access matrix.
+
+**Response** `200`:
+
+```json
+{
+  "tokens": [
+    { "name": "ci-writer", "level": "full", "allSpaces": false, "peer": false, "expiresAt": null }
+  ]
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `level` | `admin`, `readOnly`, or `full` |
+| `allSpaces` | `true` when the token has no space allow-list, so it reaches every space |
+| `peer` | `true` for a token belonging to a peer instance rather than a person or client |
+
+It returns the **minimum** the matrix needs and **never** a hash, a prefix, or any other secret material. A token reaches
+this space when it has no allow-list or lists this space; `schemaLibrary` tokens have no space access at all and never
+appear.
+
+---
+
+### Media embedding queue for a space
+
+```http
+GET /api/brain/spaces/:spaceId/embedding-queue
+```
+
+The **media** half of the queue — file chunks produced by the conversion pipeline. For brain records (memories, entities,
+edges, chrono) see [Vectorless records](#vectorless-records--the-embed-queue-for-brain-records), which is a separate
+collection with a separate worker.
+
+**Response** `200`:
+
+```json
+{
+  "pending": 3, "processing": 1, "complete": 412, "failed": 2,
+  "failedSample": [ … ], "failedByReason": [ { "reason": "ffmpeg exited 1", "count": 2 } ]
+}
+```
+
+Summed across member spaces for a proxy space. `failedByReason` is grouped across the whole fleet before truncation, so a
+proxy's grouping describes its members rather than whichever one was read first.
+
+---
+
+### Retry every failed media job in a space
+
+```http
+POST /api/brain/spaces/:spaceId/embedding-queue/retry-failed
+```
+
+Re-queues **all** failed media jobs in the space (and across members for a proxy). Requires `files: write`.
+
+**Response** `202`: `{ "retried": 7 }`.
+
+Retry-all is offered here and deliberately **not** for brain records: a media failure is usually about the worker, where a
+brain record's failure is usually about that record. See the per-record retry above.
+
+---
+
 ### Vectorless records — the embed queue for brain records
 
 A brain record is written and its vector is computed **after** the response. If the embedder is unreachable or the text

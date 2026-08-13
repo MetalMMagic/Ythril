@@ -164,7 +164,7 @@ const DOC_GATES = [
   ['metric-docs-coverage', 'every metric on /metrics is documented'],
   ['metric-docs-are-accurate', "every metric row says what the code's help says"],
   ['mcp-tool-docs-coverage', 'every MCP tool is documented'],
-  ['route-path-docs-coverage', 'every API route path is documented'],
+  ['route-path-docs-coverage', 'every route is documented, and every documented route exists'],
   ['help-docs-coverage', 'every in-product Help anchor resolves'],
   ['docs-tables-render', 'no docs table is malformed'],
   ['error-shape-is-json', 'the documented error shape holds'],

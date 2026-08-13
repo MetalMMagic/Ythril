@@ -129,6 +129,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     asserted.
 
 ### Fixed
+- **`route-path-docs-coverage` now checks BOTH directions, and eight undocumented endpoints are documented.** The gate
+  verified *documented → exists* only, while `release-gate.mjs` printed **"every API route path is documented"** beside it
+  — a label for the opposite of what was measured, on the report an owner reads before cutting a tag.
+  - Building the missing direction found eight genuine gaps, now documented: `POST /api/spaces/reorder`,
+    `GET /api/brain/spaces/:id/token-access`, the **media** `embedding-queue` pair (`GET` and `POST .../retry-failed` —
+    the brain half was documented last week and its sibling was not), `GET /api/admin/data/browse-dirs`, and the three
+    local-connector routes (`local-agent/status`, `local-agent/bootstrap`, `enable-networks/execute`).
+  - **The first measurement said 33, and 25 of those were my scanner.** The doc extractor only recognised the prose form
+    `POST /api/x`, never the table form `| \`POST\` | \`/api/x\` |` where the verb and path are separate cells. Two spot
+    checks dissolved on reading the docs, which is exactly what this file's own header warns about — a naive extractor once
+    proposed 89 findings out of 182 here. The extractor learned the table form before any count was believed or filed.
+  - The label is corrected to what the test actually asserts, and the exemption list ships EMPTY: every `/api` route is
+    documented, so nothing had to be excused.
 - **`env-var-docs-coverage` now asserts a variable is documented on the page that owns its FEATURE, not merely somewhere
   under `docs/`.** The gate was green while `FACE_RECOGNITION_EXTERNAL_MODEL` sat in `02-hosting.md`'s egress matrix and
   was absent from `05c-face-recognition.md` — so breituai-platform, reading the face-recognition page while configuring

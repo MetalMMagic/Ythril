@@ -43,7 +43,7 @@ import { embedAudio } from './audio-embedder.js';
 import { embedVideo } from './video-embedder.js';
 import { col, asFilter } from '../../db/mongo.js';
 import type { FileMetaDoc } from '../../config/types.js';
-import { updateFileMeta, markFileMetaDeleted } from '../file-meta.js';
+import { updateFileMeta, markFileMetaDeleted, setDerivedDescriptionIfUnset } from '../file-meta.js';
 import { mimeTypeForPath } from '../mime.js';
 import { describeDocument } from '../converters/describe.js';
 import {
@@ -526,20 +526,23 @@ async function processJob(
     // Write the derived description to the parent file meta if the user has not set one.
     // This also re-embeds the parent file meta so the description is searchable on the file itself.
     if (derivedDescription || derivedExcerpt) {
-      const parentMeta = await col<FileMetaDoc>(`${spaceId}_files`).findOne(
-        asFilter<FileMetaDoc>({ _id: fileId }),
-        { projection: { description: 1 } },
-      );
-      const operatorWrote = !!parentMeta?.description?.trim();
       // The excerpt goes in even when a person has written their own description: it is the document's own
       // text, not a competing summary, and it is what makes a remembered phrase find this record. Only the
       // description itself is theirs to keep.
-      const update = {
-        ...(operatorWrote || !derivedDescription ? {} : { description: derivedDescription, descriptionSource: derivedSource }),
-        ...(derivedExcerpt ? { excerpt: derivedExcerpt } : {}),
-      };
-      if (Object.keys(update).length > 0) {
-        await updateFileMeta(spaceId, filePath, update).catch(err =>
+      if (derivedExcerpt) {
+        await updateFileMeta(spaceId, filePath, { excerpt: derivedExcerpt }).catch(err =>
+          log.warn(`Media worker: failed to write excerpt to file meta ${spaceId}/${fileId}: ${err instanceof Error ? err.message : String(err)}`),
+        );
+      }
+      // The description is a CONDITIONAL write, decided by the database in one operation.
+      //
+      // This used to read the stored description, compute `operatorWrote`, and then write on that decision. The intent
+      // was right and the implementation could not deliver it: a read-modify-write loses to anything that lands in
+      // between, so an operator PATCH issued while the worker was mid-flight was silently replaced by the derived text.
+      // Nothing reported it — no field missing, no status wrong, the description simply somebody else's. Same shape as
+      // the 2.5.1 defect that computed a vector from the record as the write had read it.
+      if (derivedDescription) {
+        await setDerivedDescriptionIfUnset(spaceId, filePath, derivedDescription, derivedSource).catch(err =>
           log.warn(`Media worker: failed to write description to file meta ${spaceId}/${fileId}: ${err instanceof Error ? err.message : String(err)}`),
         );
       }

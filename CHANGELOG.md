@@ -27,6 +27,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Documented in all five places the parity rule now names: both APIs, the integration guide, the userguide's Brain →
     Search page, and the rights rows (unchanged — same routes, same rights).
 ### Fixed
+- **A derived file description could overwrite one a person had written.** The media worker read the stored description,
+  computed `operatorWrote` from it, and then wrote its derived text on that decision — a read-modify-write, which cannot
+  win the race it exists to win. An operator `PATCH` landing between the read and the write was silently replaced: no field
+  missing, no status wrong, the description simply somebody else's. Same shape as the 2.5.1 defect that computed a vector
+  from the record *as the write had read it*.
+  - The condition now lives in the **update filter**, so MongoDB arbitrates in one operation:
+    `setDerivedDescriptionIfUnset` matches only while the stored description is absent, null or whitespace-only. If it
+    became non-empty in the meantime, the update matches nothing and the operator's text stands.
+  - The `excerpt` half keeps writing unconditionally, which the original comment was right about: it is the document's own
+    text rather than a competing summary, and it is what makes a remembered phrase find the record.
+  - `descriptionSource` keeps its old semantics exactly — a derived description with no known provenance UNSETS it rather
+    than inheriting the previous label. Ported deliberately: mislabelling where text came from would be a worse bug than
+    the race.
+  - **Found chasing a CI failure**, and the mechanism came from source rather than from a reproduction — the race does not
+    reproduce on an idle machine, which is stated in the test rather than implied. The assertions force the interleaving
+    instead of hoping to lose a race, and are mutation-tested by neutralising the filter.
+  - The whitespace case earned its keep immediately: the first version of the filter used `'^\s*$'` as a **string**, which
+    in JavaScript is `^s*$` — it matched "sss" and not whitespace. It is a `RegExp` literal now, which cannot lose the
+    escape.
+### Fixed
 - **The embed-job listing takes `skip`, so a reported failure is always reachable.** `getEmbedJobCounts` aggregates every
   job while the listing returned one capped page, so a space reporting `failed: 500` had no way to reach failure #201 — an
   accurate total beside an unreachable tail, on the one surface whose justification is that its failures are actionable.

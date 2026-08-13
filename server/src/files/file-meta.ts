@@ -105,6 +105,58 @@ export async function upsertFileMeta(
  * record does not exist.
  */
 /**
+ * Write a DERIVED description only if the operator has not written one — decided by the DATABASE, in one operation.
+ *
+ * ## Why this is not `updateFileMeta` with a read in front of it
+ *
+ * The media worker used to do exactly that: `findOne`, compute `operatorWrote` from the result, then write on that
+ * decision. The intent was right and documented — *"Only the description itself is theirs to keep"* — but a read-modify-write
+ * cannot win the race it exists to win. An operator PATCH landing between the read and the write was silently overwritten
+ * by the derived text, and nothing reported it: no field is missing, no status is wrong, the description is simply somebody
+ * else's.
+ *
+ * Same shape as the 2.5.1 embedding defect, which computed a vector from the record *as the write had read it*.
+ *
+ * The filter carries the condition, so MongoDB arbitrates: if the stored description became non-empty in the meantime, the
+ * update matches nothing and the operator's text stands. `^\s*$` rather than `''` because the guard it replaces used
+ * `.trim()`, and a whitespace-only description was treated as absent.
+ *
+ * Returns whether it wrote, so a caller can log the difference rather than infer it.
+ */
+export async function setDerivedDescriptionIfUnset(
+  spaceId: string,
+  filePath: string,
+  description: string,
+  /**
+   * Optional, and its ABSENCE is meaningful: `updateFileMeta` unsets `descriptionSource` when a description arrives
+   * without one, so a derived description with no known provenance must not inherit the previous one's. Ported
+   * faithfully rather than defaulted — mislabelling where a description came from is a worse bug than the race being
+   * fixed here.
+   */
+  descriptionSource?: 'generated' | 'extracted',
+): Promise<boolean> {
+  const _id = toDocId(filePath);
+  const r = await col<FileMetaDoc>(`${spaceId}_files`).updateOne(
+    asFilter<FileMetaDoc>({
+      _id,
+      $or: [
+        { description: { $exists: false } },
+        { description: null },
+        // Built from a RegExp rather than a string literal, because `'^\s*$'` in a JS string is `^s*$` — the backslash
+        // is dropped and the pattern matches "sss" instead of whitespace. It did exactly that here, and the
+        // whitespace-only assertion is what caught it. A RegExp literal cannot lose the escape.
+        { description: { $regex: /^\s*$/ } },
+      ],
+    } as never),
+    asUpdate<FileMetaDoc>({
+      $set: { description, updatedAt: new Date().toISOString(), ...(descriptionSource ? { descriptionSource } : {}) },
+      ...(descriptionSource ? {} : { $unset: { descriptionSource: '' } }),
+    }),
+  );
+  return r.modifiedCount > 0;
+}
+
+/**
  * Read one file-metadata record by path, or null.
  *
  * Exists for the audit before-snapshot: `updateFileMeta` reads the same document internally but returns

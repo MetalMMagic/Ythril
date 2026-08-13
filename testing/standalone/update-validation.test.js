@@ -170,7 +170,7 @@ describe('update validation', () => {
 
 // ── The wiring, so no write surface can quietly skip the gate again ──────────
 
-const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+const strip = s => s.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
 
 describe('every update path runs the gate', () => {
   // Eight surfaces for four record types. The asymmetry this prevents is not hypothetical: `update_chrono`

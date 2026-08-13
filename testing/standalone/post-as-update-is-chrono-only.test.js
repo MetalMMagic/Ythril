@@ -27,8 +27,8 @@ const ROOT = process.cwd();
 
 /** Comments stripped, so the gate cannot pass on the prose that documents it. */
 const code = (p) => readFileSync(join(ROOT, p), 'utf8')
-  .replace(/\/\*[\s\S]*?\*\//g, '')
-  .split(/\r?\n/).filter(l => !/^\s*\/\//.test(l)).join('\n');
+  .split(/\r?\n/).filter(l => !/^\s*\/\//.test(l)).join('\n')
+  .replace(/\/\*[\s\S]*?\*\//g, '');
 
 /** A `POST /…/<collection>/:id` route — the update-by-id shape, as opposed to the collection POST. */
 const postById = (src, router, collection) =>

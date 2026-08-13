@@ -44,7 +44,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 
-const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+const strip = s => s.replace(/(^|[^:])\/\/.*$/gm, '$1').replace(/\/\*[\s\S]*?\*\//g, '');
 const serverFiles = execSync('git ls-files "server/src/**/*.ts"', { encoding: 'utf8' })
   .trim().split('\n').filter(f => f && !f.endsWith('.spec.ts'));
 

@@ -37,7 +37,7 @@ const LOADER = read('server/src/config/loader.ts');
 const DOC = read('docs/integration-guide/02-hosting.md');
 
 /** Strip comments, so a migration named only in prose is not mistaken for a call. */
-const CODE = LOADER.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+const CODE = LOADER.replace(/^[ \t]*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
 
 /** The body of `loadConfig`, where a persisted migration has to be invoked to run at boot. */
 function loadConfigBody() {

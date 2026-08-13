@@ -43,8 +43,8 @@ const BOOTSTRAP = 'server/src/bootstrap.ts';
 /** Source with comments removed — block, line, and JSDoc alike. */
 function code(path) {
   return readFileSync(path, 'utf8')
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+    .replace(/(^|[^:])\/\/.*$/gm, '$1')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
 }
 
 describe('the check itself works before it is trusted', () => {

@@ -144,7 +144,7 @@ describe('length', () => {
 });
 
 describe('the worker wires it to the parent record', () => {
-  const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const strip = s => s.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
   const w = strip(WORKER);
 
   it('the document path sets derivedDescription', () => {

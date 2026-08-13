@@ -28,7 +28,7 @@ const ROOT = process.cwd();
 const SRC = 'server/src/auth/middleware.ts';
 const src = readFileSync(join(ROOT, SRC), 'utf8');
 const withoutComments = (text) =>
-  text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+  text.replace(/(^|[^:])\/\/.*$/gm, '$1').replace(/\/\*[\s\S]*?\*\//g, '');
 const code = withoutComments(src);
 
 /** The body of `enforceSpaceScope`, sliced to its own closing brace rather than by a character count. */

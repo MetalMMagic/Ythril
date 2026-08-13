@@ -180,7 +180,7 @@ describe('the rule is reached through ONE seam', () => {
  */
 describe('the proxy lens narrows instead of failing closed', () => {
   const src = readFileSync('server/src/auth/middleware.ts', 'utf8')
-    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+    .replace(/(^|[^:])\/\/.*$/gm, '$1').replace(/\/\*[\s\S]*?\*\//g, '');
 
   it('the area/rung check is handed the token record, so it can narrow', () => {
     // The regression is exactly this argument going missing: without the record there is nothing to narrow by,

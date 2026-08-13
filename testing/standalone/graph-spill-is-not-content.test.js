@@ -24,7 +24,7 @@ import { readFileSync } from 'node:fs';
 const { isSpillPath, SPILL_DIR } = await import('../../server/dist/brain/spill-path.js');
 const { SPILL_TTL_DAYS, SPILL_CEILING_MULTIPLE } = await import('../../server/dist/brain/graph-spill.js');
 
-const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*/gm, '$1');
+const strip = s => s.replace(/(^|[^:])\/\/.*/gm, '$1').replace(/\/\*[\s\S]*?\*\//g, '');
 const read = p => strip(readFileSync(p, 'utf8'));
 
 describe('the spill directory is recognised at the root and nowhere else', () => {

@@ -41,7 +41,7 @@ before(async () => {
   ({ ECHOABLE, isEcho } = await import('../../server/dist/api/tokens.js'));
 });
 
-const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+const strip = s => s.replace(/(^|[^:])\/\/.*$/gm, '$1').replace(/\/\*[\s\S]*?\*\//g, '');
 const src = () => strip(readFileSync('server/src/api/tokens.ts', 'utf8'));
 
 describe('every field the list route emits is answerable by the edit route', () => {

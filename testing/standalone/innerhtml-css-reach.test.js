@@ -83,8 +83,8 @@ function stylesBlock(src) {
  */
 function rendersInnerHtml(src) {
   return src
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
     .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
     .includes('[innerHTML]');
 }
 

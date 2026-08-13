@@ -30,7 +30,7 @@ import { join } from 'node:path';
 const ROOT = process.cwd();
 const SRC = 'server/src/auth/middleware.ts';
 const code = readFileSync(join(ROOT, SRC), 'utf8')
-  .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+  .replace(/(^|[^:])\/\/.*$/gm, '$1').replace(/\/\*[\s\S]*?\*\//g, '');
 
 const body = (fn) => {
   const i = code.indexOf(`function ${fn}`);

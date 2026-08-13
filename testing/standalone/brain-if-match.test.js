@@ -35,7 +35,7 @@ const src = (p) => readFileSync(join(ROOT, p), 'utf8');
 
 /** Code only — see the header. */
 const withoutComments = (text) =>
-  text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+  text.replace(/(^|[^:])\/\/.*$/gm, '$1').replace(/\/\*[\s\S]*?\*\//g, '');
 
 /** The four record types this feature is "all or none" across. */
 const RECORDS = [

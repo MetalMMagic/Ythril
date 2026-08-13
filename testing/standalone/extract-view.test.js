@@ -29,7 +29,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const SRC = 'server/src/api/brain/file-meta.ts';
-const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+const strip = s => s.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
 const src = strip(readFileSync(SRC, 'utf8'));
 
 /** The handler body, so an assertion cannot accidentally match a neighbouring route. */

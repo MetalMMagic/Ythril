@@ -42,7 +42,7 @@ const {
 } = await import('../../server/dist/files/converters/vlm-endpoint.js');
 
 /** Strip comments — a route path quoted in prose is documentation, not a second derivation. */
-const strip = src => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+const strip = src => src.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
 
 describe('every OpenAI route builder normalises the base', () => {
   // The three spellings an operator plausibly types. `…/v1` is the documented OpenAI form and what the

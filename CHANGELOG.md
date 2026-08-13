@@ -8,6 +8,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **60 gates stripped block comments before line comments, so a `/*` inside a `//` comment blinded them.**
+  `server/src/api/data.ts:281` reads `// Follow the symlink — useful for /mnt/* or volume-mount points`, and
+  removing block comments first treats that `/*` as an opener: it deletes **5,907 characters** through the next
+  `*/`, taking three route registrations with it.
+  - **It had already cost something.** `every-space-route-has-an-area` could not see
+    `DELETE /api/files/:spaceId`, `PATCH /api/files/:spaceId` or `POST /api/files/:spaceId/retry_embedding`, so
+    none of the three carried a rights row for as long as they were invisible. They were added an hour earlier,
+    when an unrelated edit happened to shift the swallowed region.
+  - **Blast radius measured, not assumed:** two source files lose real code to the wrong order — `api/data.ts`
+    (5,907 chars) and `files/converters/pipeline.ts` (355). The other 506 are unaffected.
+  - 60 sites across 58 files now put line comments first. `_strip-comments.mjs` holds the correct pair for new
+    code, and `comment-strippers-are-ordered.test.js` fails on the other order anywhere in the suite.
+  - **The gate needed three attempts and a mutation test caught two of them.** A single regex spanning both
+    `.replace()` calls matched nothing — inside a `.js` file the line-comment pattern is written with escaped
+    slashes. Comparing first-occurrence positions file-wide then flagged eight innocent files, including one
+    that strips block comments and never strips line comments at all. It compares positions within a window
+    around each block-strip now, and reintroducing the original defect turns it red.
+
+### Changed
+- **The capability matrix is generated and audited from running code.** `scripts/surface-matrix-audit.mjs`
+  imports every mounted `Router`, walks its stack including sub-routers, and compares both ways against the
+  static extraction: **208 = 208**, plus 41 of 41 tools mapped and each pair sharing an implementation module.
+  - Its own first version reported **5 routes out of 202** — Express 5 changed the layer shape, and recovering
+    mount paths from `layer.regexp` no longer works. The audit needed auditing.
+  - Two routes were also being missed because they are registered by a helper that takes the router as a
+    parameter (`registerReembedRoute(spacesRouter)`); attribution is by router identifier now, with mounts
+    followed transitively through `use()`.
+
+### Fixed
 - **The `reindex` tool told MCP callers to poll something MCP could not reach.** Its own description said the
   job *"runs in the background and may take minutes, so poll `get_space_meta` or the REST reindex-status route
   rather than waiting on this call"* — and `get_space_meta` did not carry the reindex state. `needsReindex` was

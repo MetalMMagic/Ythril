@@ -31,7 +31,7 @@ import { readFileSync } from 'node:fs';
 
 const SRC = readFileSync(new URL('../../server/src/mcp/router.ts', import.meta.url), 'utf8');
 /** Comments must not satisfy any of this — several of them describe the very defect being pinned. */
-const CODE = SRC.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+const CODE = SRC.replace(/(^|[^:])\/\/.*$/gm, '$1').replace(/\/\*[\s\S]*?\*\//g, '');
 
 describe('the rights matrix decides', () => {
   it('consults reachesSpace, not the allowlist alone', () => {

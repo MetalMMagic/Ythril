@@ -33,7 +33,7 @@ import { execSync } from 'node:child_process';
 const tracked = (glob) => execSync(`git ls-files ${glob}`, { encoding: 'utf8' })
   .trim().split('\n').filter(Boolean);
 
-const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+const strip = s => s.replace(/(^|[^:])\/\/.*$/gm, '$1').replace(/\/\*[\s\S]*?\*\//g, '');
 
 /**
  * Fields the server computes at real cost, and what would be lost if each stopped being read.

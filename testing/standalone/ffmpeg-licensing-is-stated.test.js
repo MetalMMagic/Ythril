@@ -50,8 +50,8 @@ function sources(dir = join(ROOT, 'server', 'src'), out = []) {
 
 /** Comments stripped: a comment explaining the subprocess design is not an invocation of it. */
 const strip = src => src
-  .replace(/^[ \t]*\/\*[\s\S]*?\*\//gm, ' ')
-  .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+  .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ')
+  .replace(/^[ \t]*\/\*[\s\S]*?\*\//gm, ' ');
 
 describe('ffmpeg is only ever a separate process', () => {
   const files = sources().map(p => ({ p: p.slice(ROOT.length + 1).replace(/\\/g, '/'), src: strip(readFileSync(p, 'utf8')) }));

@@ -87,7 +87,11 @@ describe('a synced-in record is queued for embedding', { skip }, () => {
     const src = execFileSync('git', ['show', 'HEAD:server/src/api/sync/docs.ts'], { encoding: 'utf8' }).length
       ? fs.readFileSync('server/src/api/sync/docs.ts', 'utf8')
       : '';
-    const code = src.replace(/\/\*[\s\S]*?\*\//g, '').split(/\r?\n/).filter(l => !/^\s*\/\//.test(l));
+    // Line comments out FIRST: a `/*` inside a `//` comment otherwise opens a phantom block and swallows real
+    // code — 5,907 characters of `api/data.ts` in the case that found this. See `_strip-comments.mjs`.
+    const code = src.split(/\r?\n/).filter(l => !/^\s*\/\//.test(l)).join('\n')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split(/\r?\n/);
 
     const writes = code.filter(l =>
       /col<\w+>\(`\$\{spaceId\}_(memories|entities|edges|chrono)`\)\.(replaceOne|insertOne)\(/.test(l)).length;

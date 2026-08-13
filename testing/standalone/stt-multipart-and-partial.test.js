@@ -153,7 +153,7 @@ describe('a FormData body arrives as multipart, not as text', () => {
 // ── Bug 2: the status a failed chunk produces ────────────────────────────────
 
 describe('a failed chunk is never reported as complete', () => {
-  const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const strip = s => s.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
   const audio = strip(readFileSync('server/src/files/media/audio-embedder.ts', 'utf8'));
   const worker = strip(readFileSync('server/src/files/media/worker.ts', 'utf8'));
   const video = strip(readFileSync('server/src/files/media/video-embedder.ts', 'utf8'));

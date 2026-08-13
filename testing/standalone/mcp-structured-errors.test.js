@@ -36,7 +36,7 @@ let SchemaViolationError;
 const NUL = String.fromCharCode(0);
 const toolFiles = execFileSync('git', ['ls-files', '-z', 'server/src/mcp/tools'], { encoding: 'utf8' })
   .split(NUL).filter(f => f.endsWith('.ts'));
-const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+const strip = s => s.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
 
 describe('the refusal keeps its classification', () => {
   before(async () => {

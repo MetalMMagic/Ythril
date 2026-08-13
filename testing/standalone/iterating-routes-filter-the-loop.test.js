@@ -27,7 +27,7 @@ import { join } from 'node:path';
 
 const ROOT = process.cwd();
 const read = (p) => readFileSync(join(ROOT, p), 'utf8')
-  .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+  .replace(/(^|[^:])\/\/.*$/gm, '$1').replace(/\/\*[\s\S]*?\*\//g, '');
 
 const ITERATING = ['duplicates', 'contradictions', 'conflicts'];
 const dupes = read('server/src/api/duplicates.ts');

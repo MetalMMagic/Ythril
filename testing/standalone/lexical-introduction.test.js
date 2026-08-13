@@ -194,7 +194,7 @@ describe('the agreement check', () => {
  * an empty duplicate list reads as "no duplicates".
  */
 describe('the fresh-write scan cannot take the index half down with it', () => {
-  const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const strip = s => s.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
   const recallSrc = strip(readFileSync(RECALL_SRC, 'utf8'));
   const freshSrc = strip(readFileSync('server/src/brain/fresh-writes.ts', 'utf8'));
 
@@ -217,7 +217,7 @@ describe('the fresh-write scan cannot take the index half down with it', () => {
 });
 
 describe('introduction is gated on evidence', () => {
-  const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const strip = s => s.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
   const src = strip(readFileSync(RECALL_SRC, 'utf8'));
   const fn = src.slice(src.indexOf('async function introduceLexicalOnly'), src.indexOf('async function introduceLexicalOnly') + 3000);
 

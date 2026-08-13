@@ -39,7 +39,7 @@ const read = (rel) => readFileSync(new URL(`../../${rel}`, import.meta.url), 'ut
  * call just as well as a real one, so the guard would pass on precisely the change it exists to catch.
  * (Found by trying it.)
  */
-const code = (rel) => read(rel).replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1');
+const code = (rel) => read(rel).replace(/(^|[^:])\/\/.*$/gm, '$1').replace(/\/\*[\s\S]*?\*\//g, ' ');
 
 describe('scheduler wiring — a scheduler nobody starts is dead code that looks alive', () => {
   let bootstrap;

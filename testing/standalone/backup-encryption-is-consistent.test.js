@@ -35,8 +35,8 @@ const tracked = () =>
  * codebase and never true of a `/*` inside a string. Line comments already guard against `http://`.
  */
 const strip = src => src
-  .replace(/^[ \t]*\/\*[\s\S]*?\*\//gm, ' ')
-  .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+  .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ')
+  .replace(/^[ \t]*\/\*[\s\S]*?\*\//gm, ' ');
 
 const read = f => strip(readFileSync(`${ROOT}/${f}`, 'utf8'));
 

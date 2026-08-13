@@ -24,7 +24,7 @@ import { readFileSync } from 'node:fs';
 const SRC = readFileSync(new URL('../../server/src/brain/embed-record.ts', import.meta.url), 'utf8');
 
 /** Comments must not satisfy any of these — several of them describe the very trap being asserted. */
-const CODE = SRC.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+const CODE = SRC.replace(/(^|[^:])\/\/.*$/gm, '$1').replace(/\/\*[\s\S]*?\*\//g, '');
 
 describe('the suppression decision reaches the embed path', () => {
   it('calls the shared resolver rather than re-deciding locally', () => {

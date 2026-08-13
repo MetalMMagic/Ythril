@@ -189,8 +189,8 @@ function callSites() {
     // a handler does, and reported a by-reference fan-out in a file that had none. That is the standing rule about
     // source-reading gates: the prose describing a thing must not satisfy a check for the thing.
     const src = readFileSync(f, 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/(^|[^:])\/\/.*$/gm, '$1');
+      .replace(/(^|[^:])\/\/.*$/gm, '$1')
+      .replace(/\/\*[\s\S]*?\*\//g, '');
     for (const m of src.matchAll(/resolveMemberSpaces\(([^)]*)\)/g)) {
       out.push({ file: f, arg: m[1].trim() });
     }

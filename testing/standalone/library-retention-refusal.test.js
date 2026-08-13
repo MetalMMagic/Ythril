@@ -26,7 +26,7 @@ import { readFileSync } from 'node:fs';
 
 const SRC = readFileSync(new URL('../../server/src/api/schema-library.ts', import.meta.url), 'utf8');
 /** Comments must not satisfy any of this — the block above the schema describes the very rule being checked. */
-const CODE = SRC.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+const CODE = SRC.replace(/(^|[^:])\/\/.*$/gm, '$1').replace(/\/\*[\s\S]*?\*\//g, '');
 
 /**
  * The `retention` declaration only.

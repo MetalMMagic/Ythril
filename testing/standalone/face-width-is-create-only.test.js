@@ -27,7 +27,7 @@ import { join } from 'node:path';
 const ROOT = process.cwd();
 const read = (p) => readFileSync(join(ROOT, p), 'utf8');
 const withoutComments = (text) =>
-  text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+  text.replace(/(^|[^:])\/\/.*$/gm, '$1').replace(/\/\*[\s\S]*?\*\//g, '');
 
 // The space request bodies live in `spaces/body-schemas.ts`, not in the router. They moved there because four of
 // the router's five ratchet raises were single Zod lines — both `SpaceMetaBody` and `TypeSchemaZ` are `.strict()`,

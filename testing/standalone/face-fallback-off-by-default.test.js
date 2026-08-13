@@ -29,7 +29,7 @@ import { readFileSync } from 'node:fs';
 const src = readFileSync(new URL('../../server/src/files/media/face-embedder.ts', import.meta.url), 'utf8');
 const ext = readFileSync(new URL('../../server/src/files/media/face-external.ts', import.meta.url), 'utf8');
 const withoutComments = (text) =>
-  text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+  text.replace(/(^|[^:])\/\/.*$/gm, '$1').replace(/\/\*[\s\S]*?\*\//g, '');
 
 let fallbackAllowedIn;
 before(async () => {

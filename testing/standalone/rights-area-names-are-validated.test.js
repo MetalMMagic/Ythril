@@ -30,7 +30,7 @@ import { readFileSync } from 'node:fs';
 
 let SPACE_AREAS, RUNGS;
 
-const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+const strip = s => s.replace(/(^|[^:])\/\/.*$/gm, '$1').replace(/\/\*[\s\S]*?\*\//g, '');
 const tokens = () => strip(readFileSync('server/src/api/tokens.ts', 'utf8'));
 
 describe('rights area names are validated, not merely typed', () => {

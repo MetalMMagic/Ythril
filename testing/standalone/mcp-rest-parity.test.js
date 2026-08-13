@@ -185,7 +185,7 @@ describe('the declared MCP/REST gap is real in both directions', () => {
 
   it('help() actually emits it, rather than only being able to', () => {
     const src = readFileSync('server/src/mcp/tools/help.ts', 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+      .replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
     assert.match(src, /restOnlyCapabilityMap\(\)/, 'help must call the map');
     assert.match(src, /structuredContent/, 'the map must ride in structuredContent, not only in prose');
   });

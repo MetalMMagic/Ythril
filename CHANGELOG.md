@@ -6,6 +6,37 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Security
+- **Three space read routes served a space's schema, purpose and usage notes to any authenticated token, regardless of
+  its scope.** A token scoped to one space could read another's `meta`, its completeness report and any individual type
+  schema. Found while verifying a `404`/`403` asymmetry breituai-platform reported from a token-scoping proof run — the
+  asymmetry was something else entirely, and this was underneath it.
+  - `GET /api/spaces/:id/meta` · `GET /api/spaces/:id/completeness` ·
+    `GET /api/spaces/:id/meta/typeSchemas/:knowledgeType/:typeName` were mounted behind `requireAuth`, which
+    authenticates and nothing more. Every other space route uses a guard that calls `enforceSpaceScope`.
+  - **What made it a defect rather than a design choice:** the same instance filters that space out of
+    `GET /api/spaces` for the same token. It knew the scope, and three sibling routes served the space's contents
+    anyway. A schema is not nothing — type names, property names, enum values, the purpose and the usage notes are all
+    business information.
+  - **Swept: the other candidates are clean.** Thirteen routes take a space-ish `:id` under `requireAuth`; the ten in
+    `conflicts.ts`, `contradictions.ts` and `duplicates.ts` resolve through `accessibleSpaces(req, …)` and enforce
+    scope internally.
+  - **The first fix was a no-op that looked correct, and that is the reusable part.** Mounting `requireSpaceAuth`
+    changed nothing: it reads `req.params.spaceId`, these routes declare `:id`, and `enforceSpaceScope` returns TRUE
+    for an undefined id — correctly, since a route with no space in its path has no scope to check. So the guard
+    authenticated and waved the request through, reading as enforcement at the mount site. The source gate went green
+    on it; a red-team test caught it minutes later.
+  - Fixed with `requireSpaceAuthScoped(paramName)`, mirroring the existing `requireAdminMfaScoped`, bound explicitly to
+    `'id'`. `requireSpaceAuth` is now the `'spaceId'` binding of it, so no other call site changed.
+  - **Two checks, because a middleware can be right in source and wrong in its mounting.** A red-team test proves all
+    three refuse an out-of-scope token *and* that the allowed space still reads — a scoping fix that breaks the
+    permitted path is worse than the leak. A derived gate requires every `:id` space route to use a guard **bound to
+    the parameter that route declares**, which a bare `requireSpaceAuth` cannot satisfy.
+  - **The reported asymmetry is a missing route, not a mask.** `GET /api/spaces/:id` does not exist, so the app's
+    catch-all answers `{"error":"Not found"}` for every id — permitted or not. The tell is the body: the real routes
+    answer `Space 'x' not found`. Asserted in the red-team test against a space the token CAN reach, so the status
+    carries no permission information and nobody documents an asymmetry that is not there.
+
 ### Added
 - **`create_space` is an MCP tool.** Fourth of the five, and the one where "just call the existing function" was most
   tempting and most dangerous: `createSpace()` has existed all along, so a tool could have called it on day one — and

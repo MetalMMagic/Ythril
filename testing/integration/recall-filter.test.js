@@ -437,6 +437,62 @@ describe('Recall filter — eq filter on properties.status', () => {
     assert.ok(!ids.includes(rejectedId), `Rejected entity (${rejectedId}) must NOT be in filtered results`);
   });
 
+  it('RAW MongoDB $or reaches both — the filter aigents could not express at all', async (t) => {
+    if (!embeddingAvailable) return t.skip('Embedding not available');
+    // aigents 2026-08-13T1035Z §2: recall's grammar was one operator object per key, ANDed, so a predicate with an OR was
+    // not expressible at any length and they ran `query` first and fed ids into something else.
+    //
+    // Both fixtures share an identical description, so similarity cannot distinguish them — only the filter can. An `$or`
+    // over both statuses must return BOTH, which the old grammar could not ask for.
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/recall`, {
+      query: sharedDesc,
+      types: ['entity'],
+      topK: 20,
+      filter: { $or: [{ 'properties.status': 'accepted' }, { 'properties.status': 'rejected' }] },
+    });
+    assert.equal(r.status, 200, `recall returned ${r.status}: ${JSON.stringify(r.body)}`);
+    const ids = r.body.results.map(x => x.record?._id ?? x._id);
+    assert.ok(ids.includes(acceptedId), `$or must reach the accepted entity: ${JSON.stringify(ids)}`);
+    assert.ok(ids.includes(rejectedId), `$or must reach the rejected entity too: ${JSON.stringify(ids)}`);
+  });
+
+  it('RAW MongoDB still FILTERS — an $or naming one status excludes the other', async (t) => {
+    if (!embeddingAvailable) return t.skip('Embedding not available');
+    // The half that matters more: accepting the grammar is worthless if it is then ignored. A filtered search that
+    // returns everything is the defect class this whole change came out of.
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/recall`, {
+      query: sharedDesc,
+      types: ['entity'],
+      topK: 20,
+      filter: { $or: [{ 'properties.status': 'accepted' }] },
+    });
+    assert.equal(r.status, 200, `recall returned ${r.status}: ${JSON.stringify(r.body)}`);
+    const ids = r.body.results.map(x => x.record?._id ?? x._id);
+    assert.ok(ids.includes(acceptedId), 'the named status must be reached');
+    assert.ok(!ids.includes(rejectedId),
+      `the unnamed status must be excluded — a raw filter that is accepted and ignored is worse than one refused: ${JSON.stringify(ids)}`);
+  });
+
+  it('refuses a filter that MIXES the two grammars rather than guessing', async (t) => {
+    if (!embeddingAvailable) return t.skip('Embedding not available');
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/recall`, {
+      query: sharedDesc,
+      filter: { $or: [{ 'properties.status': 'accepted' }], 'properties.domain': { eq: 'security' } },
+    });
+    assert.equal(r.status, 400, `a mixed filter was accepted: ${JSON.stringify(r.body)}`);
+    assert.match(r.body.error, /mixes both grammars/);
+  });
+
+  it('applies the key allowlist INSIDE $or, so the widening cannot smuggle a field', async (t) => {
+    if (!embeddingAvailable) return t.skip('Embedding not available');
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/recall`, {
+      query: sharedDesc,
+      filter: { $or: [{ embedding: { $exists: true } }] },
+    });
+    assert.equal(r.status, 400, `a disallowed key inside $or was accepted: ${JSON.stringify(r.body)}`);
+    assert.match(r.body.error, /embedding/);
+  });
+
   it('filter eq rejected — rejected entity appears, accepted does not', async (t) => {
     if (!embeddingAvailable) return t.skip('Embedding not available');
     const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/recall`, {

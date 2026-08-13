@@ -151,7 +151,16 @@ const FROZEN = {
   //
   // Frozen at what the file now IS, not at the old ceiling. A freeze left above the real number is a budget
   // for the next 55 lines nobody argued for.
-  'server/src/brain/recall.ts': 689,
+  // 689 -> 690: ONE line, and the reduction from four is the point.
+  //
+  // Widening recall's filter to accept raw MongoDB first threaded a second `mongoFilter` parameter through three
+  // signatures — four added lines, and this gate objected. It was right to: the behaviour belonged beside this file, not
+  // inside it. It lives in `recall-filter.ts` now, and the two grammars travel in ONE parameter, which is a smaller design
+  // than two mutually-exclusive channels a reader has to know about.
+  //
+  // What is left is the import of `isRawFilter` and its type. A file cannot use a guard without importing it, so this line
+  // is the irreducible cost of the feature reaching the code that runs it.
+  'server/src/brain/recall.ts': 690,
   'client/src/app/pages/settings/media-processing/models-tab.component.ts': 678,
   // 675 -> 677: `rights` on TokenRecord, plus its import. FOURTH raise of this file in one session, and the
   // first attempt wanted SIX lines because the shape was written inline. That was the signal, so the shape

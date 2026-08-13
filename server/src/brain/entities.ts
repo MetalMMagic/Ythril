@@ -10,6 +10,8 @@ import { embed } from './embedding.js';
 import { entityEmbedText } from './embed-text.js';
 import { getConfig } from '../config/loader.js';
 import { stampExpiryOnCreate, applyExpiryToUpdate } from './ttl.js';
+import { stampSkewOnCreate } from './stamp-skew.js';
+import { getSpaceMeta } from '../spaces/schema-validation.js';
 import { writeFilterFor, writeOutcome } from './write-precondition.js';
 import { applyDeleteFields, setUnlessDeleted } from './delete-fields.js';
 import { mergeTagsAndProperties, mergePropertiesOrKeep, mergeTagsOrKeep } from './merge-fields.js';
@@ -201,6 +203,9 @@ export async function upsertEntity(
   // `typed` is what makes the SCHEMA tier reachable. Omit it and the resolver silently falls through to the
   // space default, so a window set on `typeSchemas.entity.<type>.retention` does nothing at all.
   stampExpiryOnCreate(spaceId, doc, ttlDays, { collection: 'entity', type: doc.type });
+  // Warn-not-refuse: a caller's own stamp checked against ours. Stored only when it disagrees beyond the space's
+  // threshold, so presence is the signal. The write proceeds either way -- a backdated import is legitimate.
+  stampSkewOnCreate(doc, getSpaceMeta(spaceId));
   await collection.insertOne(asDoc<EntityDoc>(doc));
   if (!embeddingFields.embedding) await enqueueEmbedJob(spaceId, 'entity', doc._id);
   // Real-time duplicate-rule evaluation (opt-in per space). Fire-and-forget; the

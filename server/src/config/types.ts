@@ -54,7 +54,7 @@ export interface TokenRecord {
 // Moved to `types-knowledge.ts` — a LEAF that imports nothing, so it cannot become half of a cycle. See that
 // file for why that matters. Imported as well as re-exported, because `export ... from` does not bring a name
 // into local scope and `TtlBucket` below is built from `KnowledgeType`.
-import type { MergeFn, NumericMergeFn, BooleanMergeFn, PropertySchema, TypeSchema, ValidationMode, KnowledgeType, SpaceMeta } from './types-knowledge.js';
+import type { MergeFn, NumericMergeFn, BooleanMergeFn, PropertySchema, TypeSchema, ValidationMode, KnowledgeType, SpaceMeta, StampSkewable } from './types-knowledge.js';
 export type { MergeFn, NumericMergeFn, BooleanMergeFn, PropertySchema, TypeSchema, ValidationMode, KnowledgeType, SpaceMeta };
 
 /**
@@ -1264,7 +1264,7 @@ export interface AuthorRef {
   instanceLabel: string;
 }
 
-export interface MemoryDoc {
+export interface MemoryDoc extends StampSkewable {
   /**
    * Keep this record stored, but stop it being found by vector search.
    *
@@ -1306,7 +1306,7 @@ export interface MemoryDoc {
   _expireAt?: Date;
 }
 
-export interface EntityDoc {
+export interface EntityDoc extends StampSkewable {
   /**
    * Keep this record stored, but stop it being found by vector search.
    *
@@ -1338,7 +1338,7 @@ export interface EntityDoc {
   _expireAt?: Date;
 }
 
-export interface EdgeDoc {
+export interface EdgeDoc extends StampSkewable {
   /**
    * Keep this record stored, but stop it being found by vector search.
    *
@@ -1378,7 +1378,7 @@ export type ChronoType = 'event' | 'deadline' | 'plan' | 'prediction' | 'milesto
 export type ChronoKind = ChronoType;
 export type ChronoStatus = 'upcoming' | 'active' | 'completed' | 'overdue' | 'cancelled';
 
-export interface ChronoEntry {
+export interface ChronoEntry extends StampSkewable {
   /**
    * Keep this record stored, but stop it being found by vector search.
    *

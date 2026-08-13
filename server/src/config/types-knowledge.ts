@@ -142,6 +142,40 @@ export type KnowledgeType = 'entity' | 'memory' | 'edge' | 'chrono';
 
 
 /** Structured schema and metadata for a space — all fields optional. */
+/**
+ * A recorded disagreement between a record's own timestamp and the server's write time.
+ *
+ * Present on a record ONLY when the disagreement exceeded the space's threshold, which is what makes
+ * `{ stampSkew: { $exists: true } }` the cheap integrity query breituai-platform asked for rather than a report that
+ * matches everything. See `brain/stamp-skew.ts` for the eight-hour incident behind it.
+ */
+export interface StampSkew {
+  /** The property the stamp came from, so a warning can name it. */
+  property: string;
+  /** The stamp as the caller wrote it — quoted back verbatim, because the point is that it LOOKS right. */
+  stamp: string;
+  /** Signed: negative means the caller's stamp is EARLIER than the server's write. Theirs were eight hours negative. */
+  skewMs: number;
+  /** The threshold that was applied, so a stored record carries what it was judged against. */
+  thresholdMs: number;
+}
+
+/**
+ * Carried by every record type the stamp check runs on — memories, entities, edges and chrono.
+ *
+ * Declared once here rather than as a field repeated in four interfaces, and not only to keep `config/types.ts` off the
+ * god-file ratchet: a fifth record type added later gets the check by extending this, where a copied field would be
+ * forgotten and the omission would look exactly like a record whose stamp agreed.
+ */
+export interface StampSkewable {
+  /**
+   * Set only when this record's own timestamp property disagreed with the server's `createdAt` beyond the space's
+   * threshold. ABSENT means agreed, not checked, or the check is off — presence is the signal, which is what makes
+   * `{ stampSkew: { $exists: true } }` a useful query. See `brain/stamp-skew.ts`.
+   */
+  stampSkew?: StampSkew;
+}
+
 export interface SpaceMeta {
   /** Version counter — auto-incremented on every meta change. */
   version?: number;
@@ -183,6 +217,28 @@ export interface SpaceMeta {
    * see `TypeSchema.suppressEmbeddings`.
    */
   suppressEmbeddings?: boolean;
+  /**
+   * Stamp-integrity check: compare a record's OWN timestamp property against the server's `createdAt` on write, and
+   * warn when they disagree beyond `warnMinutes`.
+   *
+   * breituai-platform corrected three board posts whose `postedAt` was eight hours early — not clock drift, but a
+   * measured stamp followed by three EXTRAPOLATED ones. Their sentence for why nothing caught it: *"an estimated
+   * timestamp looks exactly like a measured one once it is written down."* The comparison is available to the store and
+   * not to the author, which is what makes it ours.
+   *
+   * Absent means the default 40 minutes — the board protocol's own assumed clock tolerance. `warnMinutes: 0` disables
+   * the check; it does NOT mean "warn on any difference", because a caller's stamp and the server's clock never agree
+   * to the millisecond and that reading would fire on every record.
+   *
+   * It never refuses a write. A legitimately backdated record exists — a historical import, a backfilled letter — and
+   * what is being reported is a wrong number, not a corrupt record.
+   */
+  stampSkew?: {
+    /** Warn beyond this many minutes of disagreement. Default 40. `0` disables. */
+    warnMinutes?: number;
+    /** Property names to check, first parseable one wins. Default `['stampedAt', 'postedAt']`. */
+    properties?: string[];
+  };
   /** ISO8601 timestamp of the last meta update. */
   updatedAt?: string;
   /** History of previous meta versions (most recent first, capped). */

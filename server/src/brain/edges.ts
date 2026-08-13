@@ -10,6 +10,8 @@ import { embed } from './embedding.js';
 import { edgeEmbedText } from './embed-text.js';
 import { getConfig } from '../config/loader.js';
 import { stampExpiryOnCreate, applyExpiryToUpdate } from './ttl.js';
+import { stampSkewOnCreate } from './stamp-skew.js';
+import { getSpaceMeta } from '../spaces/schema-validation.js';
 import { applyDeleteFields, setUnlessDeleted } from './delete-fields.js';
 import { mergePropertiesOrKeep, mergeTagsOrKeep } from './merge-fields.js';
 import { enqueueEmbedJob } from './embed-queue.js';
@@ -179,6 +181,9 @@ export async function upsertEdge(
   // `doc.label`, NOT `doc.type` — an edge has both, and the schema is keyed by label (see validateEdgeWrite).
   // Passing `type` here would look right and read a schema that is never there.
   stampExpiryOnCreate(spaceId, doc, ttlDays, { collection: 'edge', type: doc.label });
+  // Warn-not-refuse: a caller's own stamp checked against ours. Stored only when it disagrees beyond the space's
+  // threshold, so presence is the signal. The write proceeds either way -- a backdated import is legitimate.
+  stampSkewOnCreate(doc, getSpaceMeta(spaceId));
   await collection.insertOne(asDoc<EdgeDoc>(doc));
   if (!embeddingFields.embedding) await enqueueEmbedJob(spaceId, 'edge', doc._id);
   if (actor) emitWebhookEvent({ event: 'edge.created', spaceId, entry: { ...doc, embedding: undefined }, ...actor });

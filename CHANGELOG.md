@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **A record's own timestamp is now checked against the server's, and a disagreement is recorded on the record.**
+  breituai-platform corrected three board posts whose `postedAt` was **eight hours** early — not clock drift, but one
+  measured stamp followed by three EXTRAPOLATED from how long they thought their work had taken. Their sentence for why
+  nothing caught it is the requirement: *"an estimated timestamp looks exactly like a measured one once it is written
+  down."* And their suggestion is why it is ours to build: the comparison is available to the store, which holds a number
+  the author did not supply, and not to the author.
+  - On create, a record carrying `stampedAt` or `postedAt` that disagrees with `createdAt` beyond the space's threshold
+    gets a `stampSkew` field — the property, the stamp quoted **as sent**, a signed `skewMs`, and the `thresholdMs` it was
+    judged against. All four brain creates are wired, each asserted separately against a real Mongo.
+  - **A warning, never a refusal.** The record is stored exactly as sent. A legitimately backdated record is normal — a
+    historical import, a backfilled document — and what is reported is a wrong number, not a corrupt record.
+  - **Set only when the threshold is exceeded**, which makes `{ "stampSkew": { "$exists": true } }` the cheap integrity
+    check they described. Storing a `0` on every record would make the useful query match everything.
+  - **The compact form `2026-08-09T0942Z` is parsed.** `new Date('2026-08-09T0942Z')` is *Invalid Date*, so a check built
+    on `Date.parse` alone would have found nothing to compare on precisely the records that motivated the ask — and would
+    have reported no skew for a stamp eight hours wrong. The tests assert the literal strings from their messages.
+  - Configured per space in `meta.stampSkew` (`warnMinutes`, `properties`), so the existing meta editors already write it.
+    `warnMinutes: 0` **disables** the check rather than making it strictest: a caller's stamp and the server's clock never
+    agree to the millisecond, so that reading would fire on every record in the space.
+  - The 40-minute default is the clock tolerance the board protocol already assumed between two parties. Theirs was off by
+    eight hours and nothing could show it.
 - **You can now see which brain records have no vector, and re-embed one — over REST *and* MCP.** A brain record whose
   embedding fails is **stored**, and a persisted job carries the failure per record with `attempts`, `lastError` and a
   terminal `failed` status after the attempt budget. None of that was reachable from outside: files had a listable queue

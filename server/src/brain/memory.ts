@@ -17,6 +17,8 @@ import { embed } from './embedding.js';
 import { memoryEmbedText } from './embed-text.js';
 import { getConfig } from '../config/loader.js';
 import { stampExpiryOnCreate, applyExpiryToUpdate } from './ttl.js';
+import { stampSkewOnCreate } from './stamp-skew.js';
+import { getSpaceMeta } from '../spaces/schema-validation.js';
 import { applyDeleteFields } from './delete-fields.js';
 import { mergeTags, mergeProperties, mergePropertiesOrKeep } from './merge-fields.js';
 import { enqueueEmbedJob } from './embed-queue.js';
@@ -191,6 +193,9 @@ export async function remember(
   if (properties !== undefined) doc.properties = properties;
   // See entities.ts: without `typed` the schema tier is unreachable and the space default applies instead.
   stampExpiryOnCreate(spaceId, doc, ttlDays, { collection: 'memory', type: doc.type });
+  // Warn-not-refuse: a caller's own stamp checked against ours. Stored only when it disagrees beyond the space's
+  // threshold, so presence is the signal. The write proceeds either way -- a backdated import is legitimate.
+  stampSkewOnCreate(doc, getSpaceMeta(spaceId));
   await col<MemoryDoc>(`${spaceId}_memories`).insertOne(asDoc<MemoryDoc>(doc));
   if (!embResult) await enqueueEmbedJob(spaceId, 'memory', doc._id);
   // Real-time duplicate-rule evaluation (opt-in per space). Fire-and-forget; the

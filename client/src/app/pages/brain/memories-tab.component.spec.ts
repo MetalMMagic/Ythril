@@ -129,7 +129,7 @@ describe('MemoriesTabComponent', () => {
     const c = fixture.componentInstance;
     const mutated = vi.fn();
     c.mutated.subscribe(mutated);
-    c.memoryForm = { fact: '  a fact  ', tags: ['t'], entityIds: 'e1, , e2', description: ' d ', properties: { k: 'v' } };
+    c.memoryForm = { fact: '  a fact  ', type: '', tags: ['t'], entityIds: 'e1, , e2', description: ' d ', properties: { k: 'v' } };
     c.createMemory();
     expect(api.createMemory).toHaveBeenCalledWith('work', {
       fact: 'a fact', tags: ['t'], entityIds: ['e1', 'e2'], description: 'd', properties: { k: 'v' },
@@ -139,9 +139,24 @@ describe('MemoriesTabComponent', () => {
 
   it('createMemory is a no-op when fact is blank', () => {
     const c = make().componentInstance;
-    c.memoryForm = { fact: '   ', tags: [], entityIds: '', description: '', properties: {} };
+    c.memoryForm = { fact: '   ', type: '', tags: [], entityIds: '', description: '', properties: {} };
     c.createMemory();
     expect(api.createMemory).not.toHaveBeenCalled();
+  });
+
+  it('createMemory sends `type` when set, and OMITS it when blank', () => {
+    // Both directions matter. Blank must stay ABSENT rather than become "": the server uses `type` to look up
+    // `typeSchemas.memory[type]`, so an empty string selects nothing and stores a value no filter offers.
+    const f = make();
+    const c = f.componentInstance;
+    c.memoryForm = { fact: 'f', type: '  decision  ', tags: [], entityIds: '', description: '', properties: {} };
+    c.createMemory();
+    expect(api.createMemory).toHaveBeenCalledWith('work', { fact: 'f', type: 'decision' });
+
+    api.createMemory.mockClear();
+    c.memoryForm = { fact: 'f', type: '   ', tags: [], entityIds: '', description: '', properties: {} };
+    c.createMemory();
+    expect(api.createMemory).toHaveBeenCalledWith('work', { fact: 'f' });
   });
 
   it('saveEditMemory sends the full shape, clears editingId, and patches the store list', () => {

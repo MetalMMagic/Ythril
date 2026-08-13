@@ -64,7 +64,7 @@ export class RecordDrawerState {
    */
   readonly lastSaved = signal<DrawerRecord | null>(null);
 
-  drawerEditMemory = { fact: '', tags: [] as string[], entityIds: '', description: '', properties: {} as Record<string, string | number | boolean> };
+  drawerEditMemory = { fact: '', type: '', tags: [] as string[], entityIds: '', description: '', properties: {} as Record<string, string | number | boolean> };
   drawerEditEntity = { name: '', type: '', tags: [] as string[], description: '', properties: {} as Record<string, string | number | boolean> };
   drawerEditEdge = { label: '', type: '', weight: null as number | null, tags: [] as string[], description: '', properties: {} as Record<string, string | number | boolean> };
   drawerEditChrono = { title: '', kind: 'event' as string, status: 'upcoming' as string, startsAt: '', endsAt: '', description: '', tags: [] as string[], entityIds: '', confidence: null as number | null, memoryIds: [] as string[], properties: {} as Record<string, string | number | boolean> };
@@ -110,6 +110,7 @@ export class RecordDrawerState {
       const r = target.record;
       this.drawerEditMemory = {
         fact: r.fact,
+        type: r.type ?? '',
         tags: [...(r.tags ?? [])],
         entityIds: (r.entityIds ?? []).join(', '),
         description: r.description ?? '',
@@ -171,6 +172,9 @@ export class RecordDrawerState {
       const props = this.drawerEditMemory.properties;
       this.brainApi.updateMemory(spaceId, id, {
         fact: this.drawerEditMemory.fact.trim(),
+        // Trimmed, and sent even when empty: on an UPDATE an absent field means "leave it alone", so clearing the
+        // box has to reach the API as an explicit empty value or the type could be set and never unset.
+        type: this.drawerEditMemory.type.trim(),
         tags: this.drawerEditMemory.tags,
         entityIds: this.drawerEditMemory.entityIds.split(',').map(s => s.trim()).filter(Boolean),
         description: this.drawerEditMemory.description.trim(),

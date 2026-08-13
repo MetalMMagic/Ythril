@@ -69,6 +69,16 @@ import { BRAIN_CHIP_STYLES, BRAIN_DRAWER_STYLES } from './brain-form.styles';
                   <textarea [(ngModel)]="state.drawerEditMemory.description" name="drwMemDesc" rows="3" style="resize:vertical;"></textarea>
                 </div>
                 <div class="drawer-field">
+                  <!-- Free text with suggestions, matching the create form and the edge drawer's own type input.
+                       See the note there: memory type has no server-side allowlist, so a closed select would be
+                       stricter than the API. -->
+                  <div class="drawer-label">{{ 'common.form.type' | transloco }}</div>
+                  <input type="text" [(ngModel)]="state.drawerEditMemory.type" name="drwMemType" list="drwMemTypeOptions" />
+                  <datalist id="drwMemTypeOptions">
+                    @for (t of store.memoryTypeOptions(); track t) { <option [value]="t"></option> }
+                  </datalist>
+                </div>
+                <div class="drawer-field">
                   <div class="drawer-label">{{ 'common.form.tags' | transloco }}</div>
                   <app-tag-input [(value)]="state.drawerEditMemory.tags" [suggestions]="store.memoryTagSuggestions()" inputName="drwMemTags" />
                 </div>

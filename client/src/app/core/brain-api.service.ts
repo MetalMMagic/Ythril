@@ -126,11 +126,11 @@ export class BrainApi {
     return this.http.delete<void>(`/api/brain/spaces/${spaceId}/memories/${id}`);
   }
 
-  createMemory(spaceId: string, body: { fact: string; tags?: string[]; entityIds?: string[]; description?: string; properties?: Record<string, string | number | boolean> }): Observable<Memory> {
+  createMemory(spaceId: string, body: { fact: string; type?: string; tags?: string[]; entityIds?: string[]; description?: string; properties?: Record<string, string | number | boolean> }): Observable<Memory> {
     return this.http.post<Memory>(`/api/brain/spaces/${spaceId}/memories`, body);
   }
 
-  updateMemory(spaceId: string, id: string, body: Partial<{ fact: string; tags: string[]; entityIds: string[]; description: string; properties: Record<string, string | number | boolean>; deleteFields: string[] }>): Observable<Memory> {
+  updateMemory(spaceId: string, id: string, body: Partial<{ fact: string; type: string; tags: string[]; entityIds: string[]; description: string; properties: Record<string, string | number | boolean>; deleteFields: string[] }>): Observable<Memory> {
     return this.http.patch<Memory>(`/api/brain/spaces/${spaceId}/memories/${id}`, body);
   }
 

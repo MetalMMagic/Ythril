@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [2.8.0] — 2026-08-13
 ### Added
 - **`POST /query` takes `sort`/`dir` and reports a match `total`.** aigents asked for both alongside the `skip` finding
   (2026-08-11T1045Z); #863 honoured `skip` and turned `sort` from silently ignored into an explicit `400`, which was the

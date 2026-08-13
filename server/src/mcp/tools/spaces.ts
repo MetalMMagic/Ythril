@@ -88,6 +88,52 @@ export const get_statsTool: ToolHandler = {
   },
 };
 
+/**
+ * The space's entity-relationship model — REST-only until now, and it is the question an agent asks first.
+ *
+ * `get_space_meta` returns the DECLARED schema: what may exist. This returns what DOES exist — which types are
+ * actually present, which relationships actually occur between them, and how many of each. An agent deciding how
+ * to write into an unfamiliar space wants both, and only one of them was reachable.
+ *
+ * Found by the capability matrix (`scripts/surface-matrix.mjs`), which put `GET /er-model` in the REST-only
+ * column. Filed as B-21.
+ *
+ * **On a proxy space the members are reported SEPARATELY rather than merged**, exactly as the REST route does.
+ * Merging would add up counts for two types that share a name and mean different things in different spaces, and
+ * would invent relationships between types that can never be joined, because an edge cannot cross a space. A
+ * union would look richer and be false — so the shape differs by design, not by omission.
+ */
+export const er_modelTool: ToolHandler = {
+  name: 'er_model',
+  description:
+        'Return the space\'s entity-relationship model: which entity types actually exist, which edge labels '
+        + 'connect which types, and the counts of each — inferred from the stored records AND the declared '
+        + 'schema. Use it to learn how a space is actually shaped before writing into it; `get_space_meta` gives '
+        + 'the declared schema (what MAY exist), this gives what DOES. A type with zero records is reported '
+        + 'rather than omitted. On a proxy space each member is reported separately, because merging would '
+        + 'invent relationships that cannot exist across spaces.',
+  spaceRequired: true,
+  inputSchema: (s: ToolSchemas) => ({
+          type: 'object',
+          properties: {
+            space: s.requiredSpace,
+          },
+          required: ['space'],
+          additionalProperties: false,
+        }),
+  async handle(ctx: ToolContext): Promise<ToolResult> {
+    const { callSpace, accessibleSpaceIds } = ctx;
+    const { buildErModel } = await import('../../brain/er-model.js');
+    // The same narrowing every MCP read uses: the connection's accessible spaces, not the request's.
+    const memberIds = memberSpacesWithin(callSpace, accessibleSpaceIds);
+    const models = await Promise.all(memberIds.map(mid => buildErModel(mid)));
+    const output = memberIds.length === 1 && memberIds[0] === callSpace
+      ? models[0]
+      : { spaceId: callSpace, members: models };
+    return { content: [{ type: 'text' as const, text: JSON.stringify(output) }] };
+  },
+};
+
 export const get_space_metaTool: ToolHandler = {
   name: 'get_space_meta',
   description:

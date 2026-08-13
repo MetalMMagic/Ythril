@@ -123,7 +123,15 @@ const RECLASSIFIED = 1;
  * The number moving UP as narrowing becomes explicit is the healthy direction for this invariant. It moved down once in
  * my hands, on a plausible story about consolidation, and the arithmetic said otherwise.
  */
-const TOTAL = 38;
+/**
+ * 38 -> 39: the `er_model` MCP tool.
+ *
+ * The REST route has always narrowed with `memberSpacesForRequest`; the tool is new and narrows with
+ * `memberSpacesWithin`, which is the MCP half of the same rule. One more visible site, and it reports a proxy's
+ * members SEPARATELY rather than merged — merging type counts across spaces would invent relationships that
+ * cannot exist, since an edge cannot cross a space.
+ */
+const TOTAL = 39;
 
 const GUARDS = {
   'server/src/auth/middleware.ts': 2,

@@ -179,7 +179,9 @@ export function classifyOperation(operation: string): CallClass | null {
   // Demand on the file store, reads only (the mutations went to `write` above).
   if (/^file\./.test(operation)) return 'file';
 
-  if (/\.(list|get|stats|traverse|export|search|validate)$/.test(operation)) return 'read';
+  // `er_model` joins this list rather than the suffix pattern gaining a `model$` alternative: it is a READ of
+  // what a space contains — type names, edge labels, counts — which is the same demand signal as `stats`.
+  if (/\.(list|get|stats|er_model|traverse|export|search|validate)$/.test(operation)) return 'read';
 
   // Anything unrecognised counts as nothing rather than guessing. `space-activity-classes.test.js` enumerates
   // every operation the audit middleware defines and fails on one that lands here undeclared, so a new route

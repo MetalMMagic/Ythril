@@ -244,6 +244,7 @@ const ROUTE_RULES: RouteRule[] = [
   { method: 'POST',   pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/query$/,      operation: 'brain.query',          spaceGroup: 1, read: true },
   { method: 'POST',   pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/find-similar$/, operation: 'brain.find_similar', spaceGroup: 1, read: true },
   { method: 'GET',    pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/stats$/,      operation: 'brain.stats',          spaceGroup: 1, read: true },
+  { method: 'GET',    pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/er-model$/,   operation: 'brain.er_model',       spaceGroup: 1, read: true },
 
   // ── Bulk write ───────────────────────────────────────────────────────────
   { method: 'POST',   pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/bulk$/,       operation: 'bulk.write',     spaceGroup: 1 },

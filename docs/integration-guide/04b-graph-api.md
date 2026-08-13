@@ -405,6 +405,11 @@ GET /api/brain/spaces/:spaceId/er-model
 The space's entity-relationship model, derived from the schema **and** from what is stored. Read-only,
 nothing cached, every number a real count of records.
 
+> **Also available as MCP tool:** `er_model` — same output, same proxy rule (members reported separately),
+> and available to every token including read-only ones. It answers what a space *contains*, where
+> `get_space_meta` answers what its schema *permits*; an agent deciding how to write into an unfamiliar
+> space usually wants both.
+
 ```json
 {
   "spaceId": "ops",

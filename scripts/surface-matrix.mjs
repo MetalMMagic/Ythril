@@ -142,6 +142,7 @@ const MAP = [
   ['Brain — search', 'traverse', 'POST /api/brain/spaces/:spaceId/traverse'],
   ['Brain — bulk', 'bulk_write', 'POST /api/brain/spaces/:spaceId/bulk'],
   ['Brain — ops', 'get_stats', 'GET /api/brain/spaces/:spaceId/stats'],
+  ['Brain — ops', 'er_model', 'GET /api/brain/spaces/:spaceId/er-model'],
   ['Brain — ops', 'reindex', 'POST /api/brain/spaces/:spaceId/reindex'],
   ['Brain — ops', 'list_embed_jobs', 'GET /api/brain/spaces/:spaceId/embedding-queue/records'],
   ['Brain — ops', 'retry_record_embedding', 'POST /api/brain/spaces/:spaceId/embedding-queue/records/retry'],

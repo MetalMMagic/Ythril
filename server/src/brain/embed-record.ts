@@ -22,6 +22,7 @@ import { resolveEdgeEntityNames } from './edges.js';
 import { embeddingSuppressed, schemaKeyFor } from './suppress-embeddings.js';
 import { getSpaceMeta } from '../spaces/schema-validation.js';
 import type { KnowledgeType } from '../config/types-knowledge.js';
+import { getEmbeddingConfig } from '../config/loader.js';
 import type {
   BrainEmbedRecordType, MemoryDoc, EntityDoc, EdgeDoc, ChronoEntry, FileMetaDoc,
 } from '../config/types.js';
@@ -91,7 +92,7 @@ export async function buildEmbedText(
  * findable. Neither is owed a vector, so neither may be retried: a retry would keep a job alive forever for
  * work that must never happen.
  */
-export type EmbedOutcome = 'embedded' | 'gone' | 'excluded';
+export type EmbedOutcome = 'embedded' | 'gone' | 'excluded' | 'unchanged';
 
 /**
  * ## Why an UPDATE enqueues this instead of embedding inline
@@ -169,6 +170,24 @@ export async function embedStoredRecord(
   }
 
   const text = await buildEmbedText(spaceId, recordType, doc);
+
+  // Every successful update enqueues an embed job, unconditionally and for good reasons — the enqueue is also
+  // how the `excludeFromVectorSearch` toggle takes effect, and how a stale inline embed was eliminated. But most
+  // updates change something the vector does not depend on: a tag, a property, a link, a status. Those paid for a
+  // model call that could only reproduce the vector already stored.
+  //
+  // **The fingerprint already exists.** Every embed writes `matchedText` — the exact text it embedded — beside the
+  // vector. So an identical text, with a vector present and the SAME model configured, means the model call is a
+  // no-op by construction: a vector is a pure function of (text, model), and both are unchanged.
+  //
+  // This is not a heuristic and it does not trade quality: the record keeps a vector the system itself produced
+  // from this text with this model. Any of the three conditions failing falls through and re-embeds.
+  const configuredModel = getEmbeddingConfig().model;
+  const vectorPresent = Array.isArray(doc['embedding']) && (doc['embedding'] as unknown[]).length > 0;
+  if (vectorPresent && doc['matchedText'] === text && doc['embeddingModel'] === configuredModel) {
+    return 'unchanged';
+  }
+
   const result = await embed(text);
 
   // `seq` is deliberately NOT advanced. An embedding is a DERIVED field — `merkle.ts` excludes it from

@@ -70,6 +70,11 @@ export async function startConfiguredInstanceServices(): Promise<void> {
   startContradictionScanner();
   const { startTtlSweep } = await import('./brain/ttl-sweep.js');
   startTtlSweep();
+  // Read-path indexes for EVERY space, not only ones created after this release. `initSpace` runs for new
+  // spaces only, so an index added there would reach the changelog and never the database an operator
+  // already has. Idempotent — `createIndex` is a no-op when the index exists — and best-effort per space.
+  const { ensureQueryIndexes } = await import('./spaces/ensure-query-indexes.js');
+  void ensureQueryIndexes().then(n => { if (n > 0) log.debug(`Read-path indexes ensured (${n} calls)`); });
   // The per-space usefulness counters accumulate in memory at ~19 ns per request and are written down once a
   // minute — one upsert per space that was actually used, so the write cost does not scale with traffic. The
   // timer is unref'd, and `stopSpaceActivityFlush` on the shutdown path writes the last partial minute.

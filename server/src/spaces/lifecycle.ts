@@ -74,8 +74,17 @@ export async function initSpace(
   await memoriesColl.createIndex({ seq: 1 });
   await memoriesColl.createIndex({ tags: 1 });
   await memoriesColl.createIndex({ entityIds: 1 });
+  // `{ type: 1 }` on all four record collections. MEASURED, not assumed: every list endpoint exposes a `type`
+  // filter and `total` counts with it, and `explain()` on a live instance returned COLLSCAN for
+  // `{type: …}` on memories, entities, edges and chrono. Entities looked covered by `{ name: 1, type: 1 }` and
+  // are not — `type` is not a prefix of it, so that index cannot serve a query on `type` alone.
+  //
+  // Quality-neutral by construction: the same documents come back in the same order, the counts are identical,
+  // and only the plan changes. This is the cheapest load reduction available on the read path.
+  await memoriesColl.createIndex({ type: 1 });
   await entitiesColl.createIndex({ name: 1, type: 1 });
   await entitiesColl.createIndex({ seq: 1 });
+  await entitiesColl.createIndex({ type: 1 });
   // Unique within the (already per-space) collection: (from, to, label) — the leading constant
   // `spaceId` distinguished no documents, so dropping it preserves the identical guarantee.
   await edgesColl.createIndex({ from: 1, to: 1, label: 1 }, { unique: true });
@@ -84,9 +93,11 @@ export async function initSpace(
   // Completeness' unlinked-entity join asks it per entity; traversal asks it per hop.
   await edgesColl.createIndex({ to: 1 });
   await edgesColl.createIndex({ seq: 1 });
+  await edgesColl.createIndex({ type: 1 });
   await chronoColl.createIndex({ startsAt: 1 });
   await chronoColl.createIndex({ status: 1 });
   await chronoColl.createIndex({ seq: 1 });
+  await chronoColl.createIndex({ type: 1 });
   await tombstonesColl.createIndex({ seq: 1 });
   await conflictsColl.createIndex({ detectedAt: -1 });
   // Serves the list query: equality on `status` (now the leading field) + sort by (score desc,

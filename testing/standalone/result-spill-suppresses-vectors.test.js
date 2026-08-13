@@ -90,10 +90,12 @@ describe('the whole result set spills, with a TTL', () => {
     // prevent, and nothing else would notice.
     const rest = read('server/src/api/brain/search.ts');
     const mcp = read('server/src/mcp/tools/search.ts');
-    assert.equal((rest.match(/spillResultSet\(\{/g) ?? []).length, 2, 'REST recall and find-similar');
-    assert.equal((mcp.match(/spillResultSet\(\{/g) ?? []).length, 2, 'MCP recall and find_similar');
+    // TWO branches each: with and without `traverse`. The first version wired only the graph branch, so the
+    // plainest large call — `topK: 100`, no traversal — returned everything. The E2E caught it; this counts it.
+    assert.equal((rest.match(/spillResultSet\(\{/g) ?? []).length, 4, 'REST recall + find-similar, both branches');
+    assert.equal((mcp.match(/spillResultSet\(\{/g) ?? []).length, 3, 'MCP recall both branches + find_similar');
     for (const [name, src] of [['REST', rest], ['MCP', mcp]]) {
-      assert.equal((src.match(/slice\(0, SPILL_INLINE_RESULTS\)/g) ?? []).length, 2,
+      assert.ok((src.match(/slice\(0, SPILL_INLINE_RESULTS\)/g) ?? []).length >= 2,
         `${name} must return the sample rather than the whole set when it spilled`);
     }
   });

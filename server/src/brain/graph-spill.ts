@@ -124,9 +124,14 @@ export async function buildGraphWithSpill(
   return { graph, spill };
 }
 
-/** Serialise a complete graph into the space's `_tmp/`, with a one-day record TTL. */
+/**
+ * Serialise a complete graph into the space's `_tmp/`, with a one-day record TTL.
+ *
+ * `memberSpaceId`, not `spaceId`: the parameter being called after the request's space is what let a proxy id
+ * reach a write in the first version of this file. A proxy owns no store, so only a member may be named here.
+ */
 async function writeSpill(
-  spaceId: string,
+  memberSpaceId: string,
   complete: RecallGraph,
   nodes: number,
   ceilingHit: boolean,
@@ -135,7 +140,7 @@ async function writeSpill(
   const expiresAt = new Date(Date.now() + SPILL_TTL_DAYS * 86_400_000).toISOString();
   const body = JSON.stringify({
     kind: 'graph-traversal',
-    generatedFor: spaceId,
+    generatedFor: memberSpaceId,
     nodes,
     expiresAt,
     // Stated in the FILE as well as the response: whoever opens this a day later has only the file, and a
@@ -145,9 +150,9 @@ async function writeSpill(
     graph: [...complete.bySeed.entries()].map(([seedId, graph]) => ({ seedId, graph })),
   });
 
-  const { sha256 } = await writeFile(spaceId, path, body);
+  const { sha256 } = await writeFile(memberSpaceId, path, body);
   void sha256;
-  await upsertFileMeta(spaceId, path, Buffer.byteLength(body, 'utf8'), {
+  await upsertFileMeta(memberSpaceId, path, Buffer.byteLength(body, 'utf8'), {
     description: `Complete graph traversal (${nodes} nodes), expires ${expiresAt}`,
     tags: ['graph-spill'],
     ttlDays: SPILL_TTL_DAYS,
@@ -156,7 +161,7 @@ async function writeSpill(
   return {
     nodes,
     path,
-    download: `/api/files/${encodeURIComponent(spaceId)}?path=${encodeURIComponent(path)}`,
+    download: `/api/files/${encodeURIComponent(memberSpaceId)}?path=${encodeURIComponent(path)}`,
     expiresAt,
     ...(ceilingHit ? { ceilingHit: true } : {}),
   };

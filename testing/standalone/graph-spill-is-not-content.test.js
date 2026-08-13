@@ -160,7 +160,7 @@ describe('the constants say what the ruling said', () => {
 
   it('the download link is the authenticated file route', () => {
     const spill = read('server/src/brain/graph-spill.ts');
-    assert.match(spill, /\/api\/files\/\$\{encodeURIComponent\(spaceId\)\}\?path=/,
+    assert.match(spill, /\/api\/files\/\$\{encodeURIComponent\(memberSpaceId\)\}\?path=/,
       'a link that worked without the caller token would read a space with no auth');
   });
 });

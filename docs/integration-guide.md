@@ -26,7 +26,8 @@ stands on its own.
    Sync API
 10. [MFA & Conflicts APIs](integration-guide/10-mfa-and-conflicts.md)
    Conflicts API
-11. [Setup API](integration-guide/11-setup-api.md)
+11. [Setup API](integration-guide/11-setup-api.md) — first-run setup, health and readiness probes, and the
+    **Prometheus metrics reference** (every series `/metrics` exposes, with what each one means)
 12. [Admin & Data Management APIs](integration-guide/12-admin-api.md)
    Reference integrity · Data Management API
 13. [Audit Log API](integration-guide/13-audit-log-api.md)

@@ -16,6 +16,7 @@ import { needsReindex } from '../spaces/_shared.js';
 import { mergeRecallResults, rankOf, rerankTextOf, summariseRecall } from './recall-shape.js';
 import { vectorFilterFieldsFor } from '../spaces/vector-index.js';
 import { FilterExpression, buildMongoFilter, toNativeVectorFilter } from './filter.js';
+import { isRawFilter, type RecallFilter } from './recall-filter.js';
 import { deriveChronoStatus } from './chrono-status.js';
 import { rerank, rerankConfigured, candidateMultiplier, MAX_CANDIDATES } from './rerank-client.js';
 import { lexicalSearch, rrfFuse, hybridSearchEnabled, LEXICAL_LIMIT_MULTIPLIER, type LexicalHit } from './lexical-search.js';
@@ -202,7 +203,7 @@ export async function recall(
   types?: RecallKnowledgeType[],
   minPerType?: Partial<Record<RecallKnowledgeType, number>>,
   minScore?: number,
-  filter?: FilterExpression,
+  filter?: RecallFilter,
   /**
    * Options added after this signature was already eight parameters long.
    *
@@ -437,14 +438,16 @@ async function applyLexicalFusion(
   perTypeK: number,
   pool: RecallResult[],
   tags?: string[],
-  filter?: FilterExpression,
+  filter?: RecallFilter,
 ): Promise<void> {
   if (pool.length === 0) return;
 
   // Same two matches `recallByType`'s exhaustive path applies, so the two channels agree on eligibility.
   const eligibility: Record<string, unknown> = {};
   if (tags && tags.length > 0) eligibility['tags'] = { $all: tags };
-  const built = filter != null && Object.keys(filter).length > 0 ? buildMongoFilter(filter) : null;
+  // Either grammar reaches the same eligibility match, so the lexical channel agrees with the vector one about which
+  // records qualify. A raw filter arrives already validated and needs no translation.
+  const built = filter == null ? null : isRawFilter(filter) ? filter.__raw : (Object.keys(filter).length > 0 ? buildMongoFilter(filter) : null);
   const match = built ? { ...eligibility, ...built } : eligibility;
 
   const limit = perTypeK * LEXICAL_LIMIT_MULTIPLIER;
@@ -814,7 +817,7 @@ async function recallByType(
   queryVector: number[],
   topK: number,
   tags?: string[],
-  filter?: FilterExpression,
+  filter?: RecallFilter,
   /**
    * Server-side deadline for this collection's search, in ms.
    *
@@ -829,7 +832,9 @@ async function recallByType(
   const collName = `${spaceId}_${collSuffix}`;
   const indexName = `${spaceId}_${collSuffix}_embedding`;
 
-  const hasFilter = filter != null && Object.keys(filter).length > 0;
+  // `mongoFilter` counts: without it here a raw filter would fall through to the unfiltered ANN path and be silently
+  // ignored — a filtered search returning unfiltered results, which is the defect class this whole change came from.
+  const hasFilter = filter != null && (isRawFilter(filter) || Object.keys(filter).length > 0);
   const hasTags = tags != null && tags.length > 0;
 
   // Shared tail: attach score/type, then project type-specific fields (always dropping the vector).
@@ -853,7 +858,7 @@ async function recallByType(
     const ennLimit = Math.min(10000, Math.max(topK * 100, 1000));
     const p: object[] = [{ $vectorSearch: { index: indexName, path: 'embedding', queryVector, exact: true, limit: ennLimit } }];
     if (hasTags) p.push({ $match: { tags: { $all: tags } } });
-    if (hasFilter) p.push({ $match: buildMongoFilter(filter!) });
+    if (hasFilter) p.push({ $match: isRawFilter(filter!) ? filter.__raw : buildMongoFilter(filter as FilterExpression) });
     p.push({ $limit: topK });
     return [...p, ...tail];
   };
@@ -869,7 +874,9 @@ async function recallByType(
     primary = [annStage(), ...tail];
   } else {
     const declared = new Set(vectorFilterFieldsFor(spaceId, collSuffix));
-    const nativeFilter = toNativeVectorFilter(tags, filter, declared);
+    // A raw filter is never declarable: `toNativeVectorFilter` speaks the operator-object grammar, and `$or` has no
+    // native `$vectorSearch` equivalent. Passing `undefined` sends it down the exhaustive branch below.
+    const nativeFilter = isRawFilter(filter) ? null : toNativeVectorFilter(tags, filter, declared);
     if (nativeFilter) {
       usedNativeFilter = true;
       primary = [
@@ -1064,7 +1071,7 @@ export async function recallGlobal(
   types?: RecallKnowledgeType[],
   minPerType?: Partial<Record<RecallKnowledgeType, number>>,
   minScore?: number,
-  filter?: FilterExpression,
+  filter?: RecallFilter,
   opts?: {
     maxPerType?: Partial<Record<RecallKnowledgeType, number>>;
     maxTimeMS?: number;

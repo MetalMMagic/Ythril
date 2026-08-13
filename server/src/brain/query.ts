@@ -18,7 +18,17 @@ const ALLOWED_OPERATORS = new Set([
 // Valid MongoDB regex flags (i=case-insensitive, m=multiline, s=dotAll, x=extended)
 const VALID_OPTIONS_RE = /^[imsx]+$/;
 
-function sanitizeFilter(filter: unknown, depth = 0): unknown {
+/**
+ * Exported so `recall` can validate a raw-Mongo filter with the SAME parser, allowlist and depth cap `query` uses.
+ *
+ * aigents, 2026-08-13T1035Z §2: recall's filter is one operator object per key, ANDed, while query's takes
+ * `$or`/`$and`/`$not`/`$regex`/`$elemMatch` nested to depth 8 — so a caller wanting meaning-ranking AND a real predicate
+ * had to make two calls. Two filter languages against one store is a fork of the same policy, and the narrower one keeps
+ * being the reason a caller reaches for the wrong tool.
+ *
+ * One parser, not two similar ones.
+ */
+export function sanitizeFilter(filter: unknown, depth = 0): unknown {
   if (depth > 8) throw new Error('Filter too deeply nested');
   if (Array.isArray(filter)) return filter.map(v => sanitizeFilter(v, depth + 1));
   if (filter !== null && typeof filter === 'object') {

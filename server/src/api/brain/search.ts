@@ -17,7 +17,8 @@ import {
   unknownBodyFields, compareBySort, DEFAULT_QUERY_SORT, QUERY_PAGE_MAX, PROXY_PAGE_CEILING,
 } from '../../brain/query.js';
 import { findSimilar, recall, type RecallKnowledgeType, type RecallResult } from '../../brain/recall.js';
-import { validateFilterExpression, type FilterExpression } from '../../brain/filter.js';
+import { type FilterExpression } from '../../brain/filter.js';
+import { resolveRecallFilter } from '../../brain/recall-filter.js';
 import { traverseGraph, traverseRecallSeeds, MAX_RECALL_TRAVERSE, resolveEdgeEntityNames } from '../../brain/edges.js';
 import { embed } from '../../brain/embedding.js';
 import { getConfig } from '../../config/loader.js';
@@ -435,19 +436,17 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
     safeTraverse = traverse;
   }
 
-  let safeFilter: FilterExpression | undefined;
-  if (filter != null) {
-    if (typeof filter !== 'object' || Array.isArray(filter)) {
-      res.status(400).json({ error: 'filter must be an object' });
-      return;
-    }
-    const filterErr = validateFilterExpression(filter as FilterExpression);
-    if (filterErr) {
-      res.status(400).json({ error: filterErr });
-      return;
-    }
-    safeFilter = filter as FilterExpression;
+  // EITHER grammar. The operator-object form is passed through untouched so it keeps the native pre-filter path; a raw
+  // MongoDB filter is validated with the same parser `query` uses and goes down the exhaustive path.
+  // One channel: `recall` takes either grammar in the same parameter, so there is nothing here to keep in step.
+  const resolved = resolveRecallFilter(filter);
+  if (!resolved.ok) {
+    res.status(400).json({ error: resolved.error });
+    return;
   }
+  const safeFilter = resolved.kind === 'expression' ? resolved.expression
+    : resolved.kind === 'mongo' ? resolved.filter
+      : undefined;
 
   try {
     const memberIds = memberSpacesForRequest(req, spaceId);

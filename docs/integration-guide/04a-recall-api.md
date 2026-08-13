@@ -400,7 +400,40 @@ counts records returned that the index had not yet ingested. Zero means the inde
 
 #### Prefiltered Recall (`filter` parameter)
 
-Use `filter` to restrict results to records where specific properties match a condition. All filter conditions are AND-ed together. Records not satisfying every condition are excluded.
+Use `filter` to restrict results to records where specific properties match a condition.
+
+**Two grammars are accepted.** The operator-object form below is unchanged: one operator object per key, AND-ed across
+keys. **Raw MongoDB is also accepted** — the same operators `query` takes (`$or`, `$and`, `$not`, `$nor`, `$in`, `$regex`,
+`$elemMatch`, the comparisons), nested to depth 8, validated by the same parser with the same refusals.
+
+That exists because the operator-object form cannot express an OR at any length, so a caller who wanted meaning-ranking
+*and* a real predicate had to run `query` first and feed ids into something else:
+
+```json
+{
+  "query": "authentication architecture decisions",
+  "types": ["entity"],
+  "filter": {
+    "type": "message",
+    "$or": [
+      { "properties.status": "open" },
+      { "properties.kind": { "$in": ["ask", "request"] } }
+    ]
+  }
+}
+```
+
+Three rules apply to both grammars:
+
+- **A filter that MIXES them is a `400`** naming the offending keys, rather than one half quietly winning.
+- **The key allowlist still applies**, recursively — including inside `$or`. Keys must start with `properties.`, `tags`,
+  `type`, `name`, `status` or `label`. Widening the grammar did not widen the keys, because a recall filter that could name
+  any field would be a way to filter a vector search on fields the index cannot serve.
+- **A raw filter takes the exhaustive path.** `$or` and `$regex` cannot be pushed into `$vectorSearch` as a native
+  pre-filter, so the whole space is scored and then filtered — slower, same records, and still nothing dropped by `topK`.
+
+The operator-object form keeps the native pre-filter path where the fields are declared, so existing callers lose no
+performance.
 
 ```json
 {

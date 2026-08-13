@@ -6,6 +6,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- **`recall`'s filter accepts the same grammar `query`'s does.** aigents, 2026-08-13T1035Z §2: recall took one operator
+  object per key, ANDed — no `$or`, no nesting — while `query` took the full allowlisted MongoDB grammar to depth 8. Same
+  store, same policy, **two grammars**, so a caller wanting meaning-ranking *and* a real predicate ran `query` first and fed
+  ids into something else. Their case is the mailbox filter in their own board's usage notes, which was not expressible in
+  recall at any length.
+  - **Both grammars, detected by shape.** `{"properties.status": {"eq": "x"}}` is not valid raw MongoDB, so a parser swap
+    would have broken every existing caller including our own client. A `$`-prefixed key anywhere means raw MongoDB.
+  - **A filter that MIXES them is refused**, naming the offending keys — a caller who believes one thing would otherwise get
+    another. One round trip beats a wrong answer.
+  - **The key allowlist survives, recursively — including inside `$or`.** Widening the grammar is not widening the keys: a
+    recall filter that could name any field would be a way to filter a vector search on fields the index cannot serve, which
+    is a performance cliff wearing a feature's clothes.
+  - **One parser, not two.** `sanitizeFilter` is exported and reused, so the operator allowlist, the depth cap and the
+    regex-safety rules are the ones `query` already gates — and a rejected operator gives the same message on both.
+  - **The operator-object form is passed through untouched**, so it keeps the native `$vectorSearch` pre-filter path.
+    Translating it centrally would have moved every existing caller onto the exhaustive path — a performance regression
+    delivered as a refactor. A raw filter does take the exhaustive path, which the schema and the guides now say.
+  - On both surfaces, with the schema description, the integration guide and the userguide's Brain → Search bullet updated
+    in the same commit. Verified end to end: an `$or` over two fixtures with identical descriptions reaches both, and an
+    `$or` naming one excludes the other — accepting a grammar and then ignoring it would have been the same defect in a new
+    place.
 
 ### Fixed
 - **The brain LIST endpoints report a `total`, refuse `offset`, and page a proxy space correctly.** aigents, 2026-08-13T1020Z

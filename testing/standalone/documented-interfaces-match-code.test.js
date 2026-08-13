@@ -53,7 +53,7 @@ const PAIRS = [
 
 /** Strip comments so a field named only in prose about the type cannot satisfy the comparison. */
 const withoutComments = (text) =>
-  text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+  text.replace(/(^|[^:])\/\/.*$/gm, '$1').replace(/\/\*[\s\S]*?\*\//g, '');
 
 /** The body of `interface <name> { … }`, brace-matched so a nested object type does not end it early. */
 function interfaceBody(text, name) {

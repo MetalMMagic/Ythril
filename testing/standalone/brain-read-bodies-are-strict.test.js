@@ -64,10 +64,10 @@ const EXEMPT = {
  */
 function stripComments(src) {
   return src
-    .replace(/\/\*[\s\S]*?\*\//g, '')
     .split('\n')
     .map(l => l.replace(/(^|[^:])\/\/.*/, '$1'))
-    .join('\n');
+    .join('\n')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
 }
 
 const src = stripComments(readFileSync(SEARCH, 'utf8'));

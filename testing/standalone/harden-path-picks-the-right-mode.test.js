@@ -78,8 +78,8 @@ describe('no caller applies a file mode to something that may be a directory', (
     // because the comment explaining the bug quotes the very call it warns against — a gate that reads prose as
     // code is a gate that fires on its own documentation.
     const body = src.slice(at, src.indexOf('\n}', at))
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/^[ \t]*\/\/.*$/gm, '');
+      .replace(/^[ \t]*\/\/.*$/gm, '')
+      .replace(/\/\*[\s\S]*?\*\//g, '');
     assert.match(body, /hardenPath\(/, 'moveFile must use hardenPath — it moves directories as well as files');
     assert.doesNotMatch(body, /harden\([^)]*FILE_MODE/,
       'moveFile must not force FILE_MODE: its destination can be a directory, and 0600 on a directory is a brick');

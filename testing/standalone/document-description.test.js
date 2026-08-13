@@ -117,7 +117,7 @@ describe('the extractive text is not lost', () => {
 });
 
 describe('provenance is recorded, not assumed', () => {
-  const strip = src => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const strip = src => src.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
   const src = path => strip(readFileSync(path, 'utf8'));
 
   it('the extractive fallback is never labelled generated', () => {

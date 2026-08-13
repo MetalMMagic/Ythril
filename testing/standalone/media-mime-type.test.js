@@ -227,7 +227,7 @@ describe('downloads keep their charset', () => {
 // ── The call sites, so a future edit cannot quietly reintroduce the default ──
 
 describe('the entry points all go through the shared resolver', () => {
-  const strip = src => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const strip = src => src.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
 
   it('dispatch derives the type instead of defaulting it', () => {
     const src = strip(readFileSync('server/src/files/dispatch.ts', 'utf8'));

@@ -79,8 +79,8 @@ const MCP_TOOLS = {
 
 /** Comments stripped, so the gate cannot pass on the prose that documents it. */
 const code = (p) => readFileSync(join(ROOT, p), 'utf8')
-  .replace(/\/\*[\s\S]*?\*\//g, '')
-  .split(/\r?\n/).filter(l => !/^\s*\/\//.test(l)).join('\n');
+  .split(/\r?\n/).filter(l => !/^\s*\/\//.test(l)).join('\n')
+  .replace(/\/\*[\s\S]*?\*\//g, '');
 
 const routeCode = (type) => code(ROUTES[type].file);
 

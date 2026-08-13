@@ -21,7 +21,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
-const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+const strip = (t) => t.replace(/(^|[^:])\/\/.*$/gm, '$1').replace(/\/\*[\s\S]*?\*\//g, '');
 
 const SRC = read('../../server/src/brain/reembed.ts');
 const CODE = strip(SRC);
@@ -219,7 +219,7 @@ describe('suppression is expressible as a query, which is what makes the sweep t
   it('the sweep applies the exclusion to the QUERY, not only to the loop', () => {
     // The mutation that reintroduces the bug is moving this back into the loop, which no pure test can see.
     const src = readFileSync('server/src/brain/reembed.ts', 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+      .replace(/(^|[^:])\/\/.*$/gm, '$1').replace(/\/\*[\s\S]*?\*\//g, '');
     assert.match(src, /suppressionExclusion\(/, 'the sweep must call the exclusion builder');
     assert.match(src, /\.\.\.vectorless,\s*\.\.\.exclusion\.query/,
       'the exclusion must be spread INTO the find filter — skipping in the loop alone never advances the cursor');

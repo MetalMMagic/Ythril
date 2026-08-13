@@ -42,7 +42,7 @@ const TYPES = 'server/src/config/types.ts';
 const MERGE = 'server/src/brain/merge.ts';
 
 const withoutComments = (t) =>
-  t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+  t.replace(/(^|[^:])\/\/.*$/gm, '$1').replace(/\/\*[\s\S]*?\*\//g, '');
 
 /** Every exported interface in `types.ts` that declares an `entityIds` field. */
 function typesWithEntityIds() {

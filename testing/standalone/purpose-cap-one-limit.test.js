@@ -34,7 +34,7 @@ const NUL = String.fromCharCode(0);
 const sources = execFileSync('git', ['ls-files', '-z', 'server/src'], { encoding: 'utf8' })
   .split(NUL).filter(f => f.endsWith('.ts'));
 
-const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+const strip = s => s.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
 
 describe('the directive cap', () => {
   before(async () => {

@@ -146,7 +146,7 @@ describe('search-index listing is never name-filtered', () => {
     // Comments stripped first: the prose ABOVE the fix quotes the old wording, so a naive search
     // finds the explanation rather than the code and reports the fix as missing.
     const src = readFileSync(`${ROOT}/spaces/lifecycle.ts`, 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+      .replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
     const at = src.indexOf('readiness confirmed for all');
     assert.ok(at > 0, 'the summary line should still exist for the all-good case');
     const before = src.slice(Math.max(0, at - 400), at);

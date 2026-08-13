@@ -46,7 +46,7 @@ const WORKFLOW = readFileSync(WORKFLOW_PATH, 'utf8');
  * found `testing/` in a sentence, and the no-escape-hatch check fired on the paragraph explaining why there is none.
  * Sixth time in this batch that a gate read its own documentation as code.
  */
-const CODE = SCRIPT.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ 	]*\/\/.*$/gm, '');
+const CODE = SCRIPT.replace(/^[ 	]*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
 
 describe('CI runs the check', () => {
   it('the script exists', () => {

@@ -72,10 +72,10 @@ function sourceFiles() {
  */
 function code(path) {
   return readFileSync(join(ROOT, path), 'utf8')
-    .replace(/\/\*[\s\S]*?\*\//g, '')
     .split(/\r?\n/)
     .filter(l => !/^\s*\/\//.test(l))
-    .join('\n');
+    .join('\n')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
 }
 
 /**

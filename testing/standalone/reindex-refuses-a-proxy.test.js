@@ -28,7 +28,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+const strip = s => s.replace(/(^|[^:])\/\/.*$/gm, '$1').replace(/\/\*[\s\S]*?\*\//g, '');
 // The refusal moved into `planReindex` so both surfaces make it; the route only turns it into a status.
 const search = () => strip(readFileSync('server/src/brain/reindex.ts', 'utf8'));
 const spaces = () => strip(readFileSync('server/src/api/spaces.ts', 'utf8'));

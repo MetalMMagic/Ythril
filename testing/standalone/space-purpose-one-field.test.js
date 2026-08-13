@@ -112,7 +112,7 @@ describe('space purpose is one field', () => {
   });
 
   describe('no surface reads a stored description', () => {
-    const strip = src => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    const strip = src => src.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
     // Assert on a boolean, not `assert.match` over a whole file: a failing match prints the entire
     // source as `actual`, which buries the one line that matters under 30 kB of unrelated code.
     const has = (path, re) => re.test(strip(readFileSync(path, 'utf8')));

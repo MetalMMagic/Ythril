@@ -110,7 +110,7 @@ describe('each wire gets its own routes', () => {
 
 // ── The wiring, so neither unguarded path can come back ──────────────────────
 
-const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+const strip = s => s.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
 
 describe('egress is guarded whenever the endpoint is not the bundled model', () => {
   const client = strip(readFileSync(CLIENT_SRC, 'utf8'));

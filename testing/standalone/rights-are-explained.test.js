@@ -35,7 +35,7 @@ const CATALOG = 'client/src/app/pages/settings/rights-catalog.service.ts';
 const LOCALES = ['en', 'de', 'pl'];
 
 const read = (p) => readFileSync(p, 'utf8');
-const stripComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+const stripComments = (src) => src.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
 
 /** The areas and rungs, parsed from the one module that declares them. */
 function model() {

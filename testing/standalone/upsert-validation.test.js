@@ -200,7 +200,7 @@ describe('upsert validation', () => {
       'server/src/brain/bulk.ts',
     ];
 
-    const strip = src => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    const strip = src => src.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
 
     it('the enumeration matches reality (the check itself works)', () => {
       // If a new file starts calling a merging writer, it belongs in this list — and the assertion below

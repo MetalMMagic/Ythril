@@ -81,7 +81,7 @@ describe('the client fetches no asset from a remote host', () => {
       read(f).split(/\r?\n/).forEach((line, i) => {
         // A comment cannot issue a request. Prose about the old links is the whole reason this fix is
         // understandable later, so it must not be what trips the gate.
-        const code = line.replace(/<!--[\s\S]*?-->/g, '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*/, '');
+        const code = line.replace(/<!--[\s\S]*?-->/g, '').replace(/^\s*\/\/.*/, '').replace(/\/\*[\s\S]*?\*\//g, '');
         for (const re of REMOTE_FETCH) {
           if (re.test(code)) bad.push(`${f}:${i + 1}  ${line.trim().slice(0, 110)}`);
         }

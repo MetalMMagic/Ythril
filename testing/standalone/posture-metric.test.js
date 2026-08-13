@@ -84,7 +84,7 @@ describe('ythril_security_posture_checks', () => {
 });
 
 describe('the metric and the endpoint cannot disagree', () => {
-  const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const strip = s => s.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
 
   it('both derive from computeSecurityPosture, and the metric holds no rules of its own', () => {
     // A posture metric that could disagree with `GET /api/about/security` would be worse than no metric.

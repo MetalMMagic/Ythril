@@ -44,7 +44,7 @@ const SETS = new Map([
 ]);
 
 /** Comments are stripped: a doc comment inside a body type literal names keys it does not declare. */
-const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+const strip = s => s.replace(/^[ \t]*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
 
 const clientSources = () =>
   execFileSync('git', ['ls-files', 'client/src'], { encoding: 'utf8' })

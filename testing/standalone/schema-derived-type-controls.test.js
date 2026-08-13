@@ -63,7 +63,7 @@ function trackedComponents() {
 /** Comments are not code: a comment that names `store.chronoKinds` must not fail this gate, and the
  *  comment explaining the fix is exactly the text that would. */
 function stripComments(src) {
-  return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  return src.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
 }
 
 /**

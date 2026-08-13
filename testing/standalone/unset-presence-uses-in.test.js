@@ -42,7 +42,7 @@ function serverSources() {
 
 /** Block and line comments out, string literals left alone (a `$unset` inside a string is not a test). */
 function stripComments(text) {
-  return text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+  return text.replace(/(^|[^:])\/\/.*$/gm, '$1').replace(/\/\*[\s\S]*?\*\//g, '');
 }
 
 /**

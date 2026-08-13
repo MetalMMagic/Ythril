@@ -99,8 +99,8 @@ describe('the boot refuses to start on a malformed value', () => {
     // Comments stripped FIRST. Commenting the call out left `indexOf` finding it inside the comment, so the gate
     // passed with the check disabled — the fourth time this session a gate read prose as code.
     const src = read('server/src/index.ts')
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/^[ 	]*\/\/.*$/gm, '');
+      .replace(/^[ 	]*\/\/.*$/gm, '')
+      .replace(/\/\*[\s\S]*?\*\//g, '');
     const at = src.indexOf('assertNumericEnvOrExit()');
     assert.ok(at > 0, 'nothing calls assertNumericEnvOrExit, so a malformed setting still starts the instance');
     // Ordering is the whole value: after `loadConfig()` it would be reported behind whatever the config loader

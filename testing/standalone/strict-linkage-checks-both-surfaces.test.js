@@ -33,8 +33,8 @@ const ROOT = process.cwd();
 
 /** Comments stripped, so the gate cannot pass on the prose that documents it. */
 const code = (p) => readFileSync(join(ROOT, p), 'utf8')
-  .replace(/\/\*[\s\S]*?\*\//g, '')
-  .split(/\r?\n/).filter(l => !/^\s*\/\//.test(l)).join('\n');
+  .split(/\r?\n/).filter(l => !/^\s*\/\//.test(l)).join('\n')
+  .replace(/\/\*[\s\S]*?\*\//g, '');
 
 /** Every surface that writes an edge and therefore owes the same linkage guarantee. */
 const EDGE_WRITE_SURFACES = {

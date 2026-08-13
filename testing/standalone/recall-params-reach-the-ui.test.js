@@ -36,7 +36,7 @@ const PANEL = 'client/src/app/pages/brain/query-tab.component.ts';
 
 /** Comments are not code — a comment naming a parameter must not satisfy this gate. */
 function stripComments(src) {
-  return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  return src.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
 }
 
 /** One route handler's source, bounded to itself. */

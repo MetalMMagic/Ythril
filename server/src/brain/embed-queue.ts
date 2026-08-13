@@ -192,6 +192,34 @@ export async function completeEmbedJob(
   await jobs(spaceId).deleteOne(asFilter<BrainEmbedJobDoc>({ _id: embedJobId(recordType, recordId) }));
 }
 
+/**
+ * Retire the job for a record that is being DELETED.
+ *
+ * Same deletion as `completeEmbedJob`, named for the other reason it happens — a caller reading `completeEmbedJob` in a
+ * delete path would reasonably wonder what completed.
+ *
+ * ## Why the delete path has to do this at all
+ *
+ * Cleanup used to be entirely lazy: the worker claims the job, finds the record gone, and treats `gone` as success. That
+ * covers a `pending` job and only a `pending` job — `claimNextEmbedJob` filters on `status: 'pending'`, so a job that
+ * exhausted its attempts and went terminal `failed` is **never claimed again**. Delete the record at that moment and the
+ * job row outlived it for ever.
+ *
+ * Invisible until #861, which is exactly why it lasted: the listing and `getEmbedJobCounts` now report that row, so an
+ * operator sees a permanent failure naming a `recordId` that 404s. A surface whose whole purpose is that its failures are
+ * actionable cannot carry phantoms.
+ *
+ * Deliberately eager rather than filtered out at read time: hiding an orphan leaves it in the collection, costs a lookup
+ * per listed row, and makes the counts disagree with the rows they are counting.
+ */
+export async function retireEmbedJob(
+  spaceId: string,
+  recordType: BrainEmbedRecordType,
+  recordId: string,
+): Promise<void> {
+  await jobs(spaceId).deleteOne(asFilter<BrainEmbedJobDoc>({ _id: embedJobId(recordType, recordId) }));
+}
+
 /** Requeue with backoff, or leave `failed` once the attempt budget is spent. */
 export async function failEmbedJob(
   spaceId: string,

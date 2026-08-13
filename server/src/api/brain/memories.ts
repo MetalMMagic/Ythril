@@ -202,7 +202,7 @@ memoriesRouter.patch('/spaces/:spaceId/memories/:id', globalRateLimit, requireSp
   if (!wt.ok) { res.status(400).json({ error: wt.error }); return; }
   const ifMatch = ifMatchFromRequest(req);
   if (!ifMatch.ok) { res.status(400).json({ error: ifMatch.error }); return; }
-  const { fact, tags, entityIds, description, properties, deleteFields } = req.body ?? {};
+  const { fact, tags, entityIds, description, properties, deleteFields, type: memoryType } = req.body ?? {};
   // Validate deleteFields
   const dfResult = validateDeleteFields(deleteFields);
   if (!dfResult.ok) { res.status(400).json({ error: dfResult.error }); return; }
@@ -210,7 +210,15 @@ memoriesRouter.patch('/spaces/:spaceId/memories/:id', globalRateLimit, requireSp
   if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
   const ttlDaysProvided = !!req.body && typeof req.body === 'object' && 'ttlDays' in req.body;
   const dfPaths: string[] | undefined = Array.isArray(deleteFields) && deleteFields.length > 0 ? deleteFields : undefined;
-  const updates: { fact?: string; tags?: string[]; entityIds?: string[]; description?: string; properties?: Record<string, string | number | boolean>; excludeFromVectorSearch?: boolean } = {};
+  const updates: { fact?: string; type?: string; tags?: string[]; entityIds?: string[]; description?: string; properties?: Record<string, string | number | boolean>; excludeFromVectorSearch?: boolean } = {};
+  // `type` was accepted on CREATE and silently DROPPED here: this handler never destructured it, so a caller PATCHing
+  // a memory's type got 200 and no change. `updateMemory` has always accepted it and writes `$set.type`, so the field
+  // was plumbed the whole way down and lost at the door. An empty string CLEARS it, which is how the UI unsets a type —
+  // the store distinguishes `undefined` (leave alone) from `''` (write empty), and this route must preserve that.
+  if (memoryType !== undefined) {
+    if (typeof memoryType !== 'string') { res.status(400).json({ error: '`type` must be a string' }); return; }
+    updates.type = memoryType.trim();
+  }
   if (fact !== undefined) {
     if (typeof fact !== 'string' || !fact.trim()) { res.status(400).json({ error: '`fact` must be a non-empty string' }); return; }
     updates.fact = fact;

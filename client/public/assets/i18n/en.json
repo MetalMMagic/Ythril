@@ -469,6 +469,7 @@
   "brain.query.noDocuments": "No documents matched the filter.",
   "brain.memories.searchPlaceholder": "Semantic memory search…",
   "brain.memories.addButton": "+ Add memory",
+  "brain.memories.form.typePlaceholder": "optional",
   "brain.memories.table.fact": "Fact",
   "brain.memories.table.description": "Description",
   "brain.memories.table.type": "Type",

@@ -469,6 +469,7 @@
   "brain.query.noDocuments": "Żadne dokumenty nie pasują do filtra.",
   "brain.memories.searchPlaceholder": "Wyszukiwanie semantyczne wspomnień…",
   "brain.memories.addButton": "+ Dodaj pamięć",
+  "brain.memories.form.typePlaceholder": "fakultatywny",
   "brain.memories.table.fact": "Fakt",
   "brain.memories.table.description": "Opis",
   "brain.memories.table.type": "Typ",

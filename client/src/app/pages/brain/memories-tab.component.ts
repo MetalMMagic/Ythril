@@ -70,6 +70,21 @@ import { TimestampComponent } from '../../shared/timestamp.component';
               </div>
               <div class="form-row rich">
                 <div class="field">
+                  <!-- TYPE is free text with SUGGESTIONS, not a closed select.
+                       The server does not restrict it: validateMemory uses type only to LOOK UP
+                       typeSchemas.memory[type] for property validation, and unlike chrono there is no
+                       getAllowedMemoryTypes allowlist — any string is accepted. A <select> would therefore be
+                       stricter than the API and would make a type the server accepts unreachable from the UI, which is
+                       the mirror image of the bug this fixes. memoryTypeOptions() already merges the schema's keys
+                       with the values present in the data, so it is a suggestion list by construction. -->
+                  <label>{{ 'common.form.type' | transloco }}</label>
+                  <input type="text" [(ngModel)]="memoryForm.type" name="memFormType" list="memTypeOptions"
+                         [placeholder]="'brain.memories.form.typePlaceholder' | transloco" />
+                  <datalist id="memTypeOptions">
+                    @for (t of store.memoryTypeOptions(); track t) { <option [value]="t"></option> }
+                  </datalist>
+                </div>
+                <div class="field">
                   <label>{{ 'common.form.tags' | transloco }}</label>
                   <app-tag-input [(value)]="memoryForm.tags" [suggestions]="store.memoryTagSuggestions()" inputName="memFormTags" />
                 </div>
@@ -252,7 +267,7 @@ export class MemoriesTabComponent extends RecordTabBase {
   showMemoryForm = signal(false);
   creatingMemory = signal(false);
   createMemoryError = signal('');
-  memoryForm = { fact: '', tags: [] as string[], entityIds: '', description: '', properties: {} as Record<string, string | number | boolean> };
+  memoryForm = { fact: '', type: '', tags: [] as string[], entityIds: '', description: '', properties: {} as Record<string, string | number | boolean> };
   editMemory = { fact: '', tags: [] as string[], entityIds: '', description: '', properties: {} as Record<string, string | number | boolean> };
 
   private _memSemTimer: ReturnType<typeof setTimeout> | null = null;
@@ -333,7 +348,7 @@ export class MemoriesTabComponent extends RecordTabBase {
   }
 
   openMemoryForm(): void {
-    this.memoryForm = { fact: '', tags: [], entityIds: '', description: '', properties: this.store.buildPropertiesObject('memory') };
+    this.memoryForm = { fact: '', type: '', tags: [], entityIds: '', description: '', properties: this.store.buildPropertiesObject('memory') };
     this.showMemoryForm.set(true);
   }
 
@@ -343,6 +358,9 @@ export class MemoriesTabComponent extends RecordTabBase {
     this.createMemoryError.set('');
     const entityIds = this.memoryForm.entityIds.split(',').map(s => s.trim()).filter(Boolean);
     const body: Parameters<BrainApi['createMemory']>[1] = { fact: this.memoryForm.fact.trim() };
+    // Sent only when non-empty: an empty `type` must stay ABSENT rather than become the string "", which would
+    // select typeSchemas.memory[""], find nothing, and store a type nobody can filter for.
+    if (this.memoryForm.type.trim()) body.type = this.memoryForm.type.trim();
     if (this.memoryForm.tags.length) body.tags = this.memoryForm.tags;
     if (entityIds.length) body.entityIds = entityIds;
     if (this.memoryForm.description.trim()) body.description = this.memoryForm.description.trim();
@@ -351,7 +369,7 @@ export class MemoriesTabComponent extends RecordTabBase {
       next: () => {
         this.creatingMemory.set(false);
         this.showMemoryForm.set(false);
-        this.memoryForm = { fact: '', tags: [], entityIds: '', description: '', properties: {} as Record<string, string | number | boolean> };
+        this.memoryForm = { fact: '', type: '', tags: [], entityIds: '', description: '', properties: {} as Record<string, string | number | boolean> };
         this.mutated.emit();
         this.load();
       },

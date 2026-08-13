@@ -469,6 +469,7 @@
   "brain.query.noDocuments": "Keine Dokumente stimmten mit dem Filter überein.",
   "brain.memories.searchPlaceholder": "Semantische Erinnerungssuche…",
   "brain.memories.addButton": "+ Speicher hinzufügen",
+  "brain.memories.form.typePlaceholder": "optional",
   "brain.memories.table.fact": "Tatsache",
   "brain.memories.table.description": "Beschreibung",
   "brain.memories.table.type": "Typ",

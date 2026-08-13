@@ -6,6 +6,37 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- **A memory's `type` is now editable in the UI — in the create form and the record drawer.** The memories tab has
+  sorted and filtered by `type` since #836, and nothing could write one: not the create form, not the drawer. So the
+  column and its filter operated on a field only the API and MCP could set.
+  - **It is a free-text input with suggestions, deliberately not a `<select>`.** The server does not restrict a memory
+    type: `validateMemory` uses it only to look up `typeSchemas.memory[type]` for property validation, and unlike chrono
+    there is no `getAllowedMemoryTypes` allowlist — any string is accepted. A closed select would have been **stricter
+    than the API**, making types the server accepts unreachable from the UI, which is the mirror image of the gap being
+    closed. `memoryTypeOptions()` already merges the schema's keys with the values present in the data, so it is a
+    suggestion list by construction.
+  - Checking that first is what the item asked for, and it changed the design: the tracker's own proposal had been a
+    `<select>`.
+  - **The typed client did not model the field either**, so the form alone would have been a control that changes
+    nothing: `createMemory` and `updateMemory` had no `type` in their body types. Same shape as #840, where the typed
+    client was discarding `rights`.
+  - Blank means ABSENT on create and EXPLICITLY EMPTY on update — an omitted field on a PATCH means "leave it alone", so
+    clearing the box has to reach the API as an empty value or a type could be set and never unset. Both directions are
+    asserted.
+
+### Fixed
+- **`PATCH /api/brain/spaces/:spaceId/memories/:id` silently ignored `type`.** `POST` read it; the update handler never
+  destructured it, so changing a memory's type answered **200 and changed nothing**.
+  - `updateMemory` had accepted `type` and written `$set.type` all along, so the field was plumbed the whole way down
+    and lost at the door. One line of destructuring.
+  - **Found by driving the UI, not by reading it.** The browser sent `{"type":"note", …}`, the request succeeded, and the
+    stored record still said `decision`. Adding the control is what made a server gap visible — the reason a UI change
+    was worth verifying end to end rather than at the component boundary.
+  - Same shape as the `skip` parameter aigents reported on `POST /query`: a permissive body, a success status, and a
+    silently dropped field. Now covered at the API level, because the client is not where it broke — including that an
+    absent `type` leaves the stored one alone, so the clear path cannot wipe it by accident.
+
 ### Security
 - **A space-restricted administrator could edit ANY token on the instance — including writing
   `rights.instanceAdmin` onto it.** `PATCH /api/tokens/:id` is gated by `requireAdminMfa`, and a space-restricted admin

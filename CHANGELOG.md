@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`update_file_meta` — a file's metadata can be changed without resending the file.** `write_file` accepts
+  `description`, `tags` and `properties`, but only alongside `content`, so correcting a tag on a 40 MB PDF meant
+  re-uploading it — and correcting one on a file whose bytes you do not have was impossible. Every knowledge type
+  has an `update_*` tool for exactly this reason; files were the one that did not.
+  - Fourth finding from the capability matrix.
+  - Runs the route's own rules rather than a second copy: `updateFileMeta` performs the write, and under strict
+    linkage every id in `entityIds`/`memoryIds`/`chronoIds` must resolve first — a file carries three reference
+    fields and storing an unresolvable one was the widest silent hole this record type had.
+  - Maps to `file.meta.update`, the route's own audit operation.
+  - Verified that the BYTES are untouched and that a field the patch did not mention survives — a metadata editor
+    that silently clears what it was not asked about is the failure mode here.
+- **`retry_failed_embeddings` — bulk retry reaches MCP.** `POST /embedding-queue/retry-failed` was REST-only, so
+  an agent recovering a space after an embedder outage had to list the failures and call `retry_embedding` once
+  per file. That is the shape of the reindex-by-curl-loop that motivated the `reindex` tool, where a customer did
+  fourteen spaces by hand because the agent planning their work could not do it.
+  - Third finding from the capability matrix, after the `reindex` description and `er_model`.
+  - Sums across a proxy's members, narrowing with `memberSpacesWithin` — the MCP half of the rule the route
+    states with `memberSpacesForRequest`. Conserved fan-out total 39 → 40.
+  - Maps to the route's own audit operation (`file.retry_embedding_all`): one capability, one audit name.
+  - `mutating: true`, so a read-only token cannot see or call it. A bulk re-queue creates no records and is still
+    a write, and getting that flag wrong is how a read-only token gains a side effect.
+
+### Added
 - **`er_model` — the entity-relationship model reaches MCP.** `GET /api/brain/spaces/:spaceId/er-model` was
   REST-only, and it answers the question an agent asks first: which entity types actually exist here, which edge
   labels connect which of them, and how many of each. `get_space_meta` answers a different question — the

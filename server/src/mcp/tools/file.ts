@@ -312,3 +312,81 @@ export const retry_embeddingTool: ToolHandler = {
     return { content: [{ type: 'text' as const, text }], structuredContent: { result, path: filePath } };
   },
 };
+
+/**
+ * Change a file's metadata WITHOUT resending the file.
+ *
+ * `write_file` accepts `description`, `tags` and `properties` — but only alongside `content`. The metadata-only
+ * edit was `PATCH /api/brain/spaces/:spaceId/files`, which had no tool, so correcting a tag on a 40 MB PDF meant
+ * re-uploading it, and correcting one on a file whose bytes you do not have was impossible.
+ *
+ * Every knowledge type has an `update_*` tool for exactly this reason. Files were the one that did not.
+ *
+ * Found by the capability matrix (`scripts/surface-matrix.mjs`). Filed as B-23.
+ *
+ * **The route's rules, not a second copy of them.** `updateFileMeta` performs the write and the same
+ * strict-linkage check runs first, because a file carries three reference fields (`entityIds`, `memoryIds`,
+ * `chronoIds`) and storing an unresolvable one is the widest silent hole this record type had.
+ */
+export const update_file_metaTool: ToolHandler = {
+  name: 'update_file_meta',
+  description: 'Change a file record\'s description, tags, properties or links WITHOUT resending the file. '
+    + '`write_file` can set those fields but only together with new content, so correcting a tag used to mean '
+    + 're-uploading the bytes. Only the fields you pass are touched; omit one to leave it alone. Under strict '
+    + 'linkage every id in `entityIds`/`memoryIds`/`chronoIds` must resolve, or the call is refused rather than '
+    + 'stored. Use `list_dir` or a `query` over the `files` collection to find the path.',
+  mutating: true,
+  spaceRequired: true,
+  inputSchema: (s: ToolSchemas) => ({
+    type: 'object',
+    properties: {
+      space: s.requiredSpace,
+      path: { type: 'string', minLength: 1, description: 'The file path within the space, as list_dir reports it.' },
+      description: { type: 'string', description: 'Replaces the description. Omit to leave it unchanged.' },
+      tags: { type: 'array', items: { type: 'string' }, description: 'Replaces the tag list.' },
+      properties: { type: 'object', description: 'Replaces the properties object.' },
+      entityIds: { type: 'array', items: { type: 'string' }, description: 'Entity ids this file relates to.' },
+      memoryIds: { type: 'array', items: { type: 'string' }, description: 'Memory ids this file relates to.' },
+      chronoIds: { type: 'array', items: { type: 'string' }, description: 'Chrono ids this file relates to.' },
+      targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space holding the file.' },
+    },
+    required: ['space', 'path'],
+    additionalProperties: false,
+  }),
+  async handle(ctx: ToolContext): Promise<ToolResult> {
+    const { args: a, callSpace } = ctx;
+    const filePath = String(a['path'] ?? '').trim();
+    if (!filePath) throw new Error('path must not be empty');
+
+    const wt = resolveWriteTarget(callSpace, a['targetSpace'] as string | undefined);
+    if (!wt.ok) throw new Error(wt.error);
+
+    const { isStrictLinkage } = await import('../../spaces/proxy.js');
+    const { assertRefsResolve } = await import('../../brain/entity-refs.js');
+    const { updateFileMeta } = await import('../../files/file-meta.js');
+
+    const patch = {
+      description: a['description'] as string | undefined,
+      tags: a['tags'] as string[] | undefined,
+      properties: a['properties'] as Record<string, string | number | boolean> | undefined,
+      entityIds: a['entityIds'] as string[] | undefined,
+      memoryIds: a['memoryIds'] as string[] | undefined,
+      chronoIds: a['chronoIds'] as string[] | undefined,
+    };
+
+    // The same check the route runs, in the same order: refuse an unresolvable reference rather than store it.
+    if (isStrictLinkage(wt.target)) {
+      await assertRefsResolve(wt.target, 'entityIds', 'entity', patch.entityIds);
+      await assertRefsResolve(wt.target, 'memoryIds', 'memory', patch.memoryIds);
+      await assertRefsResolve(wt.target, 'chronoIds', 'chrono', patch.chronoIds);
+    }
+
+    const updated = await updateFileMeta(wt.target, filePath, patch);
+    if (!updated) throw new Error(`No file metadata record for '${filePath}' in '${wt.target}'.`);
+
+    return {
+      content: [{ type: 'text' as const, text: `Updated metadata for '${filePath}' in '${wt.target}'.` }],
+      structuredContent: updated as unknown as Record<string, unknown>,
+    };
+  },
+};

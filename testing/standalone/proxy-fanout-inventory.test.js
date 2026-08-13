@@ -95,7 +95,13 @@ const RECLASSIFIED = 1;
 //
 // Raised deliberately. A conserved total that is quietly adjusted whenever it fails conserves nothing, so every change
 // to this number says which site moved and why.
-const TOTAL = 30;
+/**
+ * 30 -> 31: `api/brain/embed-jobs.ts`, the brain-record half of the embedding queue, added with `memberSpacesForRequest`
+ * from its first line rather than converted later. A new fan-out RAISES the total — the invariant is that a site is
+ * accounted for, not that the number never moves. Lowering it, or leaving it at 30 and letting the new site sit in
+ * PENDING, are the two ways this gate gets quietly defeated.
+ */
+const TOTAL = 31;
 
 const GUARDS = {
   'server/src/auth/middleware.ts': 2,
@@ -118,6 +124,8 @@ const NARROWED = new Set([
   'server/src/mcp/tools/chrono.ts',
   'server/src/api/spaces.ts',
   'server/src/api/brain/file-meta.ts',
+  // Born narrowed: the record half of the embedding queue never had a whole-proxy read to convert.
+  'server/src/api/brain/embed-jobs.ts',
   'server/src/api/brain/entities.ts',
   'server/src/api/files.ts',
 ]);

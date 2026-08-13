@@ -9,6 +9,7 @@ import { create_chronoTool, update_chronoTool, list_chronoTool, delete_chronoToo
 import { read_fileTool, write_fileTool, list_dirTool, delete_fileTool, create_dirTool, move_fileTool, retry_embeddingTool } from './file.js';
 import { list_peersTool, sync_nowTool } from './sync.js';
 import { helpTool } from './help.js';
+import { list_embed_jobsTool, retry_record_embeddingTool } from './embed.js';
 
 export type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
 
@@ -61,6 +62,8 @@ export const ALL_TOOLS: ToolHandler[] = [
   bulk_writeTool,
   list_peersTool,
   sync_nowTool,
+  list_embed_jobsTool,
+  retry_record_embeddingTool,
 ];
 
 export const TOOLS_BY_NAME: ReadonlyMap<string, ToolHandler> =

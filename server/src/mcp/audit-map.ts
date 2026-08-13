@@ -60,6 +60,8 @@ export const MCP_TOOL_OPERATIONS: Record<string, string | null> = {
   delete_file: 'file.delete',
   // Same operation string the REST route audits under, so one query finds a retry however it arrived.
   retry_embedding: 'file.retry_embedding',
+  // Same operation string the REST route audits under, so one query finds a record retry however it arrived.
+  retry_record_embedding: 'brain.retry_embedding',
   create_dir: 'file.mkdir',
   // The tool registry flags this `mutating: true`, and it is right: a sync cycle pulls records from
   // peers and writes them locally, so "who started the run that brought in these records" is a fair
@@ -92,6 +94,10 @@ export const MCP_TOOL_OPERATIONS: Record<string, string | null> = {
   // Reads the token inventory from local config. `GET /api/tokens` is not audited either — it is a
   // read, and the acts worth an entry are the mint, the edit and the revoke, all of which are.
   list_tokens: null,
+  // Reads the embed queue's own bookkeeping. `GET .../embedding-queue/records` is not audited either: the queue is
+  // already the record of what happened, so an audit entry for reading it would only say that someone looked at a log.
+  // The RETRY beside it IS audited, because that one changes the queue.
+  list_embed_jobs: null,
 };
 
 /**

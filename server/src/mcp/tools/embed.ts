@@ -1,0 +1,134 @@
+/**
+ * Embed-queue tools: the brain-record half of the queue, readable and retryable over MCP.
+ *
+ * ## Both surfaces from the first commit
+ *
+ * The five capabilities breituai-platform reported were all REST-only, each for the same reason: a route was written
+ * first and a tool was going to follow. It never did, five times. So this pair ships WITH `embedding-queue/records`
+ * rather than after it, and `REST_ONLY_CAPABILITIES` never gains a sixth row.
+ *
+ * ## Wrappers, deliberately
+ *
+ * `listEmbedJobs` / `retryEmbedJob` are the same functions the REST routes call. The retry reset (status, attempts,
+ * lastError, claim fields) is a state machine, and a second copy of a state machine is the copy nobody watches when it
+ * drifts. What these handlers own is the MCP-shaped part: argument validation and text a model can act on.
+ */
+import { resolveWriteTarget } from '../../spaces/proxy.js';
+import {
+  listEmbedJobs, getEmbedJobCounts, retryEmbedJob, EMBED_RECORD_TYPES, isEmbedRecordType,
+} from '../../brain/embed-queue.js';
+import type { ToolContext, ToolHandler, ToolResult, ToolSchemas } from './types.js';
+
+const RECORD_TYPES = [...EMBED_RECORD_TYPES];
+
+/**
+ * Answers *"which of my records have no vector"* — the question that had no answer from outside, on either surface.
+ *
+ * Read-only, so it stays visible to a read-only token: an operator who cannot fix the queue still has every reason to
+ * be able to see it, and hiding the diagnosis behind write rights is how a failure becomes a mystery.
+ */
+export const list_embed_jobsTool: ToolHandler = {
+  name: 'list_embed_jobs',
+  description: 'List brain records whose embedding is pending, in progress, or has failed, with the attempt count and '
+    + 'last error for each. A record with an unfinished job is STORED but not yet findable by recall or query — this is '
+    + 'how you tell "the record is missing" from "the record has no vector yet". Filter with `status`; omit it for the '
+    + 'whole backlog. Counts are returned either way.',
+  mutating: false,
+  spaceRequired: true,
+  inputSchema: (s: ToolSchemas) => ({
+    type: 'object',
+    properties: {
+      space: s.requiredSpace,
+      status: {
+        type: 'string',
+        enum: ['pending', 'processing', 'failed'],
+        description: 'Only jobs in this state. Omit for all three. `failed` means it is done retrying and needs you.',
+      },
+      limit: { type: 'number', minimum: 1, maximum: 200, description: 'Max jobs to return (default 50, cap 200).' },
+    },
+    required: ['space'],
+    additionalProperties: false,
+  }),
+  async handle(ctx: ToolContext): Promise<ToolResult> {
+    const { args: a, callSpace } = ctx;
+    const status = a['status'] as 'pending' | 'processing' | 'failed' | undefined;
+    const limit = a['limit'] === undefined ? undefined : Number(a['limit']);
+    if (limit !== undefined && (!Number.isFinite(limit) || limit < 1)) throw new Error('limit must be a positive number');
+
+    const counts = await getEmbedJobCounts(callSpace);
+    const jobs = (await listEmbedJobs(callSpace, {
+      ...(status ? { status } : {}),
+      ...(limit ? { limit } : {}),
+    })).map(j => ({
+      recordType: j.recordType,
+      recordId: j.recordId,
+      status: j.status,
+      attempts: j.attempts,
+      maxAttempts: j.maxAttempts,
+      lastError: j.lastError,
+      updatedAt: j.updatedAt,
+    }));
+
+    const head = `Embed queue for '${callSpace}': ${counts.pending} pending, ${counts.processing} processing, ${counts.failed} failed.`;
+    const body = jobs.length === 0
+      ? status
+        ? ` No ${status} jobs.`
+        : ' Nothing queued — every record in this space has its vector.'
+      : '\n' + jobs.map(j =>
+        `- ${j.recordType} ${j.recordId} — ${j.status}, attempt ${j.attempts}/${j.maxAttempts}`
+        + (j.lastError ? `: ${j.lastError}` : ''),
+      ).join('\n');
+
+    return {
+      content: [{ type: 'text' as const, text: head + body }],
+      structuredContent: { counts, jobs, ...(status ? { status } : {}) },
+    };
+  },
+};
+
+/**
+ * The brain counterpart of `retry_embedding`, which does files. Same three outcomes, reported verbatim for the same
+ * reason: `processing` means a worker already holds the job, which is not an error and must not be reset out from under
+ * a run in progress.
+ */
+export const retry_record_embeddingTool: ToolHandler = {
+  name: 'retry_record_embedding',
+  description: 'Re-queue one brain record whose embedding failed, so the worker picks it up again. Resets the job to '
+    + 'pending and clears its attempt count and last error. Returns `processing` unchanged if the worker already holds '
+    + 'it — not a failure, and retrying would interrupt a run. Get `recordType`/`recordId` from list_embed_jobs. For '
+    + 'files use retry_embedding instead: that re-runs the media pipeline, this only re-embeds.',
+  mutating: true,
+  spaceRequired: true,
+  inputSchema: (s: ToolSchemas) => ({
+    type: 'object',
+    properties: {
+      space: s.requiredSpace,
+      recordType: { type: 'string', enum: RECORD_TYPES, description: 'Which collection the record is in.' },
+      recordId: { type: 'string', minLength: 1, description: 'The record\'s _id, as list_embed_jobs reports it.' },
+      targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space holding the record.' },
+    },
+    required: ['space', 'recordType', 'recordId'],
+    additionalProperties: false,
+  }),
+  async handle(ctx: ToolContext): Promise<ToolResult> {
+    const { args: a, callSpace } = ctx;
+    if (!isEmbedRecordType(a['recordType'])) throw new Error(`recordType must be one of ${RECORD_TYPES.join(', ')}`);
+    const recordId = String(a['recordId'] ?? '').trim();
+    if (!recordId) throw new Error('recordId must not be empty');
+
+    const wt = resolveWriteTarget(callSpace, a['targetSpace'] as string | undefined);
+    if (!wt.ok) throw new Error(wt.error);
+
+    const result = await retryEmbedJob(wt.target, a['recordType'], recordId);
+    const text = result === 'ok'
+      ? `Re-queued ${a['recordType']} '${recordId}' for embedding.`
+      : result === 'processing'
+        ? `${a['recordType']} '${recordId}' is being embedded right now — left alone rather than reset, so the run in progress is not interrupted.`
+        : `No embed job exists for ${a['recordType']} '${recordId}' in '${wt.target}'. Either it embedded successfully, or the record is gone.`;
+
+    return {
+      content: [{ type: 'text' as const, text }],
+      structuredContent: { result, recordType: a['recordType'], recordId, space: wt.target },
+    };
+  },
+};

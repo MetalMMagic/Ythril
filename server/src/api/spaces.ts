@@ -6,7 +6,7 @@ import { requireAuth, requireSpaceAuthScoped, requireAdmin, requireAdminMfa, req
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { getConfig, saveConfig, getSecrets, getDataRoot, getSchemaLibrary, getDocumentProcessingConfig, getMediaEmbeddingConfig, getStorageConfig } from '../config/loader.js';
 import { capDocExtractionMode } from '../files/converters/extraction-level.js';
-import { slugify, SPACE_PURPOSE_MAX } from '../spaces/_shared.js';
+import { slugify, SPACE_PURPOSE_MAX, needsReindex } from '../spaces/_shared.js';
 import { createSpace, removeSpace } from '../spaces/lifecycle.js';
 import { renameSpace } from '../spaces/rename.js';
 import { updateSpace, reorderSpaces, spaceDescriptionAlias, spaceResponse } from '../spaces/spaces.js';
@@ -406,7 +406,17 @@ spacesRouter.get('/:id/meta', globalRateLimit, requireSpaceAuthScoped('id'), asy
     files: counts.reduce((s, c) => s + c.files, 0),
   };
 
+  // Reindex state travels with the meta on BOTH doors. The `reindex` tool's own description tells a caller to
+  // "poll `get_space_meta` or the REST reindex-status route" after starting a job — and `get_space_meta` did not
+  // carry it, so for an MCP-only client (Claude Desktop, any agent with no HTTP door) the sentence named
+  // something unreachable. A schema description is read while arguments are being constructed; one that points
+  // at a door the reader does not have is worse than silence.
+  //
+  // `.some()` over the members, matching `GET /reindex-status`: a proxy needs a reindex when any member does.
+  const reindexNeeded = memberIds.some(mid => needsReindex(mid));
+
   // Strip previousVersions from public response (available via dedicated endpoint if needed)
+  // (`needsReindex` is attached where the response is assembled, just below.)
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { previousVersions: _pv, ...metaPublic } = meta;
 
@@ -415,6 +425,7 @@ spacesRouter.get('/:id/meta', globalRateLimit, requireSpaceAuthScoped('id'), asy
     spaceName: space.label,
     ...metaPublic,
     stats,
+    needsReindex: reindexNeeded,
   });
 });
 

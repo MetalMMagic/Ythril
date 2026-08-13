@@ -19,6 +19,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { INSTANCES, post, get, patch, put } from '../sync/helpers.js';
+import { openMcpSession } from '../sync/mcp-session.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -395,6 +396,43 @@ describe('Schema validation — GET /api/spaces/:id/meta', () => {
     assert.ok(typeof r.body.stats === 'object', 'Response should have stats');
     // previousVersions should be stripped from public response
     assert.equal(r.body.previousVersions, undefined, 'previousVersions should be stripped');
+  });
+
+  it('reports needsReindex, the field the reindex tool tells callers to poll', async () => {
+    // `reindex` returns as soon as the job STARTS, and its description says to poll `get_space_meta`. That was
+    // only true over REST until now: `needsReindex` reached no tool, so a client with no HTTP door could start a
+    // multi-minute job and never learn it finished. Asserted as a BOOLEAN rather than for truthiness — an
+    // absent field and a `false` one are the same to `if (!x)` and opposite to a caller polling for a change.
+    const r = await get(INSTANCES.a, token(), `/api/spaces/${TEST_SPACE}/meta`);
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(typeof r.body.needsReindex, 'boolean', `needsReindex must be present: ${JSON.stringify(r.body.needsReindex)}`);
+
+    // And it agrees with the dedicated route, which is the thing it was added to replace polling.
+    const status = await get(INSTANCES.a, token(), `/api/brain/spaces/${TEST_SPACE}/reindex-status`);
+    assert.equal(status.status, 200, JSON.stringify(status.body));
+    assert.equal(r.body.needsReindex, status.body.needsReindex,
+      'two answers to one question must not disagree');
+  });
+
+  it('MCP get_space_meta reports the same field', async (t) => {
+    // The whole point: the door that was told to poll can now poll.
+    let session;
+    try {
+      session = await openMcpSession(token());
+    } catch (e) {
+      return t.skip(`MCP session unavailable: ${e.message}`);
+    }
+    try {
+      const res = await session.callTool('get_space_meta', { space: TEST_SPACE });
+      const text = res?.content?.[0]?.text ?? '';
+      const meta = JSON.parse(text);
+      assert.equal(typeof meta.needsReindex, 'boolean',
+        `get_space_meta must carry needsReindex: ${text.slice(0, 200)}`);
+      const status = await get(INSTANCES.a, token(), `/api/brain/spaces/${TEST_SPACE}/reindex-status`);
+      assert.equal(meta.needsReindex, status.body.needsReindex, 'both doors, one answer');
+    } finally {
+      session.close();
+    }
   });
 });
 

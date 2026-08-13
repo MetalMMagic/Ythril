@@ -136,7 +136,7 @@ export const SpaceMetaBody = z.object({
 }).strict();
 
 /**
- * The three fields the server OWNS: it writes them, `GET` returns them, and a caller may not set them.
+ * The fields the server OWNS: it writes them, `GET` returns them, and a caller may not set them.
  *
  * They are stripped from an incoming `meta` rather than rejected by `.strict()`. Reported by an integrator
  * doing the obvious thing — `GET` a space, edit one field of `meta.typeSchemas`, `PATCH` it back — and getting
@@ -144,16 +144,27 @@ export const SpaceMetaBody = z.object({
  * *"either merge, or do not return what you will not accept"*, and this is the second half; the merge half
  * already shipped as `mergeSpaceMeta`.
  *
- * **Only these three, and `.strict()` still rejects everything else.** That distinction is the whole design:
+ * **Only these, and `.strict()` still rejects everything else.** That distinction is the whole design:
  * a key the server itself emitted is echo-back noise and dropping it costs the caller nothing, while an
  * unknown key is a typo — and silently ignoring `validationMdoe` would let someone believe they had turned
  * validation on. Stripping everything would trade a real diagnostic for a convenience.
  *
- * The dry-run endpoint has stripped exactly these three since it was written, so before this the two endpoints
+ * The dry-run endpoint has stripped exactly these since it was written, so before this the two endpoints
  * disagreed about whether a round-tripped body was acceptable. One of them had to be wrong; the one that
  * accepted it was right.
+ *
+ * ## `needsReindex` joined the list, and the round-trip test is why
+ *
+ * It is derived state on the meta response — whether the space holds embeddings from a different model — added
+ * so an MCP caller can poll after `reindex`. The moment `GET` returned it, a caller doing the obvious thing
+ * (`GET`, edit one field, `PATCH` it back) got `unrecognized_keys` for a field they never wrote, which is
+ * exactly the report this strip exists to answer. CI caught it: `type-schema-crud.test.js` round-trips a real
+ * response rather than a hand-built body, so it fails the moment the response grows a field the PATCH refuses.
+ *
+ * The rule for anything added to this response in future: **derived, server-written, and echoed back means it
+ * belongs here** — otherwise "do not return what you will not accept" is broken again.
  */
-export const SERVER_OWNED_META_FIELDS = ['version', 'updatedAt', 'previousVersions'] as const;
+export const SERVER_OWNED_META_FIELDS = ['version', 'updatedAt', 'previousVersions', 'needsReindex'] as const;
 
 /** Drop the server-owned housekeeping fields from an incoming `meta`, leaving everything else to Zod. */
 export function stripServerOwnedMeta(meta: unknown): unknown {

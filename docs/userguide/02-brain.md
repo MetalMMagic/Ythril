@@ -20,6 +20,9 @@ it returns you to the tab you were on. The cog is greyed out until a space is se
 The admin list at **Settings → Spaces** is unchanged and remains the place to create, reorder and compare
 spaces; the cog is the shortcut for the one you are working in.
 
+The same state is on both APIs as `needsReindex` on a space's meta, so an agent can check it without watching
+the screen.
+
 If the search index needs rebuilding (for example after the embedding model changes), a banner appears reading *"Embeddings are stale — the embedding model has changed and this space needs reindexing."* Click **Reindex now** to rebuild it.
 
 > **Reindex and rebuild are different repairs.** *Reindex* re-embeds your content against the current model. It does **not** help when the search index itself is missing or broken — the symptom there is search quietly returning nothing at all, with no error. That one needs **Rebuild search indexes** on the space's **Danger** tab (see below).
@@ -45,6 +48,10 @@ Click **Save**. The memory is indexed immediately and available for search.
 **Filtering:** Each column that can be filtered has its control docked directly under the column header — a **freetext box** under the main text column (Name / Relation / Fact) that matches a substring of the row's text, a type/kind dropdown under the **Type**/**Kind** column, and a tag box under the **Tags** column. Clicking a tag or entity badge on a row still fills the matching filter (the active entity filter shows as a chip above the table, with **×** to clear). Filtering happens on the server across the whole list, and clears back to everything when you empty the control.
 
 **Sorting:** Click a column header with a caret (▾) to sort the list by that column — click again to flip the direction, and a third time to return to the default order. The caret fills in and points up or down to show the active sort. Sorting happens on the server, so it orders the **whole** list across every page, not just the rows currently on screen. Sortable columns vary by tab: **Entities** — Name, Type, Created · **Edges** — From, Relation, To, Weight, Created · **Memories** — Created · **Chrono** — Title, Kind, Status, Starts, Ends, Created.
+
+**Editing:** Click the **⊙ view-details** button on any row to open the full editable drawer — the same drawer
+the entity and edge tabs use. Every field you can set when creating a memory can be changed there, including
+tags, linked entities and properties.
 
 **Deleting:** Each row has a **✕** button. A small inline confirmation appears — click **Yes** to confirm, **No** to cancel.
 
@@ -101,6 +108,9 @@ Chrono stores time-anchored entries: events, deadlines, plans, predictions, and 
 **Searching:** The top search bar is **Semantic** (ranks entries by meaning). Plain-text matching (title / description) is the **freetext box under the Title column**.
 
 **Filtering:** The filter bar above the table lets you narrow by tag text and status. Filters apply immediately.
+
+**Editing:** Click the **⊙ view-details** button on any row to open the editable drawer, as on the other record
+tabs. Title, type, dates, status, tags, description and properties can all be changed there.
 
 **Deleting:** Inline ✕ confirmation per row.
 

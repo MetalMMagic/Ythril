@@ -170,9 +170,9 @@ export function planSpaceMetaUpdate(input: {
   }
 
   // Accept what we emit: a caller who GETs a space, edits one field and PATCHes it back is doing the obvious
-  // thing, and `version`/`updatedAt`/`previousVersions` come straight out of our own response. Stripped, not
-  // rejected — and ONLY these three, so `.strict()` still catches a typo like `validationMdoe`, which someone
-  // would otherwise believe had turned validation on. See SERVER_OWNED_META_FIELDS.
+  // thing, and `version`/`updatedAt`/`previousVersions`/`needsReindex` come straight out of our own response.
+  // Stripped, not rejected — and ONLY those, so `.strict()` still catches a typo like `validationMdoe`, which
+  // someone would otherwise believe had turned validation on. See SERVER_OWNED_META_FIELDS.
   const bodyForParse = body != null && typeof body === 'object' && !Array.isArray(body)
     ? { ...(body as Record<string, unknown>), ...('meta' in (body as object) ? { meta: stripServerOwnedMeta((body as { meta?: unknown }).meta) } : {}) }
     : body;

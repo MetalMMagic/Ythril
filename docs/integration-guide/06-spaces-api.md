@@ -433,11 +433,21 @@ type schemas are readable only by tokens that may reach the space.
     }
   },
   "tagSuggestions": ["backend", "frontend"],
-  "stats": { "memories": 142, "entities": 53, "edges": 87, "chrono": 12, "files": 31 }
+  "stats": { "memories": 142, "entities": 53, "edges": 87, "chrono": 12, "files": 31 },
+  "needsReindex": false
 }
 ```
 
-> **MCP tool:** `get_space_meta` — returns the same information. Available to all tokens (not admin-only).
+`needsReindex` is `true` when the space holds embeddings from a different model than the one configured — the
+state `POST /reindex` clears. On a **proxy space** it is `true` when **any** member needs one, matching
+[`GET /reindex-status`](04d-brain-ops-api.md).
+
+It is here because `reindex` returns as soon as the job *starts*: this is the field you poll to learn it
+finished. The dedicated `GET /api/brain/spaces/:spaceId/reindex-status` route still exists and is unchanged.
+
+> **MCP tool:** `get_space_meta` — returns the same information, `needsReindex` included. Available to all
+> tokens (not admin-only). Before this field existed, the `reindex` tool's own description told MCP callers to
+> poll the REST status route — which a client with no HTTP door cannot do.
 
 ---
 

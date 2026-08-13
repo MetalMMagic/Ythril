@@ -14,14 +14,25 @@ import { join } from 'node:path';
 
 const ROOT = process.cwd();
 const read = p => readFileSync(join(ROOT, p), 'utf8');
-const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*/gm, '$1');
+/**
+ * Comments out, LINE comments first.
+ *
+ * Order is not cosmetic. `api/data.ts:281` reads `// Follow the symlink — useful for /mnt/* or volume-mount
+ * points`, and stripping block comments first treats that `/*` as an opener: it swallows 5,907 characters
+ * through the next `*​/`, taking three route registrations with it. That is how this matrix reported 202 routes
+ * when the routers serve 207. Removing line comments first makes the phantom opener disappear with its line.
+ *
+ * Two files in the tree hit it today (`api/data.ts`, `files/converters/pipeline.ts`), and 33 gates still carry
+ * the other order — tracked as its own item rather than swept here.
+ */
+const strip = s => s.replace(/(^|[^:])\/\/.*/gm, '$1').replace(/\/\*[\s\S]*?\*\//g, '');
 
 // ── routes, as before ───────────────────────────────────────────────────────
 const APP = strip(read('server/src/app.ts'));
 const routerFile = new Map();
 for (const m of APP.matchAll(/import \{ (\w+) \} from '\.\/(api\/[^']+)\.js'/g)) routerFile.set(m[1], `server/src/${m[2]}.ts`);
 const mounts = [];
-for (const m of APP.matchAll(/app\.use\('(\/api\/[^']*)',\s*(\w+)\)/g)) {
+for (const m of APP.matchAll(/app\.use\('(\/[^']*)',\s*(\w+)\)/g)) {
   const file = routerFile.get(m[2]);
   if (file) mounts.push({ mount: m[1], file });
 }
@@ -31,22 +42,81 @@ const filesFor = file => {
   return execFileSync('git', ['ls-files', dir], { cwd: ROOT, encoding: 'utf8' })
     .split('\n').map(l => l.trim()).filter(l => l.endsWith('.ts'));
 };
+const API_ALL = execFileSync('git', ['ls-files', 'server/src/api'], { cwd: ROOT, encoding: 'utf8' })
+  .split('\n').map(l => l.trim()).filter(l => l.endsWith('.ts'));
+
+/**
+ * Router identifier -> mount path, following `use()` chains.
+ *
+ * `app.use('/api/brain', brainRouter)` is only the first hop: `brainRouter.use(memoriesRouter)` and seven
+ * siblings sit inside `api/brain/index.ts`, each with no prefix, so their routes are served under `/api/brain`
+ * while nothing in `app.ts` names them. Stopping at the first hop attributed 115 of 207 routes and called the
+ * other 92 unattributed.
+ *
+ * A PREFIXED nesting (`x.use('/y', sub)`) would need the prefix carried; none exists, and the loop reports one
+ * loudly if it appears rather than quietly mis-attributing its routes.
+ */
+const mountFor = new Map();
+for (const m of APP.matchAll(/app\.use\('(\/[^']*)',\s*(\w+)\)/g)) mountFor.set(m[2], m[1]);
+
+const nestings = [];
+for (const f of API_ALL) {
+  let code;
+  try { code = strip(read(f)); } catch { continue; }
+  for (const m of code.matchAll(/\b(\w*[Rr]outer)\.use\(\s*(?:'([^']*)',\s*)?(\w*[Rr]outer)\s*\)/g)) {
+    nestings.push({ parent: m[1], prefix: m[2] ?? '', child: m[3] });
+  }
+}
+for (let pass = 0; pass < 8; pass++) {
+  let changed = false;
+  for (const { parent, prefix, child } of nestings) {
+    const base = mountFor.get(parent);
+    if (base === undefined || mountFor.has(child)) continue;
+    if (prefix) console.log(`note: ${parent}.use('${prefix}', ${child}) — prefixed nesting, mount is ${base}${prefix}`);
+    mountFor.set(child, `${base}${prefix}`);
+    changed = true;
+  }
+  if (!changed) break;
+}
+
 const routes = new Set();
 const routeArea = new Map();
-for (const { mount, file } of mounts) {
-  for (const f of filesFor(file)) {
-    let code;
-    try { code = strip(read(f)); } catch { continue; }
-    for (const m of code.matchAll(/\b\w*[Rr]outer\.(get|post|patch|put|delete)\(\s*'(\/[^']*)'/g)) {
-      const key = `${m[1].toUpperCase()} ${mount}${m[2] === '/' ? '' : m[2]}`;
-      routes.add(key);
-      routeArea.set(key, mount);
-    }
+const unattributed = [];
+for (const f of API_ALL) {
+  let code;
+  try { code = strip(read(f)); } catch { continue; }
+  for (const m of code.matchAll(/\b(\w*[Rr]outer)\.(get|post|patch|put|delete)\(\s*'(\/[^']*)'/g)) {
+    const mount = mountFor.get(m[1]);
+    if (!mount) { unattributed.push(`${f}: ${m[1]}.${m[2]}('${m[3]}')`); continue; }
+    const key = `${m[2].toUpperCase()} ${mount}${m[3] === '/' ? '' : m[3]}`;
+    routes.add(key);
+    routeArea.set(key, mount);
   }
+}
+if (unattributed.length) {
+  console.error(`route registrations on an unknown router (${unattributed.length}) — the table is INCOMPLETE:`);
+  for (const u of unattributed) console.error(`    ${u}`);
+  process.exit(1);
 }
 
 const { ALL_TOOLS } = await import(`file://${join(ROOT, 'server/dist/mcp/tools/index.js')}`);
 const tools = new Set(ALL_TOOLS.map(t => t.name));
+const { ROUTE_RIGHTS, NOT_AREA_SCOPED } = await import(`file://${join(ROOT, 'server/dist/auth/space-rights.js')}`);
+
+/** `METHOD route` -> the rung a token needs, from the rights matrix that actually gates the request. */
+const RUNG = new Map(ROUTE_RIGHTS.map(r => [`${r.method} ${r.route}`, r.needs]));
+const AREA_OF = new Map(ROUTE_RIGHTS.map(r => [`${r.method} ${r.route}`, r.area]));
+const EXEMPT_ROUTES = new Set(NOT_AREA_SCOPED.map(r => r.route));
+
+/**
+ * What a TOKEN needs, per door.
+ *
+ * REST comes from `ROUTE_RIGHTS` — the per-space area and rung the middleware enforces. MCP has a coarser gate:
+ * `mutating` tools are hidden from a read-only token and `admin` tools from a non-admin one, which maps onto the
+ * same three rungs. Reporting both is the point: a tool hidden from a token whose REST route would have accepted
+ * it (or the reverse) is a real asymmetry, and it is invisible unless the two are put side by side.
+ */
+const toolRung = t => (t.admin ? 'admin' : t.mutating ? 'write' : 'read');
 
 // ── the mapping, by hand and verified ───────────────────────────────────────
 // `null` REST means the capability exists on MCP only; a note says why.
@@ -122,21 +192,47 @@ function hits(list, tool, route) {
   return out;
 }
 
-const rows = MAP.map(([area, tool, route, note]) => ({
-  area, tool, route, note,
-  guide: hits(GUIDE, tool, route),
-  user: hits(USER, tool, route),
-  changelog: hits(CHANGELOG, tool, route).length > 0 || hits(ARCHIVE, tool, route).length > 0,
-}));
+const rows = MAP.map(([area, tool, route, note]) => {
+  const t = ALL_TOOLS.find(x => x.name === tool);
+  const mcpRung = toolRung(t);
+  const restRung = route ? (RUNG.get(route) ?? (EXEMPT_ROUTES.has(route.split(' ').slice(1).join(' ')) ? 'exempt' : null)) : null;
+  return {
+    area, tool, route, note, mcpRung, restRung,
+    restArea: route ? (AREA_OF.get(route) ?? null) : null,
+    guide: hits(GUIDE, tool, route),
+    user: hits(USER, tool, route),
+    changelog: hits(CHANGELOG, tool, route).length > 0 || hits(ARCHIVE, tool, route).length > 0,
+  };
+});
 
 const cell = a => (a.length ? a.join(', ') : '**—**');
+
+/**
+ * One cell for the token requirement.
+ *
+ * `read` / `write` / `admin` when both doors agree — the common case, and what a reader wants at a glance. When
+ * they differ, BOTH are named with the door, because that difference is the interesting thing: it means the same
+ * capability is reachable by tokens of different strength depending on which client you happen to hold.
+ */
+function rungCell(r) {
+  if (!r.route) return `${r.mcpRung} (MCP)`;
+  // The per-space rights matrix governs SPACE-scoped areas. `/api/spaces`, `/api/tokens` and `/api/networks`
+  // are instance-level and deliberately outside it, so 'no row' there is the design rather than a gap.
+  if (r.restRung === null) return `${r.mcpRung} (MCP) · instance-level`;
+  if (r.restRung === 'exempt') return `${r.mcpRung} (MCP) · REST exempt`;
+  const area = r.restArea ? ` \`${r.restArea}\`` : '';
+  if (r.restRung === r.mcpRung) return `${r.restRung}${area}`;
+  return `**REST ${r.restRung}${area} · MCP ${r.mcpRung}**`;
+}
+
 const out = [];
-out.push('| capability | MCP tool | REST route | integration guide | userguide | CHANGELOG |');
-out.push('|---|---|---|---|---|---|');
+out.push('| capability | MCP tool | REST route | token needs | integration guide | userguide | CHANGELOG |');
+out.push('|---|---|---|---|---|---|---|');
 let area = null;
 for (const r of rows) {
-  if (r.area !== area) { area = r.area; out.push(`| **${area}** | | | | | |`); }
-  out.push(`| | \`${r.tool}\` | ${r.route ? `\`${r.route}\`` : '**MCP only**'} | ${cell(r.guide)} | ${cell(r.user)} | ${r.changelog ? 'y' : '**—**'} |`);
+  if (r.area !== area) { area = r.area; out.push(`| **${area}** | | | | | | |`); }
+  out.push(`| | \`${r.tool}\` | ${r.route ? `\`${r.route}\`` : '**MCP only**'} | ${rungCell(r)} `
+    + `| ${cell(r.guide)} | ${cell(r.user)} | ${r.changelog ? 'y' : '**—**'} |`);
 }
 
 // ── REST routes no tool covers ──────────────────────────────────────────────
@@ -156,9 +252,13 @@ for (const [a, list] of [...byArea].sort((x, y) => y[1].length - x[1].length)) {
 
 writeFileSync(join(ROOT, 'todo/_matrix-capabilities.md'), out.join('\n'), 'utf8');
 writeFileSync(join(ROOT, 'todo/_matrix-rest-only.md'), rest.join('\n'), 'utf8');
+const rungMismatch = rows.filter(r => r.route && r.restRung && r.restRung !== 'exempt' && r.restRung !== r.mcpRung);
+const noRightsRow = rows.filter(r => r.route && r.restRung === null);
 console.log(JSON.stringify({
   capabilities: rows.length, routes: routes.size, restOnly: restOnly.length,
   noGuide: rows.filter(r => !r.guide.length).length,
   noUser: rows.filter(r => !r.user.length).length,
   noChangelog: rows.filter(r => !r.changelog).length,
+  rungMismatch: rungMismatch.map(r => `${r.tool}: REST ${r.restRung} vs MCP ${r.mcpRung}`),
+  noRightsRow: noRightsRow.map(r => `${r.tool} -> ${r.route}`),
 }));

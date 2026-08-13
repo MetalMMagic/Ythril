@@ -10,7 +10,10 @@ import { globalRateLimit } from '../../rate-limit/middleware.js';
 import { NotFoundError } from '../../util/errors.js';
 import { countMemories } from '../../brain/memory.js';
 import { getEmbedJobCounts } from '../../brain/embed-queue.js';
-import { queryBrain } from '../../brain/query.js';
+import {
+  queryBrain, QUERY_BODY_FIELDS, TRAVERSE_BODY_FIELDS, RECALL_BODY_FIELDS, FIND_SIMILAR_BODY_FIELDS,
+  unknownBodyFields, compareQueryOrder,
+} from '../../brain/query.js';
 import { findSimilar, recall, type RecallKnowledgeType, type RecallResult } from '../../brain/recall.js';
 import { validateFilterExpression, type FilterExpression } from '../../brain/filter.js';
 import { traverseGraph, traverseRecallSeeds, MAX_RECALL_TRAVERSE, resolveEdgeEntityNames } from '../../brain/edges.js';
@@ -158,6 +161,9 @@ searchRouter.post('/spaces/:spaceId/traverse', globalRateLimit, requireSpaceAuth
     res.status(404).json({ error: `Space '${spaceId}' not found` });
     return;
   }
+  // Same refusal as /query, for the same reason: a mistyped `maxDepth` here returns a shallower graph with a 200.
+  const badTraverse = unknownBodyFields((req.body ?? {}) as Record<string, unknown>, TRAVERSE_BODY_FIELDS);
+  if (badTraverse) { res.status(400).json(badTraverse); return; }
   const { startId, direction, edgeLabels, maxDepth, limit } = req.body ?? {};
   if (!startId || typeof startId !== 'string') {
     res.status(400).json({ error: '`startId` string required' });
@@ -208,6 +214,16 @@ searchRouter.post('/spaces/:spaceId/traverse', globalRateLimit, requireSpaceAuth
 
 
 // POST /api/brain/spaces/:spaceId/query — structured query with filter/projection
+//
+// ## Two defects, one shape
+//
+// aigents, 2026-08-12T1410Z: `skip` was accepted at 200 and silently ignored, and *"it cost us a fabricated number"* —
+// a paged sweep re-read page one every time and was counted as if it had advanced. Their report names `skip`; the defect
+// is the PERMISSIVE BODY. Honouring one key would have left every other unknown key doing the same thing.
+//
+// So both halves are here: the body is strict, and `skip` is real. MCP's `query` tool already declared
+// `additionalProperties: false` and so already refused unknown keys — REST was the weaker of the two surfaces for the
+// same rule, which is this repo's most repeated defect class.
 searchRouter.post('/spaces/:spaceId/query', globalRateLimit, requireSpaceAuth, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
   const cfg = getConfig();
@@ -215,9 +231,14 @@ searchRouter.post('/spaces/:spaceId/query', globalRateLimit, requireSpaceAuth, a
     res.status(404).json({ error: `Space '${spaceId}' not found` });
     return;
   }
-  const { collection, filter, projection, limit, maxTimeMS } = req.body ?? {};
+
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const bad = unknownBodyFields(body, QUERY_BODY_FIELDS);
+  if (bad) { res.status(400).json(bad); return; }
+
+  const { collection, filter, projection, limit, maxTimeMS, skip } = body;
   const validCollections = ['memories', 'entities', 'edges', 'chrono', 'files'] as const;
-  if (!validCollections.includes(collection)) {
+  if (!validCollections.includes(collection as typeof validCollections[number])) {
     res.status(400).json({ error: `collection must be one of: ${validCollections.join(', ')}` });
     return;
   }
@@ -232,18 +253,41 @@ searchRouter.post('/spaces/:spaceId/query', globalRateLimit, requireSpaceAuth, a
   const safeLimit = typeof limit === 'number' ? limit : 20;
   const safeMaxTimeMS = typeof maxTimeMS === 'number' ? maxTimeMS : 5000;
 
+  // A non-integer or negative `skip` is refused rather than floored to 0. Silently reading it as "start from the
+  // beginning" is the same failure they reported: a page that is not the page asked for, returned with a 200.
+  if (skip !== undefined && (typeof skip !== 'number' || !Number.isInteger(skip) || skip < 0)) {
+    res.status(400).json({ error: 'skip must be a non-negative integer' });
+    return;
+  }
+  const safeSkip = typeof skip === 'number' ? skip : 0;
+
   try {
-    const docs = await collectAcrossMembers(spaceId, mid =>
+    // A PROXY space needs the page computed over the MERGED set, not per member.
+    //
+    // `collectAcrossMembers` concatenates, so asking each member for rows `[skip, skip+limit)` and flattening would
+    // return up to `limit × members` rows, ordered by member rather than by the documented sort, having skipped `skip`
+    // rows in each — three wrong answers at once, and none of them an error. That is the same class as the defect this
+    // route is being fixed for, so it is fixed here rather than left for the next report.
+    //
+    // Correct paging over a union: take the first `skip + limit` from each member, merge, sort by the documented key,
+    // then slice the window. The per-member fetch is bounded by the page the caller asked for, so a deep page costs
+    // more but never the whole collection.
+    const window = Math.min(safeSkip + Math.min(safeLimit, 100), 100);
+    const perMember = await collectAcrossMembers(spaceId, mid =>
       queryBrain(
         mid,
         collection as typeof validCollections[number],
         safeFilter,
         safeProjection,
-        safeLimit,
+        window,
         safeMaxTimeMS,
+        0,
       ),
     );
-    res.json({ results: docs, collection, count: docs.length });
+    const merged = perMember.sort(compareQueryOrder).slice(safeSkip, safeSkip + safeLimit);
+    // `limit` and `skip` are echoed so a caller paging in a loop can tell "the page you asked for" from "what I
+    // capped it to", which is exactly the distinction the fabricated number came from.
+    res.json({ results: merged, collection, count: merged.length, limit: safeLimit, skip: safeSkip });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(400).json({ error: msg });
@@ -273,6 +317,9 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
     res.status(404).json({ error: `Space '${spaceId}' not found` });
     return;
   }
+  // A mistyped `minScore` on recall silently returns the unfiltered ranking, which reads as a working search.
+  const badRecall = unknownBodyFields((req.body ?? {}) as Record<string, unknown>, RECALL_BODY_FIELDS);
+  if (badRecall) { res.status(400).json(badRecall); return; }
   const { query, topK, types, minScore, filter, traverse, tags, minPerType, maxPerType, maxTimeMS } = req.body ?? {};
   if (!query || typeof query !== 'string' || !query.trim()) {
     res.status(400).json({ error: 'query must be a non-empty string' });
@@ -497,6 +544,11 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
   }
 
   const body = (req.body ?? {}) as Record<string, unknown>;
+  // `crossSpace` is deprecated here but still ALLOWED, so this refusal does not break the callers we told to stop
+  // using it before we have removed it. Refusing a key we still accept elsewhere would be a worse contract than the
+  // permissive body it replaces.
+  const badSimilar = unknownBodyFields(body, FIND_SIMILAR_BODY_FIELDS);
+  if (badSimilar) { res.status(400).json(badSimilar); return; }
   const entryId = typeof body['entryId'] === 'string' ? body['entryId'].trim() : '';
   const entryType = typeof body['entryType'] === 'string' ? body['entryType'].trim() : '';
   const topK = typeof body['topK'] === 'number' ? Math.min(Math.max(body['topK'], 1), 100) : 10;

@@ -414,8 +414,11 @@ Run a constrained Mongo-style read query against one logical collection. Intende
 | `collection` | ✅ | One of: `memories`, `entities`, `edges`, `chrono`, `files` |
 | `filter` | — | Query filter object (defaults to `{}`) |
 | `projection` | — | Projection object (`1` include / `0` exclude) |
-| `limit` | — | Max rows (default `20`) |
+| `limit` | — | Max rows (default `20`, capped at `100`) |
+| `skip` | — | Rows to discard before the page (default `0`) — see below |
 | `maxTimeMS` | — | Query timeout in milliseconds (default `5000`) |
+
+Any other field is a `400`. See **Unknown body fields are refused** below.
 
 **Response** `200`:
 
@@ -423,9 +426,59 @@ Run a constrained Mongo-style read query against one logical collection. Intende
 {
   "results": [ ... ],
   "collection": "entities",
-  "count": 12
+  "count": 12,
+  "limit": 20,
+  "skip": 0
 }
 ```
+
+#### Paging with `skip`
+
+| Field | Default | Meaning |
+|---|---|---|
+| `limit` | `20` | Max documents, clamped to 100 |
+| `skip` | `0` | Rows to discard before the page. Must be a **non-negative integer** — a negative or fractional value is a `400`, not a silent `0` |
+
+The result order is **total** — `seq`, then `updatedAt`, `createdAt`, `_id` — so no row can drift between pages and be
+seen twice or missed. Concatenating `skip=0,5,10,…` gives you the collection exactly once, in order.
+
+```json
+{ "results": [ … ], "collection": "memories", "count": 3, "limit": 3, "skip": 4 }
+```
+
+`limit` and `skip` are echoed back, so a paging loop can distinguish *the page you asked for* from *what the server
+capped it to*. A `skip` past the end returns an empty `results` — it does **not** return the last page, so a loop that
+stops on an empty page terminates.
+
+On a **proxy space** the page is computed over the **merged** set of all member spaces, not per member: the server takes
+the first `skip + limit` rows from each member, merges them into the documented order, and returns the window. A deep
+page therefore costs more on a proxy space than on a plain one, but it is the same page.
+
+#### Unknown body fields are refused
+
+These four read routes accept a fixed set of body fields and **reject anything else with a `400`** naming the offending
+keys:
+
+| Route | Accepted fields |
+|---|---|
+| `POST /query` | `collection`, `filter`, `projection`, `limit`, `skip`, `maxTimeMS` |
+| `POST /recall` | `query`, `topK`, `types`, `minScore`, `filter`, `traverse`, `tags`, `minPerType`, `maxPerType`, `maxTimeMS`, `includeFreshWrites`, `includeContent` |
+| `POST /traverse` | `startId`, `direction`, `edgeLabels`, `maxDepth`, `limit`, `includeChrono`, `includeMemories`, `includeFiles`, `includeEdges` |
+| `POST /find-similar` | `entryId`, `entryType`, `topK`, `minScore`, `targetTypes`, `crossSpace` *(deprecated, still accepted)* |
+
+```json
+{
+  "error": "Unknown field(s): sort. Allowed: collection, filter, projection, limit, skip, maxTimeMS",
+  "unrecognized_keys": ["sort"]
+}
+```
+
+**This is a deliberate break with the previous behaviour, and it is the point.** These bodies used to accept any key and
+honour the ones they recognised. aigents paged a sweep with `skip` before it was implemented, got `200` every time, and
+counted page one repeatedly as if it had advanced — *"it cost us a fabricated number"*. A parameter the server cannot
+honour is now an error rather than a wrong answer that looks right.
+
+There is **no `sort`** on `/query`. It is refused rather than ignored for exactly that reason.
 
 ---
 

@@ -439,6 +439,83 @@ export const create_spaceTool: ToolHandler = {
   },
 };
 
+/**
+ * Re-embed a space — the LAST of the five REST-only capabilities, and the one their workaround measured best.
+ *
+ * They reindexed 14 spaces plus 5 personal ones by curl in a shell loop, by hand, because the agent that planned their
+ * embedder migration could not run it. That is the whole case: the surface that plans a migration was the surface that
+ * could not execute it.
+ *
+ * ## Why it took three PRs
+ *
+ * There was nothing to wrap. The re-embedding work was inline in the route handler as five near-identical batch loops,
+ * so it was pinned by characterization tests, extracted to `brain/reindex.ts`, and only then given a tool. A tool that
+ * had re-implemented the loops would have been a second copy of five embed-text call sites, and the copy that drifts is
+ * the one nobody watches.
+ *
+ * ## The one argument that differs per surface
+ *
+ * `memberIds`. REST narrows by request; here it comes from the token's accessible spaces via `memberSpacesWithin`.
+ * Getting that wrong is how a tool would re-embed a member of a proxy that the token cannot reach — so the planner
+ * takes it as an argument rather than resolving it, and each surface supplies the list it is entitled to.
+ */
+export const reindexTool: ToolHandler = {
+  name: 'reindex',
+  description: 'Re-embed every record in a space with the currently configured embedding model — the recovery path '
+    + 'after changing embedder or model. Requires an admin token. Returns as soon as the job STARTS: it runs in the '
+    + 'background and may take minutes, so poll `get_space_meta` or the REST reindex-status route rather than waiting '
+    + 'on this call. One job per instance at a time; a second call while one is running is refused. A PROXY space is '
+    + 'refused by name — it has no index of its own, and its members are listed in the error so you can reindex them '
+    + 'instead. Idempotent: re-embedding a record that is already current is harmless.',
+  mutating: true,
+  admin: true,
+  spaceRequired: true,
+  inputSchema: (s: ToolSchemas) => ({
+    type: 'object',
+    properties: { space: s.requiredSpace },
+    required: ['space'],
+    additionalProperties: false,
+  }),
+  async handle(ctx: ToolContext): Promise<ToolResult> {
+    const { callSpace, isAdmin, accessibleSpaceIds } = ctx;
+    if (!isAdmin) {
+      return {
+        content: [{ type: 'text' as const, text: 'Error: reindex requires an admin token' }],
+        isError: true,
+      };
+    }
+
+    const { planReindex, startReindex } = await import('../../brain/reindex.js');
+    const space = getConfig().spaces.find(s => s.id === callSpace);
+
+    // The member list comes from what this TOKEN may reach, not from the space's full membership. A proxy is refused
+    // below regardless, but a scoped admin reindexing a normal space must never walk a member it cannot see.
+    const decision = planReindex({
+      spaceId: callSpace,
+      space,
+      memberIds: memberSpacesWithin(callSpace, accessibleSpaceIds),
+    });
+    if (!decision.ok) {
+      // The status is reported alongside the message: 409 means "one is already running, try later" and 400 means
+      // "this can never work, reindex the members instead". An agent that cannot tell those apart retries the wrong one.
+      return {
+        content: [{ type: 'text' as const, text: `Error (${decision.refusal.status}): ${decision.refusal.body.error}` }],
+        isError: true,
+        ...(decision.refusal.body.proxyFor ? { structuredContent: { proxyFor: decision.refusal.body.proxyFor } } : {}),
+      };
+    }
+
+    startReindex(decision.plan);
+    return {
+      content: [{ type: 'text' as const, text:
+        `Reindex STARTED for '${callSpace}' (${decision.plan.memberIds.length === 1 ? '1 space' : `${decision.plan.memberIds.length} member spaces`}). `
+        + 'It runs in the background — this reply does not mean it finished. Progress is in the server log, and '
+        + 'get_space_meta reflects the result once it completes.' }],
+      structuredContent: { status: 'started', spaceId: callSpace, memberSpaces: decision.plan.memberIds },
+    };
+  },
+};
+
 export const wipe_spaceTool: ToolHandler = {
   name: 'wipe_space',
   description: 'Wipe data from the specified space. By default wipes all collections (memories, entities, edges, chrono, files). Pass `types` to wipe only specific collections. The space itself and its configuration are preserved. Requires an admin token. Idempotent — wiping an empty space returns zero counts.',

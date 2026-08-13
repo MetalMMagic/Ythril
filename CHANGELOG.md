@@ -38,6 +38,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     carries no permission information and nobody documents an asymmetry that is not there.
 
 ### Added
+- **`reindex` is an MCP tool, and the REST-only capability map is now EMPTY.** Last of the five breituai-platform
+  reported, and the one their workaround measured best: they reindexed 14 spaces plus 5 personal ones by curl in a
+  shell loop, because the agent that planned their embedder migration could not run it. The surface that plans a
+  migration was the surface that could not execute it.
+  - Calls `planReindex` + `startReindex`, so the refusals are the route's: 404, the proxy 400 with its members named,
+    and the single-job 409. The status is reported alongside the message because 409 means *try later* and 400 means
+    *never* — an agent that cannot tell them apart either retries forever or gives up on a space that is merely busy.
+  - **The reply says the job is NOT finished.** It returns as soon as the work is scheduled, exactly as the route
+    does; an agent reading it as "done" would check for results immediately and conclude the reindex failed.
+  - **The one argument that differs per surface is the member list.** REST narrows by request; the tool narrows by the
+    token's accessible spaces via `memberSpacesWithin`. That is the single place this tool could be wrong while
+    looking right — a scoped admin must not re-embed a member it cannot reach — so it is asserted directly.
+  - It took three PRs, like the other two non-wrappers: characterization tests against the unmoved route, the
+    extraction to `brain/reindex.ts`, then the tool.
+
+### Fixed
+- **The parity gate counted a tool as BUILT when it was merely DECLARED.** `toolNames()` scanned
+  `server/src/mcp/tools/*.ts` for `name: '…'`, so a tool object written and never added to `ALL_TOOLS` satisfied it —
+  while being absent from `tools/list`, uncallable, and invisible to every check that reads the registry.
+  - Found by mutation-testing the now-empty capability map: with the `reindex` row deleted **and** `reindexTool`
+    removed from the registry, the gate stayed green. That is precisely the *delete the row to quiet the gate* move
+    the file claims to prevent, and it was available for as long as the scan existed.
+  - `toolNames()` now reads `ALL_TOOLS`, and a new assertion requires every tool declared in source to be registered —
+    a declaration nobody registered is dead code that reads as a shipped feature.
+  - The same mutation is now caught twice over, by both assertions.
+- **The parity gate required the map to be NON-EMPTY**, on the reasoning that an empty list says nothing and that
+  completing parity should mean deleting the gate. Completing it showed both halves to be wrong: the anti-deletion
+  assertions get *stronger* as rows disappear, because each reported capability must then resolve to a real registered
+  tool — and deleting the gate would leave the next one-sided capability with no check at all. `help()` reports this
+  list to every caller, so an empty list is a claim, and a claim is what wants a test.
+
+### Added
 - **`create_space` is an MCP tool.** Fourth of the five, and the one where "just call the existing function" was most
   tempting and most dangerous: `createSpace()` has existed all along, so a tool could have called it on day one — and
   produced spaces a REST caller cannot. Un-seeded, with no validation and no strict linkage. Or proxying a space that

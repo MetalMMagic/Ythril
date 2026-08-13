@@ -19,7 +19,7 @@ const schemas = {
 const schemaOf = (name) => ALL_TOOLS.find(t => t.name === name).inputSchema(schemas);
 
 describe('MCP tool schemas — universal invariants', () => {
-  it('exposes exactly 38 tools', () => {
+  it('exposes exactly 39 tools', () => {
     // A deliberate tripwire, not a fact worth asserting for its own sake: the number changing means a tool
     // was added or removed, and every tool needs an audit mapping, a read-only classification and a docs
     // row. Bump it when you have done those three, never to make the suite quiet.
@@ -29,7 +29,9 @@ describe('MCP tool schemas — universal invariants', () => {
     // 37 -> 38: `create_space`. Prerequisites done — `audit-map.ts` maps it to `space.create`, it is
     // `mutating: true` + `admin: true` and listed among the tools a readOnly token cannot see, and `16-mcp.md`
     // carries its row.
-    assert.equal(ALL_TOOLS.length, 38);
+    // 38 -> 39: `reindex`, the LAST row of the capability map. Prerequisites done — audit mapping, readOnly
+    // classification, docs row.
+    assert.equal(ALL_TOOLS.length, 39);
   });
 
   it('every tool advertises a closed object schema (type:object, additionalProperties:false)', () => {

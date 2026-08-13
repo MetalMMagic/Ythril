@@ -88,7 +88,14 @@ const RECLASSIFIED = 1;
  * original figure was not wrong through carelessness: it was an undercount produced by a sweep that matched calls,
  * and the indirection it missed is exactly the kind that makes a fan-out hard to follow.
  */
-const TOTAL = 29;
+// 29 -> 30: the `reindex` MCP tool. It resolves its member list with `memberSpacesWithin(callSpace,
+// accessibleSpaceIds)`, so it is NARROWED by construction and lands in `narrowedCalls()` the day it is written — which
+// is the point of counting rather than listing. It is a genuinely new fan-out, not a re-measurement: `reindex` had no
+// MCP surface before, and the REST route narrows by request instead.
+//
+// Raised deliberately. A conserved total that is quietly adjusted whenever it fails conserves nothing, so every change
+// to this number says which site moved and why.
+const TOTAL = 30;
 
 const GUARDS = {
   'server/src/auth/middleware.ts': 2,
@@ -258,7 +265,7 @@ describe('the narrowing half is COMPLETE', () => {
 });
 
 describe('the total is conserved', () => {
-  it('narrowed + still pending accounts for all 28 read fan-outs', () => {
+  it('narrowed + still pending accounts for every read fan-out', () => {
     // The invariant that makes progress checkable: converting a site must MOVE it, never drop it. A conversion that
     // quietly deleted a fan-out would otherwise look like progress.
     const pending = Object.values(PENDING).reduce((a, b) => a + b, 0);

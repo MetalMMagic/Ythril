@@ -11,7 +11,7 @@ import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.
 import { UUID_V4_RE, entityDocToRecord, formatRecallSummary, toRecallRecord, uuidSchema, unitScoreSchema, QUERY_FILTER_OPERATORS, RECALL_FILTER_KEY_PATTERN, type McpRecallTraverseItem } from './shared.js';
 import { MAX_RECALL_TRAVERSE, traverseRecallSeeds } from '../../brain/edges.js';
 import { type FilterExpression, validateFilterExpression } from '../../brain/filter.js';
-import { queryBrain } from '../../brain/query.js';
+import { queryBrain, compareQueryOrder } from '../../brain/query.js';
 import { type RecallKnowledgeType, type RecallResult, findSimilar, recall, recallGlobal } from '../../brain/recall.js';
 import { collectAcrossMembers } from '../../spaces/proxy.js';
 import { memberSpacesWithin } from '../../spaces/proxy-scoped.js';
@@ -368,13 +368,14 @@ export const queryTool: ToolHandler = {
             },
             filter: {
               type: 'object',
-              description: `MongoDB filter document. Only these operators are allowed (any other $-operator is rejected): ${QUERY_FILTER_OPERATORS.join(', ')}. Nesting is capped at depth 8. $regex must be a string, length-limited, and rejected if it risks catastrophic backtracking; $options is allowed only alongside $regex and only with flags i, m, s, x. Results are ordered seq/updatedAt/createdAt descending — there is no sort parameter.`,
+              description: `MongoDB filter document. Only these operators are allowed (any other $-operator is rejected): ${QUERY_FILTER_OPERATORS.join(', ')}. Nesting is capped at depth 8. $regex must be a string, length-limited, and rejected if it risks catastrophic backtracking; $options is allowed only alongside $regex and only with flags i, m, s, x. Results are ordered seq/updatedAt/createdAt descending — there is no sort parameter, but 'skip' pages through that order.`,
             },
             projection: {
               type: 'object',
               description: 'Fields to include (1) or exclude (0). The `embedding` field is always excluded and cannot be re-included.',
             },
             limit: { type: 'number', minimum: 1, maximum: 100, default: 20, description: 'Max documents to return (clamped to 1–100). Default 20.' },
+            skip: { type: 'number', minimum: 0, description: 'Rows to discard before the page, for paging. The result order is total (`_id` breaks every tie), so no row can be seen twice or missed between pages. On a proxy space the page is computed over the MERGED set, not per member.' },
             maxTimeMS: { type: 'number', minimum: 1, maximum: 10000, default: 5000, description: 'Server-side query timeout in ms. Default 5000, hard-capped at 10000.' },
           },
           required: ['space', 'collection', 'filter'],
@@ -391,21 +392,33 @@ export const queryTool: ToolHandler = {
         ? (a['filter'] as Record<string, unknown>)
         : {};
     const limit = typeof a['limit'] === 'number' ? a['limit'] : 20;
+    // Same refusal as the REST route: a non-integer or negative skip is an error, not a silent 0. Reading it as "start
+    // from the beginning" returns a page that is not the page asked for, with no sign that anything went wrong.
+    if (a['skip'] !== undefined && (typeof a['skip'] !== 'number' || !Number.isInteger(a['skip']) || a['skip'] < 0)) {
+      throw new Error('skip must be a non-negative integer');
+    }
+    const skip = typeof a['skip'] === 'number' ? a['skip'] : 0;
     const maxTimeMS = typeof a['maxTimeMS'] === 'number' ? a['maxTimeMS'] : 5000;
     const projection =
       a['projection'] != null && typeof a['projection'] === 'object'
         ? (a['projection'] as Record<string, unknown>)
         : undefined;
 
-    const docs = await collectAcrossMembers(callSpace, mid =>
+    // The proxy-merge is the same as the REST route's, and for the same reason: asking each member for rows
+    // [skip, skip+limit) and concatenating skips that many rows PER MEMBER and orders the result by member. Take the
+    // first skip+limit from each, merge by the documented order, then slice the window.
+    const window = Math.min(skip + Math.min(limit, 100), 100);
+    const perMember = await collectAcrossMembers(callSpace, mid =>
       queryBrain(
         mid,
         collName as 'memories' | 'entities' | 'edges' | 'chrono' | 'files',
         filter,
         projection,
-        limit,
+        window,
         maxTimeMS,
+        0,
       ));
+    const docs = perMember.sort(compareQueryOrder).slice(skip, skip + limit);
     return {
       content: [
         {

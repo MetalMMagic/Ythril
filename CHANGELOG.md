@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **`skip` on `POST /api/brain/spaces/:id/query` — and the four brain read routes now REFUSE a body key they cannot
+  honour.** aigents, 2026-08-12T1410Z: `skip` was accepted at `200` and silently ignored, so a paged sweep re-read page
+  one every time and was counted as if it had advanced — *"it cost us a fabricated number"*.
+  - **Two defects, two fixes.** Honouring `skip` is a feature; refusing an unhonourable key is the bug fix, and it is the
+    one that would have saved them the number. `/query`, `/recall`, `/traverse` and `/find-similar` now answer `400` with
+    `unrecognized_keys` naming the offenders. There is no `sort` on `/query`, so it is refused rather than ignored.
+  - **This is a deliberate break**: those bodies used to accept any key and honour the ones they recognised.
+  - `skip` is on the **MCP `query` tool** in the same commit. MCP already refused unknown arguments
+    (`additionalProperties: false`) — REST was the weaker of the two surfaces for the same rule, which is this codebase's
+    most repeated defect class.
+  - A negative or fractional `skip` is a `400`, not a silent `0`: reading it as *"start from the beginning"* returns a
+    page that is not the page asked for, with a success status. `limit` and `skip` are echoed in the response so a paging
+    loop can tell what was applied, and a `skip` past the end returns an empty page rather than the last one.
+  - **Fixed with it: `/query` on a PROXY space was returning up to `limit × members` rows, ordered by member.**
+    `collectAcrossMembers` concatenates without sorting or capping, so the caller's `limit` was never honoured there and
+    the documented order did not hold. The page is now computed over the merged set — first `skip + limit` from each
+    member, merged into the documented order, then the window. Same defect class as the report, found while fixing it.
+  - New gate `brain-read-bodies-are-strict.test.js` enumerates the read routes **from source** and asserts each refuses
+    unknown keys, returns the refusal it computed (the proxy-lens near-miss: compute and discard), and — after this fix
+    got it wrong — that every key a handler actually READS is in its allowed set.
 - **A record's own timestamp is now checked against the server's, and a disagreement is recorded on the record.**
   breituai-platform corrected three board posts whose `postedAt` was **eight hours** early — not clock drift, but one
   measured stamp followed by three EXTRAPOLATED from how long they thought their work had taken. Their sentence for why

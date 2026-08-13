@@ -60,6 +60,93 @@ function sanitizeFilter(filter: unknown, depth = 0): unknown {
 
 const ALLOWED_COLLECTIONS = new Set(['memories', 'entities', 'edges', 'chrono', 'files']);
 
+/**
+ * The body keys `POST /api/brain/spaces/:id/query` accepts, as a VALUE so the route can refuse everything else.
+ *
+ * aigents sent `skip`, got a 200, and got page one back — *"it cost us a fabricated number"*. A permissive body is the
+ * defect; `skip` was only how they found it. This set lives beside `queryBrain` rather than in the router so that adding
+ * a parameter to the query and forgetting to allow it in the body is one edit rather than two.
+ */
+export const QUERY_BODY_FIELDS: ReadonlySet<string> = new Set([
+  'collection', 'filter', 'projection', 'limit', 'skip', 'maxTimeMS',
+]);
+
+/**
+ * The other three brain READ routes that take a body, and had the same permissive-body defect `/query` was reported
+ * for. aigents found it on `/query` because that is the one they were paging; `traverse`, `recall` and `find-similar`
+ * dropped unknown keys just as silently, and a mistyped `topK` or `minScore` there produces a wrong answer with a 200
+ * exactly the same way.
+ *
+ * Listed as data so `brain-read-bodies-are-strict.test.js` can assert BY SHAPE that every read route on the search
+ * router refuses unknown keys, rather than checking the one key that was reported.
+ */
+export const TRAVERSE_BODY_FIELDS: ReadonlySet<string> = new Set([
+  'startId', 'direction', 'edgeLabels', 'maxDepth', 'limit',
+  'includeChrono', 'includeMemories', 'includeFiles', 'includeEdges',
+]);
+
+export const RECALL_BODY_FIELDS: ReadonlySet<string> = new Set([
+  'query', 'topK', 'types', 'minScore', 'filter', 'traverse', 'tags',
+  'minPerType', 'maxPerType', 'maxTimeMS',
+  // NOT on the destructuring line — these two are read 120 lines further down the handler as
+  // `(req.body as {...}).includeFreshWrites` / `.includeContent`. The first version of this set was built from the
+  // destructuring alone and refused both, which `recall-fresh-writes.test.js` caught immediately.
+  //
+  // That is the standing hazard of making a body strict: the allowed set has to be the keys the handler READS, and a
+  // handler that reads its body in two places will be described by whichever place you looked at. Grep for `req.body`
+  // across the whole handler, not for the destructure.
+  'includeFreshWrites', 'includeContent',
+
+]);
+
+export const FIND_SIMILAR_BODY_FIELDS: ReadonlySet<string> = new Set([
+  'entryId', 'entryType', 'topK', 'minScore', 'targetTypes', 'crossSpace',
+]);
+
+/**
+ * The refusal itself, in one place so all four routes phrase it identically.
+ *
+ * Returns the offending keys, or `null` when the body is clean. The keys are NAMED: `{"error":"unknown field"}` sends a
+ * caller reading their own request looking for which one, and the entire value of refusing is to shorten that search to
+ * zero. `unrecognized_keys` matches the shape the spaces routes already return, so a client that already handles that
+ * one needs no new branch.
+ */
+export function unknownBodyFields(
+  body: Record<string, unknown>,
+  allowed: ReadonlySet<string>,
+): { error: string; unrecognized_keys: string[] } | null {
+  const unknown = Object.keys(body).filter(k => !allowed.has(k));
+  if (unknown.length === 0) return null;
+  return {
+    error: `Unknown field(s): ${unknown.join(', ')}. Allowed: ${[...allowed].join(', ')}`,
+    unrecognized_keys: unknown,
+  };
+}
+
+/**
+ * The documented result order — `seq` desc, then `updatedAt`, `createdAt`, `_id` — as a comparator, for merging pages
+ * across the members of a proxy space.
+ *
+ * A second expression of the sort is exactly the drift risk this repo keeps paying for, so it is defined next to the
+ * `.sort()` it mirrors and `query-order-matches-the-sort.test.js` asserts the two agree on the same documents rather
+ * than on my reading of them.
+ */
+export function compareQueryOrder(a: unknown, b: unknown): number {
+  const A = a as Record<string, unknown>;
+  const B = b as Record<string, unknown>;
+  for (const key of ['seq', 'updatedAt', 'createdAt', '_id'] as const) {
+    const av = A[key];
+    const bv = B[key];
+    // A record missing the key sorts LAST rather than first: `undefined` in a descending sort must not win, or a
+    // partially projected document would lead a page it has no claim to.
+    if (av === bv) continue;
+    if (av === undefined || av === null) return 1;
+    if (bv === undefined || bv === null) return -1;
+    return av > bv ? -1 : 1;
+  }
+  return 0;
+}
+
 /** Structured read-only query (operator whitelist enforced) */
 export async function queryBrain(
   spaceId: string,
@@ -68,6 +155,16 @@ export async function queryBrain(
   projection?: Record<string, unknown>,
   limit = 20,
   maxTimeMS = 5000,
+  /**
+   * Rows to discard before the page. aigents reported `skip` being accepted at 200 and silently ignored on
+   * `POST /query`, which cost them a fabricated number: a paged sweep re-read page one every time and was counted as
+   * if it had advanced. A wrong number that looks right is worse than an error, so this parameter is honoured here
+   * rather than validated at the door and dropped.
+   *
+   * Paging is only meaningful because the sort below is TOTAL — `_id` breaks every tie — so no row can drift between
+   * pages and be seen twice or missed.
+   */
+  skip = 0,
 ) {
   if (!ALLOWED_COLLECTIONS.has(collectionName)) {
     throw new Error(`Unknown collection '${collectionName}'`);
@@ -81,6 +178,9 @@ export async function queryBrain(
     // Deterministic newest-first ordering keeps recent writes visible under
     // the default limit even when historical datasets grow large.
     .sort({ seq: -1, updatedAt: -1, createdAt: -1, _id: -1 })
+    // Skip BEFORE limit, which is the order the driver applies regardless of call order — spelled out here because
+    // the reverse reading (limit the page, then drop rows from it) would silently return short pages.
+    .skip(Math.max(Math.floor(skip) || 0, 0))
     .limit(Math.min(limit, 100))
     // The embedding vector is never returned. This is MERGED with the caller's
     // projection rather than applied as a second `.project()` — a second call

@@ -501,7 +501,22 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
       // noise, and a field that is almost always empty is a field readers learn to skip — which is exactly
       // when it needs to be noticed. The requester asked for the flag in the BODY rather than only a status,
       // because a 200 that is quietly short is indistinguishable from a 200 that found everything.
-      res.json({ results: stripContentIfAsked(seeds, safeIncludeContent), count: seeds.length, ...(degraded.length > 0 ? { degraded } : {}) });
+      // A large answer spills even with NO traversal: `topK: 100` is 100 records, and this branch used to
+      // return all of them because the spill lived in the graph branch alone. That was the bug the E2E caught —
+      // the rule is about the size of the result set, not about whether a graph is attached.
+      const plain = stripContentIfAsked(seeds, safeIncludeContent);
+      const plainSpill = await spillResultSet({
+        memberSpaceId: seeds[0]?.spaceId ?? spaceId,
+        results: plain,
+        graphNodes: 0,
+        request: { query: query.trim(), topK: safeTopK, traverse: 0, types: safeTypes ?? null },
+      });
+      res.json({
+        results: plainSpill ? plain.slice(0, SPILL_INLINE_RESULTS) : plain,
+        count: plain.length,
+        ...(plainSpill ? { truncated: true, complete: plainSpill } : {}),
+        ...(degraded.length > 0 ? { degraded } : {}),
+      });
       return;
     }
 
@@ -630,7 +645,18 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
       crossSpaceIds,
     );
     if (safeTraverse === 0) {
-      res.json({ ...result, results: stripContentIfAsked(result.results, safeIncludeContent) });
+      const plainItems = stripContentIfAsked(result.results, safeIncludeContent);
+      const plainItemSpill = await spillResultSet({
+        memberSpaceId: result.results[0]?.spaceId ?? spaceId,
+        results: plainItems,
+        graphNodes: 0,
+        request: { entryId, entryType, topK, traverse: 0 },
+      });
+      res.json({
+        ...result,
+        results: plainItemSpill ? plainItems.slice(0, SPILL_INLINE_RESULTS) : plainItems,
+        ...(plainItemSpill ? { truncated: true, complete: plainItemSpill } : {}),
+      });
       return;
     }
 

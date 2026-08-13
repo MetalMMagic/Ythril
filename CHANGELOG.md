@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **A `type` filter no longer scans the collection.** Every brain list endpoint exposes one, and since `total`
+  shipped each of those requests runs a `countDocuments` with the same filter — so the cost doubled on a path that
+  was already a scan. `explain()` against a live instance returned **COLLSCAN** for `{type: …}` on memories,
+  entities, edges and chrono.
+  - Entities are the instructive case: they carry `{ name: 1, type: 1 }`, which reads like coverage and is not —
+    `type` is not a prefix of that index. A control assertion pins that, so if MongoDB ever changes its mind the
+    new index can be dropped rather than kept out of habit.
+  - **Quality-neutral by construction:** the same documents, the same order, the same counts, a different plan.
+  - **It reaches existing spaces, not only new ones.** `initSpace` runs for spaces new to the config, so an index
+    added there would have landed in this changelog and never in an operator's database. A separate idempotent
+    boot pass ensures it for every non-proxy space.
+  - Gated by the query PLAN rather than the index catalogue: an index MongoDB declines to use would satisfy a
+    `getIndexes()` check and change nothing.
+- **The result spill covered graph recalls only.** `topK: 30` with no traversal returned all thirty — the spill
+  lived in the `traverse > 0` branch, so the plainest large call was the one that returned everything. Both
+  branches spill now, on all three recall paths. Found by writing the end-to-end test rather than by reading the
+  code: the standalone gate asserted the rules and passed, because every rule it checked was true in the branch it
+  looked at.
 - **A large read result comes back as a sample and a download, not just a trimmed graph.** Correction to the
   spill shipped hours earlier, which wrote out only the traversed nodes: the owner's intent was the WHOLE result
   set — *"when someone recalls with topK=100 and traverse=2 he gets a real big file to download but only 3 full

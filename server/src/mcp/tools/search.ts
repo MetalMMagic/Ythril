@@ -218,14 +218,25 @@ export const recallTool: ToolHandler = {
     }
 
     if (traverse === 0) {
+      // A large answer spills with NO traversal too: `topK: 100` is a hundred records, and for a tool result
+      // that is a model's context window rather than a page of JSON. The spill used to live in the graph branch
+      // alone, which meant the plainest large call was the one that returned everything.
+      const plain = seeds.map(r => ({
+        score: r.score,
+        spaceId: r.spaceId,
+        type: r.type,
+        record: toRecallRecord(r, { includeContent }),
+      }));
+      const plainSpill = await spillResultSet({
+        memberSpaceId: seeds[0]?.spaceId ?? traverseSpaces[0] ?? callSpace,
+        results: plain,
+        graphNodes: 0,
+        request: { query, topK, traverse: 0, types: types ?? null },
+      });
       const output = {
-        results: seeds.map(r => ({
-          score: r.score,
-          spaceId: r.spaceId,
-          type: r.type,
-          record: toRecallRecord(r, { includeContent }),
-        })),
-        count: seeds.length,
+        results: plainSpill ? plain.slice(0, SPILL_INLINE_RESULTS) : plain,
+        count: plain.length,
+        ...(plainSpill ? { truncated: true, complete: plainSpill } : {}),
         // Only when something degraded — an always-present field that is almost always empty is one an agent
         // learns to skip, and this is the field that matters on the call where the answer came back thin.
         ...(degraded.length > 0 ? { degraded } : {}),

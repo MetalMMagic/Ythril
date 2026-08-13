@@ -184,6 +184,14 @@ export const SPILL_INLINE_RESULTS = 3;
  *
  * Counted in RECORDS — matches plus traversed nodes — because that is what the caller sized when they set `topK`
  * and `traverse`, and because bytes vary wildly with whether file passages are included.
+ *
+ * **25 is deliberately low, and a graph recall reaches it easily.** `topK: 10, traverse: 1` can produce ten
+ * matches and sixty nodes, and that spills. That is the intended reading of the ruling — *"only 3 full results
+ * back in the response"* — because the thing being protected is a model's context window, and a payload is
+ * unwieldy long before it is enormous. A caller who wants everything inline asks a narrower question; a caller
+ * who wants everything gets a link to all of it and keeps `count`.
+ *
+ * One constant, so raising the line is a one-line decision rather than an archaeology exercise.
  */
 export const SPILL_RECORD_THRESHOLD = 25;
 

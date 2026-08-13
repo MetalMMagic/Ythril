@@ -301,6 +301,7 @@ GET /api/brain/spaces/:spaceId/embedding-queue/records
 |-------------|-------------|
 | `status` | `pending`, `processing`, or `failed`. Omit for all three. An unknown value is a `400`, never a silently ignored filter |
 | `limit` | Default `50`, max `200`. `0`, a negative, or a non-integer is a `400` |
+| `skip` | Rows to discard before the page (default `0`). A negative or non-integer is a `400` |
 
 **Response** `200`:
 
@@ -323,7 +324,12 @@ GET /api/brain/spaces/:spaceId/embedding-queue/records
 }
 ```
 
-Newest-first by `updatedAt`. `attempts === maxAttempts` with `status: "failed"` means the queue has **given up** — it
+`counts` aggregates **every** job in the space; `jobs` is one page of them. Page with `skip` — without it a space reporting
+`failed: 500` would have no way to reach failure #201, and the point of this endpoint is that its failures are actionable.
+`limit` and `skip` are echoed so a draining loop can tell what was applied, and a `skip` past the end returns an empty
+`jobs` array with the counts intact, which is how the loop terminates.
+
+Newest-first by `updatedAt`, with the record id breaking ties so the order is **total** and pages cannot overlap. `attempts === maxAttempts` with `status: "failed"` means the queue has **given up** — it
 will not retry on its own, and the record stays unfindable until you retry it or rewrite it. Each row carries its own
 `spaceId`, which for a **proxy space** is the member space the record actually lives in — that is the space to retry it
 in. `counts` is returned whether or not you filtered, so a caller can filter to `failed` and still see the whole picture.

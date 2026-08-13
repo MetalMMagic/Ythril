@@ -326,7 +326,7 @@ export function isEmbedRecordType(v: unknown): v is BrainEmbedRecordType {
  */
 export async function listEmbedJobs(
   spaceId: string,
-  opts: { status?: 'pending' | 'processing' | 'failed'; limit?: number } = {},
+  opts: { status?: 'pending' | 'processing' | 'failed'; limit?: number; skip?: number } = {},
 ): Promise<BrainEmbedJobDoc[]> {
   // A non-positive or non-numeric limit falls back to the DEFAULT rather than being clamped up to 1. `Math.max(n, 1)`
   // would answer a caller who computed `limit: 0` with a single row, and one row out of a hundred failures reads as a
@@ -334,9 +334,15 @@ export async function listEmbedJobs(
   const asked = Number(opts.limit);
   const limit = Number.isFinite(asked) && asked >= 1 ? Math.min(Math.floor(asked), 200) : 50;
   const filter = opts.status ? { status: opts.status } : {};
+  // `skip` before `limit`, pushed to MongoDB. Without it a caller could be told `counts.failed: 500` and never reach
+  // failure #201 — an accurate total beside an unreachable tail, on the one surface whose justification is that its
+  // failures are actionable. Same asymmetry that cost aigents a fabricated number on `/query`.
+  const askedSkip = Number(opts.skip);
+  const skip = Number.isFinite(askedSkip) && askedSkip >= 1 ? Math.floor(askedSkip) : 0;
   return await jobs(spaceId)
     .find(asFilter<BrainEmbedJobDoc>(filter), { projection: { claimToken: 0 } })
     .sort({ updatedAt: -1 })
+    .skip(skip)
     .limit(limit)
     .toArray() as BrainEmbedJobDoc[];
 }

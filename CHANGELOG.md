@@ -6,6 +6,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Fixed
+- **The embed-job listing takes `skip`, so a reported failure is always reachable.** `getEmbedJobCounts` aggregates every
+  job while the listing returned one capped page, so a space reporting `failed: 500` had no way to reach failure #201 — an
+  accurate total beside an unreachable tail, on the one surface whose justification is that its failures are actionable.
+  - Same asymmetry that cost aigents a fabricated number on `/query`, found by auditing the surface in the same pass that
+    found the deep-skip defect.
+  - **Both listings now page through ONE function**, `spaces/page-across-members.ts`, rather than the same shape written
+    twice: a single space pushes `skip` to MongoDB, and only a multi-member proxy merges, bounded, with an explicit refusal
+    instead of an empty page. `/query` had that logic inline, which is how it shipped a window that truncated deep pages.
+  - Tested with a **250-job** fixture, because the cap is 200 and a fixture inside the cap cannot see this — exactly how the
+    same defect shipped on `/query` behind tests that paged 12 and 25 rows. Mutation-tested by removing the `skip`.
 
 ## [2.8.1] — 2026-08-13
 

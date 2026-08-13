@@ -135,9 +135,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   documented behaviour that exists only for the **external** path. The external face endpoint is a real, shipped feature
   and it was **absent from its own configuration reference**, which is why they asked two questions that should have been
   lookups.
-  - `FACE_RECOGNITION_EXTERNAL_MODEL` is now in the env-var table. It existed all along (`config/loader.ts`), documented
-    nowhere. They explicitly refused to guess a name, on the grounds that an unrecognised env var is ignored silently and
-    a wrong guess leaves a field unpinned while looking pinned — which is exactly right.
+  - `FACE_RECOGNITION_EXTERNAL_MODEL` is now in **05c's** env-var table. **Correction to an earlier draft of this entry:
+    it was not undocumented.** It was in `02-hosting.md`'s egress matrix all along — and absent from the face-recognition
+    page, which is where anyone configuring face recognition looks. So the defect is discoverability, not absence, and
+    `env-var-docs-coverage` was right to be green: it asks whether a variable is documented *somewhere*, which a variable
+    on the wrong page satisfies. Filed as a gate gap.
+  - They explicitly refused to guess a name, on the grounds that an unrecognised env var is ignored silently and a wrong
+    guess leaves a field unpinned while looking pinned — which is exactly right, and the reason a variable documented on
+    a page they had no reason to open was as good as absent to them.
   - The egress claim is now conditional and states which setting decides it: unset means nothing leaves the machine; set
     means face crops are sent per image, gated behind an acknowledged host.
   - **`faceDescriptorDims` at space creation is documented**, with the supported order for bringing your own recogniser:

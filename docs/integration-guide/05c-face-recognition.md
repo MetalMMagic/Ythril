@@ -10,7 +10,7 @@ The face recognition pipeline detects and embeds faces in uploaded images, build
 
 It can instead call an **external face-embedding endpoint** (`faceRecognition.externalModel`, env var `FACE_RECOGNITION_EXTERNAL_MODEL`), which is how you use a recogniser we do not bundle — ArcFace, AdaFace, FaceNet, buffalo_l. **When that is configured, face crops leave the Ythril process**, so the egress policy marks it guarded ALWAYS with an operator acknowledgement REQUIRED regardless of locality — unlike the `nli` and `rerank` slots, which exempt local URLs. A biometric payload is treated as biometric whether the endpoint is on the same cluster or not.
 
-> This page previously described the pipeline as in-process only while documenting behaviour that exists for the external path — reported by breituai-platform on 2026-08-12, who could not find `FACE_RECOGNITION_EXTERNAL_MODEL` because it was absent from its own configuration reference. Both are corrected below.
+> This page previously described the pipeline as in-process only while documenting behaviour that exists for the external path — reported by breituai-platform on 2026-08-12, who could not find `FACE_RECOGNITION_EXTERNAL_MODEL` because it was absent from THIS page. It was documented in [02-hosting.md](02-hosting.md)'s egress matrix, which is not where anyone configuring face recognition would look. Both are corrected below.
 
 **Faces are governed by the image LEVEL, not by a switch of their own.** They run only where the effective
 image level is `recognition` (or `auto`, which resolves to the most the instance allows). The instance

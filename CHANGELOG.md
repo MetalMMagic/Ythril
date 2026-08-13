@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **A record whose embedded text did not change is no longer re-embedded.** Every successful update enqueues an
+  embed job unconditionally — correct, because the enqueue is also how `excludeFromVectorSearch` takes effect and
+  it replaced four inline embeds built from stale reads. But most updates change something the vector does not
+  depend on: a tag, a property, a link, a status. Each of those paid for a model call that could only reproduce
+  the vector already stored.
+  - **Lossless by identity, not by heuristic.** A vector is a pure function of (text, model), and every embed
+    already writes `matchedText` — the exact text it embedded — beside the vector. When the newly built text
+    equals it, a vector is present, and the configured model is the one that produced it, the call cannot
+    produce anything different.
+  - **No new field and no migration**: the fingerprint was already there, which matters because these are synced
+    records.
+  - The conjunction is asserted three ways — a changed text, a missing vector, and a vector from another model
+    each re-embed. The model-change case is the reindex path, where skipping would leave a space half-migrated.
 - **A `type` filter no longer scans the collection.** Every brain list endpoint exposes one, and since `total`
   shipped each of those requests runs a `countDocuments` with the same filter — so the cost doubled on a path that
   was already a scan. `explain()` against a live instance returned **COLLSCAN** for `{type: …}` on memories,

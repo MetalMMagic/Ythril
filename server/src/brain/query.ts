@@ -68,7 +68,7 @@ const ALLOWED_COLLECTIONS = new Set(['memories', 'entities', 'edges', 'chrono', 
  * a parameter to the query and forgetting to allow it in the body is one edit rather than two.
  */
 export const QUERY_BODY_FIELDS: ReadonlySet<string> = new Set([
-  'collection', 'filter', 'projection', 'limit', 'skip', 'maxTimeMS',
+  'collection', 'filter', 'projection', 'limit', 'skip', 'sort', 'dir', 'maxTimeMS',
 ]);
 
 /**
@@ -124,28 +124,45 @@ export function unknownBodyFields(
 }
 
 /**
- * The documented result order — `seq` desc, then `updatedAt`, `createdAt`, `_id` — as a comparator, for merging pages
- * across the members of a proxy space.
+ * The default result order, as DATA so the same value can go to MongoDB and to the merge comparator.
  *
- * A second expression of the sort is exactly the drift risk this repo keeps paying for, so it is defined next to the
- * `.sort()` it mirrors and `query-order-matches-the-sort.test.js` asserts the two agree on the same documents rather
- * than on my reading of them.
+ * `_id` last is not decoration: it makes the order TOTAL, which is what lets `skip` page without a row drifting between
+ * pages and being seen twice or missed. Any caller-supplied sort gets `_id` appended for the same reason — see
+ * `toMongoSort` in list-sort.ts, which has always done this for the list endpoints.
  */
-export function compareQueryOrder(a: unknown, b: unknown): number {
-  const A = a as Record<string, unknown>;
-  const B = b as Record<string, unknown>;
-  for (const key of ['seq', 'updatedAt', 'createdAt', '_id'] as const) {
-    const av = A[key];
-    const bv = B[key];
-    // A record missing the key sorts LAST rather than first: `undefined` in a descending sort must not win, or a
-    // partially projected document would lead a page it has no claim to.
-    if (av === bv) continue;
-    if (av === undefined || av === null) return 1;
-    if (bv === undefined || bv === null) return -1;
-    return av > bv ? -1 : 1;
-  }
-  return 0;
+export const DEFAULT_QUERY_SORT: Record<string, 1 | -1> = {
+  seq: -1, updatedAt: -1, createdAt: -1, _id: -1,
+};
+
+/**
+ * A comparator for a given sort document, for merging pages across the members of a proxy space.
+ *
+ * Built FROM the sort that was handed to MongoDB rather than written out separately. The previous version hardcoded the
+ * default keys, which was correct only for as long as `/query` had no `sort` parameter: the moment a caller could choose
+ * an order, a proxy space would have merged its members by the OLD one and returned a page in an order it did not ask
+ * for — a wrong answer with a 200, which is the defect class this route was just fixed for.
+ */
+export function compareBySort(sort: Record<string, 1 | -1>): (a: unknown, b: unknown) => number {
+  const keys = Object.entries(sort);
+  return (a, b) => {
+    const A = a as Record<string, unknown>;
+    const B = b as Record<string, unknown>;
+    for (const [key, dir] of keys) {
+      const av = A[key];
+      const bv = B[key];
+      if (av === bv) continue;
+      // A record missing the key sorts LAST in either direction: `undefined` must not win a descending sort, or a
+      // partially projected document would lead a page it has no claim to.
+      if (av === undefined || av === null) return 1;
+      if (bv === undefined || bv === null) return -1;
+      return (av > bv ? -1 : 1) * (dir === -1 ? 1 : -1);
+    }
+    return 0;
+  };
 }
+
+/** The default order, as a comparator. Kept as a named export because most callers want exactly this. */
+export const compareQueryOrder = compareBySort(DEFAULT_QUERY_SORT);
 
 /** Structured read-only query (operator whitelist enforced) */
 export async function queryBrain(
@@ -165,6 +182,12 @@ export async function queryBrain(
    * pages and be seen twice or missed.
    */
   skip = 0,
+  /**
+   * Order to apply, defaulting to `DEFAULT_QUERY_SORT`. Passed in rather than chosen here so the caller can hand the
+   * SAME value to `compareBySort` when merging a proxy space's members — two expressions of one order is the drift this
+   * codebase keeps paying for.
+   */
+  sort: Record<string, 1 | -1> = DEFAULT_QUERY_SORT,
 ) {
   if (!ALLOWED_COLLECTIONS.has(collectionName)) {
     throw new Error(`Unknown collection '${collectionName}'`);
@@ -175,9 +198,9 @@ export async function queryBrain(
   const cursor = col(collName)
     .find(safeFilter)
     .maxTimeMS(safeMaxTime)
-    // Deterministic newest-first ordering keeps recent writes visible under
-    // the default limit even when historical datasets grow large.
-    .sort({ seq: -1, updatedAt: -1, createdAt: -1, _id: -1 })
+    // Deterministic newest-first ordering by default, which keeps recent writes visible under the default limit even
+    // when historical datasets grow large. Every order ends in `_id`, so it is total and pageable.
+    .sort(sort)
     // Skip BEFORE limit, which is the order the driver applies regardless of call order — spelled out here because
     // the reverse reading (limit the page, then drop rows from it) would silently return short pages.
     .skip(Math.max(Math.floor(skip) || 0, 0))
@@ -188,6 +211,31 @@ export async function queryBrain(
     // caller's projection entirely.
     .project(mergeEmbeddingExclusion(projection) as Record<string, never>);
   return cursor.toArray();
+}
+
+/**
+ * How many documents the filter matches, ignoring `limit` and `skip`.
+ *
+ * aigents had to fabricate a number because `count` on the response is the PAGE length: a caller sweeping with `skip`
+ * cannot tell a short last page from a truncated one without an extra request that returns nothing. This is the number
+ * they were computing by hand.
+ *
+ * Same `sanitizeFilter` and same deadline as the read, so a filter that is safe to query is safe to count and a count
+ * cannot outlive the query it belongs to.
+ */
+export async function countBrain(
+  spaceId: string,
+  collectionName: 'memories' | 'entities' | 'edges' | 'chrono' | 'files',
+  filter: Record<string, unknown>,
+  maxTimeMS = 5000,
+): Promise<number> {
+  if (!ALLOWED_COLLECTIONS.has(collectionName)) {
+    throw new Error(`Unknown collection '${collectionName}'`);
+  }
+  return await col(`${spaceId}_${collectionName}`).countDocuments(
+    sanitizeFilter(filter) as Record<string, never>,
+    { maxTimeMS: Math.min(maxTimeMS, 10_000) },
+  );
 }
 
 /**

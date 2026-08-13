@@ -11,7 +11,8 @@ import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.
 import { UUID_V4_RE, entityDocToRecord, formatRecallSummary, toRecallRecord, uuidSchema, unitScoreSchema, QUERY_FILTER_OPERATORS, RECALL_FILTER_KEY_PATTERN, type McpRecallTraverseItem } from './shared.js';
 import { MAX_RECALL_TRAVERSE, traverseRecallSeeds } from '../../brain/edges.js';
 import { type FilterExpression, validateFilterExpression } from '../../brain/filter.js';
-import { queryBrain, compareQueryOrder } from '../../brain/query.js';
+import { queryBrain, countBrain, compareBySort, DEFAULT_QUERY_SORT } from '../../brain/query.js';
+import { parseSortParam, toMongoSort, SORTABLE_FIELDS } from '../../brain/list-sort.js';
 import { type RecallKnowledgeType, type RecallResult, findSimilar, recall, recallGlobal } from '../../brain/recall.js';
 import { collectAcrossMembers } from '../../spaces/proxy.js';
 import { memberSpacesWithin } from '../../spaces/proxy-scoped.js';
@@ -376,6 +377,8 @@ export const queryTool: ToolHandler = {
             },
             limit: { type: 'number', minimum: 1, maximum: 100, default: 20, description: 'Max documents to return (clamped to 1–100). Default 20.' },
             skip: { type: 'number', minimum: 0, description: 'Rows to discard before the page, for paging. The result order is total (`_id` breaks every tie), so no row can be seen twice or missed between pages. On a proxy space the page is computed over the MERGED set, not per member.' },
+            sort: { type: 'string', description: 'Field to order by. Allowed values depend on the collection (entities: createdAt, name, type; edges: createdAt, label, from, to, type, weight; memories: createdAt, type; chrono: createdAt, title, startsAt, endsAt, status, type; files: createdAt, updatedAt, path). An unknown field is refused and names the allowed ones. Omit for newest-first.' },
+            dir: { type: 'string', enum: ['asc', 'desc'], description: "Sort direction, default desc. Only meaningful with `sort`." },
             maxTimeMS: { type: 'number', minimum: 1, maximum: 10000, default: 5000, description: 'Server-side query timeout in ms. Default 5000, hard-capped at 10000.' },
           },
           required: ['space', 'collection', 'filter'],
@@ -398,6 +401,11 @@ export const queryTool: ToolHandler = {
       throw new Error('skip must be a non-negative integer');
     }
     const skip = typeof a['skip'] === 'number' ? a['skip'] : 0;
+
+    // The same parser, allowlist and error text the REST route and the list endpoints use.
+    const sortParse = parseSortParam(a['sort'], a['dir'], SORTABLE_FIELDS[collName as keyof typeof SORTABLE_FIELDS]);
+    if ('error' in sortParse) throw new Error(sortParse.error);
+    const order = sortParse.sort ? toMongoSort(sortParse.sort) : DEFAULT_QUERY_SORT;
     const maxTimeMS = typeof a['maxTimeMS'] === 'number' ? a['maxTimeMS'] : 5000;
     const projection =
       a['projection'] != null && typeof a['projection'] === 'object'
@@ -417,8 +425,15 @@ export const queryTool: ToolHandler = {
         window,
         maxTimeMS,
         0,
+        order,
       ));
-    const docs = perMember.sort(compareQueryOrder).slice(skip, skip + limit);
+    const docs = perMember.sort(compareBySort(order)).slice(skip, skip + limit);
+    const total = (await collectAcrossMembers(callSpace, async mid =>
+      [await countBrain(mid, collName as 'memories' | 'entities' | 'edges' | 'chrono' | 'files', filter, maxTimeMS)]))
+      .reduce((x, y) => x + y, 0);
+    // `structuredContent` carries the paging facts; `content` stays the bare array it has always been, so a client
+    // parsing the text is unaffected. Without `total` a caller sweeping with `skip` cannot tell a short last page from a
+    // truncated one, which is the number aigents ended up fabricating.
     return {
       content: [
         {
@@ -426,6 +441,10 @@ export const queryTool: ToolHandler = {
           text: JSON.stringify(docs),
         },
       ],
+      structuredContent: {
+        count: docs.length, total, limit, skip,
+        ...(sortParse.sort ? { sort: sortParse.sort.field, dir: sortParse.sort.dir === 1 ? 'asc' : 'desc' } : {}),
+      },
     };
   },
 };

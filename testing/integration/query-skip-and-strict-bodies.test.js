@@ -151,7 +151,10 @@ describe('REST: skip paginates instead of being ignored', () => {
 
 describe('REST: the four read routes refuse a key they cannot honour', () => {
   const cases = [
-    ['/query', { collection: 'memories', filter: {}, sort: { seq: 1 } }, 'sort'],
+    // `orderBy`, not `sort`: this case originally used `sort` when it was unimplemented, and became a false alarm the day
+    // it shipped. A plausible ALIAS is the better test anyway — it is what a caller actually reaches for, and it is the
+    // one that would otherwise be accepted and ignored.
+    ['/query', { collection: 'memories', filter: {}, orderBy: 'seq' }, 'orderBy'],
     ['/recall', { query: 'anything', topk: 5 }, 'topk'],
     ['/traverse', { startId: '00000000-0000-4000-8000-000000000000', depth: 2 }, 'depth'],
     ['/find-similar', { entryId: '00000000-0000-4000-8000-000000000000', entryType: 'memory', limit: 5 }, 'limit'],
@@ -216,5 +219,76 @@ describe('MCP: query offers skip too, rather than it becoming REST-only', () => 
     // rather than as a silently ignored argument, which is the REST defect arriving on the other surface.
     const r = await session.callTool('query', { space: SPACE, collection: 'memories', filter: {}, sort: { seq: 1 } });
     assert.ok(r?.isError, `MCP accepted an unknown argument: ${JSON.stringify(r)}`);
+  });
+});
+
+describe('the match TOTAL and a caller-chosen order, on both surfaces', () => {
+  it('REST reports total separately from the page count', async () => {
+    // The number aigents had to fabricate: `count` is the page, `total` is the match. Without the second one a sweep
+    // cannot tell a short last page from a truncated one except by making a request that returns nothing.
+    const r = await query({ collection: 'memories', filter: {}, limit: 5 });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.count, 5, 'count is the page');
+    assert.equal(r.body.total, TOTAL, 'total is every match');
+  });
+
+  it('total is unaffected by skip', async () => {
+    const r = await query({ collection: 'memories', filter: {}, limit: 3, skip: 9 });
+    assert.equal(r.body.total, TOTAL);
+    assert.equal(r.body.count, 3);
+  });
+
+  it('total respects the filter', async () => {
+    const r = await query({ collection: 'memories', filter: { fact: `paged 00 ${RUN}` } });
+    assert.equal(r.body.total, 1, JSON.stringify(r.body));
+  });
+
+  it('REST orders by a chosen field and echoes it', async () => {
+    const r = await query({ collection: 'memories', filter: {}, sort: 'createdAt', dir: 'asc', limit: 100 });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.sort, 'createdAt');
+    assert.equal(r.body.dir, 'asc');
+    const times = r.body.results.map(d => d.createdAt);
+    assert.deepEqual(times, [...times].sort(), 'ascending must actually be ascending');
+  });
+
+  it('refuses an unsortable field and NAMES the sortable ones', async () => {
+    // The same allowlist and the same message the brain list endpoints give, so a caller who knows one knows the other.
+    const r = await query({ collection: 'memories', filter: {}, sort: 'fact' });
+    assert.equal(r.status, 400, `sorting by an unlisted field was accepted: ${JSON.stringify(r.body)}`);
+    assert.match(r.body.error, /Sortable fields/);
+  });
+
+  it('refuses a bad dir', async () => {
+    const r = await query({ collection: 'memories', filter: {}, sort: 'createdAt', dir: 'sideways' });
+    assert.equal(r.status, 400, JSON.stringify(r.body));
+  });
+
+  it('pages a custom order on a PROXY space in that order', async () => {
+    // The comparator is built from the sort handed to Mongo. Hardcoded to the default keys it would merge the members by
+    // the wrong order and return a page nobody asked for -- with a 200.
+    const all = await query({ collection: 'memories', filter: {}, sort: 'createdAt', dir: 'asc', limit: 100 }, PROXY);
+    assert.equal(all.status, 200, JSON.stringify(all.body));
+    const times = all.body.results.map(d => d.createdAt);
+    assert.deepEqual(times, [...times].sort(), 'a proxy page must honour the caller order across members');
+    assert.equal(all.body.total, 12, 'and the total sums both members');
+  });
+
+  it('MCP carries the same total and takes the same sort', async () => {
+    const r = await session.callTool('query', {
+      space: SPACE, collection: 'memories', filter: {}, limit: 4, sort: 'createdAt', dir: 'asc',
+    });
+    assert.ok(!r?.isError, JSON.stringify(r));
+    assert.equal(r.structuredContent.total, TOTAL, 'the total must be on the MCP surface too, not REST-only');
+    assert.equal(r.structuredContent.count, 4);
+    assert.equal(r.structuredContent.sort, 'createdAt');
+    const times = JSON.parse(r.content[0].text).map(d => d.createdAt);
+    assert.deepEqual(times, [...times].sort());
+  });
+
+  it('MCP refuses an unsortable field with the same message', async () => {
+    const r = await session.callTool('query', { space: SPACE, collection: 'memories', filter: {}, sort: 'fact' });
+    assert.ok(r?.isError, `MCP accepted an unlisted sort field: ${JSON.stringify(r)}`);
+    assert.match(JSON.stringify(r), /Sortable fields/);
   });
 });

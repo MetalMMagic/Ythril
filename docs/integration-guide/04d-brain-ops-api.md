@@ -584,15 +584,15 @@ keys:
 
 | Route | Accepted fields |
 |---|---|
-| `POST /query` | `collection`, `filter`, `projection`, `limit`, `skip`, `maxTimeMS` |
+| `POST /query` | `collection`, `filter`, `projection`, `limit`, `skip`, `sort`, `dir`, `maxTimeMS` |
 | `POST /recall` | `query`, `topK`, `types`, `minScore`, `filter`, `traverse`, `tags`, `minPerType`, `maxPerType`, `maxTimeMS`, `includeFreshWrites`, `includeContent` |
 | `POST /traverse` | `startId`, `direction`, `edgeLabels`, `maxDepth`, `limit`, `includeChrono`, `includeMemories`, `includeFiles`, `includeEdges` |
-| `POST /find-similar` | `entryId`, `entryType`, `topK`, `minScore`, `targetTypes`, `crossSpace` *(deprecated, still accepted)* |
+| `POST /find-similar` | `entryId`, `entryType`, `topK`, `minScore`, `targetTypes`, `traverse`, `includeContent`, `crossSpace` *(deprecated, still accepted)* |
 
 ```json
 {
-  "error": "Unknown field(s): sort. Allowed: collection, filter, projection, limit, skip, maxTimeMS",
-  "unrecognized_keys": ["sort"]
+  "error": "Unknown field(s): orderBy. Allowed: collection, filter, projection, limit, skip, sort, dir, maxTimeMS",
+  "unrecognized_keys": ["orderBy"]
 }
 ```
 
@@ -601,7 +601,10 @@ honour the ones they recognised. aigents paged a sweep with `skip` before it was
 counted page one repeatedly as if it had advanced — *"it cost us a fabricated number"*. A parameter the server cannot
 honour is now an error rather than a wrong answer that looks right.
 
-There is **no `sort`** on `/query`. It is refused rather than ignored for exactly that reason.
+`sort` and `dir` **are** accepted on `/query` — they were added after this refusal shipped, and this table is the
+authoritative list rather than a summary of it. `client-bodies-match-server.test.js` compares every row here against the
+sets the routes enforce, so a parameter cannot be added to a route and left undocumented, or documented as refused while
+being accepted.
 
 ---
 

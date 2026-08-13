@@ -512,7 +512,7 @@ POST /api/brain/spaces/:spaceId/find-similar
 
 Given an existing entry's `_id`, find other entries with high vector similarity. Unlike `recall` (which re-embeds a text query), `find_similar` uses the entry's **stored embedding vector** directly — no re-embedding step. Ideal for deduplication, "more like this", and merge detection.
 
-> **Also available as MCP tool:** `find_similar` — note the MCP tool makes `space` optional (omit it to search all accessible spaces, like `recall`) and adds `traverse`; its `crossSpace` flag is deprecated in favour of omitting `space`. This REST endpoint keeps `spaceId` in the path and the `crossSpace` body flag.
+> **Also available as MCP tool:** `find_similar` — note the MCP tool makes `space` optional (omit it to search all accessible spaces, like `recall`); its `crossSpace` flag is deprecated in favour of omitting `space`. This REST endpoint keeps `spaceId` in the path and the `crossSpace` body flag. Every other parameter, including `traverse` and `includeContent`, is identical on both doors.
 
 **Request body:**
 
@@ -523,6 +523,8 @@ Given an existing entry's `_id`, find other entries with high vector similarity.
   "targetTypes": ["memory", "entity"],
   "topK": 10,
   "minScore": 0.7,
+  "traverse": 0,
+  "includeContent": true,
   "crossSpace": false
 }
 ```
@@ -534,6 +536,8 @@ Given an existing entry's `_id`, find other entries with high vector similarity.
 | `targetTypes` | — | all types | Which knowledge types to search in |
 | `topK` | — | `10` | Maximum results (1–100) |
 | `minScore` | — | `0.0` | Minimum cosine similarity threshold |
+| `traverse` | — | `0` | Graph-expansion depth (0–5). With `traverse > 0` each match is expanded along edges and the connected entities come back alongside it — see the response shape below |
+| `includeContent` | — | `true` | Whether file-chunk results carry their passage `content`. `false` returns locations and metadata only, exactly as on `recall` |
 | `crossSpace` | — | `false` | If `true`, search across all spaces the token can access |
 
 **Response** `200`:
@@ -551,6 +555,23 @@ Given an existing entry's `_id`, find other entries with high vector similarity.
 - `source` echoes the input entry with `score: 1.0` (self-match) — excluded from `results`
 - Results sorted by `score` descending
 - `spaceId` included on each result when `crossSpace: true`
+
+**With `traverse > 0`** the response carries the same graph-augmented shape `recall` uses — `results` becomes a list of
+`{score, source, hops, path, spaceId, type, record}` items, plus `count` and `traverseDepth`. Similarity matches are
+`source: "recall"` at `hops: 0`; records reached by following edges are `source: "traverse"` with a null `score` and the
+connecting `path`. The combined output is capped at `topK × (traverse + 1) × 4`.
+
+```json
+{
+  "source": { "_id": "...", "type": "entity", "name": "auth-service", "score": 1.0 },
+  "results": [
+    { "score": 0.91, "source": "recall", "hops": 0, "path": [], "spaceId": "dev-apps", "type": "entity", "record": { "_id": "..." } },
+    { "score": null, "source": "traverse", "hops": 1, "path": [{ "from": "...", "label": "depends_on", "to": "..." }], "spaceId": "dev-apps", "type": "entity", "record": { "_id": "..." } }
+  ],
+  "count": 2,
+  "traverseDepth": 1
+}
+```
 
 **Common use cases:**
 

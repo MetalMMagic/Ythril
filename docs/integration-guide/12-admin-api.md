@@ -552,6 +552,69 @@ Content-Type: application/json
 
 ---
 
+### GET /api/admin/data/browse-dirs
+
+Admin only. Lists the **immediate child directories** of an absolute path on the server's filesystem. Powers the backup
+destination picker in the Settings UI.
+
+| Query param | Required | Description |
+|-------------|----------|-------------|
+| `path` | — | Absolute path to list. Defaults to `/` |
+
+`400` if the path is not absolute, or if any segment is still `..` after normalisation. It returns directories only — never
+file contents — and it is admin-gated because it discloses the server's directory layout.
+
+---
+
+## Local connector (workstation mode)
+
+These three exist for **workstation mode**, where Ythril runs on a machine an operator also uses directly and a small local
+agent performs the steps a container cannot: opening a firewall port, installing a service, starting a tunnel. All three
+require **admin + MFA**, and all three are a thin control plane over the agent's own `/v1` API — the agent is reached at
+`YTHRIL_LOCAL_AGENT_URL`.
+
+See [the workstation-mode guide](../workstation-mode-guide.md) for what the agent is and how it is installed.
+
+### GET /api/admin/local-agent/status
+
+Reports whether the connector is usable, and says why when it is not:
+
+```json
+{ "configured": true, "reachable": true, "canExecute": true }
+```
+
+| Field | Meaning |
+|---|---|
+| `configured` | The server has a local-agent URL |
+| `reachable` | The agent answered its `/v1/status` |
+| `canExecute` | The agent will run privileged actions |
+| `message` | Present when any of the above is false, in plain language |
+
+**This route answers `200` even when the connector is broken.** That is deliberate: "is the connector working" is the
+question being asked, so an unreachable agent is an *answer* rather than an error, and the UI renders the manual-commands
+fallback instead of a failure. A `5xx` here would be indistinguishable from the server itself being unwell.
+
+### POST /api/admin/local-agent/bootstrap
+
+```json
+{ "os": "windows" }
+```
+
+Installs and starts the connector. `os` is optional and inferred when omitted. Idempotent —
+`{ "ok": true, "message": "Local connector already running." }` when it is already up.
+
+### POST /api/admin/local-agent/enable-networks/execute
+
+```json
+{ "hostname": "ythril.example.com", "os": "windows" }
+```
+
+Performs the host-side steps that let this instance accept peer connections. `hostname` is validated against RFC 952 /
+1123 label rules, both fields are required, and the OS is not inferred here because the steps differ per platform and a
+wrong guess would run the wrong ones.
+
+---
+
 ### POST /api/admin/data/migrate
 
 > **Feature flag required.** This endpoint returns `403` unless the instance was started with `YTHRIL_DB_MIGRATION_ENABLED=true`. The flag is off by default so that a compromised admin token cannot be used to exfiltrate the entire database to an attacker-controlled server.

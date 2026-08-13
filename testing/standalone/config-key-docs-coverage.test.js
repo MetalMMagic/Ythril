@@ -148,6 +148,13 @@ function configExamples() {
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) continue;
       const roots = Object.keys(parsed);
       if (!roots.length || !roots.every(k => topLevel.has(k))) continue;
+      // An API RESPONSE example whose top-level key happens to collide with a config field is not a config example. The
+      // all-top-level-keys heuristic above is what tamed this file's original 36 false findings, and it is not enough on
+      // its own: `{"tokens": [...]}` is a token-access response AND `tokens` is a real config field, so a response example
+      // was reported as three undeclared config keys. The docs mark these unambiguously with a `**Response**` line
+      // immediately above the fence, so that marker is what to read.
+      const preamble = src.slice(Math.max(0, m.index - 220), m.index);
+      if (/\*\*Response\*\*/i.test(preamble)) continue;
       found.push({ doc: f, parsed });
     }
   }

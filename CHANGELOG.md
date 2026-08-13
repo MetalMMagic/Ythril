@@ -129,6 +129,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     asserted.
 
 ### Fixed
+- **`docs/integration-guide/05c-face-recognition.md` described a pipeline that is only half of what ships.** Reported by
+  breituai-platform, 2026-08-12: the page opened by saying face recognition runs *"entirely in-process — no GPU, no
+  sidecar, no Python"* and its ISO note said *"No face data is transmitted to any external service"* — while the same file
+  documented behaviour that exists only for the **external** path. The external face endpoint is a real, shipped feature
+  and it was **absent from its own configuration reference**, which is why they asked two questions that should have been
+  lookups.
+  - `FACE_RECOGNITION_EXTERNAL_MODEL` is now in **05c's** env-var table. **Correction to an earlier draft of this entry:
+    it was not undocumented.** It was in `02-hosting.md`'s egress matrix all along — and absent from the face-recognition
+    page, which is where anyone configuring face recognition looks. So the defect is discoverability, not absence, and
+    `env-var-docs-coverage` was right to be green: it asks whether a variable is documented *somewhere*, which a variable
+    on the wrong page satisfies. Filed as a gate gap.
+  - They explicitly refused to guess a name, on the grounds that an unrecognised env var is ignored silently and a wrong
+    guess leaves a field unpinned while looking pinned — which is exactly right, and the reason a variable documented on
+    a page they had no reason to open was as good as absent to them.
+  - The egress claim is now conditional and states which setting decides it: unset means nothing leaves the machine; set
+    means face crops are sent per image, gated behind an acknowledged host.
+  - **`faceDescriptorDims` at space creation is documented**, with the supported order for bringing your own recogniser:
+    create the space at the right width *first*, then point the endpoint at it. The reverse embeds at one width against a
+    128-wide gallery, and every descriptor is skipped — a silent no-op that reads as *"these photographs contain no
+    faces"*.
+  - A source comment claimed an infra deployment could *"forbid biometric egress outright by pinning it empty"*. **It
+    could not** — an empty env var is deliberately not a pin, because `docker compose` passes `${VAR:-}` and leaves
+    variables defined-but-empty, so reading "defined" as "pinned" would lock every field on every Compose deployment. The
+    comment promised a lever that does not exist on the one setting with biometric consequences, which is worse than
+    saying nothing; it now documents the real behaviour and points at `FACE_RECOGNITION_ENABLED=false`.
 - **`PATCH /api/brain/spaces/:spaceId/memories/:id` silently ignored `type`.** `POST` read it; the update handler never
   destructured it, so changing a memory's type answered **200 and changed nothing**.
   - `updateMemory` had accepted `type` and written `$set.type` all along, so the field was plumbed the whole way down

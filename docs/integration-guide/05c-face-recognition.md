@@ -6,7 +6,11 @@
 
 ### Face Recognition Pipeline
 
-The face recognition pipeline detects and embeds faces in uploaded images, builds a per-space face gallery, and automatically links images to person entities when a match exceeds a configurable confidence threshold. It runs **entirely in-process** on the CPU — no GPU, no sidecar, no Python — using `@vladmandic/human` (TF.js CPU backend).
+The face recognition pipeline detects and embeds faces in uploaded images, builds a per-space face gallery, and automatically links images to person entities when a match exceeds a configurable confidence threshold. **By default** it runs entirely in-process on the CPU — no GPU, no sidecar, no Python — using `@vladmandic/human` (TF.js CPU backend).
+
+It can instead call an **external face-embedding endpoint** (`faceRecognition.externalModel`, env var `FACE_RECOGNITION_EXTERNAL_MODEL`), which is how you use a recogniser we do not bundle — ArcFace, AdaFace, FaceNet, buffalo_l. **When that is configured, face crops leave the Ythril process**, so the egress policy marks it guarded ALWAYS with an operator acknowledgement REQUIRED regardless of locality — unlike the `nli` and `rerank` slots, which exempt local URLs. A biometric payload is treated as biometric whether the endpoint is on the same cluster or not.
+
+> This page previously described the pipeline as in-process only while documenting behaviour that exists for the external path — reported by breituai-platform on 2026-08-12, who could not find `FACE_RECOGNITION_EXTERNAL_MODEL` because it was absent from THIS page. It was documented in [02-hosting.md](02-hosting.md)'s egress matrix, which is not where anyone configuring face recognition would look. Both are corrected below.
 
 **Faces are governed by the image LEVEL, not by a switch of their own.** They run only where the effective
 image level is `recognition` (or `auto`, which resolves to the most the instance allows). The instance
@@ -75,7 +79,26 @@ Set `reprocessSyncedImages: false` to restrict gallery building to images upload
 
 #### MongoDB Atlas Vector Index
 
-Face recognition requires a dedicated Atlas vector search index per space. Name: `{spaceId}_files_faceEmbedding`, field: `faceEmbedding`, dimensions: `128`, similarity: `cosine`. This is distinct from the text embedding index used by `recall`.
+Face recognition requires a dedicated Atlas vector search index per space. Name: `{spaceId}_files_faceEmbedding`, field: `faceEmbedding`, similarity: `cosine`. This is distinct from the text embedding index used by `recall`.
+
+#### Choosing the gallery width: `faceDescriptorDims` at space creation
+
+The index is created at **128 dimensions by default**, which is what the bundled in-process model produces. A different recogniser produces a different width, and **a descriptor of the wrong width is skipped** — the symptom is indistinguishable from *"these photographs contain no faces"*, with one warning per process as the only signal.
+
+So the width is chosen **when the space is created**, with `faceDescriptorDims`:
+
+```http
+POST /api/spaces
+{ "id": "photos", "label": "Photos", "faceDescriptorDims": 512 }
+```
+
+Also available as `faceDescriptorDims` on the `create_space` MCP tool. Use **128** for MobileFaceNet-class models (including the bundled one) and **512** for ArcFace / AdaFace / FaceNet / EdgeFace / buffalo_l.
+
+**It is create-only and permanent.** A populated gallery cannot be re-dimensioned: its stored vectors have not moved, so re-declaring the width would leave every existing descriptor unmatchable. There is no admin call to change it afterwards, and that is deliberate rather than missing — a space whose width is wrong is re-created, not migrated.
+
+**The supported order for bringing your own recogniser** is therefore: create the space with the right `faceDescriptorDims` **first**, then point `FACE_RECOGNITION_EXTERNAL_MODEL` at your endpoint. Doing it the other way round embeds at your width against a 128-wide gallery, and every descriptor is skipped.
+
+The matcher reads the width from **the space's own index**, not from an instance-wide constant, so a space is judged against the vectors it actually holds and a later change of default cannot invalidate an existing gallery.
 
 **This index is never re-dimensioned automatically, and that is deliberate.** Ythril rebuilds other vector indexes when their definition changes, because re-embedding the records makes the vectors catch up. Face vectors live on already-stored face-chunk records and nothing re-derives them, so a rebuild at a new width would leave the stored vectors indexed as if they were the new width — every similarity score wrong, with no error reported. If the configured width ever differs from an existing space's index, Ythril **refuses the change, keeps the existing width, and logs both numbers**. To move a populated gallery, re-embed its faces at the new width first. A filter-field change still applies, at the existing width.
 
@@ -92,6 +115,7 @@ Each field can also be **pinned by an infra admin** through the env var below, w
 | Field | Env var | Default | Description |
 |---|---|---|---|
 | `enabled` | `FACE_RECOGNITION_ENABLED` | `false` | Master switch. When false, face detection is completely skipped. |
+| `externalModel` | `FACE_RECOGNITION_EXTERNAL_MODEL` | *(unset)* | External face-embedding endpoint. **Unset means all inference is in-process and no face data leaves the machine.** Set it to use a recogniser we do not bundle; face crops are then sent there per image, and the egress policy requires an acknowledged host. Pin it when instance admins must not be able to point face processing at an endpoint of their own. |
 | `confidenceThreshold` | `FACE_RECOGNITION_CONFIDENCE_THRESHOLD` | `0.6` | Cosine similarity score (0–1) required for auto-labeling. Lower values label more aggressively; higher values require a closer match. Tune upward as your gallery grows. |
 | `minFaceSizeFraction` | `FACE_RECOGNITION_MIN_FACE_SIZE_FRACTION` | `0.05` | Minimum face bounding-box size as a fraction of the image's shorter side. Faces smaller than this are skipped (avoids noise from crowd shots or background faces). |
 | `modelPath` | `FACE_RECOGNITION_MODEL_PATH` | `"human-models"` | Path relative to `DATA_ROOT` where the BlazeFace and FaceRes model files are located. |
@@ -99,6 +123,8 @@ Each field can also be **pinned by an infra admin** through the env var below, w
 | `reprocessSyncedImages` | `FACE_RECOGNITION_REPROCESS_SYNCED_IMAGES` | `true` | When true, images received via network sync are automatically re-enqueued for face processing if they haven't been processed yet. Set to false to keep gallery building local-origin only. |
 
 > Booleans accept `true` or `1`; anything else reads as false. Pinning `FACE_RECOGNITION_ENABLED=false` is the way to guarantee no face processing happens on an instance regardless of what is in `config.json` — including after a restore from a backup taken on an instance where it was on.
+>
+> **An env var set to the EMPTY STRING is not a pin.** `docker compose` passes variables as `FACE_RECOGNITION_ENABLED: ${FACE_RECOGNITION_ENABLED:-}`, which leaves them *defined but empty* when the operator set nothing — so reading "defined" as "pinned" would lock all six fields on every Compose deployment and render controls read-only that nobody had chosen to fix. Pin the **value** you want enforced instead: `FACE_RECOGNITION_ENABLED=false`, not `FACE_RECOGNITION_EXTERNAL_MODEL=`. There is currently no way to express *"fixed, and fixed at nothing"* for a field whose empty value is itself meaningful.
 
 **Example `config.json` excerpt:**
 
@@ -120,6 +146,8 @@ Each field can also be **pinned by an infra admin** through the env var below, w
 
 #### ISO 27001 Note
 
-Face embeddings (128d float vectors) are stored in MongoDB. They are not reversible to images; they cannot reconstruct a face. No face data is transmitted to any external service — all inference is in-process. If your data residency policy classifies biometric-derived data, ensure your MongoDB instance and backup destinations comply.
+Face embeddings (128d float vectors by default) are stored in MongoDB. They are not reversible to images; they cannot reconstruct a face.
+
+**Whether face data leaves the process depends on one setting.** With `faceRecognition.externalModel` **unset** — the default — all inference is in-process and no face data is transmitted anywhere. With it **configured**, face crops are sent to that endpoint on every image processed. That is a deliberate operator choice, gated behind an egress acknowledgement, and it is the one setting on this page with biometric consequences: pin it with `FACE_RECOGNITION_EXTERNAL_MODEL` if an instance's admins must not be able to change it. To guarantee no face processing at all, pin `FACE_RECOGNITION_ENABLED=false` — an **empty** env var is deliberately not a pin (see the env-var note below). If your data residency policy classifies biometric-derived data, ensure your MongoDB instance and backup destinations comply.
 
 ---

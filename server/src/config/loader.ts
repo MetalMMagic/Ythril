@@ -1261,8 +1261,19 @@ const FACE_RECOGNITION_DEFAULTS: Required<FaceRecognitionConfig> = {
  * except whether faces are processed at all. That is the setting with the clearest privacy weight.
  */
 const FACE_RECOGNITION_ENV: Record<keyof Required<FaceRecognitionConfig>, string> = {
-  // Env-pinnable as a whole, so an infra-managed deployment can forbid biometric egress outright by
-  // pinning it empty — the same lever the other providers have.
+  // Env-pinnable as a whole, so an infra-managed deployment can pin the biometric endpoint the same way it pins every
+  // other provider.
+  //
+  // CORRECTION, 2026-08-13: this comment used to end "...by pinning it empty". That is NOT what happens, and saying so
+  // was worse than saying nothing — an operator following it would believe biometric egress was locked when the field
+  // was still editable. An EMPTY env var is deliberately not a pin: docker-compose passes
+  // `FACE_RECOGNITION_ENABLED: ${FACE_RECOGNITION_ENABLED:-}`, which leaves the variable defined-but-empty when the
+  // operator set nothing, so reading "defined" as "pinned" would lock all six fields on every Compose deployment and
+  // report controls the operator cannot use and could not explain. `face-recognition-env.test.js` pins that reasoning.
+  //
+  // To forbid the egress, pin the value that forbids it: `FACE_RECOGNITION_ENABLED=false`. There is currently no way to
+  // express "fixed, and fixed at nothing" for a field whose empty value is meaningful — breituai-platform asked for
+  // exactly that on 2026-08-12 and it needs a mechanism that cannot be confused with a Compose default.
   externalModel: 'FACE_RECOGNITION_EXTERNAL_MODEL',
   enabled: 'FACE_RECOGNITION_ENABLED',
   confidenceThreshold: 'FACE_RECOGNITION_CONFIDENCE_THRESHOLD',

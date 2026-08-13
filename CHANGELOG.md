@@ -129,6 +129,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     asserted.
 
 ### Fixed
+- **Deleting a brain record now retires its embed job, including one that had already gone terminal `failed`.**
+  Cleanup was entirely lazy and lived in the worker: it claims a job, finds the record gone, and treats `gone` as success.
+  That covers a `pending` job and **only** a `pending` job, because `claimNextEmbedJob` filters on `status: 'pending'` — so
+  a job that had exhausted its attempts was never claimed again and outlived its record for ever.
+  - **Invisible until the queue got a surface, which is why it lasted.** Since the embed-queue listing shipped, that row is
+    reported by `GET /api/brain/spaces/:id/embedding-queue/records`, by `list_embed_jobs`, and in `getEmbedJobCounts` — so
+    an operator saw a permanent failure naming a `recordId` that returns 404, on a surface whose entire justification is
+    that its failures are actionable.
+  - Retired eagerly from all four delete paths rather than filtered out at read time: hiding an orphan leaves it in the
+    collection, costs a lookup per listed row, and makes the counts disagree with the rows they are counting.
+  - Retirement sits **after** the `deletedCount === 0` check, so a delete that matches nothing cannot drop the job of a
+    record that is still there — asserted, because that is the way this fix breaks.
+  - `pending` jobs are retired too rather than left to the worker. One rule beats "eagerly for failed, lazily for
+    pending", which is the kind of split nobody remembers.
 - **`docs/integration-guide/05c-face-recognition.md` described a pipeline that is only half of what ships.** Reported by
   breituai-platform, 2026-08-12: the page opened by saying face recognition runs *"entirely in-process — no GPU, no
   sidecar, no Python"* and its ISO note said *"No face data is transmitted to any external service"* — while the same file

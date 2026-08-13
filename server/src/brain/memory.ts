@@ -21,7 +21,7 @@ import { stampSkewOnCreate } from './stamp-skew.js';
 import { getSpaceMeta } from '../spaces/schema-validation.js';
 import { applyDeleteFields } from './delete-fields.js';
 import { mergeTags, mergeProperties, mergePropertiesOrKeep } from './merge-fields.js';
-import { enqueueEmbedJob } from './embed-queue.js';
+import { enqueueEmbedJob, retireEmbedJob } from './embed-queue.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { MemoryDoc, EntityDoc, TombstoneDoc } from '../config/types.js';
 import { SimilarMatch, DupeCheckOpts, checkDuplicates } from './recall.js';
@@ -339,6 +339,11 @@ export async function deleteMemory(
     spaceId,
   });
   if (result.deletedCount === 0) return false;
+  // The record is gone, so its embed job has nothing left to embed. Eager rather than left to the worker: the
+  // worker only claims `pending` jobs, so a job that had already gone terminal `failed` would never be claimed
+  // again and would outlive the record for ever — visible since #861 as a permanent failure naming a recordId
+  // that 404s.
+  await retireEmbedJob(spaceId, 'memory', memoryId);
 
   const tombstone: TombstoneDoc = {
     _id: memoryId,

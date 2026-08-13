@@ -15,7 +15,7 @@ import { getSpaceMeta } from '../spaces/schema-validation.js';
 import { writeFilterFor, writeOutcome } from './write-precondition.js';
 import { applyDeleteFields, setUnlessDeleted } from './delete-fields.js';
 import { mergeTagsAndProperties, mergePropertiesOrKeep, mergeTagsOrKeep } from './merge-fields.js';
-import { enqueueEmbedJob } from './embed-queue.js';
+import { enqueueEmbedJob, retireEmbedJob } from './embed-queue.js';
 import { checkDuplicates, type SimilarMatch, type DupeCheckOpts } from './recall.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import { log } from '../util/log.js';
@@ -414,6 +414,11 @@ export async function deleteEntity(
     spaceId,
   });
   if (result.deletedCount === 0) return false;
+  // The record is gone, so its embed job has nothing left to embed. Eager rather than left to the worker: the
+  // worker only claims `pending` jobs, so a job that had already gone terminal `failed` would never be claimed
+  // again and would outlive the record for ever — visible since #861 as a permanent failure naming a recordId
+  // that 404s.
+  await retireEmbedJob(spaceId, 'entity', entityId);
 
   const tombstone: TombstoneDoc = {
     _id: entityId,

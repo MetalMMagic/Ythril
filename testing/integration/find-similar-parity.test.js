@@ -68,6 +68,14 @@ async function syncPostEdge(from, to, label, seq) {
 const findSimilar = (body) =>
   post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/find-similar`, body);
 
+/** Every nested node in the results' `_graph`, at any depth. */
+function allNested(results) {
+  const out = [];
+  const walk = ns => { for (const n of ns ?? []) { out.push(n); walk(n._graph); } };
+  for (const r of results ?? []) walk(r._graph);
+  return out;
+}
+
 before(async () => {
   tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
 
@@ -140,24 +148,26 @@ describe('REST find-similar traverse actually expands', () => {
     assert.equal(r.body.traverseDepth, undefined, 'an unasked-for traverse must not change the shape');
   });
 
-  it('traverse: 1 returns the match AND its unembedded neighbour, annotated', async (t) => {
+  it('traverse: 1 nests the unembedded neighbour under the match that reached it', async (t) => {
     if (!embeddingAvailable || !sourceId || !matchId) return t.skip('embedding unavailable');
     const r = await findSimilar({ entryId: sourceId, entryType: 'entity', topK: 5, traverse: 1 });
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.equal(r.body.traverseDepth, 1);
-    assert.equal(r.body.count, r.body.results.length, 'count must describe the array it ships with');
+    assert.equal(r.body.count, r.body.results.length, 'count is the matches');
 
-    const seeds = r.body.results.filter(x => x.source === 'recall');
-    const reached = r.body.results.filter(x => x.source === 'traverse');
-    assert.ok(seeds.some(s => s.record?._id === matchId), `the similarity match must be a seed: ${JSON.stringify(r.body.results.map(x => x.record?._id))}`);
+    const match = r.body.results.find(x => x._id === matchId);
+    assert.ok(match, `the similarity match must be a result: ${JSON.stringify(r.body.results.map(x => x._id))}`);
+    assert.equal(typeof match.score, 'number', 'a match keeps its real similarity score');
 
-    // The neighbour is not embedded, so vector search cannot have found it. Its presence IS the traversal.
-    const n = reached.find(x => x.record?._id === NEIGHBOUR);
-    assert.ok(n, `the unembedded neighbour must be reached by traversal: ${JSON.stringify(reached.map(x => x.record?._id))}`);
-    assert.equal(n.hops, 1);
-    assert.equal(n.score, null, 'a structurally-reached record has no similarity score to report');
-    assert.equal(n.path.length, 1, 'one edge away means a one-edge path');
-    assert.equal(n.path[0].label, 'depends_on', 'the path must carry the edge label, not just the ids');
+    // The neighbour is not embedded, so vector search cannot have found it. Its presence IS the traversal —
+    // and it hangs off the match, which is what says WHICH match reached it.
+    const n = (match._graph ?? []).find(x => x.node?._id === NEIGHBOUR);
+    assert.ok(n, `the neighbour must be nested under the match: ${JSON.stringify((match._graph ?? []).map(x => x.node?._id))}`);
+    assert.deepEqual(n.paths[0], [matchId, NEIGHBOUR], 'the route is ids, match first');
+    assert.equal(n.paths[0].length - 1, 1, 'hop count is derived from the route');
+    assert.equal(n.edge.label, 'depends_on', 'the reaching edge is the whole document, label included');
+    assert.ok(!('score' in n), 'a structurally-reached node has no score to report');
+    assert.equal(r.body.graphNodes, allNested(r.body.results).length, 'graphNodes counts what came back');
   });
 });
 
@@ -173,13 +183,14 @@ describe('both doors answer the same question the same way', () => {
       const text = res?.content?.[0]?.text ?? '';
       const parsed = JSON.parse(text);
       assert.equal(parsed.traverseDepth, 1, text.slice(0, 200));
-      const ids = parsed.results.map(x => x.record?._id);
-      assert.ok(ids.includes(NEIGHBOUR), `MCP must reach the same neighbour: ${JSON.stringify(ids)}`);
-      // The annotation keys are the contract a caller reads. Both doors ship the same four.
-      const reached = parsed.results.find(x => x.record?._id === NEIGHBOUR);
-      for (const key of ['source', 'hops', 'path', 'spaceId']) {
-        assert.ok(key in reached, `MCP item is missing ${key}, which REST ships`);
+      const nestedIds = allNested(parsed.results).map(x => x.node?._id);
+      assert.ok(nestedIds.includes(NEIGHBOUR), `MCP must reach the same neighbour: ${JSON.stringify(nestedIds)}`);
+      // The node keys are the contract a caller reads. Both doors ship the same three, from one builder.
+      const reached = allNested(parsed.results).find(x => x.node?._id === NEIGHBOUR);
+      for (const key of ['edge', 'node', 'paths']) {
+        assert.ok(key in reached, `MCP node is missing ${key}, which REST ships`);
       }
+      assert.equal(parsed.count, parsed.results.length, 'MCP count is the matches too');
     } finally {
       session.close();
     }

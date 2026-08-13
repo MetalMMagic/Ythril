@@ -214,43 +214,56 @@ Read in the order the server applies them:
 | `maxPerType` | The ceiling to that floor, and the other half of the same problem: one long file passage that scores well can take slots several one-line records would have answered more cheaply. A candidate whose type is already at its cap is **skipped and the walk continues**, so the freed slot goes to another type rather than shortening the list. |
 | `minScore` | Applied **last**, on the vector score, and it can drop a `minPerType`-guaranteed result — a floor is a request for coverage, not a licence to return matches you called too weak. |
 | `topK` | The final cut. |
-| `traverse` | After the cut, follows knowledge-graph edges outward from every match (both directions) and returns the connected entities alongside them. |
+| `traverse` | After the cut, follows knowledge-graph edges outward from every match (both directions) and nests the connected entities **under the match that reached them**. |
 
-**`traverse > 0` changes the response shape** — this is the one thing worth knowing before using it. Each
-item becomes a wrapper around the record:
+**`traverse > 0` adds `_graph` to each match** — this is the one thing worth knowing before using it. The
+results stay the matches, in rank order, exactly as `traverse: 0` returns them; what the graph reached hangs
+off the match that reached it:
 
 ```json
 {
   "results": [
     {
-      "source": "recall",
-      "hops": 0,
-      "path": [],
-      "spaceId": "dev-apps",
-      "type": "file",
-      "score": 0.71,
-      "record": {
-        "_id": "…", "type": "file", "path": "runbooks/NMK-SI-11.md",
-        "score": 0.71, "lexicalScore": 4.83, "fusedScore": 0.0325, "rerankScore": 0.94,
-        "matchedText": "Form NMK-SI-11 must be filed within 6 hours…"
-      }
-    },
-    {
-      "source": "traverse",
-      "hops": 1,
-      "path": [{ "from": "runbooks/NMK-SI-11.md", "label": "owned-by", "to": "security-team" }],
-      "spaceId": "dev-apps",
-      "type": "entity",
-      "score": null,
-      "record": { "_id": "…", "type": "entity", "name": "security-team" }
+      "_id": "…", "type": "file", "path": "runbooks/NMK-SI-11.md",
+      "score": 0.71, "lexicalScore": 4.83, "fusedScore": 0.0325, "rerankScore": 0.94,
+      "matchedText": "Form NMK-SI-11 must be filed within 6 hours…",
+      "_graph": [
+        {
+          "edge": {
+            "_id": "…", "from": "runbooks/NMK-SI-11.md", "to": "security-team", "label": "owned-by",
+            "description": "the team that signs the form off", "tags": ["ownership"],
+            "createdAt": "2026-07-02T09:14:00.000Z"
+          },
+          "node": { "_id": "…", "type": "entity", "name": "security-team" },
+          "paths": [["<match id>", "<security-team id>"]]
+        }
+      ]
     }
   ],
-  "count": 2
+  "count": 1,
+  "traverseDepth": 1,
+  "graphNodes": 1
 }
 ```
 
-`score` is `null` on a traversed neighbour on purpose: it was reached **structurally**, not matched. It
-has no similarity to the query and inventing one would let `minScore` act on a number nobody measured.
+| field | meaning |
+|---|---|
+| `count` | the number of **matches** — what `topK` bounds |
+| `graphNodes` | how many traversed nodes the trees hold in total |
+| `edge` | the **whole** edge document for the hop that reached this node, including its `description` and `tags` |
+| `node` | the reached record |
+| `paths` | **every** route from a match to this node, record ids, match first. `paths[0]` is the route it is nested under, so `paths[0].length - 1` is the hop count |
+| `pathsTruncated` | present and `true` only when a node had more routes than were recorded |
+| `_graph` | on a nested node too — depth is a tree, so a two-hop node hangs off the one-hop node that reached it |
+
+A traversed node carries **no score**. It was reached structurally, not matched: it has no similarity to the
+query, and it is not in the ranked list at all — so there is no `null` competing with a real score, and
+nothing for `minScore` or `topK` to act on that nobody measured.
+
+An ordered array of ids **is** the direction — match first, this node last — so there is no orientation to
+work out. The hop labels along the nesting route are not lost either: each node on it carries its own `edge`,
+so walking the tree yields the chain in order. Only the last hop of an *alternate* route has no label, and
+both of its endpoint ids are right there.
 
 The MCP `recall` tool takes the same parameters, plus `space` (omit it to search every accessible space):
 
@@ -282,7 +295,7 @@ spaces. `traverse` above 2 on a dense graph is slow; narrow the seed set with `t
 
 By default `recall` returns matches in isolation — the knowledge-graph edges between records are not consulted. Set `traverse` to an integer between `1` and `5` to follow the graph outward from every match: for each seed, the server walks edges (in **both** directions) up to `traverse` hops and returns the connected entities alongside the matches. This turns semantic search into context-aware retrieval — "recall the Vault service **and everything connected to it**" in one call, instead of a recall followed by manual `traverse`/`query` calls.
 
-`traverse: 0` (the default) is behaviourally identical to classic recall and returns the classic response shape above. When `traverse > 0` the response shape changes: each result is annotated, and a `traverseDepth` field is added.
+`traverse: 0` (the default) is behaviourally identical to classic recall and returns the classic response shape above. When `traverse > 0` the results are unchanged and each one gains a `_graph` array holding what the walk reached from it, plus `traverseDepth` and `graphNodes` on the envelope.
 
 > **This parameter and the [`/traverse` endpoint](04b-graph-api.md#traverse-graph) are different tools that share a name.**
 > The difference is where the walk STARTS, and it decides which one you want:
@@ -310,44 +323,51 @@ By default `recall` returns matches in isolation — the knowledge-graph edges b
 {
   "results": [
     {
-      "score": 0.91,
-      "source": "recall",
-      "hops": 0,
-      "path": [],
-      "spaceId": "adrs",
-      "type": "entity",
-      "record": { "_id": "adr-0042", "name": "Token Scoping", "type": "decision" }
-    },
-    {
-      "score": null,
-      "source": "traverse",
-      "hops": 1,
-      "path": [{ "from": "adr-0042", "label": "implements", "to": "adr-0079" }],
-      "spaceId": "adrs",
-      "type": "entity",
-      "record": { "_id": "adr-0079", "name": "Vault Integration", "type": "decision" }
+      "_id": "adr-0042", "name": "Token Scoping", "type": "decision", "score": 0.91,
+      "_graph": [
+        {
+          "edge": {
+            "_id": "e-42-79", "from": "adr-0042", "to": "adr-0079", "label": "implements",
+            "description": "0079 is how 0042 was carried out", "tags": [],
+            "createdAt": "2026-05-11T08:00:00.000Z"
+          },
+          "node": { "_id": "adr-0079", "name": "Vault Integration", "type": "decision" },
+          "paths": [["adr-0042", "adr-0079"]],
+          "_graph": [
+            {
+              "edge": { "_id": "e-79-88", "from": "adr-0079", "to": "adr-0088", "label": "supersedes" },
+              "node": { "_id": "adr-0088", "name": "Vault Rotation", "type": "decision" },
+              "paths": [["adr-0042", "adr-0079", "adr-0088"], ["adr-0042", "adr-0051", "adr-0088"]]
+            }
+          ]
+        }
+      ]
     }
   ],
-  "count": 2,
-  "traverseDepth": 2
+  "count": 1,
+  "traverseDepth": 2,
+  "graphNodes": 2
 }
 ```
 
-Per-result annotations:
-
 | Field | Meaning |
 |-------|---------|
-| `source` | `"recall"` for a direct semantic match (seed), `"traverse"` for a record reached via the graph |
-| `hops` | Distance from the nearest seed — `0` for a seed, `1` for a direct neighbour, etc. |
-| `path` | The edge chain connecting this record to its seed (`[]` for seeds). Each element is `{ from, label, to }` |
-| `score` | Vector similarity for seeds; `null` for traversal-reached records (they were not ranked by the search) |
-| `record` | Seed records carry the full recall result; traversal records carry the reached **entity** document |
+| `count` | The number of **matches**, which is what `topK` bounds. It does **not** include traversed nodes |
+| `graphNodes` | How many traversed nodes came back in total, across every match |
+| `edge` | The **whole** edge document for the hop that reached this node — `description` and `tags` included |
+| `node` | The reached **entity** document |
+| `paths` | Every route from a match to this node, record ids, match first. `paths[0]` is the nesting route; `paths[0].length - 1` is the hop count |
+| `pathsTruncated` | Present and `true` only when a node had more routes than were recorded (cap: 8) |
+| `_graph` | Present on a nested node too, so depth is a tree: `adr-0088` hangs off `adr-0079`, which hangs off the match |
+
+Note `adr-0088` above: it is reachable two ways and appears **once**, with both routes in `paths`. A caller
+counting rows never double-counts a record, and no relationship is invisible.
 
 **Guard rails:**
 
 - **Depth cap:** `traverse` must be `0`–`5`. A value of `6` or higher (or a negative/non-integer value) returns `400` — it is rejected, not clamped.
-- **Result cap:** the combined output (seeds + traversal) is capped at `topK × (traverse + 1) × 4`. On dense graphs the traversal is truncated to this budget, preferring lower-hop records.
-- **Cycle-safe:** each record is visited once, so a circular graph (A→B→C→A) never loops or produces duplicates. A record reachable by multiple paths keeps its **shortest** path.
+- **Node cap:** the traversed nodes are capped at `topK × (traverse + 1) × 4` minus the matches. On dense graphs the traversal is truncated to this budget, preferring lower-hop records.
+- **Cycle-safe:** each record is visited once, so a circular graph (A→B→C→A) never loops or produces duplicates. A record reachable by several routes is nested under the **shortest** one, with the rest in `paths`.
 - **Space-scoped:** traversal stays within the spaces the calling token may access. An edge pointing at a record in a space the token cannot see (or at an id that is not an entity) is silently skipped — no data and no `403` leak.
 - Only **entities** are returned by traversal (edges connect entities); memories, chrono entries, and files still appear as seeds when they match semantically.
 
@@ -556,20 +576,30 @@ Given an existing entry's `_id`, find other entries with high vector similarity.
 - Results sorted by `score` descending
 - `spaceId` included on each result when `crossSpace: true`
 
-**With `traverse > 0`** the response carries the same graph-augmented shape `recall` uses — `results` becomes a list of
-`{score, source, hops, path, spaceId, type, record}` items, plus `count` and `traverseDepth`. Similarity matches are
-`source: "recall"` at `hops: 0`; records reached by following edges are `source: "traverse"` with a null `score` and the
-connecting `path`. The combined output is capped at `topK × (traverse + 1) × 4`.
+**With `traverse > 0`** the response carries the same graph-augmented shape `recall` uses: each match gains a `_graph`
+array of `{edge, node, paths}`, nested nodes carry their own `_graph`, and the envelope adds `traverseDepth` and
+`graphNodes`. `count` stays the number of matches. The traversed nodes are capped at `topK × (traverse + 1) × 4` minus
+the matches. It is the same builder behind both endpoints and both doors — see
+[Graph-Augmented Recall](#graph-augmented-recall-traverse-parameter) for the field-by-field table.
 
 ```json
 {
   "source": { "_id": "...", "type": "entity", "name": "auth-service", "score": 1.0 },
   "results": [
-    { "score": 0.91, "source": "recall", "hops": 0, "path": [], "spaceId": "dev-apps", "type": "entity", "record": { "_id": "..." } },
-    { "score": null, "source": "traverse", "hops": 1, "path": [{ "from": "...", "label": "depends_on", "to": "..." }], "spaceId": "dev-apps", "type": "entity", "record": { "_id": "..." } }
+    {
+      "_id": "...", "type": "entity", "name": "auth-gateway", "spaceId": "dev-apps", "score": 0.91,
+      "_graph": [
+        {
+          "edge": { "_id": "...", "from": "...", "to": "...", "label": "depends_on", "description": "gateway calls it on every login", "tags": [] },
+          "node": { "_id": "...", "type": "entity", "name": "token-service" },
+          "paths": [["<match id>", "<token-service id>"]]
+        }
+      ]
+    }
   ],
-  "count": 2,
-  "traverseDepth": 1
+  "count": 1,
+  "traverseDepth": 1,
+  "graphNodes": 1
 }
 ```
 

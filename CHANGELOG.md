@@ -6,6 +6,45 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+### Changed
+- **BREAKING — graph-augmented recall nests what it reached under the match that reached it.** aigents
+  2026-08-13T1035Z §3 and 1100Z. `traverse > 0` used to append every traversed record beside the matches with
+  `score: null`, and three things followed from that flat list:
+  - **With more than one match, nothing said WHICH match reached a node.** It was recoverable from the old
+    `path` — by intersecting the first edge's ends against the match ids.
+  - **`count` mixed matches with neighbours.** They asked for `topK: 1` and were told `count: 6`, so the number
+    a caller pages on described something they had not asked for.
+  - **The edge was reduced to `{from, label, to}`**, dropping its `description` — which, on the board this was
+    reported from, is where the REASON for a link lives — along with its `tags` and `createdAt`.
+
+  Each match now carries `_graph: [{edge, node, paths}]`, and a nested node carries its own `_graph`, so depth
+  is a tree rather than a flag. `edge` is the whole document. `paths` is **every** route to the node, ids only,
+  match first — `paths[0]` is the route it is nested under, so the hop count is `paths[0].length - 1` and the
+  direction is implicit rather than something to work out from edge ends. `count` is the number of matches
+  again, and a new `graphNodes` reports how much graph came back.
+
+  A node reachable several ways appears **once**, with every route in `paths` (owner ruling: no stubs, no
+  `{ref: id}` placeholders — a node is complete wherever it appears). Previously the second relationship was
+  invisible: a single global visited set attributed the node to whichever edge won the race.
+
+  Off the ranked list, a traversed node has no score competing with a real one and no cut to fall off. That is
+  the whole value of traversal: a node reached because the graph relates it to a match is usually **not**
+  textually similar to the query.
+  - **Every surface in the same commit** — REST `/recall` and `/find-similar`, MCP `recall` and `find_similar`,
+    and the Brain → Query tab, which walks the tree depth-first so a neighbour renders directly beneath the
+    match it belongs to. `find_similar`'s traverse had shipped hours earlier in the flat shape; leaving it
+    there would have created the asymmetry that PR existed to remove.
+  - **`traverse: 0` is untouched.** The classic response is byte-for-byte what it was.
+  - **What their proposal got wrong about us, in our favour:** §4 argues against reranking *after* traversal.
+    We already rerank before it — `recall()` returns reranked matches and the route expands them afterwards —
+    so the cost blow-up they warn about (`topK × branching^depth` cross-encoder calls) was never happening
+    here. The old `path` was also the full accumulated chain, not just the last edge.
+
+### Added
+- **`MAX_ALT_PATHS_PER_NODE`** — a dense graph can reach one node dozens of ways, so alternate routes are
+  capped at 8 per node and the node says so with `pathsTruncated: true`. A cap a caller cannot see is how
+  "these are all the routes" becomes a false conclusion.
 ### Added
 - **`recall`'s filter accepts the same grammar `query`'s does.** aigents, 2026-08-13T1035Z §2: recall took one operator
   object per key, ANDed — no `$or`, no nesting — while `query` took the full allowlisted MongoDB grammar to depth 8. Same

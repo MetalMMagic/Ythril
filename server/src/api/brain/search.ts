@@ -19,7 +19,8 @@ import {
 import { findSimilar, recall, type RecallKnowledgeType, type RecallResult } from '../../brain/recall.js';
 import { type FilterExpression } from '../../brain/filter.js';
 import { resolveRecallFilter } from '../../brain/recall-filter.js';
-import { traverseGraph, traverseRecallSeeds, MAX_RECALL_TRAVERSE, resolveEdgeEntityNames } from '../../brain/edges.js';
+import { traverseGraph, MAX_RECALL_TRAVERSE, resolveEdgeEntityNames } from '../../brain/edges.js';
+import { buildRecallGraph } from '../../brain/recall-graph.js';
 import { embed } from '../../brain/embedding.js';
 import { getConfig } from '../../config/loader.js';
 import { col, asFilter } from '../../db/mongo.js';
@@ -308,20 +309,6 @@ searchRouter.post('/spaces/:spaceId/query', globalRateLimit, requireSpaceAuth, a
 });
 
 
-/** One entry in a graph-augmented recall response (traverse > 0). */
-interface RecallTraverseItem {
-  /** Vector similarity score for seeds; null for traversal-reached records. */
-  score: number | null;
-  source: 'recall' | 'traverse';
-  /** 0 = seed, 1 = one edge away, etc. */
-  hops: number;
-  /** Edge chain connecting this record to its seed (empty for seeds). */
-  path: { from: string; label: string; to: string }[];
-  spaceId: string;
-  type: string;
-  record: unknown;
-}
-
 // POST /api/brain/spaces/:spaceId/recall — semantic vector search by natural language query
 searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
@@ -518,24 +505,29 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
       return;
     }
 
-    // Graph-augmented recall: expand seeds along edges, cap the combined output.
+    // Graph-augmented recall: expand seeds along edges, cap the traversed NODES, and nest each one under the
+    // seed that reached it. `count` is the number of MATCHES — it used to be matches plus neighbours, so a
+    // caller asking for `topK: 1` was told `count: 6` and could not use the number they page on.
     const totalCap = safeTopK * (safeTraverse + 1) * 4;
-    const neighbours = await traverseRecallSeeds(
+    const graph = await buildRecallGraph(
       memberIds,
       seeds.map(s => ({ _id: s._id, spaceId: s.spaceId })),
       safeTraverse,
       Math.max(0, totalCap - seeds.length),
     );
-    const results: RecallTraverseItem[] = [
-      // The flag applies here too. A caller who asked not to be sent passage bodies did not stop meaning it
-      // because they also asked for graph expansion — and an option that silently lapses on one code path is
-      // the same shape of defect as one that reaches only one surface.
-      ...stripContentIfAsked(seeds, safeIncludeContent).map(s => ({ score: s.score, source: 'recall' as const, hops: 0, path: [], spaceId: s.spaceId, type: s.type, record: s })),
-      ...neighbours.map(n => ({ score: null, source: 'traverse' as const, hops: n.hops, path: n.path, spaceId: n.spaceId, type: 'entity' as const, record: n.record })),
-    ];
-    // The traverse shape carries the flag too — the seeds it expanded may already have been partial, and a
-    // caller cannot infer that from a longer list.
-    res.json({ results, count: results.length, traverseDepth: safeTraverse, ...(degraded.length > 0 ? { degraded } : {}) });
+    // The flag applies here too. A caller who asked not to be sent passage bodies did not stop meaning it
+    // because they also asked for graph expansion — and an option that silently lapses on one code path is
+    // the same shape of defect as one that reaches only one surface.
+    const results = stripContentIfAsked(seeds, safeIncludeContent).map(s => {
+      const nested = graph.bySeed.get(s._id);
+      return nested ? { ...s, _graph: nested } : s;
+    });
+    // `graphNodes` reports what `count` used to conflate: how much graph came back. Two numbers, each meaning
+    // one thing, rather than one number meaning whichever the reader assumes.
+    res.json({
+      results, count: results.length, traverseDepth: safeTraverse, graphNodes: graph.nodes,
+      ...(degraded.length > 0 ? { degraded } : {}),
+    });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(400).json({ error: msg });
@@ -625,23 +617,25 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
       return;
     }
 
-    // Graph-augmented: expand the similar seeds along edges. Deliberately the SAME item shape, the same cap formula
-    // and the same helper recall's traverse uses — a caller who can read one response can read the other, and a
-    // second copy of the shape is how the two would drift.
+    // Graph-augmented: expand the similar matches along edges. Deliberately the SAME builder, cap formula and
+    // envelope `recall`'s traverse uses — a caller who can read one response can read the other, and a second
+    // copy of the shape is how the two would drift.
     const traverseSpaces = crossSpaceIds ?? [spaceId];
     const totalCap = topK * (safeTraverse + 1) * 4;
-    const neighbours = await traverseRecallSeeds(
+    const graph = await buildRecallGraph(
       traverseSpaces,
       result.results.map(r => ({ _id: r._id, spaceId: r.spaceId })),
       safeTraverse,
       Math.max(0, totalCap - result.results.length),
     );
-    const items: RecallTraverseItem[] = [
-      ...stripContentIfAsked(result.results, safeIncludeContent)
-        .map(r => ({ score: r.score, source: 'recall' as const, hops: 0, path: [], spaceId: r.spaceId, type: r.type, record: r })),
-      ...neighbours.map(n => ({ score: null, source: 'traverse' as const, hops: n.hops, path: n.path, spaceId: n.spaceId, type: 'entity' as const, record: n.record })),
-    ];
-    res.json({ source: result.source, results: items, count: items.length, traverseDepth: safeTraverse });
+    const items = stripContentIfAsked(result.results, safeIncludeContent).map(r => {
+      const nested = graph.bySeed.get(r._id);
+      return nested ? { ...r, _graph: nested } : r;
+    });
+    res.json({
+      source: result.source, results: items, count: items.length,
+      traverseDepth: safeTraverse, graphNodes: graph.nodes,
+    });
   } catch (err: unknown) {
     if (err instanceof NotFoundError) {
       res.status(404).json({ error: err.message });

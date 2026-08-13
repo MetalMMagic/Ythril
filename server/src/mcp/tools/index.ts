@@ -1,5 +1,5 @@
 import type { ToolHandler } from './types.js';
-import { list_spacesTool, get_statsTool, get_space_metaTool, update_spaceTool, update_space_schemaTool, create_spaceTool, wipe_spaceTool , list_tokensTool } from './spaces.js';
+import { list_spacesTool, get_statsTool, get_space_metaTool, update_spaceTool, update_space_schemaTool, create_spaceTool, reindexTool, wipe_spaceTool , list_tokensTool } from './spaces.js';
 import { rememberTool, update_memoryTool, delete_memoryTool } from './memory.js';
 import { recallTool, find_similarTool, queryTool } from './search.js';
 import { bulk_writeTool } from './bulk.js';
@@ -55,6 +55,7 @@ export const ALL_TOOLS: ToolHandler[] = [
   update_spaceTool,
   update_space_schemaTool,
   create_spaceTool,
+  reindexTool,
   wipe_spaceTool,
   list_tokensTool,
   bulk_writeTool,

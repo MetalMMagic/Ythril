@@ -33,10 +33,11 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 
-let REST_ONLY_CAPABILITIES, restOnlyCapabilityMap;
+let REST_ONLY_CAPABILITIES, restOnlyCapabilityMap, ALL_TOOLS;
 
 before(async () => {
   ({ REST_ONLY_CAPABILITIES, restOnlyCapabilityMap } = await import('../../server/dist/mcp/parity.js'));
+  ({ ALL_TOOLS } = await import('../../server/dist/mcp/tools/index.js'));
 });
 
 /** Every route string declared anywhere under server/src/api, with its router prefix resolved. */
@@ -55,7 +56,25 @@ function declaredRoutes() {
 }
 
 /** The MCP tool names the registry actually exposes. */
+/**
+ * Tool names from the REGISTRY — `ALL_TOOLS` — not from source declarations.
+ *
+ * It used to scan `server/src/mcp/tools/*.ts` for `name: '…'`, and that counted a tool as BUILT the moment someone
+ * wrote the object. A tool absent from `ALL_TOOLS` is absent from `tools/list` and cannot be called, so declaring one
+ * and never registering it satisfied the source scan while changing nothing an agent can reach.
+ *
+ * Found by mutation-testing the empty map: with the `reindex` row deleted AND `reindexTool` removed from the registry,
+ * this file stayed GREEN — the exact "delete the row to quiet the gate" move it claims to prevent. The declaration was
+ * still in `spaces.ts`, so the scan still saw it.
+ */
 function toolNames() {
+  const names = new Set(ALL_TOOLS.map(t => t.name));
+  assert.ok(names.size >= 30, `the registry holds only ${names.size} tools — the import is stale`);
+  return names;
+}
+
+/** Every tool DECLARED in the tool modules, by source. Used only to compare against the registry. */
+function declaredToolNames() {
   const files = execFileSync('git', ['ls-files', 'server/src/mcp/tools'], { encoding: 'utf8' })
     .split('\n').map(f => f.trim()).filter(f => f.endsWith('.ts'));
   const names = new Set();
@@ -67,10 +86,21 @@ function toolNames() {
 }
 
 describe('the declared MCP/REST gap is real in both directions', () => {
-  it('the list is not empty, and every row is fully specified', () => {
-    // An empty list would pass every assertion below while saying nothing. If parity is ever complete, delete
-    // this gate rather than leaving it green and vacuous.
-    assert.ok(REST_ONLY_CAPABILITIES.length > 0, 'no rows — if the gap is closed, remove this gate deliberately');
+  it('every row is fully specified — and an EMPTY list is the finished state, not a vacuous one', () => {
+    // This used to assert the list was NOT empty, on the reasoning that an empty one would pass everything below
+    // while saying nothing, and that completing parity should mean deleting the gate.
+    //
+    // Both halves of that turned out to be wrong once parity was actually completed. The gate is not vacuous when the
+    // list is empty: the two assertions that carry it — `every REST route it names EXISTS` and `the five reported
+    // capabilities are each either still mapped or now BUILT` — are precisely what stops rows being DELETED to quiet
+    // it, and the second one only gets stronger as rows disappear, because each name must then resolve to a real tool.
+    //
+    // And deleting the gate on completion is the worst available option: the next capability added to one surface and
+    // not the other would meet no check at all. `help()` reports this list to every caller, so an empty list is a
+    // CLAIM — that nothing is REST-only — and a claim is exactly what wants a test.
+    //
+    // So: empty is allowed, every row that exists must still be fully specified, and the anti-deletion guarantee
+    // lives in the two assertions named above rather than in a length check.
     for (const c of REST_ONLY_CAPABILITIES) {
       for (const field of ['capability', 'restEndpoint', 'method', 'wouldBeTool', 'why']) {
         assert.ok(typeof c[field] === 'string' && c[field].trim().length > 0,
@@ -130,6 +160,15 @@ describe('the declared MCP/REST gap is real in both directions', () => {
     assert.deepEqual(lost, [],
       `reported as a gap, and now neither in the map nor built as a tool — the report has been silently `
       + `un-answered: ${lost.join(', ')}`);
+  });
+
+  it('every tool that EXISTS in source is actually registered', () => {
+    // The hole the fix above closed, asserted directly rather than left to the parity rows. A tool object written and
+    // never added to `ALL_TOOLS` is unreachable: absent from `tools/list`, uncallable, and invisible to every check
+    // that reads the registry — while reading in source review as a shipped feature.
+    const unregistered = [...declaredToolNames()].filter(n => !toolNames().has(n));
+    assert.deepEqual(unregistered, [],
+      `declared in server/src/mcp/tools but missing from ALL_TOOLS, so no agent can call them: ${unregistered.join(', ')}`);
   });
 
   it('help() reports the map, with mcpTool null on every row', () => {

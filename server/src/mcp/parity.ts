@@ -57,14 +57,19 @@ export interface RestOnlyCapability {
  * that name does — so a row cannot rot in either direction.
  */
 export const REST_ONLY_CAPABILITIES: readonly RestOnlyCapability[] = [
-  {
-    capability: 'Rebuild a space\'s vector indexes',
-    restEndpoint: '/api/brain/spaces/:spaceId/reindex',
-    method: 'POST',
-    wouldBeTool: 'reindex',
-    why: 'Not built. They reindexed 19 spaces by hand in a shell loop because the agent that planned their '
-      + 'embedder migration could not run it. Async already, with /reindex-status to poll, so a tool is a thin wrapper.',
-  },
+  // EMPTY, and that is the finished state rather than an oversight.
+  //
+  // All five capabilities breituai-platform reported now exist as MCP tools. Each left this list by being BUILT —
+  // `mcp-rest-parity.test.js` asserts both halves of every row, so a row cannot be deleted to quiet the gate: the day
+  // a tool of that name exists the row must go, and the day the REST route is renamed the row must be corrected.
+  //
+  // Two of the five were thin wrappers. The other three each needed their route's validation extracted into something
+  // both surfaces call first, because `updateSpace()`, `createSpace()` and the reindex loop already existed — which is
+  // exactly what made "just add a tool" dangerous rather than easy. Each of those took three PRs: characterization
+  // tests against the unmoved route, the extraction, then the tool. The history is in the CHANGELOG.
+  //
+  // **Add a row the moment a capability exists on one surface and not the other.** An empty list is a claim, and
+  // `help` reports it to every caller.
 ] as const;
 
 /**

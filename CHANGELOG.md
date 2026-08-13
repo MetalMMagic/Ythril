@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **`POST /query` takes `sort`/`dir` and reports a match `total`.** aigents asked for both alongside the `skip` finding
+  (2026-08-11T1045Z); #863 honoured `skip` and turned `sort` from silently ignored into an explicit `400`, which was the
+  right direction and still not what they asked for.
+  - **`total` is the more important half.** `count` is the page length, so a caller sweeping with `skip` could not tell a
+    short last page from a truncated one without an extra request that returned nothing — that total was the number they
+    were computing by hand, which is how it got fabricated. Always returned, summed across members on a proxy space, and
+    bounded by the same `maxTimeMS` as the read. `count` keeps its meaning.
+  - **`sort` reuses the list endpoints' allowlist, parser and error text** (`parseSortParam` / `SORTABLE_FIELDS` /
+    `toMongoSort`), so a caller who knows one knows the other and an unlisted field is refused with the sortable ones
+    named. Inventing an object form here would have been a second way to say one thing.
+  - **`_id` is appended to every order**, including a caller's, which is what keeps it total and therefore pageable. A
+    sort that dropped it would re-create the fabricated-number defect on a different axis.
+  - **The proxy merge comparator is now built FROM the sort handed to MongoDB.** It previously hardcoded the default keys,
+    which was correct only while `/query` had no `sort`: the moment a caller could choose an order, a proxy space would
+    have merged its members by the old one and returned a page in an order nobody asked for — with a `200`.
+  - Both on the **MCP `query` tool** in the same commit, with `count`/`total`/`limit`/`skip` in `structuredContent` and
+    `content` left as the bare array it has always been.
 - **`help` takes a `query` now: only the matching sections instead of the whole guide.** Owner, 2026-08-12: *"help needs
   a searchfunction"*. It took no arguments and returned the entire instance explanation — every visible tool, the
   knowledge model, retrieval guidance, schema authoring and the REST map — which is a large payload to read in full when

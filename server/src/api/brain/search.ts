@@ -7,12 +7,13 @@ import { Router } from 'express';
 import { requireSpaceAuth, denyReadOnly } from '../../auth/middleware.js';
 import { summariseActivity } from '../../metrics/space-activity-store.js';
 import { globalRateLimit } from '../../rate-limit/middleware.js';
+import { parseSortParam, toMongoSort, SORTABLE_FIELDS } from '../../brain/list-sort.js';
 import { NotFoundError } from '../../util/errors.js';
 import { countMemories } from '../../brain/memory.js';
 import { getEmbedJobCounts } from '../../brain/embed-queue.js';
 import {
-  queryBrain, QUERY_BODY_FIELDS, TRAVERSE_BODY_FIELDS, RECALL_BODY_FIELDS, FIND_SIMILAR_BODY_FIELDS,
-  unknownBodyFields, compareQueryOrder,
+  queryBrain, countBrain, QUERY_BODY_FIELDS, TRAVERSE_BODY_FIELDS, RECALL_BODY_FIELDS, FIND_SIMILAR_BODY_FIELDS,
+  unknownBodyFields, compareBySort, DEFAULT_QUERY_SORT,
 } from '../../brain/query.js';
 import { findSimilar, recall, type RecallKnowledgeType, type RecallResult } from '../../brain/recall.js';
 import { validateFilterExpression, type FilterExpression } from '../../brain/filter.js';
@@ -261,6 +262,13 @@ searchRouter.post('/spaces/:spaceId/query', globalRateLimit, requireSpaceAuth, a
   }
   const safeSkip = typeof skip === 'number' ? skip : 0;
 
+  // Same `sort`/`dir` the brain LIST endpoints take, with the same allowlist and the same 400 text — a caller who knows
+  // one knows the other, and inventing an object form here would have been a second way to say one thing.
+  // `toMongoSort` appends `_id`, which is what keeps a caller-chosen order total and therefore pageable.
+  const sortParse = parseSortParam(body['sort'], body['dir'], SORTABLE_FIELDS[collection as keyof typeof SORTABLE_FIELDS]);
+  if ('error' in sortParse) { res.status(400).json({ error: sortParse.error }); return; }
+  const order = sortParse.sort ? toMongoSort(sortParse.sort) : DEFAULT_QUERY_SORT;
+
   try {
     // A PROXY space needs the page computed over the MERGED set, not per member.
     //
@@ -282,12 +290,28 @@ searchRouter.post('/spaces/:spaceId/query', globalRateLimit, requireSpaceAuth, a
         window,
         safeMaxTimeMS,
         0,
+        order,
       ),
     );
-    const merged = perMember.sort(compareQueryOrder).slice(safeSkip, safeSkip + safeLimit);
+    // The match TOTAL, summed across members. aigents fabricated a number because `count` is the PAGE length: a sweep
+    // cannot tell a short last page from a truncated one without an extra request that returns nothing. It costs one
+    // count per member per call, bounded by the same deadline as the read, and it is returned unconditionally because a
+    // caller who does not know to ask for it is exactly the caller who ends up guessing.
+    const total = (await collectAcrossMembers(spaceId, async mid =>
+      [await countBrain(mid, collection as typeof validCollections[number], safeFilter, safeMaxTimeMS)]))
+      .reduce((a, b) => a + b, 0);
+    // Merged with a comparator built from the SAME order given to MongoDB, so a proxy space's page is in the order the
+    // caller asked for rather than in the default one.
+    const merged = perMember.sort(compareBySort(order)).slice(safeSkip, safeSkip + safeLimit);
     // `limit` and `skip` are echoed so a caller paging in a loop can tell "the page you asked for" from "what I
     // capped it to", which is exactly the distinction the fabricated number came from.
-    res.json({ results: merged, collection, count: merged.length, limit: safeLimit, skip: safeSkip });
+    res.json({
+      results: merged, collection,
+      // `count` is this page; `total` is the whole match. Both, because renaming `count` would break every caller that
+      // already reads it and dropping it would break them silently.
+      count: merged.length, total, limit: safeLimit, skip: safeSkip,
+      ...(sortParse.sort ? { sort: sortParse.sort.field, dir: sortParse.sort.dir === 1 ? 'asc' : 'desc' } : {}),
+    });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(400).json({ error: msg });

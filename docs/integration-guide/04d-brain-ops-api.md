@@ -416,6 +416,8 @@ Run a constrained Mongo-style read query against one logical collection. Intende
 | `projection` | — | Projection object (`1` include / `0` exclude) |
 | `limit` | — | Max rows (default `20`, capped at `100`) |
 | `skip` | — | Rows to discard before the page (default `0`) — see below |
+| `sort` | — | Field to order by. Per-collection allowlist; an unlisted field is a `400` naming the allowed ones. Omit for newest-first |
+| `dir` | — | `asc` or `desc` (default `desc`). Only meaningful with `sort` |
 | `maxTimeMS` | — | Query timeout in milliseconds (default `5000`) |
 
 Any other field is a `400`. See **Unknown body fields are refused** below.
@@ -427,10 +429,33 @@ Any other field is a `400`. See **Unknown body fields are refused** below.
   "results": [ ... ],
   "collection": "entities",
   "count": 12,
+  "total": 4831,
   "limit": 20,
   "skip": 0
 }
 ```
+
+`count` is **this page**. `total` is **every document the filter matches**, ignoring `limit` and `skip` — that is the
+number you need to know whether a sweep is finished, and without it a short last page is indistinguishable from a
+truncated one. On a proxy space it is the sum across member spaces. It costs one count per member per call, bounded by
+`maxTimeMS`, and it is always returned: a caller who does not know to ask for it is exactly the caller who ends up
+guessing.
+
+When you pass `sort`, the applied `sort` and `dir` are echoed back too.
+
+#### Sortable fields, per collection
+
+| Collection | Fields |
+|---|---|
+| `entities` | `createdAt`, `name`, `type` |
+| `edges` | `createdAt`, `label`, `from`, `to`, `type`, `weight` |
+| `memories` | `createdAt`, `type` |
+| `chrono` | `createdAt`, `title`, `startsAt`, `endsAt`, `status`, `type` |
+| `files` | `createdAt`, `updatedAt`, `path` |
+
+The same allowlist, parser and error text as [Sorting](04-brain-api.md#sorting-all-brain-list-endpoints) on the list
+endpoints. **`_id` is appended to every order**, including one you choose — that is what keeps the order *total*, so
+`skip` pages through it without a row drifting between pages and being seen twice or missed.
 
 #### Paging with `skip`
 

@@ -142,9 +142,15 @@ describe('query paging (real MongoDB)', { skip }, () => {
     // The two halves of this fix have to agree: honouring `skip` while the strict body rejects it as unknown would turn
     // a silently ignored parameter into a 400 for the caller who reported it.
     assert.ok(query.QUERY_BODY_FIELDS.has('skip'));
-    for (const k of ['collection', 'filter', 'projection', 'limit', 'maxTimeMS']) {
+    for (const k of ['collection', 'filter', 'projection', 'limit', 'maxTimeMS', 'sort', 'dir']) {
       assert.ok(query.QUERY_BODY_FIELDS.has(k), `${k} must stay allowed`);
     }
-    assert.ok(!query.QUERY_BODY_FIELDS.has('sort'), 'sort is not implemented, so it must not be quietly accepted');
+    // This line used to assert `sort` was ABSENT, which was true when it was unimplemented and became a false alarm the
+    // day it shipped. The invariant is not "sort is missing" — it is that a key is allowed only if the route honours it,
+    // so a plausible ALIAS nobody implemented must still be refused. Those are the ones a caller reaches for.
+    for (const alias of ['order', 'orderBy', 'sortBy', 'direction', 'offset', 'page']) {
+      assert.ok(!query.QUERY_BODY_FIELDS.has(alias),
+        `'${alias}' is not implemented, so accepting it would silently ignore it — the original defect`);
+    }
   });
 });

@@ -422,7 +422,81 @@ For cross-space recall (omit `space`), `spaceId` on each result identifies which
 
 When `space` is omitted, `recall` searches across all accessible spaces — the same as the former `recall_global` behaviour.
 
-### Example: update_memory
+### Capability map — both doors, and what a token needs
+
+Every capability, the MCP tool and the REST route that perform it, and the per-space rung a token needs. This is
+generated from the code and checked against the running routers, so it is the same list the server enforces
+rather than a summary someone maintained by hand.
+
+**How to read the token column.** REST enforces a per-space **rung** (`read` / `write` / `admin`) for an area —
+`knowledge`, `files`, `schema`, `dataQuality`. MCP gates on the token's flags: a read-only token cannot see
+mutating tools, and a non-admin token cannot see admin tools. Where the two differ the cell names both doors;
+one row does today (`update_space_schema`, where the tool is stricter than the route). `instance-level` means the
+route sits outside the per-space matrix by design — `/api/spaces`, `/api/tokens`, `/api/networks`.
+
+**MCP only** means the capability has no single REST route: `help` is the tool-caller's guide, and `wipe_space`
+composes what REST exposes as one DELETE per collection.
+
+| capability | MCP tool | REST route | token needs |
+|---|---|---|---|
+| **Brain — memories** | | | |
+| | `remember` | `POST /api/brain/spaces/:spaceId/memories` | write `knowledge` |
+| | `update_memory` | `PATCH /api/brain/spaces/:spaceId/memories/:id` | write `knowledge` |
+| | `delete_memory` | `DELETE /api/brain/spaces/:spaceId/memories/:id` | write `knowledge` |
+| **Brain — entities** | | | |
+| | `upsert_entity` | `POST /api/brain/spaces/:spaceId/entities` | write `knowledge` |
+| | `update_entity` | `PATCH /api/brain/spaces/:spaceId/entities/:id` | write `knowledge` |
+| | `delete_entity` | `DELETE /api/brain/spaces/:spaceId/entities/:id` | write `knowledge` |
+| | `merge_entities` | `POST /api/brain/spaces/:spaceId/entities/:survivorId/merge/:absorbedId` | write `knowledge` |
+| | `find_entities_by_name` | `GET /api/brain/spaces/:spaceId/entities/by-name` | read `knowledge` |
+| **Brain — edges** | | | |
+| | `upsert_edge` | `POST /api/brain/spaces/:spaceId/edges` | write `knowledge` |
+| | `update_edge` | `PATCH /api/brain/spaces/:spaceId/edges/:id` | write `knowledge` |
+| | `delete_edge` | `DELETE /api/brain/spaces/:spaceId/edges/:id` | write `knowledge` |
+| **Brain — chrono** | | | |
+| | `create_chrono` | `POST /api/brain/spaces/:spaceId/chrono` | write `knowledge` |
+| | `update_chrono` | `PATCH /api/brain/spaces/:spaceId/chrono/:id` | write `knowledge` |
+| | `delete_chrono` | `DELETE /api/brain/spaces/:spaceId/chrono/:id` | write `knowledge` |
+| | `list_chrono` | `GET /api/brain/spaces/:spaceId/chrono` | read `knowledge` |
+| **Brain — search** | | | |
+| | `recall` | `POST /api/brain/spaces/:spaceId/recall` | read `knowledge` |
+| | `query` | `POST /api/brain/spaces/:spaceId/query` | read `knowledge` |
+| | `find_similar` | `POST /api/brain/spaces/:spaceId/find-similar` | read `knowledge` |
+| | `traverse` | `POST /api/brain/spaces/:spaceId/traverse` | read `knowledge` |
+| **Brain — bulk** | | | |
+| | `bulk_write` | `POST /api/brain/spaces/:spaceId/bulk` | write `knowledge` |
+| **Brain — ops** | | | |
+| | `get_stats` | `GET /api/brain/spaces/:spaceId/stats` | read `knowledge` |
+| | `er_model` | `GET /api/brain/spaces/:spaceId/er-model` | read `knowledge` |
+| | `reindex` | `POST /api/brain/spaces/:spaceId/reindex` | admin `schema` |
+| | `list_embed_jobs` | `GET /api/brain/spaces/:spaceId/embedding-queue/records` | read `knowledge` |
+| | `retry_record_embedding` | `POST /api/brain/spaces/:spaceId/embedding-queue/records/retry` | write `knowledge` |
+| | `retry_failed_embeddings` | `POST /api/brain/spaces/:spaceId/embedding-queue/retry-failed` | write `files` |
+| **Files** | | | |
+| | `read_file` | `GET /api/files/:spaceId` | read `files` |
+| | `write_file` | `POST /api/files/:spaceId` | write `files` |
+| | `delete_file` | `DELETE /api/files/:spaceId` | write `files` |
+| | `move_file` | `PATCH /api/files/:spaceId` | write `files` |
+| | `list_dir` | `GET /api/files/:spaceId` | read `files` |
+| | `create_dir` | `POST /api/files/:spaceId/mkdir` | write `files` |
+| | `retry_embedding` | `POST /api/files/:spaceId/retry_embedding` | write `files` |
+| | `update_file_meta` | `PATCH /api/brain/spaces/:spaceId/files` | write `files` |
+| **Spaces** | | | |
+| | `list_spaces` | `GET /api/spaces` | read (MCP) · instance-level |
+| | `create_space` | `POST /api/spaces` | admin (MCP) · instance-level |
+| | `update_space` | `PATCH /api/spaces/:id` | admin (MCP) · instance-level |
+| | `get_space_meta` | `GET /api/spaces/:id/meta` | read `schema` |
+| | `update_space_schema` | `PUT /api/spaces/:id/schema` | **REST write `schema` · MCP admin** |
+| | `wipe_space` | **MCP only** | admin (MCP) |
+| **Tokens** | | | |
+| | `list_tokens` | `GET /api/tokens` | admin (MCP) · instance-level |
+| **Networks / sync** | | | |
+| | `list_peers` | `GET /api/networks` | admin (MCP) · instance-level |
+| | `sync_now` | `POST /api/networks/:id/sync` | admin (MCP) · instance-level |
+| **Meta** | | | |
+| | `help` | **MCP only** | read (MCP) |
+
+## Example: update_memory
 
 ```json
 {

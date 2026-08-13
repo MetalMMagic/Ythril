@@ -22,7 +22,7 @@ import assert from 'node:assert/strict';
 
 let backfillTokenRights;
 before(async () => {
-  ({ backfillTokenRights } = await import('../../server/dist/config/loader.js'));
+  ({ backfillTokenRights } = await import('../../server/dist/auth/backfill-token-rights.js'));
 });
 
 const tok = (over) => ({ id: 'i', name: 'n', hash: 'h', prefix: 'p', createdAt: '', lastUsed: null, expiresAt: null, admin: false, ...over });

@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { getConfig, saveConfig, mutateConfig, getSecrets, saveSecrets } from '../config/loader.js';
 import { log } from '../util/log.js';
 import type { TokenRecord } from '../config/types.js';
+import { migrateToken } from './rights-migration.js';
 
 const BCRYPT_ROUNDS = 12;
 const BASE62 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
@@ -202,9 +203,20 @@ export async function createToken(opts: {
     // Stored only when it says something. `inherit` IS the absent state, so writing it would put a field on
     // every future token that means exactly what its absence already means.
     ...(opts.mfa && opts.mfa !== 'inherit' ? { mfa: opts.mfa } : {}),
-    // Stored when given. Omitted otherwise so the backfill derives it — writing an empty matrix here would
-    // mint a token that reaches nothing while its legacy fields say otherwise.
-    ...(opts.rights ? { rights: opts.rights } : {}),
+    // ALWAYS stored. Owner ruling 2026-08-13: *"translate old tokens into matrix rights and overwrite on
+    // update. only matrix from now on."*
+    //
+    // It used to be omitted so the load-time backfill would derive it — but that backfill runs once, at load,
+    // over the tokens already in the config. A token minted afterwards had no matrix until the next restart,
+    // and `enforceAreaRung` PASSES when `rights` is absent. Measured: a plain non-admin token deleted a memory
+    // over REST with a 204 where a rights-bearing `write` token got a 403 for the same call. The hole was the
+    // missing matrix, not the rung.
+    rights: opts.rights ?? (migrateToken({
+      admin: opts.admin ?? false,
+      readOnly: opts.readOnly ?? false,
+      spaces: opts.spaces,
+      ...(opts.schemaLibrary ? { schemaLibrary: true } : {}),
+    }) as unknown as TokenRecord['rights']),
   };
   const config = getConfig();
   config.tokens.push(record);
@@ -279,15 +291,6 @@ export function listTokens(): Omit<TokenRecord, 'hash'>[] {
   return getConfig().tokens.map(({ hash: _h, ...rest }) => rest);
 }
 
-/** Update space allowlist for a token (undefined = all spaces) */
-export function updateTokenSpaces(id: string, spaces: string[] | undefined): boolean {
-  const config = getConfig();
-  const idx = config.tokens.findIndex(t => t.id === id);
-  if (idx < 0) return false;
-  config.tokens[idx]!.spaces = spaces;
-  saveConfig(config);
-  return true;
-}
 
 /** Rename a token — updates only its human-readable label (`name`); the secret and scope are untouched. */
 /**

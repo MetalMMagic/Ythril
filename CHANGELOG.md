@@ -8,6 +8,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **Seven destructive REST routes now ask for the `write` rung instead of `admin`, and every token carries a
+  rights matrix.** Owner rulings, 2026-08-13, after the difference was **measured** rather than argued: a token
+  holding `rights.perSpace.general.knowledge = 'write'` was refused `DELETE /memories/:id` with
+  `403 Token needs 'admin' on knowledge in space 'general'` — and deleted the same record through MCP
+  `delete_memory` seconds later, because `mcp/router.ts` gates on the token's `readOnly`/`admin` flags and never
+  consults the rung. One rule, two implementations, the weaker one silently in charge.
+  - **Levelled DOWN, not up:** `write` is the right rung for deleting a single record you could have created. The
+    rows are `/memories/:id`, `/entities/:id`, `/edges/:id`, `/chrono/:id`, the entity merge, `/bulk` and
+    `DELETE /api/files/:spaceId`.
+  - **The collection wipes stay `admin`**, matching `wipe_space` — emptying a collection is not the same act as
+    deleting a row. `DELETE /api/brain/spaces/:spaceId/files` stays `admin` too: no tool mirrors it, so lowering
+    it would weaken a door for parity with nothing.
+  - **`update_space_schema` remains the one known difference**, in the safe direction: REST asks `schema: write`,
+    the tool is admin-gated. `scripts/surface-matrix.mjs` reports it every run.
+- **Every token now carries a rights matrix, written to disk.** *"Translate old tokens into matrix rights and
+  overwrite on update. Only matrix from now on."*
+  - `createToken` **always** stores one, deriving it from the legacy fields when the caller did not supply it. It
+    used to omit the field and rely on a load-time backfill — which runs once, over the tokens already in the
+    config, so a token minted afterwards had **no matrix until the next boot**, and `enforceAreaRung` passes when
+    rights are absent. That is why a plain token deleted over REST with a `204` in the same probe.
+  - The boot backfill is **persisted** rather than in-memory, so the matrix becomes the record of record and "no
+    matrix" means something is wrong rather than something is old. A failed write retries next boot.
+  - `updateTokenSpaces` is **deleted**. It had no callers and its only job was editing the legacy allowlist —
+    exactly what a future caller would reach for to put the two descriptions of access out of step.
+  - The legacy `admin`/`readOnly`/`spaces` fields are **left in place**, so an older build rolls back unaffected.
+    Recorded in the hosting guide's rollback table for the shape change alone.
+- **The capability map is published.** `docs/integration-guide/16-mcp.md` now carries every capability with its
+  MCP tool, its REST route and the token level it needs — generated from the code and checked against the running
+  routers. The doc-coverage columns stay internal: an integrator cannot act on which of our files mentions a
+  thing, and a `—` there means our name-matcher missed it rather than that a gap exists.
 - **The capability matrix is generated and audited from running code.** `scripts/surface-matrix-audit.mjs`
   imports every mounted `Router`, walks its stack including sub-routers, and compares both ways against the
   static extraction: **208 = 208**, plus 41 of 41 tools mapped and each pair sharing an implementation module.

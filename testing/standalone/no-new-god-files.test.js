@@ -188,7 +188,12 @@ const FROZEN = {
   // `SpaceMeta` from the slice-1 leaf rather than back from `types.ts`. 677 -> 645 -> 578 across the two slices,
   // and the first attempt at this move — before the leaf existed — reached 609 while silently degrading
   // `NetworkConfig` to `any` in a caller. The number was never the point; where the growth goes is.
-  'server/src/config/types.ts': 578,
+  // RAISED 578 -> 579 for `FileMetaDoc.sha256`: one optional field, and there is nowhere else a field on a
+  // document type can live. It is what lets the media dispatcher tell identical bytes from new ones, so a
+  // re-upload stops re-running vision and speech-to-text over content already embedded. Optional on purpose:
+  // absent means "unknown", which processes rather than assumes, and it fills itself on the next write —
+  // file records SYNC, so a boot migration would have been the wrong shape.
+  'server/src/config/types.ts': 579,
   'client/src/app/pages/settings/data.component.ts': 644,
   // RAISED 646 -> 647 by ONE line: the Q-6 narrowing swapped `resolveMemberSpaces` for `memberSpacesForRequest`,
   // and this file no longer needed the old import, so it gained an import line and lost none. Not growth in any

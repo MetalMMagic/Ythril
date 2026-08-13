@@ -1493,6 +1493,17 @@ export interface FileMetaDoc {
   createdAt: string;    // ISO8601 — first write timestamp
   updatedAt: string;    // ISO8601 — last write timestamp
   sizeBytes: number;    // file size in bytes at last write
+  /**
+   * SHA-256 of the bytes as last written, when the writer supplied it.
+   *
+   * Optional and self-healing: absent means "unknown", which the media dispatcher treats as "process it". It is
+   * filled by the next write, so nothing has to migrate — which matters because file records SYNC, and a synced
+   * data migration has to be lazy rather than a boot step.
+   *
+   * It exists so re-uploading identical bytes does not re-run vision or speech-to-text over them. See
+   * `files/dispatch.ts`.
+   */
+  sha256?: string;
   author: AuthorRef;    // writer: instanceId + instanceLabel
   /** Set when the file was deleted while `softDeleteFileMeta` is enabled: ISO8601
    *  timestamp of the deletion. The record is retained (still listed/searchable, shown

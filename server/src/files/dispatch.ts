@@ -28,11 +28,23 @@ import { toDocId } from '../util/paths.js';
 import { log } from '../util/log.js';
 
 /** Embedding-pipeline state surfaced to the HTTP/MCP response after a write. */
-export type FileEmbeddingStatus = 'disabled' | 'skipped' | 'pending';
+/**
+ * The statuses this dispatcher can put a media file into — plus `complete`, which it REPORTS without
+ * setting: identical bytes that already embedded are left exactly as they are, and the caller is told the
+ * truth about the file rather than a status describing work that did not happen.
+ */
+export type FileEmbeddingStatus = 'disabled' | 'skipped' | 'pending' | 'complete';
 
 export interface DispatchInput {
   /** File size in bytes (used for the media size cap). */
   bytes: number;
+  /**
+   * SHA-256 of the bytes just written, when the caller has it.
+   *
+   * Absent means "unknown" and the file is processed, which is the safe direction: the alternative — assuming
+   * unchanged — would leave a file silently unembedded, and that is invisible until someone searches for it.
+   */
+  sha256?: string;
   /**
    * Raw `Content-Type` header, if any — used to resolve the format and as the enqueue MIME type.
    * Generic values (`application/octet-stream` and friends) are treated as "not stated" and the
@@ -74,11 +86,33 @@ export async function dispatchFileProcessing(
     // Media (image/audio/video): enqueue an async embedding job, or record why we didn't.
     // `mediaType` is the guard-narrowed format so it satisfies FileMetaDoc's media subset.
     const mediaType = resolvedFormat;
-    const setMediaStatus = (status: FileEmbeddingStatus): Promise<unknown> =>
+    const setMediaStatus = (status: Exclude<FileEmbeddingStatus, 'complete'>): Promise<unknown> =>
       col<FileMetaDoc>(`${spaceId}_files`).updateOne(
         asFilter<FileMetaDoc>({ _id: normId }),
         { $set: { mediaType, embeddingStatus: status } },
       );
+    // Identical bytes that already completed: nothing to do, and this is the most expensive thing on the
+    // instance to redo. `enqueueMediaJob` deliberately resets a terminal job "so re-upload triggers
+    // re-processing" — right when the bytes are new, waste when they are not, and it could not tell the
+    // difference because no hash was stored.
+    //
+    // The three conditions are a conjunction on purpose, and each is the safe direction on its own:
+    //   - a hash from the CALLER, so an unknown hash processes rather than assumes;
+    //   - the SAME hash on the record, which is the identity — same bytes through the same pipeline;
+    //   - `embeddingStatus: 'complete'`, so a file that failed, was skipped, or is still pending is retried.
+    //
+    // Getting this wrong in the other direction is invisible: a file silently never embedded, discovered only
+    // when someone searches for it and it is not there. So the guard refuses to guess.
+    if (input.sha256) {
+      const prior = await col<FileMetaDoc>(`${spaceId}_files`).findOne(
+        asFilter<FileMetaDoc>({ _id: normId }),
+      ) as FileMetaDoc | null;
+      if (prior?.sha256 === input.sha256 && prior?.embeddingStatus === 'complete') {
+        log.debug(`Media file ${spaceId}/${filePath}: identical bytes already embedded — pipeline skipped`);
+        return { resolvedFormat, embeddingStatus: 'complete' };
+      }
+    }
+
     const mediaCfg = getMediaEmbeddingConfig();
     const maxBytes = mediaCfg.maxFileSizeBytes ?? DEFAULT_MEDIA_MAX_FILE_SIZE_BYTES;
     // No master switch any more: whether this class runs is decided entirely by its per-class level

@@ -41,6 +41,10 @@ with no extension.
 { "path": "reports/q1.pdf", "sha256": "a1b2c3...", "embeddingStatus": "pending" }
 ```
 
+A **media** re-upload whose bytes are unchanged answers `"complete"` instead: the analysis it already has
+is kept rather than re-run. See [Media Embedding](05b-media-embedding.md#upload-response) for when a
+re-upload does re-analyse — which is every case except that one.
+
 ### Upload a File (JSON / base64)
 
 ```http

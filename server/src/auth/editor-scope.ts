@@ -1,0 +1,101 @@
+/**
+ * What a SPACE-RESTRICTED administrator may do to another token.
+ *
+ * ## The hole this closes, measured rather than assumed
+ *
+ * Probed on 2026-08-13 with an admin token scoped to one space, editing a token scoped to a different one:
+ *
+ * ```
+ * rename that token                            -> 200
+ * grant it rights.instanceAdmin: true          -> 200, and STORED
+ * grant it rights.createSpaces: true           -> 200, and STORED
+ * ```
+ *
+ * There was no boundary at all. `PATCH /api/tokens/:id` is gated by `requireAdminMfa`, and a space-restricted admin
+ * carries `admin: true`, so it was admitted like any other administrator.
+ *
+ * **Both escalated rights were inert at the time**, because the admin-only routes read the legacy `admin` flag rather
+ * than `rights.instanceAdmin` — so this was a stored escalation, not a live one. That is precisely why it needed
+ * fixing before anything else: the 2.6 rights matrix exists so guards can move onto `rights`, and the day one does,
+ * every token a space admin has touched carries whatever it was handed.
+ *
+ * `capRights` did not stop it either. The editor's record had `rights: null` and `admin: true`, so its derived rights
+ * read as a full instance admin — and a `spaces` allowlist is not part of that comparison. Rung-capping and
+ * scope-capping are different questions, which is why this is a separate guard rather than a change to that one.
+ *
+ * ## The rule, in the owner's words
+ *
+ * *"as space admin i want to be able to edit token rights"* — for THEIR space. So: a space admin for X may edit
+ * `rights.perSpace[X]` and nothing else.
+ *
+ * `floor` is refused outright rather than capped, and that is the non-obvious one: a floor applies to every space
+ * **including spaces that do not exist yet**, so however narrow it looks, it is instance-wide in effect. A space admin
+ * granting a floor of `read` would be granting read on every space the instance ever gains.
+ *
+ * ## Why it mirrors the MINT guard instead of inventing a second rule
+ *
+ * `POST /api/tokens` already refuses a space-restricted creator minting outside its own scope. An edit route without
+ * the same rule is the same escalation by a shorter path — mint is guarded, edit was not — and two surfaces with one
+ * rule expressed twice is how they come to disagree. This function is the single expression; both routes call it.
+ */
+import type { TokenRecord } from '../config/types.js';
+
+/** The rights object as the API accepts it. */
+export type EditableRights = {
+  instanceAdmin: boolean;
+  createSpaces: boolean;
+  floor: Record<string, string> | null;
+  perSpace: Record<string, Record<string, string>>;
+};
+
+/**
+ * Reasons a space-restricted editor may not make this edit. Empty means allowed.
+ *
+ * `editorSpaces === undefined` is an UNRESTRICTED administrator — every check here is skipped, because an instance
+ * admin editing anything is the tier that already worked and is not what this guard is about.
+ */
+export function refusalsOutsideEditorScope(input: {
+  editorSpaces: readonly string[] | undefined;
+  target: Pick<TokenRecord, 'spaces' | 'schemaLibrary'> | undefined;
+  rights: EditableRights | undefined;
+}): string[] {
+  const { editorSpaces, target, rights } = input;
+  if (!editorSpaces) return [];                       // unrestricted admin — tier 1, unchanged
+
+  const out: string[] = [];
+
+  // 1. The TARGET must live inside the editor's scope.
+  //
+  // Without this, a space admin could rename or re-right a token that reaches spaces it cannot see — which is how the
+  // rename above succeeded. A `schemaLibrary` token has no space access at all, so it is inside any scope; a token
+  // with NO allowlist reaches every space and is therefore outside every restricted scope.
+  if (target && !target.schemaLibrary) {
+    if (!target.spaces) {
+      out.push('that token is unrestricted (it reaches every space), so a space-restricted administrator cannot edit it');
+    } else {
+      const outside = target.spaces.filter(s => !editorSpaces.includes(s));
+      if (outside.length > 0) {
+        out.push(`that token reaches space(s) outside your scope: ${outside.join(', ')}`);
+      }
+    }
+  }
+
+  if (!rights) return out;
+
+  // 2. Instance-wide flags are never a space administrator's to grant.
+  if (rights.instanceAdmin) out.push('`instanceAdmin` is instance-wide and cannot be granted by a space-restricted administrator');
+  if (rights.createSpaces) out.push('`createSpaces` is instance-wide and cannot be granted by a space-restricted administrator');
+
+  // 3. A floor is instance-wide in EFFECT, even when its rungs look modest: it applies to every space, including ones
+  //    created later. Refused rather than capped, because there is no per-space version of it to cap to.
+  if (rights.floor && Object.keys(rights.floor).length > 0) {
+    out.push('`floor` applies to every space including ones not yet created, so it cannot be set by a space-restricted administrator');
+  }
+
+  // 4. Per-space rows only for spaces the editor holds.
+  const rows = Object.keys(rights.perSpace ?? {});
+  const foreign = rows.filter(s => !editorSpaces.includes(s));
+  if (foreign.length > 0) out.push(`per-space rights for space(s) outside your scope: ${foreign.join(', ')}`);
+
+  return out;
+}

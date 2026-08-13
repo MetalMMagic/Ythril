@@ -200,6 +200,25 @@ Three fields are editable: **`name`** (1–200 chars, same bound as create), **`
 regenerate to rotate the secret. Audited as `token.update`, with the second factor recorded on both sides of
 the diff.
 
+> **A SPACE-RESTRICTED administrator may edit only its own spaces' rows.** An admin token that carries a `spaces`
+> allowlist is admitted here, and then held to a narrower rule than an unrestricted admin:
+>
+> - it may set `rights.perSpace[X]` only for spaces X in its own allowlist;
+> - it may **never** set `instanceAdmin` or `createSpaces`;
+> - it may **never** set `floor` — a floor applies to every space *including ones that do not exist yet*, so however
+>   modest its rungs look, it is instance-wide in effect. It is refused rather than capped, because there is no
+>   per-space version of it to cap to;
+> - it may only edit a token whose own `spaces` are all inside its allowlist. Editing an **unrestricted** token is
+>   refused, because such a token reaches every space by definition.
+>
+> Each refusal answers `403` with a `refusals` array naming what was rejected, so a client can report the specific
+> reason rather than "forbidden". This mirrors the rule `POST /api/tokens` already applies to a space-restricted
+> creator. An unrestricted admin is unaffected.
+>
+> **`GET /api/tokens` is scoped the same way**: a space-restricted caller sees only the tokens it could edit.
+
+<!-- markdownlint-disable-next-line MD028 -->
+
 > **Granting `mfa: "exempt"` costs a live TOTP code on the request** whenever MFA is enabled instance-wide —
 > the same rule create has, and for the same reason. Admin authentication here is satisfied by an admin token
 > that is itself exempt, so without it one exemption could grant the next until the instance-wide switch

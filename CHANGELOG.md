@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **A large read result comes back as a sample and a download, not just a trimmed graph.** Correction to the
+  spill shipped hours earlier, which wrote out only the traversed nodes: the owner's intent was the WHOLE result
+  set — *"when someone recalls with topK=100 and traverse=2 he gets a real big file to download but only 3 full
+  results back in the response."* A recall cannot be paged, so a large answer had nowhere to go.
+  - Past **25 records** (matches plus traversed nodes) the complete set is written to the space's `_tmp/` and the
+    response carries **three matches** plus `truncated: true` and `complete: {matches, records, inline, path,
+    download, expiresAt}`. `count` still reports the real total — a caller reading `count: 3` would conclude the
+    space holds three matching records.
+  - **No embedding vectors are written, at any depth.** Stripped at serialisation rather than by projection,
+    because a spill is the one place a whole result set is serialised verbatim into a file an operator opens, and
+    a rule at the write cannot be forgotten by a caller who never knew it.
+  - One-day TTL through the record machinery, as before, and the same authenticated download.
+  - All four sites: REST `recall` and `find-similar`, MCP `recall` and `find_similar`.
+
+### Added
+- **A "Choosing a Search" guide.** `docs/integration-guide/04e-choosing-a-search.md`: which of `recall`, `query`,
+  `find_similar` and `traverse` answers which question, the two-call patterns that beat one clever call, and what
+  to tune first when a search is slow or nearly right. Written because the most common reason a search "does not
+  work" is that it succeeded and answered a different question.
+- **The rights matrix says what a right means for an agent, not only which endpoints it reaches.** The token
+  glyph's tooltip now carries both halves — `Knowledge — up to write, read everywhere. Your agent can add, edit
+  and delete single records — what normal MCP use needs.` — and the rung sentences name what an agent can do at
+  each level. Sixteen new strings in all three locales, plus the three rung descriptions rewritten.
 - **Seven destructive REST routes now ask for the `write` rung instead of `admin`, and every token carries a
   rights matrix.** Owner rulings, 2026-08-13, after the difference was **measured** rather than argued: a token
   holding `rights.perSpace.general.knowledge = 'write'` was refused `DELETE /memories/:id` with

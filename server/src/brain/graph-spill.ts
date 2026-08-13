@@ -166,3 +166,109 @@ async function writeSpill(
     ...(ceilingHit ? { ceilingHit: true } : {}),
   };
 }
+
+/**
+ * How many matches come back inline once a result set spills.
+ *
+ * Owner correction, 2026-08-13: the spill is for the WHOLE result set, not the graph alone. *"When someone
+ * recalls with topK=100 and traverse=2 he gets a real big file to download but only 3 full results back in the
+ * response."*
+ *
+ * Three, because the inline part stops being the answer and becomes a sample: enough to see the shape of what
+ * came back and decide whether to fetch the file, few enough that nobody mistakes it for the result.
+ */
+export const SPILL_INLINE_RESULTS = 3;
+
+/**
+ * The record count above which a whole result set is written out instead of returned.
+ *
+ * Counted in RECORDS — matches plus traversed nodes — because that is what the caller sized when they set `topK`
+ * and `traverse`, and because bytes vary wildly with whether file passages are included.
+ */
+export const SPILL_RECORD_THRESHOLD = 25;
+
+/** Where a spilled result set went. */
+export interface ResultSpill {
+  /** Matches in the file. */
+  matches: number;
+  /** Every record in the file, matches and traversed nodes together. */
+  records: number;
+  /** How many matches came back inline — the rest are only in the file. */
+  inline: number;
+  path: string;
+  download: string;
+  expiresAt: string;
+}
+
+/**
+ * Keys whose values are vectors, removed at every depth before anything is written.
+ *
+ * The owner asked for this by name. Recall's own projections already exclude `embedding`, and
+ * `traverseFromSeeds` projects it away too — so this is the belt to that braces: a spill is the one place where a
+ * whole result set is serialised verbatim to a file an operator can open, and one future field that forgets the
+ * projection would put thousands of floats into it. Stripping by key at write time cannot be forgotten by a
+ * caller who did not know the rule.
+ */
+const VECTOR_KEYS = new Set(['embedding', 'embeddings', 'vector', 'vectors', 'contentEmbedding']);
+
+/** Deep copy without any vector field, and without touching the caller's objects. */
+export function suppressEmbeddings<T>(value: T): T {
+  if (Array.isArray(value)) return value.map(v => suppressEmbeddings(v)) as unknown as T;
+  if (value === null || typeof value !== 'object') return value;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (VECTOR_KEYS.has(k)) continue;
+    out[k] = suppressEmbeddings(v);
+  }
+  return out as unknown as T;
+}
+
+/**
+ * Write a whole result set out when it is too big to return, and say where it went.
+ *
+ * Returns `null` when the set fits, in which case the caller returns it inline exactly as before — no file, no
+ * flag, and the response is what it always was.
+ *
+ * `memberSpaceId` and not the addressed space: a proxy owns no file store. See `writeSpill`.
+ */
+export async function spillResultSet(opts: {
+  memberSpaceId: string;
+  /** The complete result set, matches with their `_graph` trees attached. */
+  results: unknown[];
+  /** Traversed nodes across the whole set, for the record count and the file's own header. */
+  graphNodes: number;
+  /** What the caller asked for, echoed into the file so it is self-describing a day later. */
+  request: Record<string, unknown>;
+}): Promise<ResultSpill | null> {
+  const records = opts.results.length + opts.graphNodes;
+  if (records <= SPILL_RECORD_THRESHOLD) return null;
+
+  const path = `${SPILL_DIR}/results-${randomUUID()}.json`;
+  const expiresAt = new Date(Date.now() + SPILL_TTL_DAYS * 86_400_000).toISOString();
+  const body = JSON.stringify(suppressEmbeddings({
+    kind: 'recall-results',
+    generatedFor: opts.memberSpaceId,
+    request: opts.request,
+    matches: opts.results.length,
+    graphNodes: opts.graphNodes,
+    records,
+    expiresAt,
+    results: opts.results,
+  }));
+
+  await writeFile(opts.memberSpaceId, path, body);
+  await upsertFileMeta(opts.memberSpaceId, path, Buffer.byteLength(body, 'utf8'), {
+    description: `Complete recall result set (${records} records), expires ${expiresAt}`,
+    tags: ['result-spill'],
+    ttlDays: SPILL_TTL_DAYS,
+  });
+
+  return {
+    matches: opts.results.length,
+    records,
+    inline: Math.min(SPILL_INLINE_RESULTS, opts.results.length),
+    path,
+    download: `/api/files/${encodeURIComponent(opts.memberSpaceId)}?path=${encodeURIComponent(path)}`,
+    expiresAt,
+  };
+}

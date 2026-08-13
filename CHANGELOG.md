@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+*The 3.0 deprecation checklist. Each entry names its replacement; `todo/_DEPRECATIONS.md` carries the row.*
+
+- **BREAKING — `description` on a space is gone from every surface. Say `meta.purpose`.** It was announced
+  as *"Removal in 3.0"* in `docs/integration-guide/06-spaces-api.md` since 2.3, and it is the one
+  deprecation whose removal version was published rather than merely tracked. Removed from: the create and
+  update REST bodies, every REST response that carried the derived alias, `update_space`'s MCP input schema,
+  and `list_spaces`' output. The `spaceDescriptionAlias` / `spaceResponse` shapers are deleted with it.
+  **A request still sending `description` now gets a `400` naming `meta.purpose` — it is not silently
+  dropped.** That refusal is the point: these top-level bodies are not `.strict()`, so without it a caller
+  would have received a `200` with no directive written, while the same request over MCP already 400'd on
+  `additionalProperties: false` — one rule with two behaviours, and the quiet one is the one that loses
+  data. The refusal lives in the shared planners, so both doors answer identically.
+  The boot migration **stays**: a `config.json` written by an older build still carries a stored
+  `description`, and dropping the migration alongside the alias would discard the operator's directive on
+  upgrade. It goes once the version floor 3.0 supports upgrading from is fixed.
+
+
 ### Changed
 - **Re-uploading identical bytes no longer re-runs vision or speech-to-text.** `enqueueMediaJob` resets a
   terminal job on purpose, so the same file sent twice paid for a second full analysis to reproduce the caption

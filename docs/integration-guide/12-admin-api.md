@@ -131,7 +131,7 @@ Each document must have a string `_id`. Documents with an existing `_id` in the 
 ### Wipe Space
 
 Clear all data — or a specific subset of collection types — from a space, while
-preserving the space itself (label, description, config, OIDC mappings, and quota
+preserving the space itself (label, purpose, config, OIDC mappings, and quota
 settings).
 
 ```http
@@ -193,7 +193,7 @@ collection.  On a partial wipe the unaffected fields will be `0`.
 - **Idempotent** — wiping an already-empty space (or a type with no documents) returns `0` for that field; no error is raised.
 - **Tombstones** — internal sync-tombstone records are cleared for the wiped types so peers do not re-sync deleted data. For full wipes all tombstones are cleared.  For partial wipes only the matching type tombstones are removed.
 - **Files** — when `"files"` is included, both the MongoDB metadata collection and the physical files directory on disk are cleared. The directory is recreated empty so new uploads work immediately.
-- **Space preserved** — the space itself is not deleted. Its label, description, configuration, OIDC mappings, and quota settings remain unchanged.
+- **Space preserved** — the space itself is not deleted. Its label, purpose, configuration, OIDC mappings, and quota settings remain unchanged.
 
 #### Error responses
 

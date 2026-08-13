@@ -407,6 +407,36 @@ counting rows never double-counts a record, and no relationship is invisible.
 
 **Performance:** traversal issues roughly two batched (`$in`) MongoDB queries per hop, not one query per node. Even so, `traverse > 2` on a densely-connected graph can fan out quickly — pair it with `filter`, `tags`, or a low `topK` to keep the seed set (and therefore the traversal frontier) tight.
 
+#### A large answer comes back as a sample and a download
+
+A recall cannot be paged — `topK` is the answer, not a window into it — so an answer that is too large to return
+has nowhere to go. Past **25 records** (matches plus traversed nodes) the whole result set is written to the
+space's `_tmp/` as JSON and the response carries **three matches** as a sample plus the link to all of it:
+
+```json
+{
+  "results": [ /* 3 matches, complete, each with its own `_graph` */ ],
+  "count": 100,
+  "graphNodes": 240,
+  "truncated": true,
+  "complete": {
+    "matches": 100,
+    "records": 340,
+    "inline": 3,
+    "path": "_tmp/results-9f1c….json",
+    "download": "/api/files/dev-apps?path=_tmp%2Fresults-9f1c….json",
+    "expiresAt": "2026-08-14T20:11:00.000Z"
+  }
+}
+```
+
+- **`count` is the real total**, never the sample. A caller reading `count: 3` would conclude the space holds three
+  matching records.
+- The file is **self-describing**: it repeats the request that produced it, the counts, and its own expiry.
+- **No embedding vectors are written**, at any depth — a result set serialised verbatim is the one place they
+  would otherwise land in a file an operator opens.
+- Same authenticated download and same **one-day** expiry as the graph spill below.
+
 #### Recall without passage bodies (`includeContent`)
 
 A file result's `content` is the passage body, and it is by far the largest field a result carries — paid for

@@ -20,7 +20,7 @@ import { findSimilar, recall, type RecallKnowledgeType, type RecallResult } from
 import { type FilterExpression } from '../../brain/filter.js';
 import { resolveRecallFilter } from '../../brain/recall-filter.js';
 import { traverseGraph, MAX_RECALL_TRAVERSE, resolveEdgeEntityNames } from '../../brain/edges.js';
-import { buildGraphWithSpill } from '../../brain/graph-spill.js';
+import { buildGraphWithSpill, spillResultSet, SPILL_INLINE_RESULTS } from '../../brain/graph-spill.js';
 import { embed } from '../../brain/embedding.js';
 import { getConfig } from '../../config/loader.js';
 import { col, asFilter } from '../../db/mongo.js';
@@ -527,8 +527,21 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
     });
     // `graphNodes` reports what `count` used to conflate: how much graph came back. Two numbers, each meaning
     // one thing, rather than one number meaning whichever the reader assumes.
+    // The WHOLE result set spills, not the graph alone: `topK: 100, traverse: 2` is a large answer even when
+    // every graph inside it is complete, and a caller cannot page a recall. Past the threshold the response
+    // carries a SAMPLE — three matches — and the link to all of it. Embeddings are stripped from the file.
+    const resultSpill = await spillResultSet({
+      memberSpaceId: seeds[0]?.spaceId ?? spaceId,
+      results,
+      graphNodes: graph.nodes,
+      request: { query: query.trim(), topK: safeTopK, traverse: safeTraverse, types: safeTypes ?? null },
+    });
     res.json({
-      results, count: results.length, traverseDepth: safeTraverse, graphNodes: graph.nodes,
+      results: resultSpill ? results.slice(0, SPILL_INLINE_RESULTS) : results,
+      count: results.length,
+      traverseDepth: safeTraverse,
+      graphNodes: graph.nodes,
+      ...(resultSpill ? { truncated: true, complete: resultSpill } : {}),
       ...(spill ? { graphTruncated: true, graphComplete: spill } : {}),
       ...(degraded.length > 0 ? { degraded } : {}),
     });
@@ -636,9 +649,18 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
       const nested = graph.bySeed.get(r._id);
       return nested ? { ...r, _graph: nested } : r;
     });
+    const itemSpill = await spillResultSet({
+      memberSpaceId: result.results[0]?.spaceId ?? spaceId,
+      results: items,
+      graphNodes: graph.nodes,
+      request: { entryId, entryType, topK, traverse: safeTraverse },
+    });
     res.json({
-      source: result.source, results: items, count: items.length,
+      source: result.source,
+      results: itemSpill ? items.slice(0, SPILL_INLINE_RESULTS) : items,
+      count: items.length,
       traverseDepth: safeTraverse, graphNodes: graph.nodes,
+      ...(itemSpill ? { truncated: true, complete: itemSpill } : {}),
       ...(spill ? { graphTruncated: true, graphComplete: spill } : {}),
     });
   } catch (err: unknown) {

@@ -579,6 +579,11 @@ page therefore costs more on a proxy space than on a plain one, but it is the sa
 
 #### A read result too large to return inline is downloadable
 
+`recall` and `find-similar` write the **whole result set** to the space's `_tmp/` as JSON once it passes 25
+records (matches plus traversed nodes), and return three matches as a sample with `truncated: true` and a
+`complete: {matches, records, inline, path, download, expiresAt}` block. `count` still reports the real total.
+The file carries no embedding vectors and expires after one day.
+
 `recall` and `find-similar` with `traverse > 0` cap the traversed nodes they return inline. Past that cap the
 **complete** graph is written to the space's file store under `_tmp/` as JSON, and the response carries
 `graphTruncated: true` with `graphComplete: {nodes, path, download, expiresAt}`. The download is the normal

@@ -11,7 +11,7 @@ import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.
 import { UUID_V4_RE, entityDocToRecord, formatRecallSummary, toRecallRecord, uuidSchema, unitScoreSchema, QUERY_FILTER_OPERATORS, RECALL_FILTER_KEY_PATTERN } from './shared.js';
 import { MAX_RECALL_TRAVERSE } from '../../brain/edges.js';
 import { mapGraphNodes } from '../../brain/recall-graph.js';
-import { buildGraphWithSpill } from '../../brain/graph-spill.js';
+import { buildGraphWithSpill, spillResultSet, SPILL_INLINE_RESULTS } from '../../brain/graph-spill.js';
 import { type FilterExpression } from '../../brain/filter.js';
 import { resolveRecallFilter, type RawMongoFilter } from '../../brain/recall-filter.js';
 import {
@@ -252,8 +252,20 @@ export const recallTool: ToolHandler = {
         ...(nested ? { _graph: nested } : {}),
       };
     });
+    // Same rule as REST, and it matters more here: a tool result is a model's context window, so returning a
+    // hundred matches with their graphs is the difference between an answer and an overflow.
+    const resultSpill = await spillResultSet({
+      memberSpaceId: seeds[0]?.spaceId ?? traverseSpaces[0]!,
+      results,
+      graphNodes: graph.nodes,
+      request: { query, topK, traverse, types: types ?? null },
+    });
     const output = {
-      results, count: results.length, traverseDepth: traverse, graphNodes: graph.nodes,
+      results: resultSpill ? results.slice(0, SPILL_INLINE_RESULTS) : results,
+      count: results.length,
+      traverseDepth: traverse,
+      graphNodes: graph.nodes,
+      ...(resultSpill ? { truncated: true, complete: resultSpill } : {}),
       ...(spill ? { graphTruncated: true, graphComplete: spill } : {}),
       ...(degraded.length > 0 ? { degraded } : {}),
     };
@@ -365,9 +377,19 @@ export const find_similarTool: ToolHandler = {
         ...(nested ? { _graph: nested } : {}),
       };
     });
+    const itemSpill = await spillResultSet({
+      memberSpaceId: result.results[0]?.spaceId ?? usedBase,
+      results,
+      graphNodes: graph.nodes,
+      request: { entryId, entryType, topK, traverse },
+    });
     const output = {
       source: { type: result.source.type, id: result.source._id, summary: formatRecallSummary(result.source) },
-      results, count: results.length, traverseDepth: traverse, graphNodes: graph.nodes,
+      results: itemSpill ? results.slice(0, SPILL_INLINE_RESULTS) : results,
+      count: results.length,
+      traverseDepth: traverse,
+      graphNodes: graph.nodes,
+      ...(itemSpill ? { truncated: true, complete: itemSpill } : {}),
       ...(spill ? { graphTruncated: true, graphComplete: spill } : {}),
     };
     return { content: [{ type: 'text' as const, text: JSON.stringify(output) }] };

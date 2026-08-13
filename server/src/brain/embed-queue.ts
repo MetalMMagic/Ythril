@@ -38,6 +38,7 @@ import { col, asFilter, asDoc, asUpdate } from '../db/mongo.js';
 import { withJitter } from '../util/backoff.js';
 import { createWorkSignal } from '../util/work-signal.js';
 import { newClaimToken } from '../files/media/lease.js';
+import { isSpillPath } from './spill-path.js';
 import type { BrainEmbedJobDoc, BrainEmbedRecordType } from '../config/types.js';
 
 /** Attempts before a job is left `failed` for an operator (or a rewrite) to deal with. */
@@ -116,6 +117,15 @@ export async function enqueueEmbedJob(
   recordType: BrainEmbedRecordType,
   recordId: string,
 ): Promise<void> {
+  // A spill is a read's own OUTPUT, written so a caller can download a graph that did not fit inline. Embedding
+  // it would spend model time turning recall results into recall-searchable content — so the next recall could
+  // match the JSON dump of an earlier one. It is also deleted within a day, which is shorter than the queue's
+  // own patience on a busy instance.
+  //
+  // The rule lives here rather than at the call site because `upsertFileMeta` enqueues unconditionally, and
+  // unconditionally is correct: every other file in the store IS content.
+  if (recordType === 'file' && isSpillPath(recordId)) return;
+
   const now = new Date().toISOString();
   try {
     await jobs(spaceId).updateOne(

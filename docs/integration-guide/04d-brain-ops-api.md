@@ -577,6 +577,17 @@ On a **proxy space** the page is computed over the **merged** set of all member 
 the first `skip + limit` rows from each member, merges them into the documented order, and returns the window. A deep
 page therefore costs more on a proxy space than on a plain one, but it is the same page.
 
+#### A read result too large to return inline is downloadable
+
+`recall` and `find-similar` with `traverse > 0` cap the traversed nodes they return inline. Past that cap the
+**complete** graph is written to the space's file store under `_tmp/` as JSON, and the response carries
+`graphTruncated: true` with `graphComplete: {nodes, path, download, expiresAt}`. The download is the normal
+authenticated `GET /api/files/:spaceId?path=…`, the file expires after one day, and it is hidden from browsing
+and never embedded.
+
+The alternative — a `truncated` flag alone — tells a caller their graph was cut and leaves them no way to get
+the rest, which on a neighbourhood is a dead end: there is no `total` to page against.
+
 #### Unknown body fields are refused
 
 These four read routes accept a fixed set of body fields and **reject anything else with a `400`** naming the offending

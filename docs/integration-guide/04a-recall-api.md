@@ -359,6 +359,8 @@ By default `recall` returns matches in isolation — the knowledge-graph edges b
 | `paths` | Every route from a match to this node, record ids, match first. `paths[0]` is the nesting route; `paths[0].length - 1` is the hop count |
 | `pathsTruncated` | Present and `true` only when a node had more routes than were recorded (cap: 8) |
 | `_graph` | Present on a nested node too, so depth is a tree: `adr-0088` hangs off `adr-0079`, which hangs off the match |
+| `graphTruncated` | Present and `true` only when the inline graph is **short of the real neighbourhood** |
+| `graphComplete` | Present with it: `{nodes, path, download, expiresAt}` — where the **whole** graph was written |
 
 Note `adr-0088` above: it is reachable two ways and appears **once**, with both routes in `paths`. A caller
 counting rows never double-counts a record, and no relationship is invisible.
@@ -366,7 +368,39 @@ counting rows never double-counts a record, and no relationship is invisible.
 **Guard rails:**
 
 - **Depth cap:** `traverse` must be `0`–`5`. A value of `6` or higher (or a negative/non-integer value) returns `400` — it is rejected, not clamped.
-- **Node cap:** the traversed nodes are capped at `topK × (traverse + 1) × 4` minus the matches. On dense graphs the traversal is truncated to this budget, preferring lower-hop records.
+- **Node cap, and it is a spill point rather than a truncation point:** the inline traversed nodes are capped at
+  `topK × (traverse + 1) × 4` minus the matches, preferring lower-hop records. When the neighbourhood is bigger
+  than that, the **complete** graph is written to the space's `_tmp/` as JSON and the response carries
+  `graphTruncated: true` plus `graphComplete`:
+
+  ```json
+  {
+    "graphNodes": 7,
+    "graphTruncated": true,
+    "graphComplete": {
+      "nodes": 30,
+      "path": "_tmp/graph-9f1c….json",
+      "download": "/api/files/dev-apps?path=_tmp%2Fgraph-9f1c….json",
+      "expiresAt": "2026-08-14T15:41:00.000Z"
+    }
+  }
+  ```
+
+  So a caller either receives the whole neighbourhood inline or receives a link to the whole neighbourhood —
+  never a silently short one. There is no `total` for a neighbourhood to compare against, and a short graph
+  reads as *"this record has few relationships"*, which is a wrong conclusion about the data rather than about
+  the request.
+
+  - The **download is the ordinary authenticated file route** — your own token, the space's own access control.
+    Which also means a token with brain read but **no files read** receives a link it cannot fetch. It still
+    learns the graph was short, which is the part that was previously invisible; grant `files: read` on the
+    space if you want the spill itself.
+  - The file **expires after one day** and is removed with its record by the retention sweep.
+  - It is **hidden from file browsing** (like `_converted/` and `_extracted/`) and is **never embedded**, so it
+    cannot come back as a recall hit.
+  - The spill walk is itself bounded, at 20× the inline cap. If even that is reached, `graphComplete.ceilingHit`
+    is `true` and the same flag is inside the file — a second silent truncation inside the fix for the first one
+    would be the same defect again.
 - **Cycle-safe:** each record is visited once, so a circular graph (A→B→C→A) never loops or produces duplicates. A record reachable by several routes is nested under the **shortest** one, with the rest in `paths`.
 - **Space-scoped:** traversal stays within the spaces the calling token may access. An edge pointing at a record in a space the token cannot see (or at an id that is not an entity) is silently skipped — no data and no `403` leak.
 - Only **entities** are returned by traversal (edges connect entities); memories, chrono entries, and files still appear as seeds when they match semantically.

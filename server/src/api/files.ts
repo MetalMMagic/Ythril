@@ -57,6 +57,7 @@ import type { InputFormat } from '../files/converters/pipeline.js';
 import { cancelMediaJobsByPrefix } from '../files/media/job-queue.js';
 import { dispatchFileProcessing } from '../files/dispatch.js';
 import { contentTypeForDownload } from '../files/mime.js';
+import { hideDerivedTrees } from '../files/derived-trees.js';
 
 export const fileStoreRouter = Router();
 
@@ -869,36 +870,6 @@ fileStoreRouter.patch('/:spaceId', globalRateLimit, requireSpaceAuth, denyReadOn
   }
 });
 
-/**
- * The on-disk trees holding derived artifacts, which the file manager should not present as content.
- *
- * `_converted/<id>.md` is the converted Markdown for a binary document; `_extracted/<id>/` holds the
- * images pulled out of one. Both are outputs of the pipeline, keyed by internal record id, and neither
- * is a thing a person put there.
- */
-const DERIVED_TREES = new Set(['_converted', '_extracted']);
-
-/**
- * Hide the derived trees from a directory listing, unless explicitly asked for.
- *
- * The integration guide already said these were "hidden from the file manager UI and listing endpoints
- * by default (same as chunks and `_converted/` files)" — and that was only ever half true. The file-meta
- * listing does hide derived RECORDS (`parentFileId` exists ⇒ excluded), but the file store's directory
- * listing had no such filter, so the folders sat in the tree. A customer reported exactly that mismatch.
- *
- * The doc described the intent; the code now matches it. `?includeDerived=true` restores the old view
- * for anyone who was using it to inspect conversions — the same escape hatch `?includeChunks=true`
- * provides on the metadata side, rather than removing the ability outright.
- *
- * Only at the root, because that is where the pipeline writes them; a user directory that happens to be
- * called `_converted` deeper in the tree is theirs and is left alone.
- */
-function hideDerivedTrees(dirPath: string, entries: FileEntry[], req: Request): FileEntry[] {
-  if (req.query['includeDerived'] === 'true') return entries;
-  const atRoot = dirPath === '' || dirPath === '/' || dirPath === '.';
-  if (!atRoot) return entries;
-  return entries.filter(e => !(e.type === 'dir' && DERIVED_TREES.has(e.name)));
-}
 
 // Extensions whose content can execute script when rendered inline by a
 // browser — always served as attachments (stored-XSS guard).

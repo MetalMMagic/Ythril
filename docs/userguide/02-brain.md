@@ -49,6 +49,10 @@ Click **Save**. The memory is indexed immediately and available for search.
 
 **Sorting:** Click a column header with a caret (▾) to sort the list by that column — click again to flip the direction, and a third time to return to the default order. The caret fills in and points up or down to show the active sort. Sorting happens on the server, so it orders the **whole** list across every page, not just the rows currently on screen. Sortable columns vary by tab: **Entities** — Name, Type, Created · **Edges** — From, Relation, To, Weight, Created · **Memories** — Created · **Chrono** — Title, Kind, Status, Starts, Ends, Created.
 
+**Editing:** Click the **⊙ view-details** button on any row to open the full editable drawer — the same drawer
+the entity and edge tabs use. Every field you can set when creating a memory can be changed there, including
+tags, linked entities and properties.
+
 **Deleting:** Each row has a **✕** button. A small inline confirmation appears — click **Yes** to confirm, **No** to cancel.
 
 **Wiping everything:** There is no "Wipe all" button on the Brain toolbar. To clear a space's data, go to **Settings → Spaces → (space) → Danger tab** and use **Wipe all data**. You will be asked to type the space ID to confirm.
@@ -104,6 +108,9 @@ Chrono stores time-anchored entries: events, deadlines, plans, predictions, and 
 **Searching:** The top search bar is **Semantic** (ranks entries by meaning). Plain-text matching (title / description) is the **freetext box under the Title column**.
 
 **Filtering:** The filter bar above the table lets you narrow by tag text and status. Filters apply immediately.
+
+**Editing:** Click the **⊙ view-details** button on any row to open the editable drawer, as on the other record
+tabs. Title, type, dates, status, tags, description and properties can all be changed there.
 
 **Deleting:** Inline ✕ confirmation per row.
 

@@ -22,6 +22,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The `reindex` description names that field instead of a route. The smaller of the two available fixes, and
     the one that makes the existing sentence true rather than adding a second one.
   - `GET /api/brain/spaces/:spaceId/reindex-status` is unchanged — this adds a field, it does not move a route.
+  - **The new field had to join `SERVER_OWNED_META_FIELDS`, and CI is what said so.** A caller who `GET`s a
+    space, edits one field and `PATCH`es it back would otherwise get `unrecognized_keys` for a field they
+    never wrote — the exact report that strip exists to answer. `type-schema-crud.test.js` round-trips a real
+    response rather than a hand-built body, so it went red the moment the response grew.
+  - `meta-response-round-trips.test.js` now holds the agreement in seconds rather than in a four-minute
+    Docker suite: every field the meta response emits must be an envelope field or a stripped one.
   - **Found by the capability × surface matrix**, not by a report: the generator put `reindex-status` in the
     REST-only column, and reading why turned up the description pointing at it.
 

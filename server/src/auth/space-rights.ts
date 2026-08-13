@@ -122,6 +122,17 @@ export const ROUTE_RIGHTS: readonly RouteRight[] = [
   { route: '/api/brain/spaces/:spaceId/files', method: 'PATCH', area: 'files', needs: 'write', scope: 'path' },
   { route: '/api/brain/spaces/:spaceId/files', method: 'DELETE', area: 'files', needs: 'admin', scope: 'path' },
   { route: '/api/files/:spaceId/mkdir', method: 'POST', area: 'files', needs: 'write', scope: 'path' },
+  // These three were UNGOVERNED, and invisible to `every-space-route-has-an-area` because the gate strips block
+  // comments before scanning and a region of `api/files.ts` was being swallowed with them — so the routes were
+  // never discovered and never demanded a row. Editing that file elsewhere shifted the swallowed region and all
+  // three appeared at once.
+  //
+  // `DELETE` is `admin` to match `DELETE /api/brain/spaces/:spaceId/files`: deleting a directory takes the tree
+  // with it, and the metadata half of the same operation has always been the highest rung. `PATCH` (move/rename)
+  // and `retry_embedding` (re-queues a file's embedding) are `write`.
+  { route: '/api/files/:spaceId', method: 'DELETE', area: 'files', needs: 'admin', scope: 'path' },
+  { route: '/api/files/:spaceId', method: 'PATCH', area: 'files', needs: 'write', scope: 'path' },
+  { route: '/api/files/:spaceId/retry_embedding', method: 'POST', area: 'files', needs: 'write', scope: 'path' },
 
   // ── Schema ───────────────────────────────────────────────────────────────────────────────────────────
   { route: '/api/spaces/:id', method: 'GET', area: 'schema', needs: 'read', scope: 'path' },

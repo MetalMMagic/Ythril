@@ -10,7 +10,8 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
 import { UUID_V4_RE, entityDocToRecord, formatRecallSummary, toRecallRecord, uuidSchema, unitScoreSchema, QUERY_FILTER_OPERATORS, RECALL_FILTER_KEY_PATTERN } from './shared.js';
 import { MAX_RECALL_TRAVERSE } from '../../brain/edges.js';
-import { buildRecallGraph, mapGraphNodes } from '../../brain/recall-graph.js';
+import { mapGraphNodes } from '../../brain/recall-graph.js';
+import { buildGraphWithSpill } from '../../brain/graph-spill.js';
 import { type FilterExpression } from '../../brain/filter.js';
 import { resolveRecallFilter, type RawMongoFilter } from '../../brain/recall-filter.js';
 import {
@@ -94,7 +95,7 @@ export const recallTool: ToolHandler = {
               type: 'number',
               minimum: 0,
               maximum: 5,
-              description: 'Optional graph expansion depth (integer 0–5, default 0). When > 0, each semantic match is expanded along knowledge-graph edges up to this many hops, and what the walk reached is NESTED under the match that reached it in a `_graph` array: {edge, node, paths} per node, where `edge` is the whole edge document (description and tags included), `node` is the reached entity, and `paths` is every route to it as record ids, match first — so paths[0] is the nesting route and paths[0].length-1 is the hop count. A nested node carries its own `_graph`, so depth is a tree. `count` stays the number of MATCHES (traversed nodes are not in the ranked list and carry no score); `graphNodes` reports how many were reached. Use with filter/tags to narrow the seed set — traverse > 2 on dense graphs can be slow. Example: recall "auth token scoping" with traverse: 1 returns the matching records, each carrying everything one edge away.',
+              description: 'Optional graph expansion depth (integer 0–5, default 0). When > 0, each semantic match is expanded along knowledge-graph edges up to this many hops, and what the walk reached is NESTED under the match that reached it in a `_graph` array: {edge, node, paths} per node, where `edge` is the whole edge document (description and tags included), `node` is the reached entity, and `paths` is every route to it as record ids, match first — so paths[0] is the nesting route and paths[0].length-1 is the hop count. A nested node carries its own `_graph`, so depth is a tree. `count` stays the number of MATCHES (traversed nodes are not in the ranked list and carry no score); `graphNodes` reports how many were reached. If the neighbourhood is bigger than the inline cap the COMPLETE graph is written to the space as JSON and the response adds `graphTruncated: true` and `graphComplete: {nodes, path, download, expiresAt}` — an authenticated download, valid one day — so a short graph is never silent. Use with filter/tags to narrow the seed set — traverse > 2 on dense graphs can be slow. Example: recall "auth token scoping" with traverse: 1 returns the matching records, each carrying everything one edge away.',
             },
             filter: {
               type: 'object',
@@ -236,11 +237,15 @@ export const recallTool: ToolHandler = {
     // seed that reached it. The envelope is the non-traverse one plus `_graph`, so `count` keeps meaning
     // matches — it used to be matches plus neighbours, and `topK: 1` answered `count: 6`.
     const totalCap = topK * (traverse + 1) * 4;
-    const graph = await buildRecallGraph(
+    // Same spill as REST, and the write goes to the space the call was ADDRESSED to — on a cross-space recall
+    // that is the connection's own space, never a member the caller only reaches through a proxy.
+    const spillSpace = callSpace || seeds[0]?.spaceId || traverseSpaces[0]!;
+    const { graph, spill } = await buildGraphWithSpill(
       traverseSpaces,
       seeds.map(s => ({ _id: s._id, spaceId: s.spaceId })),
       traverse,
       Math.max(0, totalCap - seeds.length),
+      spillSpace,
     );
     const results = seeds.map(r => {
       const nested = mapGraphNodes(graph.bySeed.get(r._id), entityDocToRecord);
@@ -251,6 +256,7 @@ export const recallTool: ToolHandler = {
     });
     const output = {
       results, count: results.length, traverseDepth: traverse, graphNodes: graph.nodes,
+      ...(spill ? { graphTruncated: true, graphComplete: spill } : {}),
       ...(degraded.length > 0 ? { degraded } : {}),
     };
     return { content: [{ type: 'text' as const, text: JSON.stringify(output) }] };
@@ -277,7 +283,7 @@ export const find_similarTool: ToolHandler = {
             minScore: unitScoreSchema('Minimum cosine similarity threshold (0.0–1.0). Results below this are excluded.'),
             traverse: {
               type: 'number', minimum: 0, maximum: MAX_RECALL_TRAVERSE, default: 0,
-              description: `Optional graph-expansion depth (integer 0–${MAX_RECALL_TRAVERSE}, default 0). When > 0, each similar match is expanded along knowledge-graph edges up to this many hops and what the walk reached is NESTED under the match that reached it in a \`_graph\` array — {edge, node, paths} per node, identical to \`recall\`'s shape: \`edge\` is the whole edge document, \`node\` the reached entity, \`paths\` every route to it as record ids with the match first. \`count\` is the number of matches and \`graphNodes\` how many nodes were reached. With traverse > 0 the response is JSON instead of the plain text summary.`,
+              description: `Optional graph-expansion depth (integer 0–${MAX_RECALL_TRAVERSE}, default 0). When > 0, each similar match is expanded along knowledge-graph edges up to this many hops and what the walk reached is NESTED under the match that reached it in a \`_graph\` array — {edge, node, paths} per node, identical to \`recall\`'s shape: \`edge\` is the whole edge document, \`node\` the reached entity, \`paths\` every route to it as record ids with the match first. \`count\` is the number of matches and \`graphNodes\` how many nodes were reached. A neighbourhood past the inline cap is written out in full and reported as \`graphTruncated\` + \`graphComplete\` (an authenticated download, valid one day), exactly as on \`recall\`. With traverse > 0 the response is JSON instead of the plain text summary.`,
             },
             crossSpace: { type: 'boolean', default: false, description: 'DEPRECATED — omit `space` instead to search all accessible spaces. When true, forces a cross-space search even if `space` is given.' },
           },
@@ -348,11 +354,12 @@ export const find_similarTool: ToolHandler = {
     const includeContent = a['includeContent'] !== false;
     const traverseSpaces = searchIds ?? [usedBase];
     const totalCap = topK * (traverse + 1) * 4;
-    const graph = await buildRecallGraph(
+    const { graph, spill } = await buildGraphWithSpill(
       traverseSpaces,
       result.results.map(sd => ({ _id: sd._id, spaceId: sd.spaceId })),
       traverse,
       Math.max(0, totalCap - result.results.length),
+      usedBase,
     );
     const results = result.results.map(r => {
       const nested = mapGraphNodes(graph.bySeed.get(r._id), entityDocToRecord);
@@ -364,6 +371,7 @@ export const find_similarTool: ToolHandler = {
     const output = {
       source: { type: result.source.type, id: result.source._id, summary: formatRecallSummary(result.source) },
       results, count: results.length, traverseDepth: traverse, graphNodes: graph.nodes,
+      ...(spill ? { graphTruncated: true, graphComplete: spill } : {}),
     };
     return { content: [{ type: 'text' as const, text: JSON.stringify(output) }] };
   },

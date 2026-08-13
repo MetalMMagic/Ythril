@@ -20,7 +20,7 @@ import { findSimilar, recall, type RecallKnowledgeType, type RecallResult } from
 import { type FilterExpression } from '../../brain/filter.js';
 import { resolveRecallFilter } from '../../brain/recall-filter.js';
 import { traverseGraph, MAX_RECALL_TRAVERSE, resolveEdgeEntityNames } from '../../brain/edges.js';
-import { buildRecallGraph } from '../../brain/recall-graph.js';
+import { buildGraphWithSpill } from '../../brain/graph-spill.js';
 import { embed } from '../../brain/embedding.js';
 import { getConfig } from '../../config/loader.js';
 import { col, asFilter } from '../../db/mongo.js';
@@ -509,11 +509,15 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
     // seed that reached it. `count` is the number of MATCHES — it used to be matches plus neighbours, so a
     // caller asking for `topK: 1` was told `count: 6` and could not use the number they page on.
     const totalCap = safeTopK * (safeTraverse + 1) * 4;
-    const graph = await buildRecallGraph(
+    // The cap is now the SPILL point rather than the truncation point: past it the whole neighbourhood is
+    // written to the space's `_tmp/` and the response carries an authenticated download link. A short graph
+    // reads as "this record has few relationships", which is a wrong conclusion about the DATA.
+    const { graph, spill } = await buildGraphWithSpill(
       memberIds,
       seeds.map(s => ({ _id: s._id, spaceId: s.spaceId })),
       safeTraverse,
       Math.max(0, totalCap - seeds.length),
+      spaceId,
     );
     // The flag applies here too. A caller who asked not to be sent passage bodies did not stop meaning it
     // because they also asked for graph expansion — and an option that silently lapses on one code path is
@@ -526,6 +530,7 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
     // one thing, rather than one number meaning whichever the reader assumes.
     res.json({
       results, count: results.length, traverseDepth: safeTraverse, graphNodes: graph.nodes,
+      ...(spill ? { graphTruncated: true, graphComplete: spill } : {}),
       ...(degraded.length > 0 ? { degraded } : {}),
     });
   } catch (err: unknown) {
@@ -622,11 +627,12 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
     // copy of the shape is how the two would drift.
     const traverseSpaces = crossSpaceIds ?? [spaceId];
     const totalCap = topK * (safeTraverse + 1) * 4;
-    const graph = await buildRecallGraph(
+    const { graph, spill } = await buildGraphWithSpill(
       traverseSpaces,
       result.results.map(r => ({ _id: r._id, spaceId: r.spaceId })),
       safeTraverse,
       Math.max(0, totalCap - result.results.length),
+      spaceId,
     );
     const items = stripContentIfAsked(result.results, safeIncludeContent).map(r => {
       const nested = graph.bySeed.get(r._id);
@@ -635,6 +641,7 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
     res.json({
       source: result.source, results: items, count: items.length,
       traverseDepth: safeTraverse, graphNodes: graph.nodes,
+      ...(spill ? { graphTruncated: true, graphComplete: spill } : {}),
     });
   } catch (err: unknown) {
     if (err instanceof NotFoundError) {

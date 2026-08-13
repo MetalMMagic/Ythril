@@ -38,7 +38,7 @@
  * the one being served, gains a full edge object where it used to have three fields.
  */
 import type { EdgeDoc, EntityDoc } from '../config/types.js';
-import { traverseRecallSeeds, type SeedTraverseNeighbor } from './edges.js';
+import { type SeedTraverseNeighbor } from './edges.js';
 
 /** One traversed node, nested under whatever reached it. */
 export interface GraphNode {
@@ -63,22 +63,6 @@ export interface RecallGraph {
   bySeed: Map<string, GraphNode[]>;
   /** How many traversed nodes the tree holds, in total, across every seed. */
   nodes: number;
-}
-
-/**
- * Expand recall seeds and return the traversal as a tree per seed.
- *
- * `limit` bounds the number of traversed NODES, exactly as it did for the flat list, so the cost of a
- * `traverse` is unchanged — only its shape is.
- */
-export async function buildRecallGraph(
-  memberIds: string[],
-  seeds: { _id: string; spaceId: string }[],
-  maxDepth: number,
-  limit: number,
-): Promise<RecallGraph> {
-  const flat = await traverseRecallSeeds(memberIds, seeds, maxDepth, limit);
-  return nestNeighbours(flat, seeds.map(s => s._id));
 }
 
 /**

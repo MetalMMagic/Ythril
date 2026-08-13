@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **A truncated graph traversal was indistinguishable from a complete one.** `traverseRecallSeeds` ended with
+  `collected.slice(0, limit)` and nothing in the response said the slice had happened, so `graphNodes: 7` at
+  `topK: 1, traverse: 1` might be the whole neighbourhood or the first 7 of 40. `degraded` does not cover it —
+  that reports a member that failed or timed out, not the traversal cap.
+
+  Worse here than on a list: a caller paging a list can compare against `total`, there is no total for a
+  neighbourhood, and a short graph reads as *"this record has few relationships"* — a wrong conclusion about the
+  **data** rather than about the request. The cap formula is not something a caller can predict from the
+  parameters they set either.
+
+  **A flag was rejected as the answer** (owner ruling): it tells a caller their graph was cut and leaves them no
+  way to get the rest, which on a neighbourhood is the same dead end the paging cap was on a list. So the cap is
+  now a **spill point**, not a truncation point:
+  - Past it, the **complete** graph is written to the space's `_tmp/` as JSON and the response carries
+    `graphTruncated: true` with `graphComplete: {nodes, path, download, expiresAt}`.
+  - The download is the ordinary **authenticated** `GET /api/files/:spaceId?path=…`. A URL that worked without
+    the caller's token would be a way to read a space's records with no auth.
+  - A token with brain read but **no files read** gets a link it cannot fetch. It still learns the graph was
+    short, which is the part that was invisible; the alternative — suppressing the spill for such a token —
+    would hide the size as well as the file.
+  - **One day**, stamped through the record TTL machinery that already exists — the sweep's `files` handler runs
+    the full `deleteFileCascade`, so the blob goes with the record and there is no second sweeper to forget.
+  - **Hidden from browsing** (`DERIVED_TREES`, beside `_converted/` and `_extracted/`) and **never embedded**:
+    embedding a read's own output would spend model time making recall results recall-searchable, so a later
+    recall could match the JSON dump of an earlier one.
+  - **The spill walk is itself bounded**, at 20× the inline cap, and hitting that bound is reported as
+    `ceilingHit` in the response *and inside the file*. A second silent truncation inside the fix for the first
+    one would be the same defect wearing the fix's clothes.
+
+### Fixed
+- **Three mutating file routes were ungoverned by the rights matrix.** `DELETE /api/files/:spaceId`,
+  `PATCH /api/files/:spaceId` and `POST /api/files/:spaceId/retry_embedding` had no `ROUTE_RIGHTS` row, so the
+  per-space area/rung matrix did not describe them.
+  - **They were invisible to the gate that exists to catch exactly this.** `every-space-route-has-an-area`
+    strips block comments before scanning, and a region of `api/files.ts` was being swallowed with them — so the
+    three registrations were never discovered and never demanded a row. Editing that file elsewhere shifted the
+    swallowed region and all three appeared at once.
+  - `DELETE` is `admin`, matching `DELETE /api/brain/spaces/:spaceId/files`: deleting a directory takes the tree
+    with it, and the metadata half of that operation has always been the highest rung. The other two are `write`.
+
+  All four traverse sites — REST `/recall` and `/find-similar`, MCP `recall` and `find_similar` — go through one
+  builder, and a gate asserts that count so a fifth cannot opt out.
+
+  **Verified above the cap, deliberately.** The fixture is a 30-leaf hub with an inline cap of 8: a fixture
+  inside the cap cannot see this defect at all, which is exactly how the 2.8.0 deep-skip shipped behind tests
+  that paged 12 and 25 rows.
+
 ### Changed
 - **BREAKING — graph-augmented recall nests what it reached under the match that reached it.** aigents
   2026-08-13T1035Z §3 and 1100Z. `traverse > 0` used to append every traversed record beside the matches with

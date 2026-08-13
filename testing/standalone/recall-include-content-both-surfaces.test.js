@@ -67,7 +67,7 @@ describe('recall exposes includeContent on both surfaces', () => {
     // A caller who asked not to be sent passage bodies did not stop meaning it because they also asked for
     // graph expansion. An option that lapses on one code path is the same defect one level down.
     //
-    // Anchored on `buildRecallGraph(`, which is what a graph-augmented response is BUILT with, rather than on
+    // Anchored on `buildGraphWithSpill(`, which is what a graph-augmented response is BUILT with, rather than on
     // one implementation's variable name. The previous anchor was `const results: RecallTraverseItem[]`, and
     // when the flat item type was deleted this gate failed against code that still did the right thing —
     // demanding the old lines back rather than the property.
@@ -75,7 +75,7 @@ describe('recall exposes includeContent on both surfaces', () => {
     // Both routes, not one: `/recall` and `/find-similar` each expand a graph, and the flag has to survive on
     // both. `find_similar`'s traverse existed on MCP alone for a while, so this is the site where the two
     // surfaces most recently disagreed.
-    const sites = [...rest.matchAll(/buildRecallGraph\(/g)].map(m => m.index);
+    const sites = [...rest.matchAll(/buildGraphWithSpill\(/g)].map(m => m.index);
     assert.equal(sites.length, 2, `expected /recall and /find-similar to build a graph, found ${sites.length}`);
     for (const at of sites) {
       const window = rest.slice(at, at + 900);

@@ -39,7 +39,13 @@ describe('MCP tool schemas — universal invariants', () => {
     // 41 -> 42: `er_model`. Prerequisites done — `audit-map.ts` maps it to `brain.er_model` (and the REST
     // route is now audited too, which it was not while `stats` was), it is read-only and deliberately
     // visible to a readOnly token, and `16-mcp.md` carries its row.
-    assert.equal(ALL_TOOLS.length, 42);
+    // 42 -> 43: `retry_failed_embeddings`, the bulk counterpart to `retry_embedding`. Prerequisites done —
+    // `audit-map.ts` maps it to `file.retry_embedding_all` like the route it mirrors, it is `mutating: true` and listed among
+    // the tools a readOnly token cannot see, and `16-mcp.md` carries its row.
+    // 43 -> 44: `update_file_meta`. Prerequisites done — `audit-map.ts` maps it to `file.meta.update` like
+    // the route it mirrors, it is `mutating: true` and listed among the tools a readOnly token cannot see,
+    // and `16-mcp.md` carries its row.
+    assert.equal(ALL_TOOLS.length, 44);
   });
 
   it('every tool advertises a closed object schema (type:object, additionalProperties:false)', () => {

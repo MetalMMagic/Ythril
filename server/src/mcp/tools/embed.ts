@@ -14,6 +14,7 @@
  * drifts. What these handlers own is the MCP-shaped part: argument validation and text a model can act on.
  */
 import { resolveWriteTarget } from '../../spaces/proxy.js';
+import { memberSpacesWithin } from '../../spaces/proxy-scoped.js';
 import {
   listEmbedJobs, getEmbedJobCounts, retryEmbedJob, EMBED_RECORD_TYPES, isEmbedRecordType,
 } from '../../brain/embed-queue.js';
@@ -129,6 +130,54 @@ export const retry_record_embeddingTool: ToolHandler = {
     return {
       content: [{ type: 'text' as const, text }],
       structuredContent: { result, recordType: a['recordType'], recordId, space: wt.target },
+    };
+  },
+};
+
+/**
+ * Re-queue EVERY failed media job in a space — the bulk counterpart to `retry_embedding`.
+ *
+ * `POST /api/brain/spaces/:spaceId/embedding-queue/retry-failed` was REST-only, so an agent recovering a space
+ * after an embedder outage had to enumerate the failures and call the single-file tool once per file. That is the
+ * shape of the reindex-by-curl-loop that motivated the `reindex` tool in the first place: a customer did fourteen
+ * spaces by hand because the agent that planned their work could not do it.
+ *
+ * Found by the capability matrix (`scripts/surface-matrix.mjs`). Filed as B-22.
+ *
+ * **Sums across member spaces**, exactly as the route does: on a proxy the failures live in the members, and a
+ * caller who asked the proxy to retry means all of them.
+ */
+export const retry_failed_embeddingsTool: ToolHandler = {
+  name: 'retry_failed_embeddings',
+  description: 'Re-queue EVERY failed media job in a space at once, so the worker picks them all up again — the '
+    + 'recovery path after an embedder or model outage. Returns how many jobs were reset. Use this instead of '
+    + 'calling retry_embedding once per file; use retry_embedding when you want one specific file. Jobs the '
+    + 'worker currently holds are left alone rather than interrupted. On a proxy space every member is retried, '
+    + 'because that is what asking the proxy means.',
+  mutating: true,
+  spaceRequired: true,
+  inputSchema: (s: ToolSchemas) => ({
+    type: 'object',
+    properties: {
+      space: s.requiredSpace,
+    },
+    required: ['space'],
+    additionalProperties: false,
+  }),
+  async handle(ctx: ToolContext): Promise<ToolResult> {
+    const { callSpace, accessibleSpaceIds } = ctx;
+    const { retryFailedJobs } = await import('../../files/media/job-queue.js');
+    // `memberSpacesWithin` is the MCP half of the narrowing the route states with `memberSpacesForRequest`.
+    const memberIds = memberSpacesWithin(callSpace, accessibleSpaceIds);
+    let retried = 0;
+    for (const mid of memberIds) retried += await retryFailedJobs(mid);
+
+    const text = retried === 0
+      ? `No failed media jobs in '${callSpace}' — nothing to retry.`
+      : `Re-queued ${retried} failed media job${retried === 1 ? '' : 's'} in '${callSpace}'.`;
+    return {
+      content: [{ type: 'text' as const, text }],
+      structuredContent: { retried, space: callSpace },
     };
   },
 };

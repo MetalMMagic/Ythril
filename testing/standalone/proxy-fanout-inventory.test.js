@@ -131,7 +131,13 @@ const RECLASSIFIED = 1;
  * members SEPARATELY rather than merged — merging type counts across spaces would invent relationships that
  * cannot exist, since an edge cannot cross a space.
  */
-const TOTAL = 39;
+/**
+ * 39 -> 40: the `retry_failed_embeddings` MCP tool.
+ *
+ * The REST route it mirrors has always summed across members with `memberSpacesForRequest`; the tool narrows
+ * with `memberSpacesWithin` and retries every member, because asking a proxy to retry means all of them.
+ */
+const TOTAL = 40;
 
 const GUARDS = {
   'server/src/auth/middleware.ts': 2,

@@ -61,6 +61,10 @@ export const MCP_TOOL_OPERATIONS: Record<string, string | null> = {
   // Same operation string the REST route audits under, so one query finds a retry however it arrived.
   retry_embedding: 'file.retry_embedding',
   // Same operation string the REST route audits under, so one query finds a record retry however it arrived.
+  // Same operation as the REST route it mirrors: one capability, one audit name.
+  // The route's own operation: one capability, one audit name, whichever door it came through.
+  update_file_meta: 'file.meta.update',
+  retry_failed_embeddings: 'file.retry_embedding_all',
   retry_record_embedding: 'brain.retry_embedding',
   create_dir: 'file.mkdir',
   // The tool registry flags this `mutating: true`, and it is right: a sync cycle pulls records from

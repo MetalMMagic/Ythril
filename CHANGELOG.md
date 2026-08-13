@@ -6,6 +6,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Documentation
+- **The guide promised that a pre-existing schema violation never blocks an unrelated patch. It does block.** Corrected
+  in `16-mcp.md`, because the code is deliberate and the sentence was simply false — on both surfaces, which share
+  `classifyUpdateViolations`.
+  - Reproduced while investigating breituai-platform's *"a mis-click freezes records"* report: write a record with
+    `properties.status = "retired"`, remove `"retired"` from the enum, then `PATCH` only that record's `description` →
+    **422** with `introduced: []` and `preExisting: [properties.status]`. The record is uneditable until the unrelated
+    field is repaired in the same request.
+  - The doc now states that both kinds block in a `strict` space, names the consequence — **tightening a schema freezes
+    the records that no longer fit it** — and says that `warn` reports the same violations and proceeds.
+  - **Whether the behaviour should change is a decision, not a defect**, so it is parked with a recommendation rather
+    than flipped: the refusal is intentional and its message names the remedy, but a violation that is already stored
+    is not improved by refusing an unrelated edit. Documented as it is today either way, so nothing claims otherwise
+    while it is open.
+  - Their report was two items, not one: the mis-click is a layout defect in the enum editor, and the freeze is this.
+
 ### Security
 - **Three space read routes served a space's schema, purpose and usage notes to any authenticated token, regardless of
   its scope.** A token scoped to one space could read another's `meta`, its completeness report and any individual type

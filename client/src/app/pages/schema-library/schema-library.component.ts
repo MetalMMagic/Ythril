@@ -26,6 +26,7 @@ import { PropSchemaTableComponent } from '../../shared/prop-schema-table.compone
 import { ErrorStateComponent } from '../../shared/error-state.component';
 import { httpErrorReason } from '../../core/http-error';
 import { ModalDirective } from '../../shared/modal.directive';
+import { CHIP_STYLES } from '../../shared/chip.styles';
 
 // ── Local form state ────────────────────────────────────────────────────────
 
@@ -147,21 +148,8 @@ export function entriesFromTypeSchemas(
   selector: 'app-schema-library',
   standalone: true,
   imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, PropSchemaTableComponent, ErrorStateComponent, ModalDirective],
-  styles: [`
+  styles: [CHIP_STYLES, `
     /* chip inputs — same as spaces.component.ts */
-    .chip-wrap {
-      display:flex; flex-wrap:wrap; gap:4px; align-items:center;
-      border:1px solid var(--border); border-radius:var(--radius-sm);
-      padding:4px 8px; min-height:34px; background:var(--bg-surface); cursor:text;
-    }
-    .chip {
-      display:inline-flex; align-items:center; gap:3px;
-      background:color-mix(in srgb,var(--accent) 15%,transparent);
-      color:var(--accent); border-radius:3px; padding:1px 6px; font-size:12px;
-    }
-    .chip-rm { background:none; border:none; color:var(--text-muted); cursor:pointer; padding:0 2px; font-size:14px; line-height:1; }
-    .chip-rm:hover { color:var(--danger); }
-    .chip-field { border:none; background:none; outline:none; font-size:12px; min-width:100px; flex:1; color:var(--text-primary); font-family:var(--font); padding:1px 0; }
     /* create / edit dialog */
     .dialog-backdrop { position:fixed; inset:0; background:var(--bg-scrim); display:flex; align-items:center; justify-content:center; z-index:100; }
     .dialog { background:var(--bg-primary); border:1px solid var(--border); border-radius:var(--radius-lg); padding:24px; width:92vw; max-width:980px; max-height:90vh; overflow-y:auto; }

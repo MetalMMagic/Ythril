@@ -6,6 +6,29 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Fixed
+- **The schema editor's enum chips were completely unstyled — the remove button rendered as a browser-default
+  `<button>`.** Reported by breituai-platform (2026-08-12T2230Z) as *"oversized and clip their own labels"*, and that is
+  exactly what an unstyled `<button>` inside an unstyled `<span>` looks like.
+  - **Nothing was wrong with the CSS.** `schema-type-editor.component.ts` renders `.chip-wrap`, `.chip`, `.chip-rm` and
+    `.chip-field`; its only stylesheet was `SCHEMA_MD_STYLES`, which defines none of them; and `styles.scss` has no
+    global chip rules. Angular scopes component styles, so when the editor body was extracted out of the schema TAB —
+    which does carry those rules — the styles did not follow the markup.
+  - `space-dialog.styles.ts` had even written the rule down: *"a child that renders the chip inputs needs these rules in
+    its OWN metadata"*. A comment is not a check.
+  - The chip-input rules now live once, in `shared/chip.styles.ts`. The three copies that existed
+    (`space-dialog.styles.ts`, `prop-schema-table`, `schema-library`) were **confirmed identical before consolidating**,
+    so it changed no pixels. The brain's separate chip family is deliberately left alone — folding it in would restyle
+    the brain tabs as a side effect of fixing a button.
+  - **A gate now fails when a component renders a chip class it cannot reach**, because this failure mode produces no
+    error anywhere: the template compiles, the class is present, the build is clean, and the component renders with
+    browser defaults. Same shape as an unregistered `<ph-icon name>` rendering blank.
+  - **The gate's first version did not catch the defect it was written for**, and that is worth recording: it checked
+    whether the component *imported* a stylesheet defining the class, not whether that stylesheet was in the `styles: []`
+    array. The editor still imports `CHIP_STYLES`. Verifying proximity and calling it effect — the same error as a scope
+    guard bound to the wrong parameter, found the same way, by mutation.
+  - Their report was two items. This is the trigger; the refusal it led to is documented separately.
+
 ### Documentation
 - **The guide promised that a pre-existing schema violation never blocks an unrelated patch. It does block.** Corrected
   in `16-mcp.md`, because the code is deliberate and the sentence was simply false — on both surfaces, which share

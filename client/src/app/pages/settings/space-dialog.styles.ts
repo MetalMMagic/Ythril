@@ -8,21 +8,10 @@
  * convention. Angular AOT statically resolves an imported const, so `styles: [SPACE_DIALOG_STYLES]`
  * compiles; if it ever could not, the build would fail loudly rather than drop the styles.
  */
+import { CHIP_STYLES } from '../../shared/chip.styles';
+
 export const SPACE_DIALOG_STYLES = `
-/* chip inputs */
-.chip-wrap {
-  display:flex; flex-wrap:wrap; gap:4px; align-items:center;
-  border:1px solid var(--border); border-radius:var(--radius-sm);
-  padding:4px 8px; min-height:34px; background:var(--bg-surface); cursor:text;
-}
-.chip {
-  display:inline-flex; align-items:center; gap:3px;
-  background:color-mix(in srgb,var(--accent) 15%,transparent);
-  color:var(--accent); border-radius:3px; padding:1px 6px; font-size:12px;
-}
-.chip-rm { background:none; border:none; color:var(--text-muted); cursor:pointer; padding:0 2px; font-size:14px; line-height:1; }
-.chip-rm:hover { color:var(--danger); }
-.chip-field { border:none; background:none; outline:none; font-size:12px; min-width:100px; flex:1; color:var(--text-primary); font-family:var(--font); padding:1px 0; }
+${CHIP_STYLES}
 /* storage bar */
 .st-bar { height:6px; border-radius:3px; background:var(--border); overflow:hidden; }
 .st-bar-fill { height:100%; border-radius:3px; transition:width .3s; }

@@ -124,6 +124,18 @@ export function unknownBodyFields(
 }
 
 /**
+ * The caller-facing page cap for `/query`, and the ceiling on a PROXY space's merged window.
+ *
+ * A proxy page needs `skip + limit` rows from EACH member, so a deep page on a fleet multiplies. The ceiling makes that
+ * cost bounded and, more importantly, makes exceeding it an explicit 400 naming the limit — the alternative, which shipped
+ * in 2.8.0, was an empty page for any `skip` past the window while `total` reported the true count.
+ *
+ * A single space is not subject to it: `skip` goes to MongoDB and is correct at any depth.
+ */
+export const QUERY_PAGE_MAX = 100;
+export const PROXY_PAGE_CEILING = 1000;
+
+/**
  * The default result order, as DATA so the same value can go to MongoDB and to the merge comparator.
  *
  * `_id` last is not decoration: it makes the order TOTAL, which is what lets `skip` page without a row drifting between
@@ -204,7 +216,14 @@ export async function queryBrain(
     // Skip BEFORE limit, which is the order the driver applies regardless of call order — spelled out here because
     // the reverse reading (limit the page, then drop rows from it) would silently return short pages.
     .skip(Math.max(Math.floor(skip) || 0, 0))
-    .limit(Math.min(limit, 100))
+    // Clamped by the CALLERS (both routes cap the caller-facing page at 100) rather than here, because the proxy merge
+    // legitimately needs a larger internal fetch: to return rows [skip, skip+limit) of a MERGED set it must read
+    // skip+limit from each member. Clamping at 100 here is what made every page past row 100 come back EMPTY while
+    // `total` reported the true count — a wrong answer that looked right, shipped in 2.8.0 and caught by auditing the
+    // surface rather than by any test, because the tests tiled 12 and 25 rows entirely inside the window.
+    //
+    // A floor of 1 so a computed 0 cannot mean "no rows"; the ceiling is the callers' business and is documented there.
+    .limit(Math.max(1, Math.floor(limit)))
     // The embedding vector is never returned. This is MERGED with the caller's
     // projection rather than applied as a second `.project()` — a second call
     // replaces the first in the MongoDB driver, which previously discarded the

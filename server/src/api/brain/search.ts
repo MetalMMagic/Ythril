@@ -13,7 +13,7 @@ import { countMemories } from '../../brain/memory.js';
 import { getEmbedJobCounts } from '../../brain/embed-queue.js';
 import {
   queryBrain, countBrain, QUERY_BODY_FIELDS, TRAVERSE_BODY_FIELDS, RECALL_BODY_FIELDS, FIND_SIMILAR_BODY_FIELDS,
-  unknownBodyFields, compareBySort, DEFAULT_QUERY_SORT,
+  unknownBodyFields, compareBySort, DEFAULT_QUERY_SORT, QUERY_PAGE_MAX, PROXY_PAGE_CEILING,
 } from '../../brain/query.js';
 import { findSimilar, recall, type RecallKnowledgeType, type RecallResult } from '../../brain/recall.js';
 import { validateFilterExpression, type FilterExpression } from '../../brain/filter.js';
@@ -24,7 +24,6 @@ import { col, asFilter } from '../../db/mongo.js';
 import { needsReindex } from '../../spaces/_shared.js';
 import { planReindex, startReindex } from '../../brain/reindex.js';
 import { log } from '../../util/log.js';
-import { collectAcrossMembers } from '../../spaces/proxy.js';
 import { memberSpacesForRequest } from '../../spaces/proxy-scoped.js';
 import type { MemoryDoc, EntityDoc, EdgeDoc, ChronoEntry, FileMetaDoc } from '../../config/types.js';
 import { reindexInProgress } from '../../metrics/registry.js';
@@ -251,7 +250,9 @@ searchRouter.post('/spaces/:spaceId/query', globalRateLimit, requireSpaceAuth, a
     projection != null && typeof projection === 'object' && !Array.isArray(projection)
       ? (projection as Record<string, unknown>)
       : undefined;
-  const safeLimit = typeof limit === 'number' ? limit : 20;
+  // The caller-facing page cap. It used to live inside `queryBrain`, where it also bounded the proxy merge's internal
+  // fetch and silently truncated deep pages to nothing.
+  const safeLimit = Math.min(typeof limit === 'number' ? limit : 20, QUERY_PAGE_MAX);
   const safeMaxTimeMS = typeof maxTimeMS === 'number' ? maxTimeMS : 5000;
 
   // A non-integer or negative `skip` is refused rather than floored to 0. Silently reading it as "start from the
@@ -270,41 +271,42 @@ searchRouter.post('/spaces/:spaceId/query', globalRateLimit, requireSpaceAuth, a
   const order = sortParse.sort ? toMongoSort(sortParse.sort) : DEFAULT_QUERY_SORT;
 
   try {
-    // A PROXY space needs the page computed over the MERGED set, not per member.
+    // A SINGLE space pushes `skip` down to MongoDB, which is correct at any depth. Only a PROXY with several members
+    // needs the merge, and only then does a deep page cost a larger read.
     //
-    // `collectAcrossMembers` concatenates, so asking each member for rows `[skip, skip+limit)` and flattening would
-    // return up to `limit × members` rows, ordered by member rather than by the documented sort, having skipped `skip`
-    // rows in each — three wrong answers at once, and none of them an error. That is the same class as the defect this
-    // route is being fixed for, so it is fixed here rather than left for the next report.
-    //
-    // Correct paging over a union: take the first `skip + limit` from each member, merge, sort by the documented key,
-    // then slice the window. The per-member fetch is bounded by the page the caller asked for, so a deep page costs
-    // more but never the whole collection.
-    const window = Math.min(safeSkip + Math.min(safeLimit, 100), 100);
-    const perMember = await collectAcrossMembers(spaceId, mid =>
-      queryBrain(
-        mid,
-        collection as typeof validCollections[number],
-        safeFilter,
-        safeProjection,
-        window,
-        safeMaxTimeMS,
-        0,
-        order,
-      ),
-    );
-    // The match TOTAL, summed across members. aigents fabricated a number because `count` is the PAGE length: a sweep
-    // cannot tell a short last page from a truncated one without an extra request that returns nothing. It costs one
-    // count per member per call, bounded by the same deadline as the read, and it is returned unconditionally because a
-    // caller who does not know to ask for it is exactly the caller who ends up guessing.
-    const total = (await collectAcrossMembers(spaceId, async mid =>
-      [await countBrain(mid, collection as typeof validCollections[number], safeFilter, safeMaxTimeMS)]))
-      .reduce((a, b) => a + b, 0);
-    // Merged with a comparator built from the SAME order given to MongoDB, so a proxy space's page is in the order the
-    // caller asked for rather than in the default one.
-    const merged = perMember.sort(compareBySort(order)).slice(safeSkip, safeSkip + safeLimit);
-    // `limit` and `skip` are echoed so a caller paging in a loop can tell "the page you asked for" from "what I
-    // capped it to", which is exactly the distinction the fabricated number came from.
+    // The previous version always merged, with the per-member fetch capped at 100 — so `skip: 100` sliced past the end of
+    // a 100-row window and returned NOTHING, on a collection whose `total` said 120. The tests tiled 12 and 25 rows, both
+    // entirely inside the window, so the suite was green over exactly the defect this route exists to prevent.
+    const members = memberSpacesForRequest(req, spaceId);
+    let merged: unknown[];
+    let total = 0;
+    if (members.length === 1) {
+      merged = await queryBrain(
+        members[0] as string, collection as typeof validCollections[number],
+        safeFilter, safeProjection, safeLimit, safeMaxTimeMS, safeSkip, order,
+      );
+      total = await countBrain(members[0] as string, collection as typeof validCollections[number], safeFilter, safeMaxTimeMS);
+    } else {
+      // Rows [skip, skip+limit) of the merged set need skip+limit from each member. Bounded, because a deep page on a
+      // fleet multiplies: a 400 naming the ceiling beats a silent empty page, which is the failure being fixed.
+      const window = safeSkip + safeLimit;
+      if (window > PROXY_PAGE_CEILING) {
+        res.status(400).json({
+          error: `skip + limit must not exceed ${PROXY_PAGE_CEILING} on a proxy space (got ${window}). `
+            + 'Page a member space directly for a deeper sweep.',
+        });
+        return;
+      }
+      const perMember: unknown[] = [];
+      for (const mid of members) {
+        perMember.push(...await queryBrain(
+          mid, collection as typeof validCollections[number],
+          safeFilter, safeProjection, window, safeMaxTimeMS, 0, order,
+        ));
+        total += await countBrain(mid, collection as typeof validCollections[number], safeFilter, safeMaxTimeMS);
+      }
+      merged = perMember.sort(compareBySort(order)).slice(safeSkip, safeSkip + safeLimit);
+    }
     res.json({
       results: merged, collection,
       // `count` is this page; `total` is the whole match. Both, because renaming `count` would break every caller that

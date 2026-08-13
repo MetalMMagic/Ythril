@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`POST /query` returned an EMPTY page for any `skip` past 100, while `total` reported the true count.** Shipped in
+  2.8.0 and fixed here. The route fetched a window capped at 100 rows and then sliced it at `skip`, so a caller sweeping a
+  large collection stopped silently at row 100 — a wrong answer that looked right, which is the exact defect class the
+  `skip` work existed to remove.
+  - **A single space now pushes `skip` to MongoDB**, which is correct at any depth. Only a **proxy** with several members
+    needs the merge, and only then does a deep page cost a larger read — bounded by `PROXY_PAGE_CEILING` (1000) with a
+    `400` naming the limit rather than a silent empty page.
+  - The caller-facing page cap (100) moved out of `queryBrain` and into the routes. Inside `queryBrain` it also bounded the
+    proxy merge's internal fetch, which is what truncated deep pages to nothing.
+  - Both surfaces. The MCP tool had the identical bug.
+  - **Found by auditing the surface I had just shipped, not by the tests** — they tiled 12 and 25 rows, entirely inside the
+    window, so the suite was green over it. Verified against a running instance with 120 records before and after.
+  - **My first regression test guarded nothing**, and the mutation test is what showed it: asserted against `queryBrain`
+    directly, it passes on the broken code, because that function pushes `skip` down and the window only ever existed in
+    the route. The guard is at HTTP level now, and mutating the route's `skip` pass-through turns five assertions red.
+- **The MCP `/query` path narrowed a proxy read with the UNSCOPED resolver** in the first draft of this fix — caught by
+  `proxy-fanout-inventory.test.js`, which exists because a proxy read flipped to the full member list leaks records from
+  every member with a well-formed `200`.
+
 ## [2.8.0] — 2026-08-13
 ### Added
 - **`POST /query` takes `sort`/`dir` and reports a match `total`.** aigents asked for both alongside the `skip` finding

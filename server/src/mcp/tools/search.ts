@@ -11,10 +11,11 @@ import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.
 import { UUID_V4_RE, entityDocToRecord, formatRecallSummary, toRecallRecord, uuidSchema, unitScoreSchema, QUERY_FILTER_OPERATORS, RECALL_FILTER_KEY_PATTERN, type McpRecallTraverseItem } from './shared.js';
 import { MAX_RECALL_TRAVERSE, traverseRecallSeeds } from '../../brain/edges.js';
 import { type FilterExpression, validateFilterExpression } from '../../brain/filter.js';
-import { queryBrain, countBrain, compareBySort, DEFAULT_QUERY_SORT } from '../../brain/query.js';
+import {
+  queryBrain, countBrain, compareBySort, DEFAULT_QUERY_SORT, QUERY_PAGE_MAX, PROXY_PAGE_CEILING,
+} from '../../brain/query.js';
 import { parseSortParam, toMongoSort, SORTABLE_FIELDS } from '../../brain/list-sort.js';
 import { type RecallKnowledgeType, type RecallResult, findSimilar, recall, recallGlobal } from '../../brain/recall.js';
-import { collectAcrossMembers } from '../../spaces/proxy.js';
 import { memberSpacesWithin } from '../../spaces/proxy-scoped.js';
 import { NotFoundError } from '../../util/errors.js';
 import { rankOf, mergeRecallResults } from '../../brain/recall-shape.js';
@@ -394,7 +395,7 @@ export const queryTool: ToolHandler = {
       a['filter'] != null && typeof a['filter'] === 'object'
         ? (a['filter'] as Record<string, unknown>)
         : {};
-    const limit = typeof a['limit'] === 'number' ? a['limit'] : 20;
+    const limit = Math.min(typeof a['limit'] === 'number' ? a['limit'] : 20, QUERY_PAGE_MAX);
     // Same refusal as the REST route: a non-integer or negative skip is an error, not a silent 0. Reading it as "start
     // from the beginning" returns a page that is not the page asked for, with no sign that anything went wrong.
     if (a['skip'] !== undefined && (typeof a['skip'] !== 'number' || !Number.isInteger(a['skip']) || a['skip'] < 0)) {
@@ -412,25 +413,36 @@ export const queryTool: ToolHandler = {
         ? (a['projection'] as Record<string, unknown>)
         : undefined;
 
-    // The proxy-merge is the same as the REST route's, and for the same reason: asking each member for rows
-    // [skip, skip+limit) and concatenating skips that many rows PER MEMBER and orders the result by member. Take the
-    // first skip+limit from each, merge by the documented order, then slice the window.
-    const window = Math.min(skip + Math.min(limit, 100), 100);
-    const perMember = await collectAcrossMembers(callSpace, mid =>
-      queryBrain(
-        mid,
-        collName as 'memories' | 'entities' | 'edges' | 'chrono' | 'files',
-        filter,
-        projection,
-        window,
-        maxTimeMS,
-        0,
-        order,
-      ));
-    const docs = perMember.sort(compareBySort(order)).slice(skip, skip + limit);
-    const total = (await collectAcrossMembers(callSpace, async mid =>
-      [await countBrain(mid, collName as 'memories' | 'entities' | 'edges' | 'chrono' | 'files', filter, maxTimeMS)]))
-      .reduce((x, y) => x + y, 0);
+    // Same shape as the REST route, and for the same reason: a SINGLE space pushes `skip` to MongoDB, which is correct at
+    // any depth, and only a PROXY with several members needs the merge. The previous version always merged with the
+    // per-member fetch capped at 100, so `skip: 100` sliced past the end of the window and returned NOTHING while the
+    // total reported the true count.
+    // SCOPED, not `resolveMemberSpaces`: a token holding some of a proxy's members must read those and no others. The
+    // first version of this fix called the unscoped resolver and `proxy-fanout-inventory.test.js` caught it — that gate
+    // exists because flipping a proxy read to the full member list leaks records from every member with a well-formed 200.
+    const members = memberSpacesWithin(callSpace, ctx.accessibleSpaces.map(sp => sp.id));
+    let docs: unknown[];
+    let total = 0;
+    const coll = collName as 'memories' | 'entities' | 'edges' | 'chrono' | 'files';
+    if (members.length === 1) {
+      docs = await queryBrain(members[0] as string, coll, filter, projection, limit, maxTimeMS, skip, order);
+      total = await countBrain(members[0] as string, coll, filter, maxTimeMS);
+    } else {
+      const window = skip + limit;
+      if (window > PROXY_PAGE_CEILING) {
+        throw new Error(
+          `skip + limit must not exceed ${PROXY_PAGE_CEILING} on a proxy space (got ${window}). `
+          + 'Query a member space directly for a deeper sweep.',
+        );
+      }
+      const perMember: unknown[] = [];
+      for (const mid of members) {
+        perMember.push(...await queryBrain(mid, coll, filter, projection, window, maxTimeMS, 0, order));
+        total += await countBrain(mid, coll, filter, maxTimeMS);
+      }
+      docs = perMember.sort(compareBySort(order)).slice(skip, skip + limit);
+    }
+
     // `structuredContent` carries the paging facts; `content` stays the bare array it has always been, so a client
     // parsing the text is unaffected. Without `total` a caller sweeping with `skip` cannot tell a short last page from a
     // truncated one, which is the number aigents ended up fabricating.

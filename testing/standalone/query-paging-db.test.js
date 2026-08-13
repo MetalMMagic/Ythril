@@ -138,6 +138,35 @@ describe('query paging (real MongoDB)', { skip }, () => {
     assert.equal(sorted[0]._id, 'b', 'the record with a seq comes first');
   });
 
+  it('queryBrain itself pages past 100 — necessary, and NOT the regression guard', async () => {
+    // Stated plainly because I got it wrong: this asserts a property of `queryBrain`, which pushes `skip` to MongoDB and
+    // is correct at any depth. It PASSES against the 2.8.0 code, so it does not guard the defect.
+    //
+    // The defect was in the ROUTE: it fetched a window capped at 100 and then sliced it at `skip`, so every page past row
+    // 100 came back empty while `total` reported the true count. `query-skip-and-strict-bodies.test.js` guards that,
+    // through HTTP, because that is the layer where the window exists. A test at the wrong layer is worse than none — it
+    // reads like coverage.
+    const EXTRA = 120 - TOTAL;
+    for (let i = 0; i < EXTRA; i++) await memory.remember(SPACE, `deep record ${String(i).padStart(3, '0')}`, [], []);
+    const all = await mongo.col(`${SPACE}_memories`).countDocuments({});
+    assert.equal(all, 120, 'precondition: the fixture must exceed the 100-row window');
+
+    for (const s of [95, 100, 110, 119]) {
+      const rows = await query.queryBrain(SPACE, 'memories', {}, undefined, 5, 5000, s);
+      assert.ok(rows.length > 0, `skip=${s} returned nothing on a 120-row collection — the deep-page defect is back`);
+    }
+    assert.equal((await query.queryBrain(SPACE, 'memories', {}, undefined, 5, 5000, 120)).length, 0,
+      'and past the END is still empty, which is how a paging loop terminates');
+  });
+
+  it('the page size cap lives with the CALLERS now, not inside queryBrain', () => {
+    // The clamp used to be `.limit(Math.min(limit, 100))` inside queryBrain, which also bounded the proxy merge's
+    // internal fetch — that is what truncated deep pages to nothing. The routes cap the caller-facing page instead.
+    assert.equal(query.QUERY_PAGE_MAX, 100);
+    assert.ok(query.PROXY_PAGE_CEILING > query.QUERY_PAGE_MAX,
+      'a proxy page needs skip+limit per member, so its ceiling must exceed the per-page cap or deep pages break again');
+  });
+
   it('QUERY_BODY_FIELDS names skip, or the route would refuse the parameter it just gained', async () => {
     // The two halves of this fix have to agree: honouring `skip` while the strict body rejects it as unknown would turn
     // a silently ignored parameter into a 400 for the caller who reported it.

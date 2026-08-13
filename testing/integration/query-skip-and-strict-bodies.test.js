@@ -292,3 +292,64 @@ describe('the match TOTAL and a caller-chosen order, on both surfaces', () => {
     assert.match(JSON.stringify(r), /Sortable fields/);
   });
 });
+
+describe('paging PAST the window — the defect 2.8.0 shipped', () => {
+  // The route fetched a window capped at 100 and then sliced it at `skip`, so every page past row 100 came back EMPTY
+  // while `total` reported the true count. A caller sweeping a large collection stopped silently at 100.
+  //
+  // This has to run through HTTP. The same assertion against `queryBrain` directly PASSES on the broken code, because
+  // that function pushes `skip` to MongoDB and is correct at any depth — the window only ever existed in the route. I
+  // wrote that version first and the mutation test is what showed it guarded nothing.
+  const DEEP = `qdeep-${RUN}`;
+  const N = 120;
+
+  before(async () => {
+    await makeSpace(DEEP);
+    for (let i = 0; i < N; i++) {
+      const r = await post(INSTANCES.a, token, `/api/brain/spaces/${DEEP}/memories`, {
+        fact: `deep ${String(i).padStart(3, '0')} ${RUN}`,
+      });
+      assert.equal(r.status, 201, JSON.stringify(r.body));
+    }
+  });
+
+  const q = (body) => post(INSTANCES.a, token, `/api/brain/spaces/${DEEP}/query`, body);
+
+  it('reports the real total', async () => {
+    const r = await q({ collection: 'memories', filter: {}, limit: 5 });
+    assert.equal(r.body.total, N, 'the total must be the whole match, which is what made the empty pages contradictory');
+  });
+
+  it('returns rows past row 100', async () => {
+    for (const skip of [95, 100, 105, 119]) {
+      const r = await q({ collection: 'memories', filter: {}, limit: 5, skip });
+      assert.ok(r.body.results.length > 0,
+        `skip=${skip} returned nothing on a ${N}-row collection while total says ${r.body.total}`);
+    }
+  });
+
+  it('still tiles exactly across the boundary — no repeats, no gaps', async () => {
+    // A deep page that returns SOMETHING is not enough: it has to return the right something. 120 rows in pages of 25
+    // crosses the old window twice.
+    const seen = [];
+    for (let skip = 0; skip < N; skip += 25) {
+      const r = await q({ collection: 'memories', filter: {}, limit: 25, skip });
+      seen.push(...r.body.results.map(d => d._id));
+    }
+    assert.equal(seen.length, N, `expected ${N} rows across the pages, got ${seen.length}`);
+    assert.equal(new Set(seen).size, N, 'every row exactly once');
+  });
+
+  it('past the END is still empty, so a paging loop terminates', async () => {
+    const r = await q({ collection: 'memories', filter: {}, limit: 5, skip: N });
+    assert.deepEqual(r.body.results, []);
+    assert.equal(r.body.total, N, 'and the total still tells the caller where the end was');
+  });
+
+  it('caps the caller-facing page at 100 rather than refusing it', async () => {
+    const r = await q({ collection: 'memories', filter: {}, limit: 500 });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.results.length, 100, 'a page larger than the cap is clamped, not rejected');
+    assert.equal(r.body.limit, 100, 'and the applied limit is echoed so the caller knows it was clamped');
+  });
+});

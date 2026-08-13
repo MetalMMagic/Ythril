@@ -8,6 +8,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **The `reindex` tool told MCP callers to poll something MCP could not reach.** Its own description said the
+  job *"runs in the background and may take minutes, so poll `get_space_meta` or the REST reindex-status route
+  rather than waiting on this call"* — and `get_space_meta` did not carry the reindex state. `needsReindex` was
+  read by one route and by **no tool at all**, so a client with no HTTP door (Claude Desktop, any pure-MCP
+  agent) could start a multi-minute job and never learn it had finished.
+
+  Worse than a missing capability: a schema description is what a caller reads *while constructing arguments*,
+  and one that names a door the reader does not have is the same shape as `recall`'s filter description claiming
+  a post-filter — the wrong sentence was the one being read.
+  - `get_space_meta` and `GET /api/spaces/:id/meta` both report **`needsReindex`** now, `.some()` over the
+    member spaces exactly as `GET /reindex-status` computes it, so a proxy is `true` when any member is.
+  - The `reindex` description names that field instead of a route. The smaller of the two available fixes, and
+    the one that makes the existing sentence true rather than adding a second one.
+  - `GET /api/brain/spaces/:spaceId/reindex-status` is unchanged — this adds a field, it does not move a route.
+  - **Found by the capability × surface matrix**, not by a report: the generator put `reindex-status` in the
+    REST-only column, and reading why turned up the description pointing at it.
+
+### Added
+- **A gate on what a tool description may tell a caller to do.** `tool-descriptions-name-reachable-things.test.js`
+  fails when any of the 41 tool descriptions *directs* the reader to a REST route or a `curl`.
+  - It distinguishes **directing** from **describing**: `create_space` says *"Refusals match POST /api/spaces
+    exactly"*, which is a true parity statement useful to anyone holding both doors. `reindex` said *"poll … the
+    REST reindex-status route"*, which is an instruction half its callers cannot carry out. The check is
+    per-sentence, and a sentence about equivalence is allowed.
+  - Two false positives shaped it before it was right: the parity statement above, and `help` describing its own
+    contents (*"how to choose between query / recall … and the REST API map"*) — where a verb list containing
+    `query` swallowed a tool name. A gate that fires on correct prose gets deleted rather than obeyed.
+  - **Mutation-tested against the sentence that shipped**: restoring it turns the gate red and names `reindex`.
+
+### Fixed
 - **A truncated graph traversal was indistinguishable from a complete one.** `traverseRecallSeeds` ended with
   `collected.slice(0, limit)` and nothing in the response said the slice had happened, so `graphNodes: 7` at
   `topK: 1, traverse: 1` might be the whole neighbourhood or the first 7 of 40. `degraded` does not cover it —

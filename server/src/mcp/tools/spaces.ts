@@ -5,7 +5,7 @@ import { resolveMemberSpaces } from '../../spaces/proxy.js';
 import { memberSpacesWithin } from '../../spaces/proxy-scoped.js';
 import { WIPE_COLLECTION_TYPES, type WipeCollectionType, wipeSpace } from '../../spaces/lifecycle.js';
 import { updateSpace, spacePurpose } from '../../spaces/spaces.js';
-import { SPACE_PURPOSE_MAX } from '../../spaces/_shared.js';
+import { SPACE_PURPOSE_MAX, needsReindex } from '../../spaces/_shared.js';
 
 export const list_spacesTool: ToolHandler = {
   name: 'list_spaces',
@@ -91,7 +91,11 @@ export const get_statsTool: ToolHandler = {
 export const get_space_metaTool: ToolHandler = {
   name: 'get_space_meta',
   description:
-        'Returns the schema, purpose, usage notes, validation mode, and entry counts for this space. ' +
+        // Deliberately NOT the words "reindex state": `mcp-help.test.js` holds that a read-only token is never told
+        // the name of a tool it cannot call, and `reindex` is one. Naming the STATE rather than the repair is also
+        // the more useful sentence for a reader who cannot perform the repair — `needsReindex` still names the field.
+        'Returns the schema, purpose, usage notes, validation mode, entry counts and whether the stored '
+        + 'embeddings are stale (`needsReindex`) for this space. ' +
         'Call this before writing to an unfamiliar space to learn what entity types, edge labels, ' +
         'required properties, and naming patterns are expected.',
   spaceRequired: true,
@@ -133,6 +137,10 @@ export const get_space_metaTool: ToolHandler = {
         chrono: metaCounts.reduce((s, c) => s + c.chrono, 0),
         files: metaCounts.reduce((s, c) => s + c.files, 0),
       },
+      // The field `reindex`'s description has always told callers to poll for. It was only ever on the REST
+      // route, so an MCP-only client could START a multi-minute job and never learn it had finished. Same
+      // `.some()` over members the REST side uses: a proxy needs a reindex when any member does.
+      needsReindex: metaMemberIds.some(mid => needsReindex(mid)),
     };
     return {
       content: [{
@@ -463,7 +471,7 @@ export const reindexTool: ToolHandler = {
   name: 'reindex',
   description: 'Re-embed every record in a space with the currently configured embedding model — the recovery path '
     + 'after changing embedder or model. Requires an admin token. Returns as soon as the job STARTS: it runs in the '
-    + 'background and may take minutes, so poll `get_space_meta` or the REST reindex-status route rather than waiting '
+    + 'background and may take minutes, so poll `get_space_meta` — its `needsReindex` field — rather than waiting '
     + 'on this call. One job per instance at a time; a second call while one is running is refused. A PROXY space is '
     + 'refused by name — it has no index of its own, and its members are listed in the error so you can reindex them '
     + 'instead. Idempotent: re-embedding a record that is already current is harmless.',

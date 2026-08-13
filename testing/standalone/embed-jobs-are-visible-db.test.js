@@ -178,6 +178,32 @@ describe('the embed queue is readable and retryable (real MongoDB, no reachable 
     assert.ok(!JSON.stringify(listed).includes('super-secret-lease'));
   });
 
+  it('pages past the 200-row cap, so a reported failure is always reachable', async () => {
+    // `getEmbedJobCounts` aggregates EVERY job while the listing returns a page. Without `skip` a caller was told
+    // `failed: 250` and could never reach failure #201 — an accurate total beside an unreachable tail, on the one surface
+    // whose justification is that its failures are actionable.
+    //
+    // 250 rows, because the cap is 200: a fixture inside the cap cannot see this, which is exactly how the same defect
+    // shipped on `/query` behind tests that paged 12 and 25 rows.
+    const N = 250;
+    for (let i = 0; i < N; i++) await writeRecord(`bulk ${String(i).padStart(3, '0')}`);
+    assert.equal((await queue.getEmbedJobCounts(SPACE)).pending, N, 'precondition: the counts see all of them');
+
+    const seen = [];
+    for (let skip = 0; skip < N; skip += 100) {
+      const rows = await queue.listEmbedJobs(SPACE, { limit: 100, skip });
+      seen.push(...rows.map(r => r.recordId));
+    }
+    assert.equal(seen.length, N, `expected every job across the pages, got ${seen.length}`);
+    assert.equal(new Set(seen).size, N, 'and each exactly once — no repeats, no gaps across the cap boundary');
+  });
+
+  it('a page past the END is empty rather than the tail', async () => {
+    await writeRecord('only one');
+    assert.deepEqual(await queue.listEmbedJobs(SPACE, { limit: 10, skip: 5 }), [],
+      'returning the tail here would make a draining loop run for ever');
+  });
+
   it('a retry re-queues a failed job and clears what it failed with', async () => {
     const { id, jobId } = await writeRecord('retry me');
     await jobs().updateOne({ _id: jobId }, {

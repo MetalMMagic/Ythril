@@ -8,6 +8,7 @@ import { requireSpaceAuth, denyReadOnly } from '../../auth/middleware.js';
 import { summariseActivity } from '../../metrics/space-activity-store.js';
 import { globalRateLimit } from '../../rate-limit/middleware.js';
 import { parseSortParam, toMongoSort, SORTABLE_FIELDS } from '../../brain/list-sort.js';
+import { pageAcrossMembers } from '../../spaces/page-across-members.js';
 import { NotFoundError } from '../../util/errors.js';
 import { countMemories } from '../../brain/memory.js';
 import { getEmbedJobCounts } from '../../brain/embed-queue.js';
@@ -271,41 +272,26 @@ searchRouter.post('/spaces/:spaceId/query', globalRateLimit, requireSpaceAuth, a
   const order = sortParse.sort ? toMongoSort(sortParse.sort) : DEFAULT_QUERY_SORT;
 
   try {
-    // A SINGLE space pushes `skip` down to MongoDB, which is correct at any depth. Only a PROXY with several members
-    // needs the merge, and only then does a deep page cost a larger read.
-    //
-    // The previous version always merged, with the per-member fetch capped at 100 — so `skip: 100` sliced past the end of
-    // a 100-row window and returned NOTHING, on a collection whose `total` said 120. The tests tiled 12 and 25 rows, both
-    // entirely inside the window, so the suite was green over exactly the defect this route exists to prevent.
+    // One paging rule, shared with the embed-job listing. It used to be inline here, and being inline is how it shipped
+    // a window capped at 100 that sliced deep pages to nothing — see `spaces/page-across-members.ts`.
     const members = memberSpacesForRequest(req, spaceId);
-    let merged: unknown[];
+    const page = await pageAcrossMembers({
+      members,
+      limit: safeLimit,
+      skip: safeSkip,
+      ceiling: PROXY_PAGE_CEILING,
+      compare: compareBySort(order),
+      readMember: (mid, lim, sk) => queryBrain(
+        mid, collection as typeof validCollections[number],
+        safeFilter, safeProjection, lim, safeMaxTimeMS, sk, order,
+      ),
+    });
+    if (!page.ok) { res.status(400).json({ error: page.error }); return; }
+    const merged = page.rows;
+
     let total = 0;
-    if (members.length === 1) {
-      merged = await queryBrain(
-        members[0] as string, collection as typeof validCollections[number],
-        safeFilter, safeProjection, safeLimit, safeMaxTimeMS, safeSkip, order,
-      );
-      total = await countBrain(members[0] as string, collection as typeof validCollections[number], safeFilter, safeMaxTimeMS);
-    } else {
-      // Rows [skip, skip+limit) of the merged set need skip+limit from each member. Bounded, because a deep page on a
-      // fleet multiplies: a 400 naming the ceiling beats a silent empty page, which is the failure being fixed.
-      const window = safeSkip + safeLimit;
-      if (window > PROXY_PAGE_CEILING) {
-        res.status(400).json({
-          error: `skip + limit must not exceed ${PROXY_PAGE_CEILING} on a proxy space (got ${window}). `
-            + 'Page a member space directly for a deeper sweep.',
-        });
-        return;
-      }
-      const perMember: unknown[] = [];
-      for (const mid of members) {
-        perMember.push(...await queryBrain(
-          mid, collection as typeof validCollections[number],
-          safeFilter, safeProjection, window, safeMaxTimeMS, 0, order,
-        ));
-        total += await countBrain(mid, collection as typeof validCollections[number], safeFilter, safeMaxTimeMS);
-      }
-      merged = perMember.sort(compareBySort(order)).slice(safeSkip, safeSkip + safeLimit);
+    for (const mid of members) {
+      total += await countBrain(mid, collection as typeof validCollections[number], safeFilter, safeMaxTimeMS);
     }
     res.json({
       results: merged, collection,

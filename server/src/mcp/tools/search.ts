@@ -17,6 +17,7 @@ import {
 import { parseSortParam, toMongoSort, SORTABLE_FIELDS } from '../../brain/list-sort.js';
 import { type RecallKnowledgeType, type RecallResult, findSimilar, recall, recallGlobal } from '../../brain/recall.js';
 import { memberSpacesWithin } from '../../spaces/proxy-scoped.js';
+import { pageAcrossMembers } from '../../spaces/page-across-members.js';
 import { NotFoundError } from '../../util/errors.js';
 import { rankOf, mergeRecallResults } from '../../brain/recall-shape.js';
 
@@ -413,35 +414,22 @@ export const queryTool: ToolHandler = {
         ? (a['projection'] as Record<string, unknown>)
         : undefined;
 
-    // Same shape as the REST route, and for the same reason: a SINGLE space pushes `skip` to MongoDB, which is correct at
-    // any depth, and only a PROXY with several members needs the merge. The previous version always merged with the
-    // per-member fetch capped at 100, so `skip: 100` sliced past the end of the window and returned NOTHING while the
-    // total reported the true count.
-    // SCOPED, not `resolveMemberSpaces`: a token holding some of a proxy's members must read those and no others. The
-    // first version of this fix called the unscoped resolver and `proxy-fanout-inventory.test.js` caught it — that gate
-    // exists because flipping a proxy read to the full member list leaks records from every member with a well-formed 200.
+    // The SAME function the REST route pages with, not the same shape written twice.
     const members = memberSpacesWithin(callSpace, ctx.accessibleSpaces.map(sp => sp.id));
-    let docs: unknown[];
-    let total = 0;
     const coll = collName as 'memories' | 'entities' | 'edges' | 'chrono' | 'files';
-    if (members.length === 1) {
-      docs = await queryBrain(members[0] as string, coll, filter, projection, limit, maxTimeMS, skip, order);
-      total = await countBrain(members[0] as string, coll, filter, maxTimeMS);
-    } else {
-      const window = skip + limit;
-      if (window > PROXY_PAGE_CEILING) {
-        throw new Error(
-          `skip + limit must not exceed ${PROXY_PAGE_CEILING} on a proxy space (got ${window}). `
-          + 'Query a member space directly for a deeper sweep.',
-        );
-      }
-      const perMember: unknown[] = [];
-      for (const mid of members) {
-        perMember.push(...await queryBrain(mid, coll, filter, projection, window, maxTimeMS, 0, order));
-        total += await countBrain(mid, coll, filter, maxTimeMS);
-      }
-      docs = perMember.sort(compareBySort(order)).slice(skip, skip + limit);
-    }
+    const page = await pageAcrossMembers({
+      members,
+      limit,
+      skip,
+      ceiling: PROXY_PAGE_CEILING,
+      compare: compareBySort(order),
+      readMember: (mid, lim, sk) => queryBrain(mid, coll, filter, projection, lim, maxTimeMS, sk, order),
+    });
+    if (!page.ok) throw new Error(page.error);
+    const docs = page.rows;
+
+    let total = 0;
+    for (const mid of members) total += await countBrain(mid, coll, filter, maxTimeMS);
 
     // `structuredContent` carries the paging facts; `content` stays the bare array it has always been, so a client
     // parsing the text is unaffected. Without `total` a caller sweeping with `skip` cannot tell a short last page from a

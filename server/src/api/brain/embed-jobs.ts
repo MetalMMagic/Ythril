@@ -30,6 +30,11 @@ import { resolveWriteTarget } from '../../spaces/proxy.js';
 import {
   listEmbedJobs, getEmbedJobCounts, retryEmbedJob, EMBED_RECORD_TYPES, isEmbedRecordType,
 } from '../../brain/embed-queue.js';
+import { pageAcrossMembers } from '../../spaces/page-across-members.js';
+import { PROXY_PAGE_CEILING } from '../../brain/query.js';
+
+/** Page size when the caller names none. Matches `listEmbedJobs`'s own default, so one number governs. */
+const DEFAULT_JOB_PAGE = 50;
 import type { BrainEmbedJobDoc } from '../../config/types.js';
 
 export const embedJobsRouter = Router();
@@ -90,19 +95,47 @@ embedJobsRouter.get('/spaces/:spaceId/embedding-queue/records', globalRateLimit,
     limit = n;
   }
 
+  const rawSkip = req.query['skip'];
+  let skip = 0;
+  if (rawSkip !== undefined && rawSkip !== '') {
+    const n = Number(rawSkip);
+    if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) {
+      res.status(400).json({ error: 'skip must be a non-negative integer' });
+      return;
+    }
+    skip = n;
+  }
+
+  const members = memberSpacesForRequest(req, spaceId);
   const counts = { pending: 0, processing: 0, failed: 0 };
-  const jobs: ReturnType<typeof toWire>[] = [];
-  for (const mid of memberSpacesForRequest(req, spaceId)) {
+  for (const mid of members) {
     const c = await getEmbedJobCounts(mid);
     counts.pending += c.pending; counts.processing += c.processing; counts.failed += c.failed;
-    for (const j of await listEmbedJobs(mid, { ...(status ? { status } : {}), ...(limit ? { limit } : {}) })) {
-      jobs.push(toWire(j, mid));
-    }
   }
-  // Re-sorted after the merge, or a proxy space's page would be ordered by member and only then by time.
-  jobs.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0));
 
-  res.json({ counts, jobs: limit ? jobs.slice(0, limit) : jobs, ...(status ? { status } : {}) });
+  // `counts` aggregates EVERY job while the listing returns a page, so without `skip` a caller could be told
+  // `failed: 500` and never reach failure #201 — an accurate total beside an unreachable tail, on the one surface whose
+  // justification is that its failures are actionable. Same asymmetry that cost aigents a fabricated number on `/query`,
+  // and paged here by the same function rather than by the same shape written twice.
+  const effectiveLimit = limit ?? DEFAULT_JOB_PAGE;
+  const page = await pageAcrossMembers<ReturnType<typeof toWire>>({
+    members,
+    limit: effectiveLimit,
+    skip,
+    ceiling: PROXY_PAGE_CEILING,
+    // Newest-first by `updatedAt`, with `_id` breaking every tie so the order is TOTAL and the pages cannot overlap.
+    compare: (a, b) => (a.updatedAt === b.updatedAt
+      ? (a.recordId < b.recordId ? 1 : a.recordId > b.recordId ? -1 : 0)
+      : (a.updatedAt < b.updatedAt ? 1 : -1)),
+    readMember: async (mid, lim, sk) =>
+      (await listEmbedJobs(mid, { ...(status ? { status } : {}), limit: lim, skip: sk })).map(j => toWire(j, mid)),
+  });
+  if (!page.ok) { res.status(400).json({ error: page.error }); return; }
+
+  res.json({
+    counts, jobs: page.rows, limit: effectiveLimit, skip,
+    ...(status ? { status } : {}),
+  });
 });
 
 // POST /api/brain/spaces/:spaceId/embedding-queue/records/retry — re-queue ONE record's embed job.

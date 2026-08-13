@@ -260,3 +260,33 @@ describe('rights: reading the queue is knowledge:read, retrying is knowledge:wri
     assert.ok(r.status === 403 || r.status === 404, `a scoped token read another space's queue: ${r.status}`);
   });
 });
+
+describe('the listing pages, and echoes what it applied', () => {
+  // The queue is empty on this stack (the embedder works), so what HTTP can prove here is the CONTRACT: the parameters are
+  // accepted, refused correctly, and echoed. The tiling across the 200-row cap is asserted in
+  // `embed-jobs-are-visible-db.test.js`, where jobs can be made to fail — that is the only place a 250-job backlog exists.
+  it('echoes limit and skip', async () => {
+    const r = await listRest('?limit=5&skip=10');
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.limit, 5);
+    assert.equal(r.body.skip, 10);
+  });
+
+  it('defaults skip to 0 and reports it', async () => {
+    const r = await listRest();
+    assert.equal(r.body.skip, 0, 'a caller must be able to tell where the page started without guessing');
+  });
+
+  it('refuses a negative or fractional skip rather than reading it as 0', async () => {
+    for (const bad of ['-1', '2.5', 'lots']) {
+      assert.equal((await listRest(`?skip=${bad}`)).status, 400, `skip=${bad} was accepted`);
+    }
+  });
+
+  it('a skip past the end is an empty page, not the last one', async () => {
+    const r = await listRest('?skip=100000');
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.deepEqual(r.body.jobs, []);
+    assert.ok(r.body.counts, 'and the counts still come back, so the caller knows whether there was anything at all');
+  });
+});

@@ -157,7 +157,7 @@ Audit entries are recorded for all write operations and (when `logReads` is enab
 | Space | `space.create`, `space.update`, `space.delete`, `space.wipe`, `space.list` |
 | Token | `token.create`, `token.delete` |
 | Webhook | `webhook.create`, `webhook.update`, `webhook.delete`, `webhook.test` |
-| Brain | `brain.recall`, `brain.recall_global`, `brain.query`, `brain.find_similar`, `brain.stats`, `brain.bulk_write`, `brain.traverse` |
+| Brain | `brain.recall`, `brain.recall_global`, `brain.query`, `brain.find_similar`, `brain.stats`, `brain.er_model`, `brain.bulk_write`, `brain.traverse` |
 | Config | `config.reload` |
 | Audit | `audit.export` — taking a copy of the whole record. Logged even when `logReads` is off |
 | Auth | `auth.failed` (invalid or expired tokens on any endpoint) |

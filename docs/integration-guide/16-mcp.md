@@ -183,6 +183,7 @@ row survives its own tool being built, so the list cannot keep advertising a gap
 | `find_similar` | Find entries with high vector similarity to an existing entry by ID — no re-embedding step. Provide `space` to scope to one space, or omit it to search across all accessible spaces (like `recall`). Supports `traverse` (graph expansion). The legacy `crossSpace` flag is deprecated — omit `space` instead |
 | `get_stats` | Return counts of memories, entities, edges, chrono entries, and files |
 | `get_space_meta` | Return the full space schema definition, purpose, usage notes, stats, and `needsReindex` — the field to poll after `reindex`, which returns as soon as the job starts |
+| `er_model` | The space's entity-relationship model: which entity types actually exist, which edge labels connect which types, and the counts — inferred from the stored records as well as the declared schema. `get_space_meta` says what MAY exist; this says what DOES. Same output as [`GET /er-model`](04b-graph-api.md) |
 | `upsert_entity` | Create or update a named entity (with optional properties) |
 | `update_entity` | Update an existing entity by ID (name, type, description, tags, properties, `excludeFromVectorSearch`); supports `deleteFields` for field removal |
 | `delete_entity` | Delete an entity by ID. Refused when the space has `strictLinkage` and another record still references it — the same rule the REST route enforces. Face labels are unlabelled rather than blocking |

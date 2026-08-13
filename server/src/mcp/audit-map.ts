@@ -75,6 +75,10 @@ export const MCP_TOOL_OPERATIONS: Record<string, string | null> = {
   recall: 'brain.recall',
   traverse: 'brain.traverse',
   get_stats: 'brain.stats',
+  // Audited for the same reason `get_stats` is: it reports what a space CONTAINS — type names, edge labels
+  // and counts. The REST route was not audited while `stats` was, which was an asymmetry rather than a
+  // decision; both are now.
+  er_model: 'brain.er_model',
   list_chrono: 'chrono.list',
   list_spaces: 'space.list',
   list_dir: 'file.list',

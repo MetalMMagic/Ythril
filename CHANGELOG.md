@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`er_model` — the entity-relationship model reaches MCP.** `GET /api/brain/spaces/:spaceId/er-model` was
+  REST-only, and it answers the question an agent asks first: which entity types actually exist here, which edge
+  labels connect which of them, and how many of each. `get_space_meta` answers a different question — the
+  DECLARED schema, what may exist — so an MCP-only client could learn what a space permits and not what it
+  contains.
+  - **Found by the capability matrix**, which listed `GET /er-model` in the REST-only column. Second finding
+    from that generator, after the `reindex` description pointing at a route MCP cannot reach.
+  - A proxy space reports its members **separately**, exactly as the REST route does: merging counts for two
+    types that share a name across spaces would invent relationships that cannot exist, because an edge cannot
+    cross a space. The narrowing is `memberSpacesWithin`, the MCP half of the rule REST states with
+    `memberSpacesForRequest`.
+  - **The REST route is audited now too.** `brain.stats` was recorded and `er-model` was not, which was an
+    asymmetry rather than a decision — both report what a space contains. New operation: `brain.er_model`,
+    classified as a `read` for the per-space usage counters.
+  - Five gates had something to say and each was answered rather than adjusted: the audit map, the tool-count
+    tripwire, the read-only classification, the proxy fan-out conserved total (38 → 39), and the
+    activity classifier.
+  - Verified through both doors on one fixture — two entity types and an edge between them — asserting the two
+    responses are `deepEqual`, not merely both plausible.
+
 ### Fixed
 - **60 gates stripped block comments before line comments, so a `/*` inside a `//` comment blinded them.**
   `server/src/api/data.ts:281` reads `// Follow the symlink — useful for /mnt/* or volume-mount points`, and

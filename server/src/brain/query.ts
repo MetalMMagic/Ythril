@@ -111,6 +111,10 @@ export const RECALL_BODY_FIELDS: ReadonlySet<string> = new Set([
 
 export const FIND_SIMILAR_BODY_FIELDS: ReadonlySet<string> = new Set([
   'entryId', 'entryType', 'topK', 'minScore', 'targetTypes', 'crossSpace',
+  // `traverse` and `includeContent` were on the MCP tool's schema and read by its handler while this route read
+  // neither. Found by the gate that compares every declared surface against these sets, not by a report — the
+  // strict body turned a silently-ignored parameter into a 400, which is how it surfaced at all.
+  'traverse', 'includeContent',
 ]);
 
 /**

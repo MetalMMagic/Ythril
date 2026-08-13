@@ -52,12 +52,21 @@ const EXEMPT = {
     + 'an empty body would be a check that can only ever pass.',
 };
 
-/** Source with comments stripped, so a gate cannot pass on the comment that explains the fix. */
+/**
+ * Source with comments stripped, so a gate cannot pass on the comment that explains the fix.
+ *
+ * No `$`. The lines are split on `\n`, and on a Windows checkout each one still ends with `\r` — which `$`
+ * cannot match past without the `m` flag, so this function silently stripped NOTHING locally while working
+ * in CI, where the checkout is LF. Every other gate in this directory got away with `/(^|[^:])\/\/.*$/gm`,
+ * where `\r` counts as a line terminator; this one split first and dropped the flag.
+ *
+ * `.*` stops at `\r` on its own, so leaving the anchor off is both shorter and correct on either checkout.
+ */
 function stripComments(src) {
   return src
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .split('\n')
-    .map(l => l.replace(/(^|[^:])\/\/.*$/, '$1'))
+    .map(l => l.replace(/(^|[^:])\/\/.*/, '$1'))
     .join('\n');
 }
 
@@ -127,7 +136,11 @@ describe('brain read routes refuse unknown body keys', () => {
     //   const { a, b } = req.body ?? {}          — the destructure
     //   body['a'] / (req.body as X)['a']         — bracket access
     //   (req.body as { a?: unknown }).a          — cast-then-dot, which is how the two missed keys were read
-    const QUERY_SRC = readFileSync(join(ROOT, 'server', 'src', 'brain', 'query.ts'), 'utf8');
+    // `stripComments` here too, not only on the route file. The sets carry long comments explaining why each key is
+    // listed, and the member extraction below pairs single quotes — so one apostrophe in prose (`the MCP tool's
+    // schema`) pairs with the next real quote and swallows every key after it. That is exactly how this gate reported
+    // `traverse` and `includeContent` as missing from a set that listed them.
+    const QUERY_SRC = stripComments(readFileSync(join(ROOT, 'server', 'src', 'brain', 'query.ts'), 'utf8'));
     const missing = [];
 
     for (const { path, body } of postRoutes()) {

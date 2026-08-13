@@ -30,6 +30,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     place.
 
 ### Fixed
+- **`find_similar` accepted `traverse` and `includeContent` on MCP and refused them over REST.** The tool schema
+  advertised both and its handler implemented both; the REST route read neither, and the integration guide described the
+  gap as intended behaviour (*"the MCP tool ... adds `traverse`"*). A caller who read the tool schema and switched door
+  got a `400` for a documented parameter — and before the read bodies were made strict, got a `200` with an unexpanded
+  answer, which is why it survived this long.
+  - REST `/find-similar` now implements both, using recall's item shape, cap formula and `stripContentIfAsked` helper
+    rather than a second copy of them, so the two graph-augmented responses cannot drift.
+  - Bad values are refused rather than coerced, in recall's exact words: `traverse` must be an integer 0–5,
+    `includeContent` must be a boolean.
+  - **Found by a gate, not by a report.** The measurement that found it was wrong on its first run — `inputSchema` is a
+    function of the token-scoped schemas, and read as a literal it reports every REST field as missing from MCP, the
+    opposite of the truth. The gate now asserts the schema is materialised before comparing anything.
+- **The integration guide's accepted-fields table had drifted from what the routes enforce.** It still said *"there is no
+  `sort` on `/query`. It is refused rather than ignored"* after `sort` and `dir` had been added, so the authoritative
+  reference told integrators a working parameter would be rejected. The table is now compared against the enforced sets
+  by the same gate.
+
+### Added
+- **A gate that compares every declared surface against the one enforcement set.** `client-bodies-match-server.test.js`
+  takes the four strict brain read routes and checks the Angular client's request bodies, the MCP tool schemas and the
+  integration guide's table against `QUERY_BODY_FIELDS`, `RECALL_BODY_FIELDS`, `TRAVERSE_BODY_FIELDS` and
+  `FIND_SIMILAR_BODY_FIELDS`.
+  - Strictness moved the failure rather than removing it: an unknown key used to be a wrong answer with a `200`, and is
+    now a `400` in whatever is asking. The client's bodies were verified by hand and were correct — which is exactly when
+    to write the gate, because a hand-check does not survive the next edit to either side.
+  - The client call sites are DISCOVERED by sweeping the tracked sources for a POST to one of the four, so a component
+    posting directly instead of through `BrainApi` is covered the day it is written. A hand-maintained file list would
+    have shared the blind spot with the code it audits.
+  - It refuses to pass vacuously: an opaque body type (`Record<string, unknown>`, an index signature, a named interface
+    it cannot read) is a failure naming the file, and the routes are asserted BY NAME rather than by count.
+
+### Fixed
 - **The brain LIST endpoints report a `total`, refuse `offset`, and page a proxy space correctly.** aigents, 2026-08-13T1020Z
   (corrected 1036Z): they paged `/memories?limit=300&offset=N` in a loop and it never came back short. `offset` is not a
   parameter we have — the routes read `skip` — so it was accepted and ignored, every page was the same newest-300, and **67

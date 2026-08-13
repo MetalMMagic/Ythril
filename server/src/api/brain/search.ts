@@ -569,6 +569,29 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
     ? (body['targetTypes'] as unknown[]).filter((t): t is RecallKnowledgeType => typeof t === 'string' && VALID_ENTRY_TYPES.has(t))
     : undefined;
 
+  // `traverse` and `includeContent`: MCP `find_similar` has implemented both since it shipped — the tool schema
+  // advertises them and the handler reads them — while this route read neither. Same shape as the `includeContent`
+  // asymmetry an integrator reported on `recall`, one route over.
+  //
+  // Strictness is what made it visible: before the body was strict, sending `traverse: 2` here returned an unexpanded
+  // answer with a 200. It is a 400 now, which is better and still wrong — the parameter is supposed to work.
+  //
+  // Validated exactly as recall validates them, refusing rather than coercing, so the two routes cannot disagree
+  // about what a bad value is.
+  const traverseRaw = body['traverse'];
+  if (traverseRaw !== undefined
+    && (typeof traverseRaw !== 'number' || !Number.isInteger(traverseRaw) || traverseRaw < 0 || traverseRaw > MAX_RECALL_TRAVERSE)) {
+    res.status(400).json({ error: `traverse must be an integer between 0 and ${MAX_RECALL_TRAVERSE}` });
+    return;
+  }
+  const safeTraverse = typeof traverseRaw === 'number' ? traverseRaw : 0;
+  const includeContentRaw = body['includeContent'];
+  if (includeContentRaw !== undefined && typeof includeContentRaw !== 'boolean') {
+    res.status(400).json({ error: '`includeContent` must be a boolean' });
+    return;
+  }
+  const safeIncludeContent = includeContentRaw !== false;
+
   if (!entryId || !UUID_V4_RE.test(entryId)) {
     res.status(400).json({ error: 'entryId must be a valid UUID v4' });
     return;
@@ -597,7 +620,28 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
       minScore,
       crossSpaceIds,
     );
-    res.json(result);
+    if (safeTraverse === 0) {
+      res.json({ ...result, results: stripContentIfAsked(result.results, safeIncludeContent) });
+      return;
+    }
+
+    // Graph-augmented: expand the similar seeds along edges. Deliberately the SAME item shape, the same cap formula
+    // and the same helper recall's traverse uses — a caller who can read one response can read the other, and a
+    // second copy of the shape is how the two would drift.
+    const traverseSpaces = crossSpaceIds ?? [spaceId];
+    const totalCap = topK * (safeTraverse + 1) * 4;
+    const neighbours = await traverseRecallSeeds(
+      traverseSpaces,
+      result.results.map(r => ({ _id: r._id, spaceId: r.spaceId })),
+      safeTraverse,
+      Math.max(0, totalCap - result.results.length),
+    );
+    const items: RecallTraverseItem[] = [
+      ...stripContentIfAsked(result.results, safeIncludeContent)
+        .map(r => ({ score: r.score, source: 'recall' as const, hops: 0, path: [], spaceId: r.spaceId, type: r.type, record: r })),
+      ...neighbours.map(n => ({ score: null, source: 'traverse' as const, hops: n.hops, path: n.path, spaceId: n.spaceId, type: 'entity' as const, record: n.record })),
+    ];
+    res.json({ source: result.source, results: items, count: items.length, traverseDepth: safeTraverse });
   } catch (err: unknown) {
     if (err instanceof NotFoundError) {
       res.status(404).json({ error: err.message });

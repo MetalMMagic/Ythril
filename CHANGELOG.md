@@ -25,6 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `graphTruncated: true` with `graphComplete: {nodes, path, download, expiresAt}`.
   - The download is the ordinary **authenticated** `GET /api/files/:spaceId?path=…`. A URL that worked without
     the caller's token would be a way to read a space's records with no auth.
+  - The file is written to the space a **seed** came from, never to the space the call was addressed to. A
+    proxy space is a lens rather than a store — `resolveWriteTarget` refuses a write to one without an
+    explicit `targetSpace` — so addressing the spill at the request's space would have created a file tree
+    and a `{proxy}_files` record for a space meant to have neither. Caught auditing the spill against the
+    proxy rules before it merged.
   - A token with brain read but **no files read** gets a link it cannot fetch. It still learns the graph was
     short, which is the part that was invisible; the alternative — suppressing the spill for such a token —
     would hide the size as well as the file.

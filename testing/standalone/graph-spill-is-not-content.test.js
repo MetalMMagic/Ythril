@@ -137,6 +137,27 @@ describe('the constants say what the ruling said', () => {
       'the TTL sweep cascades a file record to its blob; a private sweeper would be a second copy of that');
   });
 
+  it('the file goes to a MEMBER space, never to the space the call was addressed to', () => {
+    // A proxy space is a lens, not a store: `resolveWriteTarget` refuses a write to one without an explicit
+    // `targetSpace` because it owns no files. Addressing the spill at the request's space would have created a
+    // tree and a `{proxy}_files` record for a space meant to have neither. A seed's `spaceId` is always a
+    // concrete member.
+    const spill = read('server/src/brain/graph-spill.ts');
+    assert.match(spill, /writeSpill\(seeds\[0\]!\.spaceId,/,
+      'the write space must come from a seed, not from a parameter a route can fill with a proxy id');
+    assert.ok(!/writeSpaceId/.test(spill),
+      'no caller-supplied write space — the routes had `spaceId` and `callSpace` to hand, and both can be a proxy');
+    for (const src of ['server/src/api/brain/search.ts', 'server/src/mcp/tools/search.ts']) {
+      const code = read(src);
+      const calls = [...code.matchAll(/buildGraphWithSpill\(([\s\S]{0,320}?)\);/g)].map(m => m[1]);
+      assert.equal(calls.length, 2, `${src}: expected two spill builds, found ${calls.length}`);
+      for (const args of calls) {
+        assert.ok(!/spaceId,\s*\)?\s*$/.test(args.trim()),
+          `${src} passes a space id to the builder again: ${args.trim().slice(-60)}`);
+      }
+    }
+  });
+
   it('the download link is the authenticated file route', () => {
     const spill = read('server/src/brain/graph-spill.ts');
     assert.match(spill, /\/api\/files\/\$\{encodeURIComponent\(spaceId\)\}\?path=/,

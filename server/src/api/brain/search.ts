@@ -517,7 +517,6 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
       seeds.map(s => ({ _id: s._id, spaceId: s.spaceId })),
       safeTraverse,
       Math.max(0, totalCap - seeds.length),
-      spaceId,
     );
     // The flag applies here too. A caller who asked not to be sent passage bodies did not stop meaning it
     // because they also asked for graph expansion — and an option that silently lapses on one code path is
@@ -632,7 +631,6 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
       result.results.map(r => ({ _id: r._id, spaceId: r.spaceId })),
       safeTraverse,
       Math.max(0, totalCap - result.results.length),
-      spaceId,
     );
     const items = stripContentIfAsked(result.results, safeIncludeContent).map(r => {
       const nested = graph.bySeed.get(r._id);

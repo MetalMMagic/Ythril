@@ -237,15 +237,13 @@ export const recallTool: ToolHandler = {
     // seed that reached it. The envelope is the non-traverse one plus `_graph`, so `count` keeps meaning
     // matches — it used to be matches plus neighbours, and `topK: 1` answered `count: 6`.
     const totalCap = topK * (traverse + 1) * 4;
-    // Same spill as REST, and the write goes to the space the call was ADDRESSED to — on a cross-space recall
-    // that is the connection's own space, never a member the caller only reaches through a proxy.
-    const spillSpace = callSpace || seeds[0]?.spaceId || traverseSpaces[0]!;
+    // Same spill as REST. The write space is chosen inside the builder, from a seed — `callSpace` can be a
+    // proxy, and a proxy space owns no file store.
     const { graph, spill } = await buildGraphWithSpill(
       traverseSpaces,
       seeds.map(s => ({ _id: s._id, spaceId: s.spaceId })),
       traverse,
       Math.max(0, totalCap - seeds.length),
-      spillSpace,
     );
     const results = seeds.map(r => {
       const nested = mapGraphNodes(graph.bySeed.get(r._id), entityDocToRecord);
@@ -359,7 +357,6 @@ export const find_similarTool: ToolHandler = {
       result.results.map(sd => ({ _id: sd._id, spaceId: sd.spaceId })),
       traverse,
       Math.max(0, totalCap - result.results.length),
-      usedBase,
     );
     const results = result.results.map(r => {
       const nested = mapGraphNodes(graph.bySeed.get(r._id), entityDocToRecord);

@@ -97,7 +97,6 @@ export async function buildGraphWithSpill(
   seeds: { _id: string; spaceId: string }[],
   maxDepth: number,
   inlineCap: number,
-  writeSpaceId: string,
 ): Promise<GraphWithSpill> {
   const seedIds = seeds.map(s => s._id);
   if (inlineCap < 1 || maxDepth < 1 || seeds.length === 0) {
@@ -114,7 +113,14 @@ export async function buildGraphWithSpill(
 
   const graph = nestNeighbours(flat.slice(0, inlineCap), seedIds);
   const complete = nestNeighbours(flat, seedIds);
-  const spill = await writeSpill(writeSpaceId, complete, flat.length, flat.length >= ceiling);
+  // The file goes to the space a SEED came from, never to the space the call was addressed to.
+  //
+  // A proxy space is a lens, not a store: `resolveWriteTarget` refuses a write to one without an explicit
+  // `targetSpace`, precisely because it owns no files of its own. Addressing the spill at the request's space
+  // would have created a file tree and a `{proxy}_files` record for a space that is supposed to have neither —
+  // and the download would then be served, or not, depending on how the merged listing resolved a path nobody
+  // put there. A seed's `spaceId` is always a concrete member, so taking it removes the whole question.
+  const spill = await writeSpill(seeds[0]!.spaceId, complete, flat.length, flat.length >= ceiling);
   return { graph, spill };
 }
 

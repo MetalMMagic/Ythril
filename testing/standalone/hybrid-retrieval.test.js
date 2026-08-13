@@ -202,7 +202,10 @@ describe('the behaviour change is documented where callers actually look', () =>
   // The user guide is a directory of chapters with a link-list index at the old path, so reading that
   // path alone would check the table of contents for a sentence that lives in a chapter.
   const userguide = readSplit('docs/userguide.md');
-  const help = readFileSync(new URL('../../server/src/mcp/tools/help.ts', import.meta.url), 'utf8');
+  // The authored prose moved to help-sections.ts when `help` gained its `query` parameter: one section list feeds both
+  // the full read and the searched read. This gate follows the TEXT, not the tool -- pointed at help.ts it would have
+  // gone green on a file that no longer contains a retrieval guide at all.
+  const help = readFileSync(new URL('../../server/src/mcp/tools/help-sections.ts', import.meta.url), 'utf8');
   const search = readFileSync(new URL('../../server/src/mcp/tools/search.ts', import.meta.url), 'utf8');
 
   it('the integration guide no longer claims results are ranked by vector similarity alone', () => {

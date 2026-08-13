@@ -18,6 +18,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Tested with a **250-job** fixture, because the cap is 200 and a fixture inside the cap cannot see this — exactly how the
     same defect shipped on `/query` behind tests that paged 12 and 25 rows. Mutation-tested by removing the `skip`.
 
+### Fixed
+- **`recall`'s filter description said the filter was applied AFTER vector search. It is not, and a customer designed
+  around the wrong sentence.** aigents, 2026-08-13T1035Z: they read it, believed it, and built a skill that deliberately
+  avoided filtered recall — on the sound reasoning that a record which does not rank inside `topK` would never reach a
+  post-filter, so an inbox built on recall could silently miss a message.
+  - **`help()` described the behaviour correctly at the same time.** Two of our surfaces stated opposite semantics, and the
+    wrong one was the one a caller reads *while constructing arguments* — which `help()` itself calls the authoritative
+    machine-readable reference. Their words: *"a stale sentence in a schema is invisible: nobody reports a capability they
+    were told they did not have."*
+  - The description now leads with the guarantee rather than the mechanism: **`topK` is filled from records that satisfy
+    the filter**, so nothing is dropped by `topK` — and names both paths, because they differ in mechanism and not in
+    outcome. Declared fields with `eq`/`in`/`gt`/`gte`/`lt`/`lte` become a native index pre-filter; an undeclared
+    `properties.*`, `exists` or `ne` scores the whole space and filters after.
+  - **My first correction was also wrong**, and only checking the REST guide caught it: *"selects the candidate set before
+    ranking"* is true of the indexed path and false of the exhaustive one. Replacing one inaccuracy with another, on the
+    sentence whose inaccuracy is the defect, would have been the worst available outcome.
+  - New gate `schema-descriptions-agree-with-help.test.js` refuses the specific claims we have been corrected on as literal
+    banned phrases, each naming the report that put it there, and asserts the schema and `help()` still agree on which
+    paths are indexed. Mutation-tested with the exact sentence they read.
+
 ## [2.8.1] — 2026-08-13
 
 ### Fixed

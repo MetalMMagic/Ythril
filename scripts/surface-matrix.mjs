@@ -254,6 +254,23 @@ for (const [a, list] of [...byArea].sort((x, y) => y[1].length - x[1].length)) {
 }
 
 writeFileSync(join(ROOT, 'todo/_matrix-capabilities.md'), out.join('\n'), 'utf8');
+
+/**
+ * The PUBLISHED table: capability, both doors, and the token level. No doc columns.
+ *
+ * An integrator cannot act on "which of our files mentions this" — that is our bookkeeping, and publishing it
+ * would also publish a `—` that means "our name-matcher missed it", which reads as a gap that is not there.
+ * What they can act on is: does this exist on my door, and what does my token need.
+ */
+const pub = [];
+pub.push('| capability | MCP tool | REST route | token needs |');
+pub.push('|---|---|---|---|');
+let pubArea = null;
+for (const r of rows) {
+  if (r.area !== pubArea) { pubArea = r.area; pub.push(`| **${pubArea}** | | | |`); }
+  pub.push(`| | \`${r.tool}\` | ${r.route ? `\`${r.route}\`` : '**MCP only**'} | ${rungCell(r)} |`);
+}
+writeFileSync(join(ROOT, 'todo/_matrix-published.md'), pub.join('\n'), 'utf8');
 writeFileSync(join(ROOT, 'todo/_matrix-rest-only.md'), rest.join('\n'), 'utf8');
 const rungMismatch = rows.filter(r => r.route && r.restRung && r.restRung !== 'exempt' && r.restRung !== r.mcpRung);
 const noRightsRow = rows.filter(r => r.route && r.restRung === null);

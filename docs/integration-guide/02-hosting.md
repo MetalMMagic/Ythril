@@ -769,9 +769,16 @@ moved. They are listed here so the consequence of going back is not a surprise:
 | `mediaEmbedding.enabled` → per-class `levels` | `enabled` | defaults it back to **`true`**: an instance where media embedding was deliberately **off** starts sending uploads to the vision and speech models again |
 | a space's `description` → `meta.purpose` | `description` | reads no space instructions, because the field it serves to MCP clients is gone |
 | `mediaEmbedding.faceRecognition.enabled` → the image ladder | `faceRecognition.enabled` | applies its own default for face recognition rather than the choice that was recorded |
+| every token gains a `rights` matrix | **nothing** | keeps working: it reads the legacy `admin`/`readOnly`/`spaces` fields, which are left in place |
 
-Each of those is silent in the old build — the field is simply absent, which reads as "never configured" rather
-than "removed".
+The first three are silent in the old build — the field is simply absent, which reads as "never configured"
+rather than "removed".
+
+**`tokens[].rights` is the exception, and the safe kind.** The upgrade derives a per-space rights matrix for every
+token from its legacy `admin`/`readOnly`/`spaces` fields and writes it down; it does **not** remove those fields.
+So an older build ignores the new one and enforces exactly what it did before, and a rollback needs no token work.
+It is listed here because the file changes shape and an operator reading `config.json` should know why, not
+because anything is lost.
 
 #### The procedure
 

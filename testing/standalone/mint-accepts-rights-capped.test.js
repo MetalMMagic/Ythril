@@ -67,9 +67,15 @@ describe('minting with a rights matrix', () => {
     // replace, so it would work, and work WRONGLY.
     assert.match(code, /createToken\(\{[^}]*rights/,
       'createToken is called without `rights`, so an accepted matrix is silently discarded');
-    const store = readFileSync(join(ROOT, 'server/src/auth/tokens.ts'), 'utf8');
-    assert.match(withoutComments(store), /opts\.rights \? \{ rights: opts\.rights \}/,
-      'createToken does not persist the matrix it was handed');
+    const store = withoutComments(readFileSync(join(ROOT, 'server/src/auth/tokens.ts'), 'utf8'));
+    // The PROPERTY: an explicitly supplied matrix is what gets stored. The old anchor was the conditional
+    // spread `opts.rights ? {rights} : {}`, which was removed on purpose — omitting the field left a newly
+    // minted token with NO matrix until the next boot, and `enforceAreaRung` passes when rights are absent.
+    // Demanding that spread back would demand the hole back.
+    assert.match(store, /rights: opts\.rights \?\?/,
+      'createToken must store the matrix it was handed, and derive one when it was not');
+    assert.match(store, /migrateToken\(\{/,
+      'and the fallback must be the shared derivation, not a local re-implementation');
   });
 
   it('the cap runs BEFORE anything is created', () => {

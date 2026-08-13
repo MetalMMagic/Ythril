@@ -5,7 +5,7 @@ import type { Config, SecretsFile, SchemaLibraryEntry, SchemaCatalog } from './t
 import { normalizeDocExtractionMode } from './types.js';
 import { resolveMasterSecret, isEnvelope, encryptEnvelope, decryptEnvelope } from './secretbox.js';
 import { envIntOpt } from './env-num.js';
-import { migrateToken } from '../auth/rights-migration.js';
+import { migrateTokenRightsOnBoot } from '../auth/backfill-token-rights.js';
 
 const CONFIG_PATH = process.env['CONFIG_PATH'] ?? '/config/config.json';
 const SECRETS_PATH = path.join(path.dirname(CONFIG_PATH), 'secrets.json');
@@ -195,21 +195,6 @@ export function configExists(): boolean {
  *
  * @returns true if it changed the config (caller persists).
  */
-/**
- * Give every token a `rights` object derived from its legacy fields, if it lacks one.
- *
- * Returns how many were filled, so a caller can log it and a test can assert the count rather than trusting
- * that the loop ran. In-memory only — see the call site for why this is not written to disk yet.
- */
-export function backfillTokenRights(config: Config): number {
-  let filled = 0;
-  for (const t of config.tokens ?? []) {
-    if (t.rights) continue;
-    t.rights = migrateToken(t) as unknown as typeof t.rights;
-    filled++;
-  }
-  return filled;
-}
 
 export function migrateMediaEmbeddingMasterSwitch(config: Config): boolean {
   const media = config.mediaEmbedding as (MediaEmbeddingConfig & { enabled?: boolean }) | undefined;
@@ -315,7 +300,7 @@ export function loadConfig(): Config {
   //
   // A boot migration is the right shape here at all only because tokens are LOCAL state — config.json does
   // not sync. Synced data must be migrated lazily and self-healingly instead.
-  backfillTokenRights(_config);
+  migrateTokenRightsOnBoot(_config);
 
   // Durable one-time migration of the removed media-embedding master switch (writes config.json once).
   if (migrateMediaEmbeddingMasterSwitch(_config)) {

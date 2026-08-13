@@ -74,8 +74,20 @@ describe('the sweep works before it is trusted', () => {
   it('each one actually persists, which is what makes it one-way', () => {
     // A migration that only adjusts the in-memory config is harmless to a rollback. It is `saveConfig` that
     // rewrites the file on disk, and that is what an older build then has to read.
+    //
+    // Counted in the loader AND in the modules it delegates to. `migrateTokenRightsOnBoot` lives in
+    // `auth/backfill-token-rights.ts` — it was moved out when persisting it pushed the loader past its
+    // god-file freeze — and it saves there. Counting only the loader body made this gate report three saves
+    // for four migrations and call the fourth non-persisting, which was the opposite of true.
     const body = loadConfigBody();
-    const saves = [...body.matchAll(/saveConfig\(_config\)/g)].length;
+    const delegated = [...LOADER.matchAll(/import \{ (migrate[A-Za-z0-9_]+) \} from '([^']+)'/g)]
+      .map(m => m[2].replace(/^\.\.?\//, '').replace(/\.js$/, '.ts'))
+      .map(rel => {
+        try { return read(`server/src/${rel}`); } catch { return ''; }
+      })
+      .join('\n');
+    const saves = [...body.matchAll(/saveConfig\(_config\)/g)].length
+      + [...delegated.matchAll(/persist\(config\)|saveConfig\(config\)/g)].length;
     const migrations = bootMigrations().length;
     // One save is not enough: a single `saveConfig` left behind while the others were removed satisfied a bare
     // `assert.match`, so the gate would have kept describing a hazard that only partly existed.
@@ -93,6 +105,10 @@ describe('every rewrite an upgrade performs is documented as one-way', () => {
       migrateMediaEmbeddingMasterSwitch: 'mediaEmbedding.enabled',
       migrateSpaceDescriptionToPurpose: 'description',
       migrateFaceRecognitionSwitch: 'faceRecognition.enabled',
+      // Writes a `rights` matrix onto every token that lacked one, so an older build reads tokens carrying a
+      // field it does not know. Harmless in itself — the legacy fields are left in place — but an operator
+      // rolling back needs to know the file changed shape.
+      migrateTokenRightsOnBoot: 'tokens[].rights',
     };
     const section = rollbackSection();
     const undocumented = [];

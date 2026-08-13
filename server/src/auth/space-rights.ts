@@ -59,6 +59,32 @@ export interface RouteRight {
  * most callers holding it also write, because the question at the gate is "may this call happen", not "who
  * usually makes it".
  */
+/**
+ * ## Why seven destructive rows ask for `write` rather than `admin`
+ *
+ * Owner ruling, 2026-08-13, after the difference was MEASURED rather than argued. A token carrying
+ * `rights.perSpace.general.knowledge = 'write'` was refused `DELETE /memories/:id` with
+ * `403 Token needs 'admin' on knowledge in space 'general'` — and deleted the same record through MCP
+ * `delete_memory` seconds later, because `mcp/router.ts` gates on the token's `readOnly`/`admin` FLAGS and never
+ * consults the rung. One rule, two implementations, and the weaker one silently in charge.
+ *
+ * The ruling was to level DOWN, not up: **`write` is the right rung for deleting a single record you could have
+ * created.** The rows are `/memories/:id`, `/entities/:id`, `/edges/:id`, `/chrono/:id`, the entity merge, `/bulk`,
+ * and `DELETE /api/files/:spaceId`.
+ *
+ * **What deliberately did NOT move:**
+ * - The **collection wipes** (`DELETE /memories`, `/entities`, `/edges`, `/chrono`) stay `admin`. Their MCP
+ *   counterpart `wipe_space` is `admin: true`, so those two doors already agree — and emptying a collection is not
+ *   the same act as deleting a row.
+ * - `DELETE /api/brain/spaces/:spaceId/files` (the file-META record) stays `admin`. No tool mirrors it, so
+ *   lowering it would weaken a door for parity with nothing.
+ * - `update_space_schema` remains the one known difference in the OTHER direction: REST asks `schema: write`,
+ *   the tool is `admin: true`. MCP being stricter is safe, and levelling it down is a separate decision about
+ *   schema authoring rather than about deletes. `surface-matrix.mjs` still reports it.
+ *
+ * A directory delete goes through the same `DELETE /api/files/:spaceId` row and therefore also becomes `write` —
+ * it keeps its own `{confirm: true}` body requirement, which is the guard that made this acceptable.
+ */
 export const ROUTE_RIGHTS: readonly RouteRight[] = [
   // ── Knowledge ────────────────────────────────────────────────────────────────────────────────────────
   { route: '/api/brain/spaces/:spaceId/recall', method: 'POST', area: 'knowledge', needs: 'read', scope: 'path' },
@@ -73,29 +99,29 @@ export const ROUTE_RIGHTS: readonly RouteRight[] = [
   { route: '/api/brain/spaces/:spaceId/memories', method: 'POST', area: 'knowledge', needs: 'write', scope: 'path' },
   { route: '/api/brain/spaces/:spaceId/memories/:id', method: 'GET', area: 'knowledge', needs: 'read', scope: 'path' },
   { route: '/api/brain/spaces/:spaceId/memories/:id', method: 'PATCH', area: 'knowledge', needs: 'write', scope: 'path' },
-  { route: '/api/brain/spaces/:spaceId/memories/:id', method: 'DELETE', area: 'knowledge', needs: 'admin', scope: 'path' },
+  { route: '/api/brain/spaces/:spaceId/memories/:id', method: 'DELETE', area: 'knowledge', needs: 'write', scope: 'path' },
   { route: '/api/brain/spaces/:spaceId/entities', method: 'GET', area: 'knowledge', needs: 'read', scope: 'path' },
   { route: '/api/brain/spaces/:spaceId/entities', method: 'POST', area: 'knowledge', needs: 'write', scope: 'path' },
   { route: '/api/brain/spaces/:spaceId/entities/by-ids', method: 'GET', area: 'knowledge', needs: 'read', scope: 'path' },
   { route: '/api/brain/spaces/:spaceId/entities/by-name', method: 'GET', area: 'knowledge', needs: 'read', scope: 'path' },
   { route: '/api/brain/spaces/:spaceId/entities/:id', method: 'GET', area: 'knowledge', needs: 'read', scope: 'path' },
   { route: '/api/brain/spaces/:spaceId/entities/:id', method: 'PATCH', area: 'knowledge', needs: 'write', scope: 'path' },
-  { route: '/api/brain/spaces/:spaceId/entities/:id', method: 'DELETE', area: 'knowledge', needs: 'admin', scope: 'path' },
+  { route: '/api/brain/spaces/:spaceId/entities/:id', method: 'DELETE', area: 'knowledge', needs: 'write', scope: 'path' },
   // A merge DESTROYS one of the two records, so it is admin even though each half looks like an edit.
-  { route: '/api/brain/spaces/:spaceId/entities/:survivorId/merge/:absorbedId', method: 'POST', area: 'knowledge', needs: 'admin', scope: 'path' },
+  { route: '/api/brain/spaces/:spaceId/entities/:survivorId/merge/:absorbedId', method: 'POST', area: 'knowledge', needs: 'write', scope: 'path' },
   { route: '/api/brain/spaces/:spaceId/edges', method: 'GET', area: 'knowledge', needs: 'read', scope: 'path' },
   { route: '/api/brain/spaces/:spaceId/edges', method: 'POST', area: 'knowledge', needs: 'write', scope: 'path' },
   { route: '/api/brain/spaces/:spaceId/edges/:id', method: 'GET', area: 'knowledge', needs: 'read', scope: 'path' },
   { route: '/api/brain/spaces/:spaceId/edges/:id', method: 'PATCH', area: 'knowledge', needs: 'write', scope: 'path' },
-  { route: '/api/brain/spaces/:spaceId/edges/:id', method: 'DELETE', area: 'knowledge', needs: 'admin', scope: 'path' },
+  { route: '/api/brain/spaces/:spaceId/edges/:id', method: 'DELETE', area: 'knowledge', needs: 'write', scope: 'path' },
   { route: '/api/brain/spaces/:spaceId/chrono', method: 'GET', area: 'knowledge', needs: 'read', scope: 'path' },
   { route: '/api/brain/spaces/:spaceId/chrono', method: 'POST', area: 'knowledge', needs: 'write', scope: 'path' },
   { route: '/api/brain/spaces/:spaceId/chrono/:id', method: 'GET', area: 'knowledge', needs: 'read', scope: 'path' },
   { route: '/api/brain/spaces/:spaceId/chrono/:id', method: 'PATCH', area: 'knowledge', needs: 'write', scope: 'path' },
-  { route: '/api/brain/spaces/:spaceId/chrono/:id', method: 'DELETE', area: 'knowledge', needs: 'admin', scope: 'path' },
+  { route: '/api/brain/spaces/:spaceId/chrono/:id', method: 'DELETE', area: 'knowledge', needs: 'write', scope: 'path' },
   // `bulk` can create OR delete, so it takes the higher rung of what it can do rather than of what it is
   // usually used for. A bulk endpoint gated at `write` is a delete endpoint with a friendly name.
-  { route: '/api/brain/spaces/:spaceId/bulk', method: 'POST', area: 'knowledge', needs: 'admin', scope: 'path' },
+  { route: '/api/brain/spaces/:spaceId/bulk', method: 'POST', area: 'knowledge', needs: 'write', scope: 'path' },
   // COLLECTION-level deletes. Every one of these empties a whole record type in the space, and not one was
   // in the first draft of this list — the gate found them. They are the single most destructive thing in the
   // area and would have been the least governed.
@@ -130,7 +156,7 @@ export const ROUTE_RIGHTS: readonly RouteRight[] = [
   // `DELETE` is `admin` to match `DELETE /api/brain/spaces/:spaceId/files`: deleting a directory takes the tree
   // with it, and the metadata half of the same operation has always been the highest rung. `PATCH` (move/rename)
   // and `retry_embedding` (re-queues a file's embedding) are `write`.
-  { route: '/api/files/:spaceId', method: 'DELETE', area: 'files', needs: 'admin', scope: 'path' },
+  { route: '/api/files/:spaceId', method: 'DELETE', area: 'files', needs: 'write', scope: 'path' },
   { route: '/api/files/:spaceId', method: 'PATCH', area: 'files', needs: 'write', scope: 'path' },
   { route: '/api/files/:spaceId/retry_embedding', method: 'POST', area: 'files', needs: 'write', scope: 'path' },
 

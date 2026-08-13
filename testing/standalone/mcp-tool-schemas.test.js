@@ -31,7 +31,12 @@ describe('MCP tool schemas — universal invariants', () => {
     // carries its row.
     // 38 -> 39: `reindex`, the LAST row of the capability map. Prerequisites done — audit mapping, readOnly
     // classification, docs row.
-    assert.equal(ALL_TOOLS.length, 39);
+    // 39 -> 41: `list_embed_jobs` + `retry_record_embedding`, the brain-record half of the embed queue. These are the
+    // first pair to arrive WITH their REST route rather than after it, which is the whole point — the capability map
+    // was five rows long because five routes shipped alone. Prerequisites done for both: `retry_record_embedding` maps
+    // to `brain.retry_embedding` and is listed among the tools a readOnly token cannot see, `list_embed_jobs` is
+    // read-only and deliberately visible to a readOnly token, and `16-mcp.md` carries a row for each.
+    assert.equal(ALL_TOOLS.length, 41);
   });
 
   it('every tool advertises a closed object schema (type:object, additionalProperties:false)', () => {

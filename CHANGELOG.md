@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **You can now see which brain records have no vector, and re-embed one — over REST *and* MCP.** A brain record whose
+  embedding fails is **stored**, and a persisted job carries the failure per record with `attempts`, `lastError` and a
+  terminal `failed` status after the attempt budget. None of that was reachable from outside: files had a listable queue
+  and a retry endpoint, brain records had the state and no endpoint. So *"which of my records have no vector"* could not
+  be answered even though the server knew — and a record without a vector is **invisible to `recall` and to `query`'s
+  semantic path**, which from a caller's seat is indistinguishable from the record having been dropped.
+  - `GET /api/brain/spaces/:spaceId/embedding-queue/records` — counts plus the jobs, newest-first, filterable by
+    `status`. Requires `knowledge: read`, deliberately readable by a token that cannot write: an operator who cannot fix
+    the queue still needs to see it.
+  - `POST /api/brain/spaces/:spaceId/embedding-queue/records/retry` — re-queue **one** record by `recordType` +
+    `recordId`. `202 ok`, `200 processing` (a worker holds it; left alone rather than reset, so a run in progress is not
+    interrupted), `404 not_found`. Audited as `brain.retry_embedding`, because a successful retry clears `lastError` and
+    the audit snapshot is then the only place the original failure survives.
+  - New MCP tools `list_embed_jobs` and `retry_record_embedding`, shipped **in the same commit as the routes**. The five
+    REST-only capabilities breituai-platform reported were all REST-only for the same reason — a route shipped and its
+    tool never followed, five times — so `REST_ONLY_CAPABILITIES` does not gain a sixth row.
+  - Per record rather than "retry all failed" (the media queue's shape): a brain record's failure is usually about *that
+    record*, where a media failure is usually about the worker. For a whole space, `POST /reindex` already exists.
+  - It nests under the existing `embedding-queue` rather than taking a name of its own. Two sibling top-level names would
+    have left a caller guessing which half of the same subsystem each one meant; the URL now says it.
+- **`listEmbedJobs` / `retryEmbedJob` in `brain/embed-queue.ts`** — the queue's read and retry paths, called by both
+  surfaces. `retryEmbedJob` is deliberately **not** `enqueueEmbedJob`: that one exists for a new write and resets the
+  content-derived fields with it, which would claim the record had changed when only the operator's patience had.
+
 - **A memory's `type` is now editable in the UI — in the create form and the record drawer.** The memories tab has
   sorted and filtered by `type` since #836, and nothing could write one: not the create form, not the drawer. So the
   column and its filter operated on a field only the API and MCP could set.
@@ -326,6 +350,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     says the endpoint list is unavailable. A tooltip must not take the editor with it.
 
 ### Changed
+- **`limit: 0` on an embed-job listing returns the default page, not one row.** `Math.max(n, 1)` would answer a caller
+  who computed `limit: 0` with a single row, and one row out of a hundred failures reads as a nearly empty queue — a
+  wrong answer that looks like a right one. The REST route rejects it as a `400` outright.
 - **BREAKING: a record's id is server-generated. A caller can no longer choose one.** Owner ruling: *"we do not
   accept custom ids … id is id."*
   - `create_chrono`, `remember`, `upsert_entity` and `bulk_write` used to **adopt** a supplied id when it named

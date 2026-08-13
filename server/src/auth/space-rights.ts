@@ -115,6 +115,10 @@ export const ROUTE_RIGHTS: readonly RouteRight[] = [
   { route: '/api/brain/spaces/:spaceId/files/extract', method: 'GET', area: 'files', needs: 'read', scope: 'path' },
   { route: '/api/brain/spaces/:spaceId/embedding-queue', method: 'GET', area: 'files', needs: 'read', scope: 'path' },
   { route: '/api/brain/spaces/:spaceId/embedding-queue/retry-failed', method: 'POST', area: 'files', needs: 'write', scope: 'path' },
+  // The RECORD half of the queue is `knowledge`, not `files`: it reports on memories, entities, edges and chrono.
+  // A files-only token can read the media queue and must not read a listing of knowledge record ids.
+  { route: '/api/brain/spaces/:spaceId/embedding-queue/records', method: 'GET', area: 'knowledge', needs: 'read', scope: 'path' },
+  { route: '/api/brain/spaces/:spaceId/embedding-queue/records/retry', method: 'POST', area: 'knowledge', needs: 'write', scope: 'path' },
   { route: '/api/brain/spaces/:spaceId/files', method: 'PATCH', area: 'files', needs: 'write', scope: 'path' },
   { route: '/api/brain/spaces/:spaceId/files', method: 'DELETE', area: 'files', needs: 'admin', scope: 'path' },
   { route: '/api/files/:spaceId/mkdir', method: 'POST', area: 'files', needs: 'write', scope: 'path' },

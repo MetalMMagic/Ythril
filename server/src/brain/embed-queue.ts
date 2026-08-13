@@ -268,6 +268,92 @@ export async function getEmbedJobCounts(
   return out;
 }
 
+/**
+ * The record types the queue accepts, as a VALUE — the type union alone cannot validate an incoming string, and every
+ * caller that needed to check one was writing its own list. `file` is in here because file CHUNKS are embedded through
+ * this same queue; the media pipeline that produces them has its own separate job queue.
+ */
+export const EMBED_RECORD_TYPES = ['memory', 'entity', 'edge', 'chrono', 'file'] as const;
+
+/** Narrowing guard, so a route can reject an unknown type instead of enqueueing a job nothing will ever claim. */
+export function isEmbedRecordType(v: unknown): v is BrainEmbedRecordType {
+  return typeof v === 'string' && (EMBED_RECORD_TYPES as readonly string[]).includes(v);
+}
+
+/**
+ * The queue state, READABLE from outside — the surface B-3 is about.
+ *
+ * breituai-platform, 2026-08-11T1200Z, read our 2.5.1 note and concluded that a brain record written while the embedder
+ * was unreachable is silently dropped. Half wrong, and better than they feared: the record is stored and a persisted job
+ * records the failure per record, with `attempts`, `lastError` and a terminal `failed` status. It is unfindable until the
+ * vector lands, but it is not invisible.
+ *
+ * **What was genuinely missing is exactly this: nothing exposed it.** Files have a listable status and a retry endpoint;
+ * brain records had the state and no way to ask. So *"which of my records have no vector"* was unanswerable from
+ * outside even though the server knew — which is indistinguishable, from a caller's seat, from the data loss they
+ * described.
+ *
+ * Ordered newest-first by `updatedAt`: a caller triaging failures wants the ones that just broke, and a queue drains
+ * from the front so the oldest pending are the least interesting.
+ */
+export async function listEmbedJobs(
+  spaceId: string,
+  opts: { status?: 'pending' | 'processing' | 'failed'; limit?: number } = {},
+): Promise<BrainEmbedJobDoc[]> {
+  // A non-positive or non-numeric limit falls back to the DEFAULT rather than being clamped up to 1. `Math.max(n, 1)`
+  // would answer a caller who computed `limit: 0` with a single row, and one row out of a hundred failures reads as a
+  // nearly empty queue — a wrong answer that looks like a right one. 200 is the ceiling either way.
+  const asked = Number(opts.limit);
+  const limit = Number.isFinite(asked) && asked >= 1 ? Math.min(Math.floor(asked), 200) : 50;
+  const filter = opts.status ? { status: opts.status } : {};
+  return await jobs(spaceId)
+    .find(asFilter<BrainEmbedJobDoc>(filter), { projection: { claimToken: 0 } })
+    .sort({ updatedAt: -1 })
+    .limit(limit)
+    .toArray() as BrainEmbedJobDoc[];
+}
+
+/**
+ * Re-queue one record's embed job. The brain counterpart of the media queue's `retryJob`, with the same three outcomes
+ * and the same reasoning for each.
+ *
+ * `processing` is NOT an error and NOT retried: a worker already holds the job, and resetting it would take the work
+ * away from a run in progress. `not_found` means no job exists — either it never failed, or the record is gone.
+ *
+ * Deliberately NOT `enqueueEmbedJob`. That function exists for a NEW WRITE and resets the content-derived fields with
+ * it; calling it here would claim the record had changed when only the operator's patience had.
+ */
+export async function retryEmbedJob(
+  spaceId: string,
+  recordType: BrainEmbedRecordType,
+  recordId: string,
+): Promise<'ok' | 'not_found' | 'processing'> {
+  const _id = embedJobId(recordType, recordId);
+  const existing = await jobs(spaceId).findOne(asFilter<BrainEmbedJobDoc>({ _id })) as BrainEmbedJobDoc | null;
+  if (!existing) return 'not_found';
+  if (existing.status === 'processing') return 'processing';
+
+  const now = new Date().toISOString();
+  await jobs(spaceId).updateOne(
+    asFilter<BrainEmbedJobDoc>({ _id }),
+    asUpdate<BrainEmbedJobDoc>({
+      $set: {
+        status: 'pending',
+        attempts: 0,
+        lastError: null,
+        claimedAt: null,
+        claimableAfter: null,
+        claimToken: null,
+        progressAt: null,
+        updatedAt: now,
+      },
+    }),
+  );
+  // A retry is only useful if something picks it up; without this the job sits pending until the next poll.
+  wakeEmbedWorkers();
+  return 'ok';
+}
+
 // ── Worker wake-up, re-exported so callers do not reach into the signal ──────
 
 export const currentEmbedWorkEpoch = (): number => _signal.currentEpoch();

@@ -41,7 +41,7 @@ On connect, the server sends global instructions listing all available space IDs
 
 ### Read-Only Tokens
 
-When connecting with a `readOnly` token, mutating tools (`remember`, `update_memory`, `delete_memory`, `upsert_entity`, `update_entity`, `delete_entity`, `merge_entities`, `upsert_edge`, `update_edge`, `delete_edge`, `create_chrono`, `update_chrono`, `delete_chrono`, `bulk_write`, `write_file`, `delete_file`, `create_dir`, `move_file`, `retry_embedding`, `sync_now`, `update_space`, `update_space_schema`, `create_space`, `reindex`, `wipe_space`) are **hidden** from `tools/list` and rejected with an error if called directly. Read-only tools (`help`, `recall`, `find_similar`, `query`, `get_stats`, `get_space_meta`, `list_spaces`, `find_entities_by_name`, `list_chrono`, `read_file`, `list_dir`, `traverse`) work normally. `list_tokens` is read-only but **admin-gated**, like `list_peers`. `list_peers` is read-only but **admin-gated** — see the admin-only note below.
+When connecting with a `readOnly` token, mutating tools (`remember`, `update_memory`, `delete_memory`, `upsert_entity`, `update_entity`, `delete_entity`, `merge_entities`, `upsert_edge`, `update_edge`, `delete_edge`, `create_chrono`, `update_chrono`, `delete_chrono`, `bulk_write`, `write_file`, `delete_file`, `create_dir`, `move_file`, `retry_embedding`, `retry_record_embedding`, `sync_now`, `update_space`, `update_space_schema`, `create_space`, `reindex`, `wipe_space`) are **hidden** from `tools/list` and rejected with an error if called directly. Read-only tools (`help`, `recall`, `find_similar`, `query`, `get_stats`, `get_space_meta`, `list_spaces`, `find_entities_by_name`, `list_chrono`, `read_file`, `list_dir`, `traverse`, `list_embed_jobs`) work normally. `list_tokens` is read-only but **admin-gated**, like `list_peers`. `list_peers` is read-only but **admin-gated** — see the admin-only note below.
 
 ### Connecting
 
@@ -203,6 +203,8 @@ row survives its own tool being built, so the list cannot keep advertising a gap
 | `delete_file` | Delete a file |
 | `list_tokens` | List the instance API tokens — names, prefixes, expiry, rights. **Admin only.** Never includes a secret or its hash |
 | `retry_embedding` | Re-queue a file whose media embedding failed or was skipped. Returns `processing` unchanged when the worker already holds it |
+| `list_embed_jobs` | List brain records whose embedding is pending, processing or **failed**, with `attempts` and `lastError` for each, plus counts. This is how you tell *"the record is missing"* from *"the record has no vector yet"*: a record with an unfinished job is stored but not yet findable by `recall`/`query`. Filter with `status`; omit it for the whole backlog. Read-only, so a `readOnly` token can still diagnose a stalled queue |
+| `retry_record_embedding` | Re-queue ONE brain record whose embedding failed, by `recordType` + `recordId` from `list_embed_jobs`. Resets the job to pending and clears its attempt count and last error. Returns `processing` unchanged when the worker already holds it. For files use `retry_embedding` — that re-runs the media pipeline, this only re-embeds |
 | `create_dir` | Create a directory |
 | `move_file` | Move or rename a file/directory |
 | `update_space` | Update space label and/or purpose (admin only). In a networked space a purpose change opens a meta vote rather than applying at once |

@@ -191,6 +191,99 @@ discovering this by trying.
 > or if the database search process was not ready when the instance started. Reindexing every record
 > in the space will not create it. Use the rebuild endpoint below.
 
+### Vectorless records — the embed queue for brain records
+
+A brain record is written and its vector is computed **after** the response. If the embedder is unreachable or the text
+chokes it, the record is **stored** and a job records the failure — it is not dropped. But a record without a vector is
+**invisible to `recall` and to `query`'s semantic path**: the vector search cannot return it, and the lexical fallback
+needs an embedding to score. These two endpoints are how you find those records and get them embedded.
+
+This is the **record** half of the queue. `GET /embedding-queue` (without `/records`) is the **media** half — file chunks
+from the conversion pipeline. They are separate collections with separate workers.
+
+```http
+GET /api/brain/spaces/:spaceId/embedding-queue/records
+```
+
+| Query param | Description |
+|-------------|-------------|
+| `status` | `pending`, `processing`, or `failed`. Omit for all three. An unknown value is a `400`, never a silently ignored filter |
+| `limit` | Default `50`, max `200`. `0`, a negative, or a non-integer is a `400` |
+
+**Response** `200`:
+
+```json
+{
+  "counts": { "pending": 2, "processing": 0, "failed": 1 },
+  "jobs": [
+    {
+      "recordType": "memory",
+      "recordId": "3f2c…",
+      "spaceId": "general",
+      "status": "failed",
+      "attempts": 5,
+      "maxAttempts": 5,
+      "lastError": "embedding model unreachable",
+      "createdAt": "2026-08-13T09:12:04.311Z",
+      "updatedAt": "2026-08-13T09:18:47.902Z"
+    }
+  ]
+}
+```
+
+Newest-first by `updatedAt`. `attempts === maxAttempts` with `status: "failed"` means the queue has **given up** — it
+will not retry on its own, and the record stays unfindable until you retry it or rewrite it. Each row carries its own
+`spaceId`, which for a **proxy space** is the member space the record actually lives in — that is the space to retry it
+in. `counts` is returned whether or not you filtered, so a caller can filter to `failed` and still see the whole picture.
+
+Requires `knowledge: read`. Deliberately readable by a token that cannot write: an operator who cannot fix the queue
+still needs to be able to see it.
+
+---
+
+### Retry one record's embedding
+
+```http
+POST /api/brain/spaces/:spaceId/embedding-queue/records/retry
+```
+
+```json
+{ "recordType": "memory", "recordId": "3f2c…" }
+```
+
+| Field | Description |
+|-------|-------------|
+| `recordType` | `memory`, `entity`, `edge`, `chrono`, or `file`. Anything else is a `400` |
+| `recordId` | The record's `_id`, as the listing reports it. Required |
+| `targetSpace` | Required when `:spaceId` is a **proxy** space: the member space holding the record |
+
+Resets the job to `pending`, clears `attempts` and `lastError`, and wakes the worker. The record's stored text is
+untouched — this re-embeds what is already there rather than re-writing it.
+
+**Response** `202`:
+
+```json
+{ "result": "ok", "recordType": "memory", "recordId": "3f2c…", "spaceId": "general" }
+```
+
+| `result` | Status | Meaning |
+|---|---|---|
+| `ok` | `202` | Re-queued. The worker will pick it up; it has not embedded yet |
+| `processing` | `200` | A worker already holds this job. **Left alone** rather than reset, so the run in progress is not interrupted. Not an error |
+| `not_found` | `404` | No job for that record — either it embedded successfully, or the record is gone |
+
+Per record rather than "retry all failed": a brain record's failure is usually about *that record* (an oversized fact, a
+property the embedder choked on), where a media failure is usually about the worker. Retrying a thousand records that
+will each fail again hides the problem. If a whole space needs re-embedding — after changing the embedding model, for
+instance — use [Reindex Space](#reindex-space) instead.
+
+Requires `knowledge: write`. Audited as `brain.retry_embedding`, with the failure it was retried from in the snapshot: a
+successful retry clears `lastError`, so the audit entry is the only place the original reason survives.
+
+Both endpoints are also MCP tools — `list_embed_jobs` and `retry_record_embedding`. See [MCP](16-mcp.md).
+
+---
+
 ### Reset a space's recorded usage
 
 ```http

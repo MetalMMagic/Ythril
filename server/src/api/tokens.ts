@@ -7,6 +7,7 @@ import { isMfaEnabled, verifyMfaCode } from '../auth/totp.js';
 import { z } from 'zod';
 import { SPACE_AREAS, RUNGS } from '../config/rights-shape.js';
 import { ROUTE_RIGHTS } from '../auth/space-rights.js';
+import { refusalsOutsideEditorScope } from '../auth/editor-scope.js';
 import { capRights, describeExcess } from '../auth/mint-cap.js';
 import { refuseSelfFloorRaise } from '../auth/floor-guard.js';
 import { migrateToken } from '../auth/rights-migration.js';
@@ -134,8 +135,21 @@ function exemptionNeedsLiveCode(req: Request, res: Response, mfa: string | undef
 }
 
 // GET /api/tokens — list tokens (hashes excluded) — admin only
-tokensRouter.get('/', requireAdmin, (_req, res) => {
-  res.json({ tokens: listTokens() });
+tokensRouter.get('/', requireAdmin, (req, res) => {
+  // A space-restricted administrator sees only the tokens it could act on.
+  //
+  // It used to receive every token on the instance — names, prefixes, scopes and rights for spaces it cannot reach.
+  // Nothing secret leaks (`listTokens()` omits the hash by its own type), but it is an inventory of the instance's
+  // access, and the same token is now refused when it tries to EDIT any of those rows. A list that shows what you
+  // cannot touch is an invitation to try.
+  //
+  // Unrestricted admins are unaffected. A `schemaLibrary` token has no space access, so it is inside every scope.
+  const callerSpaces = req.authToken?.spaces;
+  const all = listTokens();
+  const visible = callerSpaces
+    ? all.filter(t => t.schemaLibrary || (t.spaces?.every(s => callerSpaces.includes(s)) ?? false))
+    : all;
+  res.json({ tokens: visible });
 });
 
 // POST /api/tokens — create a new PAT — admin + MFA
@@ -319,6 +333,28 @@ tokensRouter.patch('/:id', requireAdminMfa, (req, res) => {
   const previous = listTokens().find(t => t.id === id);
   if (!previous) {
     res.status(404).json({ error: 'Token not found' });
+    return;
+  }
+
+  // A SPACE-RESTRICTED administrator may only touch its own spaces' rows.
+  //
+  // `requireAdminMfa` admits a space-restricted admin, because it carries `admin: true` — so before this guard existed,
+  // such a token could rename any token on the instance and write `rights.instanceAdmin` onto it. Measured, not
+  // supposed: both answered 200 and the rights were stored. They were inert only because the admin routes still gate on
+  // the legacy `admin` flag rather than on `rights`.
+  //
+  // Same rule the MINT route applies to a space-restricted creator, expressed once in `refusalsOutsideEditorScope` so
+  // the two cannot drift into disagreeing about what "outside your scope" means.
+  const scopeRefusals = refusalsOutsideEditorScope({
+    editorSpaces: req.authToken?.spaces,
+    target: previous,
+    rights: rights as never,
+  });
+  if (scopeRefusals.length > 0) {
+    res.status(403).json({
+      error: `A space-restricted administrator cannot make this edit — ${scopeRefusals.join('; ')}.`,
+      refusals: scopeRefusals,
+    });
     return;
   }
 

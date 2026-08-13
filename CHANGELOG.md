@@ -6,6 +6,39 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Security
+- **A space-restricted administrator could edit ANY token on the instance — including writing
+  `rights.instanceAdmin` onto it.** `PATCH /api/tokens/:id` is gated by `requireAdminMfa`, and a space-restricted admin
+  carries `admin: true`, so it was admitted like any other administrator. Measured, not supposed:
+
+  | attempt, by an admin scoped to one space, against a token scoped to another | before |
+  |---|---|
+  | rename that token | **200** |
+  | grant it `rights.instanceAdmin: true` | **200, and stored** |
+  | grant it `rights.createSpaces: true` | **200, and stored** |
+  | `GET /api/tokens` | **200**, every token on the instance |
+
+  - **Both escalated rights were INERT**, because the admin-only routes read the legacy `admin` flag rather than
+    `rights.instanceAdmin` — so this was a stored escalation, not a live one. That is exactly why it was worth closing
+    now: the 2.6 rights matrix exists so guards can move onto `rights`, and the day one does, every token a space admin
+    has touched carries whatever it was handed.
+  - `capRights` did not stop it. The editor's own record had `rights: null` and `admin: true`, so its derived rights read
+    as a full instance admin, and a `spaces` allowlist is not part of that comparison. Rung-capping and scope-capping are
+    different questions, which is why this is a separate guard rather than a change to that one.
+  - **The rule, in the owner's terms:** a space admin for X may edit `rights.perSpace[X]` and nothing else. `floor` is
+    refused outright rather than capped — it applies to every space **including ones that do not exist yet**, so however
+    modest its rungs look it is instance-wide in effect.
+  - Also refused: editing a token that reaches any space outside the caller's scope (which is how the bare rename
+    succeeded), and editing an unrestricted token, which reaches every space by definition.
+  - `refusalsOutsideEditorScope` is one function called by the edit route, mirroring the rule `POST /api/tokens` already
+    applied to a space-restricted creator. An edit route without it was the same escalation by a shorter path.
+  - **`GET /api/tokens` is now scoped for a space-restricted caller.** It listed every token's name, prefix, scope and
+    rights instance-wide; nothing secret (the hash is omitted by `listTokens()`'s own type), but it is an inventory of
+    access — and the same token is now refused when it tries to edit any of those rows.
+  - **Ten red-team tests, each refusal paired with the allowed case**, because a boundary that refuses everything is an
+    outage with good intentions and would pass a file full of refusals. The tier is proven to WORK: a space admin grants
+    per-space rights for its own space, and renames tokens inside its scope.
+
 ### Fixed
 - **The schema editor's enum chips were completely unstyled — the remove button rendered as a browser-default
   `<button>`.** Reported by breituai-platform (2026-08-12T2230Z) as *"oversized and clip their own labels"*, and that is

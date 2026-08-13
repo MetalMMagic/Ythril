@@ -79,10 +79,39 @@ before(async () => {
   const content = ['# Carrier report', '', 'The unit was lost in transit.', ''].join('\n');
   const w = await P(`/api/files/${SPACE}?path=${encodeURIComponent(ids.file)}`, { content });
   assert.ok(w.status < 300, `write file: ${w.status} ${JSON.stringify(w.body)}`);
-  const meta = await reqJson(INSTANCES.a, token(),
+  // PATCH, then CONFIRM IT STUCK — re-patching until it does, bounded.
+  //
+  // The file write kicks off the conversion pipeline, which writes the brain's file-meta record itself and derives
+  // `description` from the document's own opening prose. A PATCH issued before that write lands is silently overwritten:
+  // in CI on 2026-08-13 this fixture's description came back as "Carrier report The unit was lost in transit." — the
+  // excerpt — and the assertion 170 lines later reported it as a traverse defect. Locally the pipeline finishes first, so
+  // the race only ever shows up under load.
+  //
+  // Asserting the fixture is what it claims to be, HERE, is the difference between a one-line failure at setup and a
+  // misleading failure in the test body. The product question of whether the pipeline should overwrite an operator's own
+  // description at all is filed separately — this loop does not depend on the answer.
+  const wantDescription = 'Carrier incident report';
+  const patchMeta = () => reqJson(INSTANCES.a, token(),
     `/api/brain/spaces/${SPACE}/files?path=${encodeURIComponent(ids.file)}`,
-    { method: 'PATCH', body: JSON.stringify({ description: 'Carrier incident report', tags: ['rma'], entityIds: [ids.inc] }) });
+    { method: 'PATCH', body: JSON.stringify({ description: wantDescription, tags: ['rma'], entityIds: [ids.inc] }) });
+
+  let meta = await patchMeta();
   assert.ok(meta.status < 300, `link file to entity: ${meta.status} ${JSON.stringify(meta.body)}`);
+
+  const deadline = Date.now() + 20_000;
+  let readBack;
+  for (;;) {
+    readBack = await reqJson(INSTANCES.a, token(),
+      `/api/brain/spaces/${SPACE}/files?path=${encodeURIComponent(ids.file)}`, { method: 'GET' });
+    const got = readBack.body?.files?.[0]?.description ?? readBack.body?.description;
+    if (got === wantDescription) break;
+    if (Date.now() > deadline) {
+      assert.fail(`the file-meta PATCH never stuck: description reads ${JSON.stringify(got)} rather than `
+        + `${JSON.stringify(wantDescription)} — the conversion pipeline is overwriting it`);
+    }
+    await new Promise(r => setTimeout(r, 500));
+    meta = await patchMeta();
+  }
 });
 
 after(async () => {

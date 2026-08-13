@@ -129,6 +129,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     asserted.
 
 ### Fixed
+- **`env-var-docs-coverage` now asserts a variable is documented on the page that owns its FEATURE, not merely somewhere
+  under `docs/`.** The gate was green while `FACE_RECOGNITION_EXTERNAL_MODEL` sat in `02-hosting.md`'s egress matrix and
+  was absent from `05c-face-recognition.md` — so breituai-platform, reading the face-recognition page while configuring
+  face recognition, reported the variable as nonexistent and we agreed with them. A variable on a page nobody has reason
+  to open is as good as absent, and "documented" and "findable where it is needed" are different properties.
+  - A small prefix→owner-pages map covers the families where a wrong page is a real discoverability failure. A prefix that
+    is not listed keeps the old rule rather than having an owner invented for it.
+  - Mutation-tested, and the weaker mutation is recorded in the file: deleting the variable's table row does *not* fail the
+    check, because 05c also names it in prose — which legitimately satisfies "a reader searching this page finds it".
+    Stripping all six mentions reproduces the original state and fails.
+  - My first version of the map named `02-hosting.md` as owner for the embedding, rerank and NLI families and failed on
+    nine variables that were all on the right page (`05b-media-embedding.md`). The map was wrong, not the docs — worth
+    recording, because the tempting repair for that failure is to loosen the check into uselessness.
 - **Deleting a brain record now retires its embed job, including one that had already gone terminal `failed`.**
   Cleanup was entirely lazy and lived in the worker: it claims a job, finds the record gone, and treats `gone` as success.
   That covers a `pending` job and **only** a `pending` job, because `claimNextEmbedJob` filters on `status: 'pending'` — so

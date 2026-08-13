@@ -202,6 +202,58 @@ function collectDocumented(used) {
   return docs;
 }
 
+/**
+ * A variable belongs on the page that documents the FEATURE it configures — not merely somewhere under `docs/`.
+ *
+ * ## Why "documented somewhere" was not enough
+ *
+ * `FACE_RECOGNITION_EXTERNAL_MODEL` was in `02-hosting.md`'s egress matrix and absent from `05c-face-recognition.md`.
+ * This gate was green throughout, and it was right to be — it asked whether the variable was documented, and it was.
+ * breituai-platform, reading the face-recognition page while configuring face recognition, could not find it, told us it
+ * did not exist, and we agreed with them. A variable on a page nobody has reason to open is as good as absent.
+ *
+ * So the prefix decides the page. The map is small on purpose: it covers the families where a wrong page is a real
+ * discoverability failure, and a prefix that is not listed keeps the old "documented anywhere" rule rather than inventing
+ * an owner for it.
+ *
+ * ## Mutation-tested, and the first attempt was too weak
+ *
+ * Deleting the variable's TABLE ROW from 05c does **not** fail this check, because the page also names it in prose — and
+ * that is correct: the property is *"a reader searching the page they are configuring finds it"*, which a prose mention
+ * satisfies. Stripping all six mentions from 05c reproduces the original state exactly and fails with
+ * `documented in 02-hosting.md but on none of 05c-face-recognition.md`.
+ *
+ * Recorded because the weaker mutation passing looks like a broken gate until you see what the check actually claims.
+ *
+ * ## The direction this must fail in
+ *
+ * Stricter, always. If a variable is on the right page, this passes and says nothing new; the only way to make it green
+ * by weakening it is to delete a row, which is visible in a diff. Widening what counts as documented would be the wrong
+ * repair — the failure being prevented is a green gate over a variable an operator cannot find.
+ */
+const OWNER_PAGES = {
+  // Single owner, and the case this check exists for: a face variable belongs on the face page.
+  'FACE_RECOGNITION_': ['integration-guide/05c-face-recognition.md'],
+  // These families are configured from more than one page for real reasons -- the hosting matrix carries the egress
+  // policy, the pipeline pages carry the per-stage settings -- so the owner is a SET.
+  //
+  // A set is not a loophole: it says "one of the pages that documents this feature", and every entry had to be justified
+  // when it was added. A prefix that needs three pages is a hint the docs could be tightened, not permission to add a
+  // fourth. Adding a page here to make a failure go away is the one edit this check cannot defend against, so it should
+  // be visible in review as exactly that.
+  // 05b is the SETTINGS page for these three; 02-hosting carries the egress matrix, which is a different question about
+  // the same slots. Naming 02-hosting alone was my first attempt and it failed on nine variables that were all on the
+  // right page -- the map was wrong, not the docs, which is the failure mode a check like this has to survive without
+  // being loosened into uselessness.
+  'EMBEDDING_': ['integration-guide/05b-media-embedding.md', 'integration-guide/02-hosting.md'],
+  'RERANK_': ['integration-guide/05b-media-embedding.md', 'integration-guide/02-hosting.md'],
+  'NLI_': ['integration-guide/05b-media-embedding.md', 'integration-guide/02-hosting.md'],
+  'DOC_': ['integration-guide/02-hosting.md', 'integration-guide/05a-conversion-pipeline.md',
+    'integration-guide/05b-media-embedding.md'],
+  'STT_': ['integration-guide/02-hosting.md', 'integration-guide/05b-media-embedding.md'],
+  'MONGO_': ['integration-guide/02-hosting.md', 'dependencies.md'],
+};
+
 describe('env vars — docs and code agree', () => {
   const used = collectUsage();
   const documented = collectDocumented(used);
@@ -212,6 +264,45 @@ describe('env vars — docs and code agree', () => {
     const ours = [...used.keys()].filter(n => OURS(n));
     assert.ok(ours.length >= 25, `expected the scan to find our env vars, found ${ours.length}`);
     assert.ok(documented.size >= 15, `expected docs to name our env vars, found ${documented.size}`);
+  });
+
+  it('every variable whose prefix names an owner page is documented ON that page', () => {
+    // The check `FACE_RECOGNITION_EXTERNAL_MODEL` needed. Not "is it documented" — "is it where somebody configuring this
+    // feature will look".
+    const misplaced = [];
+    for (const [name, files] of documented) {
+      const prefix = Object.keys(OWNER_PAGES).find(p => name.startsWith(p));
+      if (!prefix) continue;
+      const pages = OWNER_PAGES[prefix];
+      // `split/join` rather than a regex: the escaping for a backslash-matching literal is exactly what got mangled
+      // writing this line, and a broken regex here is a syntax error rather than a wrong answer only by luck.
+      const onPage = [...files].some(f => pages.includes(f.split('\\').join('/')));
+      if (!onPage) misplaced.push(`${name} is documented in ${[...files].join(', ')} but on none of ${pages.join(', ')}`);
+    }
+    assert.deepEqual(misplaced, [],
+      'these variables are documented on a page nobody configuring their feature would open, which is how '
+      + 'FACE_RECOGNITION_EXTERNAL_MODEL came to be reported to us as nonexistent while this gate was green');
+  });
+
+  it('the owner pages all exist, so a typo cannot silently exempt a whole family', () => {
+    // A misspelled page name would make `onPage` false for every variable in that family and produce a wall of failures
+    // -- loud, so not the dangerous direction. A page that exists but is renamed later is the quiet one: the map would
+    // point at nothing and the check above would fail for a real reason nobody could act on. Assert the paths resolve.
+    for (const [prefix, pages] of Object.entries(OWNER_PAGES)) {
+      for (const page of pages) {
+        assert.ok(existsSync(join(ROOT, 'docs', page)), `${prefix} names a page that does not exist: ${page}`);
+      }
+    }
+  });
+
+  it('the placement check actually covers something (it is not vacuous)', () => {
+    // Without this, a change to `documented`'s shape could make the loop iterate nothing and the assertion above would
+    // pass for ever while measuring zero variables.
+    const covered = [...documented.keys()].filter(n => Object.keys(OWNER_PAGES).some(p => n.startsWith(p)));
+    assert.ok(covered.length >= 10,
+      `expected the owner-page map to cover a meaningful number of variables, it covers ${covered.length}`);
+    assert.ok(covered.includes('FACE_RECOGNITION_EXTERNAL_MODEL'),
+      'the variable this check exists for must be among the ones it covers');
   });
 
   it('every variable the code reads is documented', () => {

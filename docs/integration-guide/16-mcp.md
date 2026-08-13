@@ -173,7 +173,7 @@ row survives its own tool being built, so the list cannot keep advertising a gap
 
 | Tool | Description |
 |---|---|
-| `help` | Self-documenting system guide — the knowledge model, how to choose between `query` / `recall` / filtered recall, schema authoring, and the tools available to the calling token. Read-only, no `space` needed; scoped to the token so it never lists tools the token can't call |
+| `help` | Self-documenting system guide — the knowledge model, how to choose between `query` / `recall` / filtered recall, schema authoring, and the tools available to the calling token. Read-only, no `space` needed; scoped to the token so it never lists tools the token can't call. **Pass `query` to get only the matching sections** instead of the whole guide — a tool name returns just that tool's line, not the whole list. Matching is plain keyword (**all** words must appear) and **never semantic**, deliberately: `help` is the tool that must work when the embedder does not. A query matching nothing returns the **section index** rather than an empty answer, and `structuredContent.sections` always lists the ids and titles so a caller can see what there is to ask for |
 | `list_spaces` | List accessible space IDs with purposes and entry counts (memories, entities, edges, chrono). `purpose` is the space-level directive; `description` is returned alongside as its deprecated alias, always the same text |
 | `remember` | Store a memory with optional tags and entity links |
 | `update_memory` | Update an existing memory's fact, tags, entity links, or delete specific fields via `deleteFields`; `excludeFromVectorSearch` retires it from semantic search |

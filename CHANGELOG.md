@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **`help` takes a `query` now: only the matching sections instead of the whole guide.** Owner, 2026-08-12: *"help needs
+  a searchfunction"*. It took no arguments and returned the entire instance explanation — every visible tool, the
+  knowledge model, retrieval guidance, schema authoring and the REST map — which is a large payload to read in full when
+  the caller wanted one thing.
+  - **A tool name returns that tool's line, not the forty-line tool list.** The most likely query is a tool name, so
+    line-granular sections (the tool list, the space list) return only their matching lines — with their preamble, because
+    a one-line tool summary read without *"call `tools/list` and read the schema"* invites a caller to build arguments
+    from the summary.
+  - **Keyword, never semantic, and the description says so.** `help` is the one tool that must work when everything else
+    is misconfigured; semantic matching would put it on the embedding path, so a broken embedder would take down the tool
+    that explains the instance. All terms must appear — OR would return most of the document for any two-word query and
+    read as a broken search.
+  - **A query that matches nothing returns the section INDEX.** The caller asked what exists, and "nothing" is the least
+    useful true answer available — an agent that receives it typically retries with the same word.
+  - **The document moved to `mcp/tools/help-sections.ts` and both paths consume one section list.** A searched `help` that
+    assembled its own copy would be the two-surfaces defect inside the tool whose job is to describe the others, so
+    `help-search.test.js` asserts every searched line appears **verbatim** in the full document. Mutation-tested two ways:
+    a searched path that re-renders its own headings fails the subset check, and one that drops the preamble fails a
+    different assertion.
+  - `structuredContent` now always carries `sections` (ids + titles), and `matched` when a query was given — so a caller
+    can distinguish "these matched" from "nothing matched, here is the index" without parsing English.
 - **`skip` on `POST /api/brain/spaces/:id/query` — and the four brain read routes now REFUSE a body key they cannot
   honour.** aigents, 2026-08-12T1410Z: `skip` was accepted at `200` and silently ignored, so a paged sweep re-read page
   one every time and was counted as if it had advanced — *"it cost us a fabricated number"*.

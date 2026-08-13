@@ -168,13 +168,4 @@ export function entityDocToRecord(e: import('../../config/types.js').EntityDoc):
   return rec;
 }
 
-/** One entry in a graph-augmented recall response (traverse > 0). */
-export interface McpRecallTraverseItem {
-  score: number | null;
-  source: 'recall' | 'traverse';
-  hops: number;
-  path: { from: string; label: string; to: string }[];
-  spaceId: string;
-  type: string;
-  record: Record<string, unknown>;
-}
+

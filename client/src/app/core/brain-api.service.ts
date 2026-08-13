@@ -92,9 +92,10 @@ export class BrainApi {
        */
       includeContent?: boolean;
       /**
-       * Graph expansion depth, 0–5. Each match is expanded along edges and the connected entities come back
-       * annotated with `source: 'traverse'`, `hops` and `path`. The route has accepted this since recall
-       * existed; it was simply never declared here, so no UI could ask for it.
+       * Graph expansion depth, 0–5. Each match is expanded along edges and what the walk reached comes back
+       * NESTED under it, as `_graph: [{edge, node, paths}]` — see `flattenRecallItems`, which turns that tree
+       * into the ordered rows this UI renders. The route has accepted this since recall existed; it was simply
+       * never declared here, so no UI could ask for it.
        */
       traverse?: number;
       /**

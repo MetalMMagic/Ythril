@@ -150,24 +150,56 @@ export function passageText(r: RecallResult): string | undefined {
 }
 
 /**
- * Recall answers in TWO shapes, and only one of them was ever handled here.
+ * Turn a graph-augmented recall into the flat, ordered list this tab renders.
  *
- * A plain recall spreads each record's own fields at the top level. A recall with `traverse > 0` wraps every
- * item in an envelope instead — `{ score, source, hops, path, spaceId, type, record }` — because the graph
- * expansion needs somewhere to put `hops` and `path`. Everything downstream of this file was written for the
- * flat shape: the file grouping reads `parentFile` off the hit, the passage fallback reads `content`, and the
- * JSON fallback dumps the hit itself. Handed an envelope, all three read the wrong object and a traverse
- * result renders as a dump of its own metadata with the record buried inside.
+ * `traverse > 0` no longer returns traversed records beside the matches. Each match carries a `_graph` array
+ * of `{edge, node, paths}`, and a nested node carries its own `_graph`, so the answer is a tree per match —
+ * which is the right API shape (`count` means matches again, and a structurally-reached node is not competing
+ * in a ranked list) and the wrong shape for a list of rows.
  *
- * So the envelope is unwrapped once, here, rather than special-cased at each of those sites. The envelope's
- * own fields win over the record's, since `type` and `score` on the envelope are the authoritative ones, and
- * `source`/`hops`/`path` survive so a caller can still tell a seed from a neighbour.
+ * So the tree is walked DEPTH-FIRST: each match, then what it reached, then what that reached. A reader sees
+ * the same rows in the same order as before, and a neighbour sits directly beneath the match it belongs to
+ * instead of after every other match. Everything downstream — the file grouping reading `parentFile`, the
+ * passage fallback reading `content`, the JSON fallback dumping the hit — keeps receiving records, not
+ * envelopes.
+ *
+ * What the row carries from the graph is what a reader needs to place it: `source: 'traverse'`, the derived
+ * `hops`, the reaching edge's `label`, and `graphParentId`. Nothing is computed that the response did not
+ * already state.
  */
 export function flattenRecallItems(results: RecallResult[]): RecallResult[] {
-  return results.map(item => {
-    const nested = (item as Record<string, unknown>)['record'];
-    if (nested === null || typeof nested !== 'object' || Array.isArray(nested)) return item;
-    const { record: _unwrapped, ...envelope } = item as Record<string, unknown>;
-    return { ...(nested as Record<string, unknown>), ...envelope } as RecallResult;
-  });
+  const out: RecallResult[] = [];
+  for (const match of results) {
+    const { _graph, ...record } = match as Record<string, unknown>;
+    out.push(record as RecallResult);
+    walkGraph(_graph, out);
+  }
+  return out;
+}
+
+/** One `_graph` level, depth-first, appending each node as a row. */
+function walkGraph(nodes: unknown, out: RecallResult[]): void {
+  if (!Array.isArray(nodes)) return;
+  for (const raw of nodes) {
+    if (raw === null || typeof raw !== 'object') continue;
+    const entry = raw as Record<string, unknown>;
+    const node = entry['node'];
+    if (node === null || typeof node !== 'object' || Array.isArray(node)) continue;
+    const edge = (entry['edge'] ?? {}) as Record<string, unknown>;
+    const paths = Array.isArray(entry['paths']) ? (entry['paths'] as unknown[]) : [];
+    const primary = Array.isArray(paths[0]) ? (paths[0] as unknown[]) : [];
+    out.push({
+      ...(node as Record<string, unknown>),
+      // `type` is the KNOWLEDGE type here, and traversal only ever reaches entities. An entity's own `type`
+      // field is its user-defined one (`service`, `decision`), so the spread must not be allowed to win —
+      // the old envelope overrode it for exactly this reason, and grouping keys off this field.
+      type: 'entity',
+      source: 'traverse',
+      // Derived from the route rather than carried: `paths[0]` is the one it is nested under.
+      hops: Math.max(0, primary.length - 1),
+      graphLabel: edge['label'],
+      graphParentId: primary.length > 1 ? primary[primary.length - 2] : undefined,
+    } as RecallResult);
+    walkGraph(entry['_graph'], out);
+  }
 }

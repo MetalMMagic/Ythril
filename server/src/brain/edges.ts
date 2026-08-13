@@ -720,6 +720,16 @@ export async function traverseGraph(
 /** Hard cap on the `traverse` depth accepted by graph-augmented recall. */
 export const MAX_RECALL_TRAVERSE = 5;
 
+/**
+ * How many ALTERNATE routes to one node are recorded before the rest are dropped.
+ *
+ * A dense graph can reach one node dozens of ways, and every one of them is a small array copied per hop. The
+ * cap is reported (`altPathsTruncated`) rather than silent: a caller that cannot tell "these are all the
+ * routes" from "these are the first eight" can conclude something false from the shape, which is the defect
+ * B-19 was filed for one function over.
+ */
+export const MAX_ALT_PATHS_PER_NODE = 8;
+
 /** A neighbour reached by following the edge graph out from a recall seed set. */
 export interface SeedTraverseNeighbor {
   _id: string;
@@ -730,6 +740,21 @@ export interface SeedTraverseNeighbor {
   path: { from: string; label: string; to: string }[];
   /** Hydrated entity document (embedding stripped). */
   record: EntityDoc;
+  /** The record this one was reached FROM — its parent in the nesting. A seed id at hop 1. */
+  parentId: string;
+  /**
+   * The WHOLE edge document for the reaching hop, not `{from, label, to}`.
+   *
+   * Its `description` is where the reason for a link lives, and its `tags` are how a caller filters one kind of
+   * relationship from another. Reducing the edge to three fields threw both away on every traversal.
+   */
+  edge: EdgeDoc;
+  /** Ordered record ids, seed first and this node last. `idPath.length - 1` is the hop count. */
+  idPath: string[];
+  /** Every OTHER route from a seed to this node, ids in the same seed-first order. */
+  altPaths: string[][];
+  /** True when more routes exist than `MAX_ALT_PATHS_PER_NODE` recorded. */
+  altPathsTruncated: boolean;
 }
 
 /**
@@ -753,6 +778,15 @@ export async function traverseFromSeeds(
   const visited = new Set<string>(seedIds);
   const pathTo = new Map<string, { from: string; label: string; to: string }[]>();
   for (const id of seedIds) pathTo.set(id, []);
+  // Ordered ids per node, seed first. This is what makes the chain's DIRECTION readable: the old `path` stored
+  // each edge's own from/label/to, so orienting it meant intersecting the first entry against the seed set.
+  const idPathTo = new Map<string, string[]>();
+  for (const id of seedIds) idPathTo.set(id, [id]);
+  // Routes to a node OTHER than the one it is nested under. The old loop skipped a visited neighbour outright,
+  // so a node reachable two ways was attributed to whichever edge won the race and the other link was invisible.
+  const altPathTo = new Map<string, string[][]>();
+  const altTruncated = new Set<string>();
+  const reachedBy = new Map<string, { parentId: string; edge: EdgeDoc }>();
 
   let frontier: string[] = [...new Set(seedIds)];
   let frontierSet = new Set<string>(frontier);
@@ -770,9 +804,29 @@ export async function traverseFromSeeds(
       if (frontierSet.has(edge.from) && frontierSet.has(edge.to)) continue;
       const frontierEnd = frontierSet.has(edge.from) ? edge.from : edge.to;
       const neighborId = frontierEnd === edge.from ? edge.to : edge.from;
-      if (visited.has(neighborId)) continue;
+      const routeHere = [...(idPathTo.get(frontierEnd) ?? [frontierEnd]), neighborId];
+      if (visited.has(neighborId)) {
+        // Already nested somewhere: this is a SECOND route to it, so record the route without re-nesting or
+        // re-expanding the node. `paths` carrying every route is what lets one node object stay one row —
+        // duplicating it under each parent would make a caller counting rows double-count the same record.
+        const alts = altPathTo.get(neighborId);
+        if (alts) {
+          const known = [idPathTo.get(neighborId)?.join('>'), ...alts.map(p => p.join('>'))];
+          if (!known.includes(routeHere.join('>'))) {
+            if (alts.length >= MAX_ALT_PATHS_PER_NODE) altTruncated.add(neighborId);
+            else alts.push(routeHere); // the live array — see where it is created
+          }
+        }
+        continue;
+      }
       visited.add(neighborId);
       pathTo.set(neighborId, [...(pathTo.get(frontierEnd) ?? []), { from: edge.from, label: edge.label, to: edge.to }]);
+      idPathTo.set(neighborId, routeHere);
+      // Created HERE, so the array the result object gets is the one later hops push alternates into. Building
+      // it with `?? []` at push time would hand out a copy that no later discovery could reach — and an
+      // alternate route is usually found at a deeper hop than the one that nested the node.
+      altPathTo.set(neighborId, []);
+      reachedBy.set(neighborId, { parentId: frontierEnd, edge });
       newNeighborIds.push(neighborId);
     }
 
@@ -797,8 +851,14 @@ export async function traverseFromSeeds(
     for (const neighborId of newNeighborIds) {
       const entity = entityMap.get(neighborId);
       if (!entity) continue; // not an entity in this space (e.g. cross-space edge target) — skip
-      results.push({ _id: entity._id, spaceId, hops: depth + 1, path: pathTo.get(neighborId) ?? [], record: entity });
-      if (results.length >= limit) return results;
+      const reached = reachedBy.get(neighborId);
+      if (!reached) continue; // unreachable in practice: every new neighbour is recorded above with its edge
+      results.push({
+        _id: entity._id, spaceId, hops: depth + 1, path: pathTo.get(neighborId) ?? [], record: entity,
+        parentId: reached.parentId, edge: reached.edge, idPath: idPathTo.get(neighborId) ?? [neighborId],
+        altPaths: altPathTo.get(neighborId) ?? [], altPathsTruncated: false,
+      });
+      if (results.length >= limit) return stampTruncation(results, altTruncated);
       nextFrontier.push(neighborId);
     }
 
@@ -807,6 +867,18 @@ export async function traverseFromSeeds(
     depth++;
   }
 
+  return stampTruncation(results, altTruncated);
+}
+
+/**
+ * Stamp `altPathsTruncated` once the walk is over.
+ *
+ * A node is pushed into the results the hop it is reached, but its alternate routes keep being discovered for
+ * every hop after that — so the flag cannot be computed at push time. `altPaths` itself is a live array and
+ * needs no fixing up; a boolean cannot be.
+ */
+function stampTruncation(results: SeedTraverseNeighbor[], truncated: Set<string>): SeedTraverseNeighbor[] {
+  if (truncated.size > 0) for (const r of results) r.altPathsTruncated = truncated.has(r._id);
   return results;
 }
 

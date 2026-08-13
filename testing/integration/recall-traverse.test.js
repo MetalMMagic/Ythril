@@ -3,14 +3,14 @@
  *
  * Covers the 011 acceptance criteria:
  *  - traverse: 0 is behaviourally identical to classic recall (backward compat)
- *  - traverse: 1 returns seeds AND their directly-connected neighbours (any direction)
- *  - each traversal result carries source: "traverse", hops, and a connecting path
- *  - traverse: 2 reaches two-hop neighbours with hops: 2 and a 2-edge path
+ *  - traverse: 1 returns seeds with their directly-connected neighbours NESTED under them (any direction)
+ *  - each nested node carries the whole reaching edge and `paths`, every route to it, seed-first
+ *  - traverse: 2 nests the two-hop neighbour under the one-hop node, with a 3-id path
  *  - a circular graph (A→B→C→A) does not loop or duplicate records
  *  - an edge to a record absent from the space is silently skipped (the same
  *    hydration guard that makes cross-space edges to inaccessible spaces safe)
  *  - traverse: 6 is rejected with 400 (exceeds the server cap); non-int / negative too
- *  - total result count is bounded by the configured cap on a dense graph
+ *  - the traversed NODE total is bounded by the configured cap on a dense graph (`count` is the matches)
  *  - the MCP recall tool accepts traverse and returns annotated results
  *
  * Seeding model: the recall SEED entity is written via the brain API so it is
@@ -54,6 +54,17 @@ function token() { return tokenA; }
 function edgeConnects(edge, x, y) {
   return (edge.from === x && edge.to === y) || (edge.from === y && edge.to === x);
 }
+
+/** Every nested node in the results' `_graph`, at any depth, flattened for lookup. */
+function allNested(results) {
+  const out = [];
+  const walk = ns => { for (const n of ns ?? []) { out.push(n); walk(n._graph); } };
+  for (const r of results ?? []) walk(r._graph);
+  return out;
+}
+
+/** The nested node for `id`, or undefined. */
+const nested = (results, id) => allNested(results).find(n => n.node?._id === id);
 
 async function ensureReindexed(baseUrl, tok) {
   const { body: spacesBody } = await get(baseUrl, tok, '/api/spaces');
@@ -281,37 +292,42 @@ describe('Recall traverse — graph expansion', () => {
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.equal(r.body.traverseDepth, 1);
 
-    const byId = new Map(r.body.results.map(x => [x._id ?? x.record?._id, x]));
-    const seed = r.body.results.find(x => x.source === 'recall' && x.record?._id === seedAId);
-    assert.ok(seed, 'seed present as source recall');
-    assert.equal(seed.hops, 0);
-    assert.deepEqual(seed.path, []);
+    // The seed is a RESULT, not an annotated wrapper: `count` is the number of matches, and a traversed node
+    // is never in the ranked list to be counted or cut.
+    const seed = r.body.results.find(x => x._id === seedAId);
+    assert.ok(seed, 'seed present as a match');
+    assert.equal(typeof seed.score, 'number', 'a match keeps its real score');
+    assert.equal(r.body.count, r.body.results.length, 'count is the matches');
 
-    const b = r.body.results.find(x => x.record?._id === entB);
-    const d = r.body.results.find(x => x.record?._id === entD);
-    assert.ok(b && d, 'both direct neighbours B and D returned');
+    const b = nested(r.body.results, entB);
+    const d = nested(r.body.results, entD);
+    assert.ok(b && d, `both direct neighbours nested: ${JSON.stringify(allNested(r.body.results).map(n => n.node?._id))}`);
     for (const [n, id] of [[b, entB], [d, entD]]) {
-      assert.equal(n.source, 'traverse');
-      assert.equal(n.hops, 1);
-      assert.equal(n.score, null, 'traversal-only results have null score');
-      assert.equal(n.type, 'entity');
-      assert.equal(n.path.length, 1, 'one-hop neighbour has a one-edge path');
-      assert.ok(edgeConnects(n.path[0], seedAId, id), `path edge connects seed and ${id}`);
+      assert.deepEqual(n.paths[0], [seedAId, id], 'the route is ids, seed first');
+      assert.equal(n.paths[0].length - 1, 1, 'hop count is derived from the path');
+      assert.ok(edgeConnects(n.edge, seedAId, id), `the reaching edge connects seed and ${id}`);
+      assert.ok('label' in n.edge, 'the WHOLE edge document, not {from,label,to}');
+      assert.ok(!('score' in n), 'a traversed node has no score to compete with a match');
     }
-    assert.ok(!byId.has(entC), 'two-hop neighbour C must NOT appear at depth 1');
-    assert.ok(!r.body.results.some(x => (x.record?._id ?? x._id) === ghost), 'dangling edge target must be skipped');
+    assert.ok(!nested(r.body.results, entC), 'two-hop neighbour C must NOT appear at depth 1');
+    assert.ok(!nested(r.body.results, ghost), 'dangling edge target must be skipped');
+    assert.equal(r.body.graphNodes, allNested(r.body.results).length, 'graphNodes counts the traversed nodes');
   });
 
   it('traverse: 2 reaches the two-hop neighbour with a two-edge path', async (t) => {
     if (!embeddingAvailable) return t.skip('embedding unavailable');
     const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/recall`, { query: q, types: ['entity'], topK: 10, traverse: 2 });
     assert.equal(r.status, 200, JSON.stringify(r.body));
-    const c = r.body.results.find(x => x.record?._id === entC);
-    assert.ok(c, 'two-hop neighbour C returned at depth 2');
-    assert.equal(c.hops, 2);
-    assert.equal(c.path.length, 2, 'two-hop neighbour has a two-edge path');
-    assert.ok(edgeConnects(c.path[0], seedAId, entB), 'path hop 1 connects seed and B');
-    assert.ok(edgeConnects(c.path[1], entB, entC), 'path hop 2 connects B and C');
+    const b = nested(r.body.results, entB);
+    assert.ok(b, 'the one-hop neighbour B is nested under the seed');
+    const c = (b._graph ?? []).find(n => n.node?._id === entC);
+    assert.ok(c, `C is nested under B, not beside it: ${JSON.stringify((b._graph ?? []).map(n => n.node?._id))}`);
+    assert.deepEqual(c.paths[0], [seedAId, entB, entC], 'the route names every id from the seed');
+    assert.equal(c.paths[0].length - 1, 2, 'two hops, derived');
+    // The labels are not lost with an id-only path: B's own edge is hop 1 and C's is hop 2, so walking the
+    // tree yields the chain in order.
+    assert.ok(edgeConnects(b.edge, seedAId, entB), 'hop 1 edge is on B');
+    assert.ok(edgeConnects(c.edge, entB, entC), 'hop 2 edge is on C');
   });
 
   it('a cycle does not loop or duplicate records', async (t) => {
@@ -319,11 +335,13 @@ describe('Recall traverse — graph expansion', () => {
     // C→A closes a cycle. Depth 3 would revisit A without cycle detection.
     const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/recall`, { query: q, types: ['entity'], topK: 10, traverse: 3 });
     assert.equal(r.status, 200, JSON.stringify(r.body));
-    const ids = r.body.results.map(x => x.record?._id ?? x._id);
+    const ids = [...r.body.results.map(x => x._id), ...allNested(r.body.results).map(n => n.node?._id)];
     const unique = new Set(ids);
     assert.equal(ids.length, unique.size, `no duplicate records (got ${JSON.stringify(ids)})`);
-    const seedOccurrences = ids.filter(id => id === seedAId).length;
-    assert.equal(seedOccurrences, 1, 'the seed appears exactly once despite the cycle');
+    assert.equal(ids.filter(id => id === seedAId).length, 1, 'the seed appears exactly once despite the cycle');
+    // A cycle is a second route to a node already nested, so it belongs in `paths` rather than nowhere.
+    const b = nested(r.body.results, entB);
+    assert.ok(b.paths.length >= 1, 'the nesting route is always recorded');
   });
 });
 
@@ -338,10 +356,12 @@ describe('Recall traverse — result cap', () => {
       query: 'telemetry metrics aggregation collectors', types: ['entity'], topK: 1, traverse: 1,
     });
     assert.equal(r.status, 200, JSON.stringify(r.body));
-    assert.ok(r.body.count <= 8, `count ${r.body.count} must be within the cap of 8`);
-    assert.equal(r.body.count, 8, 'dense graph should fill exactly to the cap');
-    const seedCount = r.body.results.filter(x => x.source === 'recall').length;
-    assert.equal(seedCount, 1, 'exactly one seed');
+    // The cap bounds the traversed NODES exactly as before — `topK * (traverse+1) * 4` minus the seeds — but
+    // `count` now describes the matches, so the two numbers are asserted separately rather than conflated.
+    assert.equal(r.body.count, 1, 'count is the matches, and topK was 1');
+    assert.equal(r.body.results.length, 1, 'exactly one match');
+    assert.equal(r.body.graphNodes, 7, `cap 8 minus 1 seed = 7 traversed nodes, got ${r.body.graphNodes}`);
+    assert.equal(allNested(r.body.results).length, 7, 'and the tree holds exactly those');
   });
 });
 
@@ -362,12 +382,15 @@ describe('Recall traverse — MCP tool', () => {
       assert.ok(text, 'MCP recall returned text content');
       const output = JSON.parse(text);
       assert.equal(output.traverseDepth, 1);
-      const seed = output.results.find(x => x.source === 'recall');
-      assert.ok(seed, 'seed annotated as source recall');
-      const neighbour = output.results.find(x => x.source === 'traverse' && x.record?._id === entB);
-      assert.ok(neighbour, 'neighbour B reached via traverse');
-      assert.equal(neighbour.hops, 1);
-      assert.ok(edgeConnects(neighbour.path[0], seedAId, entB), 'MCP neighbour path connects seed and B');
+      const seed = output.results.find(x => x.record?._id === seedAId);
+      assert.ok(seed, 'the seed is a match, with its record');
+      // Same shape as REST, asserted through the other door in the same fixture: one nesting implementation
+      // serves both, and this is what says so.
+      const neighbour = (seed._graph ?? []).find(n => n.node?._id === entB);
+      assert.ok(neighbour, `neighbour B nested under the seed: ${JSON.stringify((seed._graph ?? []).map(n => n.node?._id))}`);
+      assert.deepEqual(neighbour.paths[0], [seedAId, entB]);
+      assert.ok(edgeConnects(neighbour.edge, seedAId, entB), 'MCP carries the whole reaching edge too');
+      assert.equal(output.count, output.results.length, 'MCP count is the matches as well');
     } finally {
       session.close();
     }

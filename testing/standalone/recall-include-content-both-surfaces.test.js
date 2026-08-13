@@ -63,12 +63,25 @@ describe('recall exposes includeContent on both surfaces', () => {
     assert.match(rest, /const \{ content: _dropped, \.\.\.rest \} = r/, 'and drop `content` alone');
   });
 
-  it('the traverse path honours it too', () => {
+  it('every traverse path honours it too', () => {
     // A caller who asked not to be sent passage bodies did not stop meaning it because they also asked for
     // graph expansion. An option that lapses on one code path is the same defect one level down.
-    const traverseBuild = rest.slice(rest.indexOf('const results: RecallTraverseItem[]'));
-    assert.match(traverseBuild.slice(0, 600), /stripContentIfAsked\(seeds, safeIncludeContent\)/,
-      'the traverse response must apply the same strip as the plain one');
+    //
+    // Anchored on `buildRecallGraph(`, which is what a graph-augmented response is BUILT with, rather than on
+    // one implementation's variable name. The previous anchor was `const results: RecallTraverseItem[]`, and
+    // when the flat item type was deleted this gate failed against code that still did the right thing —
+    // demanding the old lines back rather than the property.
+    //
+    // Both routes, not one: `/recall` and `/find-similar` each expand a graph, and the flag has to survive on
+    // both. `find_similar`'s traverse existed on MCP alone for a while, so this is the site where the two
+    // surfaces most recently disagreed.
+    const sites = [...rest.matchAll(/buildRecallGraph\(/g)].map(m => m.index);
+    assert.equal(sites.length, 2, `expected /recall and /find-similar to build a graph, found ${sites.length}`);
+    for (const at of sites) {
+      const window = rest.slice(at, at + 900);
+      assert.match(window, /stripContentIfAsked\([^)]*safeIncludeContent\)/,
+        'a traverse response must apply the same strip as the plain one');
+    }
   });
 
   it('does not mutate the results it was given', () => {

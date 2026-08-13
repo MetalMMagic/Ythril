@@ -435,7 +435,14 @@ export interface RecallResult {
 
 export interface RecallResponse {
   results: RecallResult[];
+  /** The number of MATCHES. Traversed nodes are nested inside a result, never counted here. */
   count: number;
+  /** Present only when `traverse > 0` was asked for. */
+  traverseDepth?: number;
+  /** How many traversed nodes the `_graph` trees hold in total. Present only with `traverse > 0`. */
+  graphNodes?: number;
+  /** Present only when something degraded — a timeout, or a rerank that was skipped. */
+  degraded?: string[];
 }
 
 export interface TraverseNode {

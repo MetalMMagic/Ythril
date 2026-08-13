@@ -133,56 +133,90 @@ describe('recall grouping — passage text', () => {
   });
 });
 
-describe('recall grouping — the traverse envelope is unwrapped', () => {
-  // `traverse > 0` is the only recall shape that nests. Nothing downstream expected it, so a graph-expanded
-  // answer rendered as a dump of its own metadata with the record buried under `record`.
-  const envelope = (over: Partial<Record<string, unknown>> = {}): RecallResult => ({
-    score: 0.8, source: 'recall', hops: 0, path: [], spaceId: 'work', type: 'entity',
-    record: { _id: 'e1', name: 'Ada', tags: ['x'] },
-    ...over,
-  } as unknown as RecallResult);
-
-  it('lifts the record to the top level and keeps the envelope fields', () => {
-    const [out] = flattenRecallItems([envelope()]);
-    expect(out['_id']).toBe('e1');
-    expect(out['name']).toBe('Ada');
-    expect(out.type).toBe('entity');
-    expect(out['hops']).toBe(0);
-    expect(out['record']).toBeUndefined();
+describe('recall grouping — the graph tree becomes ordered rows', () => {
+  // `traverse > 0` returns each match with a `_graph` tree hanging off it: `{edge, node, paths}`, and a
+  // nested node carries its own `_graph`. This tab renders rows, so the tree is walked depth-first — a
+  // neighbour sits directly beneath the match it belongs to rather than after every other match.
+  const gnode = (id, label, path, children) => ({
+    edge: { _id: `e-${id}`, label, from: path[path.length - 2], to: id },
+    node: { _id: id, name: id, type: 'entity' },
+    paths: [path],
+    ...(children ? { _graph: children } : {}),
   });
 
-  it('the envelope wins over the record for type and score', () => {
-    // A traverse NEIGHBOUR carries score null and its authoritative type on the envelope, not on the record.
-    const [out] = flattenRecallItems([envelope({
-      score: null, source: 'traverse', hops: 2,
-      record: { _id: 'e2', name: 'Grace', type: 'stale-inner-type', score: 0.99 },
+  const match = (over = {}) => ({
+    _id: 'm1', type: 'entity', name: 'Ada', score: 0.8, ...over,
+  });
+
+  it('the match comes first, then what it reached, depth-first', () => {
+    const out = flattenRecallItems([match({
+      _graph: [gnode('n1', 'owns', ['m1', 'n1'], [gnode('n2', 'uses', ['m1', 'n1', 'n2'])])],
     })]);
-    expect(out.type).toBe('entity');
-    expect(out.score).toBe(null);
-    expect(out['hops']).toBe(2);
-    expect(out['name']).toBe('Grace');
+    expect(out.map(r => r['_id'])).toEqual(['m1', 'n1', 'n2']);
   });
 
-  it('a flat hit passes through untouched — the same object, not a copy', () => {
-    const flat = { type: 'memory', score: 0.5, _id: 'm1', fact: 'f' } as unknown as RecallResult;
-    const [out] = flattenRecallItems([flat]);
-    expect(out).toBe(flat);
+  it('the match row is the record, with no `_graph` left on it', () => {
+    const [first] = flattenRecallItems([match({ _graph: [gnode('n1', 'owns', ['m1', 'n1'])] })]);
+    expect(first['_id']).toBe('m1');
+    expect(first['score']).toBe(0.8);
+    expect(first['_graph']).toBeUndefined();
   });
 
-  it('a null or array `record` is not treated as an envelope', () => {
-    const withNull = { type: 'memory', record: null } as unknown as RecallResult;
-    const withArray = { type: 'memory', record: [1, 2] } as unknown as RecallResult;
-    expect(flattenRecallItems([withNull])[0]).toBe(withNull);
-    expect(flattenRecallItems([withArray])[0]).toBe(withArray);
+  it('a neighbour row carries where it came from and how it was reached', () => {
+    const out = flattenRecallItems([match({
+      _graph: [gnode('n1', 'owns', ['m1', 'n1'], [gnode('n2', 'uses', ['m1', 'n1', 'n2'])])],
+    })]);
+    const [, n1, n2] = out;
+    expect(n1['source']).toBe('traverse');
+    expect(n1['hops']).toBe(1);
+    expect(n1['graphLabel']).toBe('owns');
+    expect(n1['graphParentId']).toBe('m1');
+    // Hop count is DERIVED from the route, so a two-hop node needs nothing extra on the wire.
+    expect(n2['hops']).toBe(2);
+    expect(n2['graphParentId']).toBe('n1');
   });
 
-  it('grouping works on a flattened file envelope, which it could not before', () => {
-    const fileEnvelope = {
-      score: 0.7, source: 'recall', hops: 0, path: [], spaceId: 'work', type: 'file',
-      record: { _id: 'c1', parentFileId: 'f1', parentFile: { path: '/doc.md' }, content: 'hello' },
-    } as unknown as RecallResult;
-    const groups = groupRecallResults(flattenRecallItems([fileEnvelope]));
-    expect(groups.length).toBe(1);
-    expect(groups[0].file?.path).toBe('/doc.md');
+  it("the knowledge type wins over the entity's own type field", () => {
+    // An entity's `type` is user-defined (`service`, `decision`); this field is the KNOWLEDGE type, and
+    // grouping keys off it. The old envelope overrode the record for the same reason.
+    const out = flattenRecallItems([match({
+      _graph: [{
+        edge: { label: 'owns' },
+        node: { _id: 'n1', name: 'vault', type: 'service' },
+        paths: [['m1', 'n1']],
+      }],
+    })]);
+    expect(out[1]['type']).toBe('entity');
+    expect(out[1]['name']).toBe('vault');
+  });
+
+  it('a match with no graph is unchanged in content', () => {
+    const out = flattenRecallItems([match()]);
+    expect(out.length).toBe(1);
+    expect(out[0]['_id']).toBe('m1');
+  });
+
+  it('a malformed graph entry is skipped rather than rendered as a blank row', () => {
+    const out = flattenRecallItems([match({ _graph: [null, { edge: {} }, 'nope', { node: [1] }] })]);
+    expect(out.map(r => r['_id'])).toEqual(['m1']);
+  });
+
+  it('grouping still works on a file MATCH that carries a graph', () => {
+    // The realistic pairing: the chunk is what matched semantically, and the entity is what the graph reached
+    // from it. Traversal only ever reaches entities — edges connect entities — so a traversed file chunk is
+    // not a case that exists, and a fixture for it would have tested nothing that can happen.
+    const chunkMatch = match({
+      _id: 'c1', type: 'file', parentFileId: 'f1', parentFile: { path: '/doc.md' }, content: 'hello',
+      _graph: [{
+        edge: { label: 'owned-by' },
+        node: { _id: 'n1', name: 'security-team', type: 'team' },
+        paths: [['c1', 'n1']],
+      }],
+    });
+    const rows = flattenRecallItems([chunkMatch]);
+    expect(rows.map(r => r['_id'])).toEqual(['c1', 'n1']);
+    const groups = groupRecallResults(rows);
+    const fileGroup = groups.find(g => g.file);
+    expect(fileGroup?.file?.path).toBe('/doc.md');
   });
 });

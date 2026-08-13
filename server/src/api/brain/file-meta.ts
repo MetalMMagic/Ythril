@@ -20,7 +20,9 @@ import { fileExists, readFile } from '../../files/files.js';
 import { log } from '../../util/log.js';
 import { getConfig } from '../../config/loader.js';
 import { col, asFilter } from '../../db/mongo.js';
-import { parseLimit, parseSkip, capPage } from '../../util/pagination.js';
+import { parseLimit, parseSkip, unsupportedPageParam } from '../../util/pagination.js';
+import { pageAcrossMembers } from '../../spaces/page-across-members.js';
+import { countBrain, compareBySort, PROXY_PAGE_CEILING } from '../../brain/query.js';
 import { parseSortParam, toMongoSort, SORTABLE_FIELDS } from '../../brain/list-sort.js';
 import { textSearchOr, SEARCHABLE_FIELDS } from '../../brain/text-search.js';
 import { resolveMemberSpaces, resolveWriteTarget, findFirstAcrossMembers, collectAcrossMembers, isStrictLinkage } from '../../spaces/proxy.js';
@@ -72,6 +74,8 @@ fileMetaRouter.get('/spaces/:spaceId/files', globalRateLimit, requireSpaceAuth, 
     return;
   }
   const limit = parseLimit(req.query['limit'], 50, 200);
+  const badParam = unsupportedPageParam(req.query as Record<string, unknown>);
+  if (badParam) { res.status(400).json(badParam); return; }
   const skip = parseSkip(req.query['skip']);
   const sortParse = parseSortParam(req.query['sort'], req.query['dir'], SORTABLE_FIELDS.files);
   if ('error' in sortParse) {
@@ -90,21 +94,29 @@ fileMetaRouter.get('/spaces/:spaceId/files', globalRateLimit, requireSpaceAuth, 
   // Distinct from the exact `?path=` filter above; the client's docked freetext box feeds this.
   const search = textSearchOr(req.query['search'] as string | undefined, SEARCHABLE_FIELDS.files);
   if (search) Object.assign(filter, search);
-  const all = await collectAcrossMembers(spaceId, async mid => {
-    const files = await col(`${mid}_files`)
-      .find(asFilter(filter))
-      .sort(mongoSort)
-      .skip(skip)
-      .limit(limit)
-      .toArray();
-    // Attach step progress for files still in flight, so the UI can draw which stage is running
-    // instead of a spinner that never resolves. Joined per MEMBER: on a proxy space the ids belong
-    // to that member's job collection, and looking them up in another's would silently find nothing.
-    return attachJobProgress(mid, files as Array<Record<string, unknown>>);
+  const members = memberSpacesForRequest(req, spaceId);
+  const page = await pageAcrossMembers<Record<string, unknown>>({
+    members, limit, skip, ceiling: PROXY_PAGE_CEILING,
+    compare: compareBySort(sortParse.sort ? toMongoSort(sortParse.sort) : { createdAt: -1, _id: -1 }),
+    readMember: async (mid, lim, sk) => {
+      const rows = await col(`${mid}_files`)
+        .find(asFilter(filter))
+        .sort(mongoSort)
+        .skip(sk)
+        .limit(lim)
+        .toArray();
+      // Attach step progress for files still in flight, so the UI can draw which stage is running
+      // instead of a spinner that never resolves. Joined per MEMBER: on a proxy space the ids belong
+      // to that member's job collection, and looking them up in another's would silently find nothing.
+      return attachJobProgress(mid, rows as Array<Record<string, unknown>>);
+    },
   });
-  const files = capPage(all, limit, sortParse.sort);
+  if (!page.ok) { res.status(400).json({ error: page.error }); return; }
 
-  res.json({ files, limit, skip });
+  let total = 0;
+  for (const mid of members) total += await countBrain(mid, 'files', filter);
+
+  res.json({ files: page.rows, limit, skip, total, truncated: skip + page.rows.length < total });
 });
 
 /**

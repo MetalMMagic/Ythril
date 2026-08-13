@@ -11,7 +11,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import {
-  INSTANCES, post, postRetry429, get, del, delWithBody, triggerSync, waitFor, getInstanceId,
+  INSTANCES, post, postRetry429, get, del, delWithBody, triggerSync, waitFor, getInstanceId, makeTriggerProbe,
 } from './helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -20,6 +20,31 @@ const CONFIGS = path.join(__dirname, 'configs');
 let tokenA, tokenB, tokenC;
 let networkId;
 let testSpaceId;
+
+/**
+ * Wait for a peer to deliver something, RE-TRIGGERING sync while we wait.
+ *
+ * A single up-front trigger races a slow gossip cycle: the trigger is accepted, the push is queued behind other work, and
+ * the wait expires having asked once. That is what `makeTriggerProbe`'s own docstring warns about, and it is what failed
+ * in CI on 2026-08-13 — the FIRST propagation of a run, 15.2s against a 15s budget, with no container error and the same
+ * assertions passing locally in 2.7s.
+ *
+ * So the budget is not the fix. Re-triggering is, and the probe makes a persistently-rejected trigger report itself
+ * ("429 Too Many Requests") instead of arriving as a bare timeout with nothing to act on.
+ */
+// 20s, matching the one hand-rolled re-triggered wait this codebase already had rather than inventing a number. The
+// MECHANISM is the fix -- re-triggering -- and the budget is deliberately not raised far, so a genuinely hung sync
+// still reports in a reasonable time instead of being papered over.
+async function waitForSynced(instance, token, networkId, label, check, timeoutMs = 20_000) {
+  await triggerSync(instance, token, networkId);
+  const probe = makeTriggerProbe(instance, token, networkId, label);
+  const retrigger = setInterval(() => { void probe(); }, 3_000);
+  try {
+    await waitFor(check, timeoutMs, 500, probe.diagnose);
+  } finally {
+    clearInterval(retrigger);
+  }
+}
 
 describe('Braintree topology (A -> B -> C)', () => {
   before(async () => {
@@ -111,16 +136,14 @@ describe('Braintree topology (A -> B -> C)', () => {
     const memId = write.body._id ?? write.body.id;
 
     // A pushes to B
-    await triggerSync(INSTANCES.a, tokenA, networkId);
-    await waitFor(async () => {
+    await waitForSynced(INSTANCES.a, tokenA, networkId, 'A', async () => {
       const r = await get(INSTANCES.b, tokenB, `/api/brain/spaces/${testSpaceId}/memories/${memId}`);
       return r.status === 200;
     });
     console.log(`  Root fact appeared on B ✓`);
 
     // B pushes to C
-    await triggerSync(INSTANCES.b, tokenB, networkId);
-    await waitFor(async () => {
+    await waitForSynced(INSTANCES.b, tokenB, networkId, 'B', async () => {
       const r = await get(INSTANCES.c, tokenC, `/api/brain/spaces/${testSpaceId}/memories/${memId}`);
       return r.status === 200;
     });

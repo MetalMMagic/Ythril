@@ -8,8 +8,11 @@ import { requireSpaceAuth, denyReadOnly } from '../../auth/middleware.js';
 import { globalRateLimit, bulkWipeRateLimit } from '../../rate-limit/middleware.js';
 import { createChrono, updateChrono, getChronoById, listChrono, deleteChrono, bulkDeleteChrono, parseRecurrence, ChronoFilter } from '../../brain/chrono.js';
 import { getConfig } from '../../config/loader.js';
-import { parseLimit, parseSkip, capPage } from '../../util/pagination.js';
-import { parseSortParam, SORTABLE_FIELDS } from '../../brain/list-sort.js';
+import { parseLimit, parseSkip, unsupportedPageParam } from '../../util/pagination.js';
+import { pageAcrossMembers } from '../../spaces/page-across-members.js';
+import { countBrain, compareBySort, PROXY_PAGE_CEILING } from '../../brain/query.js';
+import { memberSpacesForRequest } from '../../spaces/proxy-scoped.js';
+import { parseSortParam, SORTABLE_FIELDS, toMongoSort } from '../../brain/list-sort.js';
 import { resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { validateChrono, getAllowedChronoTypes } from '../../spaces/schema-validation.js';
 import type { ChronoStatus } from '../../config/types.js';
@@ -373,6 +376,10 @@ chronoRouter.get('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, a
     return;
   }
   const limit = parseLimit(req.query['limit'], 50, 500);
+  // A pagination name we do not have is a 400 naming the one we do — aigents paged with `offset`, which was accepted
+  // and ignored, and summed 67 identical pages into a count 67x the truth.
+  const badParam = unsupportedPageParam(req.query as Record<string, unknown>);
+  if (badParam) { res.status(400).json(badParam); return; }
   const skip = parseSkip(req.query['skip']);
   const sortParse = parseSortParam(req.query['sort'], req.query['dir'], SORTABLE_FIELDS.chrono);
   if ('error' in sortParse) {
@@ -410,12 +417,21 @@ chronoRouter.get('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, a
   // as edges: an id belongs to the member that owns it. An empty resolution filters to nothing, which is
   // correct — "no entity by that name" must not fall back to showing everything.
   const entityName = typeof req.query['entityName'] === 'string' ? req.query['entityName'] : undefined;
-  const all = await collectAcrossMembers(spaceId, async mid => {
+  const filterFor = async (mid: string): Promise<Record<string, unknown>> => {
     const perMember: Record<string, unknown> = { ...filter };
     if (entityName) perMember['entityIds'] = { $in: await resolveEntityIdsByName(mid, entityName) };
-    return listChrono(mid, perMember, limit, skip, sortParse.sort);
+    return perMember;
+  };
+  const members = memberSpacesForRequest(req, spaceId);
+  const page = await pageAcrossMembers<Record<string, unknown>>({
+    members, limit, skip, ceiling: PROXY_PAGE_CEILING,
+    compare: compareBySort(sortParse.sort ? toMongoSort(sortParse.sort) : { createdAt: -1, _id: -1 }),
+    readMember: async (mid, lim, sk) => await listChrono(mid, await filterFor(mid), lim, sk, sortParse.sort) as unknown as Record<string, unknown>[],
   });
-  res.json({ chrono: capPage(all, limit, sortParse.sort), limit, skip });
+  if (!page.ok) { res.status(400).json({ error: page.error }); return; }
+  let total = 0;
+  for (const mid of members) total += await countBrain(mid, 'chrono', await filterFor(mid));
+  res.json({ chrono: page.rows, limit, skip, total, truncated: skip + page.rows.length < total });
 });
 
 

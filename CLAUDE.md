@@ -27,6 +27,28 @@ expressed against two different sources of scope — it is not one surface offer
 `400` on one door and a silent default on the other is worse than either alone, because it makes the behaviour depend on
 which client the caller happened to pick.
 
+## The five places a capability lives — all of them, same commit
+
+Owner rule, extended 2026-08-13. "MCP and REST" is not the whole list. A capability change is not done until all five
+agree:
+
+1. **the REST route**
+2. **the MCP tool** — same parameters, same defaults, same caps, same refusals
+3. **`docs/integration-guide/`** — the integrator's reference
+4. **`docs/userguide/02-brain.md` → Brain → Search** — what an operator reads in the product. A parameter that exists on
+   both APIs and is absent from that page is a capability nobody using the UI knows about; a control described there that
+   no longer matches the API is worse
+5. **token rights** — `auth/space-rights.ts`. A new route with no rights row is either unreachable or ungoverned, and both
+   fail silently
+
+The failure this prevents is not "documentation drift". It is that **each of these is somebody's authoritative source**,
+and the one that is wrong is invisible to whoever reads it: aigents designed around a stale sentence in an MCP schema;
+breituai-platform could not find an env var that was documented on the wrong page; a user reading the Search page cannot
+discover a `skip` that only the API has.
+
+**Check all five when you change any one.** If one genuinely does not apply, say which and why in the commit — not in your
+head.
+
 ## A schema description is the authoritative reference — treat it as code
 
 An MCP tool's `inputSchema` description is what a caller reads *while constructing arguments*, and `help()` says so in as

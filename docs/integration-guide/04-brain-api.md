@@ -424,7 +424,7 @@ Optional filters:
 | `fromName` / `toName` | *(edges)* Filter the From/To endpoint by entity name, same resolution |
 | `entity` | Filter by linked entity ID |
 | `limit` | Results per page (default 100, max 500) |
-| `skip` | Offset for pagination |
+| `skip` | Rows to discard before the page. **The parameter is `skip`** — `offset`, `page`, `per_page`, `pageSize`, `sortBy`, `orderBy`, `order` and `direction` are refused with a `400` naming the one to use, rather than accepted and ignored |
 
 Both `tag` and `entity` can be combined (AND logic). Results are sorted newest-first.
 
@@ -434,11 +434,27 @@ Both `tag` and `entity` can be combined (AND logic). Results are sorted newest-f
 {
   "memories": [ ... ],
   "limit": 100,
-  "skip": 0
+  "skip": 0,
+  "total": 4831,
+  "truncated": true
 }
 ```
 
-Default limit: 100, max: 500. Use `skip` for offset pagination.
+| Field | Meaning |
+|---|---|
+| `limit` / `skip` | The values actually applied, echoed so a loop can tell what it got from what it asked for |
+| `total` | Every record the filter matches, ignoring `limit` and `skip`. Summed across members on a proxy space |
+| `truncated` | `true` when this page is not the end of the match set — i.e. `skip + returned < total` |
+
+**Compare your running sum against `total` and stop.** That is what `total` is for. aigents paged this endpoint with
+`offset`, which was not a parameter we had: it was accepted and ignored, every page was the same newest-300, and 67
+identical pages summed to 10,184 matching records in a space holding 300 with 152 matches. They were about to delete
+records on that number, and what caught it was a *different* endpoint disagreeing — not anything the paging response said.
+Both halves of that are fixed here: the total is in the envelope, and an unsupported pagination name is a `400`.
+
+On a **proxy space** the page is computed over the merged set of member spaces, not per member, so `skip` means the same
+thing it does on a plain space. `skip + limit` is bounded there — a deep page needs that many rows from every member — and
+exceeding the bound is a `400` naming the ceiling.
 
 ---
 

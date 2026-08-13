@@ -72,7 +72,7 @@ When a **type** is selected and the space has a schema defined for that type, th
 
 **Deleting:** Each row has an inline **✕ → confirm** flow.
 
-Results are paginated — use **← Prev / Next →** to page through them.
+Results are paginated — use **← Prev / Next →** to page through them. The list also reports the **total** number of matching records, not just the ones on screen, so "first page of 4,831" is visible rather than something you have to page to the end to discover.
 
 ---
 
@@ -158,6 +158,8 @@ So a **topK** of 10 can legitimately show fewer than ten rows — the passage co
 #### Advanced Query
 
 Runs a structured MongoDB-style query against one collection. Select a collection (`memories`, `entities`, `edges`, `chrono`, or `files`), optionally set a **limit** and **max time (ms)**, enter a filter as JSON, and click **Run**. Results appear below.
+
+The API behind this tab also takes **`skip`** (page through the results), **`sort`** and **`dir`** (order by a field), and returns a **`total`** — every record the filter matches, not just the page. Those are useful when you are driving it from a script rather than this form; see [Structured Query](../integration-guide/04d-brain-ops-api.md#structured-query-read-only) for the parameters and the sortable fields per collection.
 
 Example — find all entities of type `service`:
 

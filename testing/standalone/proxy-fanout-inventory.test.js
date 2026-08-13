@@ -113,7 +113,17 @@ const RECLASSIFIED = 1;
  * backwards — the arithmetic says the opposite — and lowering a conserved total on a plausible story is exactly the move
  * this invariant exists to catch. It caught it.
  */
-const TOTAL = 33;
+/**
+ * 33 -> 38: all five brain LIST routes now name their narrowing.
+ *
+ * They paged through `collectAcrossMembers`, which the counter does not see, and each now calls
+ * `memberSpacesForRequest` by name so it can hand the member list to the shared pager — memories, entities, edges, chrono
+ * and file-meta. Five more visible sites, the same reads, and the same narrowing they always had.
+ *
+ * The number moving UP as narrowing becomes explicit is the healthy direction for this invariant. It moved down once in
+ * my hands, on a plausible story about consolidation, and the arithmetic said otherwise.
+ */
+const TOTAL = 38;
 
 const GUARDS = {
   'server/src/auth/middleware.ts': 2,

@@ -101,7 +101,19 @@ const RECLASSIFIED = 1;
  * accounted for, not that the number never moves. Lowering it, or leaving it at 30 and letting the new site sit in
  * PENDING, are the two ways this gate gets quietly defeated.
  */
-const TOTAL = 31;
+/**
+ * 31 -> 33: the two `/query` paths now name their narrowing EXPLICITLY.
+ *
+ * They used to fan out through `collectAcrossMembers`, which this gate does not count as a narrowed call — it resolves
+ * the member list internally. Fixing the deep-skip defect meant resolving that list in the route, so each path now calls
+ * `memberSpacesForRequest` (REST) or `memberSpacesWithin` (MCP) by name and the counter sees two sites it could not see
+ * before. Narrowed went 28 -> 30; guards and reclassified are unchanged, so the total is 33.
+ *
+ * My first attempt at this number was 30, on the reasoning that two fan-outs had been consolidated into one. That was
+ * backwards — the arithmetic says the opposite — and lowering a conserved total on a plausible story is exactly the move
+ * this invariant exists to catch. It caught it.
+ */
+const TOTAL = 33;
 
 const GUARDS = {
   'server/src/auth/middleware.ts': 2,

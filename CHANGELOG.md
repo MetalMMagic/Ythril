@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.8.1] — 2026-08-13
+
 ### Fixed
 - **`POST /query` returned an EMPTY page for any `skip` past 100, while `total` reported the true count.** Shipped in
   2.8.0 and fixed here. The route fetched a window capped at 100 rows and then sliced it at `skip`, so a caller sweeping a

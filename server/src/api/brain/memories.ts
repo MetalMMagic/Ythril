@@ -11,8 +11,11 @@ import { listMemories, deleteMemory, bulkDeleteMemories, remember, updateMemory 
 import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } from '../../brain/delete-fields.js';
 import { getConfig } from '../../config/loader.js';
 import { col, asFilter } from '../../db/mongo.js';
-import { parseLimit, parseSkip, capPage } from '../../util/pagination.js';
-import { parseSortParam, SORTABLE_FIELDS } from '../../brain/list-sort.js';
+import { parseLimit, parseSkip, unsupportedPageParam } from '../../util/pagination.js';
+import { pageAcrossMembers } from '../../spaces/page-across-members.js';
+import { memberSpacesForRequest } from '../../spaces/proxy-scoped.js';
+import { countBrain, compareBySort, PROXY_PAGE_CEILING } from '../../brain/query.js';
+import { parseSortParam, SORTABLE_FIELDS, toMongoSort } from '../../brain/list-sort.js';
 import { checkQuota, QuotaError } from '../../quota/quota.js';
 import { resolveMemberSpaces, resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { validateMemory } from '../../spaces/schema-validation.js';
@@ -158,6 +161,11 @@ memoriesRouter.get('/spaces/:spaceId/memories', globalRateLimit, requireSpaceAut
     res.status(404).json({ error: `Space '${spaceId}' not found` });
     return;
   }
+  // A pagination name we do not have is a 400 naming the one we do. aigents paged this endpoint with `offset`, which was
+  // accepted and ignored, and summed 67 identical pages into a count 67x the truth.
+  const badParam = unsupportedPageParam(req.query as Record<string, unknown>);
+  if (badParam) { res.status(400).json(badParam); return; }
+
   const limit = parseLimit(req.query['limit'], 100, 500);
   const skip = parseSkip(req.query['skip']);
   const sortParse = parseSortParam(req.query['sort'], req.query['dir'], SORTABLE_FIELDS.memories);
@@ -170,12 +178,35 @@ memoriesRouter.get('/spaces/:spaceId/memories', globalRateLimit, requireSpaceAut
   // as edges: an id belongs to the member that owns it. An empty resolution filters to nothing, which is
   // correct — "no entity by that name" must not fall back to showing everything.
   const entityName = typeof req.query['entityName'] === 'string' ? req.query['entityName'] : undefined;
-  const all = await collectAcrossMembers(spaceId, async mid => {
+  // Paged through the shared helper, so a proxy space's page is the page of the MERGED set rather than `skip` rows
+  // dropped from each member. Same function `/query` and the embed-job listing use.
+  const members = memberSpacesForRequest(req, spaceId);
+  const filterFor = async (mid: string): Promise<Record<string, unknown>> => {
     const perMember: Record<string, unknown> = { ...filter };
     if (entityName) perMember['entityIds'] = { $in: await resolveEntityIdsByName(mid, entityName) };
-    return listMemories(mid, perMember, limit, skip, sortParse.sort);
+    return perMember;
+  };
+  const page = await pageAcrossMembers<Record<string, unknown>>({
+    members, limit, skip, ceiling: PROXY_PAGE_CEILING,
+    // The comparator is built FROM the sort handed to MongoDB, so a proxy merge cannot order by a different rule.
+    compare: compareBySort(sortParse.sort ? toMongoSort(sortParse.sort) : { createdAt: -1, _id: -1 }),
+    readMember: async (mid, lim, sk) =>
+      await listMemories(mid, await filterFor(mid), lim, sk, sortParse.sort) as Record<string, unknown>[],
   });
-  res.json({ memories: capPage(all, limit, sortParse.sort), limit, skip });
+  if (!page.ok) { res.status(400).json({ error: page.error }); return; }
+
+  // `total` is the whole match, and it is the ONE thing aigents said they would take if we only did one: a caller
+  // compares what it summed against what the server counted and stops. Without it, 67 identical pages summed to a
+  // plausible number with nothing in any response contradicting it.
+  let total = 0;
+  for (const mid of members) total += await countBrain(mid, 'memories', await filterFor(mid));
+
+  res.json({
+    memories: page.rows, limit, skip, total,
+    // Explicit rather than left to be derived from `total`: their third ask, and a caller that knows it received a
+    // partial page does not need to work out whether it did.
+    truncated: skip + page.rows.length < total,
+  });
 });
 
 

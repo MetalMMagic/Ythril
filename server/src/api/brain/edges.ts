@@ -11,8 +11,11 @@ import { listEdges, deleteEdge, upsertEdge, getEdgeById, updateEdgeById, bulkDel
 import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } from '../../brain/delete-fields.js';
 import { getConfig } from '../../config/loader.js';
 import { col, asFilter } from '../../db/mongo.js';
-import { parseLimit, parseSkip, capPage } from '../../util/pagination.js';
-import { parseSortParam, SORTABLE_FIELDS } from '../../brain/list-sort.js';
+import { parseLimit, parseSkip, unsupportedPageParam } from '../../util/pagination.js';
+import { pageAcrossMembers } from '../../spaces/page-across-members.js';
+import { countBrain, compareBySort, PROXY_PAGE_CEILING } from '../../brain/query.js';
+import { memberSpacesForRequest } from '../../spaces/proxy-scoped.js';
+import { parseSortParam, SORTABLE_FIELDS, toMongoSort } from '../../brain/list-sort.js';
 import { resolveMemberSpaces, resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { validateEdge } from '../../spaces/schema-validation.js';
 import { UUID_V4_RE, webhookToken, getSpaceMeta, ttlDaysFromBody, ttlDaysError, ifMatchFromRequest, preconditionFailedBody } from './_shared.js';
@@ -118,6 +121,9 @@ edgesRouter.get('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, asy
     return;
   }
   const limit = parseLimit(req.query['limit'], 50, 200);
+  // A pagination name we do not have is a 400 naming the one we do.
+  const badParam = unsupportedPageParam(req.query as Record<string, unknown>);
+  if (badParam) { res.status(400).json(badParam); return; }
   const skip = parseSkip(req.query['skip']);
   const sortParse = parseSortParam(req.query['sort'], req.query['dir'], SORTABLE_FIELDS.edges);
   if ('error' in sortParse) {
@@ -137,12 +143,23 @@ edgesRouter.get('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, asy
   // member that owns it, so resolving against another's entities would match nothing while looking fine.
   const fromName = typeof req.query['fromName'] === 'string' ? req.query['fromName'] : undefined;
   const toName = typeof req.query['toName'] === 'string' ? req.query['toName'] : undefined;
-  const all = await collectAcrossMembers(spaceId, async mid => {
+  const filterFor = async (mid: string) => {
     const perMember = { ...filter };
     if (fromName) perMember.fromIds = await resolveEntityIdsByName(mid, fromName);
     if (toName) perMember.toIds = await resolveEntityIdsByName(mid, toName);
-    return listEdges(mid, perMember, limit, skip, sortParse.sort);
+    return perMember;
+  };
+  const members = memberSpacesForRequest(req, spaceId);
+  const page = await pageAcrossMembers<Record<string, unknown>>({
+    members, limit, skip, ceiling: PROXY_PAGE_CEILING,
+    compare: compareBySort(sortParse.sort ? toMongoSort(sortParse.sort) : { createdAt: -1, _id: -1 }),
+    readMember: async (mid, lim, sk) =>
+      await listEdges(mid, await filterFor(mid), lim, sk, sortParse.sort) as unknown as Record<string, unknown>[],
   });
+  if (!page.ok) { res.status(400).json({ error: page.error }); return; }
+  // Names are resolved for the PAGE, not for a whole per-member fetch: enriching rows that the window discards is work
+  // whose result is thrown away.
+  const all = page.rows as unknown as Awaited<ReturnType<typeof listEdges>>;
   // Batch-resolve entity names for from/to so the client can display names instead of raw UUIDs
   const allEntityIds = [...new Set(all.flatMap(e => [e.from, e.to]))];
   const nameMap = new Map<string, string>();
@@ -154,7 +171,9 @@ edgesRouter.get('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, asy
     for (const d of nameDocs) nameMap.set(String(d._id), d.name);
   }
   const enriched = all.map(e => ({ ...e, fromName: nameMap.get(e.from), toName: nameMap.get(e.to) }));
-  res.json({ edges: capPage(enriched, limit, sortParse.sort), limit, skip });
+  let total = 0;
+  for (const mid of members) total += await countBrain(mid, 'edges', await filterFor(mid));
+  res.json({ edges: enriched, limit, skip, total, truncated: skip + enriched.length < total });
 });
 
 

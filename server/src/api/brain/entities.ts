@@ -11,8 +11,10 @@ import { listEntities, deleteEntity, upsertEntity, getEntityById, updateEntityBy
 import { computeMergePlan, applyResolutions, executeMerge, validateResolution, type PropertyResolution } from '../../brain/merge.js';
 import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } from '../../brain/delete-fields.js';
 import { getConfig } from '../../config/loader.js';
-import { parseLimit, parseSkip, capPage } from '../../util/pagination.js';
-import { parseSortParam, SORTABLE_FIELDS } from '../../brain/list-sort.js';
+import { parseLimit, parseSkip, unsupportedPageParam } from '../../util/pagination.js';
+import { pageAcrossMembers } from '../../spaces/page-across-members.js';
+import { countBrain, compareBySort, PROXY_PAGE_CEILING } from '../../brain/query.js';
+import { parseSortParam, SORTABLE_FIELDS, toMongoSort } from '../../brain/list-sort.js';
 import { textSearchOr, SEARCHABLE_FIELDS } from '../../brain/text-search.js';
 import { resolveMemberSpaces, resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { memberSpacesForRequest } from '../../spaces/proxy-scoped.js';
@@ -120,6 +122,10 @@ entitiesRouter.get('/spaces/:spaceId/entities', globalRateLimit, requireSpaceAut
     return;
   }
   const limit = parseLimit(req.query['limit'], 50, 500);
+  // A pagination name we do not have is a 400 naming the one we do — aigents paged with `offset`, which was accepted
+  // and ignored, and summed 67 identical pages into a count 67x the truth.
+  const badParam = unsupportedPageParam(req.query as Record<string, unknown>);
+  if (badParam) { res.status(400).json(badParam); return; }
   const skip = parseSkip(req.query['skip']);
   const sortParse = parseSortParam(req.query['sort'], req.query['dir'], SORTABLE_FIELDS.entities);
   if ('error' in sortParse) {
@@ -135,8 +141,16 @@ entitiesRouter.get('/spaces/:spaceId/entities', globalRateLimit, requireSpaceAut
   if (typeof req.query['properties'] === 'string') Object.assign(filter, propertiesValueContains(req.query['properties']));
   const search = textSearchOr(req.query['search'] as string | undefined, SEARCHABLE_FIELDS.entities);
   if (search) Object.assign(filter, search);
-  const all = await collectAcrossMembers(spaceId, mid => listEntities(mid, filter, limit, skip, sortParse.sort));
-  res.json({ entities: capPage(all, limit, sortParse.sort), limit, skip });
+  const members = memberSpacesForRequest(req, spaceId);
+  const page = await pageAcrossMembers<Record<string, unknown>>({
+    members, limit, skip, ceiling: PROXY_PAGE_CEILING,
+    compare: compareBySort(sortParse.sort ? toMongoSort(sortParse.sort) : { createdAt: -1, _id: -1 }),
+    readMember: async (mid, lim, sk) => await listEntities(mid, filter, lim, sk, sortParse.sort) as unknown as Record<string, unknown>[],
+  });
+  if (!page.ok) { res.status(400).json({ error: page.error }); return; }
+  let total = 0;
+  for (const mid of members) total += await countBrain(mid, 'entities', filter);
+  res.json({ entities: page.rows, limit, skip, total, truncated: skip + page.rows.length < total });
 });
 
 

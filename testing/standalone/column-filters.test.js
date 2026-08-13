@@ -152,8 +152,16 @@ describe('entity-NAME column filters (From / To / Entities)', () => {
     // nothing while looking like it worked.
     for (const f of ['edges.ts', 'memories.ts', 'chrono.ts']) {
       const src = readFileSync(new URL(`../../server/src/api/brain/${f}`, import.meta.url), 'utf8');
-      assert.match(src, /collectAcrossMembers\(spaceId, async mid =>/, `${f} must resolve inside the member loop`);
+      // The PROPERTY, not the shape that used to express it. This line required
+      // `collectAcrossMembers(spaceId, async mid =>` until the list routes moved onto the shared pager, at which point the
+      // resolution moved into a `filterFor(mid)` helper — still per member, and the gate failed on correct code.
+      //
+      // Asserting the ARGUMENT is stronger than asserting the enclosing loop: the old pattern would have passed a
+      // `resolveEntityIdsByName(spaceId, …)` written inside the loop, which is the actual mistake being guarded against.
       assert.match(src, /resolveEntityIdsByName\(mid,/, `${f} must resolve against the MEMBER id`);
+      assert.ok(!/resolveEntityIdsByName\(spaceId,/.test(src),
+        `${f} resolves an entity name against the PROXY space id — ids belong to the member that owns them, so this `
+        + 'matches nothing while looking like it worked');
     }
   });
 

@@ -6,6 +6,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+### Fixed
+- **The brain LIST endpoints report a `total`, refuse `offset`, and page a proxy space correctly.** aigents, 2026-08-13T1020Z
+  (corrected 1036Z): they paged `/memories?limit=300&offset=N` in a loop and it never came back short. `offset` is not a
+  parameter we have — the routes read `skip` — so it was accepted and ignored, every page was the same newest-300, and **67
+  identical pages summed to 10,184 matching records in a space holding 300 with 152 matches**. They were about to delete
+  records on that number; what caught it was `get_stats` disagreeing, not anything the paging response said.
+  - **`total` in the envelope** — their ranked #1, *"the one we would take if you only do one"*: the caller compares its
+    running sum against what the server counted and stops. Plus `truncated`, their #3, so a partial page says so rather
+    than being derived.
+  - **An unsupported pagination name is a `400` naming the one to use** — their #2, in their words: *"accepting a parameter
+    and ignoring it is worse than rejecting it, because the caller writes a loop around it."* `offset`, `page`, `per_page`,
+    `pageSize`, `sortBy`, `orderBy`, `order`, `direction`. Deliberately a short list of plausible-but-wrong names rather
+    than a strict allowlist over the whole query string, which would refuse the cache-busters and analytics params a GET
+    picks up in the wild.
+  - **All five list endpoints now page through `pageAcrossMembers`** — memories, entities, edges, chrono, file-meta — so a
+    proxy space's page is the page of the merged set instead of `skip` rows dropped from each member. That was a second,
+    quieter instance of the same defect.
+  - Documented in all five places the parity rule now names: both APIs, the integration guide, the userguide's Brain →
+    Search page, and the rights rows (unchanged — same routes, same rights).
 ### Fixed
 - **The embed-job listing takes `skip`, so a reported failure is always reachable.** `getEmbedJobCounts` aggregates every
   job while the listing returned one capped page, so a space reporting `failed: 500` had no way to reach failure #201 — an

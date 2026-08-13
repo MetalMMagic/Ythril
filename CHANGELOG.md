@@ -7,69 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- **`update_file_meta` — a file's metadata can be changed without resending the file.** `write_file` accepts
-  `description`, `tags` and `properties`, but only alongside `content`, so correcting a tag on a 40 MB PDF meant
-  re-uploading it — and correcting one on a file whose bytes you do not have was impossible. Every knowledge type
-  has an `update_*` tool for exactly this reason; files were the one that did not.
-  - Fourth finding from the capability matrix.
-  - Runs the route's own rules rather than a second copy: `updateFileMeta` performs the write, and under strict
-    linkage every id in `entityIds`/`memoryIds`/`chronoIds` must resolve first — a file carries three reference
-    fields and storing an unresolvable one was the widest silent hole this record type had.
-  - Maps to `file.meta.update`, the route's own audit operation.
-  - Verified that the BYTES are untouched and that a field the patch did not mention survives — a metadata editor
-    that silently clears what it was not asked about is the failure mode here.
-- **`retry_failed_embeddings` — bulk retry reaches MCP.** `POST /embedding-queue/retry-failed` was REST-only, so
-  an agent recovering a space after an embedder outage had to list the failures and call `retry_embedding` once
-  per file. That is the shape of the reindex-by-curl-loop that motivated the `reindex` tool, where a customer did
-  fourteen spaces by hand because the agent planning their work could not do it.
-  - Third finding from the capability matrix, after the `reindex` description and `er_model`.
-  - Sums across a proxy's members, narrowing with `memberSpacesWithin` — the MCP half of the rule the route
-    states with `memberSpacesForRequest`. Conserved fan-out total 39 → 40.
-  - Maps to the route's own audit operation (`file.retry_embedding_all`): one capability, one audit name.
-  - `mutating: true`, so a read-only token cannot see or call it. A bulk re-queue creates no records and is still
-    a write, and getting that flag wrong is how a read-only token gains a side effect.
-
-### Added
-- **`er_model` — the entity-relationship model reaches MCP.** `GET /api/brain/spaces/:spaceId/er-model` was
-  REST-only, and it answers the question an agent asks first: which entity types actually exist here, which edge
-  labels connect which of them, and how many of each. `get_space_meta` answers a different question — the
-  DECLARED schema, what may exist — so an MCP-only client could learn what a space permits and not what it
-  contains.
-  - **Found by the capability matrix**, which listed `GET /er-model` in the REST-only column. Second finding
-    from that generator, after the `reindex` description pointing at a route MCP cannot reach.
-  - A proxy space reports its members **separately**, exactly as the REST route does: merging counts for two
-    types that share a name across spaces would invent relationships that cannot exist, because an edge cannot
-    cross a space. The narrowing is `memberSpacesWithin`, the MCP half of the rule REST states with
-    `memberSpacesForRequest`.
-  - **The REST route is audited now too.** `brain.stats` was recorded and `er-model` was not, which was an
-    asymmetry rather than a decision — both report what a space contains. New operation: `brain.er_model`,
-    classified as a `read` for the per-space usage counters.
-  - Five gates had something to say and each was answered rather than adjusted: the audit map, the tool-count
-    tripwire, the read-only classification, the proxy fan-out conserved total (38 → 39), and the
-    activity classifier.
-  - Verified through both doors on one fixture — two entity types and an edge between them — asserting the two
-    responses are `deepEqual`, not merely both plausible.
-
-### Fixed
-- **60 gates stripped block comments before line comments, so a `/*` inside a `//` comment blinded them.**
-  `server/src/api/data.ts:281` reads `// Follow the symlink — useful for /mnt/* or volume-mount points`, and
-  removing block comments first treats that `/*` as an opener: it deletes **5,907 characters** through the next
-  `*/`, taking three route registrations with it.
-  - **It had already cost something.** `every-space-route-has-an-area` could not see
-    `DELETE /api/files/:spaceId`, `PATCH /api/files/:spaceId` or `POST /api/files/:spaceId/retry_embedding`, so
-    none of the three carried a rights row for as long as they were invisible. They were added an hour earlier,
-    when an unrelated edit happened to shift the swallowed region.
-  - **Blast radius measured, not assumed:** two source files lose real code to the wrong order — `api/data.ts`
-    (5,907 chars) and `files/converters/pipeline.ts` (355). The other 506 are unaffected.
-  - 60 sites across 58 files now put line comments first. `_strip-comments.mjs` holds the correct pair for new
-    code, and `comment-strippers-are-ordered.test.js` fails on the other order anywhere in the suite.
-  - **The gate needed three attempts and a mutation test caught two of them.** A single regex spanning both
-    `.replace()` calls matched nothing — inside a `.js` file the line-comment pattern is written with escaped
-    slashes. Comparing first-occurrence positions file-wide then flagged eight innocent files, including one
-    that strips block comments and never strips line comments at all. It compares positions within a window
-    around each block-strip now, and reintroducing the original defect turns it red.
-
 ### Changed
 - **The capability matrix is generated and audited from running code.** `scripts/surface-matrix-audit.mjs`
   imports every mounted `Router`, walks its stack including sub-routers, and compares both ways against the
@@ -80,96 +17,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     parameter (`registerReembedRoute(spacesRouter)`); attribution is by router identifier now, with mounts
     followed transitively through `use()`.
 
-### Fixed
-- **The `reindex` tool told MCP callers to poll something MCP could not reach.** Its own description said the
-  job *"runs in the background and may take minutes, so poll `get_space_meta` or the REST reindex-status route
-  rather than waiting on this call"* — and `get_space_meta` did not carry the reindex state. `needsReindex` was
-  read by one route and by **no tool at all**, so a client with no HTTP door (Claude Desktop, any pure-MCP
-  agent) could start a multi-minute job and never learn it had finished.
-
-  Worse than a missing capability: a schema description is what a caller reads *while constructing arguments*,
-  and one that names a door the reader does not have is the same shape as `recall`'s filter description claiming
-  a post-filter — the wrong sentence was the one being read.
-  - `get_space_meta` and `GET /api/spaces/:id/meta` both report **`needsReindex`** now, `.some()` over the
-    member spaces exactly as `GET /reindex-status` computes it, so a proxy is `true` when any member is.
-  - The `reindex` description names that field instead of a route. The smaller of the two available fixes, and
-    the one that makes the existing sentence true rather than adding a second one.
-  - `GET /api/brain/spaces/:spaceId/reindex-status` is unchanged — this adds a field, it does not move a route.
-  - **The new field had to join `SERVER_OWNED_META_FIELDS`, and CI is what said so.** A caller who `GET`s a
-    space, edits one field and `PATCH`es it back would otherwise get `unrecognized_keys` for a field they
-    never wrote — the exact report that strip exists to answer. `type-schema-crud.test.js` round-trips a real
-    response rather than a hand-built body, so it went red the moment the response grew.
-  - `meta-response-round-trips.test.js` now holds the agreement in seconds rather than in a four-minute
-    Docker suite: every field the meta response emits must be an envelope field or a stripped one.
-  - **Found by the capability × surface matrix**, not by a report: the generator put `reindex-status` in the
-    REST-only column, and reading why turned up the description pointing at it.
-
-### Added
-- **A gate on what a tool description may tell a caller to do.** `tool-descriptions-name-reachable-things.test.js`
-  fails when any of the 41 tool descriptions *directs* the reader to a REST route or a `curl`.
-  - It distinguishes **directing** from **describing**: `create_space` says *"Refusals match POST /api/spaces
-    exactly"*, which is a true parity statement useful to anyone holding both doors. `reindex` said *"poll … the
-    REST reindex-status route"*, which is an instruction half its callers cannot carry out. The check is
-    per-sentence, and a sentence about equivalence is allowed.
-  - Two false positives shaped it before it was right: the parity statement above, and `help` describing its own
-    contents (*"how to choose between query / recall … and the REST API map"*) — where a verb list containing
-    `query` swallowed a tool name. A gate that fires on correct prose gets deleted rather than obeyed.
-  - **Mutation-tested against the sentence that shipped**: restoring it turns the gate red and names `reindex`.
-
-### Fixed
-- **A truncated graph traversal was indistinguishable from a complete one.** `traverseRecallSeeds` ended with
-  `collected.slice(0, limit)` and nothing in the response said the slice had happened, so `graphNodes: 7` at
-  `topK: 1, traverse: 1` might be the whole neighbourhood or the first 7 of 40. `degraded` does not cover it —
-  that reports a member that failed or timed out, not the traversal cap.
-
-  Worse here than on a list: a caller paging a list can compare against `total`, there is no total for a
-  neighbourhood, and a short graph reads as *"this record has few relationships"* — a wrong conclusion about the
-  **data** rather than about the request. The cap formula is not something a caller can predict from the
-  parameters they set either.
-
-  **A flag was rejected as the answer** (owner ruling): it tells a caller their graph was cut and leaves them no
-  way to get the rest, which on a neighbourhood is the same dead end the paging cap was on a list. So the cap is
-  now a **spill point**, not a truncation point:
-  - Past it, the **complete** graph is written to the space's `_tmp/` as JSON and the response carries
-    `graphTruncated: true` with `graphComplete: {nodes, path, download, expiresAt}`.
-  - The download is the ordinary **authenticated** `GET /api/files/:spaceId?path=…`. A URL that worked without
-    the caller's token would be a way to read a space's records with no auth.
-  - The file is written to the space a **seed** came from, never to the space the call was addressed to. A
-    proxy space is a lens rather than a store — `resolveWriteTarget` refuses a write to one without an
-    explicit `targetSpace` — so addressing the spill at the request's space would have created a file tree
-    and a `{proxy}_files` record for a space meant to have neither. Caught auditing the spill against the
-    proxy rules before it merged.
-  - A token with brain read but **no files read** gets a link it cannot fetch. It still learns the graph was
-    short, which is the part that was invisible; the alternative — suppressing the spill for such a token —
-    would hide the size as well as the file.
-  - **One day**, stamped through the record TTL machinery that already exists — the sweep's `files` handler runs
-    the full `deleteFileCascade`, so the blob goes with the record and there is no second sweeper to forget.
-  - **Hidden from browsing** (`DERIVED_TREES`, beside `_converted/` and `_extracted/`) and **never embedded**:
-    embedding a read's own output would spend model time making recall results recall-searchable, so a later
-    recall could match the JSON dump of an earlier one.
-  - **The spill walk is itself bounded**, at 20× the inline cap, and hitting that bound is reported as
-    `ceilingHit` in the response *and inside the file*. A second silent truncation inside the fix for the first
-    one would be the same defect wearing the fix's clothes.
-
-### Fixed
-- **Three mutating file routes were ungoverned by the rights matrix.** `DELETE /api/files/:spaceId`,
-  `PATCH /api/files/:spaceId` and `POST /api/files/:spaceId/retry_embedding` had no `ROUTE_RIGHTS` row, so the
-  per-space area/rung matrix did not describe them.
-  - **They were invisible to the gate that exists to catch exactly this.** `every-space-route-has-an-area`
-    strips block comments before scanning, and a region of `api/files.ts` was being swallowed with them — so the
-    three registrations were never discovered and never demanded a row. Editing that file elsewhere shifted the
-    swallowed region and all three appeared at once.
-  - `DELETE` is `admin`, matching `DELETE /api/brain/spaces/:spaceId/files`: deleting a directory takes the tree
-    with it, and the metadata half of that operation has always been the highest rung. The other two are `write`.
-
-  All four traverse sites — REST `/recall` and `/find-similar`, MCP `recall` and `find_similar` — go through one
-  builder, and a gate asserts that count so a fifth cannot opt out.
-
-  **Verified above the cap, deliberately.** The fixture is a 30-leaf hub with an inline cap of 8: a fixture
-  inside the cap cannot see this defect at all, which is exactly how the 2.8.0 deep-skip shipped behind tests
-  that paged 12 and 25 rows.
-
-### Changed
 - **BREAKING — graph-augmented recall nests what it reached under the match that reached it.** aigents
   2026-08-13T1035Z §3 and 1100Z. `traverse > 0` used to append every traversed record beside the matches with
   `score: null`, and three things followed from that flat list:
@@ -204,10 +51,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     here. The old `path` was also the full accumulated chain, not just the last edge.
 
 ### Added
+- **`update_file_meta` — a file's metadata can be changed without resending the file.** `write_file` accepts
+  `description`, `tags` and `properties`, but only alongside `content`, so correcting a tag on a 40 MB PDF meant
+  re-uploading it — and correcting one on a file whose bytes you do not have was impossible. Every knowledge type
+  has an `update_*` tool for exactly this reason; files were the one that did not.
+  - Fourth finding from the capability matrix.
+  - Runs the route's own rules rather than a second copy: `updateFileMeta` performs the write, and under strict
+    linkage every id in `entityIds`/`memoryIds`/`chronoIds` must resolve first — a file carries three reference
+    fields and storing an unresolvable one was the widest silent hole this record type had.
+  - Maps to `file.meta.update`, the route's own audit operation.
+  - Verified that the BYTES are untouched and that a field the patch did not mention survives — a metadata editor
+    that silently clears what it was not asked about is the failure mode here.
+- **`retry_failed_embeddings` — bulk retry reaches MCP.** `POST /embedding-queue/retry-failed` was REST-only, so
+  an agent recovering a space after an embedder outage had to list the failures and call `retry_embedding` once
+  per file. That is the shape of the reindex-by-curl-loop that motivated the `reindex` tool, where a customer did
+  fourteen spaces by hand because the agent planning their work could not do it.
+  - Third finding from the capability matrix, after the `reindex` description and `er_model`.
+  - Sums across a proxy's members, narrowing with `memberSpacesWithin` — the MCP half of the rule the route
+    states with `memberSpacesForRequest`. Conserved fan-out total 39 → 40.
+  - Maps to the route's own audit operation (`file.retry_embedding_all`): one capability, one audit name.
+  - `mutating: true`, so a read-only token cannot see or call it. A bulk re-queue creates no records and is still
+    a write, and getting that flag wrong is how a read-only token gains a side effect.
+
+- **`er_model` — the entity-relationship model reaches MCP.** `GET /api/brain/spaces/:spaceId/er-model` was
+  REST-only, and it answers the question an agent asks first: which entity types actually exist here, which edge
+  labels connect which of them, and how many of each. `get_space_meta` answers a different question — the
+  DECLARED schema, what may exist — so an MCP-only client could learn what a space permits and not what it
+  contains.
+  - **Found by the capability matrix**, which listed `GET /er-model` in the REST-only column. Second finding
+    from that generator, after the `reindex` description pointing at a route MCP cannot reach.
+  - A proxy space reports its members **separately**, exactly as the REST route does: merging counts for two
+    types that share a name across spaces would invent relationships that cannot exist, because an edge cannot
+    cross a space. The narrowing is `memberSpacesWithin`, the MCP half of the rule REST states with
+    `memberSpacesForRequest`.
+  - **The REST route is audited now too.** `brain.stats` was recorded and `er-model` was not, which was an
+    asymmetry rather than a decision — both report what a space contains. New operation: `brain.er_model`,
+    classified as a `read` for the per-space usage counters.
+  - Five gates had something to say and each was answered rather than adjusted: the audit map, the tool-count
+    tripwire, the read-only classification, the proxy fan-out conserved total (38 → 39), and the
+    activity classifier.
+  - Verified through both doors on one fixture — two entity types and an edge between them — asserting the two
+    responses are `deepEqual`, not merely both plausible.
+
+- **A gate on what a tool description may tell a caller to do.** `tool-descriptions-name-reachable-things.test.js`
+  fails when any of the 41 tool descriptions *directs* the reader to a REST route or a `curl`.
+  - It distinguishes **directing** from **describing**: `create_space` says *"Refusals match POST /api/spaces
+    exactly"*, which is a true parity statement useful to anyone holding both doors. `reindex` said *"poll … the
+    REST reindex-status route"*, which is an instruction half its callers cannot carry out. The check is
+    per-sentence, and a sentence about equivalence is allowed.
+  - Two false positives shaped it before it was right: the parity statement above, and `help` describing its own
+    contents (*"how to choose between query / recall … and the REST API map"*) — where a verb list containing
+    `query` swallowed a tool name. A gate that fires on correct prose gets deleted rather than obeyed.
+  - **Mutation-tested against the sentence that shipped**: restoring it turns the gate red and names `reindex`.
+
 - **`MAX_ALT_PATHS_PER_NODE`** — a dense graph can reach one node dozens of ways, so alternate routes are
   capped at 8 per node and the node says so with `pathsTruncated: true`. A cap a caller cannot see is how
   "these are all the routes" becomes a false conclusion.
-### Added
+
 - **`recall`'s filter accepts the same grammar `query`'s does.** aigents, 2026-08-13T1035Z §2: recall took one operator
   object per key, ANDed — no `$or`, no nesting — while `query` took the full allowlisted MongoDB grammar to depth 8. Same
   store, same policy, **two grammars**, so a caller wanting meaning-ranking *and* a real predicate ran `query` first and fed
@@ -230,7 +130,112 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `$or` naming one excludes the other — accepting a grammar and then ignoring it would have been the same defect in a new
     place.
 
+- **A gate that compares every declared surface against the one enforcement set.** `client-bodies-match-server.test.js`
+  takes the four strict brain read routes and checks the Angular client's request bodies, the MCP tool schemas and the
+  integration guide's table against `QUERY_BODY_FIELDS`, `RECALL_BODY_FIELDS`, `TRAVERSE_BODY_FIELDS` and
+  `FIND_SIMILAR_BODY_FIELDS`.
+  - Strictness moved the failure rather than removing it: an unknown key used to be a wrong answer with a `200`, and is
+    now a `400` in whatever is asking. The client's bodies were verified by hand and were correct — which is exactly when
+    to write the gate, because a hand-check does not survive the next edit to either side.
+  - The client call sites are DISCOVERED by sweeping the tracked sources for a POST to one of the four, so a component
+    posting directly instead of through `BrainApi` is covered the day it is written. A hand-maintained file list would
+    have shared the blind spot with the code it audits.
+  - It refuses to pass vacuously: an opaque body type (`Record<string, unknown>`, an index signature, a named interface
+    it cannot read) is a failure naming the file, and the routes are asserted BY NAME rather than by count.
+
 ### Fixed
+- **60 gates stripped block comments before line comments, so a `/*` inside a `//` comment blinded them.**
+  `server/src/api/data.ts:281` reads `// Follow the symlink — useful for /mnt/* or volume-mount points`, and
+  removing block comments first treats that `/*` as an opener: it deletes **5,907 characters** through the next
+  `*/`, taking three route registrations with it.
+  - **It had already cost something.** `every-space-route-has-an-area` could not see
+    `DELETE /api/files/:spaceId`, `PATCH /api/files/:spaceId` or `POST /api/files/:spaceId/retry_embedding`, so
+    none of the three carried a rights row for as long as they were invisible. They were added an hour earlier,
+    when an unrelated edit happened to shift the swallowed region.
+  - **Blast radius measured, not assumed:** two source files lose real code to the wrong order — `api/data.ts`
+    (5,907 chars) and `files/converters/pipeline.ts` (355). The other 506 are unaffected.
+  - 60 sites across 58 files now put line comments first. `_strip-comments.mjs` holds the correct pair for new
+    code, and `comment-strippers-are-ordered.test.js` fails on the other order anywhere in the suite.
+  - **The gate needed three attempts and a mutation test caught two of them.** A single regex spanning both
+    `.replace()` calls matched nothing — inside a `.js` file the line-comment pattern is written with escaped
+    slashes. Comparing first-occurrence positions file-wide then flagged eight innocent files, including one
+    that strips block comments and never strips line comments at all. It compares positions within a window
+    around each block-strip now, and reintroducing the original defect turns it red.
+
+- **The `reindex` tool told MCP callers to poll something MCP could not reach.** Its own description said the
+  job *"runs in the background and may take minutes, so poll `get_space_meta` or the REST reindex-status route
+  rather than waiting on this call"* — and `get_space_meta` did not carry the reindex state. `needsReindex` was
+  read by one route and by **no tool at all**, so a client with no HTTP door (Claude Desktop, any pure-MCP
+  agent) could start a multi-minute job and never learn it had finished.
+
+  Worse than a missing capability: a schema description is what a caller reads *while constructing arguments*,
+  and one that names a door the reader does not have is the same shape as `recall`'s filter description claiming
+  a post-filter — the wrong sentence was the one being read.
+  - `get_space_meta` and `GET /api/spaces/:id/meta` both report **`needsReindex`** now, `.some()` over the
+    member spaces exactly as `GET /reindex-status` computes it, so a proxy is `true` when any member is.
+  - The `reindex` description names that field instead of a route. The smaller of the two available fixes, and
+    the one that makes the existing sentence true rather than adding a second one.
+  - `GET /api/brain/spaces/:spaceId/reindex-status` is unchanged — this adds a field, it does not move a route.
+  - **The new field had to join `SERVER_OWNED_META_FIELDS`, and CI is what said so.** A caller who `GET`s a
+    space, edits one field and `PATCH`es it back would otherwise get `unrecognized_keys` for a field they
+    never wrote — the exact report that strip exists to answer. `type-schema-crud.test.js` round-trips a real
+    response rather than a hand-built body, so it went red the moment the response grew.
+  - `meta-response-round-trips.test.js` now holds the agreement in seconds rather than in a four-minute
+    Docker suite: every field the meta response emits must be an envelope field or a stripped one.
+  - **Found by the capability × surface matrix**, not by a report: the generator put `reindex-status` in the
+    REST-only column, and reading why turned up the description pointing at it.
+
+- **A truncated graph traversal was indistinguishable from a complete one.** `traverseRecallSeeds` ended with
+  `collected.slice(0, limit)` and nothing in the response said the slice had happened, so `graphNodes: 7` at
+  `topK: 1, traverse: 1` might be the whole neighbourhood or the first 7 of 40. `degraded` does not cover it —
+  that reports a member that failed or timed out, not the traversal cap.
+
+  Worse here than on a list: a caller paging a list can compare against `total`, there is no total for a
+  neighbourhood, and a short graph reads as *"this record has few relationships"* — a wrong conclusion about the
+  **data** rather than about the request. The cap formula is not something a caller can predict from the
+  parameters they set either.
+
+  **A flag was rejected as the answer** (owner ruling): it tells a caller their graph was cut and leaves them no
+  way to get the rest, which on a neighbourhood is the same dead end the paging cap was on a list. So the cap is
+  now a **spill point**, not a truncation point:
+  - Past it, the **complete** graph is written to the space's `_tmp/` as JSON and the response carries
+    `graphTruncated: true` with `graphComplete: {nodes, path, download, expiresAt}`.
+  - The download is the ordinary **authenticated** `GET /api/files/:spaceId?path=…`. A URL that worked without
+    the caller's token would be a way to read a space's records with no auth.
+  - The file is written to the space a **seed** came from, never to the space the call was addressed to. A
+    proxy space is a lens rather than a store — `resolveWriteTarget` refuses a write to one without an
+    explicit `targetSpace` — so addressing the spill at the request's space would have created a file tree
+    and a `{proxy}_files` record for a space meant to have neither. Caught auditing the spill against the
+    proxy rules before it merged.
+  - A token with brain read but **no files read** gets a link it cannot fetch. It still learns the graph was
+    short, which is the part that was invisible; the alternative — suppressing the spill for such a token —
+    would hide the size as well as the file.
+  - **One day**, stamped through the record TTL machinery that already exists — the sweep's `files` handler runs
+    the full `deleteFileCascade`, so the blob goes with the record and there is no second sweeper to forget.
+  - **Hidden from browsing** (`DERIVED_TREES`, beside `_converted/` and `_extracted/`) and **never embedded**:
+    embedding a read's own output would spend model time making recall results recall-searchable, so a later
+    recall could match the JSON dump of an earlier one.
+  - **The spill walk is itself bounded**, at 20× the inline cap, and hitting that bound is reported as
+    `ceilingHit` in the response *and inside the file*. A second silent truncation inside the fix for the first
+    one would be the same defect wearing the fix's clothes.
+
+- **Three mutating file routes were ungoverned by the rights matrix.** `DELETE /api/files/:spaceId`,
+  `PATCH /api/files/:spaceId` and `POST /api/files/:spaceId/retry_embedding` had no `ROUTE_RIGHTS` row, so the
+  per-space area/rung matrix did not describe them.
+  - **They were invisible to the gate that exists to catch exactly this.** `every-space-route-has-an-area`
+    strips block comments before scanning, and a region of `api/files.ts` was being swallowed with them — so the
+    three registrations were never discovered and never demanded a row. Editing that file elsewhere shifted the
+    swallowed region and all three appeared at once.
+  - `DELETE` is `admin`, matching `DELETE /api/brain/spaces/:spaceId/files`: deleting a directory takes the tree
+    with it, and the metadata half of that operation has always been the highest rung. The other two are `write`.
+
+  All four traverse sites — REST `/recall` and `/find-similar`, MCP `recall` and `find_similar` — go through one
+  builder, and a gate asserts that count so a fifth cannot opt out.
+
+  **Verified above the cap, deliberately.** The fixture is a 30-leaf hub with an inline cap of 8: a fixture
+  inside the cap cannot see this defect at all, which is exactly how the 2.8.0 deep-skip shipped behind tests
+  that paged 12 and 25 rows.
+
 - **`find_similar` accepted `traverse` and `includeContent` on MCP and refused them over REST.** The tool schema
   advertised both and its handler implemented both; the REST route read neither, and the integration guide described the
   gap as intended behaviour (*"the MCP tool ... adds `traverse`"*). A caller who read the tool schema and switched door
@@ -248,21 +253,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reference told integrators a working parameter would be rejected. The table is now compared against the enforced sets
   by the same gate.
 
-### Added
-- **A gate that compares every declared surface against the one enforcement set.** `client-bodies-match-server.test.js`
-  takes the four strict brain read routes and checks the Angular client's request bodies, the MCP tool schemas and the
-  integration guide's table against `QUERY_BODY_FIELDS`, `RECALL_BODY_FIELDS`, `TRAVERSE_BODY_FIELDS` and
-  `FIND_SIMILAR_BODY_FIELDS`.
-  - Strictness moved the failure rather than removing it: an unknown key used to be a wrong answer with a `200`, and is
-    now a `400` in whatever is asking. The client's bodies were verified by hand and were correct — which is exactly when
-    to write the gate, because a hand-check does not survive the next edit to either side.
-  - The client call sites are DISCOVERED by sweeping the tracked sources for a POST to one of the four, so a component
-    posting directly instead of through `BrainApi` is covered the day it is written. A hand-maintained file list would
-    have shared the blind spot with the code it audits.
-  - It refuses to pass vacuously: an opaque body type (`Record<string, unknown>`, an index signature, a named interface
-    it cannot read) is a failure naming the file, and the routes are asserted BY NAME rather than by count.
-
-### Fixed
 - **The brain LIST endpoints report a `total`, refuse `offset`, and page a proxy space correctly.** aigents, 2026-08-13T1020Z
   (corrected 1036Z): they paged `/memories?limit=300&offset=N` in a loop and it never came back short. `offset` is not a
   parameter we have — the routes read `skip` — so it was accepted and ignored, every page was the same newest-300, and **67
@@ -281,7 +271,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     quieter instance of the same defect.
   - Documented in all five places the parity rule now names: both APIs, the integration guide, the userguide's Brain →
     Search page, and the rights rows (unchanged — same routes, same rights).
-### Fixed
+
 - **A derived file description could overwrite one a person had written.** The media worker read the stored description,
   computed `operatorWrote` from it, and then wrote its derived text on that decision — a read-modify-write, which cannot
   win the race it exists to win. An operator `PATCH` landing between the read and the write was silently replaced: no field
@@ -301,7 +291,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The whitespace case earned its keep immediately: the first version of the filter used `'^\s*$'` as a **string**, which
     in JavaScript is `^s*$` — it matched "sss" and not whitespace. It is a `RegExp` literal now, which cannot lose the
     escape.
-### Fixed
+
 - **The embed-job listing takes `skip`, so a reported failure is always reachable.** `getEmbedJobCounts` aggregates every
   job while the listing returned one capped page, so a space reporting `failed: 500` had no way to reach failure #201 — an
   accurate total beside an unreachable tail, on the one surface whose justification is that its failures are actionable.
@@ -313,7 +303,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Tested with a **250-job** fixture, because the cap is 200 and a fixture inside the cap cannot see this — exactly how the
     same defect shipped on `/query` behind tests that paged 12 and 25 rows. Mutation-tested by removing the `skip`.
 
-### Fixed
 - **`recall`'s filter description said the filter was applied AFTER vector search. It is not, and a customer designed
   around the wrong sentence.** aigents, 2026-08-13T1035Z: they read it, believed it, and built a skill that deliberately
   avoided filtered recall — on the sound reasoning that a record which does not rank inside `topK` would never reach a

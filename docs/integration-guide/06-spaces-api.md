@@ -395,6 +395,18 @@ Authorization: Bearer <token>
 
 Returns the full schema definition for a space along with derived stats.
 
+**Requires the token to be scoped to that space.** A token whose `spaces` allowlist excludes the space is refused with
+`403` — as are `GET /api/spaces/:id/completeness` and the single-type
+`GET /api/spaces/:id/meta/typeSchemas/:knowledgeType/:typeName`. Before 2.8.0 these three answered `200` for any
+authenticated token, which is a fixed defect rather than a behaviour to rely on: a space's `purpose`, `usageNotes` and
+type schemas are readable only by tokens that may reach the space.
+
+> **A bare space id — `/api/spaces/<id>` with no sub-path — is not an endpoint.** It answers
+> `404 {"error":"Not found"}`, the generic API catch-all, for **every** id, whether or not your token may reach it. So
+> that status carries no information about permission and must not be branched on. Use the `/meta` route above
+> instead: it answers `403` when scope refuses and `404 {"error":"Space 'x' not found"}` when the space genuinely does
+> not exist, and the two bodies are how you tell them apart.
+
 **Response** `200`:
 
 ```json

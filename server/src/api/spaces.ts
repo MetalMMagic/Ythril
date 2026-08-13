@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { registerReembedRoute } from './spaces-reembed.js';
 import { registerActivityResetRoute } from './spaces-activity.js';
 import path from 'path';
-import { requireAuth, requireAdmin, requireAdminMfa, requireAdminMfaScoped } from '../auth/middleware.js';
+import { requireAuth, requireSpaceAuthScoped, requireAdmin, requireAdminMfa, requireAdminMfaScoped } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { getConfig, saveConfig, getSecrets, getDataRoot, getSchemaLibrary, getDocumentProcessingConfig, getMediaEmbeddingConfig, getStorageConfig } from '../config/loader.js';
 import { capDocExtractionMode } from '../files/converters/extraction-level.js';
@@ -371,7 +371,7 @@ spacesRouter.put('/:id/schema', globalRateLimit, requireAdminMfaScoped('id'), as
 });
 
 // GET /api/spaces/:id/meta — read the meta block with derived stats
-spacesRouter.get('/:id/meta', globalRateLimit, requireAuth, async (req, res) => {
+spacesRouter.get('/:id/meta', globalRateLimit, requireSpaceAuthScoped('id'), async (req, res) => {
   const id = req.params['id'] as string;
   const cfg = getConfig();
   const space = cfg.spaces.find(s => s.id === id);
@@ -423,7 +423,7 @@ spacesRouter.get('/:id/meta', globalRateLimit, requireAuth, async (req, res) => 
 // Separate from `/meta` rather than folded into its `stats`: `/meta` is read on every schema edit and
 // must stay cheap, while this walks the collections. Read-only, so no audit entry — the
 // audit-route-coverage gate is about mutating verbs.
-spacesRouter.get('/:id/completeness', globalRateLimit, requireAuth, async (req, res) => {
+spacesRouter.get('/:id/completeness', globalRateLimit, requireSpaceAuthScoped('id'), async (req, res) => {
   const id = req.params['id'] as string;
   const space = getConfig().spaces.find(s => s.id === id);
   if (!space) {
@@ -440,7 +440,7 @@ const VALID_KNOWLEDGE_TYPES = new Set(['entity', 'memory', 'edge', 'chrono']);
 const MAX_TYPES_PER_KIND = 200;
 
 // GET /api/spaces/:id/meta/typeSchemas/:knowledgeType/:typeName
-spacesRouter.get('/:id/meta/typeSchemas/:knowledgeType/:typeName', globalRateLimit, requireAuth, (req, res) => {
+spacesRouter.get('/:id/meta/typeSchemas/:knowledgeType/:typeName', globalRateLimit, requireSpaceAuthScoped('id'), (req, res) => {
   const { id, knowledgeType, typeName } = req.params as { id: string; knowledgeType: string; typeName: string };
 
   if (!VALID_KNOWLEDGE_TYPES.has(knowledgeType)) {

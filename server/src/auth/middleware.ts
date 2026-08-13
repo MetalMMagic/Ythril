@@ -489,27 +489,46 @@ export async function acceptSchemaLibraryToken(
 }
 
 /**
- * Middleware that requires a valid Bearer PAT token AND that the token
- * has access to the space ID in req.params.spaceId.
+ * Middleware requiring a valid PAT **and** that the token reaches the space named by `req.params[paramName]`.
+ *
+ * ## Why the parameter name is an argument
+ *
+ * Because getting it wrong is SILENT. `enforceSpaceScope` returns `true` when the id is undefined — correctly, since
+ * a route with no space in its path has no scope to check — so a guard bound to a parameter the route does not have
+ * authenticates and waves the request through. It reads as enforcement at the mount site and enforces nothing.
+ *
+ * That is not hypothetical. Three space read routes leaked a space's schema, purpose and usage notes to any
+ * authenticated token; the first fix mounted `requireSpaceAuth` on them, which reads `spaceId`, while those routes use
+ * `:id`. The middleware was right, the mount looked right, and the leak was untouched — caught by a red-team test
+ * afterwards, not by the source gate that had just gone green.
+ *
+ * So the binding is explicit and asserted: `space-routes-honour-token-scope.test.js` requires a route declaring `:id`
+ * to use a guard bound to `'id'`, which a bare `requireSpaceAuth` cannot satisfy.
  */
-export async function requireSpaceAuth(
-  req: Request,
-  res: Response,
-  next: NextFunction,
-): Promise<void> {
-  const auth = await resolveAuthOrFail(req, res, { recordInvalidMetric: true });
-  if (!auth) return;
-  const { record, bearer } = auth;
+export function requireSpaceAuthScoped(paramName: string) {
+  return async function (req: Request, res: Response, next: NextFunction): Promise<void> {
+    const auth = await resolveAuthOrFail(req, res, { recordInvalidMetric: true });
+    if (!auth) return;
+    const { record, bearer } = auth;
 
-  const spaceId = req.params['spaceId'] as string | undefined;
-  if (!enforceSpaceScope(res, record, spaceId)) return;
-  if (!enforceAreaRung(res, record, req, spaceTargets(spaceId, record))) return;
+    const spaceId = req.params[paramName] as string | undefined;
+    if (!enforceSpaceScope(res, record, spaceId)) return;
+    if (!enforceAreaRung(res, record, req, spaceTargets(spaceId, record))) return;
 
-  authAttemptsTotal.inc({ result: 'success' });
-  attachToken(req, record, bearer);
-  req.resolvedSpaceId = spaceId;
-  next();
+    authAttemptsTotal.inc({ result: 'success' });
+    attachToken(req, record, bearer);
+    req.resolvedSpaceId = spaceId;
+    next();
+  };
 }
+
+/**
+ * Middleware that requires a valid Bearer PAT token AND that the token has access to `req.params.spaceId`.
+ *
+ * The `spaceId` binding of {@link requireSpaceAuthScoped}, kept as its own export because the brain and file routers
+ * mount it dozens of times and every one of them names the parameter `spaceId`.
+ */
+export const requireSpaceAuth = requireSpaceAuthScoped('spaceId');
 
 /**
  * Like requireAdminMfa, but also enforces the token's `spaces` allowlist

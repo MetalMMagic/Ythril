@@ -25,9 +25,17 @@ On connect, the server sends global instructions listing all available space IDs
 >
 > **`introduced` vs `preExisting` is the field worth branching on.** `introduced` means your patch caused it —
 > fix the patch. `preExisting` means the stored record already violated the schema there and your write
-> neither caused nor fixed it, which makes this write the moment to repair it. A write is only refused for
-> what it introduces, so a pre-existing violation never blocks an unrelated patch. `content` still carries
-> the same information as a sentence, so a client that reads only text loses nothing.
+> neither caused nor fixed it.
+>
+> **In a `strict` space, BOTH block the write.** The merged record is what would be stored, so a write is refused
+> while any violation remains — including one your patch neither caused nor touched. The remedy is in the message:
+> include the offending field in the same request and the write repairs the record. `content` still carries the same
+> information as a sentence, so a client that reads only text loses nothing.
+>
+> **The consequence to plan for: tightening a schema freezes the records that no longer fit it.** Remove a value from
+> an `enum` and every stored record still carrying it is uneditable until that field is repaired — even an edit to an
+> unrelated field like `description`. Under `warn` the same violations are reported and the write proceeds. Branch on
+> `introduced` being empty to tell "my patch is fine, this record needs repair" from "my patch is wrong".
 >
 > **Tool inputs are self-describing — and enforced.** Every tool's complete input contract — each parameter, its allowed values (`enum`), numeric bounds (`minimum`/`maximum`/`default`), string limits, the filter-operator allowlist, and `additionalProperties: false` — is published in its `inputSchema` via `tools/list`. The dispatcher **validates every call against that schema before running the tool**, rejecting a non-conforming call with an `isError` result — so unknown properties, out-of-range numbers, out-of-enum values, and malformed ids are hard errors, not silently ignored or clamped. Treat `tools/list` as the authoritative, machine-readable reference and read a tool's schema before constructing arguments; the `help` tool points here too.
 

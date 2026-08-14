@@ -30,6 +30,19 @@ import { memberSpacesForRequest } from '../../spaces/proxy-scoped.js';
 import type { FileMetaDoc } from '../../config/types.js';
 import { fetchJobProgress, getMediaJobCounts, FAILED_SAMPLE_LIMIT, FAILED_REASON_LIMIT, type MediaJobCounts } from '../../files/media/job-queue.js';
 import { tagContains } from '../../brain/tag-filter.js';
+import { reachesSpace } from '../../auth/space-reach.js';
+import { canWriteAnywhere } from '../../auth/write-anywhere.js';
+import type { TokenRights } from '../../config/rights-shape.js';
+
+/**
+ * The rights off a token record. A cast, for the same reason the MCP router needs one: the record is a
+ * union and the narrowing cannot be expressed on it. Every token carries a matrix — `createToken` always
+ * writes one, a boot migration backfills the rest, and an OIDC record derives one per request — so a
+ * record without it is a shape that predates all three, and this listing simply omits it rather than
+ * guessing a level for it.
+ */
+const rightsOf = (t: unknown): TokenRights | undefined =>
+  (t as { rights?: TokenRights } | undefined)?.rights;
 
 
 
@@ -322,11 +335,23 @@ fileMetaRouter.get('/spaces/:spaceId/token-access', globalRateLimit, requireSpac
   // A token reaches this space when it has no `spaces` allow-list (all spaces) or lists this one.
   // schemaLibrary tokens have no space access at all, so they never appear.
   const tokens = listTokens()
-    .filter(t => !t.schemaLibrary && (!t.spaces || t.spaces.includes(spaceId)))
+    // `reachesSpace`, not a fourth opinion about reach. This listing had its own —
+    // `!t.spaces || t.spaces.includes(spaceId)` — which is the same rule the HTTP guard and the MCP space
+    // filter each express through `reachesSpace`, and a listing that disagrees with the guard tells an
+    // operator a token can reach a space it cannot, or hides one it can.
+    .filter(t => !t.schemaLibrary && rightsOf(t) !== undefined && reachesSpace(rightsOf(t)!, spaceId))
     .map(t => ({
       name: t.name,
-      level: t.admin ? 'admin' : (t.readOnly ? 'readOnly' : 'full'),
-      allSpaces: !t.spaces,
+      // Derived from the matrix now that the legacy flags are gone. The three labels are kept because they
+      // are a published response shape: `admin` is instance admin, `full` is a token that can write
+      // somewhere, and `readOnly` is one that can only read. A per-area rung cannot be shown in one word,
+      // and this field never claimed to — it answers "how much can this token do", coarsely, for a list.
+      level: rightsOf(t)!.instanceAdmin
+        ? 'admin'
+        : (canWriteAnywhere(rightsOf(t)!) ? 'full' : 'readOnly'),
+      // A floor IS "no allow-list": it is the rung held in every space including ones created later, which
+      // is exactly what an absent `spaces` array used to mean.
+      allSpaces: rightsOf(t)!.floor !== null,
       peer: !!t.peerInstanceId,
       expiresAt: t.expiresAt,
     }));

@@ -57,6 +57,7 @@ import {
   buildElements, createGraphCytoscape, renderElements, type GraphInstance,
 } from './graph-cytoscape';
 import { GRAPH_STYLES } from './graph.styles';
+import { canWriteAnywhere } from '../../core/token-capability';
 
 @Component({
   selector: 'app-graph-view',
@@ -567,7 +568,9 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     }
 
     this.authApi.getMe().pipe(catchError(() => of(null))).subscribe(me => {
-      this.canEdit.set(me ? !me.readOnly : false);
+      // From the matrix, not the removed `readOnly` flag. `canEdit` only greys the editor out; every
+      // action it enables is re-checked by the server per space and per area.
+      this.canEdit.set(canWriteAnywhere(me?.rights ?? null));
     });
   }
 

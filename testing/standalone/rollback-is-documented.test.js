@@ -109,6 +109,10 @@ describe('every rewrite an upgrade performs is documented as one-way', () => {
       // field it does not know. Harmless in itself — the legacy fields are left in place — but an operator
       // rolling back needs to know the file changed shape.
       migrateTokenRightsOnBoot: 'tokens[].rights',
+      // MOVES a credential rather than dropping a setting, which is why the rollback row says the key is
+      // still recoverable: it is in `secrets.json` (0o600) and can be pasted back for an older build. The
+      // consequence of not doing that is a 401 from an external provider, not a changed default.
+      migrateProviderApiKeysOnBoot: 'apiKey',
     };
     const section = rollbackSection();
     const undocumented = [];

@@ -313,11 +313,16 @@ export interface MediaProviderConfig {
   /** Model tag passed to the provider (e.g. `moondream`, `gpt-4o-mini`,
    *  `whisper-1`, `base`). */
   model?: string;
-  /** Optional API key for endpoints that require Authorization.
-   *  When empty, no Authorization header is sent.
-   *  Stored in config.json by the Settings UI; for production deployments
-   *  prefer an env-var override (`VISION_API_KEY` / `STT_API_KEY`) which
-   *  takes precedence and locks this field as read-only in the UI. */
+  /**
+   * Optional API key for endpoints that require Authorization. When empty, no Authorization header is
+   * sent.
+   *
+   * **Never stored in `config.json`.** It lives in `secrets.json` (`0o600`), which is what the Settings
+   * UI writes and the only place the loader reads it from; an env-var override
+   * (`VISION_API_KEY` / `STT_API_KEY` / …) takes precedence over both and locks the field read-only in
+   * the UI. This field is on the RESOLVED shape, which is why it is still here — a key present on a
+   * stored block is a pre-3.0 leftover and is lifted out at boot.
+   */
   apiKey?: string;
 }
 

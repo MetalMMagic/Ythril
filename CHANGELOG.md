@@ -52,6 +52,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the merge replaces a type's whole schema object rather than merging its fields. Neither is read by
   anything in either case.
 
+- **BREAKING — a provider API key is no longer read from `config.json`. It is moved to `secrets.json` at
+  boot.** `secrets.json` is written `0o600`; `config.json` is not, and it is the file operators copy between
+  machines, paste into issues and mount as a ConfigMap. Any key still sitting in
+  `mediaEmbedding.<vision|stt|nli|rerank>.apiKey` is lifted into `secrets.json` on the first 3.0 boot and
+  **deleted** from the config; the read fallback is then gone, so the world-readable copy cannot come back.
+  Nothing to do: the Settings → Models page has written keys to `secrets.json` and deleted them from the
+  config for some time, so this only fires for an instance that has not saved that page since. An env var
+  (`VISION_API_KEY` and friends) still takes precedence over both. Rolling back is documented — the key is
+  not lost, it is in `secrets.json`. **Found by the deprecation sweep; it was not on the checklist.**
+
 ### Changed
 - **Re-uploading identical bytes no longer re-runs vision or speech-to-text.** `enqueueMediaJob` resets a
   terminal job on purpose, so the same file sent twice paid for a second full analysis to reproduce the caption

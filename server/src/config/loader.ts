@@ -311,6 +311,8 @@ export function loadConfig(): Config {
       log.warn(`Could not persist mediaEmbedding master-switch migration (will retry next boot): ${err}`);
     }
   }
+  // A provider API key left in config.json moves to secrets.json (0o600) and is deleted from the config.
+  migrateProviderApiKeysOnBoot(_config, getSecrets(), saveSecrets, saveConfig);
   // Legacy space `description` → `meta.purpose`, so the field MCP clients read is the field the UI edits.
   if (migrateSpaceDescriptionToPurpose(_config)) {
     try {
@@ -856,6 +858,7 @@ export function getDataRoot(): string {
 // ── Media Embedding Config ─────────────────────────────────────────────────
 
 import type { MediaEmbeddingConfig, MediaProviderConfig, FaceRecognitionConfig, DocumentProcessingConfig, EmbeddingConfig, RerankConfig } from './types.js';
+import { migrateProviderApiKeysOnBoot } from './migrate-provider-keys.js';
 
 const MEDIA_EMBEDDING_DEFAULTS: Required<Omit<MediaEmbeddingConfig, 'vision' | 'stt' | 'nli' | 'rerank' | 'ollamaUrl' | 'visionModel' | 'whisperUrl' | 'whisperModel' | 'lockedByInfra' | 'infraManaged' | 'faceRecognition' | 'documentProcessing'>> = {
   // Media embedding is always on (no master switch). Each class is gated by its `levels` entry, which
@@ -986,7 +989,9 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
   const visionBaseUrlEnv = envRenamed('VISION_BASE_URL');
   const visionModelEnv = process.env['VISION_MODEL'];
   const visionApiKeyEnv = process.env['VISION_API_KEY'];
-  // API keys: env var > secrets.json > legacy config.json (deprecated)
+  // API keys: env var > secrets.json. The `config.json` fallback was removed in 3.0 — any key still
+  // there is lifted into secrets.json at boot by `migrateProviderApiKeysToSecrets`, so reading it here
+  // as well would only keep alive a path that puts a credential in a world-readable file.
   let mediaSecrets: { visionApiKey?: string; sttApiKey?: string; nliApiKey?: string; rerankApiKey?: string } = {};
   try { mediaSecrets = getSecrets().mediaEmbedding ?? {}; } catch { /* secrets file may not exist pre-setup */ }
   const vision: MediaProviderConfig = {
@@ -1004,7 +1009,7 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
     model: normalizeVisionModel(
       visionModelEnv ?? base.vision?.model ?? base.visionModel ?? 'moondream',
     ),
-    apiKey: visionApiKeyEnv ?? mediaSecrets.visionApiKey ?? base.vision?.apiKey,
+    apiKey: visionApiKeyEnv ?? mediaSecrets.visionApiKey,
     // The default label follows the resolved provider. A fixed "(Ollama-compatible)" was wrong exactly
     // when it mattered — an operator on vLLM saw their OpenAI-compatible endpoint labelled with a
     // protocol it does not speak, which is the same misdirection as the `OLLAMA_URL` name itself.
@@ -1029,7 +1034,7 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
       ?? base.stt?.model
       ?? base.whisperModel
       ?? 'base',
-    apiKey: sttApiKeyEnv ?? mediaSecrets.sttApiKey ?? base.stt?.apiKey,
+    apiKey: sttApiKeyEnv ?? mediaSecrets.sttApiKey,
     label: base.stt?.label ?? 'STT provider (OpenAI-compatible)',
   };
   if (sttBaseUrlEnv) locked.push('stt.baseUrl');
@@ -1045,7 +1050,7 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
   const nli: MediaProviderConfig = {
     baseUrl: nliBaseUrlEnv ?? base.nli?.baseUrl,
     model: nliModelEnv ?? base.nli?.model,
-    apiKey: nliApiKeyEnv ?? mediaSecrets.nliApiKey ?? base.nli?.apiKey,
+    apiKey: nliApiKeyEnv ?? mediaSecrets.nliApiKey,
     label: base.nli?.label ?? 'NLI provider (contradiction judge)',
   };
   if (nliBaseUrlEnv) locked.push('nli.baseUrl');
@@ -1061,7 +1066,7 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
   const rerank: RerankConfig = {
     baseUrl: rerankBaseUrlEnv ?? base.rerank?.baseUrl,
     model: rerankModelEnv ?? base.rerank?.model,
-    apiKey: rerankApiKeyEnv ?? mediaSecrets.rerankApiKey ?? base.rerank?.apiKey,
+    apiKey: rerankApiKeyEnv ?? mediaSecrets.rerankApiKey,
     label: base.rerank?.label ?? 'Reranker (cross-encoder)',
     candidateMultiplier: rerankMultEnv ? Number(rerankMultEnv) : base.rerank?.candidateMultiplier,
   };

@@ -788,8 +788,8 @@ describe('Brain -- chrono CRUD (/api/brain/spaces/:spaceId/chrono)', () => {
     assert.equal(r.status, 401);
   });
 
-  it('Update chrono entry returns 200', async () => {
-    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`, {
+  it('Update chrono entry via PATCH returns 200', async () => {
+    const r = await patch(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`, {
       status: 'completed',
       description: 'All done',
     });
@@ -799,7 +799,9 @@ describe('Brain -- chrono CRUD (/api/brain/spaces/:spaceId/chrono)', () => {
   });
 
   it('Update non-existent chrono entry returns 404', async () => {
-    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/chrono/does-not-exist', {
+    // PATCH, not POST. This asserted 404 through the legacy verb, which still answers 404 now that the
+    // route is gone — for a different reason, so it would have kept passing while testing nothing.
+    const r = await patch(INSTANCES.a, token(), '/api/brain/spaces/general/chrono/does-not-exist', {
       status: 'completed',
     });
     assert.equal(r.status, 404);
@@ -847,16 +849,19 @@ describe('Brain -- chrono CRUD (/api/brain/spaces/:spaceId/chrono)', () => {
     assert.match(r.body.error, /At least one field must be provided/);
   });
 
-  it('legacy POST-as-update REFUSES excludeFromVectorSearch and names PATCH', async () => {
-    // That route runs no property validation and writes no audit snapshot, so it gets no new capability —
-    // and refusing beats dropping, which is the bug being fixed one route over.
+  it('POST-as-update is a 404 in 3.0, and writes nothing', async () => {
+    // This case used to assert the legacy route REFUSED `excludeFromVectorSearch` with a 400 naming PATCH —
+    // it ran no property validation and wrote no audit snapshot, so it was deliberately not getting new
+    // capability. 3.0 removed the route, so the refusal went with it and the answer is 404.
+    //
+    // The "writes nothing" half is kept and matters more than before: a 404 that still mutated would be
+    // the worst of both, and the positive path is covered by the PATCH case directly above.
     const r = await post(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`, {
       excludeFromVectorSearch: true,
     });
-    assert.equal(r.status, 400, JSON.stringify(r.body));
-    assert.match(r.body.error, /PATCH/);
+    assert.equal(r.status, 404, JSON.stringify(r.body));
     const back = await get(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`);
-    assert.equal(back.body.excludeFromVectorSearch, false, 'the refused request must not have written');
+    assert.equal(back.body.excludeFromVectorSearch, false, 'a removed route must not have written');
   });
 
   it('Create chrono with optional fields', async () => {
@@ -1271,7 +1276,7 @@ describe('Brain — chrono properties field', () => {
   });
 
   it('Update chrono can set properties', async () => {
-    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`, {
+    const r = await patch(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`, {
       properties: { phase: 'beta', priority: 2, critical: false },
     });
     assert.equal(r.status, 200, JSON.stringify(r.body));

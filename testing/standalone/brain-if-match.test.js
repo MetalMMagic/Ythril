@@ -210,12 +210,21 @@ describe('all four record types, or none', () => {
       'file metadata accepts and drops If-Match, answering 200 to a guarantee it never made');
   });
 
-  it('the legacy POST-as-update REFUSES the header rather than ignoring it', () => {
-    // That form does no property validation and writes no audit snapshot, so it is deliberately not
-    // getting the capability. Accepting and dropping the header would be far worse than refusing it.
+  it('the legacy POST-as-update is GONE, and its refusal went with it', () => {
+    // Inverted in 3.0. While that form existed it had to REFUSE `If-Match`: it did no property validation
+    // and wrote no audit snapshot, so it was deliberately not getting the capability, and accepting-then-
+    // dropping the header would answer 200 to a guarantee it never made.
+    //
+    // The route is removed, so both halves must be absent together. A refusal message for a route that no
+    // longer exists is dead text that reads like a live rule — and a returning route would arrive without
+    // the refusal, which is the state this check exists to prevent.
     const code = withoutComments(src('server/src/api/brain/chrono.ts'));
-    assert.match(code, /res\.status\(400\)\.json\(\{ error: '`If-Match` is not supported on the legacy/,
-      'the legacy POST-as-update silently ignores If-Match, which answers 200 to a guarantee it never made');
+    assert.ok(!/chronoRouter\.post\('\/spaces\/:spaceId\/chrono\/:id'/.test(code),
+      'the legacy POST-as-update is back and must refuse If-Match, or be removed again');
+    assert.ok(!/not supported on the legacy/.test(code),
+      'a refusal for a route that does not exist is dead text');
+    // The verb that DID get the capability still has it, so this is not passing on an empty file.
+    assert.match(code, /chronoRouter\.patch\('\/spaces\/:spaceId\/chrono\/:id'/);
   });
 });
 

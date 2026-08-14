@@ -73,6 +73,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `STT_MODEL` (legacy `WHISPER_MODEL`) all still resolve — breaking a documented env var to improve its
   spelling would turn an upgrade into an outage.
 
+- **BREAKING — `POST /api/brain/spaces/:spaceId/chrono/:id` is removed. Send `PATCH` instead.** It was the
+  only POST-that-updates in the brain API, it predated the retry-safety design and duplicated it, and it has
+  been documented as legacy and listed for removal at the next major since 2026-08-05. The `PATCH` body is
+  the same shape. **A flow moved across gains two things it never had:** the legacy verb ran no property
+  validation — so under strict validation it could write records the space rejects at create time — and
+  stored no audit snapshot. If a record it used to write is now refused, that record was always outside the
+  space's schema; the legacy verb simply never checked. Making a create idempotent is unchanged and was
+  never this route's job: a client-supplied UUID v4 in the COLLECTION post converges on the same record, for
+  every type.
+
 ### Changed
 - **BREAKING — MCP now enforces the per-space rights matrix, not just `readOnly` and `admin`.** This is the
   S-1 fix. MCP gated on two booleans while REST enforced a per-space, per-area rung, so one policy had two

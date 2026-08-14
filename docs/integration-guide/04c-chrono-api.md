@@ -49,8 +49,12 @@ memory. See [Retry Safety](04-brain-api.md#retry-safety).
 ### Update a Chrono Entry
 
 ```http
-POST /api/brain/spaces/:spaceId/chrono/:id
+PATCH /api/brain/spaces/:spaceId/chrono/:id
 ```
+
+> **`POST .../chrono/:id` was removed in 3.0** and now answers `404`. It was the only POST-that-updates in
+> the brain API; it performed no property validation and wrote no audit snapshot. `PATCH` takes the same
+> body and does both.
 
 **Body**: partial object with any updatable fields (`title`, `type`, `status`, `startsAt`, `endsAt`, `confidence`, `tags`, `entityIds`, `memoryIds`, `description`).
 

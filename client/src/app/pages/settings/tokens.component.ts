@@ -13,7 +13,6 @@ import { PhIconComponent } from '../../shared/ph-icon.component';
 import { ModalDirective } from '../../shared/modal.directive';
 import { SummaryStripComponent, SummaryItem } from '../../shared/summary-strip.component';
 import { StatusPillComponent } from '../../shared/status-pill.component';
-import { RelativeTimeComponent } from '../../shared/relative-time.component';
 import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
 import { RightsGlyphComponent, type TokenRights } from './rights-glyph.component';
 import { TokenCreateDialogComponent } from './token-create-dialog.component';
@@ -22,13 +21,12 @@ import { OwnTokenRightsComponent } from './own-token-rights.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
 import { httpErrorReason } from '../../core/http-error';
 import { TOKENS_PAGE_STYLES } from './tokens.styles';
-import { canWriteAnywhere } from '../../core/token-capability';
 
 @Component({
   selector: 'app-tokens',
   standalone: true,
   imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, ModalDirective,
-            SummaryStripComponent, StatusPillComponent, RelativeTimeComponent, HscrollTopDirective,
+            SummaryStripComponent, StatusPillComponent, HscrollTopDirective,
             ErrorStateComponent, RightsGlyphComponent, TokenCreateDialogComponent,
             TokenRightsDialogComponent, OwnTokenRightsComponent],
   styles: [TOKENS_PAGE_STYLES],
@@ -142,36 +140,22 @@ import { canWriteAnywhere } from '../../core/token-capability';
                     }
                   </td>
                   <td>
-                    @if (t.rights?.instanceAdmin) { <app-status-pill variant="error">{{ 'tokens.badge.admin' | transloco }}</app-status-pill> }
-                    @else if (t.schemaLibrary) { <app-status-pill variant="pending">{{ 'tokens.badge.schemaLibrary' | transloco }}</app-status-pill> }
-                    @else if (!canWrite(t)) { <app-status-pill variant="warn">{{ 'tokens.badge.readOnly' | transloco }}</app-status-pill> }
-                    @else { <app-status-pill variant="ok">{{ 'tokens.badge.standard' | transloco }}</app-status-pill> }
-                    <!-- An MFA exemption is a deliberate hole in an instance-wide control. It is shown
-                         wherever the token is, because a hole nobody can see is one nobody reviews. -->
-                    @if (t.mfa === 'exempt') { <app-status-pill variant="warn">{{ 'tokens.badge.mfaExempt' | transloco }}</app-status-pill> }
-                    @else if (t.mfa === 'required') { <app-status-pill variant="pending">{{ 'tokens.badge.mfaRequired' | transloco }}</app-status-pill> }
-                    <!-- The badges above say what KIND of token this is. The glyph says what it can reach:
-                         one bar per area, height for the ceiling, a red line for the floor. A badge cannot
-                         express "admin on Files in one space and nothing anywhere else", which is exactly
-                         what the rights model makes possible. Only drawn once a token carries a matrix —
-                         OIDC records never get one, and an empty glyph would read as "reaches nothing". -->
                     @if (t.rights) {
-                      <!-- The glyph is the summary; the button is the way in. Clicking the glyph itself would
-                           make an information display secretly interactive, which is how people discover an
-                           editor by accident on a page about credentials. -->
                       <app-rights-glyph [rights]="t.rights" style="margin-left:8px;vertical-align:middle;"/>
-                      <button class="icon-btn" type="button" style="margin-left:4px;vertical-align:middle;"
-                              [attr.aria-label]="'tokens.rights.edit' | transloco"
-                              [attr.title]="'tokens.rights.edit' | transloco"
-                              (click)="editRightsFor.set(t)">
-                        <ph-icon name="pencil-simple" [size]="13"/>
-                      </button>
+                    } @else {
+                      <span class="no-rights" [attr.title]="'tokens.rights.none' | transloco">{{ 'tokens.rights.none' | transloco }}</span>
                     }
+                    <button class="icon-btn" type="button" style="margin-left:4px;vertical-align:middle;"
+                            [attr.aria-label]="'tokens.rights.edit' | transloco"
+                            [attr.title]="'tokens.rights.edit' | transloco"
+                            (click)="editRightsFor.set(t)">
+                      <ph-icon name="pencil-simple" [size]="13"/>
+                    </button>
                   </td>
-                  <td><app-relative-time [value]="t.createdAt"/></td>
+                  <td>{{ stamp(t.createdAt) }}</td>
                   <td>
                     @if (t.lastUsed) {
-                      <app-relative-time [value]="t.lastUsed"/>
+                      {{ stamp(t.lastUsed) }}
                     } @else {
                       <span style="font-style:italic;color:var(--text-muted);">{{ 'tokens.table.neverUsed' | transloco }}</span>
                     }
@@ -181,7 +165,7 @@ import { canWriteAnywhere } from '../../core/token-capability';
                       <span style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;">
                         @if (isExpired(t)) { <app-status-pill variant="error">{{ 'tokens.table.expired' | transloco }}</app-status-pill> }
                         @else if (isExpiringSoon(t)) { <app-status-pill variant="warn" [dot]="true">{{ 'tokens.table.expiringSoon' | transloco }}</app-status-pill> }
-                        <app-relative-time [value]="t.expiresAt"/>
+                        {{ stamp(t.expiresAt) }}
                       </span>
                     } @else {
                       <app-status-pill variant="ok">{{ 'tokens.table.noExpiry' | transloco }}</app-status-pill>
@@ -233,6 +217,21 @@ export class TokensComponent implements OnInit {
   showCreateDialog = signal(false);
   /** The token whose rights are being edited, or null. Holding the RECORD rather than an id keeps the dialog
    *  from having to look it up again and disagreeing with the row that opened it. */
+  /**
+   * A credential's timestamps are absolute, not relative.
+   *
+   * These read "3 days ago" until 3.0.1. That answers how long, when the question an operator auditing
+   * access actually asks is WHEN — which log line, which incident, which deploy. "14 days ago" also
+   * quietly rounds: a token expiring in 23 hours and one expiring in 47 both read "tomorrow".
+   *
+   * Rendered in the VIEWER's locale and timezone by the platform, so it needs no timezone label of its own.
+   */
+  stamp(v: string | null | undefined): string {
+    if (!v) return '—';
+    const d = new Date(v);
+    return isNaN(d.getTime()) ? String(v) : d.toLocaleString();
+  }
+
   editRightsFor = signal<TokenRecord | null>(null);
 
   /**
@@ -253,18 +252,6 @@ export class TokensComponent implements OnInit {
   editingId = signal<string | null>(null);
   editLabelValue = '';
 
-  /**
-   * Whether a token can write anywhere — the badge's question, answered from the MATRIX.
-   *
-   * The pill used to branch on `t.admin` and `t.readOnly`. Neither can express a per-space grant, so the
-   * flags labelled a token that can write in one space "read-only", and one whose matrix reaches nothing
-   * "standard". A token carrying no matrix at all now reads as read-only, which is the predicate failing
-   * closed and is the right way round.
-   *
-   * One line because `tokens.component.ts` is frozen by the god-file ratchet at a size it should come DOWN
-   * from, and a template needs the callable on the component.
-   */
-  canWrite = (t: { rights?: TokenRights | null }): boolean => canWriteAnywhere(t.rights ?? null);
 
   ngOnInit(): void {
     this.authApi.getMe().subscribe({ next: (t) => this.selfToken.set(t), error: () => {} });

@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A token with no rights matrix could be seen and not fixed.** The rights glyph AND the pen that opens the
+  editor were both inside `@if (t.rights)`, so a token without a matrix showed neither — no way to grant it
+  one from the UI. The pen is now unconditional; the glyph still needs a matrix to draw, because it draws a
+  matrix. The editor already tolerated a rightless token: it starts from an empty one.
+- **Such a token was also labelled "read-only", which is a different thing.** It holds nothing, and calling
+  that read-only is what made the state read as *"all my tokens went read-only"* when the real state was
+  *"these tokens have no matrix"*. Two different problems, and only one is about permission levels. The pill
+  now says so, in all three locales.
+- **The permission pill is gone from the token list.** It said admin / standard / read-only /
+  schema-library; the glyph beside it says what the token can actually reach, per area and per space.
+  "Standard" only ever meant "none of the other four", which is nothing once the glyph is there.
+- **The second-factor controls are removed from token management.** UI only — the server is untouched: `mfa`
+  is still accepted on the PATCH body and granting an exemption still costs a live TOTP code.
+- **The rights editor is no longer 600px wide.** It renders areas x rungs once per space; at the shared
+  default that is a column of squeezed cells. It now takes `min(1400px, 94vw)`.
+- **`created`, `last used` and `expires` are a date and time, not "3 days ago".** Relative text answers how
+  long when the question is WHEN — which log line, which incident. It also rounds: 23 hours and 47 hours both
+  read "tomorrow". Shown in the viewer's own locale and timezone.
+
 ## [3.0.0] — 2026-08-14
 
 > **A major, and the deprecation checklist is what makes it one.** Nine surfaces were removed, each of

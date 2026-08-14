@@ -143,30 +143,35 @@ describe('TokensComponent — permission pill colour semantics (UI-BUNDLE-1)', (
     perSpace: {},
   });
 
-  // Owner feedback 2026-07-23: admin=red, standard=green, read-only=yellow. The list pills map to the
-  // design-system StatusPill variants error / ok / warn respectively (schema-library stays pending/blue).
-  it('renders the permission pill with the level-coded StatusPill variant', () => {
-    const cases = [
-      // The pill reads the RIGHTS MATRIX now, not the legacy flags, so the fixtures express the same three
-      // intents through it. A rung of `write` somewhere is what "standard" means; `read` everywhere is what
-      // "read-only" means.
-      //
-      // Worth stating because the default moved: a token carrying NO matrix renders read-only rather than
-      // standard. That is the predicate failing closed, and it is right — a token whose matrix reaches
-      // nothing should not be labelled the same as one that can write.
-      { tok: { id: 't1', rights: rights('admin') }, variant: 'error' },
-      { tok: { id: 't2', rights: rights('write') }, variant: 'ok' },
-      { tok: { id: 't3', rights: rights('read') }, variant: 'warn' },
-      { tok: { id: 't4', schemaLibrary: true, rights: rights('write') }, variant: 'pending' },
-    ] as const;
-    for (const { tok, variant } of cases) {
-      const { fixture, c } = makeList();
-      c.tokens.set([{ spaces: [], ...tok } as never]);
-      fixture.detectChanges();
-      const pill = fixture.nativeElement.querySelector('tbody tr td:nth-child(2) .pill');
-      expect(pill, `token ${tok.id}`).not.toBeNull();
-      expect(pill.classList.contains(variant), `token ${tok.id} → ${variant}`).toBe(true);
-    }
+  /**
+   * The permission pill was REMOVED in 3.0.1, so this asserts its absence and the presence of what replaced
+   * it. The pill said admin / standard / read-only / schema-library; the glyph beside it says what the token
+   * can actually reach, per area and per space. "Standard" only ever meant "none of the other four", which
+   * is nothing once the glyph is there — the owner's words were *"Standard has no value anymore to see"*.
+   *
+   * Kept as a test rather than deleted because the row still has to show SOMETHING for a token with no
+   * matrix, and that is the case this file now guards.
+   */
+  it('shows no permission pill, and the rights glyph instead', () => {
+    const { fixture, c } = makeList();
+    c.tokens.set([{ spaces: [], id: 't1', rights: rights('write') } as never]);
+    fixture.detectChanges();
+    const cell = fixture.nativeElement.querySelector('tbody tr td:nth-child(2)');
+    expect(cell.querySelector('.pill'), 'the permission pill is gone').toBeNull();
+    expect(cell.querySelector('app-rights-glyph'), 'the glyph replaces it').not.toBeNull();
+  });
+
+  it('a token with NO matrix still says so, and still offers the pen', () => {
+    // The 3.0.1 bug in one test: glyph and pen were both inside @if (t.rights), so a rightless token showed
+    // neither and could not be given a matrix from the UI. The glyph cannot draw one that is not there; the
+    // pen must be there regardless, because granting one is the whole point.
+    const { fixture, c } = makeList();
+    c.tokens.set([{ spaces: [], id: 't2' } as never]);
+    fixture.detectChanges();
+    const cell = fixture.nativeElement.querySelector('tbody tr td:nth-child(2)');
+    expect(cell.querySelector('app-rights-glyph'), 'nothing to draw').toBeNull();
+    expect(cell.querySelector('.no-rights'), 'the absence is stated').not.toBeNull();
+    expect(cell.querySelector('button'), 'the pen is the way to fix it').not.toBeNull();
   });
 });
 

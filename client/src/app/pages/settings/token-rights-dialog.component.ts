@@ -36,6 +36,10 @@ import type { Space, TokenRecord } from '../../core/api.types';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [TranslocoPipe, PhIconComponent, ModalDirective, RightsMatrixComponent, FormsModule],
   styles: [DIALOG_STYLES, `
+    /* The matrix is areas x rungs, once per space. At the shared 600px default it renders as a column of
+       squeezed cells and the space rows wrap — reported as "too narrow". The --dialog-max-width variable exists
+       precisely so a host can say this; sizing was always the caller's decision. */
+    :host { --dialog-max-width: min(1400px, 94vw); }
     /* Visually separated, and last. A destructive control beside Save is a mis-click; the reader should have
        to travel to reach it. The border is the boundary, not decoration. */
     .danger-zone {
@@ -96,37 +100,6 @@ import type { Space, TokenRecord } from '../../core/api.types';
         <label style="display:block;margin-bottom:6px;">{{ 'tokens.create.permission' | transloco }}</label>
         <app-rights-matrix [rights]="draft()" [spaces]="spaceIds()" (changed)="draft.set($event)"/>
 
-        <!-- The second factor, on the token rather than on the mint request. It was settable only while
-             minting, so changing a scheduler's exemption meant revoking the token and minting a replacement —
-             rotating a secret to change a flag. -->
-        <div class="field" style="margin-top:14px;margin-bottom:0;">
-          <label for="tokenMfa">{{ 'tokens.create.mfa' | transloco }}</label>
-          <select id="tokenMfa" [(ngModel)]="draftMfa" name="mfa">
-            <option value="inherit">{{ 'tokens.mfa.inherit' | transloco }}</option>
-            <option value="exempt">{{ 'tokens.mfa.exempt' | transloco }}</option>
-            <option value="required">{{ 'tokens.mfa.required' | transloco }}</option>
-          </select>
-          <p class="permission-help">
-            <ph-icon name="info" [size]="14" />
-            <span>{{ ('tokens.mfa.' + draftMfa + '.desc') | transloco }}</span>
-          </p>
-        </div>
-
-        <!-- Granting an exemption costs a live TOTP code on the request, even from a token that is itself
-             exempt — otherwise one exemption grants the next. Asked for HERE rather than after a 403, because
-             the server's refusal is correct and unactionable: the operator cannot tell from it that the field
-             they changed is the reason. Shown only when it is actually needed. -->
-        @if (needsCode()) {
-          <div class="field" style="margin-top:12px;margin-bottom:0;">
-            <label for="tokenTotp">{{ 'tokens.mfa.codeLabel' | transloco }}</label>
-            <input id="tokenTotp" type="text" inputmode="numeric" autocomplete="one-time-code"
-                   [(ngModel)]="totpCode" name="totp" maxlength="10" />
-            <p class="permission-help">
-              <ph-icon name="info" [size]="14" />
-              <span>{{ 'tokens.mfa.codeHint' | transloco }}</span>
-            </p>
-          </div>
-        }
 
         <!-- Danger zone. Present because this editor is where a token is managed, and rotate/revoke were
              reachable only as two small icons on the list row — so the whole token was managed in two places.
@@ -194,7 +167,12 @@ export class TokenRightsDialogComponent {
   draft = signal<TokenRights>({ instanceAdmin: false, createSpaces: false, floor: null, perSpace: {} });
   /** Same reasoning for the label: prefilled, so saving without touching it is not a rename to empty. */
   draftName = '';
-  /** An absent `mfa` on the record IS `inherit`, so the two spellings must land on the same option. */
+  /**
+   * Still sent, never shown. The second-factor controls were removed from token management on the owner's
+   * instruction — the SERVER behaviour is untouched: `mfa` remains on the PATCH body and granting an
+   * exemption still costs a live TOTP code. This dialog simply stops offering to change it, so the value
+   * round-trips as whatever the token already had.
+   */
   draftMfa: 'inherit' | 'exempt' | 'required' = 'inherit';
   totpCode = '';
 

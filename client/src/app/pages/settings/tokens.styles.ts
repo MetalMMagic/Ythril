@@ -206,4 +206,9 @@ export const TOKENS_PAGE_STYLES = `
       justify-content: space-between;
       margin-bottom: 16px;
     }
+  /* A token with no rights matrix. Muted and small: it is an absence, not a level — the pen beside it
+     is the thing to act on. Before 3.0.1 this row showed nothing at all and no pen, so a rightless
+     token could be seen and not fixed. */
+  .no-rights { margin-left: 8px; font-size: 11px; color: var(--text-muted); font-style: italic;
+               vertical-align: middle; }
 `;

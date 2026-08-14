@@ -97,7 +97,6 @@ const ENTRY_BODY = {
   typeName: 'service',
   schema: {
     namingPattern: '^[a-z][a-z0-9-]{1,60}$',
-    tagSuggestions: ['backend', 'frontend'],
     propertySchemas: {
       status: { type: 'string', enum: ['active', 'deprecated'], required: true },
     },
@@ -121,7 +120,6 @@ describe('POST /api/schema-library — create entry', () => {
     assert.equal(r.body.entry.description, 'Standard service entity schema');
     assert.ok(r.body.entry.createdAt, 'should have createdAt');
     assert.ok(r.body.entry.updatedAt, 'should have updatedAt');
-    assert.deepEqual(r.body.entry.schema.tagSuggestions, ['backend', 'frontend']);
   });
 
   it('returns 409 when name already exists', async () => {
@@ -251,13 +249,12 @@ describe('PUT /api/schema-library/:name — create-or-replace', () => {
   });
 
   it('PUT round-trip: GET returns the same schema that was PUT', async () => {
-    const schema = { namingPattern: '^dep-', tagSuggestions: ['infrastructure'] };
+    const schema = { namingPattern: '^dep-' };
     await putEntry(putTestName, { knowledgeType: 'edge', typeName: 'depends_on', schema });
 
     const r = await getEntry(putTestName);
     assert.equal(r.status, 200);
     assert.equal(r.body.entry.schema.namingPattern, '^dep-');
-    assert.deepEqual(r.body.entry.schema.tagSuggestions, ['infrastructure']);
   });
 });
 
@@ -282,7 +279,6 @@ describe('PATCH /api/schema-library/:name — merge', () => {
       description: 'the original description',
       schema: {
         namingPattern: '^svc-',
-        tagSuggestions: ['infra', 'owned'],
         propertySchemas: {
           tier: { type: 'string', enum: ['gold', 'silver'] },
           owner: { type: 'string' },
@@ -306,7 +302,6 @@ describe('PATCH /api/schema-library/:name — merge', () => {
     assert.equal(r.body.entry.typeName, 'service', 'typeName must survive a schema-only patch');
     assert.equal(r.body.entry.description, 'the original description');
     assert.equal(r.body.entry.schema.namingPattern, '^svc-');
-    assert.deepEqual(r.body.entry.schema.tagSuggestions, ['infra', 'owned']);
   });
 
   it('does not narrow an enum it was not asked to touch', async () => {
@@ -397,7 +392,6 @@ describe('$ref resolution — space references a library entry', () => {
   const refLibName = `lib-test-${RUN}-ref-svc`;
   const refLibSchema = {
     namingPattern: '^svc-[a-z]+$',
-    tagSuggestions: ['production'],
     propertySchemas: {
       owner: { type: 'string', required: true },
     },
@@ -535,7 +529,6 @@ describe('$ref to non-existent library entry', () => {
 describe('GET /api/schema-library/:name/usages — link counter', () => {
   const usageLibName = `lib-test-${RUN}-usage-counter`;
   const usageLibSchema = {
-    tagSuggestions: ['monitored'],
     propertySchemas: { version: { type: 'string' } },
   };
   const usageSpaceA = `schema-lib-usagea-${RUN}`;
@@ -720,7 +713,7 @@ describe('PATCH /api/schema-library/:name/publish — publish toggle', () => {
       name: pubName,
       knowledgeType: 'entity',
       typeName: 'widget',
-      schema: { tagSuggestions: ['public'] },
+      schema: { namingPattern: '^pub-' },
       description: 'A publicly shared schema',
     });
     assert.equal(r.status, 201, `Failed to create entry: ${JSON.stringify(r.body)}`);
@@ -1056,7 +1049,7 @@ describe('Schema group support — schemaGroup field, GET /groups, POST /export-
       name: GROUP_ENTRY_B,
       knowledgeType: 'memory',
       typeName: 'note',
-      schema: { tagSuggestions: ['important'] },
+      schema: { namingPattern: '^note-' },
       schemaGroup: GROUP_NAME,
     });
     // Create the target space for apply tests
@@ -1104,7 +1097,7 @@ describe('Schema group support — schemaGroup field, GET /groups, POST /export-
     const r = await putEntry(GROUP_ENTRY_B, {
       knowledgeType: 'memory',
       typeName: 'note',
-      schema: { tagSuggestions: ['important'] },
+      schema: { namingPattern: '^note-' },
       schemaGroup: null,
     });
     assert.equal(r.status, 200, JSON.stringify(r.body));
@@ -1113,7 +1106,7 @@ describe('Schema group support — schemaGroup field, GET /groups, POST /export-
     await putEntry(GROUP_ENTRY_B, {
       knowledgeType: 'memory',
       typeName: 'note',
-      schema: { tagSuggestions: ['important'] },
+      schema: { namingPattern: '^note-' },
       schemaGroup: GROUP_NAME,
     });
   });
@@ -1211,7 +1204,7 @@ describe('Schema group support — schemaGroup field, GET /groups, POST /export-
     await patch(INSTANCES.a, token(), `/api/spaces/${exportSpaceId}`, {
       meta: {
         typeSchemas: {
-          entity: { server: { namingPattern: '^svc-', tagSuggestions: ['backend'] } },
+          entity: { server: { namingPattern: '^svc-' } },
           memory: { alert: { propertySchemas: { severity: { type: 'string' } } } },
         },
       },
@@ -1263,7 +1256,7 @@ describe('Schema group support — schemaGroup field, GET /groups, POST /export-
         typeSchemas: {
           entity: {
             service: { $ref: `library:${GROUP_ENTRY_A}` },  // $ref — should be skipped
-            product: { tagSuggestions: ['retail'] },          // inline — should be exported
+            product: { namingPattern: '^prod-' },          // inline — should be exported
           },
         },
       },

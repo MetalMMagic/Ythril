@@ -440,7 +440,6 @@ export class SpaceSchemaTabComponent implements OnInit {
         // _libRef intentionally dropped — the type is now a plain inline schema.
         [name]: emptyTypeSchemaState({
           namingPattern:   schema.namingPattern ?? '',
-          tagSuggestions:  [...(schema.tagSuggestions ?? [])],
           propertySchemas: Object.entries(schema.propertySchemas ?? {}).map(([k, ps]) => ({ key: k, s: { ...ps }, _enumInput: '' })),
         }),
       },
@@ -542,7 +541,6 @@ export class SpaceSchemaTabComponent implements OnInit {
       namingPattern:   typeof ts2['namingPattern'] === 'string' ? ts2['namingPattern'] : '',
       retentionDays:        win('days'),
       retentionContentDays: win('contentDays'),
-      tagSuggestions:  Array.isArray(ts2['tagSuggestions']) ? [...ts2['tagSuggestions'] as string[]] : [],
       propertySchemas: (() => {
         const ps = ts2['propertySchemas'];
         if (!ps || typeof ps !== 'object' || Array.isArray(ps)) return [];

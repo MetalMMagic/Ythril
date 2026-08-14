@@ -48,7 +48,7 @@ import type { z } from 'zod';
 /**
  * Deep-merge an incoming PATCH `meta` payload into the existing SpaceMeta.
  *
- * - Scalar fields (purpose, usageNotes, validationMode, tagSuggestions,
+ * - Scalar fields (purpose, usageNotes, validationMode,
  *   strictLinkage) overwrite the existing value when present in `incoming`.
  * - `typeSchemas` is merged per-knowledge-type, then per-type-name:
  *   types present in `incoming` are added or updated; types *not* mentioned
@@ -74,7 +74,6 @@ export function mergeSpaceMeta(
   if (incoming.purpose !== undefined) merged.purpose = incoming.purpose;
   if (incoming.usageNotes !== undefined) merged.usageNotes = incoming.usageNotes;
   if (incoming.validationMode !== undefined) merged.validationMode = incoming.validationMode;
-  if (incoming.tagSuggestions !== undefined) merged.tagSuggestions = incoming.tagSuggestions;
   if (incoming.strictLinkage !== undefined) merged.strictLinkage = incoming.strictLinkage;
   // Guarded on `!== undefined`, not on truthiness. `suppressEmbeddings: false` is how an operator turns
   // suppression back OFF, and a truthy guard would drop that patch and leave the space suppressed while

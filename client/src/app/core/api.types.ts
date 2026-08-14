@@ -100,7 +100,6 @@ export interface TypeSchema {
   /** Reference to a schema library entry. Format: `"library:<name>"`. */
   $ref?: string;
   namingPattern?: string;
-  tagSuggestions?: string[];
   propertySchemas?: Record<string, PropertySchema>;
   /** How long records of this type are kept — the schema tier of **record > schema > space**. `days` deletes
    *  the record; `contentDays` (chrono only) drops the detail and the embedding but keeps the record. */
@@ -152,7 +151,6 @@ export interface SpaceMeta {
   usageNotes?: string;
   validationMode?: ValidationMode;
   typeSchemas?: Partial<Record<KnowledgeType, Record<string, TypeSchema>>>;
-  tagSuggestions?: string[];
   strictLinkage?: boolean;
   /** Space-wide default for skipping embeddings — the LOWEST of record > schema > space. Absent means `false`;
    *  suppression is opt-in. Any type schema that states a value overrides this. Turning it off does not

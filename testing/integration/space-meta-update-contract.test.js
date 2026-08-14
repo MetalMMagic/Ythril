@@ -184,7 +184,7 @@ describe('PATCH /api/spaces/:id — accept what we emit', () => {
   async function roundTrippedMeta() {
     const { body, version } = await metaNow();
     const editable = {};
-    for (const k of ['purpose', 'usageNotes', 'validationMode', 'tagSuggestions', 'strictLinkage', 'suppressEmbeddings']) {
+    for (const k of ['purpose', 'usageNotes', 'validationMode', 'strictLinkage', 'suppressEmbeddings']) {
       if (body[k] !== undefined) editable[k] = body[k];
     }
     return { ...editable, version, updatedAt: new Date().toISOString(), previousVersions: [] };

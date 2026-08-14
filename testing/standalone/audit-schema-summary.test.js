@@ -113,7 +113,6 @@ describe('values never reach the audit log — the property the whole design res
     const after = ts({
       service: {
         namingPattern: secrets[3],
-        tagSuggestions: [secrets[1]],
         propertySchemas: {
           owner: {},
           apiKey: { type: 'string', default: secrets[0], enum: [secrets[0], secrets[1]] },

@@ -110,7 +110,6 @@ const PropertySchemaZ = z.object({
  */
 const LibraryTypeSchemaZ = z.object({
   namingPattern: z.string().max(500).optional(),
-  tagSuggestions: z.array(z.string().min(1).max(200)).max(200).optional(),
   propertySchemas: z.record(z.string().min(1).max(200), PropertySchemaZ).optional(),
   // Kept in step with `TypeSchemaZ` in `api/spaces.ts` deliberately: a library entry that cannot express a field the
   // inline schema can is a surface that silently drops it.
@@ -173,7 +172,7 @@ const LibraryEntryPatchBodyZ = z.object({
   published: z.boolean().optional(),
   sourceUrl: z.string().url().max(2048).nullable().optional(),
   sourceCatalog: z.string().max(200).nullable().optional(),
-  /** Dot paths inside `schema`: `propertySchemas.<key>`, `namingPattern`, `tagSuggestions`, `propertySchemas`. */
+  /** Dot paths inside `schema`: `propertySchemas.<key>`, `namingPattern`, `propertySchemas`. */
   deleteFields: z.array(z.string().min(1).max(300)).max(100).optional(),
 }).strict();
 
@@ -599,13 +598,11 @@ schemaLibraryRouter.patch('/:name', globalRateLimit, requireAdminMfa, (req, res)
   }
   const existing = library[idx]!;
 
-  // Merge the schema: named properties are added or replaced, unnamed ones survive. `namingPattern` and
-  // `tagSuggestions` replace when present — they are a single value and a whole list, and merging a list
-  // would make removing one tag impossible without a second mechanism.
+  // Merge the schema: named properties are added or replaced, unnamed ones survive. `namingPattern`
+  // replaces when present rather than merging.
   const mergedSchema: SchemaLibraryEntry['schema'] = { ...(existing.schema ?? {}) };
   if (patch.schema) {
     if (patch.schema.namingPattern !== undefined) mergedSchema.namingPattern = patch.schema.namingPattern;
-    if (patch.schema.tagSuggestions !== undefined) mergedSchema.tagSuggestions = patch.schema.tagSuggestions;
     if (patch.schema.propertySchemas !== undefined) {
       mergedSchema.propertySchemas = { ...(existing.schema?.propertySchemas ?? {}), ...patch.schema.propertySchemas };
     }
@@ -616,7 +613,6 @@ schemaLibraryRouter.patch('/:name', globalRateLimit, requireAdminMfa, (req, res)
   const unknownPaths: string[] = [];
   for (const path of patch.deleteFields ?? []) {
     if (path === 'namingPattern') { delete mergedSchema.namingPattern; continue; }
-    if (path === 'tagSuggestions') { delete mergedSchema.tagSuggestions; continue; }
     if (path === 'propertySchemas') { delete mergedSchema.propertySchemas; continue; }
     const prop = /^propertySchemas\.(.+)$/.exec(path);
     if (prop && mergedSchema.propertySchemas) { delete mergedSchema.propertySchemas[prop[1]!]; continue; }
@@ -627,7 +623,7 @@ schemaLibraryRouter.patch('/:name', globalRateLimit, requireAdminMfa, (req, res)
     // Refused rather than ignored: a typo'd path that is silently dropped leaves the caller believing a
     // property was removed when it is still validating records.
     res.status(400).json({
-      error: `deleteFields paths must be 'namingPattern', 'tagSuggestions', 'propertySchemas', or 'propertySchemas.<key>' — unrecognised: ${unknownPaths.join(', ')}`,
+      error: `deleteFields paths must be 'namingPattern', 'propertySchemas', or 'propertySchemas.<key>' — unrecognised: ${unknownPaths.join(', ')}`,
     });
     return;
   }

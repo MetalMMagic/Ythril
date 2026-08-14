@@ -32,7 +32,6 @@ import { CHIP_STYLES } from '../../shared/chip.styles';
 
 interface TypeSchemaState {
   namingPattern:   string;
-  tagSuggestions:  string[];
   propertySchemas: { key: string; s: PropertySchema; _enumInput: string }[];
   _newPropInput:   string;
   _newTagInput:    string;
@@ -48,7 +47,7 @@ interface LibraryFormState {
 }
 
 function emptySchemaState(): TypeSchemaState {
-  return { namingPattern: '', tagSuggestions: [], propertySchemas: [], _newPropInput: '', _newTagInput: '' };
+  return { namingPattern: '', propertySchemas: [], _newPropInput: '', _newTagInput: '' };
 }
 
 function entryToFormState(e: SchemaLibraryEntry): LibraryFormState {
@@ -61,7 +60,6 @@ function entryToFormState(e: SchemaLibraryEntry): LibraryFormState {
     schemaGroup:   e.schemaGroup ?? '',
     schemaState: {
       namingPattern:   s.namingPattern   ?? '',
-      tagSuggestions:  [...(s.tagSuggestions ?? [])],
       propertySchemas: Object.entries(s.propertySchemas ?? {}).map(([k, ps]) => ({ key: k, s: { ...ps }, _enumInput: '' })),
       _newPropInput:   '',
       _newTagInput:    '',
@@ -73,9 +71,6 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
   const schema: Omit<TypeSchema, '$ref'> = {};
   if (f.knowledgeType === 'entity' && f.schemaState.namingPattern.trim()) {
     schema.namingPattern = f.schemaState.namingPattern.trim();
-  }
-  if (f.schemaState.tagSuggestions.length) {
-    schema.tagSuggestions = [...f.schemaState.tagSuggestions];
   }
   if (f.schemaState.propertySchemas.length) {
     const ps: Record<string, PropertySchema> = {};

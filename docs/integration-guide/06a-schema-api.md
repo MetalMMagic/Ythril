@@ -21,7 +21,6 @@ Returns a single type definition from the space's `typeSchemas`. `:knowledgeType
   "typeName": "service",
   "schema": {
     "namingPattern": "^[a-z][a-z0-9-]{1,60}$",
-    "tagSuggestions": ["backend", "frontend"],
     "propertySchemas": {
       "status": { "type": "string", "enum": ["active", "deprecated"], "required": true }
     }
@@ -88,7 +87,6 @@ Adds or updates a single type definition in the space's `typeSchemas`. All other
 ```json
 {
   "namingPattern": "^[a-z][a-z0-9-]{1,60}$",
-  "tagSuggestions": ["backend", "frontend"],
   "propertySchemas": {
     "status": { "type": "string", "enum": ["active", "deprecated"], "required": true }
   }
@@ -248,7 +246,6 @@ interface TypeSchema {
   retention?: { days?: number; contentDays?: number };  // per-type retention, the middle tier of
                                                   //   record > schema > space. `contentDays` is chrono-only
                                                   //   and is rejected elsewhere. See 04-brain-api.md.
-  tagSuggestions?: string[];                      // RETIRED — accepted and stored, consumed by nothing
   propertySchemas?: Record<string, PropertySchema>;
   suppressEmbeddings?: boolean;                   // skip embedding this type. Absent = NOT STATED, falls
                                                   //   through to the space setting — it does not mean false.
@@ -274,7 +271,6 @@ interface PropertySchema {
     "entity": {
       "service": {
         "namingPattern": "^[a-z][a-z0-9-]{1,60}$",
-        "tagSuggestions": ["backend", "frontend"],
         "propertySchemas": {
           "status": { "type": "string", "enum": ["active", "deprecated"], "required": true },
           "score":  { "type": "number", "minimum": 0, "maximum": 100, "mergeFn": "avg" }
@@ -295,7 +291,6 @@ interface PropertySchema {
     },
     "chrono": {
       "milestone": {
-        "tagSuggestions": ["release", "launch"]
       }
     }
   }
@@ -310,20 +305,16 @@ What the schema enforces:
 - **Memory type allowlist** — the keys of `typeSchemas.memory` define the allowed `type` values.
 - **Naming patterns** (`namingPattern`) — per entity type, a regex for validating `name` (max 500 chars, ReDoS-protected).
 - **Property value constraints** (`propertySchemas`) — per type, define `type` (string/number/boolean/date), `enum`, `minimum`/`maximum`, `pattern` (regex, ReDoS-protected), `required`, `default`, and `mergeFn`.
-- **Tag suggestions** (`tagSuggestions`) — **retired.** Both the per-type and the space-wide list are
-  still accepted, stored and returned unchanged, but nothing consumes them: the Brain record forms
-  suggest from the tags already in use in each collection, and the schema guidance sent to MCP clients
-  no longer summarises them. There is no longer an editor for either on the Schema tab or in the
-  Schema Library. Existing values are left in place rather than deleted, so the retirement is
-  reversible and no operator's list is destroyed on their next save — but do not expect writing one to
-  have any effect.
+- **Tag suggestions** (`tagSuggestions`) — **removed in 3.0.** Both the per-type and the space-wide list
+  are gone from every surface: neither is accepted, stored or returned. They were consumed by nothing —
+  record forms suggest from the tags already in use in each collection, which is self-maintaining, and
+  the MCP schema guidance never read either list.
 
 **Top-level `meta` fields:**
 
 | Field | Description |
 |-------|-------------|
 | `typeSchemas` | Per-type schema definitions (see above). **The PATCH merge is exactly two levels deep, and the second one REPLACES.** A knowledge type you do not mention is preserved; a *type name* you do not mention inside one is preserved; but a type name you **do** mention has its definition object **replaced wholesale**, not merged. So `PATCH {"meta":{"typeSchemas":{"chrono":{"event":{"retention":{"days":90}}}}}}` leaves `entity` and every other chrono type untouched — and wipes `event`'s own `propertySchemas`, `namingPattern` and `tagSuggestions`. **Read the type first and send it back complete.** Deleting a type needs `PUT /:id/schema` (full replace), because under merge semantics an absent type is indistinguishable from a removed one. |
-| `tagSuggestions` | **Retired.** A space-wide list of non-enforced tag hints. It is still accepted and stored (so an existing list is preserved untouched, and the change is reversible) but nothing reads it: it no longer feeds tag autocomplete in the Brain record forms, and no longer appears in the schema guidance returned to MCP clients. It was one list, editable in a single place, applied to every type and every form in the space — easy to set once and forget while quietly steering what got tagged. Autocomplete now comes from the tags actually in use, which maintains itself. **The per-type `typeSchemas.<kind>.<type>.tagSuggestions` is retired on exactly the same terms** — stored, returned, read by nothing, no editor. An earlier revision of this line said it was "unaffected", which contradicted the `typeSchemas` section above and left an integrator unable to tell which sentence was current; both lists are dead, and clearing either is safe. `null` is **rejected** with a 400 on a meta write; `[]` empties the list and is the way to clear one. There is no route that removes a top-level `meta` key, so the field itself stays present and empty — which is what makes the retirement reversible. |
 | `strictLinkage` | When `true`, all reference fields (`from`/`to`, `entityIds`, `memoryIds`) must be valid UUID v4 values, and entity deletion is blocked while inbound backlinks exist. **Default: `true`** — and an absent value also resolves to `true`. Turning it off is a deliberate per-space choice to accept dangling references (the case it exists for is bulk import, where targets are resolved in a later pass); you do not get that by saying nothing. |
 | `suppressEmbeddings` | When `true`, records in this space are **not embedded**, so they never appear in semantic recall. **Default: `false`** — suppression is opt-in. This is the LOWEST of three tiers: a per-record `excludeFromVectorSearch` wins, then a type's own `suppressEmbeddings`, then this. A type schema that says nothing falls through to this value rather than overriding it with `false`. Intended for records that are **state rather than prose** — a row whose text never changes but whose numbers are patched constantly, which would otherwise re-embed identical text on every write. **Switching it off does not backfill on its own** — records written while it was on have no vector and nothing revisits them. Run [`POST /api/spaces/:id/reembed`](06-spaces-api.md#re-embed-backfill) afterwards to queue the missing ones. |
 | `purpose` | Short description of the space (max 4000 chars). Returned by `get_space_meta`. |

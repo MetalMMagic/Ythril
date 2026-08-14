@@ -46,10 +46,10 @@ const read = (p) => readFileSync(join(ROOT, p), 'utf8');
  * An entry here is a decision, not a shortcut: the field must still be PRESERVED across a save (which the
  * round-trip specs pin), it just has no input of its own.
  */
-const NO_CONTROL = {
-  tagSuggestions: 'retired in #365 — the editor reached nothing (record forms suggest from tags in use, and '
-    + 'MCP schema guidance never read it). Stored values are round-tripped untouched, not editable.',
-};
+// Empty since 3.0: `tagSuggestions` was the only entry, and removing the FIELD removed the reason for
+// the exemption. An entry here is a field the API accepts that the UI cannot edit — the gate below
+// checks each one still exists, so a stale exemption fails rather than quietly excusing nothing.
+const NO_CONTROL = {};
 
 /** The keys of the inline (non-$ref) branch of `TypeSchemaZ` in the spaces API. */
 function apiTypeSchemaKeys() {

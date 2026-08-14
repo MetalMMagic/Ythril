@@ -68,7 +68,6 @@ export const TypeSchemaZ = z.union([
   // Inline schema definition
   z.object({
     namingPattern: z.string().max(500).optional(),
-    tagSuggestions: z.array(z.string().min(1).max(200)).max(200).optional(),
     propertySchemas: z.record(z.string().min(1).max(200), PropertySchemaZ).optional(),
     // The schema tier of record > schema > space. `.strict()` above means an unlisted key is REJECTED, so
     // without this the field would be stripped from every PATCH and the feature would silently not exist.
@@ -127,7 +126,6 @@ export const SpaceMetaBody = z.object({
   usageNotes: z.string().max(50_000).optional(),
   validationMode: z.enum(['off', 'warn', 'strict']).optional(),
   typeSchemas: TypeSchemasZ.optional(),
-  tagSuggestions: z.array(z.string().min(1).max(200)).max(200).optional(),
   strictLinkage: z.boolean().optional(),
   // The lowest of the three suppression tiers. `.strict()` above is why this has to be listed at all: without
   // it the field would be REJECTED as unknown, not silently ignored — which is the right failure, but still a

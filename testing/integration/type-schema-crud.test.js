@@ -77,7 +77,6 @@ describe('GET /api/spaces/:id/meta/typeSchemas/:kt/:typeName', () => {
         entity: {
           service: {
             namingPattern: '^[a-z][a-z0-9-]{1,60}$',
-            tagSuggestions: ['backend', 'frontend'],
             propertySchemas: {
               status: { type: 'string', enum: ['active', 'deprecated'], required: true },
             },
@@ -97,7 +96,6 @@ describe('GET /api/spaces/:id/meta/typeSchemas/:kt/:typeName', () => {
     assert.equal(r.body.typeName, 'service');
     assert.ok(typeof r.body.schema === 'object', 'response should have schema');
     assert.equal(r.body.schema.namingPattern, '^[a-z][a-z0-9-]{1,60}$');
-    assert.deepEqual(r.body.schema.tagSuggestions, ['backend', 'frontend']);
     assert.ok(r.body.schema.propertySchemas?.status, 'should have status property schema');
     assert.equal(r.body.schema.propertySchemas.status.type, 'string');
     assert.equal(r.body.schema.propertySchemas.status.required, true);
@@ -151,7 +149,6 @@ describe('PUT /api/spaces/:id/meta/typeSchemas/:kt/:typeName — upsert', () => 
   it('adds a new entity type without touching existing types', async () => {
     const schema = {
       namingPattern: '^[a-z][a-z0-9-]{1,60}$',
-      tagSuggestions: ['backend'],
       propertySchemas: {
         status: { type: 'string', enum: ['active', 'deprecated'], required: true },
       },
@@ -372,7 +369,7 @@ describe('PUT — max 200 types per knowledge type', () => {
 
   it('allows updating an existing type (no count increase)', async () => {
     const r = await put(INSTANCES.a, token(), `/api/spaces/${TEST_SPACE}/meta/typeSchemas/entity/type_0`, {
-      tagSuggestions: ['updated'],
+      namingPattern: '^updated-',
     });
     assert.equal(r.status, 200, `Updating existing type at max should succeed, got ${r.status}: ${JSON.stringify(r.body)}`);
   });
@@ -384,7 +381,6 @@ describe('PUT — max 200 types per knowledge type', () => {
 describe('Round-trip: GET then PUT (export/import snippet)', () => {
   const originalSchema = {
     namingPattern: '^svc-[a-z]+$',
-    tagSuggestions: ['prod', 'staging'],
     propertySchemas: {
       owner: { type: 'string', required: true },
       replicas: { type: 'number', minimum: 1, maximum: 10 },
@@ -403,7 +399,6 @@ describe('Round-trip: GET then PUT (export/import snippet)', () => {
     const r = await get(INSTANCES.a, token(), `/api/spaces/${TEST_SPACE}/meta/typeSchemas/entity/roundtrip_svc`);
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.equal(r.body.schema.namingPattern, originalSchema.namingPattern);
-    assert.deepEqual(r.body.schema.tagSuggestions, originalSchema.tagSuggestions);
     assert.deepEqual(r.body.schema.propertySchemas, originalSchema.propertySchemas);
   });
 

@@ -1077,8 +1077,10 @@ export interface Config {
    * is disabled" — a guard that has never existed under that name.
    *
    * **The control that actually rejects plaintext requests is {@link requireEncryptedTransport}.** Not
-   * deleted outright, on the same reasoning as `SpaceMeta.tagSuggestions`: silently dropping a key an
-   * operator has in their config is a worse trade than leaving a documented retirement behind.
+   * deleted outright: silently dropping a key an operator has in their config is a worse trade than
+   * leaving a documented retirement behind. (`SpaceMeta.tagSuggestions` was the other field kept on
+   * this reasoning; it was removed in 3.0 once the deprecation had a major to land in. This one has
+   * no such announcement, so it stays.)
    */
   allowInsecurePlaintext?: boolean;
   /**

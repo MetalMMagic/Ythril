@@ -42,7 +42,6 @@ export interface TypeSchemaState {
    * space-wide setting unreachable for any type that has a schema at all.
    */
   suppressEmbeddings: boolean | null;
-  tagSuggestions:  string[];
   propertySchemas: { key: string; s: PropertySchema; _enumInput: string }[];
   _newPropInput:   string;
   _newTagInput:    string;
@@ -66,7 +65,7 @@ export interface TypeSchemaState {
 export function emptyTypeSchemaState(over: Partial<TypeSchemaState> = {}): TypeSchemaState {
   return {
     namingPattern: '', retentionDays: null, retentionContentDays: null, suppressEmbeddings: null,
-    tagSuggestions: [], propertySchemas: [], _newPropInput: '', _newTagInput: '',
+    propertySchemas: [], _newPropInput: '', _newTagInput: '',
     ...over,
   };
 }
@@ -104,7 +103,6 @@ export function typeSchemaFromState(
   // Sent only when STATED. Writing `false` for "not stated" would pin every type to embedding and make the
   // space-wide switch do nothing — the tier the API resolves last would never be reached.
   if (state.suppressEmbeddings !== null) ts.suppressEmbeddings = state.suppressEmbeddings;
-  if (state.tagSuggestions.length) ts.tagSuggestions = [...state.tagSuggestions];
   if (state.propertySchemas.length) {
     const ps: Record<string, PropertySchema> = {};
     for (const { key, s } of state.propertySchemas) {
@@ -222,7 +220,6 @@ export class SpaceSettingsState {
    * config.json rather than being erased the first time someone opens this tab and hits save. The
    * retirement is reversible; silently destroying an operator's data to tidy up a field would not be.
    */
-  schTagSuggestions: string[] = [];
   schTypeSchemas:    Partial<Record<KnowledgeType, Record<string, TypeSchemaState>>> = {
     entity: {}, memory: {}, edge: {}, chrono: {},
   };
@@ -265,7 +262,6 @@ export class SpaceSettingsState {
     const meta = s.meta ?? {};
     this.schValidation     = meta.validationMode ?? 'off';
     this.schStrictLinkage  = meta.strictLinkage ?? false;
-    this.schTagSuggestions = [...(meta.tagSuggestions ?? [])];
     this.schNewTypeInputs  = { entity: '', memory: '', edge: '', chrono: '' };
     this.schSelectedType   = null;
     this.schExpandedProps.clear();
@@ -285,7 +281,6 @@ export class SpaceSettingsState {
             // `?? null` again, and for the same reason: absent must round-trip as absent, or opening and saving
             // a type would write a value nobody chose.
             suppressEmbeddings:   ts.suppressEmbeddings      ?? null,
-            tagSuggestions:  [...(ts.tagSuggestions ?? [])],
             propertySchemas: Object.entries(ts.propertySchemas ?? {}).map(([k, ps]) => ({ key: k, s: { ...ps }, _enumInput: '' })),
           });
         }
@@ -372,7 +367,6 @@ export class SpaceSettingsState {
     if (this.stForm.usageNotes.trim()) meta.usageNotes = this.stForm.usageNotes.trim();
     meta.validationMode = this.schValidation;
     if (this.schStrictLinkage)         meta.strictLinkage  = true;
-    if (this.schTagSuggestions.length) meta.tagSuggestions = [...this.schTagSuggestions];
     // Every knowledge type is emitted, including the empty ones, and `typeSchemas` is always set.
     //
     // Both used to be conditional (`if (names.length)`, `if (Object.keys(typeSchemas).length)`), and that
@@ -485,10 +479,10 @@ export class SpaceSettingsState {
     this.schExpandedProps.delete(this.propKey(kt, typeName, propKey));
   }
 
-  // `addTypeTag` was removed with the per-type tag-suggestion editor: the list it edited reached
-  // neither the Brain record forms nor the MCP schema guidance, so the control did nothing. Stored
-  // values are still loaded into `tagSuggestions` and written back on save — the retirement removes
-  // the editor, not the data.
+  // `addTypeTag` went with the per-type tag-suggestion editor: the list it edited reached neither the
+  // Brain record forms nor the MCP schema guidance, so the control did nothing. 3.0 removed the FIELD
+  // too, so there is no longer a value to load or write back — a list already in config.json is left
+  // where it is and simply never read.
 
   onEnumKey(e: KeyboardEvent, kt: KnowledgeType, typeName: string, propKey: string): void {
     if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); this.addEnumVal(kt, typeName, propKey); }

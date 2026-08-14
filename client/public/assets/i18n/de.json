@@ -1864,6 +1864,7 @@
   "tokens.matrix.help": "Pro Bereich und Space eine Stufe setzen. Ersetzt die Auswahl oben — ein Token nutzt entweder das eine oder das andere, nie beides.",
   "tokens.rights.title": "Rechte",
   "tokens.rights.edit": "Rechte bearbeiten",
+  "tokens.rights.none": "keine Matrix",
   "tokens.rights.space": "Space",
   "tokens.own.title": "Ihre Berechtigungen",
   "tokens.own.readOnly": "Was das Token darf, mit dem Sie angemeldet sind. Nur Anzeige — Änderungen erfordern eine Administratorin oder einen Administrator.",

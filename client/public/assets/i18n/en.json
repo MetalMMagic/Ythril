@@ -1864,6 +1864,7 @@
   "tokens.matrix.help": "Set a level per area per space. Replaces the permission and space choices above — a token uses one or the other, never both.",
   "tokens.rights.title": "Rights",
   "tokens.rights.edit": "Edit rights",
+  "tokens.rights.none": "no matrix",
   "tokens.rights.space": "Space",
   "tokens.own.title": "Your access",
   "tokens.own.readOnly": "What the token you are signed in with may do. Read-only — changing it needs an administrator.",

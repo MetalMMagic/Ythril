@@ -1864,6 +1864,7 @@
   "tokens.matrix.help": "Ustaw poziom dla obszaru w każdej przestrzeni. Zastępuje wybory powyżej — token używa jednego albo drugiego, nigdy obu.",
   "tokens.rights.title": "Uprawnienia",
   "tokens.rights.edit": "Edytuj uprawnienia",
+  "tokens.rights.none": "brak macierzy",
   "tokens.rights.space": "Przestrzeń",
   "tokens.own.title": "Twoje uprawnienia",
   "tokens.own.readOnly": "Co może token, którym jesteś zalogowany. Tylko do wglądu — zmiana wymaga administratora.",

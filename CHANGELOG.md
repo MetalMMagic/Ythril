@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `description`, and dropping the migration alongside the alias would discard the operator's directive on
   upgrade. It goes once the version floor 3.0 supports upgrading from is fixed.
 
+- **`ChronoKind` is removed. Say `ChronoType`.** A type alias with zero consumers on either side, which is
+  exactly how a dead alias survives a major: nothing breaks, so nothing notices, and the next person to
+  reach for a chrono type finds two names for one thing. Removed from the server types and the client
+  mirror. Type-only — no request or response is affected.
 
 ### Changed
 - **Re-uploading identical bytes no longer re-runs vision or speech-to-text.** `enqueueMediaJob` resets a

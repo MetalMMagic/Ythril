@@ -206,6 +206,74 @@ export const ROUTE_RIGHTS: readonly RouteRight[] = [
  *
  * An empty exemption list would be the honest default; this one is not empty, so each entry says why.
  */
+
+/**
+ * What an MCP tool needs, in the same vocabulary the routes use.
+ *
+ * ## Why this table exists at all
+ *
+ * MCP gated on two BOOLEANS — `readOnly` and `admin` — while REST enforced a per-space, per-area rung. Same
+ * store, same policy, two enforcement models, and the weaker one was reachable: a token whose matrix said
+ * `knowledge: write` was refused `DELETE /memories/:id` over REST with a 403 and allowed the identical
+ * delete through `delete_memory`. That was measured against a running instance, not reasoned about.
+ *
+ * ## Why it is generated from ROUTE_RIGHTS rather than written
+ *
+ * A second hand-written copy of one rule is the defect this repo produces most. Every row below was DERIVED
+ * from the `ROUTE_RIGHTS` entry of the route that tool mirrors, using the capability map in
+ * `scripts/surface-matrix.mjs`, and `mcp-tool-rights.test.js` re-derives it and fails if the two disagree.
+ * So a rung changed on a route moves its tool in the same commit, or the gate goes red.
+ *
+ * A tool ABSENT from this table is instance-level: it is governed by the `admin` flag on the tool and by
+ * `instanceAdmin` on the token, not by a per-space rung, because the capability it maps to is not scoped to
+ * a space at all (`list_spaces`, `create_space`, `update_space`, `list_tokens`, `list_peers`, `sync_now`,
+ * `wipe_space`, `help`).
+ */
+export interface ToolRight {
+  tool: string;
+  area: SpaceArea;
+  needs: Rung;
+}
+
+export const TOOL_RIGHTS: readonly ToolRight[] = [
+  { tool: 'remember', area: 'knowledge', needs: 'write' },
+  { tool: 'update_memory', area: 'knowledge', needs: 'write' },
+  { tool: 'delete_memory', area: 'knowledge', needs: 'write' },
+  { tool: 'upsert_entity', area: 'knowledge', needs: 'write' },
+  { tool: 'update_entity', area: 'knowledge', needs: 'write' },
+  { tool: 'delete_entity', area: 'knowledge', needs: 'write' },
+  { tool: 'merge_entities', area: 'knowledge', needs: 'write' },
+  { tool: 'find_entities_by_name', area: 'knowledge', needs: 'read' },
+  { tool: 'upsert_edge', area: 'knowledge', needs: 'write' },
+  { tool: 'update_edge', area: 'knowledge', needs: 'write' },
+  { tool: 'delete_edge', area: 'knowledge', needs: 'write' },
+  { tool: 'create_chrono', area: 'knowledge', needs: 'write' },
+  { tool: 'update_chrono', area: 'knowledge', needs: 'write' },
+  { tool: 'delete_chrono', area: 'knowledge', needs: 'write' },
+  { tool: 'list_chrono', area: 'knowledge', needs: 'read' },
+  { tool: 'recall', area: 'knowledge', needs: 'read' },
+  { tool: 'query', area: 'knowledge', needs: 'read' },
+  { tool: 'find_similar', area: 'knowledge', needs: 'read' },
+  { tool: 'traverse', area: 'knowledge', needs: 'read' },
+  { tool: 'bulk_write', area: 'knowledge', needs: 'write' },
+  { tool: 'get_stats', area: 'knowledge', needs: 'read' },
+  { tool: 'er_model', area: 'knowledge', needs: 'read' },
+  { tool: 'reindex', area: 'schema', needs: 'admin' },
+  { tool: 'list_embed_jobs', area: 'knowledge', needs: 'read' },
+  { tool: 'retry_record_embedding', area: 'knowledge', needs: 'write' },
+  { tool: 'retry_failed_embeddings', area: 'files', needs: 'write' },
+  { tool: 'read_file', area: 'files', needs: 'read' },
+  { tool: 'write_file', area: 'files', needs: 'write' },
+  { tool: 'delete_file', area: 'files', needs: 'write' },
+  { tool: 'move_file', area: 'files', needs: 'write' },
+  { tool: 'list_dir', area: 'files', needs: 'read' },
+  { tool: 'create_dir', area: 'files', needs: 'write' },
+  { tool: 'retry_embedding', area: 'files', needs: 'write' },
+  { tool: 'update_file_meta', area: 'files', needs: 'write' },
+  { tool: 'get_space_meta', area: 'schema', needs: 'read' },
+  { tool: 'update_space_schema', area: 'schema', needs: 'write' },
+];
+
 export const NOT_AREA_SCOPED: readonly { route: string; why: string }[] = [
   {
     route: '/api/spaces/:id/rename',

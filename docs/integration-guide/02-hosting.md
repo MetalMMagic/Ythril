@@ -768,6 +768,7 @@ moved. They are listed here so the consequence of going back is not a surprise:
 |---|---|---|
 | `mediaEmbedding.enabled` → per-class `levels` | `enabled` | defaults it back to **`true`**: an instance where media embedding was deliberately **off** starts sending uploads to the vision and speech models again |
 | a space's `description` → `meta.purpose` | `description` | reads no space instructions, because the field it serves to MCP clients is gone |
+| a provider API key in `mediaEmbedding.<vision\|stt\|nli\|rerank>.apiKey` → `secrets.json` | `apiKey` | sends no `Authorization` header to that provider, so an external vision / speech-to-text / NLI / rerank endpoint returns 401 and the feature stops. The key is NOT lost — it is in `secrets.json` (`0o600`) and can be pasted back into `config.json` for the older build. **New in 3.0**, and the reason is that `config.json` is the file operators copy, paste into issues, and mount as a ConfigMap. |
 | `mediaEmbedding.faceRecognition.enabled` → the image ladder | `faceRecognition.enabled` | applies its own default for face recognition rather than the choice that was recorded |
 | every token gains a `rights` matrix | **nothing** | keeps working: it reads the legacy `admin`/`readOnly`/`spaces` fields, which are left in place |
 

@@ -81,9 +81,14 @@ describe('the sweep works before it is trusted', () => {
     // for four migrations and call the fourth non-persisting, which was the opposite of true.
     const body = loadConfigBody();
     const delegated = [...LOADER.matchAll(/import \{ (migrate[A-Za-z0-9_]+) \} from '([^']+)'/g)]
-      .map(m => m[2].replace(/^\.\.?\//, '').replace(/\.js$/, '.ts'))
+      // Resolved against the LOADER's own directory, not `server/src`. A sibling import — `./migrate-x.js`
+      // from inside `config/` — landed on `server/src/migrate-x.ts`, which does not exist, so the module
+      // was read as '' and its `saveConfig` went uncounted. The count then passed only because it happened
+      // to tie; the next delegated migration is what turned a silent under-count into a red gate.
+      .map(m => m[2].replace(/\.js$/, '.ts'))
       .map(rel => {
-        try { return read(`server/src/${rel}`); } catch { return ''; }
+        const abs = rel.startsWith('../') ? `server/src/${rel.slice(3)}` : `server/src/config/${rel.replace(/^\.\//, '')}`;
+        try { return read(abs); } catch { return ''; }
       })
       .join('\n');
     const saves = [...body.matchAll(/saveConfig\(_config\)/g)].length
@@ -113,6 +118,10 @@ describe('every rewrite an upgrade performs is documented as one-way', () => {
       // still recoverable: it is in `secrets.json` (0o600) and can be pasted back for an older build. The
       // consequence of not doing that is a 401 from an external provider, not a changed default.
       migrateProviderApiKeysOnBoot: 'apiKey',
+      // The config-file half of the 2.1 rename. Dropping these without the lift would not error — it
+      // would silently resolve to the built-in default endpoint, which is the worst shape a rollback
+      // note can describe, so the table says which four names an older build stops finding.
+      migrateMediaAliasesOnBoot: 'ollamaUrl',
     };
     const section = rollbackSection();
     const undocumented = [];

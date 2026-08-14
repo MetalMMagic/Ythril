@@ -313,6 +313,9 @@ export function loadConfig(): Config {
   }
   // A provider API key left in config.json moves to secrets.json (0o600) and is deleted from the config.
   migrateProviderApiKeysOnBoot(_config, getSecrets(), saveSecrets, saveConfig);
+  // The config-file half of the 2.1 rename moves onto `vision.*` / `stt.*`. The ENV-VAR half is
+  // permanent and is not touched — see `RENAMED_ENV_VARS`.
+  migrateMediaAliasesOnBoot(_config, saveConfig);
   // Legacy space `description` → `meta.purpose`, so the field MCP clients read is the field the UI edits.
   if (migrateSpaceDescriptionToPurpose(_config)) {
     try {
@@ -859,6 +862,7 @@ export function getDataRoot(): string {
 
 import type { MediaEmbeddingConfig, MediaProviderConfig, FaceRecognitionConfig, DocumentProcessingConfig, EmbeddingConfig, RerankConfig } from './types.js';
 import { migrateProviderApiKeysOnBoot } from './migrate-provider-keys.js';
+import { migrateMediaAliasesOnBoot } from './migrate-media-aliases.js';
 
 const MEDIA_EMBEDDING_DEFAULTS: Required<Omit<MediaEmbeddingConfig, 'vision' | 'stt' | 'nli' | 'rerank' | 'ollamaUrl' | 'visionModel' | 'whisperUrl' | 'whisperModel' | 'lockedByInfra' | 'infraManaged' | 'faceRecognition' | 'documentProcessing'>> = {
   // Media embedding is always on (no master switch). Each class is gated by its `levels` entry, which
@@ -997,7 +1001,6 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
   const vision: MediaProviderConfig = {
     baseUrl: visionBaseUrlEnv
       ?? base.vision?.baseUrl
-      ?? base.ollamaUrl
       // Short service name resolves in both:
       //  - Docker Compose: bridge-network DNS to the `ollama` service
       //  - K8s: ClusterFirst DNS within the `ythril` namespace
@@ -1007,7 +1010,7 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
     // the invalid legacy name from ANY source (env / saved config) so existing installs
     // self-heal without a config-file migration.
     model: normalizeVisionModel(
-      visionModelEnv ?? base.vision?.model ?? base.visionModel ?? 'moondream',
+      visionModelEnv ?? base.vision?.model ?? 'moondream',
     ),
     apiKey: visionApiKeyEnv ?? mediaSecrets.visionApiKey,
     // The default label follows the resolved provider. A fixed "(Ollama-compatible)" was wrong exactly
@@ -1027,12 +1030,10 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
   const stt: MediaProviderConfig = {
     baseUrl: sttBaseUrlEnv
       ?? base.stt?.baseUrl
-      ?? base.whisperUrl
       // Short service name — resolves in both Docker Compose and the K8s `ythril` namespace.
       ?? 'http://whisper:8000',
     model: sttModelEnv
       ?? base.stt?.model
-      ?? base.whisperModel
       ?? 'base',
     apiKey: sttApiKeyEnv ?? mediaSecrets.sttApiKey,
     label: base.stt?.label ?? 'STT provider (OpenAI-compatible)',

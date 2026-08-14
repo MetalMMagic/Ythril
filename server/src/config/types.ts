@@ -420,14 +420,6 @@ export interface MediaEmbeddingConfig {
   rerank?: RerankConfig;
   /** Pluggable STT provider settings (endpoint + model + optional API key). */
   stt?: MediaProviderConfig;
-  /** @deprecated Use `vision.baseUrl`. Kept for backward compatibility. */
-  ollamaUrl?: string;
-  /** @deprecated Use `vision.model`. Kept for backward compatibility. */
-  visionModel?: string;
-  /** @deprecated Use `stt.baseUrl`. Kept for backward compatibility. */
-  whisperUrl?: string;
-  /** @deprecated Use `stt.model`. Kept for backward compatibility. */
-  whisperModel?: string;
   /** Max concurrent jobs processed per worker tick. */
   workerConcurrency?: number;
   /** Base poll interval — doubles on empty result up to workerMaxPollIntervalMs. */

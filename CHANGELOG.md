@@ -62,6 +62,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`VISION_API_KEY` and friends) still takes precedence over both. Rolling back is documented — the key is
   not lost, it is in `secrets.json`. **Found by the deprecation sweep; it was not on the checklist.**
 
+- **BREAKING — the legacy `mediaEmbedding` URL/model spellings are gone from `config.json`. They are lifted
+  onto `vision.*` / `stt.*` at boot.** `ollamaUrl`, `visionModel`, `whisperUrl` and `whisperModel` were read
+  as fallbacks behind the modern fields; on the first 3.0 boot each is moved onto its modern home and
+  deleted. **Lifted rather than dropped, because dropping them would not have errored — it would have
+  silently resolved to the built-in defaults** (`http://ollama:11434`, `http://whisper:8000`), so an
+  instance would caption and transcribe against whatever answered there while its config file still plainly
+  named the endpoint its operator chose. The modern field wins if both are present. **The env-var half is
+  untouched and permanent**: `VISION_BASE_URL` (legacy `OLLAMA_URL`), `STT_BASE_URL` (legacy `WHISPER_URL`)
+  and `STT_MODEL` (legacy `WHISPER_MODEL`) all still resolve — breaking a documented env var to improve its
+  spelling would turn an upgrade into an outage.
+
 ### Changed
 - **Re-uploading identical bytes no longer re-runs vision or speech-to-text.** `enqueueMediaJob` resets a
   terminal job on purpose, so the same file sent twice paid for a second full analysis to reproduce the caption

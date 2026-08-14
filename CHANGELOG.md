@@ -30,6 +30,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reach for a chrono type finds two names for one thing. Removed from the server types and the client
   mirror. Type-only — no request or response is affected.
 
+- **BREAKING — `max` is no longer accepted as a document-extraction mode. Say `repair`.** It was the legacy
+  spelling of the same level, and it left the API accepting six values where the type meant five — a
+  one-element difference between two lists that nobody could explain a year later. A request sending `max`
+  is now refused by the enum rather than quietly folded. **A `max` already STORED in `config.json` or on a
+  space still reads as `repair`**, and that normaliser is deliberately kept: it is a self-healing read, not
+  a one-time upgrade path, and dropping it would move an instance to a different extraction level on load —
+  the quietest possible way to change what a document search can find.
+
 ### Changed
 - **Re-uploading identical bytes no longer re-runs vision or speech-to-text.** `enqueueMediaJob` resets a
   terminal job on purpose, so the same file sent twice paid for a second full analysis to reproduce the caption

@@ -306,7 +306,7 @@ export const find_similarTool: ToolHandler = {
               type: 'number', minimum: 0, maximum: MAX_RECALL_TRAVERSE, default: 0,
               description: `Optional graph-expansion depth (integer 0–${MAX_RECALL_TRAVERSE}, default 0). When > 0, each similar match is expanded along knowledge-graph edges up to this many hops and what the walk reached is NESTED under the match that reached it in a \`_graph\` array — {edge, node, paths} per node, identical to \`recall\`'s shape: \`edge\` is the whole edge document, \`node\` the reached entity, \`paths\` every route to it as record ids with the match first. \`count\` is the number of matches and \`graphNodes\` how many nodes were reached. A neighbourhood past the inline cap is written out in full and reported as \`graphTruncated\` + \`graphComplete\` (an authenticated download, valid one day), exactly as on \`recall\`. With traverse > 0 the response is JSON instead of the plain text summary.`,
             },
-            crossSpace: { type: 'boolean', default: false, description: 'DEPRECATED — omit `space` instead to search all accessible spaces. When true, forces a cross-space search even if `space` is given.' },
+            crossSpace: { type: 'boolean', default: false, description: 'Forces a cross-space search even when `space` is given. On MCP the idiomatic form is to OMIT `space`, which does the same thing; this flag exists because the REST route takes the space in its PATH and has no way to omit it, and both doors must accept the same parameters. Not slated for removal.' },
           },
           required: ['entryId', 'entryType'],
           additionalProperties: false,

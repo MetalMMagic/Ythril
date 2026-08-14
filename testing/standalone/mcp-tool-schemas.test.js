@@ -101,14 +101,31 @@ describe('MCP tool schemas — high-value enrichments', () => {
     }
   });
 
-  it('find_similar is harmonised to omit-space (space optional) + traverse, crossSpace deprecated', () => {
+  it('find_similar is harmonised to omit-space, and crossSpace is kept rather than deprecated', () => {
     const fs = schemaOf('find_similar');
     assert.ok(!fs.required.includes('space'), 'space must be optional (omit → all accessible spaces)');
     assert.deepEqual(fs.required, ['entryId', 'entryType']);
     assert.ok(fs.properties.traverse, 'find_similar must expose traverse (parity with recall)');
     assert.equal(fs.properties.traverse.maximum, 5);
-    assert.ok(/DEPRECATED/i.test(fs.properties.crossSpace.description), 'crossSpace must be marked deprecated');
     assert.equal(ALL_TOOLS.find(t => t.name === 'find_similar').spaceRequired, false);
+
+    // THIS ASSERTION WAS REVERSED IN 3.0, and the reason is worth more than the line it replaces.
+    //
+    // `crossSpace` was slated for removal as row 1.2 of the deprecation checklist — omitting `space` says
+    // the same thing, so the tool took two spellings for one idea. Removing it from the tool turned
+    // `mcp-rest-parity`'s "find-similar ↔ find_similar" case RED: the REST route takes the space in its
+    // PATH, so "omit the space" is not expressible there and `crossSpace: true` is its only route to the
+    // same capability. Dropping it on one door alone is the parameter-level divergence that gate exists
+    // to catch.
+    //
+    // So the flag is KEPT on both doors, and the schema description must stop promising a removal that
+    // cannot happen — a caller reading "DEPRECATED" builds around an absence that will never arrive, and
+    // an `inputSchema` description is what they read while constructing arguments.
+    const desc = fs.properties.crossSpace.description;
+    assert.ok(!/DEPRECATED/i.test(desc),
+      'crossSpace is kept for REST parity — calling it deprecated tells a caller to avoid a supported flag');
+    assert.match(desc, /OMIT `space`/i, 'the description must still name the idiomatic MCP form');
+    assert.match(desc, /PATH/, 'and say WHY the flag exists, or the next reader files it as a duplicate again');
   });
 
   it('id fields carry a UUID-v4 pattern', () => {

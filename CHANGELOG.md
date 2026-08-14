@@ -282,6 +282,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     it cannot read) is a failure naming the file, and the routes are asserted BY NAME rather than by count.
 
 ### Fixed
+- **`crossSpace` on `find_similar` is NOT deprecated after all, and its schema description said otherwise.**
+  It was slated for removal — omitting `space` on MCP says the same thing — until removing it turned the
+  MCP/REST parity gate red: the REST route takes the space in its **path**, so "omit the space" cannot be
+  expressed there and `crossSpace: true` is its only route to the same capability. The flag stays on both
+  doors, and the MCP tool schema now says why it exists instead of telling callers to avoid it. If you
+  designed around `crossSpace` disappearing, it is not going to.
 - **60 gates stripped block comments before line comments, so a `/*` inside a `//` comment blinded them.**
   `server/src/api/data.ts:281` reads `// Follow the symlink — useful for /mnt/* or volume-mount points`, and
   removing block comments first treats that `/*` as an opener: it deletes **5,907 characters** through the next

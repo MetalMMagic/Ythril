@@ -88,7 +88,12 @@ const FROZEN = {
   // own rule is to pay that with an extraction rather than raise the number: 199 lines of CSS moved to
   // `tokens.styles.ts`, beside the `dialog.styles.ts` already there. Lowered to what it now measures and KEPT,
   // because deleting the entry is how a file quietly earns the right to grow back.
-  'client/src/app/pages/settings/tokens.component.ts': 341,
+  // RAISED 341 -> 343 to move the permission pill off the removed `admin`/`readOnly` flags: one import
+  // and one accessor. A template needs its callable on the component, so the accessor cannot live in the
+  // shared helper — it is a one-line arrow, and the reasoning went into a TS comment because the prose
+  // would otherwise sit inside the template STRING and count as code. The flags could not express a
+  // per-space grant, so the pill labelled a token that can write in one space "read-only".
+  'client/src/app/pages/settings/tokens.component.ts': 343,
   // RAISED 1617 -> 1618 by one line: the Q-10 timestamp swap replaced a `| date:` cell with `<app-timestamp>` and
   // needed an import, gaining an import line while losing none. At 1618 code lines this file is by far the largest
   // here and wants splitting on its own terms — but not inside a one-cell rendering change, where the split would be
@@ -136,7 +141,10 @@ const FROZEN = {
   // 769 -> 773: `openBrainDrawer` gained two overload signatures and its `lastSaved` effect reads the
   // record inside each branch so the discriminant narrows it. Four lines of TYPES, no new behaviour —
   // raised deliberately rather than worked around, which is what this list is for.
-  'client/src/app/pages/graph/graph.component.ts': 773,
+  // RAISED 773 -> 774 for one import. `canEdit` moved off `me.readOnly` onto the rights matrix, and the
+  // import is the whole cost — the alternative is inlining the predicate, which is a second copy of a
+  // rule the server already owns.
+  'client/src/app/pages/graph/graph.component.ts': 774,
   // 753 -> 764: `backfillTokenRights`. This file is where config migrations already live — the media
   // master-switch and space-description ones are both here — so a fourth belongs beside them rather than in
   // a module only the loader would ever call.

@@ -22,6 +22,7 @@ import { OwnTokenRightsComponent } from './own-token-rights.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
 import { httpErrorReason } from '../../core/http-error';
 import { TOKENS_PAGE_STYLES } from './tokens.styles';
+import { canWriteAnywhere } from '../../core/token-capability';
 
 @Component({
   selector: 'app-tokens',
@@ -141,9 +142,9 @@ import { TOKENS_PAGE_STYLES } from './tokens.styles';
                     }
                   </td>
                   <td>
-                    @if (t.admin) { <app-status-pill variant="error">{{ 'tokens.badge.admin' | transloco }}</app-status-pill> }
+                    @if (t.rights?.instanceAdmin) { <app-status-pill variant="error">{{ 'tokens.badge.admin' | transloco }}</app-status-pill> }
                     @else if (t.schemaLibrary) { <app-status-pill variant="pending">{{ 'tokens.badge.schemaLibrary' | transloco }}</app-status-pill> }
-                    @else if (t.readOnly) { <app-status-pill variant="warn">{{ 'tokens.badge.readOnly' | transloco }}</app-status-pill> }
+                    @else if (!canWrite(t)) { <app-status-pill variant="warn">{{ 'tokens.badge.readOnly' | transloco }}</app-status-pill> }
                     @else { <app-status-pill variant="ok">{{ 'tokens.badge.standard' | transloco }}</app-status-pill> }
                     <!-- An MFA exemption is a deliberate hole in an instance-wide control. It is shown
                          wherever the token is, because a hole nobody can see is one nobody reviews. -->
@@ -251,6 +252,19 @@ export class TokensComponent implements OnInit {
   /** Inline label edit: the id of the token whose label is being edited (null = none), + its draft. */
   editingId = signal<string | null>(null);
   editLabelValue = '';
+
+  /**
+   * Whether a token can write anywhere — the badge's question, answered from the MATRIX.
+   *
+   * The pill used to branch on `t.admin` and `t.readOnly`. Neither can express a per-space grant, so the
+   * flags labelled a token that can write in one space "read-only", and one whose matrix reaches nothing
+   * "standard". A token carrying no matrix at all now reads as read-only, which is the predicate failing
+   * closed and is the right way round.
+   *
+   * One line because `tokens.component.ts` is frozen by the god-file ratchet at a size it should come DOWN
+   * from, and a template needs the callable on the component.
+   */
+  canWrite = (t: { rights?: TokenRights | null }): boolean => canWriteAnywhere(t.rights ?? null);
 
   ngOnInit(): void {
     this.authApi.getMe().subscribe({ next: (t) => this.selfToken.set(t), error: () => {} });

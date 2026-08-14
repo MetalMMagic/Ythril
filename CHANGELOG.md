@@ -84,6 +84,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   every type.
 
 ### Changed
+- **The Tokens page badge and the graph editor's edit permission read the rights matrix, not the legacy
+  flags.** The pill branched on `admin` and `readOnly`; neither can express a per-space grant, so it labelled a
+  token that can write in one space **"read-only"**, and one whose matrix reaches nothing **"standard"**. A
+  token carrying no matrix now reads as read-only — the predicate failing closed, which is the right way
+  round for a label about permission. The client's copy of the ladder is deliberate and bounded: it picks a
+  badge and greys out an editor, both cosmetic, and every action it enables is re-checked by the server per
+  space and per area.
 - **MCP tool visibility and its two dispatcher gates read the rights matrix, from ONE predicate.** The
   expression `!(readOnly && t.mutating) && !(!isAdmin && t.admin)` was written out four times: the
   `tools/list` filter, the two call-time refusals, and `help`'s own listing — the last of those under a

@@ -13,6 +13,8 @@ import { effectiveRung } from './mint-cap.js';
 import { authAttemptsTotal } from '../metrics/registry.js';
 import { logAuthFailure } from '../audit/middleware.js';
 import { mcpResourceMetadataUrl } from '../mcp/oauth.js';
+import { canWriteAnywhere } from './write-anywhere.js';
+import type { TokenRights } from '../config/rights-shape.js';
 
 // Augment Express Request type
 declare global {
@@ -82,11 +84,21 @@ async function resolveBearer(
 }
 
 /**
- * Middleware: rejects requests from read-only tokens.
+ * Middleware: rejects a token that cannot write anywhere.
  * Must be placed after requireAuth / requireSpaceAuth on mutating routes.
+ *
+ * Reads the RIGHTS MATRIX, not the removed `readOnly` flag. The predicate is deliberately the same one
+ * that flag expressed — `migrateToken` turned `readOnly: true` into a `read` rung, so "holds write in
+ * dataQuality somewhere" is the identical answer for every token the migration produced.
+ *
+ * It stays coarse because its callers are: seventeen mutating routes across conflicts, contradictions and
+ * duplicates, none of which is space-scoped. `requireSpaceAuth` never runs for them, so `enforceAreaRung`
+ * never sees them, and this was their only write guard. A route that NAMES a space must not use this —
+ * `canWriteAnywhere` would let a token scoped to space A mutate through a route touching space B.
  */
 export function denyReadOnly(req: Request, res: Response, next: NextFunction): void {
-  if (req.authToken?.readOnly) {
+  const rights = (req.authToken as { rights?: TokenRights } | undefined)?.rights;
+  if (!canWriteAnywhere(rights)) {
     res.status(403).json({ error: 'This token has read-only access' });
     return;
   }

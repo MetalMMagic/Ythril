@@ -92,6 +92,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   migration uses, so a claim-mapped identity and a PAT with the same grants are priced identically. Nothing
   is stored and nothing migrates — the record was always built per request. **An OIDC identity whose claims
   do not cover a tool will now be refused it over MCP**, which is the point.
+
+- **No authorization decision reads the legacy `admin`/`readOnly`/`spaces` token flags any more.** The two
+  places that still did are on the matrix now. `denyReadOnly` — the only write guard on **seventeen** mutating
+  routes across conflicts, contradictions and duplicates, none of which is space-scoped, so the per-space rung
+  check never saw them — derives its answer from the rights matrix, using the same `satisfies` ladder the
+  per-space guard uses rather than a second one. It stays **area-agnostic**, because the flag it replaces
+  was: it asks only whether the token can mutate at all, and the per-area question belongs to the
+  space-scoped guard that already runs on every route naming a space.
+  The equivalence is pinned per legacy token shape rather than
+  assumed. Two shapes deliberately answer differently, both of them the matrix settling an argument the old
+  code was already losing: a token with an **empty** space allowlist is now refused here rather than one layer
+  down, and a token flagged **both** `admin` and `readOnly` is allowed — `migrateToken` has always resolved
+  that pair as `admin`, so such a token could already write on every space-scoped route while this one guard
+  refused it. The space token-access listing also stopped keeping its own fourth opinion about which tokens
+  reach a space and now calls `reachesSpace`, like the HTTP guard and the MCP space filter; its `level` and
+  `allSpaces` fields keep their shape and are derived from the matrix.
 - **BREAKING — MCP now enforces the per-space rights matrix, not just `readOnly` and `admin`.** This is the
   S-1 fix. MCP gated on two booleans while REST enforced a per-space, per-area rung, so one policy had two
   implementations and the weaker one was reachable — measured, not inferred: a token whose matrix said

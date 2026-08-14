@@ -42,6 +42,19 @@ When a media file is uploaded, the response includes an `embeddingStatus` field:
 | `"pending"` | Job enqueued; background worker will process soon |
 | `"skipped"` | Not analysed — the file exceeds `MAX_FILE_SIZE_BYTES`, **or** this media class is `off` for the space (its `levels` entry). File stored, not embedded |
 | `"disabled"` | **Legacy** — set at upload while the removed media-embedding master switch was off. No longer produced (a class turned off now returns `"skipped"`); still appears on pre-migration records |
+| `"complete"` | The **identical bytes** were already analysed — nothing was re-run, and the existing description, transcript and vector still stand |
+
+##### Re-uploading the same file costs nothing
+
+Uploading a media file whose SHA-256 matches the one already stored, on a record that reached `"complete"`, skips
+the pipeline entirely and answers `"complete"` immediately. Vision and speech-to-text are the most expensive work
+this instance does, and the same bytes through the same pipeline cannot produce a different answer.
+
+Every uncertain case still processes, so this cannot leave a file unanalysed: a re-upload is re-run when the bytes
+differ, when the writer sends no hash, when the stored record has none (everything written before this release),
+and when the previous attempt was anything other than `"complete"` — `"failed"`, `"partial"`, `"pending"`,
+`"skipped"` and `"processing"` all re-run. **Re-uploading remains the way to retry a failed analysis.** To force a
+re-analysis of a file that succeeded, change the bytes, or delete it and upload it again.
 
 While processing, the filemeta record on the file (accessible via `GET /api/brain/spaces/:spaceId/files`) reflects the current status:
 

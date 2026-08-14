@@ -20,6 +20,16 @@ what you need to weigh is that the derived records disappear — not that some b
 You are asked **once for a whole batch**, not once per file: a drop of twenty files where three collide is
 one question. **Cancel is the default**, and Replace is styled as destructive. There is no undo.
 
+**Uploading the very same image, audio or video again is free.** If the file you upload is byte-for-byte the
+one already there and Ythril finished analysing it, the analysis is kept instead of being redone. Looking at a
+picture or transcribing a recording is the slowest, most power-hungry thing the server does, and repeating it on
+unchanged content could only produce the same description it already has.
+
+Anything less than certain is analysed again, so nothing gets skipped by accident: a file whose contents changed
+at all, one whose analysis failed, was still running, or was never done, and every file uploaded before this
+release. **Re-uploading is still how you retry a failed analysis.** To have a file looked at again after it
+succeeded, delete it and upload it again.
+
 **Actions per row:**
 
 | Action | How |

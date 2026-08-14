@@ -39,7 +39,7 @@ export async function upsertFileMeta(
   spaceId: string,
   filePath: string,
   sizeBytes: number,
-  opts: { description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; ttlDays?: number | null } = {},
+  opts: { description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; ttlDays?: number | null; sha256?: string } = {},
 ): Promise<void> {
   const normalised = toDocId(filePath);
   const now = new Date().toISOString();
@@ -60,6 +60,9 @@ export async function upsertFileMeta(
     if (opts.description !== undefined) $set['description'] = opts.description;
     if (opts.tags !== undefined) $set['tags'] = opts.tags;
     if (opts.properties !== undefined) $set['properties'] = opts.properties;
+    // Only when stated. A writer that does not compute a hash must not erase the one already there — that would
+    // turn "unknown" into a permanent state and the skip below into dead code.
+    if (opts.sha256 !== undefined) $set['sha256'] = opts.sha256;
     // A write to a soft-deleted path means the file is live again — clear the flag.
     const $unset: Record<string, unknown> = { deletedAt: '' };
     // Only an EXPLICIT ttlDays on a re-upload touches expiry: >0 (re)stamps, 0/null clears it. A plain
@@ -87,6 +90,7 @@ export async function upsertFileMeta(
       createdAt: now,
       updatedAt: now,
       sizeBytes,
+      ...(opts.sha256 !== undefined ? { sha256: opts.sha256 } : {}),
       author: authorRef(),
       ...(expireAt ? { _expireAt: expireAt } : {}),
     };

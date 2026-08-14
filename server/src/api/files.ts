@@ -520,7 +520,7 @@ fileStoreRouter.post(
           const absTarget = resolveSafePath(targetSpace, filePath);
           await assertNoSymlinkEscape(targetSpace, absTarget);
           const sha256 = await assembleChunks(targetSpace, filePath, range.total, absTarget);
-          await upsertFileMeta(targetSpace, filePath, range.total, { ttlDays: parseTtlDaysQuery(req) }).catch(err => {
+          await upsertFileMeta(targetSpace, filePath, range.total, { ttlDays: parseTtlDaysQuery(req), sha256 }).catch(err => {
             log.warn(`upsertFileMeta error for space ${targetSpace}, path ${filePath}: ${err}`);
           });
 
@@ -528,7 +528,7 @@ fileStoreRouter.post(
           // the single-request upload). Previously the media branch here only recorded `pending` —
           // `disabled`/`skipped` states were dropped; the shared helper records all three.
           const { resolvedFormat: resolvedFmt, embeddingStatus: chunkedEmbeddingStatus } =
-            await dispatchFileProcessing(targetSpace, filePath, { bytes: range.total, contentType: req.headers['content-type'] });
+            await dispatchFileProcessing(targetSpace, filePath, { bytes: range.total, contentType: req.headers['content-type'], sha256 });
 
           emitWebhookEvent({ event: 'file.created', spaceId: targetSpace, entry: { path: filePath, sha256 }, ...webhookToken(req) });
           const isDocFormat = resolvedFmt !== 'text' && !isMediaFormat(resolvedFmt);
@@ -595,7 +595,7 @@ fileStoreRouter.post(
       }
 
       // Persist file metadata to MongoDB
-      const metaOpts: { description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; ttlDays?: number } = {};
+      const metaOpts: { description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; ttlDays?: number; sha256?: string } = {};
       if (typeof req.body?.description === 'string') metaOpts.description = req.body.description;
       if (Array.isArray(req.body?.tags)) metaOpts.tags = req.body.tags as string[];
       if (req.body?.properties != null && typeof req.body.properties === 'object' && !Array.isArray(req.body.properties)) {
@@ -603,6 +603,7 @@ fileStoreRouter.post(
       }
       const ttlDaysQ = parseTtlDaysQuery(req);
       if (ttlDaysQ !== undefined) metaOpts.ttlDays = ttlDaysQ;
+      metaOpts.sha256 = sha256;
       await upsertFileMeta(targetSpace, filePath, incomingBytes, metaOpts).catch(err => {
         log.warn(`upsertFileMeta error for space ${targetSpace}, path ${filePath}: ${err}`);
       });
@@ -610,7 +611,7 @@ fileStoreRouter.post(
       // Resolve format, record media state, and enqueue the async embedding job (media or document).
       const inputFormat = typeof req.body?.inputFormat === 'string' ? req.body.inputFormat as InputFormat : 'auto';
       const { resolvedFormat, embeddingStatus: embeddingStatusForResponse } = await dispatchFileProcessing(
-        targetSpace, filePath, { bytes: incomingBytes, contentType: req.headers['content-type'], inputFormat },
+        targetSpace, filePath, { bytes: incomingBytes, contentType: req.headers['content-type'], inputFormat, sha256 },
       );
 
       const response: { path: string; sha256: string; storageWarning?: boolean; embeddingStatus?: string } = { path: filePath, sha256 };

@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **Re-uploading identical bytes no longer re-runs vision or speech-to-text.** `enqueueMediaJob` resets a
+  terminal job on purpose, so the same file sent twice paid for a second full analysis to reproduce the caption
+  it already had — the most expensive work this instance does. File records now carry the SHA-256 the writer
+  already computed (for the response body and the webhook, then threw away), and the media dispatcher skips the
+  pipeline when the caller's hash, the stored hash and an `embeddingStatus` of `complete` all agree. That
+  conjunction is an identity, not a heuristic: same bytes, same pipeline, same answer. Every other case still
+  processes — different bytes, no hash from the writer, no hash on the record (everything written before this
+  release), and any status other than `complete`, so **re-uploading is still how a failed analysis is retried**.
+  The field is optional and self-healing rather than migrated, because file records sync.
 - **A record whose embedded text did not change is no longer re-embedded.** Every successful update enqueues an
   embed job unconditionally — correct, because the enqueue is also how `excludeFromVectorSearch` takes effect and
   it replaced four inline embeds built from stale reads. But most updates change something the vector does not

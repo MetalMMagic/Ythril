@@ -82,13 +82,14 @@ export const write_fileTool: ToolHandler = {
     const sizeBytes = Buffer.byteLength(content, 'utf8');
     const wfQuota = await checkQuota('files', sizeBytes);
     const { sha256 } = await writeFile(wt.target, filePath, content);
-    const metaOpts: { description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; ttlDays?: number | null } = {};
+    const metaOpts: { description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; ttlDays?: number | null; sha256?: string } = {};
     if (typeof a['description'] === 'string') metaOpts.description = a['description'];
     if (Array.isArray(a['tags'])) metaOpts.tags = a['tags'] as string[];
     if (a['properties'] != null && typeof a['properties'] === 'object' && !Array.isArray(a['properties'])) {
       metaOpts.properties = a['properties'] as Record<string, string | number | boolean>;
     }
     metaOpts.ttlDays = ttlDaysFromArgs(a);
+    metaOpts.sha256 = sha256;
     await upsertFileMeta(wt.target, filePath, sizeBytes, metaOpts);
     // Resolve format, record media state, and enqueue the async embedding job — one shared policy
     // with the REST upload path. Documents are converted by the background worker (not inline), so
@@ -97,7 +98,7 @@ export const write_fileTool: ToolHandler = {
     // derives the type from the file extension, so an image written here reaches the vision provider
     // as `image/png` rather than the byte-blob type this comment used to describe as intended.
     const ifFmt = typeof a['inputFormat'] === 'string' ? a['inputFormat'] as InputFormat : 'auto';
-    await dispatchFileProcessing(wt.target, filePath, { bytes: sizeBytes, inputFormat: ifFmt });
+    await dispatchFileProcessing(wt.target, filePath, { bytes: sizeBytes, inputFormat: ifFmt, sha256 });
     emitWebhookEvent({ event: 'file.created', spaceId: wt.target, entry: { path: filePath, sha256 }, ...(ctx.actor ?? {}) });
     const wfText = `Written (sha256: ${sha256}).`
       + (wfQuota.softBreached ? `\n⚠️ Storage warning: ${wfQuota.warning}` : '');

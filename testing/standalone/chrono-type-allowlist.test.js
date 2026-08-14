@@ -93,3 +93,25 @@ describe('create_chrono still enforces the same rule', () => {
     assert.equal(a.message, b.message);
   });
 });
+
+/**
+ * `ChronoKind` was removed in 3.0 (`_DEPRECATIONS.md` row 2.5). It aliased `ChronoType` and had zero
+ * consumers on either side — which is exactly how a dead alias survives a major: nothing breaks, so
+ * nothing notices, and the next person to reach for a chrono type has two names to choose between.
+ *
+ * A type alias leaves nothing at runtime to assert against, so this one has to be a source check. It is
+ * scoped to the two files that declared it rather than the whole tree, so an unrelated identifier that
+ * merely contains the word — `onEditChronoKindChange`, `drawerChronoKind` — cannot fail it.
+ */
+describe('the ChronoKind alias does not come back', () => {
+  it('neither type module declares it', () => {
+    for (const path of ['server/src/config/types.ts', 'client/src/app/core/api.types.ts']) {
+      const src = fs.readFileSync(path, 'utf8');
+      assert.ok(!/export type ChronoKind\b/.test(src),
+        `${path} re-declares the alias removed in 3.0 — say ChronoType`);
+      // And the type it aliased must still be there, or this gate would pass on a file that lost both.
+      assert.ok(/export type ChronoType\b/.test(src),
+        `${path} no longer declares ChronoType, so the check above proves nothing`);
+    }
+  });
+});

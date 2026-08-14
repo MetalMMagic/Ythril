@@ -1376,8 +1376,6 @@ export interface EdgeDoc extends StampSkewable {
 }
 
 export type ChronoType = 'event' | 'deadline' | 'plan' | 'prediction' | 'milestone';
-/** @deprecated Use ChronoType */
-export type ChronoKind = ChronoType;
 export type ChronoStatus = 'upcoming' | 'active' | 'completed' | 'overdue' | 'cancelled';
 
 export interface ChronoEntry extends StampSkewable {

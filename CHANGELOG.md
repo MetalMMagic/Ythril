@@ -360,6 +360,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     it cannot read) is a failure naming the file, and the routes are asserted BY NAME rather than by count.
 
 ### Fixed
+- **An MCP OAuth connector token now stores a rights matrix, and inherits the authorising token's rather
+  than re-deriving one.** Two defects, one line apart. `createToken` was given an unconditional matrix
+  because a token minted after boot had none until the next restart — and that fix was applied to one of the
+  **two** minting paths. `createOAuthToken` stored none at all, which was invisible while a missing matrix
+  meant "fall back to the legacy flags" and became a **regression the moment tool visibility began failing
+  closed**: a freshly minted connector could not call a single mutating tool. Second, the grant is now carried
+  across verbatim instead of being routed through `admin`/`readOnly`/`spaces`, which cannot express a
+  per-area grant — a token holding `knowledge: write` beside `files: read` on a space came back as **write in
+  both**, so the connector could write files its authorising token could only read. A gate derives the minting
+  paths from source and fails if any of them stores a token without a matrix, so a third path is covered
+  without anyone remembering the gate exists.
 - **`crossSpace` on `find_similar` is NOT deprecated after all, and its schema description said otherwise.**
   It was slated for removal — omitting `space` on MCP says the same thing — until removing it turned the
   MCP/REST parity gate red: the REST route takes the space in its **path**, so "omit the space" cannot be

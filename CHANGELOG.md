@@ -84,6 +84,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   every type.
 
 ### Changed
+- **An OIDC identity is now governed by the rights matrix too, not just `readOnly` and `admin`.** The S-1
+  fix made MCP enforce the per-space, per-area rung — and that guard skips a token with no matrix, which
+  every OIDC record was. So the fix covered PATs and left OIDC on the old booleans: one policy with two
+  implementations, on the surface nobody had checked, which is the same shape as the defect it was fixing one
+  authentication method over. An OIDC record now derives its matrix from the same `migrateToken` the boot
+  migration uses, so a claim-mapped identity and a PAT with the same grants are priced identically. Nothing
+  is stored and nothing migrates — the record was always built per request. **An OIDC identity whose claims
+  do not cover a tool will now be refused it over MCP**, which is the point.
 - **BREAKING — MCP now enforces the per-space rights matrix, not just `readOnly` and `admin`.** This is the
   S-1 fix. MCP gated on two booleans while REST enforced a per-space, per-area rung, so one policy had two
   implementations and the weaker one was reachable — measured, not inferred: a token whose matrix said

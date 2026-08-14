@@ -61,9 +61,15 @@ function sessionTag(sessionId: string): string {
 /**
  * The rights off a token record, or `undefined` for one that has none.
  *
- * A cast because `OidcTokenRecord` has no `rights` field: those tokens are built per request from the identity
- * provider and the config backfill never sees them. `undefined` here is the signal to fall back to the legacy
- * allowlist, which is the same answer that path has always given — not a weaker one.
+ * A cast because the record is a UNION and the narrowing cannot be expressed on it. Both arms now carry a
+ * matrix: a PAT stores one (`createToken` always writes it, and a boot migration backfills the rest), and as
+ * of 3.0 an OIDC record derives one per request from the same `migrateToken` the migration uses.
+ *
+ * That second half was a hole rather than a gap. The rights guard skips a token with no matrix, so every OIDC
+ * connection was governed by the old `readOnly`/`admin` booleans while PATs were enforced per space and per
+ * area — one policy with two implementations, which is what S-1 was about, on the surface nobody checked.
+ *
+ * `undefined` therefore now means a record shape that predates both, not "the OIDC path".
  *
  * The same cast appears at every other rights call site (`middleware.ts`, the three `accessibleSpaces` helpers). It is
  * a narrowing the union cannot express, and writing it once here keeps this file from repeating it per transport.

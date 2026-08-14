@@ -1,0 +1,101 @@
+/**
+ * An OIDC identity is governed by the same rights matrix a PAT is.
+ *
+ * ## The hole this closes
+ *
+ * 3.0 made MCP enforce the per-space, per-area rung (S-1). That guard **skips a token with no matrix** — a
+ * deliberate pass-through, documented as "the OIDC path builds its record per request from the identity".
+ *
+ * Which means the S-1 fix covered PATs and left OIDC on the old `readOnly`/`admin` booleans. One policy,
+ * two implementations, on the surface nobody had checked — the same shape as the defect it was fixing, one
+ * authentication method over. Fixing MCP for PATs and calling S-1 done would have been the half-fix this
+ * repo keeps producing.
+ *
+ * ## Why it derives rather than maps its own
+ *
+ * `migrateToken` already encodes the decisions this needs, and two of them are the ones that granted whole
+ * instances when they were got wrong: `spaces` **absent** means every space (a floor), while `spaces: []`
+ * reaches **nothing**. A second hand-rolled claims→rungs mapping would be a fresh chance to confuse those.
+ *
+ * Nothing is stored, so nothing migrates: the record is built per request either way.
+ *
+ * Run: node --test testing/standalone/oidc-carries-a-rights-matrix.test.js
+ */
+import { describe, it, before } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+
+let migrateToken, toolRightsRefusal;
+
+before(async () => {
+  ({ migrateToken } = await import('../../server/dist/auth/rights-migration.js'));
+  ({ toolRightsRefusal } = await import('../../server/dist/mcp/tool-rights-guard.js'));
+});
+
+describe('the matrix an OIDC identity gets', () => {
+  it('an admin identity reaches an admin-rung capability', () => {
+    const rights = migrateToken({ admin: true, readOnly: false });
+    assert.equal(toolRightsRefusal('wipe_space', rights, 'general'), null,
+      'wipe_space carries no area row, so this also proves the instance-level pass-through still holds');
+    assert.equal(toolRightsRefusal('delete_memory', rights, 'general'), null);
+  });
+
+  it('a read-only identity is refused a write, where before it was refused only by the boolean', () => {
+    const rights = migrateToken({ admin: false, readOnly: true });
+    const refusal = toolRightsRefusal('remember', rights, 'general');
+    assert.ok(refusal, 'read-only must not reach a write through the matrix either');
+    assert.match(refusal, /knowledge: write/);
+  });
+
+  it('a scoped identity reaches its spaces and nothing else', () => {
+    const rights = migrateToken({ admin: false, readOnly: false, spaces: ['alpha'] });
+    assert.equal(toolRightsRefusal('remember', rights, 'alpha'), null);
+    assert.ok(toolRightsRefusal('remember', rights, 'beta'), 'a claim-granted allowlist is still an allowlist');
+  });
+
+  it('an EMPTY spaces claim reaches nothing — the widening that must not happen', () => {
+    // `mapOidcClaims` produces `spaces: []` when a `spaces` mapping is configured and the claim is missing
+    // or not an array. That is deny. Reading it as "absent, therefore all spaces" would turn the narrowest
+    // identity into the widest, which is the exact defect the migration's comments warn about.
+    const rights = migrateToken({ admin: false, readOnly: false, spaces: [] });
+    assert.ok(toolRightsRefusal('remember', rights, 'general'));
+    assert.ok(toolRightsRefusal('recall', rights, 'general'));
+  });
+
+  it('an ABSENT spaces claim is a floor, not a denial', () => {
+    // The other direction, and the two must not be conflated: no allowlist at all meant every space in the
+    // old model, including future ones.
+    const rights = migrateToken({ admin: false, readOnly: false });
+    assert.equal(toolRightsRefusal('remember', rights, 'anything-at-all'), null);
+  });
+});
+
+describe('the record actually carries it', () => {
+  const strip = src => src.replace(/(^|[^:])\/\/.*/gm, '$1').replace(/\/\*[\s\S]*?\*\//g, '');
+
+  it('OidcTokenRecord declares rights, and the builder populates it from migrateToken', () => {
+    const src = strip(readFileSync('server/src/auth/oidc.ts', 'utf8'));
+    assert.match(src, /rights: TokenRights;/, 'the record type must carry the matrix');
+    assert.match(src, /rights: migrateToken\(\{/,
+      'and it must be DERIVED — a hand-rolled second mapping is the thing this avoids');
+    assert.match(src, /admin: perms\.admin,[\s\S]{0,400}?readOnly: perms\.readOnly \?\? false/,
+      'derived from the mapped claims, not from the raw payload');
+  });
+
+  it('the spaces key is omitted rather than passed as undefined', () => {
+    // `migrateToken` branches on ABSENCE (`t.spaces == null`), so spreading a `spaces: undefined` would be
+    // read as "no allowlist, therefore every space". Correct here, but only by accident of that check — so
+    // the conditional spread is asserted rather than trusted.
+    const src = strip(readFileSync('server/src/auth/oidc.ts', 'utf8'));
+    assert.match(src, /\.\.\.\(perms\.spaces \? \{ spaces: perms\.spaces \} : \{\}\)/,
+      'pass the key only when there is an allowlist');
+  });
+
+  it('the MCP helper no longer claims OIDC records have no matrix', () => {
+    // That comment was true when it was written and became the documentation of a hole. A stale sentence
+    // next to a security decision is worse than no sentence.
+    const src = readFileSync('server/src/mcp/router.ts', 'utf8');
+    assert.ok(!/`OidcTokenRecord` has no `rights` field/.test(src),
+      'the helper documents a shape that no longer exists');
+  });
+});

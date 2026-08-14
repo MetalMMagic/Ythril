@@ -19,6 +19,8 @@ import { allowPrivateOidcIssuer } from '../config/oidc-egress-policy.js';
 import { log } from '../util/log.js';
 import { isSsrfSafeUrl, ssrfSafeFetch, SsrfBlockedError } from '../util/ssrf.js';
 import type { OidcConfig, OidcClaimRule, OidcClaimMapping } from '../config/types.js';
+import { migrateToken } from './rights-migration.js';
+import type { TokenRights } from '../config/rights-shape.js';
 
 /**
  * JWS algorithms accepted for OIDC ID tokens unless `oidc.allowedAlgorithms`
@@ -107,6 +109,19 @@ export interface OidcTokenRecord {
   admin: boolean;
   readOnly?: boolean;
   spaces?: string[];
+  /**
+   * The same rights matrix a PAT carries, derived from the three fields above by `migrateToken` — the very
+   * function the boot migration uses, so an OIDC identity and a PAT with the same claims are governed by
+   * one mapping rather than two.
+   *
+   * It was absent until 3.0, and that absence was a hole rather than a gap: the MCP rights guard skips a
+   * token with no matrix, so every OIDC connection fell back to the old `readOnly`/`admin` booleans while
+   * PATs were enforced per space and per area. The whole point of S-1 was that one policy should not have
+   * two implementations, and this was the third.
+   *
+   * Built per request, like the rest of this record — nothing is stored, so there is nothing to migrate.
+   */
+  rights: TokenRights;
   // Distinguish from PAT records for logging / introspection
   source: 'oidc';
 }
@@ -419,6 +434,14 @@ export async function validateOidcJwt(bearer: string): Promise<OidcTokenRecord |
       admin: perms.admin,
       readOnly: perms.readOnly,
       spaces: perms.spaces,
+      // Derived, never hand-rolled. `migrateToken` already encodes the decisions this mapping needs —
+      // `spaces` ABSENT means every space (a floor) while `spaces: []` reaches nothing, and that
+      // distinction is the one that granted whole instances when it was got wrong before.
+      rights: migrateToken({
+        admin: perms.admin,
+        readOnly: perms.readOnly ?? false,
+        ...(perms.spaces ? { spaces: perms.spaces } : {}),
+      }) as unknown as TokenRights,
       source: 'oidc',
     };
   } catch (err) {

@@ -172,13 +172,13 @@ describe('M9 — list_peers / sync_now require an admin token', () => {
 
   it('list_peers via a non-admin token is refused', async () => {
     const r = await callTool(plainToken, 'list_peers');
-    assert.match(r.text, /requires an admin token/i,
+    assert.match(r.text, /requires a token with instance-admin rights/i,
       `VULNERABILITY: non-admin token reached list_peers: ${r.text.slice(0, 300)}`);
   });
 
   it('sync_now via a non-admin token is refused', async () => {
     const r = await callTool(plainToken, 'sync_now');
-    assert.match(r.text, /requires an admin token/i,
+    assert.match(r.text, /requires a token with instance-admin rights/i,
       `VULNERABILITY: non-admin token reached sync_now: ${r.text.slice(0, 300)}`);
   });
 
@@ -190,7 +190,14 @@ describe('M9 — list_peers / sync_now require an admin token', () => {
 
   it('an admin token can still call list_peers (regression)', async () => {
     const r = await callTool(adminToken, 'list_peers');
-    assert.ok(!/requires an admin token/i.test(r.text), `admin must retain access: ${r.text.slice(0, 300)}`);
+    // Absence of the CURRENT wording. The previous version of this line matched the OLD wording, so when the
+    // refusal text changed it would have passed against a refused admin — a security test proving nothing
+    // while reading as "admin still works".
+    assert.ok(!/instance-admin rights/i.test(r.text), `admin must retain access: ${r.text.slice(0, 300)}`);
+    // And a POSITIVE signal, so no future rewording can make this vacuous again: the tool answered rather
+    // than erroring.
+    assert.ok(!/"isError"\s*:\s*true/.test(r.text), `admin call returned an error: ${r.text.slice(0, 300)}`);
+    assert.match(r.text, /peers|instanceId|\[\]/i, `expected a peer listing shape: ${r.text.slice(0, 300)}`);
   });
 });
 

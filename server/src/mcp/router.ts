@@ -34,13 +34,15 @@ interface SessionBinding {
 }
 const sessionBindings = new Map<string, SessionBinding>();
 
-/** Stable signature of a token's authorization scopes, order-independent. */
-function scopeSignature(t: { admin?: boolean; readOnly?: boolean; spaces?: string[] } | undefined): string {
-  return JSON.stringify([
-    Boolean(t?.admin),
-    Boolean(t?.readOnly),
-    [...(t?.spaces ?? [])].sort(),
-  ]);
+/**
+ * Stable signature of a token's authorization scope, order-independent.
+ *
+ * Keyed on the RIGHTS MATRIX. It used to hash the legacy `admin`/`readOnly`/`spaces` triple, which meant a
+ * token edited through the rights-matrix editor produced the same signature and kept serving its previous
+ * scope for the life of an SSE stream — the matrix could change without any of the three fields moving.
+ */
+function scopeSignature(t: unknown): string {
+  return rightsSignature((t as { rights?: TokenRights } | undefined)?.rights);
 }
 
 /** Short, non-reversible tag for correlating an SSE session in logs without
@@ -129,7 +131,9 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
 
   // Tools this token may see: read-only tokens lose mutating tools, non-admin
   // tokens lose instance-level tools. Both gates are re-enforced on dispatch.
-  const visibleTools = ALL_TOOLS.filter(t => !(readOnly && t.mutating) && !(!isAdmin && t.admin));
+  // One predicate, shared with `help` and with the two dispatcher gates below. It used to be this
+  // expression written out four times, twice under a comment claiming they were one source of truth.
+  const visibleTools = ALL_TOOLS.filter(t => toolIsVisible(t, rights));
 
   // ── tools/list ────────────────────────────────────────────────────────────
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -178,19 +182,20 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
     // reported inside the try block, preserving the original dispatch behaviour.
     const tool = TOOLS_BY_NAME.get(name);
 
-    // Block mutating tools for read-only tokens
-    if (readOnly && tool?.mutating) {
+    // Reachability, from the same predicate that built `tools/list` — so the listing cannot advertise a
+    // tool this refuses, which is what two hand-copied expressions could not guarantee. Filtering the list
+    // stays advisory; the dispatcher is still the enforcement point.
+    //
+    // An unknown tool carries no flags and falls through, as it always did, to be reported inside the try
+    // block below.
+    if (tool && !toolIsVisible(tool, rights)) {
       return {
-        content: [{ type: 'text' as const, text: 'Error: this token has read-only access' }],
-        isError: true,
-      };
-    }
-
-    // Block instance-level tools for non-admin tokens (filtering them out of
-    // tools/list is advisory — the dispatcher is the enforcement point).
-    if (!isAdmin && tool?.admin) {
-      return {
-        content: [{ type: 'text' as const, text: `Error: tool '${name}' requires an admin token` }],
+        content: [{
+          type: 'text' as const,
+          text: tool.admin
+            ? `Error: tool '${name}' requires a token with instance-admin rights`
+            : `Error: tool '${name}' mutates, and this token holds no write rung in any space`,
+        }],
         isError: true,
       };
     }
@@ -262,6 +267,10 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
         tokenSpaces,
         isAdmin,
         readOnly,
+        // Populated, not merely declared. `toolIsVisible(t, undefined)` hides every mutating and admin
+        // tool, so an unpopulated `rights` here would empty `help`'s listing while `tools/list` stayed
+        // correct — the two disagreeing again, in the one mechanism built to stop that.
+        rights,
         actor: { tokenId, tokenLabel },
       });
       // A tool that returns `isError` failed on its own terms — the transport still answered 200, so
@@ -295,6 +304,7 @@ import { logAuditEntry } from '../audit/audit.js';
 import { auditAuthMethod, auditOidcSubject } from '../audit/middleware.js';
 import { mcpAuditOperation, isMcpReadOperation } from './audit-map.js';
 import { mcpConnectionsActive, mcpToolCallsTotal } from '../metrics/registry.js';
+import { toolIsVisible, rightsSignature } from './tool-visibility.js';
 
 export const mcpRouter = Router();
 

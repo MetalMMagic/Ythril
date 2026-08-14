@@ -1,5 +1,6 @@
 import type { Config, SpaceConfig } from '../../config/types.js';
 import type { WebhookActor } from '../../webhooks/dispatcher.js';
+import type { TokenRights } from '../../config/rights-shape.js';
 
 /**
  * The space schemas injected into each tool's `inputSchema`. The `space` enum is
@@ -29,6 +30,14 @@ export interface ToolContext {
   isAdmin?: boolean;
   /** True when the calling token is read-only (mutating tools are gated out). */
   readOnly?: boolean;
+  /**
+   * The calling token's rights matrix — what tool visibility and the per-call rung check are decided from.
+   *
+   * Present for every connection: a PAT stores one, a boot migration backfills the rest, and an OIDC record
+   * derives one per request. `isAdmin` and `readOnly` above are the legacy pair it replaces and are on their
+   * way out; nothing should read them for a new decision.
+   */
+  rights?: TokenRights;
   /** Identity of the calling token, for webhook attribution. Passed to shared brain/file
    *  mutation functions so agent-driven writes emit attributed webhooks like REST writes. */
   actor?: WebhookActor;

@@ -84,6 +84,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   every type.
 
 ### Changed
+- **MCP tool visibility and its two dispatcher gates read the rights matrix, from ONE predicate.** The
+  expression `!(readOnly && t.mutating) && !(!isAdmin && t.admin)` was written out four times: the
+  `tools/list` filter, the two call-time refusals, and `help`'s own listing — the last of those under a
+  comment reading *"the exact predicate tools/list uses — one source of truth, so this text can never
+  advertise a tool the dispatcher would deny."* It was four copies claiming to be one, inside the mechanism
+  built to stop a listing promising what the dispatcher refuses. They are now literally the same function,
+  and the gate asserts the SHARING rather than matching two regexes that could both pass while having
+  drifted. It also closes a narrower gap: a token holding a write rung in one space used to be shown every
+  mutating tool, because `readOnly` was false instance-wide, and the per-space check then refused the call.
+  The connection scope signature is keyed on the matrix too — it used to hash the legacy triple, so a token
+  edited through the rights editor kept serving its previous scope for the life of an SSE stream.
 - **An OIDC identity is now governed by the rights matrix too, not just `readOnly` and `admin`.** The S-1
   fix made MCP enforce the per-space, per-area rung — and that guard skips a token with no matrix, which
   every OIDC record was. So the fix covered PATs and left OIDC on the old booleans: one policy with two
@@ -93,7 +104,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is stored and nothing migrates — the record was always built per request. **An OIDC identity whose claims
   do not cover a tool will now be refused it over MCP**, which is the point.
 
-- **No authorization decision reads the legacy `admin`/`readOnly`/`spaces` token flags any more.** The two
+- **No authorization decision on REST reads the legacy `admin`/`readOnly`/`spaces` token flags any more.** The two
   places that still did are on the matrix now. `denyReadOnly` — the only write guard on **seventeen** mutating
   routes across conflicts, contradictions and duplicates, none of which is space-scoped, so the per-space rung
   check never saw them — derives its answer from the rights matrix, using the same `satisfies` ladder the

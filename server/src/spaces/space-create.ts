@@ -26,6 +26,7 @@ import { getConfig } from '../config/loader.js';
 import { slugify } from './_shared.js';
 import { createSpace } from './lifecycle.js';
 import { CreateSpaceBody, TypeSchemasZ, findBrokenLibraryRefs, brokenRefsError } from './body-schemas.js';
+import { refuseRemovedDescription } from './spaces.js';
 
 /** A refusal, carrying the status the contract suite pins. */
 export type SpaceCreateRefusal = {
@@ -49,11 +50,14 @@ export type SpaceCreateDecision =
  * request and testable without standing up Docker.
  */
 export function planSpaceCreate(body: unknown): SpaceCreateDecision {
+  const removed = refuseRemovedDescription(body);
+  if (removed) return { ok: false, refusal: removed };
+
   const parsed = CreateSpaceBody.safeParse(body);
   if (!parsed.success) {
     return { ok: false, refusal: { status: 400, body: { error: parsed.error.message } } };
   }
-  const { id: rawId, label, description, folders, maxGiB, proxyFor, meta, faceDescriptorDims } = parsed.data;
+  const { id: rawId, label, folders, maxGiB, proxyFor, meta, faceDescriptorDims } = parsed.data;
   const id = rawId ?? slugify(label);
 
   // Validate proxy members exist and are not themselves proxies.
@@ -104,7 +108,7 @@ export function planSpaceCreate(body: unknown): SpaceCreateDecision {
 
   return {
     ok: true,
-    plan: { args: { id, label, description, folders, maxGiB, proxyFor, meta: seededMeta, faceDescriptorDims } },
+    plan: { args: { id, label, folders, maxGiB, proxyFor, meta: seededMeta, faceDescriptorDims } },
   };
 }
 

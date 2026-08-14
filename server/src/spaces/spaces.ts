@@ -1,5 +1,5 @@
 /**
- * Space settings — update (label/description/meta/dupe rules) and display ordering.
+ * Space settings — update (label/meta/dupe rules) and display ordering.
  *
  * The heavy machinery now lives beside this file (A17.7): `vector-index.ts` (Atlas $vectorSearch),
  * `lifecycle.ts` (init/create/remove/wipe/recovery), `rename.ts`, and `_shared.ts`.
@@ -32,28 +32,6 @@ export function spacePurpose(space: { meta?: SpaceMeta }): string | undefined {
   return purpose ? purpose : undefined;
 }
 
-/**
- * The deprecated `description` alias, ready to spread into a response object — `{}` when the space has no
- * purpose, so the key is absent rather than explicitly empty.
- *
- * Exists so the derivation has ONE spelling in the API layer. The list endpoints wrote it out inline while
- * the single-space responses returned the stored record as-is, which was correct only while `description`
- * WAS stored: the moment it became derived, create / PATCH / PUT-schema silently stopped carrying it, so a
- * PATCH echoed back a space with no `description` even though the write had landed. Spread this, or call
- * `spaceResponse`; never re-derive it at a call site.
- */
-export function spaceDescriptionAlias(space: { meta?: SpaceMeta }): { description?: string } {
-  const purpose = spacePurpose(space);
-  return purpose === undefined ? {} : { description: purpose };
-}
-
-/**
- * A space as the API publishes it: the whole stored record plus the derived `description` alias. For
- * responses that project a subset of fields, spread `spaceDescriptionAlias` instead.
- */
-export function spaceResponse<T extends { meta?: SpaceMeta }>(space: T): T & { description?: string } {
-  return { ...space, ...spaceDescriptionAlias(space) };
-}
 
 /** Update mutable fields (label, description, meta) of an existing space in config.
  *  When `meta` is provided the version counter is auto-incremented and the
@@ -168,4 +146,26 @@ export function reorderSpaces(orderedIds: string[]): SpaceConfig[] | null {
   cfg.spaces = reordered;
   saveConfig(cfg);
   return reordered;
+}
+
+/**
+ * The `description` alias was removed in 3.0, and this is what stops that removal being SILENT.
+ *
+ * The top-level space bodies are not `.strict()` — they drop an unknown key — so without this a caller who
+ * kept sending `description` would get a `200` and no directive written. MCP's `additionalProperties: false`
+ * refuses it outright, so the same request would 400 on one door and quietly do nothing on the other: one
+ * rule, two implementations, and the weaker one winning silently.
+ *
+ * It lives in the shared planners because both surfaces reach the store through them, and it names the
+ * replacement rather than the removal — a caller reading `description is not a field` has to go and look up
+ * what is.
+ */
+export function refuseRemovedDescription(body: unknown): { status: 400; body: { error: string } } | undefined {
+  if (body && typeof body === 'object' && !Array.isArray(body) && 'description' in body) {
+    return {
+      status: 400,
+      body: { error: '`description` was removed in 3.0 — send `meta.purpose` instead. It is the same directive, under the one name that was ever editable.' },
+    };
+  }
+  return undefined;
 }

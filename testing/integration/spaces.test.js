@@ -201,27 +201,30 @@ describe('Space management', () => {
       'Space must not appear in list after confirmed deletion',
     );
   });
-  it('Update space description via PATCH /api/spaces/:id', async () => {
+  it('Update space purpose via PATCH /api/spaces/:id', async () => {
     const created = await post(INSTANCES.a, tokenA, '/api/spaces', {
       id: `patch-desc-test-${RUN_ID}`,
       label: 'Patch Desc Test',
-      description: 'original description',
+      meta: { purpose: 'original purpose' },
     });
     assert.equal(created.status, 201);
     const spaceId = created.body.space?.id;
     createdSpaceIds.push(spaceId);
 
     const r = await patch(INSTANCES.a, tokenA, `/api/spaces/${spaceId}`, {
-      description: 'updated description',
+      meta: { purpose: 'updated purpose' },
     });
     assert.equal(r.status, 200, `Expected 200, got ${r.status}: ${JSON.stringify(r.body)}`);
-    assert.equal(r.body.space?.description, 'updated description');
+    assert.equal(r.body.space?.meta?.purpose, 'updated purpose');
+    assert.equal('description' in (r.body.space ?? {}), false,
+      'the alias was removed in 3.0 — a response carrying it means a shaper put it back');
 
     // Verify the list endpoint reflects the change
     const listR = await get(INSTANCES.a, tokenA, '/api/spaces');
     const found = listR.body?.spaces?.find(s => s.id === spaceId);
     assert.ok(found, 'Space should still appear in list');
-    assert.equal(found.description, 'updated description');
+    assert.equal(found.meta?.purpose, 'updated purpose');
+    assert.equal('description' in found, false, 'the list endpoint derived the alias for longest');
   });
 
   it('Update space label via PATCH /api/spaces/:id', async () => {
@@ -255,12 +258,12 @@ describe('Space management', () => {
 
   it('PATCH /api/spaces/:id on non-existent space returns 404', async () => {
     const r = await patch(INSTANCES.a, tokenA, '/api/spaces/does-not-exist-space', {
-      description: 'something',
+      meta: { purpose: 'something' },
     });
     assert.equal(r.status, 404, `Expected 404, got ${r.status}`);
   });
 
-  it('PATCH /api/spaces/:id with description exceeding 4000 chars returns 400', async () => {
+  it('PATCH /api/spaces/:id with purpose exceeding 4000 chars returns 400', async () => {
     const created = await post(INSTANCES.a, tokenA, '/api/spaces', {
       id: `patch-toolong-test-${RUN_ID}`,
       label: 'Patch Too Long',
@@ -270,9 +273,37 @@ describe('Space management', () => {
     createdSpaceIds.push(spaceId);
 
     const r = await patch(INSTANCES.a, tokenA, `/api/spaces/${spaceId}`, {
-      description: 'x'.repeat(4001),
+      meta: { purpose: 'x'.repeat(4001) },
     });
     assert.equal(r.status, 400, `Expected 400, got ${r.status}`);
+  });
+
+  it('PATCH /api/spaces/:id still sending `description` is REFUSED, not ignored', async () => {
+    // The removal's loud half. These top-level bodies are not `.strict()` — an unknown key is DROPPED — so
+    // without an explicit refusal this request would answer 200 having written nothing, while the same
+    // request over MCP hit `additionalProperties: false` and 400'd. The refusal names the replacement,
+    // because a caller told only that the field is gone still has to go and find out what replaced it.
+    const created = await post(INSTANCES.a, tokenA, '/api/spaces', {
+      id: `patch-removed-alias-${RUN_ID}`,
+      label: 'Removed Alias',
+    });
+    assert.equal(created.status, 201);
+    createdSpaceIds.push(created.body.space?.id);
+
+    const r = await patch(INSTANCES.a, tokenA, `/api/spaces/${created.body.space?.id}`, {
+      description: 'the removed spelling',
+    });
+    assert.equal(r.status, 400, `Expected 400, got ${r.status}: ${JSON.stringify(r.body)}`);
+    assert.match(r.body?.error ?? '', /meta\.purpose/,
+      'the refusal must name the field that replaced it');
+
+    // And the same refusal on CREATE, so the two doors of the same removal agree.
+    const c = await post(INSTANCES.a, tokenA, '/api/spaces', {
+      id: `create-removed-alias-${RUN_ID}`,
+      label: 'Removed Alias On Create',
+      description: 'the removed spelling',
+    });
+    assert.equal(c.status, 400, `Expected 400 on create, got ${c.status}: ${JSON.stringify(c.body)}`);
   });
 
   it('PATCH /api/spaces/:id merges typeSchemas — existing types are preserved', async () => {
@@ -420,10 +451,10 @@ describe('Space management', () => {
 
     // Patching the token's own space should succeed
     const r = await patch(INSTANCES.a, scopedToken, `/api/spaces/${targetId}`, {
-      description: 'updated by scoped token',
+      meta: { purpose: 'updated by scoped token' },
     });
     assert.equal(r.status, 200, `Expected 200 on own space, got ${r.status}: ${JSON.stringify(r.body)}`);
-    assert.equal(r.body.space?.description, 'updated by scoped token');
+    assert.equal(r.body.space?.meta?.purpose, 'updated by scoped token');
 
     // Revoke the token
     const revokeR = await del(INSTANCES.a, tokenA, `/api/tokens/${tokenRes.body.token?.id}`);
@@ -454,7 +485,7 @@ describe('Space management', () => {
 
     // Attempting to PATCH the forbidden space should return 403
     const r = await patch(INSTANCES.a, scopedToken, `/api/spaces/${forbiddenId}`, {
-      description: 'should be blocked',
+      meta: { purpose: 'should be blocked' },
     });
     assert.equal(r.status, 403, `Expected 403 on forbidden space, got ${r.status}: ${JSON.stringify(r.body)}`);
 
@@ -511,7 +542,7 @@ describe('Space management', () => {
 
     // tokenA has no spaces restriction — must succeed on any space
     const r = await patch(INSTANCES.a, tokenA, `/api/spaces/${spaceId}`, {
-      description: 'written by unrestricted admin',
+      meta: { purpose: 'written by unrestricted admin' },
     });
     assert.equal(r.status, 200, `Expected 200 for unrestricted admin, got ${r.status}: ${JSON.stringify(r.body)}`);
   });

@@ -32,7 +32,7 @@
 import type { SpaceConfig, SpaceMeta, KnowledgeType, TypeSchema, DocExtractionMode } from '../config/types.js';
 import { normalizeDocExtractionMode } from '../config/types.js';
 import { getConfig, saveConfig, getSecrets, getDocumentProcessingConfig } from '../config/loader.js';
-import { updateSpace } from './spaces.js';
+import { updateSpace, refuseRemovedDescription } from './spaces.js';
 import { ensureTtlIndex } from '../brain/ttl.js';
 import { peerSafeFetch } from '../sync/peer-fetch.js';
 import { proposedMetaFields } from '../sync/meta-round-merge.js';
@@ -161,6 +161,9 @@ export function planSpaceMetaUpdate(input: {
     return { ok: false, refusal: { status: 404, body: { error: `Space '${spaceId}' not found` } } };
   }
 
+  const removed = refuseRemovedDescription(body);
+  if (removed) return { ok: false, refusal: removed };
+
   // Optimistic concurrency: honour If-Match against the current meta version, if the client sent one.
   // Runs before validation, the audit snapshot and every side effect — a rejected write must change
   // nothing and record nothing.
@@ -182,17 +185,6 @@ export function planSpaceMetaUpdate(input: {
     return { ok: false, refusal: { status: 400, body: { error: parsed.error.message } } };
   }
 
-  // `description` is the deprecated spelling of `meta.purpose`. Rewrite it HERE, before any branching, so it
-  // travels the meta path in full: the $ref check, the merge, the version bump, and — the one that matters — the
-  // network vote. Applying it further down as a "non-meta update" would let a directive change skip governance in
-  // exactly the spaces that voted to govern it. That is also why the rewrite is in the PLAN and not at the write:
-  // a caller that applied it after the vote branch would reintroduce the bypass without touching this file.
-  // `meta.purpose` wins when both are sent; it is the current name.
-  if (parsed.data.description !== undefined) {
-    const legacy = parsed.data.description.trim();
-    parsed.data.meta = { ...(parsed.data.meta ?? {}), ...(parsed.data.meta?.purpose === undefined ? { purpose: legacy } : {}) };
-    delete parsed.data.description;
-  }
 
   // Validate any $ref values in the incoming meta against the instance schema library
   if (parsed.data.meta?.typeSchemas) {

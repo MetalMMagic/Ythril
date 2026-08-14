@@ -151,7 +151,7 @@ describe('Proxy spaces', () => {
     const rP = await post(BASE, tokenA, '/api/spaces', {
       id: PROXY,
       label: 'Proxy',
-      description: 'Aggregates alpha and beta.',
+      meta: { purpose: 'Aggregates alpha and beta.' },
       proxyFor: [SPACE_A, SPACE_B],
     });
     assert.equal(rP.status, 201, `Create proxy: ${JSON.stringify(rP.body)}`);
@@ -172,7 +172,9 @@ describe('Proxy spaces', () => {
       const proxy = r.body.spaces.find(s => s.id === PROXY);
       assert.ok(proxy, 'Proxy space should be in listing');
       assert.deepEqual(proxy.proxyFor, [SPACE_A, SPACE_B]);
-      assert.equal(proxy.description, 'Aggregates alpha and beta.');
+      assert.equal(proxy.meta?.purpose, 'Aggregates alpha and beta.');
+      assert.equal('description' in proxy, false,
+        'the alias was removed in 3.0 — the list endpoint derived it for longest, so it is the one to check');
     });
 
     it('Proxy nesting rejected', async () => {

@@ -179,10 +179,12 @@ export interface SpaceConfig {
   faceDescriptorDims?: number;
   flex?: number;
   /**
-   * @deprecated Say `meta.purpose`. This is the legacy spelling of the same thing: it was the field
-   * MCP clients read while the UI only ever gained an editor for `purpose`, so the two disagreed and
-   * the readable one was uneditable. Migrated into `meta.purpose` at boot and no longer stored;
-   * `spacePurpose()` derives it for the published API surfaces. Removal in 3.0.
+   * Legacy ON-DISK field only — removed from every API surface in 3.0, and no longer accepted, stored or
+   * emitted. It survives on this type because `migrateSpaceDescriptionToPurpose` still has to RECOGNISE it
+   * in a config written by an older build, and a boot migration cannot read a field the type denies.
+   *
+   * Delete this with the migration (`_DEPRECATIONS.md` row 3.1) once the version floor 3.0 upgrades from is
+   * fixed — not before, or upgrading from 2.x silently drops the operator's directive.
    */
   description?: string;
   proxyFor?: string[];  // virtual proxy space — aggregates reads, routes writes to member spaces

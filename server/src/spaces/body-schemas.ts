@@ -183,7 +183,6 @@ export const ProxyForZ = z.union([
 export const CreateSpaceBody = z.object({
   id: z.string().min(1).max(40).regex(/^[a-z0-9-]+$/).optional(),
   label: z.string().min(1).max(200),
-  description: z.string().max(SPACE_PURPOSE_MAX).optional(),
   folders: z.array(z.string()).optional(),
   maxGiB: z.number().positive().optional(),
   // Create-only, and deliberately absent from the update body: a populated gallery cannot be re-dimensioned,
@@ -215,7 +214,6 @@ const TtlWindowZ = z.number().int().nonnegative().max(36500).nullable().optional
 
 export const UpdateSpaceBody = z.object({
   label: z.string().min(1).max(200).optional(),
-  description: z.string().max(SPACE_PURPOSE_MAX).optional(),
   maxGiB: z.number().positive().nullable().optional(),
   meta: SpaceMetaBody.optional(),
   /**
@@ -261,8 +259,8 @@ export const UpdateSpaceBody = z.object({
   audioAnalysis: z.enum(AUDIO_LEVELS).nullable().optional(),
   videoAnalysis: z.enum(VIDEO_LEVELS).nullable().optional(),
   textAnalysis: z.enum(TEXT_LEVELS).nullable().optional(),
-}).refine(d => d.label !== undefined || d.description !== undefined || d.meta !== undefined || d.maxGiB !== undefined || d.dupeRules !== undefined || d.dupeMergeSurvivor !== undefined || d.dupeRulesOnInsert !== undefined || d.recordTtlDays !== undefined || d.documentExtraction !== undefined || d.imageAnalysis !== undefined || d.audioAnalysis !== undefined || d.videoAnalysis !== undefined || d.textAnalysis !== undefined, {
-  message: 'At least one of label, description, maxGiB, meta, dupeRules, dupeMergeSurvivor, dupeRulesOnInsert, recordTtlDays, documentExtraction, imageAnalysis, audioAnalysis, videoAnalysis, or textAnalysis must be provided',
+}).refine(d => d.label !== undefined || d.meta !== undefined || d.maxGiB !== undefined || d.dupeRules !== undefined || d.dupeMergeSurvivor !== undefined || d.dupeRulesOnInsert !== undefined || d.recordTtlDays !== undefined || d.documentExtraction !== undefined || d.imageAnalysis !== undefined || d.audioAnalysis !== undefined || d.videoAnalysis !== undefined || d.textAnalysis !== undefined, {
+  message: 'At least one of label, maxGiB, meta, dupeRules, dupeMergeSurvivor, dupeRulesOnInsert, recordTtlDays, documentExtraction, imageAnalysis, audioAnalysis, videoAnalysis, or textAnalysis must be provided',
 });
 
 export const ReorderSpacesBody = z.object({

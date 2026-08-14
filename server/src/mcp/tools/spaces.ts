@@ -37,13 +37,12 @@ export const list_spacesTool: ToolHandler = {
     for (const r of spaceCountResults) {
       if (r.status === 'fulfilled') countsBySpaceId[r.value.id] = r.value.counts;
     }
-    // `purpose` is the field an admin can edit and the one `get_space_meta` returns; `description` is
-    // its deprecated alias, kept because it is published API. They cannot disagree — one store.
+    // `purpose` is the field an admin can edit, the one `get_space_meta` returns, and since 3.0 the only
+    // spelling — its `description` alias was removed from every surface in the same release.
     const result = accessibleSpaces.map(s => ({
       id: s.id,
       label: s.label ?? null,
       purpose: spacePurpose(s) ?? null,
-      description: spacePurpose(s) ?? null,
       counts: countsBySpaceId[s.id] ?? { memories: 0, entities: 0, edges: 0, chrono: 0 },
     }));
     return {
@@ -199,7 +198,7 @@ export const get_space_metaTool: ToolHandler = {
 
 export const update_spaceTool: ToolHandler = {
   name: 'update_space',
-  description: 'Update the label or purpose of the specified space. Requires an admin token. `purpose` is the space-level directive MCP clients receive at handshake; `description` is its deprecated alias and writes the same field.',
+  description: 'Update the label or purpose of the specified space. Requires an admin token. `purpose` is the space-level directive MCP clients receive at handshake. Its `description` alias was removed in 3.0 — sending `description` is now rejected, not silently folded into `purpose`.',
   mutating: true,
   admin: true,
   spaceRequired: true,
@@ -209,7 +208,6 @@ export const update_spaceTool: ToolHandler = {
             space: s.requiredSpace,
             label: { type: 'string', minLength: 1, maxLength: 200, description: 'New display label for the space (1–200 chars).' },
             purpose: { type: 'string', maxLength: SPACE_PURPOSE_MAX, description: `New purpose for the space (max ${SPACE_PURPOSE_MAX} chars) — the space-level directive injected into MCP instructions at handshake.` },
-            description: { type: 'string', maxLength: SPACE_PURPOSE_MAX, description: 'DEPRECATED alias of `purpose`; writes the same field. Removal in 3.0.' },
           },
           required: ['space'],
           additionalProperties: false,
@@ -223,18 +221,19 @@ export const update_spaceTool: ToolHandler = {
       };
     }
     const newLabel = typeof a['label'] === 'string' ? a['label'].trim() : undefined;
-    // One field with two spellings. `purpose` wins if both are sent, since it is the current name.
-    const newDesc = typeof a['purpose'] === 'string' ? a['purpose']
-      : typeof a['description'] === 'string' ? a['description'] : undefined;
+    const newDesc = typeof a['purpose'] === 'string' ? a['purpose'] : undefined;
     if (newLabel === undefined && newDesc === undefined) {
       throw new Error('At least one of label or purpose must be provided');
     }
     if (newLabel !== undefined && newLabel.length === 0) throw new Error('label must not be empty');
     if (newDesc !== undefined && newDesc.length > SPACE_PURPOSE_MAX) throw new Error(`purpose must not exceed ${SPACE_PURPOSE_MAX} characters`);
     if (newLabel !== undefined && newLabel.length > 200) throw new Error('label must not exceed 200 characters');
-    const updates: { label?: string; description?: string } = {};
+    // `meta.purpose` directly. Until 3.0 this sent `description` and let the planner fold it in — that fold is
+    // gone with the alias, so a tool still sending the old spelling would now be dropped by a `.strict()` body
+    // rather than rewritten. The planner is the same one the REST route uses, so both doors keep one rule.
+    const updates: { label?: string; meta?: { purpose: string } } = {};
     if (newLabel !== undefined) updates.label = newLabel;
-    if (newDesc !== undefined) updates.description = newDesc;
+    if (newDesc !== undefined) updates.meta = { purpose: newDesc };
 
     // Through the planner, NOT `updateSpace` directly — and this was a live governance bypass, not a tidy-up.
     //

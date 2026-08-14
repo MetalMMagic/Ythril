@@ -9,7 +9,7 @@ import { capDocExtractionMode } from '../files/converters/extraction-level.js';
 import { slugify, SPACE_PURPOSE_MAX, needsReindex } from '../spaces/_shared.js';
 import { createSpace, removeSpace } from '../spaces/lifecycle.js';
 import { renameSpace } from '../spaces/rename.js';
-import { updateSpace, reorderSpaces, spaceDescriptionAlias, spaceResponse } from '../spaces/spaces.js';
+import { updateSpace, reorderSpaces } from '../spaces/spaces.js';
 import { checkMetaPrecondition, preconditionErrorBody } from '../spaces/meta-precondition.js';
 import { gatherCompletenessFacts, scoreCompleteness } from '../spaces/completeness.js';
 import { ensureTtlIndex } from '../brain/ttl.js';
@@ -117,7 +117,7 @@ spacesRouter.post('/reorder', globalRateLimit, requireAdminMfa, (req, res) => {
   }
   res.json({ spaces: reordered.map(space => ({
     id: space.id, label: space.label, builtIn: space.builtIn, folders: space.folders,
-    maxGiB: space.maxGiB, flex: space.flex, ...spaceDescriptionAlias(space),
+    maxGiB: space.maxGiB, flex: space.flex,
     ...(space.proxyFor ? { proxyFor: space.proxyFor } : {}),
   })) });
 });
@@ -175,8 +175,6 @@ spacesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
     const { id, label, builtIn, folders, maxGiB, flex, proxyFor, meta, dupeRules, dupeMergeSurvivor, dupeRulesOnInsert, recordTtlDays, documentExtraction, imageAnalysis, audioAnalysis, videoAnalysis, textAnalysis, indexStatus } = space;
     return {
     id, label, builtIn, folders, maxGiB, flex,
-    // Deprecated alias of `meta.purpose`, derived rather than stored — see `spaceDescriptionAlias`.
-    ...spaceDescriptionAlias(space),
     usageGiB: usageGiBByIdx[idx],
     ...(indexStatus ? { indexStatus } : {}),
     ...(proxyFor ? { proxyFor } : {}),
@@ -254,7 +252,7 @@ spacesRouter.post('/', globalRateLimit, requireAdminMfa, async (req, res) => {
     res.status(500).json({ error: result.error });
     return;
   }
-  res.status(201).json({ space: spaceResponse(result.space) });
+  res.status(201).json({ space: result.space });
 });
 
 // PATCH /api/spaces/:id
@@ -289,7 +287,7 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminMfaScoped('id'), async (
     res.status(202).json({ status: 'vote_pending', rounds: result.rounds, message: 'Meta change requires network vote' });
     return;
   }
-  res.json({ space: spaceResponse(result.space) });
+  res.json({ space: result.space });
 });
 
 // PUT /api/spaces/:id/schema — full replacement of the space's typeSchemas.
@@ -367,7 +365,7 @@ spacesRouter.put('/:id/schema', globalRateLimit, requireAdminMfaScoped('id'), as
     before: { typeSchemas: previousTypeSchemas ?? {} },
     after: { typeSchemas: newMeta.typeSchemas ?? {} },
   };
-  res.json({ space: spaceResponse(updated) });
+  res.json({ space: updated });
 });
 
 // GET /api/spaces/:id/meta — read the meta block with derived stats

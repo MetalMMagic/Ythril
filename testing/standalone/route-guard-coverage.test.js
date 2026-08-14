@@ -110,8 +110,12 @@ const EXEMPT = new Map([
  */
 const WRITE_EXEMPT = new Map([
   // True, and checkable: `mcp/router.ts` opens its `CallToolRequestSchema` handler with
-  // `if (readOnly && tool?.mutating) return { ...'this token has read-only access', isError: true }`.
-  // The enforcement is per TOOL, which a per-route scanner cannot see — every tool arrives as `POST /`.
+  // `if (tool && !toolIsVisible(tool, rights))`, which refuses a mutating tool to a token holding no write
+  // rung anywhere. The enforcement is per TOOL, which a per-route scanner cannot see — every tool arrives
+  // as `POST /`. It also enforces the per-space rung at call time via `toolRightsRefusal`.
+  //
+  // The quoted expression used to be `readOnly && tool?.mutating`. An exemption whose stated reason quotes
+  // code that no longer exists is how a scanner ends up excusing a check nobody has verified in a year.
   ['mcpRouter', 'read-only is enforced per tool in the dispatcher, not per route'],
 ]);
 

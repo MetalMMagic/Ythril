@@ -49,9 +49,10 @@ export const helpTool: ToolHandler = {
     // top-level import would be circular. By call time the registry is complete.
     const { ALL_TOOLS } = await import('./index.js');
 
-    // The exact predicate tools/list uses (router.ts) — one source of truth, so
-    // this text can never advertise a tool the dispatcher would deny.
-    const visible = ALL_TOOLS.filter(t => !(ctx.readOnly && t.mutating) && !(!ctx.isAdmin && t.admin));
+    // The exact predicate tools/list uses — now literally the same function rather than the same
+    // expression retyped, which is what the previous version of this comment claimed and was not.
+    const { toolIsVisible } = await import('../tool-visibility.js');
+    const visible = ALL_TOOLS.filter(t => toolIsVisible(t, ctx.rights));
     const sections = helpSections(ctx, visible, ALL_TOOLS.length - visible.length);
 
     const rawQuery = ctx.args['query'];

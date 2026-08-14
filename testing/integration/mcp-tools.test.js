@@ -1148,7 +1148,12 @@ describe('MCP security � read-only token cannot call mutating tools', () => {
     });
     assert.ok(result?.isError, 'update_memory must be rejected by read-only token');
     const text = result?.content?.[0]?.text ?? '';
-    assert.ok(text.toLowerCase().includes('read-only'), `Expected read-only message: ${text}`);
+    // The refusal now names WHAT the token lacks rather than a flag it no longer has: mutating tools are
+    // gated on holding a write rung somewhere, so the message says so. Asserted on the substance —
+    // 'mutates' and 'write rung' — rather than loosened to `isError`, because a refusal that does not
+    // tell the caller which grant is missing sends them to the docs to guess.
+    assert.match(text, /mutates/i, `Expected a mutation refusal: ${text}`);
+    assert.match(text, /write rung/i, `Expected the missing grant named: ${text}`);
   });
 
   it('delete_memory is rejected with read-only token', async () => {
@@ -1158,7 +1163,12 @@ describe('MCP security � read-only token cannot call mutating tools', () => {
     });
     assert.ok(result?.isError, 'delete_memory must be rejected by read-only token');
     const text = result?.content?.[0]?.text ?? '';
-    assert.ok(text.toLowerCase().includes('read-only'), `Expected read-only message: ${text}`);
+    // The refusal now names WHAT the token lacks rather than a flag it no longer has: mutating tools are
+    // gated on holding a write rung somewhere, so the message says so. Asserted on the substance —
+    // 'mutates' and 'write rung' — rather than loosened to `isError`, because a refusal that does not
+    // tell the caller which grant is missing sends them to the docs to guess.
+    assert.match(text, /mutates/i, `Expected a mutation refusal: ${text}`);
+    assert.match(text, /write rung/i, `Expected the missing grant named: ${text}`);
   });
 
   it('get_stats works with read-only token', async () => {
@@ -1473,7 +1483,12 @@ describe('MCP security � read-only token cannot call bulk_write', () => {
     });
     assert.ok(result?.isError, 'bulk_write must be rejected by read-only token');
     const text = result?.content?.[0]?.text ?? '';
-    assert.ok(text.toLowerCase().includes('read-only'), `Expected read-only message: ${text}`);
+    // The refusal now names WHAT the token lacks rather than a flag it no longer has: mutating tools are
+    // gated on holding a write rung somewhere, so the message says so. Asserted on the substance —
+    // 'mutates' and 'write rung' — rather than loosened to `isError`, because a refusal that does not
+    // tell the caller which grant is missing sends them to the docs to guess.
+    assert.match(text, /mutates/i, `Expected a mutation refusal: ${text}`);
+    assert.match(text, /write rung/i, `Expected the missing grant named: ${text}`);
   });
 });
 

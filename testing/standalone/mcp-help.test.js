@@ -24,6 +24,18 @@ let helpTool;
 let ALL_TOOLS;
 
 /** Minimal ToolContext for a direct handler call. */
+/**
+ * The `rights` matrix is what decides tool visibility now, so the fixture derives one from the same
+ * `isAdmin`/`readOnly` intent these cases were written in. It is DERIVED rather than hand-written because
+ * `toolIsVisible` fails CLOSED on a missing matrix — a fixture that forgot it would report every mutating
+ * tool hidden and read like a scope bug rather than a fixture bug.
+ */
+function rightsFor({ readOnly, isAdmin }) {
+  const rung = isAdmin ? 'admin' : readOnly ? 'read' : 'write';
+  const all = { knowledge: rung, files: rung, schema: rung, dataQuality: rung };
+  return { instanceAdmin: !!isAdmin, createSpaces: !!isAdmin, floor: all, perSpace: {} };
+}
+
 function ctx({ readOnly, isAdmin, spaces = [] } = {}) {
   return {
     args: {},
@@ -35,6 +47,7 @@ function ctx({ readOnly, isAdmin, spaces = [] } = {}) {
     tokenSpaces: undefined,
     isAdmin,
     readOnly,
+    rights: rightsFor({ readOnly, isAdmin }),
   };
 }
 

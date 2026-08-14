@@ -101,7 +101,10 @@ describe('retry_failed_embeddings answers the same as its route', () => {
       session = await openMcpSession(roToken);
       const res = await session.callTool('retry_failed_embeddings', { space: SPACE });
       const text = JSON.stringify(res ?? {});
-      assert.match(text, /read-only|readOnly|not permitted|Unknown tool/i,
+      // The refusal names the missing GRANT now rather than a flag: mutating tools are gated on holding a
+      // write rung somewhere. `Unknown tool` stays in the alternation because a hidden tool can legitimately
+      // be reported that way depending on how the client resolves the listing first.
+      assert.match(text, /mutates|write rung|not permitted|Unknown tool/i,
         `a read-only token must not be able to re-queue anything: ${text.slice(0, 250)}`);
 
       // And it must not even be OFFERED: a tool a token cannot call should not appear in its listing.

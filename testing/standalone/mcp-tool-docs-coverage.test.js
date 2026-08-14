@@ -95,13 +95,24 @@ describe('MCP tool read-only classification matches the docs', () => {
       'The guide says these work normally with a readOnly token, but the code flags them mutating.');
   });
 
-  it('the enforcement both hides AND rejects — only the second is the control', () => {
-    // Filtering `tools/list` is discoverability; a client can still call a tool it was not shown, so
-    // the call-time rejection is what actually enforces read-only.
+  it('the enforcement both hides AND rejects, from ONE predicate — only the second is the control', () => {
+    // Filtering `tools/list` is discoverability; a client can still call a tool it was not shown, so the
+    // call-time rejection is what actually enforces it. Both halves must exist.
+    //
+    // What changed: they used to be the expression `readOnly && t.mutating` written out separately in each
+    // place — and in `help.ts` a third time, under a comment claiming it was one source of truth. They are
+    // now one function, so this asserts SHARING rather than two matching regexes. Two regexes could both
+    // pass while the expressions had drifted, which is exactly the state they were in.
     const router = readFileSync(join(ROOT, 'server', 'src', 'mcp', 'router.ts'), 'utf8');
-    assert.match(router, /ALL_TOOLS\.filter\([^)]*readOnly && \w+\.mutating/,
-      'expected tools/list to filter mutating tools for readOnly tokens');
-    assert.match(router, /if \(readOnly && \w+\?\.mutating\)/,
-      'expected a call-time rejection for mutating tools — filtering the list alone is not a control');
+    assert.match(router, /ALL_TOOLS\.filter\(t => toolIsVisible\(t, rights\)\)/,
+      'expected tools/list to filter through the shared predicate');
+    assert.match(router, /if \(tool && !toolIsVisible\(tool, rights\)\)/,
+      'expected a call-time rejection through the SAME predicate — filtering the list alone is advisory');
+
+    // And the predicate must actually gate on something. A version returning `true` for everything would
+    // satisfy both matches above while enforcing nothing.
+    const vis = readFileSync(join(ROOT, 'server', 'src', 'mcp', 'tool-visibility.ts'), 'utf8');
+    assert.match(vis, /if \(tool\.admin\) return rights\?\.instanceAdmin === true;/);
+    assert.match(vis, /if \(tool\.mutating\) return canWriteAnywhere\(rights\);/);
   });
 });

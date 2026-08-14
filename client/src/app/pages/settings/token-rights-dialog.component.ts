@@ -108,6 +108,22 @@ import type { Space, TokenRecord } from '../../core/api.types';
              because that banner renders behind it. -->
         <div class="danger-zone">
           <div class="danger-title">{{ 'tokens.danger.title' | transloco }}</div>
+          <div class="danger-title">{{ 'tokens.rights.instanceLevel' | transloco }}</div>
+          <p class="permission-help" style="margin-top:6px;">
+            <ph-icon name="info" [size]="14" />
+            <span>{{ 'tokens.rights.instanceLevelHint' | transloco }}</span>
+          </p>
+          <label style="display:flex;align-items:center;gap:8px;margin-top:10px;">
+            <input type="checkbox" [checked]="draft().instanceAdmin"
+                   (change)="setFlag('instanceAdmin', $any($event.target).checked)" />
+            <span>{{ 'tokens.rights.instanceAdmin' | transloco }}</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+            <input type="checkbox" [checked]="draft().createSpaces"
+                   (change)="setFlag('createSpaces', $any($event.target).checked)" />
+            <span>{{ 'tokens.rights.createSpaces' | transloco }}</span>
+          </label>
+
           <div class="danger-row">
             <div>
               <div class="danger-label">{{ 'tokens.rotateButton' | transloco }}</div>
@@ -167,6 +183,21 @@ export class TokenRightsDialogComponent {
   draft = signal<TokenRights>({ instanceAdmin: false, createSpaces: false, floor: null, perSpace: {} });
   /** Same reasoning for the label: prefilled, so saving without touching it is not a rename to empty. */
   draftName = '';
+  /**
+   * The two instance-level flags, which had no control at all until now.
+   *
+   * They are part of the matrix the server already stores and PATCH already accepts — `migrateToken` sets
+   * `instanceAdmin` from the legacy admin flag — so tokens HELD them while the editor could neither grant
+   * nor revoke one. An instance admin could not be demoted from the UI.
+   *
+   * In the danger zone because that is where the owner placed them: they are not a rung on a space, they are
+   * the whole instance. The server refuses a space-restricted administrator who tries to grant either, so
+   * this control offers what the caller may actually do and the server remains the authority.
+   */
+  setFlag(key: 'instanceAdmin' | 'createSpaces', on: boolean): void {
+    this.draft.update(d => ({ ...d, [key]: on }));
+  }
+
   /**
    * Still sent, never shown. The second-factor controls were removed from token management on the owner's
    * instruction — the SERVER behaviour is untouched: `mfa` remains on the PATCH body and granting an

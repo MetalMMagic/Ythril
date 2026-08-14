@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The rights editor can grant and revoke the two instance-level flags.** `instanceAdmin` and `createSpaces`
+  are part of the matrix the server stores and `PATCH /api/tokens/:id` already accepted — `migrateToken` sets
+  `instanceAdmin` from the legacy admin flag — but the editor had no control for either, so tokens HELD them
+  and no one could change them. An instance administrator could not be demoted from the UI. They sit in the
+  danger zone, where they belong: they are not a rung on a space, they are the whole instance. The server
+  still refuses a space-restricted administrator who tries to grant either.
+- **The `?` buttons on the rights matrix headers are centred.** A 15px round button was centring a bare `?`
+  by text metrics, and a question mark has left side bearing — so it sat visibly left. It is laid out now
+  rather than measured.
+
 ## [3.0.1] — 2026-08-14
 
 ### Fixed

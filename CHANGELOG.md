@@ -74,6 +74,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   spelling would turn an upgrade into an outage.
 
 ### Changed
+- **BREAKING — MCP now enforces the per-space rights matrix, not just `readOnly` and `admin`.** This is the
+  S-1 fix. MCP gated on two booleans while REST enforced a per-space, per-area rung, so one policy had two
+  implementations and the weaker one was reachable — measured, not inferred: a token whose matrix said
+  `perSpace.general.knowledge = 'write'` was refused `DELETE /api/brain/spaces/general/memories/:id` with a
+  **403** and the identical delete through `delete_memory` answered *"Memory deleted"*. A tool call now
+  resolves the token's rung for the space it named and refuses with a message naming what was needed and
+  what the token holds. **A token that has been reaching a tool its matrix does not cover will start being
+  refused** — that is the point, and it is worth checking your token rungs before upgrading. The tool→rung
+  table is DERIVED from the route table, and a gate re-derives it and fails if the two disagree, so a
+  capability can no longer be priced differently depending on which door you use. Unchanged: tokens with no
+  matrix (the OIDC path builds a record per request) and instance-level tools, which are still governed by
+  `instanceAdmin` and the tool's `admin` flag.
 - **Re-uploading identical bytes no longer re-runs vision or speech-to-text.** `enqueueMediaJob` resets a
   terminal job on purpose, so the same file sent twice paid for a second full analysis to reproduce the caption
   it already had — the most expensive work this instance does. File records now carry the SHA-256 the writer

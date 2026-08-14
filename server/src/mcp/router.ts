@@ -11,6 +11,7 @@ import { globalRateLimit } from '../rate-limit/middleware.js';
 import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
 import { reachesSpace } from '../auth/space-reach.js';
+import { toolRightsRefusal } from './tool-rights-guard.js';
 import type { TokenRights } from '../config/rights-shape.js';
 import { memberSpacesWithin } from '../spaces/proxy-scoped.js';
 import { ALL_TOOLS, TOOLS_BY_NAME, type ToolSchemas } from './tools/index.js';
@@ -215,6 +216,15 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
       const members = memberSpacesWithin(rawSpace, accessibleSpaceIds);
       if (members.length === 0) {
         return { content: [{ type: 'text' as const, text: `Error: token does not have access to '${rawSpace}' or any of its member spaces` }], isError: true };
+      }
+      // The rights matrix, enforced on MCP. Until 3.0 this dispatcher gated on two BOOLEANS — `readOnly`
+      // above, and the tool's `admin` flag — while REST enforced a per-space, per-area RUNG. One policy,
+      // two implementations, and the weaker one was reachable. The decision lives in a pure function so it
+      // can be exercised without a transport: a guard testable only by reading it is one whose test cannot
+      // tell live code from dead, and the first version of this check passed against `if (false && ...)`.
+      const rightsRefusal = toolRightsRefusal(name, rights, rawSpace);
+      if (rightsRefusal) {
+        return { content: [{ type: 'text' as const, text: rightsRefusal }], isError: true };
       }
     }
     const callSpace = rawSpace;

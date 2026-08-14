@@ -183,20 +183,30 @@ describe('If-Match on brain records — the forms of the header', () => {
 });
 
 describe('the surfaces that decline the header say so', () => {
-  it('the legacy POST-as-update on chrono refuses it', async () => {
+  it('the removed POST-as-update on chrono is a 404, with or without the header', async () => {
+    // This case used to assert the legacy form worked and REFUSED `If-Match` with a 400. 3.0 removed the
+    // route, so the interesting answer is now 404 — and it must be 404 with the header too. A route that
+    // 404s bare but 400s with a header would mean something still matches the path.
     const rec = await make(TYPES.find(t => t.name === 'chrono'));
     const r = await post(A(), tok, `/api/brain/spaces/general/chrono/${rec.id}`,
       { title: `IfMatchChrono-${RUN}-legacy` });
-    assert.equal(r.status, 200, `the legacy form should still work without the header: ${JSON.stringify(r.body)}`);
+    assert.equal(r.status, 404, `POST-as-update was removed in 3.0: ${JSON.stringify(r.body)}`);
 
     const withHeader = await fetch(`${A()}/api/brain/spaces/general/chrono/${rec.id}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tok}`, 'If-Match': String(rec.seq) },
       body: JSON.stringify({ title: `IfMatchChrono-${RUN}-legacy2` }),
     });
-    assert.equal(withHeader.status, 400,
-      'the legacy POST-as-update accepted an If-Match it does not evaluate, so a client would be told a '
-      + 'guarantee held when it was never checked');
+    assert.equal(withHeader.status, 404, 'the header must not resurrect a route that is gone');
+
+    // And PATCH — the verb that carries the capability — still honours it, so this is not passing because
+    // the whole router stopped responding.
+    const patched = await fetch(`${A()}/api/brain/spaces/general/chrono/${rec.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tok}`, 'If-Match': String(rec.seq) },
+      body: JSON.stringify({ title: `IfMatchChrono-${RUN}-patch` }),
+    });
+    assert.equal(patched.status, 200, 'PATCH with a matching If-Match must still succeed');
   });
 
   it('file metadata refuses it, because those records carry no seq', async () => {

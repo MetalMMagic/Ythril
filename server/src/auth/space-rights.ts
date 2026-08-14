@@ -129,9 +129,6 @@ export const ROUTE_RIGHTS: readonly RouteRight[] = [
   { route: '/api/brain/spaces/:spaceId/entities', method: 'DELETE', area: 'knowledge', needs: 'admin', scope: 'path' },
   { route: '/api/brain/spaces/:spaceId/edges', method: 'DELETE', area: 'knowledge', needs: 'admin', scope: 'path' },
   { route: '/api/brain/spaces/:spaceId/chrono', method: 'DELETE', area: 'knowledge', needs: 'admin', scope: 'path' },
-  // POST-as-update on a chrono id: the only POST-that-updates in the brain API, and a documented
-  // deprecation. Rung follows what it DOES, not what its verb suggests.
-  { route: '/api/brain/spaces/:spaceId/chrono/:id', method: 'POST', area: 'knowledge', needs: 'write', scope: 'path' },
 
   // ── Files ────────────────────────────────────────────────────────────────────────────────────────────
   { route: '/api/files/:spaceId', method: 'GET', area: 'files', needs: 'read', scope: 'path' },

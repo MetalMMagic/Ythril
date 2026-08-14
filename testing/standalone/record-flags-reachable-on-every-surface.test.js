@@ -229,20 +229,18 @@ describe('excludeFromVectorSearch is reachable on every surface that can set it'
       + 'One rule, two surfaces: gate on consistency, not on presence.');
   });
 
-  it('the legacy chrono POST-as-update form refuses the flag rather than dropping it', () => {
-    // That route performs no property validation and writes no audit snapshot, so it does not get new
-    // capabilities — but a silent drop there would rebuild the same trap on the deprecated door.
+  it('the legacy chrono POST-as-update form is GONE, so there is no deprecated door to drop it on', () => {
+    // This assertion is inverted from what it was. While the route existed it had to REFUSE the flag —
+    // performing no property validation and writing no audit snapshot, it was not a place to grant new
+    // capability, and a silent drop there would have rebuilt the same trap on the deprecated door.
+    //
+    // 3.0 removed the route, so the refusal it required went with it. The check is kept rather than
+    // deleted because a returning POST-as-update would arrive without that refusal, and this file is where
+    // the consequence is written down.
     const src = code(ROUTES.chrono.file);
-    const legacy = src.slice(
-      src.indexOf("chronoRouter.post('/spaces/:spaceId/chrono/:id'"),
-      src.indexOf('chronoRouter.patch('),
-    );
-    assert.ok(legacy.length > 0, 'could not locate the legacy chrono POST-as-update handler');
-    assert.match(legacy, /excludeFromVectorSearch/,
-      'the legacy chrono POST-as-update handler neither forwards nor refuses excludeFromVectorSearch, so it '
-      + 'drops it silently — a 200 for a request that did nothing.');
-    assert.match(legacy, /not supported on the legacy POST-as-update form/,
-      'it must REFUSE the flag with a message pointing at PATCH, not forward it onto a route that skips '
-      + 'property validation and the audit snapshot.');
+    assert.ok(!/chronoRouter\.post\('\/spaces\/:spaceId\/chrono\/:id'/.test(src),
+      'the legacy POST-as-update route is back; it must refuse excludeFromVectorSearch, or be removed again');
+    assert.ok(!/not supported on the legacy POST-as-update form/.test(src),
+      'a refusal message for a route that no longer exists is dead text that reads like a live rule');
   });
 });

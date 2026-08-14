@@ -1,20 +1,27 @@
 /**
- * `POST /:id` as an update exists for chrono and for nothing else — and the docs now say so.
+ * `POST /:id` as an update exists for NO record type. It used to exist for chrono alone.
  *
- * ## Why this needed a gate rather than a note
+ * ## What this gate used to say, and why it changed
  *
  * The asymmetry was reported as a bug ("POST to a memory id returns 200 and changes nothing"). The 200 did
- * not reproduce — both the current and the legacy path shapes answer **404** — but the asymmetry underneath
- * it is real, and it was documented nowhere. It reads as a bug from either direction depending on which
- * type you met first, which is exactly the kind of thing a reader discovers at the wrong moment.
+ * not reproduce — both path shapes answer **404** — but the asymmetry underneath it was real and documented
+ * nowhere. It read as a bug from either direction depending on which type you met first.
  *
- * The resolution was NOT to add `POST /memories/:id` for symmetry. That would spread a deprecated shape to a
- * second type to make it look tidy. The chrono route predates the retry-safety design and duplicates it —
- * a client-supplied UUID v4 in the COLLECTION POST already makes a create idempotent for every type — so it
- * is documented as legacy and listed for removal.
+ * The resolution was NOT to add `POST /memories/:id` for symmetry: that spreads a deprecated shape to a
+ * second type to make it look tidy. So the gate pinned "chrono has it, the other three do not" and the
+ * chrono route was documented as legacy and listed for removal at the next major.
  *
- * This gate holds the two halves together: the route set stays as it is, and the guide keeps saying so. A
- * doc that describes a route table nobody re-checks is how the previous drift happened.
+ * **3.0 is that major, and the route is gone.** Every type now updates by `PATCH` only, and a client-supplied
+ * UUID v4 in the COLLECTION post is the supported way to make a create idempotent — for all four, which is
+ * what made the legacy form a duplicate rather than a feature.
+ *
+ * ## Why this file was kept rather than deleted
+ *
+ * Its own note said *"if chrono's route has finally been removed, delete this gate and its deprecation entry
+ * together"*. The deprecation entry is gone. This file is not, deliberately: the reason it existed was to
+ * stop the shape SPREADING, and that risk did not end with the removal — it inverted. "None of the four has
+ * it" is a strictly stronger claim than "only chrono has it", costs the same to run, and is the thing that
+ * would catch it being reintroduced on any type by someone who never read the history above.
  *
  * Run: node --test testing/standalone/post-as-update-is-chrono-only.test.js
  */
@@ -34,33 +41,45 @@ const code = (p) => readFileSync(join(ROOT, p), 'utf8')
 const postById = (src, router, collection) =>
   new RegExp(`${router}\\.post\\('/spaces/:spaceId/${collection}/:id'`).test(src);
 
-describe('POST-as-update is chrono-only, and documented', () => {
-  it('chrono has it and the other three do not', () => {
+describe('POST-as-update exists on no record type', () => {
+  it('none of the four carries it, chrono included', () => {
     const found = {
       memory: postById(code('server/src/api/brain/memories.ts'), 'memoriesRouter', 'memories'),
       entity: postById(code('server/src/api/brain/entities.ts'), 'entitiesRouter', 'entities'),
       edge: postById(code('server/src/api/brain/edges.ts'), 'edgesRouter', 'edges'),
       chrono: postById(code('server/src/api/brain/chrono.ts'), 'chronoRouter', 'chrono'),
     };
-    assert.deepEqual(found, { memory: false, entity: false, edge: false, chrono: true },
-      'Adding POST-as-update to another type spreads a DEPRECATED shape to make things look symmetrical. '
-      + 'The supported idempotent create is a client-supplied UUID v4 in the collection POST. If chrono\'s '
-      + 'route has finally been removed, delete this gate and its deprecation entry together.');
+    assert.deepEqual(found, { memory: false, entity: false, edge: false, chrono: false },
+      'POST-as-update was removed in 3.0. Re-adding it anywhere brings back a shape that duplicated the '
+      + 'retry-safety design (a client-supplied UUID v4 in the collection POST) while skipping property '
+      + 'validation and writing no audit snapshot. Update by PATCH.');
   });
 
   it('the detector can actually see a route of that shape', () => {
-    // Mutation-check the matcher before trusting a negative. A regex that matches nothing reports every
-    // codebase clean, and three gates in this repo have passed on planted bugs.
-    assert.equal(postById("chronoRouter.post('/spaces/:spaceId/chrono/:id', handler)", 'chronoRouter', 'chrono'), true);
+    // Mutation-check the matcher before trusting a negative — and this matters MORE now than it did when
+    // the expectation was mixed. Every value above is `false`, so a regex that matches nothing would report
+    // the codebase clean no matter what was in it. Three gates in this repo have passed on planted bugs.
+    assert.equal(postById("chronoRouter.post('/spaces/:spaceId/chrono/:id', handler)", 'chronoRouter', 'chrono'), true,
+      'the detector must still recognise the shape it is looking for');
     assert.equal(postById("memoriesRouter.post('/spaces/:spaceId/memories', handler)", 'memoriesRouter', 'memories'), false,
       'a COLLECTION post must not be mistaken for an update-by-id route');
   });
 
-  it('the guide states the asymmetry rather than leaving it to be discovered', () => {
+  it('PATCH is present on all four, so the check above is not passing on empty files', () => {
+    // The other half of the same trap: "no POST-as-update anywhere" is also true of four files that failed
+    // to load. Asserting the routes that SHOULD be there proves the detector read real source.
+    const patchById = (src, router, collection) =>
+      new RegExp(`${router}\\.patch\\('/spaces/:spaceId/${collection}/:id'`).test(src);
+    assert.equal(patchById(code('server/src/api/brain/memories.ts'), 'memoriesRouter', 'memories'), true);
+    assert.equal(patchById(code('server/src/api/brain/entities.ts'), 'entitiesRouter', 'entities'), true);
+    assert.equal(patchById(code('server/src/api/brain/edges.ts'), 'edgesRouter', 'edges'), true);
+    assert.equal(patchById(code('server/src/api/brain/chrono.ts'), 'chronoRouter', 'chrono'), true);
+  });
+
+  it('the guide no longer offers the legacy form', () => {
     const guide = readFileSync(join(ROOT, 'docs/integration-guide/04-brain-api.md'), 'utf8');
     assert.match(guide, /Updating by id: use PATCH/, 'the section exists');
-    assert.match(guide, /memories\/:id`? is \*\*404\*\*|`no` \(404\)|\*\*no\*\* \(404\)/,
-      'the guide says plainly that POST to a memory id is a 404, not an update');
-    assert.match(guide, /legacy/i, 'and marks the chrono form as legacy rather than as an option');
+    assert.ok(!/POST\s+`?\/api\/brain\/spaces\/:spaceId\/chrono\/:id/.test(guide),
+      'the guide must not still document a route that answers 404');
   });
 });

@@ -588,35 +588,35 @@ an empty `properties: {}` is a no-op rather than a wipe. If you need a key gone,
 
 ### Updating by id: use PATCH
 
-`PATCH` is the update verb for every brain record type. There is **one exception, and it is a legacy one**:
-a POST to a chrono **id** also updates (`.../chrono/:id`). No other type has an equivalent: posting
-to a memory id is a **404**, not an update.
+`PATCH` is the update verb for every brain record type, without exception. Posting to a record **id** is a
+**404** for all four.
 
 | type | update by id | POST-as-update |
 |---|---|---|
 | memory | `PATCH .../memories/:id` | **no** (404) |
 | entity | `PATCH .../entities/:id` | no — but a collection POST with a matching `id` upserts |
 | edge | `PATCH .../edges/:id` | no — a collection POST upserts on `(from, to, label)` |
-| chrono | `PATCH .../chrono/:id` | **yes**, legacy |
+| chrono | `PATCH .../chrono/:id` | **no** (404) — **removed in 3.0**, see below |
 
-**Do not build on the chrono form.** It predates the retry-safety design and duplicates it: the supported way
-to make a create idempotent is a client-supplied UUID v4 in the **collection** POST body, which converges on
-the same record for every type (see [Retry Safety](#retry-safety)). The chrono route is kept for existing
-callers and is listed for removal in a future major.
+**`POST .../chrono/:id` was removed in 3.0.** It was the only POST-that-updates in the brain API, it
+predated the retry-safety design and duplicated it, and it was documented as legacy and listed for removal
+at the next major. **Send `PATCH .../chrono/:id` instead** — the body is the same shape.
 
-**It is not only a scheduling concern — the legacy verb behaves differently today.** "Deprecated" is easy to
-plan around; these two consequences are not, and an integrator with nine flows on this route asked us to say
-so here rather than leave it to be read off the handlers:
+If you make creates idempotent by retrying, that is unchanged and was never this route's job: a
+client-supplied UUID v4 in the **collection** POST body converges on the same record, for every type (see
+[Retry Safety](#retry-safety)).
 
-| | legacy `POST .../chrono/:id` | `PATCH .../chrono/:id` |
+**Two reasons it went rather than stayed**, both of which were true of it the whole time and are the reason
+an integrator with nine flows on it asked for them to be written down here:
+
+| | the removed `POST .../chrono/:id` | `PATCH .../chrono/:id` |
 |---|---|---|
-| property validation | **none** — the `type` allowlist is the whole of it, so under strict validation this verb can write a record the same space would **reject at create time** | validates the record **as it will be**, merging the patch onto stored properties first |
+| property validation | **none** — the `type` allowlist was the whole of it, so under strict validation it could write a record the same space rejects at create time | full, the same as every other type |
 | audit snapshot | **none** | stores before **and** after, so the change appears in the audit trail |
-| `excludeFromVectorSearch` | **refused** with `400` — a field that reaches the writer only where validation and the audit trail exist | accepted |
 
-If you are on the legacy form, the migration is the verb alone: both reach the same writer, `properties`
-merges on both, and no other field changes meaning. A `PATCH` that names no recognised field is a `400`
-(`At least one field must be provided`) where the legacy verb answered `200` with an unchanged record.
+So a flow moved onto `PATCH` gains validation and an audit trail it did not have. If a record it used to
+write is now refused, that record was always outside the space's schema — the legacy verb simply never
+checked.
 
 ### Optimistic concurrency (`If-Match`)
 
@@ -659,7 +659,7 @@ Notes:
   unparseable precondition would leave you believing your write was protected when it was not.
 - **The check is part of the write**, not a read before it. There is no window between the two in which
   another writer can land.
-- **The legacy `POST .../chrono/:id` refuses the header with a `400`** rather than ignoring it, for the same
+- **The removed `POST .../chrono/:id` used to refuse the header with a `400`** rather than ignore it, for the same
   reason it refuses `excludeFromVectorSearch` — see the table above. Use `PATCH`.
 - **MCP has no equivalent**, and this is a property of the transport rather than an oversight: MCP tools
   take arguments, not headers, so there is nothing for an `If-Match` to travel in. Agents that need a

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] — 2026-08-14
+
+> **A major, and the deprecation checklist is what makes it one.** Nine surfaces were removed, each of
+> which had been announced or was reachable only through a spelling we had replaced. Four rows on that
+> checklist were deliberately reclassified as PERMANENT rather than removed — every one of them because
+> dropping it would silently re-enable something an operator had switched off, or silently narrow a
+> capability we had told an integrator we would keep.
+>
+> The other half of this release is the S-1 fix: one authorization policy was being enforced by three
+> different mechanisms depending on which door a caller used. It is one mechanism now, on REST, on MCP and
+> for OIDC identities, and two privilege defects surfaced in the OAuth mint path while closing it.
+
 ### Removed
 
 *The 3.0 deprecation checklist. Each entry names its replacement; `todo/_DEPRECATIONS.md` carries the row.*

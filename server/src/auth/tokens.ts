@@ -239,6 +239,15 @@ export async function createOAuthToken(opts: {
   spaces?: string[];
   admin?: boolean;
   readOnly?: boolean;
+  /**
+   * The authorising token's own matrix, carried across verbatim.
+   *
+   * Prefer this to the three fields above, and not only for tidiness: routing a grant through the legacy
+   * triple LOSES per-area detail. A PAT holding `alpha: { knowledge: write, files: read }` collapses to
+   * `readOnly: false, spaces: ['alpha']`, which `migrateToken` re-expands to `write` in EVERY area of alpha.
+   * The connector would end up able to write files the authorising token could only read.
+   */
+  rights?: TokenRecord['rights'];
   ttlMs: number | null; // null = never expires
   maxTokens: number;
 }): Promise<{ record: TokenRecord; plaintext: string }> {
@@ -256,6 +265,16 @@ export async function createOAuthToken(opts: {
     admin: opts.admin ?? false,
     readOnly: opts.readOnly ?? false,
     oauthClientId: opts.clientId,
+    // ALWAYS stored, for the reason spelled out on `createToken` above — and this is the path that fix
+    // MISSED. `createToken` was given an unconditional matrix because a token minted after boot had none
+    // until the next restart; this second minting path kept storing nothing, so every OAuth connector token
+    // was matrix-less. Harmless while a missing matrix meant "fall back to the flags", and NOT harmless once
+    // `toolIsVisible` began failing closed: a fresh connector could not call a single mutating tool.
+    rights: opts.rights ?? (migrateToken({
+      admin: opts.admin ?? false,
+      readOnly: opts.readOnly ?? false,
+      spaces: opts.spaces,
+    }) as unknown as TokenRecord['rights']),
   };
   const config = getConfig();
   const removedIds: string[] = [];

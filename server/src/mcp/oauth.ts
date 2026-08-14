@@ -43,6 +43,7 @@ import { createOAuthToken, findMatchingToken } from '../auth/tokens.js';
 import { authRateLimit } from '../rate-limit/middleware.js';
 import { log } from '../util/log.js';
 import { envInt } from '../config/env-num.js';
+import type { TokenRecord } from '../config/types.js';
 
 // ── Public base URL / resource identifiers ──────────────────────────────────
 
@@ -107,6 +108,12 @@ interface MintIdentity {
   admin: boolean;
   readOnly: boolean;
   spaces: string[] | undefined;
+  /**
+   * The authorising token's rights matrix, carried across so the connector inherits exactly what that token
+   * held — no more. Re-deriving from the three fields above widens it: they cannot express a per-area grant,
+   * so `files: read` beside `knowledge: write` comes back as write in both.
+   */
+  rights: TokenRecord['rights'] | undefined;
 }
 interface AuthCodeEntry {
   clientId: string;
@@ -176,6 +183,7 @@ const provider: OAuthServerProvider = {
       admin: entry.identity.admin,
       spaces: entry.identity.spaces,
       readOnly: entry.identity.readOnly,
+      ...(entry.identity.rights ? { rights: entry.identity.rights } : {}),
       ttlMs: OAUTH_TOKEN_TTL_MS,
       maxTokens: MAX_OAUTH_TOKENS,
     });
@@ -337,7 +345,8 @@ async function handleConsent(req: Request, res: Response): Promise<void> {
     redirectUri,
     codeChallenge,
     scopes: scope.split(' ').filter(Boolean),
-    identity: { admin: !!record.admin, readOnly: !!record.readOnly, spaces: record.spaces },
+    identity: { admin: !!record.admin, readOnly: !!record.readOnly, spaces: record.spaces,
+      rights: (record as { rights?: TokenRecord['rights'] }).rights },
     expiresAt: now + AUTH_CODE_TTL_MS,
   });
 

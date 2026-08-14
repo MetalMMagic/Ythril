@@ -56,11 +56,18 @@ describe('VLM extraction mode wiring (F11)', () => {
   it('a PDF uploaded under the repair tier also degrades gracefully (202)', async () => {
     // `repair` adds the repair pass on top of `vlm`. With no VLM/render/OCR sidecar in CI the route still
     // collapses to OCR — the repair tier must never make an upload fail where `vlm`/`ocr` would succeed.
-    // Sent as the LEGACY `max` spelling on purpose: existing config carries it, and it must land as
-    // `repair` rather than falling through as an unknown level and silently dropping the repair pass.
-    const set = await patch(INSTANCES.a, tokenA, '/api/admin/media-config', { documentProcessing: { mode: 'max' } });
+    const set = await patch(INSTANCES.a, tokenA, '/api/admin/media-config', { documentProcessing: { mode: 'repair' } });
     assert.equal(set.status, 200, JSON.stringify(set.body));
-    assert.equal(set.body?.config?.documentProcessing?.mode, 'repair', 'legacy max must normalise to repair');
+    assert.equal(set.body?.config?.documentProcessing?.mode, 'repair');
+
+    // 3.0 removed the legacy `max` spelling from the input surface, so this is a 400 rather than a silent
+    // fold. Asserted over HTTP and not only against the accept-list, because the list is what the zod enum
+    // is BUILT from — checking the list alone would pass even if a route bypassed it.
+    // A `max` already in config.json still reads as `repair`; that half is unit-tested in
+    // `extraction-policy.test.js`, where it can be exercised without writing a legacy value through an API
+    // that no longer accepts one.
+    const legacy = await patch(INSTANCES.a, tokenA, '/api/admin/media-config', { documentProcessing: { mode: 'max' } });
+    assert.equal(legacy.status, 400, `expected 400 for the removed spelling, got ${legacy.status}`);
 
     const r = await upload(tokenA, `max-mode-${Date.now()}.pdf`, Buffer.from('%PDF-1.4 test').toString('base64'));
     assert.equal(r.status, 202, `expected 202 (graceful async), got ${r.status}: ${JSON.stringify(r.body)}`);
@@ -85,11 +92,13 @@ describe('VLM extraction mode wiring (F11)', () => {
 
   // ── F11-c: per-space extraction-mode override ─────────────────────────────────
   it('a per-space documentExtraction override round-trips and clears (F11-c)', async () => {
-    // Sent as the legacy `max`, stored as `repair` — a space configured before the rename keeps the
-    // level it asked for instead of quietly dropping to a lower rung.
-    const set = await patch(INSTANCES.a, tokenA, '/api/spaces/general', { documentExtraction: 'max' });
+    const set = await patch(INSTANCES.a, tokenA, '/api/spaces/general', { documentExtraction: 'repair' });
     assert.equal(set.status, 200, JSON.stringify(set.body));
     assert.equal(set.body?.space?.documentExtraction, 'repair');
+
+    // The removed spelling is refused on this door too — both surfaces, one rule.
+    const legacy = await patch(INSTANCES.a, tokenA, '/api/spaces/general', { documentExtraction: 'max' });
+    assert.equal(legacy.status, 400, `expected 400 for the removed spelling, got ${legacy.status}`);
 
     // The override is surfaced on the spaces list too (so the UI can render it).
     const list = await get(INSTANCES.a, tokenA, '/api/spaces');

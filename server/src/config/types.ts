@@ -614,10 +614,27 @@ export interface DocAssistModelConfig {
  */
 export type DocExtractionMode = 'off' | 'ocr' | 'vlm' | 'repair' | 'auto';
 
-/** Every value accepted on input, including the legacy `max` spelling of `repair`. */
-export const DOC_EXTRACTION_MODES_IN = ['off', 'ocr', 'vlm', 'repair', 'auto', 'max'] as const;
+/**
+ * Every value accepted on input. Identical to `DocExtractionMode` since 3.0 removed the legacy `max`
+ * spelling of `repair` — there is deliberately no longer a difference between what the API takes and what
+ * the type means, because a one-element gap between two lists is exactly what nobody can explain later.
+ *
+ * It stays a separate `as const` only because zod needs a runtime array; the `satisfies` clause is what
+ * keeps the two from drifting apart again — re-adding `max` here stops the build.
+ */
+export const DOC_EXTRACTION_MODES_IN = ['off', 'ocr', 'vlm', 'repair', 'auto'] as const satisfies readonly DocExtractionMode[];
 
-/** Fold the legacy `max` spelling into `repair`; pass everything else through. */
+/**
+ * Fold a STORED legacy `max` into `repair`.
+ *
+ * 3.0 stopped ACCEPTING `max` — a request sending it is now refused by the enum. This normaliser is not
+ * that surface and does not go with it: `config.json` and space records written by an older build still
+ * carry `max`, and both readers below go through here. Dropping it would silently move an instance or a
+ * space to a different extraction level on load, which is the quietest possible way to change what a
+ * document search can find.
+ *
+ * Same shape as `normalizeVisionModel`: an ongoing self-healing read, not a one-time upgrade path.
+ */
 export function normalizeDocExtractionMode(mode: string | undefined | null): DocExtractionMode | undefined {
   if (mode === null || mode === undefined) return undefined;
   return (mode === 'max' ? 'repair' : mode) as DocExtractionMode;

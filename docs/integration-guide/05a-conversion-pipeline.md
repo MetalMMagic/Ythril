@@ -374,7 +374,7 @@ They are never queued, so they do not sit at `pending` waiting for work that wil
 > **Why two numbers.** They bound different things. `maxPages` is one round trip; `maxTotalPages` is the
 > job's cost ceiling — every page is a VLM call, so an unbounded walk over a 600-page scan means 600 model
 > calls and, with an external endpoint, 600 pages of content leaving the instance, on an upload nobody is
-> watching. Raise `maxTotalPages` deliberately. In `max` mode the consensus pass is skipped for a document
+> watching. Raise `maxTotalPages` deliberately. In `repair` mode the consensus pass is skipped for a document
 > that had to be walked, since it re-transcribes every page with a second model.
 
 The VLM modes require both a running `doc-render` sidecar and a configured `vlmModel`. If either is missing,

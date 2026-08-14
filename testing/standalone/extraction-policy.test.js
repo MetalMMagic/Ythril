@@ -13,7 +13,7 @@ import {
   decideRoute, validateExtraction, evidenceCoverage, coverageTokens, bestByEvidence,
 } from '../../server/dist/files/converters/extraction-policy.js';
 import { capDocExtractionMode } from '../../server/dist/files/converters/extraction-level.js';
-import { normalizeDocExtractionMode } from '../../server/dist/config/types.js';
+import { normalizeDocExtractionMode, DOC_EXTRACTION_MODES_IN } from '../../server/dist/config/types.js';
 
 const ALL = { ocr: true, render: true, vlm: true, repair: true, verify: true };
 const none = (o) => ({ ocr: false, render: false, vlm: false, repair: false, verify: false, ...o });
@@ -238,5 +238,28 @@ describe('normalizeDocExtractionMode — the legacy max spelling', () => {
   it("a space stored as 'max' still gets the repair pass after the rename", () => {
     assert.equal(capDocExtractionMode('auto', normalizeDocExtractionMode('max')), 'repair');
     assert.ok(decideRoute(normalizeDocExtractionMode('max'), ALL).stages.includes('repair'));
+  });
+});
+
+/**
+ * 3.0 stopped ACCEPTING `max` (`_DEPRECATIONS.md` row 1.3) while keeping it READABLE from storage.
+ *
+ * Those two halves pull in opposite directions and both matter, so both are asserted here. The block
+ * above proves a stored `max` still reaches the repair pass — that is the half whose failure would be
+ * silent, moving an instance to a different extraction level on load. This block proves the input door
+ * is shut, which is the half whose absence would leave a removal that removed nothing.
+ */
+describe('the max spelling is removed from the input surface, not from storage', () => {
+  it('the accept-list no longer carries it', async () => {
+    const { DOC_EXTRACTION_MODES_IN } = await import('../../server/dist/config/types.js');
+    assert.equal(DOC_EXTRACTION_MODES_IN.includes('max'), false,
+      'both request bodies build their zod enum from this list — a value here is a value accepted');
+  });
+
+  it('the accept-list and the mode type are now the SAME set', () => {
+    // The row said to collapse them rather than leave a one-element difference nobody can explain. The
+    // build enforces this too (`_modesMatch` in types.ts is `never`-typed on mismatch); this asserts the
+    // resulting VALUES, since a type-level guard leaves nothing behind at runtime to check.
+    assert.deepEqual([...DOC_EXTRACTION_MODES_IN].sort(), ['auto', 'ocr', 'off', 'repair', 'vlm']);
   });
 });

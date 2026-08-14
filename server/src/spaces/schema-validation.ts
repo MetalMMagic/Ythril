@@ -239,11 +239,13 @@ export function buildSchemaSummary(meta: SpaceMeta): string {
   if (ts?.chrono && Object.keys(ts.chrono).length > 0) {
     parts.push(`Chrono types: ${Object.keys(ts.chrono).join(', ')}`);
   }
-  // `meta.tagSuggestions` used to be summarised here. It was retired: it was one editable list that
-  // applied to every type in the space, so it steered what agents tagged with while being easy to
-  // set once and forget. Any stored value is left untouched in config.json rather than deleted — the
-  // retirement is reversible, and silently destroying an operator's list would be a worse trade than
-  // leaving an unused field behind.
+  // `meta.tagSuggestions` used to be summarised here. Retired in #365 — one editable list applying to
+  // every type in the space, so it steered what agents tagged with while being easy to set once and
+  // forget — and REMOVED from every surface in 3.0.
+  //
+  // A value already in config.json is still left untouched rather than deleted. The meta merge reads
+  // an absent field as "not stated", so nothing rewrites it away; it is simply inert, and no request
+  // can put a new one there.
   if (parts.length > 0) {
     parts.push('Call get_space_meta for full schema and usage notes.');
   }

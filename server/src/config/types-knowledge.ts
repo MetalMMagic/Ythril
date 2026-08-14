@@ -106,12 +106,6 @@ export interface TypeSchema {
    * So this was an editor for a field with no consumer, which is precisely the dishonesty the Models
    * rebuild spent four PRs removing.
    *
-   * The field stays in the type, in the Zod schemas and in the client's load/save round-trip **on
-   * purpose**: silently destroying an operator's stored list on their next save would be a worse
-   * trade than leaving an unused field behind, and it keeps the retirement reversible. Same call as
-   * `SpaceMeta.tagSuggestions` below.
-   */
-  tagSuggestions?: string[];
   /** Property key → JSON Schema subset for value validation and merge hints. */
   propertySchemas?: Record<string, PropertySchema>;
   /**
@@ -194,13 +188,6 @@ export interface SpaceMeta {
    */
   typeSchemas?: Partial<Record<KnowledgeType, Record<string, TypeSchema>>>;
   /**
-   * **RETIRED in #365 — stored values preserved, consumed by nothing.**
-   *
-   * The old docstring called this a "fallback when no per-type tagSuggestions match", which described
-   * behaviour that never existed — nothing consulted either list at write time. Both are now retired;
-   * see `TypeSchema.tagSuggestions` for the reasoning and why the field is deliberately still here.
-   */
-  tagSuggestions?: string[];
   /** When true, all reference fields (edge from/to, entityIds, memoryIds) must be
    *  valid UUID v4 values, and entity deletion is blocked while inbound backlinks exist. */
   strictLinkage?: boolean;

@@ -65,8 +65,8 @@ describe('the directive cap', () => {
       strip(readFileSync(file, 'utf8')).split(/\r?\n/).forEach((line, i) => {
         const namesField = /\bpurpose\b/.test(line) || (isSpaceSurface && /\bdescription\b/.test(line));
         if (!namesField) return;
-        // `usageNotes`, `label` and `tagSuggestions` have their own, deliberately different limits.
-        if (/usageNotes|label|tagSuggestions/.test(line)) return;
+        // `usageNotes` and `label` have their own, deliberately different limits.
+        if (/usageNotes|label/.test(line)) return;
         const bound = line.match(/(?:\.max\(|maxLength:\s*|length\s*>\s*)(\d[\d_]*)/);
         if (bound) offenders.push(`${rel}:${i + 1} bounds it at ${bound[1]} literally`);
       });

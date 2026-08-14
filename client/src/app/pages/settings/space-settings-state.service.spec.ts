@@ -80,10 +80,10 @@ describe('SpaceSettingsState — openSettings populates every tab', () => {
     c.openSettings(rich);
     expect(c.schValidation).toBe('strict');
     expect(c.schStrictLinkage).toBe(true);
-    expect(c.schTagSuggestions).toEqual(['a', 'b']);
-
-    c.schTagSuggestions.push('c');
-    expect(rich.meta!.tagSuggestions).toEqual(['a', 'b']); // original untouched
+    // `tagSuggestions` was REMOVED in 3.0 and is no longer read into the form. The fixture still carries
+    // one, on purpose: a list already in config.json must be left exactly where it is, not migrated and
+    // not destroyed, and `openSettings` reading nothing is the first half of that.
+    expect((c as unknown as Record<string, unknown>)['schTagSuggestions']).toBeUndefined();
   });
 
   it('flattens a type schema into editable state (propertySchemas becomes a keyed list)', () => {
@@ -93,7 +93,7 @@ describe('SpaceSettingsState — openSettings populates every tab', () => {
     expect(c.typeCount('entity')).toBe(1);
     const st = c.typeState('entity', 'person');
     expect(st.namingPattern).toBe('^[A-Z]');
-    expect(st.tagSuggestions).toEqual(['t']);
+    expect((st as unknown as Record<string, unknown>)['tagSuggestions']).toBeUndefined();
     expect(st.propertySchemas).toEqual([{ key: 'age', s: { type: 'number', minimum: 0 }, _enumInput: '' }]);
   });
 
@@ -123,7 +123,6 @@ describe('SpaceSettingsState — openSettings populates every tab', () => {
     expect(c.stForm).toEqual({ label: 'Bare', purpose: '', usageNotes: '', maxGiB: null, documentExtraction: '', imageAnalysis: '', audioAnalysis: '', videoAnalysis: '', textAnalysis: '' });
     expect(c.schValidation).toBe('off');
     expect(c.schStrictLinkage).toBe(false);
-    expect(c.schTagSuggestions).toEqual([]);
     expect(c.typeNames('entity')).toEqual([]);
     expect(c.dupeRulesState).toEqual([]);
     expect(c.dupeSurvivor).toBe('older');
@@ -165,34 +164,39 @@ describe('SpaceSettingsState — buildMeta (what actually gets saved)', () => {
     expect(c.buildMeta()).toMatchObject({ purpose: 'p', usageNotes: 'u' });
   });
 
-  it('emits strictLinkage only when true, and tagSuggestions only when non-empty', () => {
+  it('emits strictLinkage only when true, and never emits the removed tagSuggestions', () => {
     const c = make();
     c.openSettings(space());
     expect(c.buildMeta().strictLinkage).toBeUndefined();
-    expect(c.buildMeta().tagSuggestions).toBeUndefined();
     c.schStrictLinkage = true;
-    c.schTagSuggestions = ['x'];
-    expect(c.buildMeta()).toMatchObject({ strictLinkage: true, tagSuggestions: ['x'] });
+    expect(c.buildMeta()).toMatchObject({ strictLinkage: true });
+    // Removed in 3.0. `SpaceMetaBody` is `.strict()`, so a client still emitting it would 400 its own
+    // save — which is why this asserts absence rather than merely stopping at "we do not set it".
+    expect((c.buildMeta() as unknown as Record<string, unknown>)['tagSuggestions']).toBeUndefined();
   });
 
-  it('a stored per-type tagSuggestions list survives a load → save round-trip with no editor', () => {
-    // The per-type tag-suggestion EDITOR was retired (it reached neither the Brain record forms nor
-    // the MCP schema guidance), but the DATA was deliberately kept: the save path is a full replace,
-    // so dropping the field from state would silently destroy an operator's stored list on their next
-    // unrelated edit. This is the guard against someone later deleting `tagSuggestions` from the
-    // state as apparently-dead code — it is not dead, it is load-bearing for preservation.
+  it('a stored per-type tagSuggestions list is dropped on the next save of that type', () => {
+    // This test used to assert the OPPOSITE, and it was right to. Until 3.0 the field was retired but
+    // kept, and the round-trip was load-bearing: `planSpaceMetaUpdate` merges typeSchemas per-KT and then
+    // per-type-NAME (`{ ...existingTs[kt], ...ktMap }`), so an incoming type REPLACES its whole schema
+    // object. A client that stopped carrying the field would have destroyed an operator's list on their
+    // next unrelated edit.
+    //
+    // 3.0 removes the field, so that destruction is now the intended outcome rather than an accident —
+    // and it is asserted here rather than left to be discovered, because "stored values are preserved"
+    // is true of the SPACE-level field (a scalar the merge leaves alone when absent) and NOT of this one.
     const c = make();
     c.openSettings(space({
       meta: { typeSchemas: { entity: { person: { namingPattern: '^[A-Z]', tagSuggestions: ['t'] } } } },
     } as Partial<Space>));
     const st = c.typeState('entity', 'person');
-    expect(st.tagSuggestions).toEqual(['t']);
+    expect((st as unknown as Record<string, unknown>)['tagSuggestions']).toBeUndefined();
 
     // Edit something else entirely, exactly as an operator would.
     st.namingPattern = '^[a-z]';
 
     const saved = c.buildMeta().typeSchemas!.entity!['person']!;
-    expect(saved.tagSuggestions).toEqual(['t']);
+    expect((saved as unknown as Record<string, unknown>)['tagSuggestions']).toBeUndefined();
     expect(saved.namingPattern).toBe('^[a-z]');
   });
 

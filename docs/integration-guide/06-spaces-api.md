@@ -321,7 +321,6 @@ PATCH /api/spaces/flows
       "entity": {
         "service": {
           "namingPattern": "^[a-z][a-z0-9-]{1,60}$",
-          "tagSuggestions": ["backend", "frontend", "infra"],
           "propertySchemas": {
             "status": { "type": "string", "enum": ["active", "deprecated", "planned"], "required": true },
             "score":  { "type": "number", "minimum": 0, "maximum": 100, "mergeFn": "avg" }
@@ -344,7 +343,6 @@ PATCH /api/spaces/flows
         }
       }
     },
-    "tagSuggestions": ["backend", "frontend", "infra"],
     "strictLinkage": true
   }
 }
@@ -417,7 +415,6 @@ type schemas are readable only by tokens that may reach the space.
     "entity": {
       "service": {
         "namingPattern": "^[a-z][a-z0-9-]{1,60}$",
-        "tagSuggestions": ["backend", "frontend"],
         "propertySchemas": {
           "status": { "type": "string", "enum": ["active", "deprecated"], "required": true }
         }
@@ -429,7 +426,6 @@ type schemas are readable only by tokens that may reach the space.
       "owns": {}
     }
   },
-  "tagSuggestions": ["backend", "frontend"],
   "stats": { "memories": 142, "entities": 53, "edges": 87, "chrono": 12, "files": 31 },
   "needsReindex": false
 }

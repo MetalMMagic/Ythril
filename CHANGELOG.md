@@ -38,6 +38,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a one-time upgrade path, and dropping it would move an instance to a different extraction level on load —
   the quietest possible way to change what a document search can find.
 
+- **BREAKING — `tagSuggestions` is removed, per-type and space-wide. There is no replacement, and none is
+  needed.** It was retired in #365 when its editor was taken out, and kept because it was still accepted and
+  stored — which is how a field ends up retired-but-immortal: no editor, no consumer, and nothing saying to
+  remove it. Nothing ever read either list. Record forms suggest from the tags already in use in each
+  collection, which is self-maintaining, and the MCP schema guidance never consulted it.
+  Gone from: `SpaceMetaBody`, the per-type `TypeSchemaZ`, the schema-library entry schema, the
+  `deleteFields` path that could delete it, the meta merge, both type declarations and every client mirror.
+  Both accepting schemas are `.strict()`, so a request still sending it gets a `400`.
+  **What happens to a value already stored, precisely** — the two halves differ and it matters: a
+  **space-wide** `meta.tagSuggestions` is left alone, because the meta merge reads an absent field as "not
+  stated" and never rewrites it. A **per-type** list is dropped the next time that type is saved, because
+  the merge replaces a type's whole schema object rather than merging its fields. Neither is read by
+  anything in either case.
+
 ### Changed
 - **Re-uploading identical bytes no longer re-runs vision or speech-to-text.** `enqueueMediaJob` resets a
   terminal job on purpose, so the same file sent twice paid for a second full analysis to reproduce the caption

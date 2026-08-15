@@ -90,6 +90,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   left. The gap now reserves room for the widest label as well as for the lanes. Labels that converge on one
   box can still sit close together vertically; that is a separate defect and is not fixed here.
 
+- **An embedder outage no longer spends a record's retry budget.** The retry policy allows five attempts over
+  about twelve and a half minutes, which is sized for one record failing on its own content. Applied to an
+  embedder that is simply unreachable — during an upgrade, say — it took every queued job in every space
+  terminal at once, and a terminal job is never picked up again. This release already gave those jobs one
+  clean retry per server version; this stops them being spent in the first place. A failure that means *the
+  embedder did not answer* — connection refused or reset, DNS, a timeout, a 429, a 502/503/504 — now costs
+  waiting instead of an attempt, backing off to half-hourly and recovering by itself the moment the embedder
+  returns. A failure that means *this record cannot be embedded* — a 400, a 422, no embeddable text — still
+  spends an attempt and still gives up, because that is what the budget is for. Rewriting a record, retrying
+  it, or a new server version all clear the wait as well as the budget.
+
 - **The Docker build no longer downloads a CUDA runtime it never loads.** `onnxruntime-node` fetches its GPU
   execution-provider binaries from a GitHub release during install, and on a machine without `nvcc` it logs
   *"nvcc not found. Assuming CUDA 12"* and downloads them anyway. CI was told to skip this after two runs

@@ -49,6 +49,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **One reader for the server version.** `api/about.ts` and `app.ts` each resolved their own path to
   `server/package.json`; the revive above needed it too, and three copies of "which manifest do we mean" is
   the kind of duplication that is right until the release where it is not.
+- **Reindex said "Reindexed 0 documents" in green at the moment it started.** Reported from a live instance.
+  `POST /reindex` never awaits the job — it schedules the work and answers immediately with zeroed counters,
+  deliberately, because a whole-space re-embed is far too long to hold a request open. The client summed
+  those zeros and printed a document count, so the acknowledgement of a job that had just begun was rendered
+  as its result. There is no count to print at that point and there never was; progress lives in
+  `reindex-status`. It now says the job started, in all three locales — the two strings were hardcoded
+  English — and says it through the app's toast channel rather than an inline banner that had no dismiss and
+  was cleared only by switching space. A failure repeats the SERVER's own reason when it sends one, so a
+  proxy refusal names the member spaces instead of pointing at the logs. The stale-index banner is no longer
+  cleared optimistically either: the index really is still stale until the job finishes.
+- **The Reindex button is gone from proxy spaces.** A proxy holds no records of its own, so it has no index
+  to rebuild, and the server has refused the call with a 400 since the double-embed fix. The button could
+  only ever produce that refusal. The Indexing panel now says to reindex the member spaces instead, rather
+  than showing an empty card.
 
 - **The rights editor can grant and revoke the two instance-level flags.** `instanceAdmin` and `createSpaces`
   are part of the matrix the server stores and `PATCH /api/tokens/:id` already accepted — `migrateToken` sets

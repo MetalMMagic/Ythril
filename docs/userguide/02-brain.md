@@ -253,6 +253,14 @@ The detail panel below the canvas shows all memories and chrono entries linked t
 > again until somebody presses **Retry all failed**. So starting a **new version** now re-queues everything
 > that failed under the old one, once, and says how many in the log. Restarting the same version re-queues
 > nothing — a record that genuinely cannot be embedded must not be retried on every boot for ever.
+> **Reindex tells you it STARTED, not what it found.** The button schedules the work and returns at once —
+> a whole-space re-embed is far too long to hold a request open — so there is no count to report yet, and
+> the notification says the job is running in the background. The **Indexing** panel is where progress and
+> completion show up. It used to print *"Reindexed 0 documents"* in green at the moment the job began, which
+> was the acknowledgement being read as the result.
+>
+> **A proxy space has no Reindex button at all.** It holds no records of its own — its members do — so it has
+> no index to rebuild, and the panel says to reindex the member spaces instead.
 
 The **Review** tab inside a space's Brain is that space's record-QA queue, split into sub-tabs:
 **Duplicates**, **Contradictions** and **Suggestions**. (Contradictions needs an NLI model configured

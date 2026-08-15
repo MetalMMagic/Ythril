@@ -71,6 +71,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The Docker build no longer downloads a CUDA runtime it never loads.** `onnxruntime-node` fetches its GPU
+  execution-provider binaries from a GitHub release during install, and on a machine without `nvcc` it logs
+  *"nvcc not found. Assuming CUDA 12"* and downloads them anyway. CI was told to skip this after two runs
+  failed 35 minutes apart on that download alone; the image build was not, so every image build still
+  depended on github.com being reachable and fast — in the build most likely to run somewhere that neither is
+  true. All three install steps in the Dockerfile now skip it, and a build gate keeps them that way, checking
+  each stage separately because the setting does not carry across a stage boundary. **A GPU deployment loses
+  the CUDA execution provider** and would need its own image variant; nothing in the published image used it,
+  as the bundled embedder runs on CPU.
 - **The property editor offered merge functions the API refuses.** Reported by the owner on 2026-08-15, whose
   words were *"i dont understand what i did wrong"* — and nothing they did was wrong. The merge-function
   dropdown listed all seven functions for every property type, so a `date` property could be given `min`, and

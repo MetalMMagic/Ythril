@@ -12,7 +12,10 @@ import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
 
 export const create_chronoTool: ToolHandler = {
   name: 'create_chrono',
-  description: 'Create a chronological entry in the knowledge graph. The default types are event, deadline, plan, prediction, and milestone; spaces with a custom typeSchemas.chrono accept their own type names instead.',
+  description: 'Create a chronological entry — something that happened, or is meant to. Default types are event, deadline, plan, prediction and milestone; a space with its own `typeSchemas.chrono` accepts ITS names INSTEAD, not in addition, so a custom schema that omits `event` refuses `event`.\n\n'
+    + 'THIS IS THE RECORD FOR ANYTHING DATED, and the reason the distinction matters: a memory saying "the migration is planned for March" is a fact whose truth expires, while a chrono entry carries `startsAt`/`endsAt` and a `status`, so it can be listed by date, found by `list_chrono` in a window, and closed rather than contradicted. If it has a date, it belongs here.\n\n'
+    + 'Link it with `entityIds` — that is what lets `traverse` reach it from the entity it is about (with `includeChrono`, on by default). Those references are NOT edges, so a chrono entry left unlinked is reachable only by search or by date, never from the thing it concerns.\n\n'
+    + 'Always an INSERT; use `update_chrono` to change one, including to move its `status`. IF THE SPACE VALIDATES: `introduced` are violations this write caused and are what refuses it; `preExisting` were already stored, are reported, and do NOT block. Branch on `introduced`.',
   mutating: true,
   spaceRequired: true,
   inputSchema: (s: ToolSchemas) => ({

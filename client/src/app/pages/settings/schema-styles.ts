@@ -70,7 +70,9 @@ export const SCHEMA_MD_STYLES = `
 .sch-add-prop input { max-width:260px; }
 .sch-add-imports { display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; padding-top:8px;
   border-top:1px solid var(--border-muted); }
-.prop-caret { color:var(--text-muted); flex-shrink:0; display:inline-flex; }
+/* .prop-caret moved to PROP_TABLE_STYLES — it belongs with the rows it opens, and a component rendering the
+   caret needs the row rules anyway. Two homes for one class is how the caret survived while the table around
+   it lost its styling. */
 /* One coherent text scale for the tab: guidance, section labels, inline messages.
    Every section label reads the same and every hint hangs off it the same way — the delimiter is an
    em dash in all of them, where it used to be parentheses in some and a dash in others. */

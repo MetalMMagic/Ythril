@@ -26,6 +26,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The property editor offered merge functions the API refuses.** Reported by the owner on 2026-08-15, whose
+  words were *"i dont understand what i did wrong"* — and nothing they did was wrong. The merge-function
+  dropdown listed all seven functions for every property type, so a `date` property could be given `min`, and
+  the save came back as a wall of validation JSON about a rule the screen had never mentioned: numeric
+  functions need type `number`, boolean ones need `boolean`, and `string` and `date` accept none at all. The
+  dropdown now offers only what the declared type can hold, is disabled with a short explanation for types
+  that accept none, and clears a function the type can no longer hold when the type is changed — the schema
+  tab's editor had no type-change handler at all, and the other editor's cleared only two of the four cases.
+  A gate compares the client's list against the server's rule on every push, so the two cannot drift apart
+  again.
+- **The schema property editor rendered unstyled in Space Settings.** Reported by the owner with a
+  screenshot: the *Required* control was a bare browser checkbox with its label wrapped underneath it, and an
+  expanded property's detail card had lost both its column layout and its padding, so Type, Default, Merge
+  function and Enum values each ran the full width of the dialog with the label pressed against the border.
+  Nothing was broken — every control worked — it simply had no styling. Angular scopes component styles, and
+  when this editor was split out of the Schema tab so the Brain overview could reuse it, twelve classes it
+  renders were left behind in the stylesheet it no longer carried. The same extraction lost the enum chip
+  styles, which were restored earlier; these went unnoticed for longer. The rules now live in one module that
+  all three renderers share, instead of the two hand-kept copies they were before, and a build gate fails if
+  a component renders a shared class without carrying its stylesheet. Two things were improved rather than
+  restored while they were being moved: the detail card wraps to two columns in a narrow dialog instead of
+  squeezing three, and *Required* is a single pill whose dot fills in, rather than a pill and a native
+  checkbox saying the same thing twice.
+
 - **`query` over MCP returned no rows to a client that reads `structuredContent`.** The tool put the rows in
   `content` and the paging facts — `count`, `total`, `limit`, `skip` — in `structuredContent`, on the
   reasoning that a client ignoring the structured block loses nothing because `content` is complete. The

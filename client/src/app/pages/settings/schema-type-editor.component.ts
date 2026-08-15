@@ -47,16 +47,26 @@ import type { TypeSchemaState } from './space-settings-state.service';
 import { addProp, removeProp, addEnumVal, removeEnumVal } from './type-schema-edits';
 import { SCHEMA_MD_STYLES } from './schema-styles';
 import { CHIP_STYLES } from '../../shared/chip.styles';
+import { PROP_TABLE_STYLES } from '../../shared/prop-table.styles';
+import { mergeFnsFor, mergeFnAfterTypeChange } from '../../shared/merge-fns';
 
 @Component({
   selector: 'app-schema-type-editor',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [FormsModule, TranslocoPipe, PhIconComponent, HscrollTopDirective],
-  // CHIP_STYLES is not decoration here: this component renders `.chip-wrap`/`.chip`/`.chip-rm`/`.chip-field`, and
-  // Angular scopes styles — without it those chips render as browser defaults, which is the oversized remove
-  // button breituai-platform reported. It came loose when this editor was extracted out of the schema TAB.
-  styles: [SCHEMA_MD_STYLES, CHIP_STYLES],
+  // Neither of these is decoration, and BOTH came loose when this editor was extracted out of the schema tab.
+  // Angular scopes styles, so a class this template renders and this array does not define gets browser
+  // defaults — with no error, in a component that still works perfectly.
+  //
+  // CHIP_STYLES: `.chip-wrap`/`.chip`/`.chip-rm`/`.chip-field`, the oversized enum remove button
+  // breituai-platform reported.
+  //
+  // PROP_TABLE_STYLES: `.prop-table`/`.prop-row`/`.prop-caret`/`.pdet`/`.pdet-fields`/`.req-toggle`. Missing
+  // for longer and reported by the owner on 2026-08-15 with a screenshot — the Required pill rendered as a
+  // raw checkbox with its label wrapped under it, and the detail card lost both its column grid and its
+  // padding, so every field ran edge to edge with its label against the dialog border.
+  styles: [SCHEMA_MD_STYLES, CHIP_STYLES, PROP_TABLE_STYLES],
   template: `
 @if (libRef(); as libRef) {
   <!-- Linked library schema — editable only after unlinking; shown read-only meanwhile. -->
@@ -189,10 +199,10 @@ import { CHIP_STYLES } from '../../shared/chip.styles';
             (click)="toggleOpen(p.key)">
             <td><span class="prop-caret"><ph-icon [name]="isOpen(p.key) ? 'caret-up' : 'caret-down'" [size]="13"/></span></td>
             <td>
-              <div style="display:flex;align-items:center;gap:7px;">
-                <span style="font-family:var(--font-mono);font-size:12px;">{{ p.key }}</span>
+              <div class="prop-name">
+                <span class="prop-name-key">{{ p.key }}</span>
                 <label class="req-toggle" [class.is-req]="p.s.required" (click)="$event.stopPropagation()">
-                  <input type="checkbox" [checked]="p.s.required" (change)="p.s.required = !p.s.required" style="pointer-events:none;" />
+                  <input type="checkbox" [checked]="p.s.required" (change)="p.s.required = !p.s.required" />
                   {{ 'spaces.schema.propDetail.required' | transloco }}
                 </label>
               </div>
@@ -217,7 +227,7 @@ import { CHIP_STYLES } from '../../shared/chip.styles';
                   <div class="pdet-fields">
                     <div class="field" style="margin:0;">
                       <label>{{ 'spaces.schema.propDetail.type' | transloco }}</label>
-                      <select [(ngModel)]="p.s.type">
+                      <select [(ngModel)]="p.s.type" (ngModelChange)="onTypeChange(p)">
                         <option [ngValue]="undefined">any</option>
                         <option value="string">string</option>
                         <option value="number">number</option>
@@ -229,15 +239,17 @@ import { CHIP_STYLES } from '../../shared/chip.styles';
                       <label>{{ 'spaces.schema.propDetail.default' | transloco }}</label>
                       <input type="text" [(ngModel)]="p.s.default" placeholder="—" />
                     </div>
+                    <!-- Only the functions the API accepts for this type. Offering all seven is what let a
+                         date + min be chosen and then refused at save with a wall of zod JSON. -->
                     <div class="field" style="margin:0;">
                       <label>{{ 'spaces.schema.propDetail.mergeFn' | transloco }}</label>
-                      <select [(ngModel)]="p.s.mergeFn">
+                      <select [(ngModel)]="p.s.mergeFn" [disabled]="!mergeFnsFor(p.s.type).length">
                         <option [ngValue]="undefined">—</option>
-                        <option value="avg">avg</option><option value="min">min</option>
-                        <option value="max">max</option><option value="sum">sum</option>
-                        <option value="and">and</option><option value="or">or</option>
-                        <option value="xor">xor</option>
+                        @for (fn of mergeFnsFor(p.s.type); track fn) { <option [value]="fn">{{ fn }}</option> }
                       </select>
+                      @if (!mergeFnsFor(p.s.type).length) {
+                        <span class="sch-hint">{{ 'spaces.schema.propDetail.mergeFnUnavailable' | transloco }}</span>
+                      }
                     </div>
                     @if (p.s.type==='string'||p.s.type===undefined) {
                       <div class="field" style="margin:0;">
@@ -339,6 +351,25 @@ export class SchemaTypeEditorComponent {
     next.delete(key);
     this.openRows.set(next);
   }
+  /**
+   * The merge functions this type may declare — the API's own rule, so the control cannot offer a refusal.
+   *
+   * A method rather than a pipe because the answer depends on a field the row owns and changes in place.
+   */
+  mergeFnsFor = mergeFnsFor;
+
+  /**
+   * Changing the type clears a merge function the new type cannot hold.
+   *
+   * This component had NO type-change handler at all — the shared `prop-schema-table` had one and this copy
+   * did not, which is the same one-rule-two-implementations split that lost its stylesheet. Without it,
+   * switching `number` to `date` leaves `min` behind, invisible, until the save is refused for a field the
+   * operator was not editing.
+   */
+  onTypeChange(p: { s: PropertySchema }): void {
+    p.s.mergeFn = mergeFnAfterTypeChange(p.s.type, p.s.mergeFn);
+  }
+
   onAddEnum(key: string): void { addEnumVal(this.draft(), key); }
   onRemoveEnum(key: string, val: string | number | boolean): void { removeEnumVal(this.draft(), key, val); }
   onEnumKey(e: KeyboardEvent, key: string): void {

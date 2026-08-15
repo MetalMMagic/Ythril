@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **The legacy `/setup` HTML form, so the app's own first-run page is finally the one you see.** The
+  server-rendered form had been mounted at `/setup` since before the single-page app existed, and a server
+  route wins over an app route — so the app's setup page had never actually served a first run, on any
+  instance. The two were not the same flow either: the old form asked only for an instance label, while the
+  app's page also sets the **settings password** used for admin access later. Removing the mount is what makes
+  that page reachable. Because this is the path a brand-new instance starts on, the change was proven end to
+  end against a real first run rather than argued from the code: `/setup` now serves the app, setup completes,
+  the access token appears, and it works on the API. Nothing changes for an instance that is already
+  configured — the old form returned `404` there anyway — and `/api/setup` is untouched.
+
 ### Breaking
 
 - **A space request body with a key we do not recognise is now refused instead of silently ignored.** Four of

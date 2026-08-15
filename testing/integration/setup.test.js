@@ -36,11 +36,39 @@ describe('First-run setup gating', () => {
       `Setup endpoint should be 404 (or 429 rate-limited) after first run, got ${r.status}`);
   });
 
-  it('Setup GET returns 404 after first run', async () => {
+  it('GET /setup is the SPA now, and the SPA route is the one guarded', async () => {
+    // This asserted 404, which was the LEGACY HTML FORM's behaviour: `setupRouter` was mounted at `/setup`
+    // and refused once configured. That mount is gone (deprecation 1.5) because it shadowed the SPA's own
+    // first-run page — Express matches a mount before the index fallback, so the Angular route had never
+    // served a first run on any instance.
+    //
+    // `/setup` therefore behaves like every other SPA route: the shell is served and the app's `setupGuard`
+    // routes a configured instance away. A 200 here is the SPA shell, not an open setup page.
     const r = await fetch(`${INSTANCES.a}/setup`);
-    // 404 means setup is already complete; 429 means rate-limited (equally safe)
+    assert.ok(r.status === 200 || r.status === 429,
+      `GET /setup should serve the SPA shell after first run, got ${r.status}`);
+    if (r.status === 200) {
+      const body = await r.text();
+      assert.ok(body.includes('app-root'), 'the body must be the SPA shell');
+      assert.ok(!/name="settingsPassword"|id="submitBtn"/.test(body),
+        'the legacy server-rendered form must not come back');
+    }
+  });
+
+  it('the setup API itself still refuses once configured', async () => {
+    // The protection that actually matters, and the one the assertion above used to stand in for. It is on
+    // the JSON API, which is what both the SPA and any script would post to.
+    const status = await fetch(`${INSTANCES.a}/api/setup/status`);
+    assert.equal(status.status, 200);
+    assert.equal((await status.json()).configured, true, 'this instance is past first run');
+
+    const r = await fetch(`${INSTANCES.a}/api/setup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label: 'Attacker', settingsPassword: 'abc12345', settingsPasswordConfirm: 'abc12345' }),
+    });
     assert.ok(r.status === 404 || r.status === 429,
-      `Setup GET should be 404 (or 429 rate-limited) after first run, got ${r.status}`);
+      `POST /api/setup should be refused after first run, got ${r.status}`);
   });
 
   it('Root / redirects to /brain (post-setup)', async () => {

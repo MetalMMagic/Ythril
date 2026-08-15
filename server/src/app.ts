@@ -250,9 +250,21 @@ export function createApp() {
   // the /api/admin/ prefix (so admins can still toggle maintenance off).
   app.use(maintenanceMiddleware);
 
-  // ── Setup (first-run only) — JSON API ────────────────────────────────────
+  /**
+   * Setup (first-run only) — JSON API, and NOTHING at `/setup`.
+   *
+   * `setupRouter` used to be mounted twice: here at `/api/setup`, which is what the SPA polls for
+   * `configExists()`, and again at `/setup`, which served a server-rendered HTML form and `404`ed once the
+   * instance was configured. Express matches a mount before the SPA's index fallback, so that second line
+   * made the Angular `/setup` route unreachable — the legacy form was the LIVE first-run path and the SPA's
+   * own page had never served one.
+   *
+   * It was kept "for non-SPA access" from before the SPA existed. Removing it is deprecation 1.5, and the
+   * risk is the reason it waited: this is the unauthenticated boot path, and getting it wrong means an
+   * instance nobody can set up. So the removal ships with an end-to-end first-run proof rather than on the
+   * argument that the SPA route exists — it existed the whole time and was never reachable.
+   */
   app.use('/api/setup', setupRouter);
-  app.use('/setup', setupRouter);  // legacy HTML form (kept for non-SPA access)
 
   // ── Settings UI ──────────────────────────────────────────────────────────
   // Served by the Angular SPA — no server-rendered HTML routes here.

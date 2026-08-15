@@ -19,6 +19,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the access token appears, and it works on the API. Nothing changes for an instance that is already
   configured — the old form returned `404` there anyway — and `/api/setup` is untouched.
 
+### Changed
+
+- **Retiring a record from semantic search says plainly that it is still reachable through its links.** The
+  setting removes a record's embedding, so it stops competing in recall's ranked results — but everything
+  that does not rank still reaches it, including recall's own graph expansion, which follows edges out of a
+  match and never looks at an embedding. The wording listed *traverse* among the readers that still see it,
+  which is true of both the traverse tool **and** recall's expansion and reads as neither: you had to already
+  know there were two before the word told you anything. Both the tool reference an agent reads while
+  building a call and the integration guide now name them separately and say the consequence outright — a
+  retired record stops competing on meaning, it does not disappear from the graph. **No behaviour changed**;
+  this is what it always did.
+
 ### Added
 
 - **A space administrator can now manage that space's tokens.** Until now "administers this space" was only

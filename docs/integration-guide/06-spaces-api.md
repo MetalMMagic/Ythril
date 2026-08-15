@@ -294,6 +294,39 @@ the server still bumps it.
   believing you had turned validation on. The tolerance covers only the fields that genuinely belong to `meta`
   and that we ourselves emit.
 
+#### The same rule now applies at the TOP level of every space body
+
+Until 3.1 the rule above stopped at `meta`. The outer body dropped anything it did not recognise, so one
+misspelling got two different answers depending on how deep it sat:
+
+```http
+PATCH /api/spaces/research   { "meta": { "validationMdoe": "strict" } }   →  400  refused
+PATCH /api/spaces/research   { "label": "x", "validaitonMode": "strict" } →  200  label applied, typo gone
+```
+
+**This is a breaking change.** A request carrying a field the API ignores now returns `400` naming the key,
+where it used to return `200`. If you have been sending one, you will hear about it on the first call rather
+than discovering later that a setting never took effect — which is what a misspelt `faceDescriptorDims` did:
+it created a space at the default descriptor width and reported `201`.
+
+**Round-tripping still works.** The fields a listing emits that a `PATCH` does not accept — `id`, `builtIn`,
+`folders`, `usageGiB`, `indexStatus`, `proxyFor`, `networks` — are stripped before validation, the same way
+`version` / `updatedAt` / `previousVersions` / `needsReindex` already were inside `meta`. So taking a space
+out of the list, editing one field and writing the whole object back is still the supported pattern:
+
+```http
+GET   /api/spaces            →  { "spaces": [ { "id": "research", "label": "Research",
+                                                "builtIn": false, "folders": [], "usageGiB": 0.4,
+                                                "indexStatus": "ready", "meta": { ... } } ] }
+
+PATCH /api/spaces/research   ←  that entry, unchanged except "label"                        ✅ accepted
+```
+
+Only fields we ourselves emit are dropped. Anything else is a typo, and a typo is refused.
+
+A single space has no endpoint of its own: read it from the listing above, or read its metadata from
+`GET /api/spaces/:id/meta`.
+
 **Removing a type schema.** `PATCH` deep-merges by default, so omitting a type does not delete it — a merge that could delete would make every PATCH potentially destructive, and a client that round-trips a space would silently drop schemas whenever its serialiser emitted `null` for an unset field. There are three ways to delete:
 
 - `DELETE /api/spaces/:id/meta/typeSchemas/:knowledgeType/:typeName` for one type (404 if it does not exist).

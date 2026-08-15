@@ -25,7 +25,7 @@ import type { z } from 'zod';
 import { getConfig } from '../config/loader.js';
 import { slugify } from './_shared.js';
 import { createSpace } from './lifecycle.js';
-import { CreateSpaceBody, TypeSchemasZ, findBrokenLibraryRefs, brokenRefsError } from './body-schemas.js';
+import { CreateSpaceBody, TypeSchemasZ, findBrokenLibraryRefs, brokenRefsError, stripServerOwnedSpace } from './body-schemas.js';
 import { refuseRemovedDescription } from './spaces.js';
 
 /** A refusal, carrying the status the contract suite pins. */
@@ -53,7 +53,16 @@ export function planSpaceCreate(body: unknown): SpaceCreateDecision {
   const removed = refuseRemovedDescription(body);
   if (removed) return { ok: false, refusal: removed };
 
-  const parsed = CreateSpaceBody.safeParse(body);
+  // Strip, THEN be strict — the same pair the update path uses, and the same reason. `CreateSpaceBody` is
+  // `.strict()` as of the P-4 ruling, so without this a caller copying a space out of `GET /api/spaces` and
+  // posting it as a template gets a 400 for `builtIn`/`usageGiB`/`indexStatus` — fields WE emit and they
+  // cannot know to remove.
+  //
+  // Only the emitted-never-accepted set is dropped here, not the create-only fields: `id`, `folders` and
+  // `proxyFor` are real inputs to a create, and stripping `id` would silently replace a caller's chosen
+  // space id with a generated slug. `mass-assignment.test.js` is the gate on both halves — it posts
+  // `builtIn: true` and requires a 201 with the flag not injectable.
+  const parsed = CreateSpaceBody.safeParse(stripServerOwnedSpace(body));
   if (!parsed.success) {
     return { ok: false, refusal: { status: 400, body: { error: parsed.error.message } } };
   }

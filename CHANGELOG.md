@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking
+
+- **A space request body with a key we do not recognise is now refused instead of silently ignored.** Four of
+  the ten schemas already refused one and six did not, and the split fell across a nesting level, so the same
+  misspelling got two answers: `PATCH {"meta":{"validationMdoe":"strict"}}` returned 400, while
+  `PATCH {"label":"x","validaitonMode":"strict"}` returned 200 with the label applied and the typo gone. A
+  misspelt `faceDescriptorDims` created a space at the default descriptor width and reported success — the
+  caller's notes say 512, the gallery is 128, and nothing distinguished them afterwards. All ten bodies now
+  refuse, naming the key.
+
+  **What this breaks:** a request sending a field we ignore starts returning 400 where it returned 200. The
+  shape of the request has not changed, so the failure is immediate and names the offending key rather than
+  appearing later as a setting that never took effect.
+
+  **What it deliberately does not break:** reading a space and writing the whole object back. The fields a
+  `GET` emits but a `PATCH` does not accept — `id`, `builtIn`, `folders`, `usageGiB`, `indexStatus`,
+  `proxyFor`, `networks` — are stripped before validation, exactly as the nested `meta` housekeeping fields
+  already were. Only fields we ourselves emit are dropped, so a typo is still a typo.
+
 ### Security
 
 - **A space-restricted administrator's scope is now read from its rights matrix, not from the deprecated

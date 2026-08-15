@@ -103,7 +103,10 @@ describe('config.json write safety', () => {
     await new Promise(r => setTimeout(r, 4000));
 
     // Now make the server persist config from its own copy, via an unrelated change.
-    const renameR = await patch(INSTANCES.a, token, `/api/spaces/${victim}/rename`, { newId: renamed, confirm: true });
+    // No `confirm` — the rename route never accepted one, and since `RenameSpaceBody` became `.strict()` a
+    // field the API ignores is a 400 rather than a silent drop. This call carried one (copied from the DELETE
+    // body, which does require it) and was passing on the strength of the leniency that change removed.
+    const renameR = await patch(INSTANCES.a, token, `/api/spaces/${victim}/rename`, { newId: renamed });
     assert.equal(renameR.status, 200, JSON.stringify(renameR.body));
     await new Promise(r => setTimeout(r, 600));
 

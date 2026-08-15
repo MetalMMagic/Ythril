@@ -41,7 +41,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { capDocExtractionMode } from '../files/converters/extraction-level.js';
 import { checkMetaPrecondition, preconditionErrorBody } from './meta-precondition.js';
 import { normaliseRecordTtl } from './record-ttl.js';
-import { UpdateSpaceBody, findBrokenLibraryRefs, brokenRefsError, stripServerOwnedMeta } from './body-schemas.js';
+import { UpdateSpaceBody, findBrokenLibraryRefs, brokenRefsError, stripServerOwnedMeta, stripServerOwnedSpace } from './body-schemas.js';
 import type { TypeSchemasZ } from './body-schemas.js';
 import type { z } from 'zod';
 
@@ -175,9 +175,15 @@ export function planSpaceMetaUpdate(input: {
   // thing, and `version`/`updatedAt`/`previousVersions`/`needsReindex` come straight out of our own response.
   // Stripped, not rejected — and ONLY those, so `.strict()` still catches a typo like `validationMdoe`, which
   // someone would otherwise believe had turned validation on. See SERVER_OWNED_META_FIELDS.
-  const bodyForParse = body != null && typeof body === 'object' && !Array.isArray(body)
-    ? { ...(body as Record<string, unknown>), ...('meta' in (body as object) ? { meta: stripServerOwnedMeta((body as { meta?: unknown }).meta) } : {}) }
-    : body;
+  //
+  // Both levels are stripped now, because the top-level body became `.strict()` (owner ruling P-4, A,
+  // 2026-08-15). Before that it silently dropped everything it did not declare, so only `meta` needed a
+  // strip; strictness without this would turn the very round-trip the meta strip exists to protect into a
+  // 400 one level up. Strip THEN be strict — never either alone.
+  const stripped = stripServerOwnedSpace(body, { forUpdate: true });
+  const bodyForParse = stripped != null && typeof stripped === 'object' && !Array.isArray(stripped)
+    ? { ...(stripped as Record<string, unknown>), ...('meta' in (stripped as object) ? { meta: stripServerOwnedMeta((stripped as { meta?: unknown }).meta) } : {}) }
+    : stripped;
 
   const parsed = UpdateSpaceBody.safeParse(bodyForParse);
   if (!parsed.success) {

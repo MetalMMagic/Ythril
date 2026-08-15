@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`query` over MCP returned no rows to a client that reads `structuredContent`.** The tool put the rows in
+  `content` and the paging facts — `count`, `total`, `limit`, `skip` — in `structuredContent`, on the
+  reasoning that a client ignoring the structured block loses nothing because `content` is complete. The
+  opposite client is the one that breaks: one that SURFACES `structuredContent` in preference to `content`
+  saw `{"count": 25, "total": 32, …}` and not a single row. Observed against Claude Code, four calls in a
+  row, while a tool returning no `structuredContent` rendered its whole body in the same session. It is the
+  worst shape a result can have — the answer absent while the metadata reports how many rows were returned,
+  so it reads as an empty page rather than as a dropped payload. `structuredContent` now carries `results`
+  as well, identical to `content`, and `count` describes it. Nothing changes for a client built on
+  `content`, which was and remains complete.
+
 - **A rights matrix stored in an obsolete shape is repaired at startup, instead of being uneditable for
   ever.** Reported from a live instance: saving a token's matrix was refused with ~40 validation errors —
   `unrecognized_keys ["admin"]` and an invalid `dataQuality`, repeated for the floor and for every space.

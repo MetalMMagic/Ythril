@@ -482,9 +482,21 @@ export const queryTool: ToolHandler = {
     let total = 0;
     for (const mid of members) total += await countBrain(mid, coll, filter, maxTimeMS);
 
-    // `structuredContent` carries the paging facts; `content` stays the bare array it has always been, so a client
-    // parsing the text is unaffected. Without `total` a caller sweeping with `skip` cannot tell a short last page from a
-    // truncated one, which is the number aigents ended up fabricating.
+    // `content` stays the bare array it has always been, so a client parsing the text is unaffected. Without `total`
+    // a caller sweeping with `skip` cannot tell a short last page from a truncated one, which is the number aigents
+    // ended up fabricating.
+    //
+    // **`results` is in `structuredContent` too, and that is not redundancy.** This block used to carry the paging
+    // facts ALONE, on the stated assumption that "a client that ignores structuredContent loses nothing because
+    // `content` remains the whole answer". True — and the opposite client is the one that breaks: a client that
+    // SURFACES structuredContent in preference to content showed the caller `{count: 25, total: 32, limit, skip}` and
+    // not one row. Observed against Claude Code on 2026-08-15, four calls in a row, while `get_space_meta` — which
+    // returns no structuredContent — rendered its whole body in the same session.
+    //
+    // That is the worst shape a result can have: the answer is absent and the metadata says how many rows were
+    // returned, so it reads as a successful empty-ish page rather than as a client that dropped the payload. It is
+    // also the only tool with that shape — every other structuredContent in this layer carries its own payload.
+    // The MCP spec's own framing is that structuredContent is the structured form of the SAME result, not a sidecar.
     return {
       content: [
         {
@@ -493,6 +505,7 @@ export const queryTool: ToolHandler = {
         },
       ],
       structuredContent: {
+        results: docs,
         count: docs.length, total, limit, skip,
         ...(sortParse.sort ? { sort: sortParse.sort.field, dir: sortParse.sort.dir === 1 ? 'asc' : 'desc' } : {}),
       },

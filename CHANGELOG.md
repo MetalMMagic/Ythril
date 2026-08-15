@@ -82,6 +82,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Join labels in the data-model diagram no longer run across the next column.** Reported with a screenshot:
+  `implements · 113` and `refines · 53` ended on top of the neighbouring card, and `conflicts` was clipped.
+  Each join gets its own vertical lane and its label sits beside that lane, growing rightward — and the gap
+  between columns had been sized for the number of lanes since joins started piling up, but never for the
+  width of the text those lanes carry. Sixteen characters is about 100px against a gap that could have twenty
+  left. The gap now reserves room for the widest label as well as for the lanes. Labels that converge on one
+  box can still sit close together vertically; that is a separate defect and is not fixed here.
+
 - **The Docker build no longer downloads a CUDA runtime it never loads.** `onnxruntime-node` fetches its GPU
   execution-provider binaries from a GitHub release during install, and on a machine without `nvcc` it logs
   *"nvcc not found. Assuming CUDA 12"* and downloads them anyway. CI was told to skip this after two runs

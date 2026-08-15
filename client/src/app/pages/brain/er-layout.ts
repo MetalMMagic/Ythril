@@ -80,6 +80,34 @@ const GAP_Y = 24;
 const GAP_X = 20;
 const SHELF_GAP = 40;
 const COL_GAP = 120;
+/**
+ * One lane every 22 px, and the label nudged 5 px off its own line so glyphs do not sit astride the stroke.
+ *
+ * Module constants because BOTH the gap sizing and the path loop need them, and they were two literals: the
+ * sizing said `n * 22` and the loop said `laneStep = 22`. Same number, written twice, in the two places that
+ * must never disagree — if the loop's step grew, lanes would be drawn into a gap that was measured for the
+ * old one.
+ */
+const LANE_STEP = 22;
+const LABEL_NUDGE = 5;
+
+/** Monospace advance at the label's rendered 10.5 px, rounded UP — see `estimateLabelWidth`. */
+const LABEL_CHAR_W = 6.6;
+
+/**
+ * How wide a join label renders, as an upper bound.
+ *
+ * Exported so the spec measures the same text extent the layout reserved for. A test that re-derived this
+ * would be checking the layout against a second guess, and the two could agree while both were wrong — which
+ * is how `er-layout.spec.ts` passed through a clipped label: it asserted where a label's ORIGIN sits and said
+ * nothing about where its text ENDS.
+ *
+ * The component renders `<label> · <count>` in `var(--font-mono)` at 10.5 px. A monospace advance is a fixed
+ * fraction of the size, so character count times a rounded-up advance bounds any string rather than averaging
+ * it — under-reserving would put text through a box, over-reserving only widens a gap.
+ */
+export const estimateLabelWidth = (r: { label: string; count: number }): number =>
+  (r.label.length + 3 + String(r.count).length) * LABEL_CHAR_W;
 const PAD = 16;
 const HEAD_H = 26;
 const ROW_H = 16;
@@ -253,12 +281,35 @@ export function layoutErModel(realTypes: ErEntityType[], realRels: ErRelationshi
   };
 
   const placeable = rels.filter(r => types.some(t => t.type === r.from) && types.some(t => t.type === r.to));
-  const nL = placeable.filter(r => gapOf(r) === 'L').length;
-  const nR = placeable.filter(r => gapOf(r) === 'R').length;
-  // 20 px clear of the source face, one lane every 22, then 20 px clear of the target face.
-  const gapFor = (n: number): number => Math.max(COL_GAP, 20 + n * 22 + 20);
-  const gapL = gapFor(nL);
-  const gapR = gapFor(nR);
+  const onL = placeable.filter(r => gapOf(r) === 'L');
+  const onR = placeable.filter(r => gapOf(r) === 'R');
+  const nL = onL.length;
+  const nR = onR.length;
+
+  /**
+   * The gap is sized for the LABEL TEXT as well as for the lanes, and that second half was missing.
+   *
+   * The lane count has grown the gap since joins started piling up. The label never entered the calculation:
+   * it is placed at `lane + 5` and anchored `start`, so it grows RIGHTWARD out of its lane — and the next
+   * thing rightward is the target column. `implements · 113` is sixteen characters, about 100 px rendered,
+   * against a gap that could have twenty left after the lanes. Owner-reported 2026-08-14 with a screenshot
+   * showing `implements · 113`, `refines · 53` and a clipped `conflicts` sitting on top of the next card.
+   *
+   * The width is ESTIMATED rather than measured, and that is a deliberate limit rather than an oversight:
+   * this module is pure geometry with no DOM, which is what lets it be unit-tested without a browser. The
+   * estimate is safe because the label renders in `var(--font-mono)` at 10.5 px — a monospace advance is a
+   * fixed fraction of the size, so `chars × 0.62 × 10.5` is an upper bound for any glyph in the string
+   * rather than an average that a wide character could beat. `LABEL_CHAR_W` is rounded up for the same
+   * reason: over-reserving widens a gap, under-reserving puts text through a box.
+   */
+  const widestIn = (rs: ErRelationship[]): number => rs.reduce((w, r) => Math.max(w, estimateLabelWidth(r)), 0);
+
+  // 20 px clear of the source face, one lane every 22, 5 px of nudge off the last lane, the widest label,
+  // then 20 px clear of the target face.
+  const gapFor = (n: number, widest: number): number =>
+    Math.max(COL_GAP, 20 + n * LANE_STEP + LABEL_NUDGE + widest + 20);
+  const gapL = gapFor(nL, widestIn(onL));
+  const gapR = gapFor(nR, widestIn(onR));
 
   const colX = [PAD, PAD + BOX_W + gapL, PAD + BOX_W + gapL + HUB_W + gapR];
 
@@ -307,7 +358,28 @@ export function layoutErModel(realTypes: ErEntityType[], realRels: ErRelationshi
    */
   let leftLane = 0;
   let rightLane = 0;
-  const laneStep = 22;
+
+  /**
+   * `slot % 3` is LEFT ALONE, and that is a finding rather than an omission.
+   *
+   * ER-1 also reported that the fourth lane on a side reuses the first lane's vertical offset, so two joins
+   * that additionally share a similar `spanTop` put their labels at nearly the same height. The reasoning is
+   * sound and the second condition is what saves it in practice: `labelY` starts from each join's OWN span,
+   * and two joins three lanes apart have different endpoints and therefore different spans.
+   *
+   * A cycle derived from the label width was written, and then removed, because it could not be shown to
+   * change anything: mutating it back to `% 3` passed every test including a fixture built specifically for
+   * it — seven joins with `implements`-length labels. Shipping it would have been an untested behaviour
+   * change wearing a fix's comment.
+   *
+   * **The screenshot then found the real mechanism, which is not the modulo at all.** Seven joins converging
+   * on ONE box share a `spanBottom`, so `Math.min(spanBottom - 6, …)` clamps three of them to within a few
+   * pixels of each other regardless of their slot: `supersedes`, `contradicts` and `elaborates` came out
+   * stacked, one of them struck through by a lane. Widening the cycle would not have moved them, because the
+   * clamp is what binds — which is exactly why the unit tests could not see it and why ER-1 asks for a PNG.
+   *
+   * That half stays open on ER-1 with this reproduction attached. It needs the clamp reworked, not the step.
+   */
 
   for (const r of rels) {
     const a = byType.get(r.from);
@@ -339,7 +411,7 @@ export function layoutErModel(realTypes: ErEntityType[], realRels: ErRelationshi
     const slot = inLeftGap ? leftLane++ : rightLane++;
     // The lane's home is the gap's own span, counted from the gap's left edge inward.
     const gapStart = inLeftGap ? colX[0]! + BOX_W : colX[1]! + HUB_W;
-    const lane = gapStart + 20 + slot * laneStep;
+    const lane = gapStart + 20 + slot * LANE_STEP;
 
     const sy = a.y + a.h / 2;
     const ty = b.y + b.h / 2;
@@ -358,7 +430,7 @@ export function layoutErModel(realTypes: ErEntityType[], realRels: ErRelationshi
     paths.push({
       from: r.from, to: r.to, label: r.label, count: r.count, selfJoin: false,
       d: `M${sx} ${sy} H${lane} V${ty} H${tx}`,
-      labelX: lane + 5, labelY,
+      labelX: lane + LABEL_NUDGE, labelY,
       labelAnchor: 'start',
     });
   }

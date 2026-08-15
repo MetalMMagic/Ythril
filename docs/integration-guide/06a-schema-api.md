@@ -214,11 +214,17 @@ the answer would be meaningless. In `strict` mode a violating update is refused 
 | `preExisting` | Present before and still present. Your change neither caused nor fixed it. |
 
 A record can be non-compliant before you touch it — written before the schema tightened, imported, or
-synced from a peer with different meta. Both kinds block, because the merged record is what gets stored
-and storing a known-invalid record is how a space drifts permanently out of conformance. The record is
-**not** trapped: validation is of the merged result, so including the offending field in the same request
-repairs it and the write succeeds. The `message` says which of the two situations applies, so you are not
-sent after a field you did not touch.
+synced from a peer with different meta.
+
+**Only `introduced` blocks.** A violation the record already had is reported and does not refuse your patch.
+It is already stored, so refusing would not improve the data; it would only stop the record being maintained.
+Until 3.1 both kinds blocked, and the consequence was that tightening a schema retroactively froze every
+record that no longer fitted — an operator could not correct a typo in a description without also resolving a
+field their edit never touched.
+
+Validation is still of the merged result, so including the offending field in a write repairs it. The
+`message` says which of the two situations applies, so you are not sent after a field you did not touch, and
+`preExisting` is in every response — a client that wants to insist on full compliance can refuse on it itself.
 
 In `warn` mode the write proceeds and the same three lists are reported.
 

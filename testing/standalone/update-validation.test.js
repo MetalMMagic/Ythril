@@ -120,6 +120,42 @@ describe('update validation', () => {
       assert.equal(classifyUpdateViolations(undefined, [], after).blocked, false);
     });
 
+    it('blocks on what the patch INTRODUCED, never on what the record already had', () => {
+      // Owner ruling P-6 = B, 2026-08-15, on the report breituai-platform called "freezes records":
+      //
+      //   write an entity with properties.status = "retired"   (the enum allows it)  -> 201
+      //   remove "retired" from the enum                                             -> 200
+      //   PATCH that record's DESCRIPTION only                                       -> 422
+      //
+      // The violation is already stored. Refusing the patch does not improve the data, it only stops the
+      // record being maintained — and any schema tightening did this retroactively to every record that no
+      // longer fit. Strictness is about what a write INTRODUCES.
+      const already = [v('status', 'not in enum')];
+      const out = classifyUpdateViolations(STRICT, already, already);
+      assert.equal(out.blocked, false, 'an unrelated edit must go through');
+      assert.deepEqual(out.introduced, []);
+      assert.deepEqual(out.preExisting.map(x => x.field), ['status']);
+    });
+
+    it('still blocks a patch that introduces one, alongside a pre-existing one', () => {
+      // The half that must NOT weaken. Both lists non-empty is the case where a lenient reading would let a
+      // genuinely bad patch through by pointing at the record's older problem.
+      const out = classifyUpdateViolations(STRICT, [v('owner', 'missing')],
+        [v('owner', 'missing'), v('status', 'not in enum')]);
+      assert.equal(out.blocked, true);
+      assert.deepEqual(out.introduced.map(x => x.field), ['status']);
+    });
+
+    it('reports the pre-existing violation even though it does not block', () => {
+      // Not-blocking must not become not-telling: `preExisting` and the full `all`/`warnings` list are how a
+      // client that wants to insist on compliance still can.
+      const already = [v('status', 'not in enum')];
+      const out = classifyUpdateViolations(STRICT, already, already);
+      assert.deepEqual(out.all.map(x => x.field), ['status']);
+      assert.deepEqual(out.warnings.map(x => x.field), ['status']);
+      assert.match(out.message, /already non-compliant/i);
+    });
+
     it('still classifies in warn mode, so the report says whose fault it is', () => {
       // Warn mode writes the record and reports; a report that cannot tell the operator which field is
       // theirs is the same failure as a blocking error that cannot.
@@ -142,7 +178,12 @@ describe('update validation', () => {
       const m = describeUpdateViolations([], [v('owner', 'x')]);
       assert.match(m, /already non-compliant/i);
       assert.match(m, /did not cause it/i);
-      assert.match(m, /same request/i, 'must say how to get unstuck');
+      // This asserted /same request/ — "must say how to get unstuck" — which was the right demand while a
+      // pre-existing violation BLOCKED the write, because repairing it in the same request was the only way
+      // through. Under P-6 = B nobody is stuck, so the sentence must say the opposite: not refused, and the
+      // repair can happen in any later write.
+      assert.match(m, /not refused/i, 'must say the write is going through');
+      assert.match(m, /repair/i, 'must still say the record needs fixing');
     });
 
     it('says both, and which is which', () => {

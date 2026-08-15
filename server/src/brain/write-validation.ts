@@ -89,11 +89,36 @@ export function classifyUpdateViolations(
   const introduced = afterViolations.filter(v => !before.has(key(v)));
   const preExisting = afterViolations.filter(v => before.has(key(v)));
 
-  const verdict = applyValidation(meta, afterViolations);
+  // Two verdicts from one mode, and the split IS the P-6 ruling (owner, 2026-08-15: B).
+  //
+  // `blocked` is decided by what the patch INTRODUCED. `warnings` still reports everything the merged record
+  // fails, because a caller that wants to insist on full compliance needs to be able to see it — and
+  // `preExisting` is in the response either way.
+  //
+  // ## Why blocking on the full list was wrong
+  //
+  // Reported by breituai-platform as *"freezes records"*, and reproduced:
+  //
+  //     write an entity with properties.status = "retired"   (the enum allows it)  -> 201
+  //     remove "retired" from the enum                                             -> 200
+  //     PATCH that record's DESCRIPTION only                                       -> 422
+  //
+  // The record became uneditable until an unrelated field was repaired in the same request, and any schema
+  // tightening did that retroactively to every record that no longer fit. The violation is ALREADY STORED:
+  // refusing the patch does not improve the data, it only blocks maintenance. Strictness is about what a
+  // write introduces.
+  //
+  // It is also what `16-mcp.md` promised integrators before the code was found to disagree, so B is the
+  // behaviour some of them may already have built against.
+  //
+  // What this does NOT weaken: a patch that introduces a violation is refused exactly as before, and a
+  // record that was already broken is still reported as broken on every write that touches it.
+  const surfaced = applyValidation(meta, afterViolations);
+  const blocking = applyValidation(meta, introduced);
 
   return {
-    blocked: verdict.blocked,
-    warnings: verdict.warnings,
+    blocked: blocking.blocked,
+    warnings: surfaced.warnings,
     introduced,
     preExisting,
     all: afterViolations,
@@ -192,14 +217,17 @@ export function describeUpdateViolations(
     return `The change violates this space's schema: ${names(introduced)}.`;
   }
   if (introduced.length === 0 && preExisting.length > 0) {
+    // Reported, not refused (owner ruling P-6 = B). This sentence used to end "so the write is refused until
+    // those field(s) are fixed", which was true and was the freeze itself: an operator could not correct a
+    // typo in a description without also resolving a field their edit never touched.
     return `This record was already non-compliant before your change: ${names(preExisting)}. `
-      + 'Your edit did not cause it, but the merged record is what gets stored, so the write is refused '
-      + 'until those field(s) are fixed — include them in this same request to repair the record.';
+      + 'Your edit did not cause it and is not refused for it, but the record still does not fit the current '
+      + 'schema — include those field(s) in a write to repair it.';
   }
   if (introduced.length > 0 && preExisting.length > 0) {
     return `The change violates this space's schema: ${names(introduced)}. `
       + `Separately, this record was already non-compliant before your change: ${names(preExisting)} — `
-      + 'include those field(s) in the same request to repair them.';
+      + 'that part is reported rather than refused; include those field(s) in a write to repair them.';
   }
   return 'The merged record satisfies this space\'s schema.';
 }

@@ -27,10 +27,13 @@ On connect, the server sends global instructions listing all available space IDs
 > fix the patch. `preExisting` means the stored record already violated the schema there and your write
 > neither caused nor fixed it.
 >
-> **In a `strict` space, BOTH block the write.** The merged record is what would be stored, so a write is refused
-> while any violation remains — including one your patch neither caused nor touched. The remedy is in the message:
-> include the offending field in the same request and the write repairs the record. `content` still carries the same
-> information as a sentence, so a client that reads only text loses nothing.
+> **In a `strict` space, only `introduced` blocks the write.** A violation the record already had is reported and
+> does not refuse your patch: it is already stored, so refusing would not improve the data — it would only stop the
+> record being maintained. Until 3.1 both kinds blocked, which meant tightening a schema made every record that no
+> longer fitted uneditable until an unrelated field was repaired in the same request.
+>
+> `preExisting` is still in every response, so a client that wants to insist on full compliance can refuse on it
+> itself. `content` carries the same information as a sentence, so a client that reads only text loses nothing.
 >
 > **`query` puts its rows in BOTH places.** `content[0].text` is the JSON array it has always been, and
 > `structuredContent` carries `results` (the same array) plus `count`, `total`, `limit`, `skip` and the

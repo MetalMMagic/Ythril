@@ -119,7 +119,13 @@ describe('upsert validation', () => {
       assert.deepEqual(out.preExisting.map(x => x.field), ['properties.owner']);
       assert.deepEqual(out.introduced, [], 'the caller touched `rack`, not `owner`');
       assert.match(out.message, /already non-compliant/);
-      assert.equal(out.blocked, true, 'the merged record is still what gets stored');
+      // Owner ruling P-6 = B, 2026-08-15. This asserted `blocked: true` — "the merged record is still what
+      // gets stored" — and that WAS the freeze breituai-platform reported: tightening a schema made every
+      // record that no longer fit uneditable until an unrelated field was repaired in the same request.
+      // The violation is already stored, so refusing the patch does not improve the data; it only blocks
+      // maintenance. Reported, not refused.
+      assert.equal(out.blocked, false, 'a pre-existing violation does not block an unrelated write');
+      assert.ok(out.all.some(x => x.field === 'properties.owner'), 'still reported in `all`');
     });
 
     it('lets the same upsert repair it', () => {

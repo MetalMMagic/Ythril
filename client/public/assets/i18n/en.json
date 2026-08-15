@@ -1883,6 +1883,8 @@
   "tokens.rights.endpoint": "Endpoint",
   "tokens.rights.fromRung": "From",
   "tokens.rights.endpointsUnavailable": "The endpoint list could not be loaded. The descriptions above still apply.",
+  "tokens.rights.clamp.floor": "Held at {{rung}} by the all-spaces floor",
+  "tokens.rights.clamp.implied": "Held at {{rung}} because {{area}} is {{cause}}, which cannot work without it",
   "tokens.rights.area.knowledge": "Knowledge",
   "tokens.rights.area.knowledge.desc": "Memories, entities, relationships and timeline entries — the records the space is made of, and searching them.",
   "tokens.rights.area.files": "Files",

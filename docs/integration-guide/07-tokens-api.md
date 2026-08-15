@@ -51,6 +51,9 @@ Authorization: Bearer <token>
 {
   "areas": ["knowledge", "files", "schema", "dataQuality"],
   "rungs": ["none", "read", "write", "admin"],
+  "implications": [
+    { "when": "knowledge", "atLeast": "write", "grants": "schema", "rung": "read" }
+  ],
   "routes": [
     { "area": "knowledge", "method": "POST", "route": "/api/brain/spaces/:spaceId/recall", "needs": "read" },
     { "area": "files", "method": "DELETE", "route": "/api/files/:spaceId", "needs": "write" }
@@ -67,6 +70,28 @@ Use it instead of maintaining your own map of rights to endpoints.
 would understate what you hold.
 
 `none` reaches nothing, and no route is ever listed with `needs: "none"`.
+
+#### `implications` — a rung one area gives another
+
+One area's rung can entail a rung in another, **in the same space**. Today there is exactly one rule: a token
+holding `knowledge: write` also holds `schema: read`, because writing a record against a schema requires
+reading that schema, so the pair is not an operator's to get wrong.
+
+Read the rule as: *when `when` is at `atLeast` or higher, `grants` is held at no less than `rung`.*
+
+Three properties worth building against:
+
+- **It is a floor, never an assignment.** A `schema` rung granted outright is never lowered by it.
+- **It does not chain.** Each rule is evaluated against what was *granted*, never against another rule's
+  inference, so the order of the array is not load-bearing.
+- **It is scoped to one space**, and applies to the all-spaces floor within the floor's own scope.
+
+The stored matrix is *not* rewritten — `GET /api/tokens` returns what was set. Resolve the effective rung by
+applying this table on read; do not persist the result, or a rung that exists only while `knowledge` is
+`write` will outlive it being lowered.
+
+The same resolution governs both doors. A capability refused over REST is refused over MCP for the identical
+reason, because `effectiveRung` is the single place either surface asks what a token holds.
 
 ---
 

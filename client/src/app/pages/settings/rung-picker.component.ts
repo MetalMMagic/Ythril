@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
+import { TranslocoService } from '@jsverse/transloco';
 import type { Rung } from './rights-glyph.component';
 
 export const RUNGS: readonly Rung[] = ['none', 'read', 'write', 'admin'];
@@ -22,6 +23,17 @@ const LABEL: Record<Rung, string> = { none: '—', read: 'R', write: 'W', admin:
  *    down by clicking a specific lower segment, which reads as "the control resists being narrowed".
  *  - **Rungs below the floor are clamped, not hidden.** The floor is set on another row entirely, so a cell
  *    that silently refuses to go lower with no visible reason looks broken. Dimmed-and-titled says why.
+ *
+ * ## Two sources of a minimum, one clamp
+ *
+ * A cell also cannot go below what another AREA entails: `knowledge: write` needs `schema: read` to be
+ * exercisable at all, so the server grants it (`RUNG_IMPLICATIONS`, resolved in `effectiveRung`). Both the
+ * floor and an implication are the same thing to this control — a minimum with a reason — so they share one
+ * clamp rather than getting one mechanism each. The title names whichever is BINDING, because a reader who
+ * cannot lower a cell wants the one fact that would let them.
+ *
+ * The implication is not hard-coded here. It arrives from `GET /api/tokens/rights-catalog`, which publishes
+ * what the server enforces; a copy typed into the client would be a second description of a security rule.
  */
 @Component({
   selector: 'app-rung-picker',
@@ -52,9 +64,15 @@ const LABEL: Record<Rung, string> = { none: '—', read: 'R', write: 'W', admin:
   `,
 })
 export class RungPickerComponent {
+  private t = inject(TranslocoService);
+
   value = input.required<Rung>();
   /** The floor for this area. A cell may never sit below it — see the class comment. */
   floor = input<Rung>('none');
+  /** A minimum entailed by another area in the same space, or `none`. See the class comment. */
+  implied = input<Rung>('none');
+  /** Which area entails `implied`, and at what rung — for the title. Ignored when `implied` is `none`. */
+  impliedBy = input<{ area: string; rung: Rung } | null>(null);
   /**
    * Display only: every segment is disabled and no click emits.
    *
@@ -65,9 +83,28 @@ export class RungPickerComponent {
   readonlyView = input(false);
   changed = output<Rung>();
 
+  /** The binding minimum: the higher of the floor and whatever another area entails. */
+  private minRung = computed<Rung>(() =>
+    RANK[this.implied()] > RANK[this.floor()] ? this.implied() : this.floor());
+
+  /**
+   * Why the cell will not go lower — naming the SOURCE that is actually binding.
+   *
+   * When both apply, the higher one wins and is the one worth explaining: telling somebody about the floor
+   * while an implication holds the cell two rungs above it sends them to change the wrong control.
+   */
+  private clampTitle = computed(() => {
+    const by = this.impliedBy();
+    return RANK[this.implied()] > RANK[this.floor()] && by
+      ? this.t.translate('tokens.rights.clamp.implied',
+        { rung: this.implied(), area: this.t.translate('tokens.rights.area.' + by.area), cause: by.rung })
+      : this.t.translate('tokens.rights.clamp.floor', { rung: this.floor() });
+  });
+
   segments = computed(() => {
     const held = RANK[this.value()];
-    const min = RANK[this.floor()];
+    const min = RANK[this.minRung()];
+    const clampTitle = this.clampTitle();
     return RUNGS.map((rung, i) => {
       const clamped = i < min;
       const filled = i <= held;
@@ -77,7 +114,7 @@ export class RungPickerComponent {
         // as one block at one level rather than a gradient nobody asked for.
         classes: `${filled ? `on r${held}` : ''}${clamped ? ' clamped' : ''}`,
         title: clamped
-          ? `Held at ${this.floor()} by the all-spaces floor`
+          ? clampTitle
           : `Set ${rung}${rung === this.value() ? ' — click again to step down' : ''}`,
       };
     });
@@ -86,11 +123,12 @@ export class RungPickerComponent {
   pick(rung: Rung): void {
     // Belt and braces: a disabled button cannot be clicked, but a caller could still call this.
     if (this.readonlyView()) return;
-    if (RANK[rung] < RANK[this.floor()]) return;
-    // Clicking the rung you are already on steps down one, never below the floor. A control that can only
+    const min = this.minRung();
+    if (RANK[rung] < RANK[min]) return;
+    // Clicking the rung you are already on steps down one, never below the minimum. A control that can only
     // climb reads as resisting being narrowed, which is the direction anyone auditing wants to move.
     const next: Rung = rung === this.value()
-      ? (RUNGS[Math.max(RANK[this.floor()], RANK[rung] - 1)] as Rung)
+      ? (RUNGS[Math.max(RANK[min], RANK[rung] - 1)] as Rung)
       : rung;
     if (next !== this.value()) this.changed.emit(next);
   }

@@ -1,9 +1,9 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { RightsMatrixComponent } from './rights-matrix.component';
-import { RightsCatalogService } from './rights-catalog.service';
+import { RightsCatalogService, impliedFrom, type RightsCatalog } from './rights-catalog.service';
 import { getTranslocoModule } from '../../testing/transloco-testing';
-import type { TokenRights } from './rights-glyph.component';
+import type { Rung, TokenRights } from './rights-glyph.component';
 
 const rights = (over: Partial<TokenRights> = {}): TokenRights =>
   ({ instanceAdmin: false, createSpaces: false, floor: null, perSpace: {}, ...over });
@@ -14,9 +14,18 @@ const CATALOG_ROUTES = [
   { area: 'knowledge', method: 'DELETE', route: '/api/x/memories/:id', needs: 'write' as const },
   { area: 'files', method: 'GET', route: '/api/x/files', needs: 'read' as const },
 ];
+/** The server's own `RUNG_IMPLICATIONS`, as the catalog publishes them. */
+const CATALOG_IMPLICATIONS = [
+  { when: 'knowledge', atLeast: 'write' as const, grants: 'schema', rung: 'read' as const },
+];
 function stubCatalog(loaded = true) {
   const catalog = signal(loaded
-    ? { areas: ['knowledge', 'files', 'schema', 'dataQuality'], rungs: ['none', 'read', 'write', 'admin'] as const, routes: CATALOG_ROUTES }
+    ? {
+      areas: ['knowledge', 'files', 'schema', 'dataQuality'],
+      rungs: ['none', 'read', 'write', 'admin'] as const,
+      implications: CATALOG_IMPLICATIONS,
+      routes: CATALOG_ROUTES,
+    }
     : null);
   return {
     catalog, failed: signal(!loaded), load: () => {},
@@ -25,6 +34,9 @@ function stubCatalog(loaded = true) {
       return CATALOG_ROUTES.filter(r => r.area === area && ['none', 'read', 'write', 'admin'].indexOf(r.needs) <= order);
     },
     countFor: (area: string) => CATALOG_ROUTES.filter(r => r.area === area).length,
+    // The REAL rule, not a second copy of it. A stub that re-implemented the implication would let these
+    // tests pass against a rule the product does not have.
+    impliedFor: (area: string, of: (a: string) => Rung) => impliedFrom(catalog() as RightsCatalog | null, area, of),
   };
 }
 
@@ -113,6 +125,85 @@ describe('RightsMatrixComponent', () => {
     const el = render(rights(), []);
     expect(el.querySelectorAll('tbody tr').length).toBe(1);
     expect(el.querySelector('tbody tr')!.className).toContain('floor');
+  });
+});
+
+/**
+ * `knowledge: write` entails `schema: read` (owner ruling, 2026-08-15). The server resolves it in
+ * `effectiveRung`; the grid must SHOW it, or the screen says `none` while the API grants read — the direction
+ * that understates access, on the one screen somebody audits access from.
+ *
+ * The rule reaches these tests through the stub's real `impliedFrom`, so a change to the rule breaks them.
+ */
+describe('RightsMatrixComponent — an implied rung', () => {
+  let fixture: ComponentFixture<RightsMatrixComponent>;
+
+  const render = (r: TokenRights, spaces = ['qa']) => {
+    fixture = TestBed.createComponent(RightsMatrixComponent);
+    fixture.componentRef.setInput('rights', r);
+    fixture.componentRef.setInput('spaces', spaces);
+    fixture.detectChanges();
+    return fixture.nativeElement as HTMLElement;
+  };
+  /** Column order is the area order: knowledge, files, schema, dataQuality. */
+  const pickerIn = (el: HTMLElement, row: number, col: number) =>
+    el.querySelectorAll('tbody tr')[row]!.querySelectorAll('app-rung-picker')[col]!;
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      // The two REAL English strings, so the interpolation is exercised rather than the key echoed. Asserting
+      // on a bare key would pass with the parameters wired to nothing, which is the half most likely to break.
+      imports: [RightsMatrixComponent, getTranslocoModule({
+        translation: {
+          en: {
+            'tokens.rights.clamp.implied': 'Held at {{rung}} because {{area}} is {{cause}}, which cannot work without it',
+            'tokens.rights.area.knowledge': 'Knowledge',
+          },
+        },
+      })],
+      providers: [{ provide: RightsCatalogService, useValue: stubCatalog() }],
+    }).compileComponents();
+  });
+
+  it('SHOWS the schema cell at read when knowledge is write, though none is stored', () => {
+    const el = render(rights({ perSpace: { qa: { knowledge: 'write', files: 'none', schema: 'none', dataQuality: 'none' } } }));
+    const bs = [...pickerIn(el, 1, 2).querySelectorAll('button')];
+    // Filled up to `read`, not `none`: the segments say what the token can do, and the token can read schemas.
+    expect(bs.map(b => b.className.includes('on'))).toEqual([true, true, false, false]);
+  });
+
+  it('clamps below the implied rung and says which area holds it there', () => {
+    const el = render(rights({ perSpace: { qa: { knowledge: 'write', files: 'none', schema: 'none', dataQuality: 'none' } } }));
+    const bs = [...pickerIn(el, 1, 2).querySelectorAll('button')];
+    expect(bs[0]!.disabled).toBe(true);
+    expect(bs[1]!.disabled).toBe(false);
+    // The title must name the CAUSE and the rung that caused it. "Held at read" alone sends the reader to the
+    // floor row, which is not what is holding it.
+    expect(bs[0]!.getAttribute('title')).toBe('Held at read because Knowledge is write, which cannot work without it');
+  });
+
+  it('leaves schema alone when knowledge is only read', () => {
+    const el = render(rights({ perSpace: { qa: { knowledge: 'read', files: 'none', schema: 'none', dataQuality: 'none' } } }));
+    const bs = [...pickerIn(el, 1, 2).querySelectorAll('button')];
+    expect(bs.map(b => b.disabled)).toEqual([false, false, false, false]);
+    expect(bs.map(b => b.className.includes('on'))).toEqual([true, false, false, false]);
+  });
+
+  it('applies to the FLOOR row too, from the floor own knowledge rung', () => {
+    const el = render(rights({ floor: { knowledge: 'write', files: 'none', schema: 'none', dataQuality: 'none' } }));
+    const bs = [...pickerIn(el, 0, 2).querySelectorAll('button')];
+    expect(bs.map(b => b.className.includes('on'))).toEqual([true, true, false, false]);
+    expect(bs[0]!.disabled).toBe(true);
+  });
+
+  it('does not write the implied rung into the emitted matrix', () => {
+    // The stored matrix keeps saying what the operator set. Persisting an inference would make a rung that
+    // exists only while knowledge is write outlive knowledge dropping back to read.
+    const el = render(rights({ perSpace: { qa: { knowledge: 'write', files: 'none', schema: 'none', dataQuality: 'none' } } }));
+    const emitted: TokenRights[] = [];
+    fixture.componentInstance.changed.subscribe(v => emitted.push(v));
+    pickerIn(el, 1, 1)!.querySelectorAll('button')[1]!.click();   // touch `files`, an unrelated column
+    expect(emitted[0]!.perSpace['qa']!['schema']).toBe('none');
   });
 });
 

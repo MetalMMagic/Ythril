@@ -21,7 +21,7 @@
  *  - **Never the instance-administrator switch**, and never `createSpaces`, from a non-administrator. Those
  *    are not areas and do not cap — they are held or they are not.
  */
-import { SPACE_AREAS } from '../config/rights-shape.js';
+import { SPACE_AREAS, RUNG_IMPLICATIONS } from '../config/rights-shape.js';
 import type { TokenRights, AreaRungs, Rung, SpaceArea } from '../config/rights-shape.js';
 
 const ORDER: readonly Rung[] = ['none', 'read', 'write', 'admin'];
@@ -41,16 +41,60 @@ export interface Excess {
 }
 
 /**
- * What the minter actually holds in a given space: the higher of its floor and its explicit row.
+ * What was WRITTEN for an area in a space: the higher of the floor and the explicit row.
  *
  * Both, not either. A token with a `read` floor and a `write` row on `qa` holds write there, and a token
  * with a `write` floor and no row still holds write everywhere — reading only one of them under-reports the
  * minter and refuses grants it was entitled to make.
+ *
+ * Granted, not held: implications are applied on top of this by `effectiveRung`. Kept separate so an
+ * implication is always evaluated against what an operator actually wrote, never against another inference.
  */
-export function effectiveRung(rights: TokenRights, space: string, area: SpaceArea): Rung {
+function grantedRung(rights: TokenRights, space: string, area: SpaceArea): Rung {
   const floor = rights.floor?.[area] ?? 'none';
   const row = rights.perSpace[space]?.[area] ?? 'none';
   return rank(row) > rank(floor) ? row : floor;
+}
+
+/**
+ * Raise a rung by whatever the other areas in the same space entail.
+ *
+ * `held` is what was written for `area`; `of` reads what was written for any OTHER area, in the same scope.
+ * Split this way so one implementation serves both the per-space resolution and the floor, which have
+ * different sources but the identical rule — the defect this repo produces most is one rule with two
+ * implementations, and the weaker one winning silently.
+ */
+function withImplications(area: SpaceArea, held: Rung, of: (a: SpaceArea) => Rung): Rung {
+  let out = held;
+  for (const rule of RUNG_IMPLICATIONS) {
+    if (rule.grants !== area) continue;
+    if (rank(of(rule.when)) >= rank(rule.atLeast) && rank(rule.rung) > rank(out)) out = rule.rung;
+  }
+  return out;
+}
+
+/**
+ * What this token actually holds for an area in a space — the single resolution, for the whole server.
+ *
+ * REST (`middleware.ts`), MCP (`mcp/tool-rights-guard.ts`), `reachable-spaces.ts` and `capRights` below all
+ * read this, which is what makes it the one place an implication can live without becoming two rules. See
+ * `RUNG_IMPLICATIONS` for why `knowledge: write` entails `schema: read`.
+ */
+export function effectiveRung(rights: TokenRights, space: string, area: SpaceArea): Rung {
+  return withImplications(area, grantedRung(rights, space, area), a => grantedRung(rights, space, a));
+}
+
+/**
+ * What a FLOOR holds for an area, implications included.
+ *
+ * The floor is its own scope: it reaches every space including ones created later, so it is compared against
+ * the minter's floor alone and never against an effective rung somewhere. The implication still applies —
+ * a `knowledge: write` floor means schema is readable everywhere, so granting a `schema: read` floor takes
+ * away nothing the minter did not already have. Omitting it here would have been the classic asymmetry:
+ * enforcement grants the implied rung, minting refuses to delegate it.
+ */
+export function floorRung(rights: TokenRights, area: SpaceArea): Rung {
+  return withImplications(area, rights.floor?.[area] ?? 'none', a => rights.floor?.[a] ?? 'none');
 }
 
 /**
@@ -75,7 +119,7 @@ export function capRights(minter: TokenRights, requested: TokenRights): Excess[]
   if (requested.floor) {
     for (const area of AREAS) {
       const want = requested.floor[area];
-      const have = minter.floor?.[area] ?? 'none';
+      const have = floorRung(minter, area);
       if (rank(want) > rank(have)) {
         excess.push({ space: '*', area, requested: want, allowed: have });
       }

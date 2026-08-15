@@ -35,6 +35,38 @@ export const RUNGS = ['none', 'read', 'write', 'admin'] as const;
 
 export type AreaRungs = Record<SpaceArea, Rung>;
 
+/**
+ * One area's rung entailing a rung in ANOTHER area, in the same space.
+ *
+ * Owner ruling 2026-08-15: *"whenever someone has write in knowledge he should automatically have read on
+ * schemas."* Writing a record against a schema requires reading that schema, so `knowledge: write` with
+ * `schema: none` is not a narrower grant — it is a grant that cannot be exercised. Leaving the pair to an
+ * operator means the commonest useful token is one checkbox away from being broken, and broken in a way that
+ * surfaces as a 403 on a route nobody deliberately called.
+ *
+ * ## Why the TABLE lives here and the resolution does not
+ *
+ * This module is the leaf both `types.ts` and `auth/` can import, so a table here has exactly one copy. The
+ * APPLICATION lives in `auth/mint-cap.ts` next to `effectiveRung`, which is the single place the whole server
+ * asks "what does this token hold here" — REST middleware, the MCP tool guard, `reachable-spaces.ts` and the
+ * mint cap all route through it. An implication applied anywhere else would be a second security rule.
+ *
+ * The client gets it from `GET /api/tokens/rights-catalog` rather than typing its own copy, for the same
+ * reason the route table is published there: a copy of a security rule drifts, and the copy people read is
+ * the one that is wrong.
+ *
+ * ## Implications do NOT chain, deliberately
+ *
+ * Each rule is evaluated against what the token was GRANTED, never against what an earlier rule inferred. A
+ * chain would make the order of this array load-bearing and let two innocuous rules compose into a grant
+ * nobody wrote down. If a transitive implication is ever wanted, it goes in as its own row, visibly.
+ */
+export const RUNG_IMPLICATIONS = [
+  { when: 'knowledge', atLeast: 'write', grants: 'schema', rung: 'read' },
+] as const satisfies readonly { when: SpaceArea; atLeast: Rung; grants: SpaceArea; rung: Rung }[];
+
+export type RungImplication = typeof RUNG_IMPLICATIONS[number];
+
 export interface TokenRights {
   instanceAdmin: boolean;
   createSpaces: boolean;

@@ -137,6 +137,21 @@ This dialog has no "Library Access" toggle. Library Access tokens (for sharing y
 
 **Editing a token.** Each row has a pencil button. It opens the token editor, where the **label** and the **rights matrix** are both editable and are saved together in one request — so a rename and a scope change are one audited edit, not two that can half-fail. The secret is untouched; use **Rotate** for that.
 
+#### Some cells hold each other up
+
+A cell will not always go as low as you click, and the greyed-out segments say why when you hover them. There
+are two reasons a cell is held:
+
+- **The all-spaces floor.** The top row is a *minimum*, not a bulk setting, so no space below it can sit lower.
+- **Another area needs it.** Setting **Knowledge** to **write** holds **Schema** at **read** in the same
+  space, because writing a record against a schema means reading that schema first. A token with write on
+  Knowledge and none on Schema is not a narrower token — it is one that cannot do the thing it was granted.
+
+The second is applied when access is checked, not written into the token. The matrix keeps saying what you
+set, so lowering Knowledge back to **read** returns Schema to whatever you had chosen rather than leaving
+behind a permission nobody picked. This is why the Schema cell can show **read** while the token you exported
+shows `none` — both are correct, and the grid is showing you what the token can actually do.
+
 > **A matrix stored in an obsolete shape is repaired when the instance starts.** If a token's stored rights
 > name an area the server no longer knows, or leave one of the four out, the editor could open it and never
 > save it — the server refused the very shape it had handed over. Startup now normalizes such a matrix and

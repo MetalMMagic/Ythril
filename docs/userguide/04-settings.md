@@ -137,15 +137,16 @@ This dialog has no "Library Access" toggle. Library Access tokens (for sharing y
 
 **Editing a token.** Each row has a pencil button. It opens the token editor, where the **label** and the **rights matrix** are both editable and are saved together in one request — so a rename and a scope change are one audited edit, not two that can half-fail. The secret is untouched; use **Rotate** for that.
 
-The editor also carries the **second factor** for this token — *Follow the instance setting* (the default),
-*Exempt*, or *Required*. It lives here rather than on the create form because it is a property of the token:
-before this, changing a scheduler’s exemption meant revoking the token and minting a replacement, rotating a
-secret to change a flag.
+> **A matrix stored in an obsolete shape is repaired when the instance starts.** If a token's stored rights
+> name an area the server no longer knows, or leave one of the four out, the editor could open it and never
+> save it — the server refused the very shape it had handed over. Startup now normalizes such a matrix and
+> writes it down: an unknown area is dropped, a missing one comes back at **none**, and every rung the server
+> can still read is kept exactly as it was. The repair only ever narrows, so re-check the token's matrix after
+> upgrading if you see one change; it never restores access from the pre-3.0 `admin` / `read-only` / spaces
+> fields.
 
-> **Granting an exemption asks for your authenticator code**, even if the token you are using is itself
-> exempt. Without that, one exemption could grant the next until the instance-wide MFA switch protected
-> nothing. The field appears only when you are granting one — not when you are editing an already-exempt
-> token, and not when you are taking an exemption away.
+**The second factor is not a token setting.** MFA is instance-wide and lives in **Settings → Preferences**;
+there is nothing about it in the token dialogs, and there is no per-token exemption to grant here.
 
 ### Rotating a token
 
@@ -163,9 +164,9 @@ Your current session token is marked **(current session)** in the list.
 
 MFA adds a one-time code requirement for admin actions (creating tokens, managing spaces). Normal data operations are not affected. There is no separate "MFA" page — the MFA panel lives inside **Settings → Preferences**, under the **Security** heading (the language switcher sits above it).
 
-**Automation does not have to lock you out of MFA.** The switch is instance-wide, so turning it on would otherwise demand a code from every token — including the ones a script or scheduler holds, which cannot type one. When you create a token under **Settings → Tokens** you can set its **Second factor** to *Never require a code* for exactly those, leaving MFA on for everyone else. The reverse also works: *Always require a code* on your own admin token even while the instance switch is off.
-
-An exempt token is marked **MFA exempt** in the token list, and creating one asks you for a code even if the token you are using is itself exempt — an exemption cannot quietly grant more of itself.
+**The switch is instance-wide, and that is the whole model.** It applies to admin actions, not to normal data
+operations, so a script or scheduler doing ordinary reads and writes is unaffected by turning it on. There is
+no per-token second-factor setting in the interface.
 
 ### Enrolling
 

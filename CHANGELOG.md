@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A rights matrix stored in an obsolete shape is repaired at startup, instead of being uneditable for
+  ever.** Reported from a live instance: saving a token's matrix was refused with ~40 validation errors —
+  `unrecognized_keys ["admin"]` and an invalid `dataQuality`, repeated for the floor and for every space.
+  Each stored rungs object was `{ knowledge, files, schema, admin }`: three areas plus a key that is not an
+  area, with the fourth area missing. The editor round-trips what it read, so the token could be opened and
+  never saved. The boot migration skipped it every time because it tested only that a matrix was PRESENT,
+  never that it was well-formed — so it ran, looked, and moved on, which is why it read as *"the migration
+  didn't work"*. Startup now normalizes a malformed matrix and writes it down: a key that is not an area is
+  dropped, a missing area comes back at `none`, an unreadable rung becomes `none`. It is a narrowing by
+  construction and never re-derives from the legacy `admin`/`readOnly`/`spaces` fields, which would have
+  silently restored access an operator had removed. The repair is logged with a count.
+- **The user guide no longer describes a per-token second factor.** The token editor's MFA controls were
+  removed in 3.0.1 and the guide still told operators to set *Follow the instance setting / Exempt /
+  Required* there, and to expect an authenticator prompt. MFA is instance-wide, under Settings →
+  Preferences, and nothing about it appears in the token dialogs.
 - **The rights editor can grant and revoke the two instance-level flags.** `instanceAdmin` and `createSpaces`
   are part of the matrix the server stores and `PATCH /api/tokens/:id` already accepted — `migrateToken` sets
   `instanceAdmin` from the legacy admin flag — but the editor had no control for either, so tokens HELD them

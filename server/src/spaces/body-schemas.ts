@@ -210,14 +210,34 @@ export function stripServerOwnedMeta(meta: unknown): unknown {
  * and `proxyFor` are create-only — `CreateSpaceBody` accepts them and `UpdateSpaceBody` deliberately does
  * not, since a populated proxy cannot be re-pointed by an edit.
  */
-export const SERVER_OWNED_SPACE_FIELDS =
-  ['id', 'builtIn', 'usageGiB', 'indexStatus', 'folders', 'proxyFor', 'networks'] as const;
+export const SERVER_OWNED_SPACE_FIELDS = ['builtIn', 'usageGiB', 'indexStatus', 'networks'] as const;
 
-/** Drop the server-owned top-level fields from an incoming space body, leaving everything else to Zod. */
-export function stripServerOwnedSpace(body: unknown): unknown {
+/**
+ * Fields a CREATE accepts and an UPDATE does not, so they are round-trip noise only on the update path.
+ *
+ * Split from the list above rather than merged into it, and the red-team suite is what forced the split:
+ * `mass-assignment.test.js` posts `{id, label, builtIn: true}` to `POST /api/spaces` and requires a **201**
+ * with `builtIn` not injectable. Stripping `id` on create would have thrown away a field the create body
+ * legitimately accepts — the caller's chosen space id, silently replaced by a generated one.
+ *
+ * `faceDescriptorDims` is deliberately in NEITHER list. It is create-only too, but no response emits it, so
+ * sending it to a PATCH is a request rather than round-trip noise — and the right answer to "change the
+ * descriptor width of a populated gallery" is a 400 naming the field, not a silent drop.
+ */
+export const CREATE_ONLY_SPACE_FIELDS = ['id', 'folders', 'proxyFor'] as const;
+
+/**
+ * Drop the server-owned top-level fields from an incoming space body, leaving everything else to Zod.
+ *
+ * `forUpdate` also drops the create-only fields. What counts as server-owned depends on the OPERATION, and
+ * one list for both would have to be either too generous on create (swallowing a chosen `id`) or too strict
+ * on update (400ing a round-tripped `folders`).
+ */
+export function stripServerOwnedSpace(body: unknown, opts: { forUpdate?: boolean } = {}): unknown {
   if (body == null || typeof body !== 'object' || Array.isArray(body)) return body;
   const copy: Record<string, unknown> = { ...(body as Record<string, unknown>) };
   for (const f of SERVER_OWNED_SPACE_FIELDS) delete copy[f];
+  if (opts.forUpdate) for (const f of CREATE_ONLY_SPACE_FIELDS) delete copy[f];
   return copy;
 }
 

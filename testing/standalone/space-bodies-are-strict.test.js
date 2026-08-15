@@ -138,9 +138,10 @@ describe('a GET body PATCHed back still works — strip, THEN be strict', () => 
   // The half that would have made this a regression dressed as a fix. `.strict()` alone turned a
   // round-tripped body into a 400 on the token mint route once already; the fix there was a strip PLUS
   // strictness, and neither alone was sufficient. The `meta` strip here exists for the same report.
-  let stripServerOwnedSpace, UpdateSpaceBody;
+  let stripServerOwnedSpace, UpdateSpaceBody, CreateSpaceBody;
   before(async () => {
-    ({ stripServerOwnedSpace, UpdateSpaceBody } = await import('../../server/dist/spaces/body-schemas.js'));
+    ({ stripServerOwnedSpace, UpdateSpaceBody, CreateSpaceBody } =
+      await import('../../server/dist/spaces/body-schemas.js'));
   });
 
   /** What `GET /api/spaces/:id` actually emits, taken from a live scratch instance on 2026-08-15. */
@@ -149,23 +150,35 @@ describe('a GET body PATCHed back still works — strip, THEN be strict', () => 
     indexStatus: 'building', meta: { purpose: 'x' },
   };
 
-  it('drops every field a GET emits that a PATCH does not accept', () => {
-    assert.deepEqual(stripServerOwnedSpace(AS_RETURNED), { label: 'General', meta: { purpose: 'x' } });
+  it('drops every field a listing emits that a PATCH does not accept', () => {
+    assert.deepEqual(stripServerOwnedSpace(AS_RETURNED, { forUpdate: true }),
+      { label: 'General', meta: { purpose: 'x' } });
   });
 
   it('so the round-trip parses instead of 400ing', () => {
-    assert.equal(UpdateSpaceBody.safeParse(stripServerOwnedSpace(AS_RETURNED)).success, true);
+    assert.equal(UpdateSpaceBody.safeParse(stripServerOwnedSpace(AS_RETURNED, { forUpdate: true })).success, true);
   });
 
-  it('and a real typo is STILL refused after the strip', () => {
+  it('the CREATE strip keeps `id`, `folders` and `proxyFor` — they are real inputs there', () => {
+    // The gap CI caught. `mass-assignment.test.js` posts `{id, label, builtIn: true}` and requires a 201
+    // with `builtIn` not injectable — so create must strip `builtIn` and must NOT strip `id`, or a caller's
+    // chosen space id is silently replaced by a generated slug.
+    const out = stripServerOwnedSpace({ id: 'qa', label: 'QA', folders: ['a'], builtIn: true, usageGiB: 3 });
+    assert.deepEqual(out, { id: 'qa', label: 'QA', folders: ['a'] });
+    assert.equal(CreateSpaceBody.safeParse(out).success, true);
+  });
+
+  it('and a real typo is STILL refused after either strip', () => {
     // The failure mode of a too-generous strip: it would swallow exactly what strictness was added to catch.
-    // `faceDescriptorDim` is not a field any response contains, so nothing may drop it.
-    const r = UpdateSpaceBody.safeParse(stripServerOwnedSpace({ ...AS_RETURNED, faceDescriptorDim: 512 }));
-    assert.equal(r.success, false);
+    // `faceDescriptorDim` is in NEITHER list, because no response emits it.
+    assert.equal(UpdateSpaceBody.safeParse(
+      stripServerOwnedSpace({ ...AS_RETURNED, faceDescriptorDim: 512 }, { forUpdate: true })).success, false);
+    assert.equal(CreateSpaceBody.safeParse(
+      stripServerOwnedSpace({ label: 'QA', faceDescriptorDim: 512 })).success, false);
   });
 
   it('leaves a non-object alone rather than throwing', () => {
-    assert.equal(stripServerOwnedSpace(null), null);
+    assert.equal(stripServerOwnedSpace(null, { forUpdate: true }), null);
     assert.equal(stripServerOwnedSpace('nope'), 'nope');
     assert.deepEqual(stripServerOwnedSpace([1, 2]), [1, 2]);
   });

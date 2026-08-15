@@ -180,7 +180,7 @@ export function planSpaceMetaUpdate(input: {
   // 2026-08-15). Before that it silently dropped everything it did not declare, so only `meta` needed a
   // strip; strictness without this would turn the very round-trip the meta strip exists to protect into a
   // 400 one level up. Strip THEN be strict — never either alone.
-  const stripped = stripServerOwnedSpace(body);
+  const stripped = stripServerOwnedSpace(body, { forUpdate: true });
   const bodyForParse = stripped != null && typeof stripped === 'object' && !Array.isArray(stripped)
     ? { ...(stripped as Record<string, unknown>), ...('meta' in (stripped as object) ? { meta: stripServerOwnedMeta((stripped as { meta?: unknown }).meta) } : {}) }
     : stripped;

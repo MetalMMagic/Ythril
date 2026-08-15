@@ -13,7 +13,7 @@
  * reintroduces a floating endpoint fails here rather than in someone's eyes.
  */
 import { describe, it, expect } from 'vitest';
-import { layoutErModel, type ErBox } from './er-layout';
+import { layoutErModel, estimateLabelWidth, type ErBox } from './er-layout';
 import type { ErEntityType, ErRelationship } from '../../core/api.types';
 
 const type = (t: string, over: Partial<ErEntityType> = {}): ErEntityType => ({
@@ -140,6 +140,55 @@ describe('every join starts and ends on a box', () => {
  * counts from 0 to 9, and 22 relationships concentrated on one hub. The assertions are geometric invariants,
  * not snapshots — a snapshot of a diagram this size would be unreadable and would fail on every tweak.
  */
+/**
+ * The owner's model, in the shape that produced the screenshot: LONG join labels, several of them, all in one
+ * gap. The big-model fixture above cannot exercise this — its labels are `in0` and `chain7`, six characters,
+ * narrower than three lane widths, so `slot % 3` never re-collides there and a mutation of the cycle survives
+ * it. Reported labels were `implements · 113`, `refines · 53` and a clipped `conflicts`.
+ */
+describe('er-layout with labels wider than the lane spacing', () => {
+  const t = (name) => ({
+    type: name, count: 9, declared: true,
+    properties: [{ name: 'p0', type: 'string', required: true }],
+    linkedFrom: { memories: 0, chrono: 0, files: 0 },
+  });
+  const LABELS = ['implements', 'refines', 'conflicts', 'requires', 'supersedes', 'contradicts', 'elaborates'];
+  const types = [t('hub'), ...LABELS.map((_, i) => t(`spoke${i}`))];
+  // Every join points AT the hub, so they all land in one gap and share one lane run.
+  const rels = LABELS.map((label, i) => ({ from: `spoke${i}`, to: 'hub', label, count: 100 + i }));
+  const out = layoutErModel(types, rels);
+
+  it('gives the gap room for the widest label, not just for the lanes', () => {
+    const widest = Math.max(...rels.map(estimateLabelWidth));
+    for (const p of out.paths) {
+      const x2 = p.labelX + estimateLabelWidth(p);
+      for (const b of out.boxes) {
+        const yOverlap = b.y < p.labelY + 6 && b.y + b.h > p.labelY - 10;
+        expect(yOverlap && x2 > b.x && p.labelX < b.x + b.w,
+          `${p.label} ends at ${x2.toFixed(0)} inside ${b.type} (widest label ${widest.toFixed(0)}px)`).toBe(false);
+      }
+    }
+  });
+
+  it('steps labels through enough heights that no two wide ones collide', () => {
+    // HONEST NOTE: this passes with the `slot % 3` cycle too, and that is why the cycle was left alone —
+    // see `er-layout.ts`. `labelY` starts from each join's OWN span, so two joins three lanes apart differ
+    // in height for a reason the modulo never enters. Kept as an invariant guard on the gap sizing rather
+    // than claimed as the test that drove a change: it would fire if a later edit put labels in a shared
+    // column or flattened the spans.
+    const boxes = out.paths.map(p => ({
+      x1: p.labelX, x2: p.labelX + estimateLabelWidth(p), y: p.labelY, id: p.label,
+    }));
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        const a = boxes[i], b = boxes[j];
+        expect(a.x1 < b.x2 && b.x1 < a.x2 && Math.abs(a.y - b.y) < 11,
+          `"${a.id}" and "${b.id}" overlap in x and sit ${Math.abs(a.y - b.y).toFixed(0)}px apart`).toBe(false);
+      }
+    }
+  });
+});
+
 describe('er-layout on a big, lopsided model', () => {
   const type = (name, props, count = 10) => ({
     type: name,
@@ -238,6 +287,38 @@ describe('er-layout on a big, lopsided model', () => {
         const yOverlap = b.y < hi && b.y + b.h > lo;
         const inside = yOverlap && lane > b.x + 1 && lane < b.x + b.w - 1;
         expect(inside, `${p.from}->${p.to} lane at ${lane} cuts through ${b.type}`).toBe(false);
+      }
+    }
+  });
+
+  it('keeps every label TEXT clear of every box, not just its origin', () => {
+    // The defect the previous assertions could not see. They checked where a label STARTS; the owner's
+    // screenshot showed `implements · 113` and `refines · 53` ending on top of the next card, because the
+    // gap grew with the number of lanes and never with the width of the text those lanes carry.
+    for (const p of out.paths.filter(x => !x.selfJoin)) {
+      const x2 = p.labelX + estimateLabelWidth(p);
+      for (const b of out.boxes) {
+        const yOverlap = b.y < p.labelY + 6 && b.y + b.h > p.labelY - 10;
+        const xOverlap = x2 > b.x && p.labelX < b.x + b.w;
+        expect(yOverlap && xOverlap,
+          `${p.from}->${p.to} label runs from ${p.labelX.toFixed(0)} to ${x2.toFixed(0)}, into ${b.type}`,
+        ).toBe(false);
+      }
+    }
+  });
+
+  it('does not let two labels whose TEXT overlaps share a height', () => {
+    // The `(slot % 3)` re-collision: the fourth lane on a side reused the first lane's offset, and a label
+    // wider than three lane widths still spans that lane's x. Origin proximity cannot catch it — the two
+    // origins are 66 px apart, and the text is not.
+    const boxes = out.paths.filter(p => !p.selfJoin)
+      .map(p => ({ x1: p.labelX, x2: p.labelX + estimateLabelWidth(p), y: p.labelY, id: `${p.from}->${p.to}` }));
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        const a = boxes[i], b = boxes[j];
+        const xOverlap = a.x1 < b.x2 && b.x1 < a.x2;
+        expect(xOverlap && Math.abs(a.y - b.y) < 11,
+          `${a.id} and ${b.id} labels overlap in x and sit within 11px of each other`).toBe(false);
       }
     }
   });

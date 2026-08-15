@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`knowledge: write` now carries `schema: read` with it.** Writing a record against a schema requires
+  reading that schema, so a token granted write on Knowledge and nothing on Schema was not a narrower token —
+  it was one that could not do what it had just been granted, and the failure arrived as a 403 on a route
+  nobody called deliberately. The pair is no longer an operator's to get wrong. It resolves in one place
+  (`effectiveRung`), which is where REST, MCP, space reachability and the minting cap all ask what a token
+  holds, so both doors gained it in the same commit and neither can drift from the other. A minter holding
+  `knowledge: write` may now also delegate `schema: read` — without that, enforcement would grant a rung that
+  minting refused to hand on. The implication is a floor and never an assignment: a Schema rung granted
+  outright is not lowered by it, and it never runs backwards. **Nothing is written to the stored matrix** —
+  `GET /api/tokens` still returns exactly what was set, so lowering Knowledge back to `read` returns Schema to
+  the value that was chosen instead of leaving a permission nobody picked. The rights matrix shows the Schema
+  cell held at `read` with a tooltip naming Knowledge as the reason, rather than showing `none` while the
+  server grants read; `GET /api/tokens/rights-catalog` publishes the rule as `implications` so no client needs
+  a second copy of it.
+
 ### Fixed
 
 - **`query` over MCP returned no rows to a client that reads `structuredContent`.** The tool put the rows in

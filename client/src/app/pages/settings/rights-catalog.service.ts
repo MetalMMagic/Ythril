@@ -10,10 +10,54 @@ export interface CatalogRoute {
   needs: Exclude<Rung, 'none'>;
 }
 
+/**
+ * One area's rung entailing a rung in another, in the same space.
+ *
+ * Published by the server (`RUNG_IMPLICATIONS`) because it is the rule `effectiveRung` ENFORCES. The grid
+ * reads it rather than describing it: a security rule with two descriptions drifts, and the copy people read
+ * is the wrong one.
+ */
+export interface CatalogImplication {
+  when: string;
+  atLeast: Rung;
+  grants: string;
+  rung: Rung;
+}
+
 export interface RightsCatalog {
   areas: readonly string[];
   rungs: readonly Rung[];
+  /** Absent on a server older than this field — treated as "no implications", never as an error. */
+  implications?: readonly CatalogImplication[];
   routes: readonly CatalogRoute[];
+}
+
+/**
+ * The implication rule, as a pure function of a catalog.
+ *
+ * Exported and free-standing so a test double cannot hold a SECOND version of it. A stubbed
+ * `RightsCatalogService` that re-implemented this in the spec file would be a fake rule dressed as the real
+ * one, and the grid's tests would then prove the fake — the failure mode where a measurement shares its
+ * subject's blind spot. Stubs call this; the service calls this.
+ *
+ * `of` reads the GRANTED rung of another area — what an operator wrote, never another inference — matching
+ * the server's `withImplications`. Returns the highest applicable rule, or `null` when the catalog is absent,
+ * has no `implications` field (an older server), or nothing entails anything.
+ */
+export function impliedFrom(
+  catalog: RightsCatalog | null,
+  area: string,
+  of: (a: string) => Rung,
+): { rung: Rung; by: { area: string; rung: Rung } } | null {
+  if (!catalog?.implications) return null;
+  let best: { rung: Rung; by: { area: string; rung: Rung } } | null = null;
+  for (const rule of catalog.implications) {
+    if (rule.grants !== area) continue;
+    if (catalog.rungs.indexOf(of(rule.when)) < catalog.rungs.indexOf(rule.atLeast)) continue;
+    if (best && catalog.rungs.indexOf(best.rung) >= catalog.rungs.indexOf(rule.rung)) continue;
+    best = { rung: rule.rung, by: { area: rule.when, rung: rule.atLeast } };
+  }
+  return best;
 }
 
 /**
@@ -66,5 +110,15 @@ export class RightsCatalogService {
   /** How many routes an area has in total, for a header that says how much is behind it. */
   countFor(area: string): number {
     return (this.catalog()?.routes ?? []).filter(r => r.area === area).length;
+  }
+
+  /**
+   * The minimum `area` is held at, given what the other areas in the same scope are set to.
+   *
+   * The rule itself is `impliedFrom` above — this is the signal-reading wrapper, so the grid asks the service
+   * and the service holds no second copy of the rule.
+   */
+  impliedFor(area: string, of: (a: string) => Rung): { rung: Rung; by: { area: string; rung: Rung } } | null {
+    return impliedFrom(this.catalog(), area, of);
   }
 }

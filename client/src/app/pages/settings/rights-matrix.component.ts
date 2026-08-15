@@ -91,7 +91,9 @@ const EMPTY = (): WireRungs => ({ knowledge: 'none', files: 'none', schema: 'non
           <td class="l">{{ 'tokens.rights.allSpaces' | transloco }}<small>{{ 'tokens.rights.allSpacesHint' | transloco }}</small></td>
           @for (a of areas; track a) {
             <td>
-              <app-rung-picker [value]="floorOf(a)" [readonlyView]="readonlyView()" (changed)="setFloor(a, $event)"/>
+              <app-rung-picker [value]="floorShown(a)"
+                               [implied]="floorImplied(a)?.rung ?? 'none'" [impliedBy]="floorImplied(a)?.by ?? null"
+                               [readonlyView]="readonlyView()" (changed)="setFloor(a, $event)"/>
             </td>
           }
         </tr>
@@ -100,7 +102,9 @@ const EMPTY = (): WireRungs => ({ knowledge: 'none', files: 'none', schema: 'non
             <td class="l">{{ s }}</td>
             @for (a of areas; track a) {
               <td>
-                <app-rung-picker [value]="cellOf(s, a)" [floor]="floorOf(a)" [readonlyView]="readonlyView()" (changed)="setCell(s, a, $event)"/>
+                <app-rung-picker [value]="cellShown(s, a)" [floor]="floorOf(a)"
+                                 [implied]="cellImplied(s, a)?.rung ?? 'none'" [impliedBy]="cellImplied(s, a)?.by ?? null"
+                                 [readonlyView]="readonlyView()" (changed)="setCell(s, a, $event)"/>
               </td>
             }
           </tr>
@@ -181,6 +185,23 @@ export class RightsMatrixComponent implements OnInit {
   floorOf = (area: string): Rung => this.rights().floor?.[area] ?? 'none';
 
   /**
+   * What another area entails for this one — read from the catalog, never described here.
+   *
+   * Two scopes, one rule. The floor is compared against the floor's own other areas, a cell against that
+   * space's other areas, which is exactly the split the server makes between `floorRung` and `effectiveRung`.
+   * Passing the WRITTEN rung rather than `cellOf` matters: an implication must be entailed by what somebody
+   * set, or two rules could compose into a grant nobody wrote down.
+   */
+  floorImplied = (area: string) => this.catalog.impliedFor(area, a => this.floorOf(a));
+
+  cellImplied = (space: string, area: string) =>
+    this.catalog.impliedFor(area, a => {
+      const row = this.rights().perSpace[space]?.[a] ?? 'none';
+      const floor = this.floorOf(a);
+      return rank(row) > rank(floor) ? row : floor;
+    });
+
+  /**
    * A cell shows the higher of its own row and the floor.
    *
    * Showing the stored row alone would display `none` for a space the token can in fact reach through the
@@ -191,6 +212,31 @@ export class RightsMatrixComponent implements OnInit {
     const row = this.rights().perSpace[space]?.[area] ?? 'none';
     const floor = this.floorOf(area);
     return rank(row) > rank(floor) ? row : floor;
+  };
+
+  /**
+   * What the cell DISPLAYS: the written rung raised by anything another area entails.
+   *
+   * Same argument as the floor one rung up. A cell showing `none` for schema while the token holds
+   * `knowledge: write` would say one thing and the server do another, in the direction that under-states
+   * access — which is the direction that matters on a screen somebody is auditing.
+   *
+   * Nothing is written down for it. The stored matrix keeps saying what the operator set, and the implication
+   * is resolved at enforcement, so dropping knowledge back to `read` returns schema to whatever it was rather
+   * than leaving a grant nobody chose. Storing the inferred rung is how a temporary implication becomes
+   * permanent access.
+   */
+  cellShown = (space: string, area: string): Rung => {
+    const held = this.cellOf(space, area);
+    const implied = this.cellImplied(space, area);
+    return implied && rank(implied.rung) > rank(held) ? implied.rung : held;
+  };
+
+  /** The floor cell's display value, raised the same way and for the same reason. */
+  floorShown = (area: string): Rung => {
+    const held = this.floorOf(area);
+    const implied = this.floorImplied(area);
+    return implied && rank(implied.rung) > rank(held) ? implied.rung : held;
   };
 
   setFloor(area: string, rung: Rung): void {

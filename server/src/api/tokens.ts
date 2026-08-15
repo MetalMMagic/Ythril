@@ -5,7 +5,7 @@ import { authRateLimit, globalRateLimit } from '../rate-limit/middleware.js';
 import { createToken, listTokens, revokeToken, regenerateToken, renameToken, setTokenRights, setTokenMfa } from '../auth/tokens.js';
 import { isMfaEnabled, verifyMfaCode } from '../auth/totp.js';
 import { z } from 'zod';
-import { SPACE_AREAS, RUNGS } from '../config/rights-shape.js';
+import { SPACE_AREAS, RUNGS, RUNG_IMPLICATIONS } from '../config/rights-shape.js';
 import { ROUTE_RIGHTS } from '../auth/space-rights.js';
 import { refusalsOutsideEditorScope } from '../auth/editor-scope.js';
 import { capRights, describeExcess } from '../auth/mint-cap.js';
@@ -37,11 +37,17 @@ tokensRouter.get('/me', globalRateLimit, requireAuth, (req, res) => {
  *
  * `scope` is deliberately omitted — how a route learns which space it is about is internal, and a tooltip has
  * no use for it.
+ *
+ * `implications` is published for the same reason the routes are: `knowledge: write` entails `schema: read`
+ * (`RUNG_IMPLICATIONS`), the server enforces it in `effectiveRung`, and a grid that hard-coded the pair would
+ * be a second copy of a security rule. With it published, the matrix can hold the schema cell at the implied
+ * rung and say why, instead of showing `none` while the server grants read.
  */
 tokensRouter.get('/rights-catalog', globalRateLimit, requireAuth, (_req, res) => {
   res.json({
     areas: SPACE_AREAS,
     rungs: RUNGS,
+    implications: RUNG_IMPLICATIONS,
     routes: ROUTE_RIGHTS.map(r => ({ area: r.area, method: r.method, route: r.route, needs: r.needs })),
   });
 });

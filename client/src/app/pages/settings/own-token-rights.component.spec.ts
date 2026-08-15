@@ -18,6 +18,9 @@ const rights = (over: Partial<TokenRights> = {}): TokenRights =>
 const catalogStub = () => ({
   catalog: signal({ areas: ['knowledge', 'files', 'schema', 'dataQuality'], rungs: ['none', 'read', 'write', 'admin'] as const, routes: [] }),
   failed: signal(false), load: () => {}, routesFor: () => [], countFor: () => 0,
+  // No `implications` in this stub's catalog, so the real rule returns null — this view is about rendering
+  // a matrix read-only, and an implication it does not exercise would only make the fixture lie about scope.
+  impliedFor: () => null,
 });
 
 function make(me: unknown, fail = false) {

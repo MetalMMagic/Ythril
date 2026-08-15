@@ -1883,6 +1883,8 @@
   "tokens.rights.endpoint": "Endpunkt",
   "tokens.rights.fromRung": "Ab",
   "tokens.rights.endpointsUnavailable": "Die Endpunktliste konnte nicht geladen werden. Die Beschreibungen oben gelten weiterhin.",
+  "tokens.rights.clamp.floor": "Durch die Untergrenze für alle Spaces auf {{rung}} gehalten",
+  "tokens.rights.clamp.implied": "Auf {{rung}} gehalten, weil {{area}} auf {{cause}} steht und ohne dies nicht funktioniert",
   "tokens.rights.area.knowledge": "Wissen",
   "tokens.rights.area.knowledge.desc": "Erinnerungen, Entitäten, Beziehungen und Zeitachsen-Einträge — die Datensätze, aus denen der Space besteht, und deren Suche.",
   "tokens.rights.area.files": "Dateien",

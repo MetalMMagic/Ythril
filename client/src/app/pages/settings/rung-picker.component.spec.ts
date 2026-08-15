@@ -1,5 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { RungPickerComponent } from './rung-picker.component';
+import { getTranslocoModule } from '../../testing/transloco-testing';
 import type { Rung } from './rights-glyph.component';
 
 /**
@@ -23,7 +24,11 @@ describe('RungPickerComponent', () => {
   const buttons = (el: HTMLElement) => [...el.querySelectorAll('button')] as HTMLButtonElement[];
 
   beforeEach(async () => {
-    await TestBed.configureTestingModule({ imports: [RungPickerComponent] }).compileComponents();
+    // Transloco is needed because the clamp titles are translated — the picker states WHY a cell will not
+    // go lower, and "held by the floor" and "held by an implication" are different sentences.
+    await TestBed.configureTestingModule({
+      imports: [RungPickerComponent, getTranslocoModule()],
+    }).compileComponents();
   });
 
   it('renders one segment per rung', () => {

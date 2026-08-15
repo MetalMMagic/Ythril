@@ -1883,6 +1883,8 @@
   "tokens.rights.endpoint": "Punkt końcowy",
   "tokens.rights.fromRung": "Od",
   "tokens.rights.endpointsUnavailable": "Nie udało się wczytać listy punktów końcowych. Opisy powyżej nadal obowiązują.",
+  "tokens.rights.clamp.floor": "Utrzymane na {{rung}} przez próg dla wszystkich przestrzeni",
+  "tokens.rights.clamp.implied": "Utrzymane na {{rung}}, ponieważ {{area}} ma {{cause}} i bez tego nie zadziała",
   "tokens.rights.area.knowledge": "Wiedza",
   "tokens.rights.area.knowledge.desc": "Wspomnienia, encje, relacje i wpisy na osi czasu — rekordy, z których składa się przestrzeń, oraz ich wyszukiwanie.",
   "tokens.rights.area.files": "Pliki",

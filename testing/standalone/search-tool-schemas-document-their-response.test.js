@@ -100,6 +100,42 @@ describe('query says what it is FOR and what comes back', () => {
   });
 });
 
+/** The `find_similar` tool object, scoped the same way. */
+const FIND_SIMILAR = (() => {
+  const at = SRC.indexOf("name: 'find_similar'");
+  assert.ok(at > 0, 'the find_similar tool was not found — the scanner is wrong, not the code');
+  const next = SRC.indexOf("name: '", at + 20);
+  return next === -1 ? SRC.slice(at) : SRC.slice(at, next);
+})();
+
+describe('find_similar names the two silent empties', () => {
+  it('a source entry with no vector cannot be similar to anything', () => {
+    // The failure that looks like a fact: an empty answer reads as "nothing resembles this", when the real
+    // cause is that the SOURCE was retired from ranking and has no embedding to compare from.
+    assert.match(FIND_SIMILAR, /retired from semantic ranking/,
+      'an empty answer from a vector-less source must not read as "nothing is similar"');
+  });
+
+  it('says there is no includeFreshWrites here, and why', () => {
+    assert.match(FIND_SIMILAR, /includeFreshWrites/,
+      "a caller who knows recall's escape hatch will look for it here");
+    assert.match(FIND_SIMILAR, /has to exist before this can start/,
+      'say why it cannot exist rather than leaving its absence to be discovered');
+  });
+
+  it('says minScore means something DIFFERENT here than on recall', () => {
+    // Same parameter name, same units, different job: on recall it gates before the reranker; here cosine is
+    // the only ranking, so it is the relevance gate itself.
+    assert.match(FIND_SIMILAR, /this IS the relevance gate/,
+      'the same parameter behaving differently across two tools is exactly what a schema must say');
+  });
+
+  it('distinguishes the source type from the target types', () => {
+    assert.match(FIND_SIMILAR, /It does not constrain what comes back/,
+      '`entryType` resolves the id; `targetTypes` filters the answer, and conflating them is the obvious error');
+  });
+});
+
 describe('the parameters carry their traps', () => {
   it('types: edges are searchable records and compete for topK', () => {
     assert.match(RECALL, /EDGES ARE SEARCHABLE RECORDS/,

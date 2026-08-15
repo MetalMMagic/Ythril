@@ -21,6 +21,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`find_similar` now names the two ways it can come back empty for a reason that is not "nothing is
+  similar".** It compares against a record's **stored** embedding rather than working from a query, which has
+  two consequences that were nowhere in its reference: a source record that has been retired from semantic
+  ranking has no embedding at all, so there is nothing to compare from and the answer is empty; and a record
+  written moments ago may not be indexed yet, with no way to ask for it anyway, because the source's own
+  embedding has to exist before the search can start. Both used to look like a finding. The minimum-score
+  setting also now says that it means something **different** here than on `recall` — similarity is the only
+  ranking in this tool, so raising it narrows the answer honestly, and near-duplicates sit well above 0.9. And
+  the type of the source record is distinguished from the types you want back: a memory can legitimately be
+  most similar to an entity.
+
 - **`query` now says what it is *for*, and what a page of results means.** Its whole description was one
   line — what it does, never when to choose it. It is the exact counterpart to `recall`: a predicate and
   every row that satisfies it, with no embedding, no ranking and no score, and it reaches records `recall`

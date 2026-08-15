@@ -8,7 +8,19 @@ WORKDIR /build
 COPY package.json package-lock.json* ./
 COPY client/package.json ./client/
 
-# Install client dependencies
+# Install client dependencies.
+#
+# ONNXRUNTIME_NODE_INSTALL_CUDA=skip is not an optimisation, it is what makes this step hermetic — the same
+# reasoning that put it on both `npm ci` steps in CI. `onnxruntime-node` fetches its CUDA execution-provider
+# binaries from a GitHub release on postinstall, and on a machine with no `nvcc` it logs "nvcc not found.
+# Assuming CUDA 12" and downloads the GPU tarball anyway. Two CI runs failed 35 minutes apart on that
+# download alone; a Docker build has the same dependency on github.com being reachable and fast, and it is
+# the build most likely to run somewhere that neither is true.
+#
+# Owner ruled P-5 = A on 2026-08-15: skip it in the image too. A GPU deployment loses the execution provider
+# and needs its own image variant — nothing in the published image uses it, since the bundled embedder runs
+# on CPU.
+ENV ONNXRUNTIME_NODE_INSTALL_CUDA=skip
 RUN npm ci --workspace=client
 
 # Copy source and build.
@@ -35,7 +47,10 @@ COPY package.json package-lock.json* ./
 COPY tsconfig.base.json ./
 COPY server/package.json ./server/
 
-# Install all dependencies (including devDependencies for TypeScript compiler)
+# Install all dependencies (including devDependencies for TypeScript compiler).
+# ONNXRUNTIME_NODE_INSTALL_CUDA=skip — see the client stage for why. Repeated because ENV does not cross a
+# stage boundary, which is exactly the kind of thing a reader assumes and a build silently disproves.
+ENV ONNXRUNTIME_NODE_INSTALL_CUDA=skip
 RUN npm ci --workspace=server
 
 # Copy source
@@ -68,6 +83,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 make g+
 WORKDIR /app
 COPY package.json package-lock.json* ./
 COPY server/package.json ./server/
+# ONNXRUNTIME_NODE_INSTALL_CUDA=skip — see the client stage. This is the `npm ci` that produces the tree the
+# published image actually SHIPS, so it is the one where a GPU tarball would be both downloaded and carried.
+ENV ONNXRUNTIME_NODE_INSTALL_CUDA=skip
 RUN npm ci --workspace=server --omit=dev
 
 # ── Stage 1c: Warm the embedding model, in a stage of its own ─────────────────

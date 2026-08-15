@@ -88,7 +88,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   between columns had been sized for the number of lanes since joins started piling up, but never for the
   width of the text those lanes carry. Sixteen characters is about 100px against a gap that could have twenty
   left. The gap now reserves room for the widest label as well as for the lanes. Labels that converge on one
-  box can still sit close together vertically; that is a separate defect and is not fixed here.
+  box no longer crowd each other either: they used to step through only three heights before repeating, and
+  every join arriving at the same box starts counting from that box, so several landed 13px apart with a
+  connector drawn between them. They now step down the span they share, far enough apart to read.
 
 - **An embedder outage no longer spends a record's retry budget.** The retry policy allows five attempts over
   about twelve and a half minutes, which is sized for one record failing on its own content. Applied to an

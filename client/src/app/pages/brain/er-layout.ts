@@ -360,26 +360,28 @@ export function layoutErModel(realTypes: ErEntityType[], realRels: ErRelationshi
   let rightLane = 0;
 
   /**
-   * `slot % 3` is LEFT ALONE, and that is a finding rather than an omission.
+   * The label steps down by its FULL slot, not by `slot % 3`.
    *
-   * ER-1 also reported that the fourth lane on a side reuses the first lane's vertical offset, so two joins
-   * that additionally share a similar `spanTop` put their labels at nearly the same height. The reasoning is
-   * sound and the second condition is what saves it in practice: `labelY` starts from each join's OWN span,
-   * and two joins three lanes apart have different endpoints and therefore different spans.
+   * ## Why a modulo was wrong here, and why the first diagnosis of it was also wrong
    *
-   * A cycle derived from the label width was written, and then removed, because it could not be shown to
-   * change anything: mutating it back to `% 3` passed every test including a fixture built specifically for
-   * it — seven joins with `implements`-length labels. Shipping it would have been an untested behaviour
-   * change wearing a fix's comment.
+   * ER-1 said the fourth lane on a side reuses the first lane's offset, so two joins sharing a `spanTop` end
+   * up at the same height. A cycle derived from the label width was written to fix that — and removed,
+   * because mutating it back to `% 3` passed every test including a fixture built for it.
    *
-   * **The screenshot then found the real mechanism, which is not the modulo at all.** Seven joins converging
-   * on ONE box share a `spanBottom`, so `Math.min(spanBottom - 6, …)` clamps three of them to within a few
-   * pixels of each other regardless of their slot: `supersedes`, `contradicts` and `elaborates` came out
-   * stacked, one of them struck through by a lane. Widening the cycle would not have moved them, because the
-   * clamp is what binds — which is exactly why the unit tests could not see it and why ER-1 asks for a PNG.
+   * The screenshot showed what neither could: joins CONVERGING on one box all take their `spanTop` from that
+   * box, so every one of them starts counting from the same y. `supersedes`, `contradicts` and `elaborates`
+   * came out 13 px apart with lane lines running between them — not overlapping, which is why the specs were
+   * quiet, and not readable either, which is what was reported.
    *
-   * That half stays open on ER-1 with this reproduction attached. It needs the clamp reworked, not the step.
+   * A modulo is the wrong tool for a shared origin. Three offsets is enough only while the joins that share
+   * an origin are at most three; seven converge here, and a real model converges harder. Stepping by the full
+   * slot spreads them down the span they all share, and `Math.min(spanBottom - 6, …)` still stops a label
+   * leaving its own span — which is the same clamp as before and does the job the modulo was standing in for.
+   *
+   * The step goes to 15 for the same reason: 13 px between two ~11 px lines, with a lane drawn through the
+   * gap, is the crowding the screenshot showed rather than a collision the arithmetic could catch.
    */
+  const LABEL_STEP_Y = 15;
 
   for (const r of rels) {
     const a = byType.get(r.from);
@@ -425,7 +427,7 @@ export function layoutErModel(realTypes: ErEntityType[], realRels: ErRelationshi
     // same height. `labelX` is nudged off the line itself so the glyphs do not sit astride the stroke.
     const spanTop = Math.min(sy, ty);
     const spanBottom = Math.max(sy, ty);
-    const labelY = Math.min(spanBottom - 6, spanTop + 14 + (slot % 3) * 13);
+    const labelY = Math.min(spanBottom - 6, spanTop + 14 + slot * LABEL_STEP_Y);
 
     paths.push({
       from: r.from, to: r.to, label: r.label, count: r.count, selfJoin: false,

@@ -40,6 +40,10 @@ const EMPTY = (): WireRungs => ({ knowledge: 'none', files: 'none', schema: 'non
     tr.floor td.l { color: var(--accent); }
     td.l small { display: block; font-weight: 400; font-size: 11px; color: var(--text-muted); }
     .area-info {
+      /* Flex-centred, not left to text metrics. A bare ? has left side bearing, so in a 15px circle at
+         10px it sits visibly left of centre - reported as the help question-marks being off. A button's
+         default text centring works on the ADVANCE width, which is not where the ink is. */
+      display: inline-flex; align-items: center; justify-content: center;
       margin-left: 5px; width: 15px; height: 15px; padding: 0; line-height: 1;
       border: 1px solid var(--border); border-radius: 50%;
       background: var(--bg-surface); color: var(--text-muted);

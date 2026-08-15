@@ -21,6 +21,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The `traverse` tool now says how it differs from the graph expansion built into `recall`.** Two things are
+  called traversal and they answer different questions: recall's expansion walks out from whatever a *search*
+  matched, while this walks out from a record you already name. More decisively, chrono entries, memories and
+  files that *reference* an entity are not relationships in the graph sense, so recall's expansion cannot
+  reach them at any depth — this tool can, and that is what its include options are for. A caller who did not
+  know that would conclude the data was missing rather than that they had used the wrong walk. The reference
+  also now describes the result: each node carries the depth it was found at, the starting record comes back
+  at depth zero so a lone record is not an empty answer, and a walk cut short by the limit is flagged as a
+  **partial** graph — an impact assessment run on one is answering a smaller question than it was asked.
+
 - **`find_similar` now names the two ways it can come back empty for a reason that is not "nothing is
   similar".** It compares against a record's **stored** embedding rather than working from a query, which has
   two consequences that were nowhere in its reference: a source record that has been retired from semantic

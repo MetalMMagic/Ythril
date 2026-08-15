@@ -56,22 +56,28 @@ export function resolveFindSimilarScope(
 
 export const recallTool: ToolHandler = {
   name: 'recall',
-  description: 'Search all knowledge types (memories, entities, edges, chrono entries, files) by MEANING and by exact tokens: a semantic vector ranking is fused with a lexical (BM25) ranking, so identifiers such as article numbers or form ids rank even though their embeddings carry little meaning. A cross-encoder refines the top candidates when the operator has configured one. Searches the specified space if provided, otherwise across all accessible spaces. Results carry `score` (vector similarity); `minScore` filters on that score only, never on the fused or rerank ordering. The per-stage scores are deliberately omitted here to keep responses small — the REST endpoint returns them for debugging.',
+  description: 'Search all knowledge types (memories, entities, edges, chrono entries, files) by MEANING and by exact tokens: a semantic vector ranking is fused with a lexical (BM25) ranking, so identifiers such as article numbers or form ids rank even though their embeddings carry little meaning. A cross-encoder refines the top candidates when the operator has configured one. Searches the specified space if provided, otherwise across all accessible spaces.\n\n'
+    + 'THE RESPONSE, because knowing the parameters is only half of it:\n'
+    + '• `results` — the ranked matches. Each carries `_id`, its name/fact/title, type, tags, properties, `spaceId`, timestamps, `seq`, `matchedText` and `score` (vector similarity). The per-stage `lexicalScore`/`fusedScore`/`rerankScore` are omitted HERE to keep responses small; the REST endpoint returns them for debugging.\n'
+    + '• `count` — the number of MATCHES. Traversed nodes are NOT counted in it.\n'
+    + '• `graphNodes` — an integer COUNT of what a traversal reached, not the content. The content is nested per-result under `_graph`, and a result with no edges simply has no `_graph` at all: reading `results[0]` and concluding the feature is absent is the mistake to avoid.\n'
+    + '• `truncated` + `complete` — THE ONE THAT BITES. The inline answer is capped by SIZE, not by count, and it is a cliff rather than a slope: around 25 results answer in full and 30 can come back as three. When it spills, `truncated: true` is set and `complete` carries {matches, records, inline, path, download, expiresAt} — the full set written to the space as JSON, with an authenticated download valid one day. A caller that asks for topK 80 and reads only `results` is silently working from a handful of records. Read `truncated` before you trust the length.\n'
+    + '• `graphTruncated` + `graphComplete` — the same arrangement for an oversized neighbourhood, so a short graph is never silent either.',
   inputSchema: (s: ToolSchemas) => ({
           type: 'object',
           properties: {
             space: s.optionalSpace,
-            query: { type: 'string', minLength: 1, description: 'Natural language search query (required, non-empty).' },
-            topK: { type: 'number', minimum: 1, default: 10, description: 'Max results to return. Default 10; no hard cap, but very large values are slower.' },
+            query: { type: 'string', minLength: 1, description: 'REQUIRED, non-empty. The natural-language search string. It is EMBEDDED for the vector half and TOKENISED for the BM25 half, so it does double duty — which is why an exact identifier (an article number, a form id) survives a query written as a sentence.' },
+            topK: { type: 'number', minimum: 1, default: 10, description: 'Max results to return. Default 10; no hard cap. It is filled from records that SATISFY `filter` — never applied to an already-truncated shortlist — so a filtered recall cannot silently miss a matching record. Large values are slower, and every field of every result is paid for in tokens. Note the response cap: past roughly 25 results the answer spills and `truncated` is set, so asking for 80 does not return 80 inline.' },
             tags: { type: 'array', items: { type: 'string' }, description: 'Optional tag filter — only results bearing ALL of these tags are returned (applies to memories, entities, chrono entries, and files).' },
             types: {
               type: 'array',
               items: { type: 'string', enum: ['memory', 'entity', 'edge', 'chrono', 'file'] },
-              description: 'Optional knowledge-type filter — restrict results to one or more types. Omit to search all types.',
+              description: 'Optional knowledge-type filter — restrict results to one or more types. Omit to search all five. EDGES ARE SEARCHABLE RECORDS and compete for your topK: a topK 20 on a persona space came back with 2 of them, so structural relationships displace knowledge unless you exclude them here.',
             },
             minPerType: {
               type: 'object',
-              description: 'Optional minimum result count per type. Guarantees at least that many results of each type if available (e.g. {"entity": 2, "edge": 1}). Omit to use pure score ranking.',
+              description: 'Optional minimum result count per type — a FLOOR. Guarantees at least that many results of each type if available (e.g. {"entity": 2, "edge": 1}). Omit to use pure score ranking. This is the cheap fix for one type crowding out another: memories are numerous and score well, so principles and entities lose slots to them without a floor.',
               additionalProperties: { type: 'number' },
             },
             maxPerType: {
@@ -84,7 +90,7 @@ export const recallTool: ToolHandler = {
               minimum: 1,
               description: 'Optional deadline for this recall, in milliseconds. It can only LOWER the instance budget, never raise it, and is clamped to a small floor so a tiny value is not a guaranteed empty answer. On expiry you get a PARTIAL answer rather than an error or a hang: whichever collections finished are returned, and the response says it degraded. Use it when a slow recall would cost more than a thin one — a memory that can only ever delay you by a known amount is one you can put in a workflow.',
             },
-            minScore: unitScoreSchema('Minimum cosine similarity score (0.0–1.0). Results below this threshold are excluded.'),
+            minScore: unitScoreSchema('Minimum COSINE SIMILARITY (0.0–1.0). It filters on `score` ONLY — never on the fused or the reranked ordering — so it is a vector-side gate rather than a relevance gate, and a result the reranker would have promoted can be cut by it before the reranker sees it.'),
             includeFreshWrites: { type: 'boolean', default: false, description: 'Also scan the newest records straight from the collection, so a record written seconds ago is findable before the vector index has ingested it. Costs an extra scan per knowledge type — turn it on when searching for something you just wrote, not by default.' },
             includeContent: {
               type: 'boolean',

@@ -21,6 +21,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`recall` now documents what it gives back, not only what it takes.** Its tool reference described every
+  parameter and nothing about the response, so the one thing that fails silently was invisible: the inline
+  answer is capped by **size**, and it is a cliff rather than a gentle limit — around 25 results come back in
+  full, 30 can come back as three. A caller asking for eighty and reading only the results list is working
+  from a handful of records with no error anywhere. The reference now names `truncated` and `complete`, says
+  `count` excludes anything reached by a graph walk, and warns that a result with no edges carries no `_graph`
+  at all — so reading the first result and concluding the feature is missing is the mistake to avoid. Three
+  parameters also gained the trap that makes their behaviour readable: relationships are searchable records
+  and compete for your result slots; the query is tokenised as well as embedded, which is why an exact
+  reference number survives a question written as a sentence; and the minimum-score filter gates on the
+  vector score alone, before the reranker sees anything. First of the tools to be brought to this standard.
+
 - **Retiring a record from semantic search says plainly that it is still reachable through its links.** The
   setting removes a record's embedding, so it stops competing in recall's ranked results — but everything
   that does not rank still reaches it, including recall's own graph expansion, which follows edges out of a

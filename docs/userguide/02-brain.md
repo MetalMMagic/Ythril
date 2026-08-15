@@ -246,6 +246,14 @@ The detail panel below the canvas shows all memories and chrono entries linked t
 
 ## Brain — Review tab
 
+> **A failed embedding job is retried once per upgrade, automatically.** A job that fails is retried five
+> times with a growing pause — about twelve minutes in total — and then marked failed and left alone, which
+> is right for one bad record and wrong for an outage. If the embedding model is unreachable for longer than
+> that (during an upgrade, say), every queued job in every space is marked failed at once and nothing runs
+> again until somebody presses **Retry all failed**. So starting a **new version** now re-queues everything
+> that failed under the old one, once, and says how many in the log. Restarting the same version re-queues
+> nothing — a record that genuinely cannot be embedded must not be retried on every boot for ever.
+
 The **Review** tab inside a space's Brain is that space's record-QA queue, split into sub-tabs:
 **Duplicates**, **Contradictions** and **Suggestions**. (Contradictions needs an NLI model configured
 under **Settings → Media Processing**; until the scanner has run, the tab explains what it needs.)

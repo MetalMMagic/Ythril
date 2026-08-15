@@ -1,6 +1,7 @@
 import express from 'express';
 import compression from 'compression';
 import { shouldCompress, staticCacheControl } from './util/transfer.js';
+import { SERVER_VERSION } from './util/server-version.js';
 import path from 'path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
@@ -54,10 +55,10 @@ import {
   httpResponseSizeBytes,
 } from './metrics/registry.js';
 
-// Server version — read once at startup from the package.json that sits two
-// directories up from the compiled output (server/dist → server → root).
-const _pkgPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'package.json');
-const _serverVersion: string = JSON.parse(fs.readFileSync(_pkgPath, 'utf8')).version;
+// Server version — one reader, in `util/server-version.ts`. This file and `api/about.ts` each resolved
+// their own path to the same manifest; a third reader (the embed-job revive) is what made the duplication
+// worth removing rather than copying again.
+const _serverVersion: string = SERVER_VERSION;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /** Path to the compiled Angular SPA — configurable via env for Docker flexibility */

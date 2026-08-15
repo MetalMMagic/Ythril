@@ -14,9 +14,10 @@
  */
 
 import {
-  claimNextEmbedJob, completeEmbedJob, failEmbedJob, resetStalledEmbedJobs,
+  claimNextEmbedJob, completeEmbedJob, failEmbedJob, resetStalledEmbedJobs, reviveFailedEmbedJobs,
   currentEmbedWorkEpoch, waitForEmbedWork, wakeEmbedWorkers,
 } from './embed-queue.js';
+import { SERVER_VERSION } from '../util/server-version.js';
 import { embedStoredRecord } from './embed-record.js';
 import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
@@ -96,6 +97,15 @@ export function startBrainEmbeddingWorker(): void {
   // than making the first records of the new run wait out the stall window.
   void resetStalledEmbedJobs(spaceIds(), 0).catch(err =>
     log.warn(`Brain embedding worker: startup stall sweep failed: ${err}`));
+
+  // One clean attempt per VERSION for anything that went terminally `failed` under an older one. A systemic
+  // outage — an embedder unreachable for a quarter of an hour during an upgrade — spends every job's whole
+  // attempt budget at once, and a terminal job is never claimed again. Reported from a live instance:
+  // "after updating all space indexing failed and since has not been retried automatically."
+  // Logged at INFO with a count, because a silent mass requeue is indistinguishable from nothing happening.
+  void reviveFailedEmbedJobs(spaceIds(), SERVER_VERSION)
+    .then(n => { if (n > 0) log.info(`Brain embedding worker: re-queued ${n} job(s) that failed under an earlier version (now ${SERVER_VERSION})`); })
+    .catch(err => log.warn(`Brain embedding worker: startup revive sweep failed: ${err}`));
 
   stallTimer = setInterval(() => {
     void resetStalledEmbedJobs(spaceIds(), STALL_TIMEOUT_MS).catch(err =>

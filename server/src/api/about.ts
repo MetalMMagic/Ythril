@@ -12,10 +12,12 @@ import { getMongo } from '../db/mongo.js';
 import { getLogLines, subscribeLogLines } from '../util/log.js';
 import { computeSecurityPosture, securityStrict } from '../config/security-posture.js';
 import { dirSizeBytes } from '../quota/quota.js';
+import { SERVER_VERSION } from '../util/server-version.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const pkgPath = path.resolve(__dirname, '..', '..', 'package.json');
-const version: string = JSON.parse(fs.readFileSync(pkgPath, 'utf8')).version;
+// One reader for the version, in `util/server-version.ts`. This file and `app.ts` each resolved their own
+// path to the same manifest, and a third was about to be added — a version string is exactly the kind of
+// value that goes quietly wrong when two copies disagree about which `package.json` they mean.
+const version = SERVER_VERSION;
 
 const DATA_ROOT = process.env['DATA_ROOT'] ?? '/data';
 

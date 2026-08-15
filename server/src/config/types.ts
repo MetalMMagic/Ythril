@@ -1835,6 +1835,15 @@ export interface BrainEmbedJobDoc {
   claimableAfter?: string | null;
   /** Identifies THIS run of THIS job, so a recovered job's old holder learns it was replaced. */
   claimToken?: string | null;
+  /**
+   * The server version this job was last revived FOR — see `reviveFailedEmbedJobs`.
+   *
+   * A terminal `failed` job is never claimed again, so a systemic outage during an upgrade could take every
+   * job in every space terminal and nothing would ever run them. This field is what makes the repair
+   * bounded: one clean attempt per version, absent meaning "never revived", so a restart on the same
+   * version cannot churn a genuinely-bad record.
+   */
+  revivedForVersion?: string | null;
   createdAt: string;
   updatedAt: string;
 }

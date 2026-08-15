@@ -5,6 +5,7 @@ import { consumeSseTicket } from './sse-ticket.js';
 import { isMfaEnabled, verifyMfaCode } from './totp.js';
 import { validateOidcJwt, getOidcConfig } from './oidc.js';
 import type { TokenRecord } from '../config/types.js';
+import { spaceAdminSpacesFor } from './editor-scope.js';
 import type { OidcTokenRecord } from './oidc.js';
 import { resolveMemberSpaces } from '../spaces/proxy.js';
 import { reachesSpace } from './space-reach.js';
@@ -222,6 +223,39 @@ function enforceAdmin(res: Response, record: Omit<TokenRecord, 'hash'> | OidcTok
     return false;
   }
   return true;
+}
+
+/**
+ * Admin for THIS instance, or administrator of at least one space.
+ *
+ * ## Why this is a second guard and not a change to `enforceAdmin`
+ *
+ * `enforceAdmin` is one function behind every admin route — spaces, networks, instance settings, the database
+ * page, tokens. Widening it would hand a space administrator the instance, so the widening is applied at the
+ * routes where "for my space" is a meaning the route can carry, and `enforceAdmin` is left exactly as it was
+ * everywhere else.
+ *
+ * ## Passing this guard is not permission to do anything
+ *
+ * It is permission to be CONSIDERED. Every route behind it still runs `refusalsOutsideEditorScope`, which is
+ * fed by `editorScopeFor` and confines a space-restricted editor to its own spaces' rows — no `instanceAdmin`,
+ * no `createSpaces`, no floor, no foreign per-space rights. That guard is what makes opening this door safe,
+ * and it shipped first (#916) for exactly that reason.
+ *
+ * So the two together read: this token may reach the token routes because it administers a space, and what it
+ * may then write is bounded by which spaces those are.
+ */
+function enforceAdminOrSpaceAdmin(
+  res: Response,
+  record: Omit<TokenRecord, 'hash'> | OidcTokenRecord,
+): boolean {
+  if (record.admin) return true;
+  // Narrowed rather than cast wholesale: `rights` is the only field this decision reads, and naming it here
+  // is what stops the predicate quietly growing a second input later.
+  const withRights = record as { rights?: TokenRights | null };
+  if (spaceAdminSpacesFor(withRights).length > 0) return true;
+  res.status(403).json({ error: 'Admin token required' });
+  return false;
 }
 
 /**
@@ -583,6 +617,39 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
   const { record, bearer } = auth;
 
   if (!enforceAdmin(res, record)) return;
+
+  attachToken(req, record, bearer);
+  next();
+}
+
+/**
+ * As `requireAdmin`, but a matrix SPACE ADMINISTRATOR also passes — see `enforceAdminOrSpaceAdmin`.
+ *
+ * Used only where "for my space" is a meaning the route can carry, which today is the token routes. Owner
+ * ruling P-8 = B, 2026-08-15. Every route behind it still applies `refusalsOutsideEditorScope`, so passing
+ * this is permission to be considered rather than permission to act.
+ */
+export async function requireAdminOrSpaceAdmin(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const auth = await resolveAuthOrFail(req, res, {});
+  if (!auth) return;
+  const { record, bearer } = auth;
+
+  if (!enforceAdminOrSpaceAdmin(res, record)) return;
+
+  attachToken(req, record, bearer);
+  next();
+}
+
+/** As `requireAdminMfa`, and a matrix space administrator also passes. See `requireAdminOrSpaceAdmin`. */
+export async function requireAdminOrSpaceAdminMfa(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const auth = await resolveAuthOrFail(req, res, {});
+  if (!auth) return;
+  const { record, bearer } = auth;
+
+  if (!enforceAdminOrSpaceAdmin(res, record)) return;
+  // MFA is unchanged: a space administrator is still a human with an authenticator, and exempting one would
+  // make "space admin" a way around the instance-wide second factor.
+  if (!enforceMfa(req, res, bearer, record)) return;
 
   attachToken(req, record, bearer);
   next();

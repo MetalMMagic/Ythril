@@ -89,9 +89,17 @@ describe('an MFA exemption cannot widen itself', () => {
   });
 
   it('every route that can SET mfa is behind admin + MFA to begin with', () => {
-    // The live-code rule is the second lock. The first is that only an admin gets here at all.
-    assert.match(code, /tokensRouter\.post\('\/',[^\n]*requireAdminMfa/,
+    // The live-code rule is the second lock. The first is that only an administrator gets here at all.
+    //
+    // The guard was renamed when a matrix SPACE administrator was admitted to the token routes (SA-1, owner
+    // ruling P-8 = B). The assertion is on the MFA half rather than on the old name, because that is what
+    // this test is about: `requireAdminOrSpaceAdminMfa` still enforces `enforceMfa`, and a space admin is
+    // still a human with an authenticator — exempting one would make "space admin" a way around the
+    // instance-wide second factor.
+    assert.match(code, /tokensRouter\.post\('\/',[^\n]*requireAdmin\w*Mfa/,
       'token creation must stay admin + MFA gated');
+    assert.doesNotMatch(code, /tokensRouter\.post\('\/',[^\n]*requireAuth\b/,
+      'token creation must never fall back to plain authentication');
   });
 
   it('the ROUTE, not just the helper, is what refuses — a 403 with a reason', () => {

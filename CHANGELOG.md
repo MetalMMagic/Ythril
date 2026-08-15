@@ -19,6 +19,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the access token appears, and it works on the API. Nothing changes for an instance that is already
   configured — the old form returned `404` there anyway — and `/api/setup` is untouched.
 
+### Added
+
+- **A space administrator can now manage that space's tokens.** Until now "administers this space" was only
+  sayable through the pre-3.0 pair — an `admin` token plus a list of spaces — and the rights matrix could not
+  express it: giving someone `admin` on every area of a space granted them those areas and nothing about
+  tokens, because the admin routes still consulted the old flag. **`admin` on all four areas of a space now
+  means being that space's administrator**, and that reaches the token pages: listing, minting, editing and
+  rotating tokens for their own space. All four areas, deliberately — `admin` on Files alone must not let
+  somebody mint tokens, because a token is not a file. Nothing instance-shaped opens up: creating spaces,
+  joining networks and instance settings stay with instance administrators, since there is no space to scope
+  them to. And being admitted is not being unbounded — a space administrator still cannot grant
+  instance-administrator rights, the create-spaces flag, an all-spaces floor, or any rights on a space they do
+  not themselves hold. The second factor is unchanged: if MFA is on, it is on for them too.
+
 ### Breaking
 
 - **A space request body with a key we do not recognise is now refused instead of silently ignored.** Four of

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **A space-restricted administrator's scope is now read from its rights matrix, not from the deprecated
+  space allowlist.** Three places decided what an administrator may reach — the token list, the mint guard and
+  the edit guard — and all three read the pre-3.0 `spaces` array. The rights matrix has been the permission
+  model since 2.6, so a token minted through the rights editor carries its scope there and has no allowlist at
+  all; that reads as *absent*, and absent is exactly what these guards treat as "unrestricted instance
+  administrator, skip every check". The widest possible reading was being applied to the token whose scope was
+  written down somewhere else. Scope now comes from one function that reads the matrix and falls back to the
+  allowlist only when there is no matrix — an OIDC session, or a record predating the migration. A token
+  counts as unrestricted only through a floor that grants something, because a floor is the one construct
+  that reaches spaces which do not exist yet and therefore cannot be listed. Being an instance administrator
+  does **not** make it unrestricted: that is a capability, not a reach, and a pre-3.0 administrator that was
+  scoped to a list of spaces migrates carrying both. A per-space row of all `none` is not scope either, so
+  emptying a row removes access rather than leaving it behind. **Nothing new is permitted by this change** —
+  the admin routes still gate on the legacy `admin` flag, so it narrows who the existing guards refuse and
+  opens no door.
+
 ### Changed
 
 - **`knowledge: write` now carries `schema: read` with it.** Writing a record against a schema requires

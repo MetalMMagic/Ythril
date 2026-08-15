@@ -7,7 +7,7 @@ import { isMfaEnabled, verifyMfaCode } from '../auth/totp.js';
 import { z } from 'zod';
 import { SPACE_AREAS, RUNGS, RUNG_IMPLICATIONS } from '../config/rights-shape.js';
 import { ROUTE_RIGHTS } from '../auth/space-rights.js';
-import { refusalsOutsideEditorScope } from '../auth/editor-scope.js';
+import { refusalsOutsideEditorScope, editorScopeFor } from '../auth/editor-scope.js';
 import { capRights, describeExcess } from '../auth/mint-cap.js';
 import { refuseSelfFloorRaise } from '../auth/floor-guard.js';
 import { migrateToken } from '../auth/rights-migration.js';
@@ -150,7 +150,11 @@ tokensRouter.get('/', requireAdmin, (req, res) => {
   // cannot touch is an invitation to try.
   //
   // Unrestricted admins are unaffected. A `schemaLibrary` token has no space access, so it is inside every scope.
-  const callerSpaces = req.authToken?.spaces;
+  //
+  // Scope comes from `editorScopeFor`, which reads the RIGHTS MATRIX and falls back to the legacy allowlist.
+  // Reading `spaces` directly here meant a token minted with a matrix and no allowlist — every token minted
+  // since 2.6 — answered `undefined` and was treated as an unrestricted instance administrator.
+  const callerSpaces = editorScopeFor(req.authToken);
   const all = listTokens();
   const visible = callerSpaces
     ? all.filter(t => t.schemaLibrary || (t.spaces?.every(s => callerSpaces.includes(s)) ?? false))
@@ -204,12 +208,14 @@ tokensRouter.post('/', authRateLimit, requireAdminMfa, async (req, res) => {
     return;
   }
 
-  // Privilege-escalation guard: a space-restricted creator (its token carries a
-  // `spaces` allow-list) may only mint tokens confined to a SUBSET of its own
-  // spaces. Without this, a token scoped to space A could mint an unrestricted
-  // token (no `spaces` = all spaces, `admin: true`) and defeat its own scoping.
-  // An unrestricted creator (no `spaces`) may mint any scope.
-  const creatorSpaces = req.authToken?.spaces;
+  // Privilege-escalation guard: a space-restricted creator may only mint tokens confined to a SUBSET of its
+  // own spaces. Without this, a token scoped to space A could mint an unrestricted token (no `spaces` = all
+  // spaces, `admin: true`) and defeat its own scoping. An unrestricted creator may mint any scope.
+  //
+  // Scope from `editorScopeFor`, the same source the list filter and the PATCH guard now read. It used to be
+  // `req.authToken?.spaces` here, in the list filter, and inside `refusalsOutsideEditorScope` — three reads
+  // of a deprecated field, and the comment on the PATCH guard already claimed all three shared one rule.
+  const creatorSpaces = editorScopeFor(req.authToken);
   if (creatorSpaces) {
     if (schemaLibrary) {
       // schemaLibrary tokens have no space access — always within any scope.
@@ -352,7 +358,7 @@ tokensRouter.patch('/:id', requireAdminMfa, (req, res) => {
   // Same rule the MINT route applies to a space-restricted creator, expressed once in `refusalsOutsideEditorScope` so
   // the two cannot drift into disagreeing about what "outside your scope" means.
   const scopeRefusals = refusalsOutsideEditorScope({
-    editorSpaces: req.authToken?.spaces,
+    editorSpaces: editorScopeFor(req.authToken),
     target: previous,
     rights: rights as never,
   });

@@ -21,6 +21,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The two most-used write tools now explain what a validation refusal means, and what the write does to a
+  record that already exists.** A refusal is the only response a caller has to branch on, and it has two
+  halves: what *this* write broke, and what was already broken before it. Only the first refuses — that
+  changed in this release — so a caller treating any reported violation as failure would now report a
+  successful write as an error. The reference says which field to branch on. Storing an entity also now says
+  that supplying no id always creates a **new** record, that two entities may share a name, and that an
+  update **merges** into what is stored and is checked in its merged form — which is why setting one field of
+  a valid record is accepted even though that one field alone would not be. Storing a fact says it is always
+  an insert and nothing deduplicates, so the same fact written twice competes with itself in search; that it
+  should be written as a self-contained sentence, because a fact retrieved months later arrives without the
+  conversation it was written in; and that **indexing is asynchronous**, so a search issued seconds later can
+  miss it unless you ask that search to include fresh writes.
+
 - **The `traverse` tool now says how it differs from the graph expansion built into `recall`.** Two things are
   called traversal and they answer different questions: recall's expansion walks out from whatever a *search*
   matched, while this walks out from a record you already name. More decisively, chrono entries, memories and

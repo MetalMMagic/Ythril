@@ -25,6 +25,9 @@ const TABLE = `# Ordered queue
 | B-3 | Split config/types.ts | ARCH | open | |
 | U-9 | token rights: admin edit tier | UX | tiers 1+3 done, #840 shipped the self-view | own PR |
 | W-8 | Dockerfile still fetches CUDA | QA | fixed in CI, owner call on the image | 3x npm ci |
+| RX-1 | Reindex reports the ACK as a result | UI | open | two-letter domain key |
+| P0-1 | Rights matrix save rejected | UI | open | letter+digit priority key |
+| D-8d | Unify scope, delete legacy fields | DEPR | open | sub-item suffix |
 
 ## 2 · Watch items — NOT work
 
@@ -51,7 +54,26 @@ describe('the queue rows', () => {
     // queue was later re-keyed per domain — `B-` architecture, `U-` UX, `T-` sync — and the gate went on counting
     // a prefix that no longer existed. It reported "the queue is drained" with eleven rows open, which is the
     // exact state it was written to refuse, and it reported it in green.
-    assert.deepEqual(parseRows(TABLE).map((r) => r.id), ['Q-2', 'B-3', 'U-9', 'W-8']);
+    assert.deepEqual(parseRows(TABLE).map((r) => r.id), ['Q-2', 'B-3', 'U-9', 'W-8', 'RX-1', 'P0-1', 'D-8d']);
+  });
+
+  it('counts an ID that is not one letter and one number', () => {
+    // The SAME under-count, one regex further along. `^[A-Z]-\d+$` described every ID that existed when it was
+    // written, and the queue then keyed rows by domain initials (`RX-`, `EJ-`, `SA-`), by priority (`P0-`) and by
+    // sub-item (`D-8d`). On 2026-08-15 the file held eleven open rows and the gate reported two — in the same
+    // direction as the prefix bug, which is the direction that says "drained" on a full queue.
+    const ids = parseRows(TABLE).map((r) => r.id);
+    assert.ok(ids.includes('RX-1'), 'a two-letter domain key is a row');
+    assert.ok(ids.includes('P0-1'), 'a letter+digit priority key is a row');
+    assert.ok(ids.includes('D-8d'), 'a sub-item suffix is a row');
+  });
+
+  it('still refuses cells that are not IDs at all', () => {
+    // The looseness has to stop somewhere, or a header cell or a stray prose table elsewhere in the file becomes
+    // work. Anything without the `<KEY>-<number>` shape is not a row.
+    const noise = ['| # | Task | Home | Status |', '| Total | 11 | | |', '| see D-8 | note | | |', '| 8d | x | | |']
+      .join('\n');
+    assert.deepEqual(parseRows(noise), []);
   });
 
   it('reads the SECTION, not the prefix — so a W- row of real work counts', () => {
@@ -92,7 +114,7 @@ describe('the queue rows', () => {
     // The queue is what is left, not what was listed. `todo/` is supposed to hold open items only, but a status
     // cell is the one place a shipped row can linger before the tracker reconcile catches it.
     const done = TABLE.replace('| B-3 | Split config/types.ts | ARCH | open |', '| B-3 | Split config/types.ts | ARCH | shipped (#812) |');
-    assert.deepEqual(parseRows(done).map((r) => r.id), ['Q-2', 'U-9', 'W-8']);
+    assert.deepEqual(parseRows(done).map((r) => r.id), ['Q-2', 'U-9', 'W-8', 'RX-1', 'P0-1', 'D-8d']);
   });
 
   it('a status reporting PARTIAL progress is still open', () => {

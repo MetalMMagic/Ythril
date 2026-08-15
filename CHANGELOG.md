@@ -46,6 +46,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A schema violation the record already had no longer refuses an unrelated edit.** Reported by
+  breituai-platform as *"freezes records"*, and reproduced exactly: write a record whose `status` the enum
+  allows, remove that value from the enum, then patch the record's **description** — `422`, naming a field the
+  edit never touched. The record stayed uneditable until `status` was repaired in the same request, and any
+  schema tightening did that retroactively to every record that no longer fitted. In `strict` mode a write is
+  now refused for what it **introduces**; a violation that was already stored is reported and does not block.
+  Refusing it never improved the data — the bad value is already saved — it only stopped the record being
+  maintained. Nothing is hidden: `preExisting` is in every response exactly as before, so a client that wants
+  to insist on full compliance still can, and a patch that introduces a violation is refused exactly as
+  before, including when the record also has an older one. The MCP guide had promised this behaviour before
+  the code was found to disagree; both now say the same thing.
 - **Hovering a rung in the rights grid now says what it grants.** The tooltip read *"Set write"* — a
   description of what the click does, which is not what anyone hovering a permissions cell is asking. The
   answer was already written and already translated: the plain-language sentence the column header shows

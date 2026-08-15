@@ -58,11 +58,15 @@ Click the gear icon on any space row to open its settings panel. Changes save an
   > could save a value the same space would have rejected on create. Now the record **as it will be** —
   > yours plus the existing fields — is checked before it saves.
   >
-  > This can refuse an edit for a field you did not touch, when the record was already invalid: written
-  > before you tightened the schema, or imported, or synced from another brain. The message says which is
-  > which — *"the change violates…"* versus *"this record was already non-compliant before your
-  > change…"* — so you are not sent looking at the wrong field. To get unstuck, fix the named field in
-  > the same save; validation is of the result, so the record repairs itself.
+  > **`strict` refuses what your edit breaks, not what was already broken.** A record can be invalid before
+  > you touch it — written before you tightened the schema, imported, or synced from another brain. That is
+  > reported, not refused: the problem is already saved, so blocking your edit would not fix it, it would
+  > only stop you maintaining the record. Until 3.1 it did block, which meant tightening a schema quietly
+  > froze every record that no longer fitted.
+  >
+  > The message still says which is which — *"the change violates…"* versus *"this record was already
+  > non-compliant before your change…"* — so you are not sent looking at the wrong field. Validation is of
+  > the result, so fixing the named field in any later save repairs the record.
 - **Strict linkage** — when on, references between items must be valid IDs and deletion of referenced items is blocked.
 - **Type schemas** — define per-type rules under each knowledge type (entity, memory, edge, chrono). For each named type you can set:
   - **Naming pattern** — a regex the name must match.

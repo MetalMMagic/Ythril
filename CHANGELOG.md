@@ -16,12 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   all; that reads as *absent*, and absent is exactly what these guards treat as "unrestricted instance
   administrator, skip every check". The widest possible reading was being applied to the token whose scope was
   written down somewhere else. Scope now comes from one function that reads the matrix and falls back to the
-  allowlist only when there is no matrix — an OIDC session, or a record predating the migration. A token is
-  unrestricted only if it says so: `instanceAdmin`, or a floor granting something, since a floor reaches
-  spaces that do not exist yet and cannot be listed. A per-space row of all `none` is not scope, so emptying a
-  row removes access rather than leaving it behind. **Nothing new is permitted by this change** — the admin
-  routes still gate on the legacy `admin` flag, so it narrows who the existing guards refuse and opens no
-  door.
+  allowlist only when there is no matrix — an OIDC session, or a record predating the migration. A token
+  counts as unrestricted only through a floor that grants something, because a floor is the one construct
+  that reaches spaces which do not exist yet and therefore cannot be listed. Being an instance administrator
+  does **not** make it unrestricted: that is a capability, not a reach, and a pre-3.0 administrator that was
+  scoped to a list of spaces migrates carrying both. A per-space row of all `none` is not scope either, so
+  emptying a row removes access rather than leaving it behind. **Nothing new is permitted by this change** —
+  the admin routes still gate on the legacy `admin` flag, so it narrows who the existing guards refuse and
+  opens no door.
 
 ### Changed
 

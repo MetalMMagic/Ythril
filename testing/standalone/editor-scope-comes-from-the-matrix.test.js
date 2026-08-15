@@ -56,8 +56,31 @@ describe('editorScopeFor — where an administrator may act', () => {
     assert.deepEqual(editorScopeFor({ rights: r }), ['qa']);
   });
 
-  it('is UNRESTRICTED for an instance administrator', () => {
-    assert.equal(editorScopeFor({ rights: rights({ instanceAdmin: true, perSpace: { qa: ALL('read') } }) }), undefined);
+  it('is NOT unrestricted for instanceAdmin alone — the bug CI caught', () => {
+    // The first version of this function short-circuited on `instanceAdmin`, and the integration suite
+    // refused it. `migrateToken` maps a legacy SPACE-RESTRICTED admin -- `admin: true` with `spaces: ['qa']`
+    // -- to `{ instanceAdmin: true, floor: null, perSpace: { qa } }`. The old model narrowed that token with
+    // its allowlist; `instanceAdmin` in the matrix carries no narrowing. So the short-circuit widened exactly
+    // the token this guard exists to constrain, inside a change whose stated purpose was to narrow.
+    //
+    // `instanceAdmin` is a CAPABILITY (create spaces, manage tokens), not a REACH. Reach over every space
+    // including future ones is what a floor expresses, and the only thing that does.
+    const migratedSpaceAdmin = rights({ instanceAdmin: true, floor: null, perSpace: { qa: ALL('admin') } });
+    assert.deepEqual(editorScopeFor({ rights: migratedSpaceAdmin }), ['qa']);
+  });
+
+  it('IS unrestricted for a legacy unscoped admin, which migrates to an admin FLOOR', () => {
+    // The other half of the same migration, and the reason the floor rule is the right one: an admin token
+    // with no allowlist maps to `floor: admin`, so it still reads as unrestricted -- through the field that
+    // actually means it.
+    const migratedInstanceAdmin = rights({ instanceAdmin: true, floor: ALL('admin') });
+    assert.equal(editorScopeFor({ rights: migratedInstanceAdmin }), undefined);
+  });
+
+  it('scopes an instanceAdmin with no floor and no rows to nothing', () => {
+    // Honest rather than an oversight: such a token holds no rung in any space, so it reaches no space's
+    // data. It can still create spaces; that is a capability, and this function does not answer capabilities.
+    assert.deepEqual(editorScopeFor({ rights: rights({ instanceAdmin: true }) }), []);
   });
 
   it('is UNRESTRICTED when a floor grants anything', () => {
@@ -130,7 +153,7 @@ describe('the guard behaves the same, now fed from the matrix', () => {
   });
 
   it('an unrestricted editor is still unaffected', () => {
-    const scope = editorScopeFor({ rights: rights({ instanceAdmin: true }) });
+    const scope = editorScopeFor({ rights: rights({ instanceAdmin: true, floor: ALL('admin') }) });
     assert.deepEqual(refusalsOutsideEditorScope({
       editorSpaces: scope,
       target: target(['anything']),

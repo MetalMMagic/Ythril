@@ -59,9 +59,8 @@ import { effectiveRung } from './mint-cap.js';
  * an empty allowlist was read as unrestricted; here, an absent one is, on a token whose real scope was in a
  * field nobody looked at.
  *
- * ## `undefined` means unrestricted, and three things produce it
+ * ## `undefined` means unrestricted, and only two things produce it
  *
- *  - **`instanceAdmin`** — the switch that says so.
  *  - **A floor with any rung above `none`.** A floor applies to every space *including ones created later*,
  *    so it cannot be enumerated. This is the same reasoning that makes the guard below refuse a floor rather
  *    than cap it: however modest the rungs look, the reach is instance-wide.
@@ -71,6 +70,20 @@ import { effectiveRung } from './mint-cap.js';
  * Otherwise the scope is the spaces with something in them: any area above `none`. A row of four `none`s is
  * not scope, it is a row somebody emptied, and counting it would let a token administer a space it holds
  * nothing in.
+ *
+ * ## `instanceAdmin` is NOT one of them, and that was a real bug in this function
+ *
+ * The first version short-circuited on `rights.instanceAdmin`. CI refused it, and the reason is the whole
+ * point of this file: `migrateToken` maps a legacy **space-restricted** admin — `admin: true` with
+ * `spaces: ['qa']` — to `{ instanceAdmin: true, floor: null, perSpace: { qa: … } }`. The old model narrowed
+ * that token with its allowlist; `instanceAdmin` in the matrix carries no such narrowing. So the
+ * short-circuit made exactly the token this guard exists to constrain read as unrestricted — a WIDENING
+ * shipped inside a change whose stated purpose was to narrow.
+ *
+ * The distinction the first version missed: `instanceAdmin` is a **capability** switch (create spaces, manage
+ * tokens), not a **reach**. Reach over every space, present and future, is what a floor expresses and the
+ * only thing that does. A token holding `instanceAdmin` with no floor and no rows scopes to `[]` — it reaches
+ * no space's data — and that is the honest answer, not an oversight.
  */
 export function editorScopeFor(
   record: { rights?: TokenRights | null; spaces?: string[] } | undefined,
@@ -78,7 +91,6 @@ export function editorScopeFor(
   if (!record) return undefined;
   const rights = record.rights;
   if (!rights) return record.spaces;                    // no matrix: the legacy field is all there is
-  if (rights.instanceAdmin) return undefined;
   if (rights.floor && SPACE_AREAS.some(a => rights.floor?.[a] && rights.floor[a] !== 'none')) return undefined;
   return Object.keys(rights.perSpace ?? {})
     .filter(id => SPACE_AREAS.some(a => effectiveRung(rights, id, a) !== 'none'));

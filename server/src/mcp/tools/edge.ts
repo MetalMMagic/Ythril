@@ -180,13 +180,19 @@ export const update_edgeTool: ToolHandler = {
 
 export const traverseTool: ToolHandler = {
   name: 'traverse',
-  description: 'Follow edges from a starting entity and return reachable nodes up to maxDepth hops. Chrono entries that reference a reached node come back too (kind:"chrono"), so a timeline can be walked from the entity it is about. Useful for dependency analysis, impact assessment, and lineage queries.',
+  description: 'Follow edges from a starting entity and return reachable nodes up to `maxDepth` hops. For dependency analysis, impact assessment and lineage.\n\n'
+    + 'NOT THE SAME AS `recall(traverse: n)`, and the difference decides which one you want:\n'
+    + '• This starts from a node you ALREADY KNOW, by id. `recall`\'s expansion starts from whatever a search matched, so it answers "what is near the things about X" rather than "what is near THIS".\n'
+    + '• This can follow `entityIds` references — chrono entries, memories and files that point AT a node — which are not edges and are therefore unreachable from `recall`\'s expansion at any depth. That is what `includeChrono`, `includeMemories` and `includeFiles` are for.\n'
+    + '• This returns a flat node list with a depth on each; `recall` nests its walk under the match that reached it.\n\n'
+    + 'It is also blind to meaning, which is the point: a node reached in three hops is reached whether or not it resembles anything, and nothing here is embedded or ranked. A record retired from semantic ranking is reached exactly as any other.\n\n'
+    + 'THE RESPONSE: `nodes` — each with `id`, `name`, `type`, `kind` ("entity" unless it arrived via one of the include flags) and the `depth` it was found at, `startId` itself at depth 0. `edges` — the connecting relationships, unless `includeEdges` is false. `truncated` — true when `limit` cut the walk, and worth reading: a truncated walk is a PARTIAL graph, so an impact assessment run on one is answering a smaller question than it was asked.',
   spaceRequired: true,
   inputSchema: (s: ToolSchemas) => ({
           type: 'object',
           properties: {
             space: s.requiredSpace,
-            startId: { type: 'string', minLength: 1, description: 'UUID of the starting entity.' },
+            startId: { type: 'string', minLength: 1, description: 'UUID of the starting entity. It is returned as the first node at depth 0, so a walk that finds nothing still comes back with one node rather than empty — an empty `nodes` means the id resolved to nothing, which is a different answer from "it has no neighbours".' },
             direction: {
               type: 'string',
               enum: ['outbound', 'inbound', 'both'],

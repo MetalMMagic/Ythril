@@ -61,6 +61,45 @@ describe('the response is documented, not just the request', () => {
   });
 });
 
+/** The `query` tool object, scoped the same way. */
+const QUERY = (() => {
+  const at = SRC.indexOf("name: 'query'");
+  assert.ok(at > 0, 'the query tool was not found — the scanner is wrong, not the code');
+  const next = SRC.indexOf("name: '", at + 20);
+  return next === -1 ? SRC.slice(at) : SRC.slice(at, next);
+})();
+
+describe('query says what it is FOR and what comes back', () => {
+  it('positions it against recall rather than describing it in isolation', () => {
+    // "Run a structured read-only query" told a caller what it does and never when to choose it. The pairing
+    // is the discoverable fact: a predicate versus a ranking.
+    assert.match(QUERY, /counterpart to `recall`/, 'say which tool it is the opposite of');
+    assert.match(QUERY, /no embedding, no ranking, no score/,
+      'name what it does NOT do — that is the choice a caller is making');
+  });
+
+  it('says count is the page and total is the filter', () => {
+    // The difference between them is the only signal that more rows exist. A full page is not evidence of
+    // being the last one, and nothing said so.
+    assert.match(QUERY, /`count`[^.]{0,120}THIS page/, '`count` is this page');
+    assert.match(QUERY, /`total`[^.]{0,120}overall/, '`total` is the whole filter');
+  });
+
+  it('warns that a count with no rows means a pre-3.1 instance', () => {
+    // The defect breituai-platform reported and I reproduced: rows in `content` only, so a client preferring
+    // `structuredContent` saw the metadata and no results. Fixed in #911 — but an agent talking to an older
+    // instance needs to recognise the shape rather than conclude the space is empty.
+    assert.match(QUERY, /count with no rows is a BUG/i,
+      'an empty page and a dropped payload look identical without this sentence');
+    assert.match(QUERY, /structuredContent/, 'name the field, since that is what a client branches on');
+  });
+
+  it('says it reaches records recall cannot', () => {
+    assert.match(QUERY, /retired from semantic ranking/,
+      'a record with no vector is exactly what a structured read is for');
+  });
+});
+
 describe('the parameters carry their traps', () => {
   it('types: edges are searchable records and compete for topK', () => {
     assert.match(RECALL, /EDGES ARE SEARCHABLE RECORDS/,

@@ -91,7 +91,7 @@ const EMPTY = (): WireRungs => ({ knowledge: 'none', files: 'none', schema: 'non
           <td class="l">{{ 'tokens.rights.allSpaces' | transloco }}<small>{{ 'tokens.rights.allSpacesHint' | transloco }}</small></td>
           @for (a of areas; track a) {
             <td>
-              <app-rung-picker [value]="floorShown(a)"
+              <app-rung-picker [value]="floorShown(a)" [area]="a"
                                [implied]="floorImplied(a)?.rung ?? 'none'" [impliedBy]="floorImplied(a)?.by ?? null"
                                [readonlyView]="readonlyView()" (changed)="setFloor(a, $event)"/>
             </td>
@@ -102,7 +102,7 @@ const EMPTY = (): WireRungs => ({ knowledge: 'none', files: 'none', schema: 'non
             <td class="l">{{ s }}</td>
             @for (a of areas; track a) {
               <td>
-                <app-rung-picker [value]="cellShown(s, a)" [floor]="floorOf(a)"
+                <app-rung-picker [value]="cellShown(s, a)" [area]="a" [floor]="floorOf(a)"
                                  [implied]="cellImplied(s, a)?.rung ?? 'none'" [impliedBy]="cellImplied(s, a)?.by ?? null"
                                  [readonlyView]="readonlyView()" (changed)="setCell(s, a, $event)"/>
               </td>

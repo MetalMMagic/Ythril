@@ -31,6 +31,31 @@ describe('RungPickerComponent', () => {
     }).compileComponents();
   });
 
+  it('says what the rung GRANTS before what the click does', () => {
+    // Owner, 2026-08-15: "the tooltip on hovering a rung is still missing." It was not absent — it read
+    // "Set write", which describes the CLICK. A reader hovering a permissions cell is asking what the rung
+    // grants; the click is confirmation of a choice already made.
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [RungPickerComponent, getTranslocoModule({
+        translation: { en: { 'tokens.rights.plain.files.write': 'Your agent can upload and delete files.' } },
+      })],
+    });
+    const f = TestBed.createComponent(RungPickerComponent);
+    f.componentRef.setInput('value', 'read');
+    f.componentRef.setInput('area', 'files');
+    f.detectChanges();
+    const title = [...(f.nativeElement as HTMLElement).querySelectorAll('button')][2]!.getAttribute('title');
+    expect(title).toBe('Your agent can upload and delete files. Set write');
+  });
+
+  it('falls back to the action alone when no area is wired', () => {
+    // A caller that forgets [area] must degrade to the old tooltip, not print a raw translation key at a
+    // user — and must not leave a leading space where the capability half would have been.
+    const el = render('read');
+    expect([...el.querySelectorAll('button')][2]!.getAttribute('title')).toBe('Set write');
+  });
+
   it('renders one segment per rung', () => {
     expect(buttons(render('none')).map(b => b.textContent?.trim())).toEqual(['—', 'R', 'W', 'A']);
   });

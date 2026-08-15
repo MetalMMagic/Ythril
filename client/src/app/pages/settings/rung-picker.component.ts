@@ -34,6 +34,21 @@ const LABEL: Record<Rung, string> = { none: '—', read: 'R', write: 'W', admin:
  *
  * The implication is not hard-coded here. It arrives from `GET /api/tokens/rights-catalog`, which publishes
  * what the server enforces; a copy typed into the client would be a second description of a security rule.
+ *
+ * ## The tooltip says what the rung GRANTS, then what the click does
+ *
+ * Owner, 2026-08-15: *"the tooltip on hovering a rung is still missing."* It was not absent — it was
+ * answering the wrong question. It read `Set write` and `Set write — click again to step down`, which
+ * describes the CLICK. Somebody hovering a cell in a permissions grid is asking what the rung grants; the
+ * click is confirmation of a choice they have already made.
+ *
+ * The answer was already written and already translated — sixteen `tokens.rights.plain.<area>.<rung>` strings
+ * in all three locales, which the column-header glyph has been using all along. This control could not reach
+ * them for one reason: it did not know its own area. Both call sites have it in scope, so it is now an input.
+ *
+ * Capability first, action second, and when a cell is clamped the clamp explanation is APPENDED rather than
+ * substituted — "why can I not go lower" is still a live question in that state, but so is "what would it
+ * give me if I could".
  */
 @Component({
   selector: 'app-rung-picker',
@@ -67,6 +82,13 @@ export class RungPickerComponent {
   private t = inject(TranslocoService);
 
   value = input.required<Rung>();
+  /**
+   * Which area this cell is for, so the tooltip can say what the rung GRANTS.
+   *
+   * Both call sites already have it in scope. Without it the control could only describe its own click, which
+   * is the defect — see the class comment.
+   */
+  area = input<string>('');
   /** The floor for this area. A cell may never sit below it — see the class comment. */
   floor = input<Rung>('none');
   /** A minimum entailed by another area in the same space, or `none`. See the class comment. */
@@ -113,12 +135,39 @@ export class RungPickerComponent {
         // The colour comes from the SELECTED rung, not from each segment's own level, so a filled bar reads
         // as one block at one level rather than a gradient nobody asked for.
         classes: `${filled ? `on r${held}` : ''}${clamped ? ' clamped' : ''}`,
-        title: clamped
-          ? clampTitle
-          : `Set ${rung}${rung === this.value() ? ' — click again to step down' : ''}`,
+        // Capability FIRST, action second. Somebody hovering a rung is asking what it grants, not what the
+        // click does — the click is confirmation, and it was all this control used to say.
+        //
+        // Joined through a filter rather than by interpolation: with no `[area]` wired the capability half is
+        // empty, and interpolating it would leave a leading space on every tooltip in the grid.
+        title: [this.grants(rung), clamped ? clampTitle : this.action(rung)].filter(Boolean).join(' '),
       };
     });
   });
+
+  /**
+   * What this rung GRANTS in this area, in the words the glyph tooltip already uses.
+   *
+   * Sixteen `tokens.rights.plain.<area>.<rung>` strings exist in all three locales and this control was not
+   * reading any of them — it described the CLICK instead ("Set write", "Set write — click again to step
+   * down"), which answers a question nobody hovering has. Owner, 2026-08-15: *"the tooltip on hovering a rung
+   * is still missing."* It was not absent; it was answering the wrong question.
+   *
+   * Falls back to the empty string when the area is not wired or the key is missing, so a caller that forgot
+   * `[area]` degrades to the old action-only tooltip rather than printing a raw translation key at a user.
+   */
+  private grants(rung: Rung): string {
+    const a = this.area();
+    if (!a) return '';
+    const key = `tokens.rights.plain.${a}.${rung}`;
+    const text = this.t.translate(key);
+    return text === key ? '' : `${text}`;
+  }
+
+  /** What the click will do. Kept, because a reader still needs to know a second click steps down. */
+  private action(rung: Rung): string {
+    return `Set ${rung}${rung === this.value() ? ' — click again to step down' : ''}`;
+  }
 
   pick(rung: Rung): void {
     // Belt and braces: a disabled button cannot be clicked, but a caller could still call this.

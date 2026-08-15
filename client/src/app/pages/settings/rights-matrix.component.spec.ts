@@ -196,6 +196,34 @@ describe('RightsMatrixComponent — an implied rung', () => {
     expect(bs[0]!.disabled).toBe(true);
   });
 
+  it('gives each COLUMN its own capability tooltip', () => {
+    // The failure this pins: a tooltip identical across areas means [area] was never wired and the picker
+    // fell back to the action-only string. Per-rung difference is not enough to catch that — the old control
+    // already differed per rung, which is why the gap survived so long.
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [RightsMatrixComponent, getTranslocoModule({
+        translation: {
+          en: {
+            'tokens.rights.plain.knowledge.read': 'Search and read records.',
+            'tokens.rights.plain.files.read': 'List and download files.',
+          },
+        },
+      })],
+      providers: [{ provide: RightsCatalogService, useValue: stubCatalog() }],
+    });
+    const f = TestBed.createComponent(RightsMatrixComponent);
+    f.componentRef.setInput('rights', rights());
+    f.componentRef.setInput('spaces', ['qa']);
+    f.detectChanges();
+    const el = f.nativeElement as HTMLElement;
+    const titleAt = (col: number) => el.querySelectorAll('tbody tr')[1]!
+      .querySelectorAll('app-rung-picker')[col]!.querySelectorAll('button')[1]!.getAttribute('title');
+    expect(titleAt(0)).toContain('Search and read records.');
+    expect(titleAt(1)).toContain('List and download files.');
+    expect(titleAt(0)).not.toBe(titleAt(1));
+  });
+
   it('does not write the implied rung into the emitted matrix', () => {
     // The stored matrix keeps saying what the operator set. Persisting an inference would make a rung that
     // exists only while knowledge is write outlive knowledge dropping back to read.

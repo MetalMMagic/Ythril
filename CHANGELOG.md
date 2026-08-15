@@ -27,6 +27,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Hovering a rung in the rights grid now says what it grants.** The tooltip read *"Set write"* — a
+  description of what the click does, which is not what anyone hovering a permissions cell is asking. The
+  answer was already written and already translated: the plain-language sentence the column header shows
+  ("Your agent can add, edit and delete single records"), in all three languages. The control could not reach
+  it for one reason — it did not know which area it belonged to. It does now, so the tooltip leads with the
+  capability and keeps the click description after it. On a cell held at a minimum, the explanation of *why*
+  is appended rather than substituted: what it would grant and why it cannot go lower are both live questions
+  in that state.
 - **`knowledge: write` now carries `schema: read` with it.** Writing a record against a schema requires
   reading that schema, so a token granted write on Knowledge and nothing on Schema was not a narrower token —
   it was one that could not do what it had just been granted, and the failure arrived as a 403 on a route

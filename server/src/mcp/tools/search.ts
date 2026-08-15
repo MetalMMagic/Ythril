@@ -292,14 +292,19 @@ export const recallTool: ToolHandler = {
 
 export const find_similarTool: ToolHandler = {
   name: 'find_similar',
-  description: 'Find entries with high vector similarity to an existing entry. Use for deduplication, "more like this", and merge detection. Uses the entry\'s stored embedding — no re-embedding. Provide `space` to scope to one space, or omit it to search across all accessible spaces (like recall).',
+  description: 'Find entries with high vector similarity to an EXISTING entry — deduplication, "more like this", merge detection. It uses that entry\'s STORED embedding rather than re-embedding anything, which is what separates it from `recall`: no query string, no BM25 half, no reranker. Pure cosine distance from one record to the rest.\n\n'
+    + 'Two consequences of using the stored vector, and both are silent if you do not know them:\n'
+    + '• A source entry retired from semantic ranking has NO vector, so there is nothing to be similar to and the answer is empty — not an error, and not evidence that nothing resembles it.\n'
+    + '• A record written seconds ago may not be indexed yet. There is no `includeFreshWrites` here as there is on `recall`, because the source entry\'s own embedding has to exist before this can start.\n\n'
+    + 'Provide `space` to scope to one space, or omit it to search every space the token can reach. `score` is raw cosine similarity — the same number `recall` reports, but here it is the ONLY ranking, so `minScore` is a genuine relevance gate rather than the vector-side gate it is on `recall`.\n\n'
+    + 'With `traverse: 0` the answer is a plain-text summary; above 0 it is JSON, because a graph does not summarise.',
   spaceRequired: false,
   inputSchema: (s: ToolSchemas) => ({
           type: 'object',
           properties: {
             space: s.optionalSpace,
-            entryId: uuidSchema('UUID v4 of the source entry.'),
-            entryType: { type: 'string', enum: ['memory', 'entity', 'edge', 'chrono', 'file'], description: 'Knowledge type of the source entry.' },
+            entryId: uuidSchema('UUID v4 of the source entry — the record everything else is compared AGAINST. It is never itself in the results.'),
+            entryType: { type: 'string', enum: ['memory', 'entity', 'edge', 'chrono', 'file'], description: 'Knowledge type of the SOURCE entry, which is how the id is resolved — a wrong type is a not-found rather than a wrong answer. It does not constrain what comes back: use `targetTypes` for that, and note a memory can legitimately be most similar to an entity.' },
             includeContent: { type: 'boolean', default: true, description: 'Whether to return each file chunk’s `content` (default true). Same meaning as on `recall`: false returns locations and metadata only.' },
             targetTypes: {
               type: 'array',
@@ -307,7 +312,7 @@ export const find_similarTool: ToolHandler = {
               description: 'Which knowledge types to search in. Omit to search all types.',
             },
             topK: { type: 'number', minimum: 1, maximum: 100, default: 10, description: 'Max results to return (clamped to 1–100). Default 10.' },
-            minScore: unitScoreSchema('Minimum cosine similarity threshold (0.0–1.0). Results below this are excluded.'),
+            minScore: unitScoreSchema('Minimum cosine similarity (0.0–1.0). Results below it are excluded. Unlike on `recall`, this IS the relevance gate — cosine distance is the only ranking here, so raising it narrows the answer honestly rather than cutting candidates a reranker would have rescued. For deduplication, start high: near-duplicates sit well above 0.9 and everything below that is a topic match rather than a repeat.'),
             traverse: {
               type: 'number', minimum: 0, maximum: MAX_RECALL_TRAVERSE, default: 0,
               description: `Optional graph-expansion depth (integer 0–${MAX_RECALL_TRAVERSE}, default 0). When > 0, each similar match is expanded along knowledge-graph edges up to this many hops and what the walk reached is NESTED under the match that reached it in a \`_graph\` array — {edge, node, paths} per node, identical to \`recall\`'s shape: \`edge\` is the whole edge document, \`node\` the reached entity, \`paths\` every route to it as record ids with the match first. \`count\` is the number of matches and \`graphNodes\` how many nodes were reached. A neighbourhood past the inline cap is written out in full and reported as \`graphTruncated\` + \`graphComplete\` (an authenticated download, valid one day), exactly as on \`recall\`. With traverse > 0 the response is JSON instead of the plain text summary.`,

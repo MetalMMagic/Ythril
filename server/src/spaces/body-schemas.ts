@@ -17,12 +17,25 @@
  *
  * ## What is deliberate in here
  *
- * **`.strict()` where it is, and where it is not.** `SpaceMetaBody`, `TypeSchemasZ`, `PropertySchemaZ` and
- * `DupeActionRuleBody` refuse an unknown key; the top-level bodies drop one. That asymmetry is NOT a decision made
- * here — it is inherited verbatim from the router, it is a real defect (a typo in `faceDescriptorDims` creates a
- * space at the default width and reports 201), and it is filed as its own item because making them strict is a
- * breaking change for any caller currently sending a key we ignore. Moved unchanged on purpose: an extraction that
- * also alters behaviour is an extraction nobody can verify.
+ * **Every body here is `.strict()`, and that took an owner ruling.** For a while four were strict and six were not:
+ * `SpaceMetaBody`, `TypeSchemasZ`, `PropertySchemaZ` and `DupeActionRuleBody` refused an unknown key while the six
+ * top-level bodies dropped one. The asymmetry was inherited verbatim from the router when these were extracted —
+ * deliberately, because an extraction that also alters behaviour is an extraction nobody can verify — and it was a
+ * real defect the whole time:
+ *
+ *     PATCH {"meta":{"validationMdoe":"strict"}}     -> 400, refused one level down
+ *     PATCH {"label":"x","validaitonMode":"strict"}  -> 200, label applied and the typo silently gone
+ *
+ * One misspelling, refused inside `meta` and swallowed outside it. A typo in `faceDescriptorDims` created a space
+ * at the default width and reported 201.
+ *
+ * It waited on a ruling rather than on work because closing it is BREAKING for any integrator currently sending a
+ * key we ignore — they get a 400 where they used to get a 200. Owner ruled A on 2026-08-15: refuse. The nested
+ * `meta` body has been strict since it was written and nobody has complained, so the asymmetry was the accident and
+ * the strictness was always the intent.
+ *
+ * `space-bodies-are-strict.test.js` derives the list from THIS file rather than from a copy, so a body added later
+ * without `.strict()` fails the build instead of quietly rejoining the lenient half.
  */
 import { z } from 'zod';
 import { getSchemaLibrary } from '../config/loader.js';
@@ -172,6 +185,42 @@ export function stripServerOwnedMeta(meta: unknown): unknown {
   return copy;
 }
 
+/**
+ * The same idea one level up: fields a `GET /api/spaces/:id` EMITS that a `PATCH` does not accept.
+ *
+ * ## Why `.strict()` needed this to land with it
+ *
+ * A caller who GETs a space, edits one field and PATCHes the whole object back is doing the obvious thing —
+ * it is how the `meta` strip came to exist, reported by an integrator who got `unrecognized_keys` for three
+ * fields they had never written and could not omit without knowing to. That strip covered `meta` only,
+ * because the top-level body was lenient and dropped everything anyway.
+ *
+ * Making the top level strict without this would have turned that round-trip into a 400 — a regression
+ * dressed as a fix, and the identical mistake the token mint route already made once: `.strict()` alone
+ * turned a round-tripped body into a 400 there, and the fix was a strip plus strictness, never either alone.
+ *
+ * ## The two halves are the point
+ *
+ * The strip keeps the round-trip working. The strictness is what refuses `validaitonMode`. Only the fields
+ * WE emit are dropped, so a typo is still a typo — `faceDescriptorDim` is not on this list and never will be,
+ * because it is not something a GET response contains.
+ *
+ * `id` is here because it identifies the space in the path, not in the body; renaming goes through
+ * `POST /:id/rename`, so an `id` in a PATCH body is a round-tripped value rather than a request. `folders`
+ * and `proxyFor` are create-only — `CreateSpaceBody` accepts them and `UpdateSpaceBody` deliberately does
+ * not, since a populated proxy cannot be re-pointed by an edit.
+ */
+export const SERVER_OWNED_SPACE_FIELDS =
+  ['id', 'builtIn', 'usageGiB', 'indexStatus', 'folders', 'proxyFor', 'networks'] as const;
+
+/** Drop the server-owned top-level fields from an incoming space body, leaving everything else to Zod. */
+export function stripServerOwnedSpace(body: unknown): unknown {
+  if (body == null || typeof body !== 'object' || Array.isArray(body)) return body;
+  const copy: Record<string, unknown> = { ...(body as Record<string, unknown>) };
+  for (const f of SERVER_OWNED_SPACE_FIELDS) delete copy[f];
+  return copy;
+}
+
 // proxyFor accepts either the wildcard sentinel ['*'] or a list of specific space IDs
 export const ProxyForZ = z.union([
   z.tuple([z.literal('*')]),
@@ -190,15 +239,15 @@ export const CreateSpaceBody = z.object({
   faceDescriptorDims: z.number().int().min(64).max(4096).optional(),
   proxyFor: ProxyForZ.optional(),
   meta: SpaceMetaBody.optional(),
-});
+}).strict();
 
 export const DeleteSpaceBody = z.object({
   confirm: z.literal(true),
-});
+}).strict();
 
 export const RenameSpaceBody = z.object({
   newId: z.string().min(1).max(40).regex(/^[a-z0-9-]+$/),
-});
+}).strict();
 
 export const DupeActionRuleBody = z.object({
   minScore: z.number().min(0).max(1),
@@ -257,14 +306,14 @@ export const UpdateSpaceBody = z.object({
   audioAnalysis: z.enum(AUDIO_LEVELS).nullable().optional(),
   videoAnalysis: z.enum(VIDEO_LEVELS).nullable().optional(),
   textAnalysis: z.enum(TEXT_LEVELS).nullable().optional(),
-}).refine(d => d.label !== undefined || d.meta !== undefined || d.maxGiB !== undefined || d.dupeRules !== undefined || d.dupeMergeSurvivor !== undefined || d.dupeRulesOnInsert !== undefined || d.recordTtlDays !== undefined || d.documentExtraction !== undefined || d.imageAnalysis !== undefined || d.audioAnalysis !== undefined || d.videoAnalysis !== undefined || d.textAnalysis !== undefined, {
+}).strict().refine(d => d.label !== undefined || d.meta !== undefined || d.maxGiB !== undefined || d.dupeRules !== undefined || d.dupeMergeSurvivor !== undefined || d.dupeRulesOnInsert !== undefined || d.recordTtlDays !== undefined || d.documentExtraction !== undefined || d.imageAnalysis !== undefined || d.audioAnalysis !== undefined || d.videoAnalysis !== undefined || d.textAnalysis !== undefined, {
   message: 'At least one of label, maxGiB, meta, dupeRules, dupeMergeSurvivor, dupeRulesOnInsert, recordTtlDays, documentExtraction, imageAnalysis, audioAnalysis, videoAnalysis, or textAnalysis must be provided',
 });
 
 export const ReorderSpacesBody = z.object({
   ids: z.array(z.string().min(1).max(40)).min(1),
-});
+}).strict();
 
 export const PutSchemaBody = z.object({
   typeSchemas: TypeSchemasZ,
-});
+}).strict();

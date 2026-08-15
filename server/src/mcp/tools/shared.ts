@@ -30,14 +30,29 @@ export const TTL_DAYS_SCHEMA = {
  * The semantics are stated in the description rather than left to the field name, because "excluded from
  * vector search" reads like a query-time filter and is not one: the vector is REMOVED. Recall cannot reach
  * the record even deliberately; structured reads still return it in full.
+ *
+ * ## "traverse" was ambiguous, and the ambiguity cost a question
+ *
+ * The description used to list `traverse` among the things that still reach an excluded record, which is
+ * true of BOTH traversals and reads as neither. Owner, 2026-08-15: *"excludefromvector does also exclude
+ * from recalls traversal? ambigous and i want entries to be findable via traversal even if they are not
+ * embedded themselves."*
+ *
+ * The answer is no, and the reason is structural rather than a policy anyone chose: recall's `traverse`
+ * expansion walks EDGES out of a match, so it never consults a vector, and `recall-graph.ts` filters on
+ * nothing but the edge. So both the `traverse` tool and `recall(traverse: n)` reach an excluded record.
+ * Saying which two is what the sentence was missing — a reader had to already know there were two.
  */
 export const EXCLUDE_FROM_VECTOR_SEARCH_SCHEMA = {
   type: 'boolean',
   description:
-    'Retire this record from semantic search (true), or return it to it (false). Implemented as the ABSENCE '
-    + 'of a vector, NOT a query-time filter: an excluded record cannot be reached by recall even '
-    + 'deliberately, while query, traverse, list and get still return it unchanged. Toggling back to false '
-    + 're-embeds it. May be the only field you send — retiring a record is a complete edit in itself.',
+    'Retire this record from semantic RANKING (true), or return it to it (false). Implemented as the ABSENCE '
+    + 'of a vector, NOT a query-time filter: an excluded record cannot be RANKED by recall even '
+    + 'deliberately, because there is no vector to rank. Everything that does not rank still reaches it in '
+    + 'full — query, list, get, the `traverse` tool, AND recall\'s own `traverse` expansion, which walks '
+    + 'edges out of a match and never consults a vector. So a record excluded here is still findable through '
+    + 'its relationships; it just stops competing on meaning. Toggling back to false re-embeds it. May be the '
+    + 'only field you send — retiring a record is a complete edit in itself.',
 } as const;
 
 /**

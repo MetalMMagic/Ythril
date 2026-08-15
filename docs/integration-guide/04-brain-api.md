@@ -694,8 +694,18 @@ The consequence is worth stating plainly, because it is the reason to choose thi
 
 | reader | sees an excluded record? |
 |---|---|
-| `recall`, `find_similar`, duplicate/contradiction scans | **no**, and there is no parameter that asks for it back |
-| `GET`/`PATCH` by id, `query`, `list`, `traverse`, exports | **yes**, unchanged and complete |
+| `recall`'s ranked results, `find_similar`, duplicate/contradiction scans | **no**, and there is no parameter that asks for it back |
+| `GET`/`PATCH` by id, `query`, `list`, exports | **yes**, unchanged and complete |
+| the `traverse` tool | **yes** |
+| **`recall(traverse: n)` — the graph expansion** | **yes** |
+
+That last row is the one people ask about, so it is spelled out rather than folded into "traverse". Recall's
+own expansion walks **edges** out of a match: it never consults a vector, so an excluded record is reached
+exactly as it always was and appears in `_graph` like any other neighbour.
+
+**A record retired from ranking is therefore still findable through its relationships.** It stops competing on
+meaning; it does not disappear from the graph. That is usually the point — a record that would otherwise crowd
+recall stays reachable from the things that reference it.
 
 So an audit that must include retired records has to be a **structured read**, not a recall. If you point a
 semantic search at retired records today by applying a filter you control, the flag will not reproduce that

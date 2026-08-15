@@ -39,6 +39,50 @@
  * rule expressed twice is how they come to disagree. This function is the single expression; both routes call it.
  */
 import type { TokenRecord } from '../config/types.js';
+import { SPACE_AREAS } from '../config/rights-shape.js';
+import type { TokenRights } from '../config/rights-shape.js';
+import { effectiveRung } from './mint-cap.js';
+
+/**
+ * The spaces an administrator is CONFINED to, read from the rights matrix rather than the legacy allowlist.
+ *
+ * ## Why this exists
+ *
+ * Both callers of `refusalsOutsideEditorScope` passed `req.authToken?.spaces` — the pre-3.0 allowlist. The
+ * matrix has been the permission model since 2.6 and `spaces` is a deprecated field (`_DEPRECATIONS.md` 1.7,
+ * measured at 14 files and 87 reads), so the guard was making its decision from the older of the two
+ * descriptions of the same thing. A token minted with a matrix and no `spaces` array read as `undefined` here
+ * — which this guard treats as an UNRESTRICTED instance administrator, the widest possible reading of a token
+ * that may hold one space.
+ *
+ * That is the same absent-vs-empty conflation `reachable-spaces.ts` documents, arriving one layer up: there,
+ * an empty allowlist was read as unrestricted; here, an absent one is, on a token whose real scope was in a
+ * field nobody looked at.
+ *
+ * ## `undefined` means unrestricted, and three things produce it
+ *
+ *  - **`instanceAdmin`** — the switch that says so.
+ *  - **A floor with any rung above `none`.** A floor applies to every space *including ones created later*,
+ *    so it cannot be enumerated. This is the same reasoning that makes the guard below refuse a floor rather
+ *    than cap it: however modest the rungs look, the reach is instance-wide.
+ *  - **No matrix at all** — an OIDC session, or a record that predates the backfill. The legacy allowlist
+ *    answers instead, with absent and empty kept apart deliberately.
+ *
+ * Otherwise the scope is the spaces with something in them: any area above `none`. A row of four `none`s is
+ * not scope, it is a row somebody emptied, and counting it would let a token administer a space it holds
+ * nothing in.
+ */
+export function editorScopeFor(
+  record: { rights?: TokenRights | null; spaces?: string[] } | undefined,
+): readonly string[] | undefined {
+  if (!record) return undefined;
+  const rights = record.rights;
+  if (!rights) return record.spaces;                    // no matrix: the legacy field is all there is
+  if (rights.instanceAdmin) return undefined;
+  if (rights.floor && SPACE_AREAS.some(a => rights.floor?.[a] && rights.floor[a] !== 'none')) return undefined;
+  return Object.keys(rights.perSpace ?? {})
+    .filter(id => SPACE_AREAS.some(a => effectiveRung(rights, id, a) !== 'none'));
+}
 
 /** The rights object as the API accepts it. */
 export type EditableRights = {

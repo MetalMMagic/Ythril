@@ -24,6 +24,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   removed in 3.0.1 and the guide still told operators to set *Follow the instance setting / Exempt /
   Required* there, and to expect an authenticator prompt. MFA is instance-wide, under Settings →
   Preferences, and nothing about it appears in the token dialogs.
+- **An embedding outage no longer stops indexing permanently.** Reported from a live instance: *"after
+  updating all space indexing failed and since has not been retried automatically."* The retry policy is
+  sized for a per-record failure — five attempts at 5s / 30s / 120s / 600s, about twelve and a half minutes
+  — and a job that spends that budget goes terminally `failed`, which the claim query never picks up again.
+  Applied to a SYSTEMIC failure, an embedder unreachable for a quarter of an hour during an upgrade takes
+  every queued job in every space terminal at once, and the instance stops indexing without reporting a
+  fault: each job did exactly what it was told. Startup now gives every terminally-failed job **one clean
+  attempt per server version** — attempts reset, backoff cleared, `lastError` kept so it is still visible
+  what it died of, and the count logged. A restart on the SAME version revives nothing, so a record that
+  genuinely cannot be embedded is not re-run for ever. Classifying transient errors so they do not spend the
+  budget at all is tracked separately.
+- **One reader for the server version.** `api/about.ts` and `app.ts` each resolved their own path to
+  `server/package.json`; the revive above needed it too, and three copies of "which manifest do we mean" is
+  the kind of duplication that is right until the release where it is not.
+
 - **The rights editor can grant and revoke the two instance-level flags.** `instanceAdmin` and `createSpaces`
   are part of the matrix the server stores and `PATCH /api/tokens/:id` already accepted — `migrateToken` sets
   `instanceAdmin` from the legacy admin flag — but the editor had no control for either, so tokens HELD them

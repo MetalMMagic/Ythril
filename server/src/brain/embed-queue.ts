@@ -86,6 +86,8 @@ export const EMBED_JOB_INDEXES: Array<Record<string, 1>> = [
   { status: 1, claimableAfter: 1, createdAt: 1 },
   // resetStalledEmbedJobs: { status, progressAt < cutoff }, and the per-status counts.
   { status: 1, progressAt: 1 },
+  // reviveFailedEmbedJobs: { status: 'failed', revivedForVersion != running }.
+  { status: 1, revivedForVersion: 1 },
 ];
 
 /** Idempotent — safe on every boot for every space, including spaces that predate this queue. */
@@ -262,6 +264,59 @@ export async function failEmbedJob(
       $set: { status: 'failed', claimedAt: null, claimToken: null, lastError, updatedAt: now },
     }),
   );
+}
+
+/**
+ * Give every terminally-failed job one clean attempt per server VERSION.
+ *
+ * ## The failure this repairs, reported from a live instance
+ *
+ * Owner, 2026-08-15: *"after updating all space indexing failed and since has not been retried
+ * automatically."*
+ *
+ * The retry policy above is sized for a PER-RECORD failure and was being applied to a SYSTEMIC one. Five
+ * attempts at 5s / 30s / 120s / 600s is a budget of about **twelve and a half minutes** from the first
+ * failure to terminal `failed` — and `claimNextEmbedJob` filters on `status: 'pending'`, so terminal means
+ * never claimed again. An embedder that is unreachable for a quarter of an hour during an upgrade therefore
+ * takes every queued job in every space terminal, at once, and the instance stops indexing without ever
+ * reporting a fault: each individual job did exactly what it was told to do.
+ *
+ * `resetStalledEmbedJobs` does not help — it revives `processing` jobs whose worker died, which is a
+ * different accident. Nothing revived `failed`.
+ *
+ * ## Why the key is the version and not a timer
+ *
+ * A periodic sweep would re-run genuinely-bad records for ever, and a boot sweep would do it on every
+ * restart. Keying on the running version bounds it exactly where the owner's report points: **a new version
+ * is new evidence**, so it earns one honest retry of everything that failed under the old one, and a restart
+ * on the same version revives nothing. `revivedForVersion` absent matches `$ne`, so jobs that failed before
+ * this existed are included once.
+ *
+ * `attempts` is reset with it: a job kept at 5 would fail again on its first error and go straight back to
+ * terminal, which is a revive that does nothing. `lastError` is deliberately KEPT — an operator looking at a
+ * re-queued job should still be able to see what it died of last time.
+ *
+ * This does not make the retry policy right, only survivable: an "embedder unreachable" and a "this text is
+ * malformed" still cost the same one attempt. Classifying them is the other half, tracked as EJ-1.
+ */
+export async function reviveFailedEmbedJobs(spaceIds: string[], version: string): Promise<number> {
+  let revived = 0;
+  for (const spaceId of spaceIds) {
+    const res = await jobs(spaceId).updateMany(
+      asFilter<BrainEmbedJobDoc>({ status: 'failed', revivedForVersion: { $ne: version } as unknown as string }),
+      asUpdate<BrainEmbedJobDoc>({
+        $set: {
+          status: 'pending', attempts: 0, claimedAt: null, claimToken: null, claimableAfter: null,
+          revivedForVersion: version, updatedAt: new Date().toISOString(),
+        },
+      }),
+    );
+    if (res.modifiedCount > 0) {
+      revived += res.modifiedCount;
+      _signal.markSpaceMayHaveWork(spaceId);
+    }
+  }
+  return revived;
 }
 
 /**

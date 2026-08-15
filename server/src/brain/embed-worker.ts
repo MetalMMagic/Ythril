@@ -63,7 +63,9 @@ export async function runOneEmbedJob(): Promise<boolean> {
       .catch(() => { /* best-effort, exactly as it was on the write path */ });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    await failEmbedJob(job.spaceId, job.recordType, job.recordId, job.attempts, msg);
+    // `transientFailures` comes from the job the worker already holds — no second read, and no
+    // `findOneAndUpdate` to recover a post-increment value.
+    await failEmbedJob(job.spaceId, job.recordType, job.recordId, job.attempts, msg, job.transientFailures ?? 0);
     // debug, not warn: an embedder that is down produces one of these per queued record, and a
     // thousand warnings say nothing the first one did not. The failed count is the signal.
     log.debug(`Embed job ${job._id} in ${job.spaceId} failed (attempt ${job.attempts}): ${msg}`);

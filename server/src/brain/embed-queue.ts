@@ -137,6 +137,9 @@ export async function enqueueEmbedJob(
           spaceId, recordType, recordId,
           status: 'pending',
           attempts: 0,
+          // Reset with `attempts`, for the same reason: a new write is new content, and it must not inherit
+          // a half-hour backoff earned by an outage that has since ended.
+          transientFailures: 0,
           maxAttempts: MAX_EMBED_ATTEMPTS,
           lastError: null,
           claimedAt: null,
@@ -232,17 +235,84 @@ export async function retireEmbedJob(
   await jobs(spaceId).deleteOne(asFilter<BrainEmbedJobDoc>({ _id: embedJobId(recordType, recordId) }));
 }
 
-/** Requeue with backoff, or leave `failed` once the attempt budget is spent. */
+/**
+ * Is this failure the RECORD's fault, or the embedder's?
+ *
+ * ## Why the distinction has to exist
+ *
+ * `MAX_EMBED_ATTEMPTS` is 5 with a backoff of 5s / 30s / 120s / 600s — about twelve and a half minutes from
+ * the first failure to terminal `failed`. That budget is sized for a PER-RECORD failure. Applied to a
+ * systemic one, an embedder unreachable for a quarter of an hour during an upgrade takes every queued job in
+ * every space terminal at once, and the instance stops indexing without reporting a fault: every job did
+ * exactly what it was told to.
+ *
+ * #910 made that survivable — one clean retry of everything per server version. This makes it right: an
+ * outage costs WAITING rather than the budget.
+ *
+ * ## What counts, and what deliberately does not
+ *
+ * Reachability and availability: the connection never landed, or the far end said "not now". Those are
+ * resolved by waiting and by nothing else the caller can do.
+ *
+ * A `400` or `422` is NOT here, and that is the whole point of keeping a budget at all — a malformed input is
+ * exactly the per-record failure `attempts` exists to bound. Retrying it forever would replace one silent
+ * failure mode with another: a job that never completes and never gives up.
+ *
+ * Matched on the message because that is what reaches us — the embedder is behind `fetch`, an HTTP client or
+ * an in-process model depending on configuration, and there is no one error type across the three.
+ */
+export function isTransientEmbedError(message: string): boolean {
+  const m = message.toLowerCase();
+  return [
+    'econnrefused', 'econnreset', 'etimedout', 'ehostunreach', 'enetunreach', 'eai_again', 'enotfound',
+    'socket hang up', 'fetch failed', 'network error', 'timeout', 'timed out',
+    'too many requests', 'service unavailable', 'bad gateway', 'gateway timeout', 'temporarily unavailable',
+    ' 429', ' 502', ' 503', ' 504', 'status 429', 'status 502', 'status 503', 'status 504',
+  ].some(needle => m.includes(needle));
+}
+
+/**
+ * Requeue with backoff, or leave `failed` once the attempt budget is spent.
+ *
+ * A TRANSIENT failure hands the attempt back and never goes terminal — see `isTransientEmbedError`. It is
+ * given back rather than withheld because `claimNextEmbedJob` increments `attempts` at CLAIM time, before
+ * the outcome is known, so by the time we are here it has already been spent.
+ *
+ * The wait then has to come from somewhere else, which is why `transientFailures` is a second counter and not
+ * a flag: the backoff is a function of the attempt number, so holding `attempts` still would pin every retry
+ * at the first step and hammer a dead embedder every five seconds — the opposite of what this is for.
+ */
 export async function failEmbedJob(
   spaceId: string,
   recordType: BrainEmbedRecordType,
   recordId: string,
   attempts: number,
   errorMessage: string,
+  transientFailures = 0,
 ): Promise<void> {
   const now = new Date().toISOString();
   const _id = embedJobId(recordType, recordId);
   const lastError = errorMessage.slice(0, 500);
+
+  if (isTransientEmbedError(errorMessage)) {
+    const failures = transientFailures + 1;
+    await jobs(spaceId).updateOne(
+      asFilter<BrainEmbedJobDoc>({ _id }),
+      asUpdate<BrainEmbedJobDoc>({
+        $set: {
+          status: 'pending', claimedAt: null, claimToken: null, lastError, updatedAt: now,
+          // The attempt is given back: this failure was not the record's.
+          attempts: Math.max(0, attempts - 1),
+          transientFailures: failures,
+          // Saturates at the last step, so a permanently-dead embedder costs one claim per job per half hour
+          // rather than a spin. It self-heals the moment the embedder answers.
+          claimableAfter: nextClaimableAfter(failures),
+        },
+      }),
+    );
+    _signal.markSpaceMayHaveWork(spaceId);
+    return;
+  }
 
   if (attempts < MAX_EMBED_ATTEMPTS) {
     await jobs(spaceId).updateOne(
@@ -306,7 +376,8 @@ export async function reviveFailedEmbedJobs(spaceIds: string[], version: string)
       asFilter<BrainEmbedJobDoc>({ status: 'failed', revivedForVersion: { $ne: version } as unknown as string }),
       asUpdate<BrainEmbedJobDoc>({
         $set: {
-          status: 'pending', attempts: 0, claimedAt: null, claimToken: null, claimableAfter: null,
+          status: 'pending', attempts: 0, transientFailures: 0,
+          claimedAt: null, claimToken: null, claimableAfter: null,
           revivedForVersion: version, updatedAt: new Date().toISOString(),
         },
       }),
@@ -439,6 +510,7 @@ export async function retryEmbedJob(
       $set: {
         status: 'pending',
         attempts: 0,
+        transientFailures: 0,
         lastError: null,
         claimedAt: null,
         claimableAfter: null,

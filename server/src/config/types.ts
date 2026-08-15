@@ -1821,8 +1821,22 @@ export interface BrainEmbedJobDoc {
   recordType: BrainEmbedRecordType;
   recordId: string;
   status: 'pending' | 'processing' | 'failed';
+  /**
+   * The PERMANENT-failure budget. Spent only on errors that a retry cannot fix — a malformed input, a 400
+   * from a reachable embedder. See `transientFailures` for the other kind.
+   */
   attempts: number;
   maxAttempts: number;
+  /**
+   * How many times this job has failed for a reason that is not its own: the embedder unreachable, a 503, a
+   * rate limit. Absent on every job written before this existed, which reads as 0.
+   *
+   * It is separate from `attempts` because the two answer different questions and one counter cannot do
+   * both. `attempts` decides when to give up; this decides how long to wait. Counting an outage against the
+   * budget is what took every queued job in every space terminal at once during an upgrade — five attempts
+   * over twelve and a half minutes, spent on a sidecar that was restarting.
+   */
+  transientFailures?: number;
   lastError: string | null;
   /** ISO8601 — set when a worker claims this job. */
   claimedAt: string | null;

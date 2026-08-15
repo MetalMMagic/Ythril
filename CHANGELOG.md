@@ -21,6 +21,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`query` now says what it is *for*, and what a page of results means.** Its whole description was one
+  line — what it does, never when to choose it. It is the exact counterpart to `recall`: a predicate and
+  every row that satisfies it, with no embedding, no ranking and no score, and it reaches records `recall`
+  cannot, since a record retired from semantic ranking has no vector to rank. The reference now says that,
+  and explains the pair of numbers that come back: `count` is this page, `total` is everything matching the
+  filter, and the gap between them is the only signal that there is more to page through — a full page is not
+  evidence of being the last one. It also warns that a positive count with no rows means an instance older
+  than this release, so an agent recognises the shape instead of concluding a space is empty.
+
 - **`recall` now documents what it gives back, not only what it takes.** Its tool reference described every
   parameter and nothing about the response, so the one thing that fails silently was invisible: the inline
   answer is capped by **size**, and it is a cliff rather than a gentle limit — around 25 results come back in

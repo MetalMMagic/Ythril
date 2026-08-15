@@ -415,7 +415,13 @@ export const find_similarTool: ToolHandler = {
 
 export const queryTool: ToolHandler = {
   name: 'query',
-  description: 'Run a structured read-only query (MongoDB filter) against brain collections.',
+  description: 'Run a structured read-only query (MongoDB filter) against brain collections. This is the EXACT counterpart to `recall`: no embedding, no ranking, no score — a predicate, and every row that satisfies it. Reach for it when you know what you are looking for, and for `recall` when you know what it is about.\n\n'
+    + 'It also reaches records `recall` cannot: a record retired from semantic ranking has no vector, and this reads the collection.\n\n'
+    + 'THE RESPONSE:\n'
+    + '• `results` — the matching documents, `embedding` always stripped. Ordered seq/updatedAt/createdAt descending unless you pass `sort`.\n'
+    + '• `count` — how many rows are in THIS page. `total` — how many satisfy the filter overall. They differ whenever `limit` bit, and that difference is the only signal that there is more to page through.\n'
+    + '• `limit`, `skip` — echoed back, so a pager can carry on without keeping its own state.\n\n'
+    + 'A count with no rows is a BUG, not an empty page: `results` is carried in both `content` and `structuredContent`, and a client that reads only one of them gets the whole answer either way. Before 3.1 the rows were in `content` alone, so a client preferring `structuredContent` saw {"count":15,"total":40} and not a single row — reported independently by breituai-platform and reproduced here. If you ever see a positive `count` with nothing in it, the instance predates that fix.',
   spaceRequired: true,
   inputSchema: (s: ToolSchemas) => ({
           type: 'object',
@@ -432,9 +438,9 @@ export const queryTool: ToolHandler = {
             },
             projection: {
               type: 'object',
-              description: 'Fields to include (1) or exclude (0). The `embedding` field is always excluded and cannot be re-included.',
+              description: 'Fields to include (1) or exclude (0). The `embedding` field is always excluded and cannot be re-included. Worth using rather than skipping: a bare query over a dozen records with full bodies is the cheapest way to overrun a token budget, and a projection of the four fields you actually branch on turns that into a page you can read.',
             },
-            limit: { type: 'number', minimum: 1, maximum: 100, default: 20, description: 'Max documents to return (clamped to 1–100). Default 20.' },
+            limit: { type: 'number', minimum: 1, maximum: 100, default: 20, description: 'Max documents in this page, clamped to 1–100. Default 20. Compare `count` against `total` in the response to know whether more rows satisfy the filter — a full page is not evidence that it is the last one.' },
             skip: { type: 'number', minimum: 0, description: 'Rows to discard before the page, for paging. The result order is total (`_id` breaks every tie), so no row can be seen twice or missed between pages. On a proxy space the page is computed over the MERGED set, not per member.' },
             sort: { type: 'string', description: 'Field to order by. Allowed values depend on the collection (entities: createdAt, name, type; edges: createdAt, label, from, to, type, weight; memories: createdAt, type; chrono: createdAt, title, startsAt, endsAt, status, type; files: createdAt, updatedAt, path). An unknown field is refused and names the allowed ones. Omit for newest-first.' },
             dir: { type: 'string', enum: ['asc', 'desc'], description: "Sort direction, default desc. Only meaningful with `sort`." },

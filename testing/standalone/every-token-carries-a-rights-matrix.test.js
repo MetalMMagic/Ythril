@@ -62,7 +62,9 @@ describe('the boot migration is durable', () => {
     const at = src.indexOf('export function migrateTokenRightsOnBoot');
     assert.ok(at > -1, 'the boot step is gone — re-anchor this gate');
     const after = src.slice(at, at + 700);
-    assert.match(after, /if \(filled === 0\) return 0;/, 'a write only when something changed');
+    // Both counts, because the boot step does two things now: derive a missing matrix, and repair a malformed
+    // one. `if (filled === 0)` alone would return before persisting a repair — the fix would run and be lost.
+    assert.match(after, /if \(filled === 0 && repaired === 0\) return 0;/, 'a write only when something changed');
     assert.match(after, /persist\(config\)/, 'and it must actually persist');
     // And the loader must still CALL it, or the migration is code nobody runs.
     assert.match(read('server/src/config/loader.ts'), /migrateTokenRightsOnBoot\(_config\)/);

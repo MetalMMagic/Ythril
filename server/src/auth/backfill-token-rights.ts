@@ -21,6 +21,7 @@
  */
 import type { Config } from '../config/types.js';
 import { migrateToken } from './rights-migration.js';
+import { repairRights } from '../config/rights-shape.js';
 import { log } from '../util/log.js';
 
 /**
@@ -47,7 +48,42 @@ export function backfillTokenRights(config: Config): number {
 
 
 /**
- * The boot step: derive, then persist if anything changed.
+ * Bring every MALFORMED rights object back to the validated shape, and say how many needed it.
+ *
+ * ## Why this is a second pass and not a stronger `if` in the backfill above
+ *
+ * `backfillTokenRights` skips on `if (t.rights) continue;` — the PRESENCE of a matrix, with no look at its
+ * SHAPE. That is correct for what it does, and it is exactly why a token carrying a malformed matrix was never
+ * repaired at any boot, for ever: the migration ran, saw an object, and moved on. The owner's report reads as
+ * *"the migration didn't work"* for that reason.
+ *
+ * Keeping the two apart also keeps the promise the backfill's tests pin: it must NEVER overwrite a matrix
+ * somebody set. Widening that function's condition to "present and well-formed" would have made one function
+ * responsible for both "derive from legacy" and "do not lose an operator's edit", and the repair below is the
+ * half that must not reach for the legacy fields at all.
+ *
+ * A token whose `rights` is not an object has nothing to preserve, so that one — and only that one — is
+ * re-derived from the legacy fields.
+ */
+export function repairTokenRights(config: Config): number {
+  let repaired = 0;
+  for (const t of config.tokens ?? []) {
+    if (!t.rights) continue;                       // the backfill's job; a second opinion here would fight it
+    const fixed = repairRights(t.rights);
+    if (!fixed) {
+      t.rights = migrateToken(t) as unknown as typeof t.rights;
+      repaired++;
+      continue;
+    }
+    if (!fixed.changed) continue;
+    t.rights = fixed.rights;
+    repaired++;
+  }
+  return repaired;
+}
+
+/**
+ * The boot step: derive, repair, then persist if anything changed.
  *
  * `saveConfig` is injected rather than imported so this module does not depend on the loader that calls it — the
  * cycle would be real, and a token migration has no business reaching back into configuration loading.
@@ -57,15 +93,19 @@ export function backfillTokenRights(config: Config): number {
  */
 export function migrateTokenRightsOnBoot(config: Config, save?: (c: Config) => void): number {
   const filled = backfillTokenRights(config);
-  if (filled === 0) return 0;
+  const repaired = repairTokenRights(config);
+  if (filled === 0 && repaired === 0) return 0;
   const persist = save ?? defaultSave;
   try {
     persist(config);
-    log.info(`Derived a rights matrix for ${filled} token(s) from their legacy fields (written to disk)`);
+    if (filled) log.info(`Derived a rights matrix for ${filled} token(s) from their legacy fields (written to disk)`);
+    // Said separately and at warn, because a repair means something wrote a shape the API refuses — the count
+    // is the only place that is visible, and folding it into the line above would read as ordinary migration.
+    if (repaired) log.warn(`Repaired a malformed rights matrix on ${repaired} token(s) — unknown areas dropped, missing areas set to 'none'`);
   } catch (err) {
     log.warn(`Could not persist derived token rights (will retry next boot): ${err}`);
   }
-  return filled;
+  return filled + repaired;
 }
 
 /** Late-bound so the import graph stays one-way: loader -> here, never back. */

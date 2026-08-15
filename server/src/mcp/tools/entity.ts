@@ -12,7 +12,9 @@ import { mergePropertiesOrKeep, mergeTagsOrKeep } from '../../brain/merge-fields
 
 export const upsert_entityTool: ToolHandler = {
   name: 'upsert_entity',
-  description: 'Create or update a named entity in the knowledge graph. Identity is by `id` — if `id` is supplied the matching record is updated (or a new record with that ID is created); if `id` is omitted a new record is always inserted regardless of name.',
+  description: 'Create or update a named entity in the knowledge graph. Identity is by `id` — supply one and the matching record is updated, omit it and a NEW record is always inserted regardless of name. Two entities may share a name; nothing deduplicates for you. Use `find_entities_by_name` first if you meant to update.\n\n'
+    + 'An upsert onto an existing record MERGES: properties and tags are merged over what is stored, so you can set one field without restating the rest, and the record is validated in its MERGED form rather than as the fragment you sent. That is why a partial upsert of a conformant record is accepted even when the fragment alone would fail a required-property rule.\n\n'
+    + 'IF THE SPACE VALIDATES, a refusal names WHOSE FAULT it is. `introduced` are violations your write caused — fix those. `preExisting` were already stored and your write neither caused nor fixed them; in `strict` mode they are REPORTED and do NOT refuse the write, so an unrelated edit is never blocked by a field somebody else broke. Branch on `introduced` and treat `preExisting` as a repair opportunity rather than an error.',
   mutating: true,
   spaceRequired: true,
   inputSchema: (s: ToolSchemas) => ({

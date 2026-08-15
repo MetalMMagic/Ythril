@@ -23,7 +23,10 @@ import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
 
 export const rememberTool: ToolHandler = {
   name: 'remember',
-  description: 'Store a fact or memory in the knowledge graph with semantic embedding.',
+  description: 'Store a fact in the knowledge graph. It is embedded for semantic search, so write it as a SENTENCE that carries its own context — a memory retrieved months later arrives without the conversation it was written in, and "he agreed to the change" is unusable on its own.\n\n'
+    + 'Always an INSERT. There is no id to update and nothing deduplicates: remembering the same fact twice stores it twice, and both then compete for the same result slots in a recall. Search before writing if a fact may already be there, and use `update_memory` when you mean to revise one.\n\n'
+    + 'Embedding is ASYNCHRONOUS. The write returns as soon as the record is stored, and a queued job computes the vector — so a `recall` issued seconds later may not find what you just wrote. Pass `includeFreshWrites: true` on that recall to read straight from the collection instead of waiting.\n\n'
+    + 'IF THE SPACE VALIDATES, a refusal names WHOSE FAULT it is: `introduced` are violations this write caused and are what refuses it; `preExisting` were already stored, are reported, and do NOT block. Branch on `introduced`.',
   mutating: true,
   spaceRequired: true,
   inputSchema: (s: ToolSchemas) => ({

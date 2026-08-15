@@ -85,6 +85,53 @@ import { effectiveRung } from './mint-cap.js';
  * only thing that does. A token holding `instanceAdmin` with no floor and no rows scopes to `[]` — it reaches
  * no space's data — and that is the honest answer, not an oversight.
  */
+/**
+ * Is this token the administrator OF a space, per the rights matrix?
+ *
+ * ## `admin` on ALL FOUR areas, and nothing less
+ *
+ * The matrix has no "space administrator" checkbox and does not need one: holding the destructive rung in
+ * every area of a space already says *"there is nothing here you cannot do"*. Requiring all four is what
+ * stops the obvious escalation — `admin` on Files alone must not mint tokens, because a token is not a file.
+ *
+ * A per-space capability flag was the alternative and was rejected: it is a schema change and a migration to
+ * express something the four rungs already express, and it would then be a second thing that can disagree
+ * with them.
+ *
+ * ## What it unlocks, which is an owner ruling and not a derivation
+ *
+ * Owner, 2026-08-15, correcting a narrower proposal of mine: *"those are INSTANCE admin things. B and
+ * includes the rest of the matrixes rungs for this space."*
+ *
+ * The routes I had wanted to protect — create a space, join a network, change instance settings, the database
+ * page — are instance-shaped. There is no space to scope them to, so a space administrator was never going to
+ * reach them and no separate rule is needed to keep them out. What a space admin gets is **its own space**:
+ * that space's tokens, that space's settings, and whatever the four rungs already grant inside it.
+ *
+ * ## Deliberately reads the matrix ONLY
+ *
+ * No fallback to the legacy `admin` boolean. A legacy admin already passes `enforceAdmin` on its own, so
+ * folding it in here would make this predicate answer two questions at once — and the whole point of
+ * deprecation 1.7 is to get the legacy pair out of the decision path, not to add it to one more place.
+ */
+export function isSpaceAdminFor(rights: TokenRights | null | undefined, spaceId: string): boolean {
+  if (!rights) return false;
+  return SPACE_AREAS.every(area => effectiveRung(rights, spaceId, area) === 'admin');
+}
+
+/**
+ * Every space this token administers. Empty means it administers none.
+ *
+ * Derived from the rows it actually holds rather than from every space on the instance: a floor of `admin`
+ * makes `editorScopeFor` unrestricted anyway, and enumerating the config here would make this function's
+ * answer depend on how many spaces exist rather than on what the token says.
+ */
+export function spaceAdminSpacesFor(record: { rights?: TokenRights | null } | undefined): string[] {
+  const rights = record?.rights;
+  if (!rights) return [];
+  return Object.keys(rights.perSpace ?? {}).filter(id => isSpaceAdminFor(rights, id));
+}
+
 export function editorScopeFor(
   record: { rights?: TokenRights | null; spaces?: string[] } | undefined,
 ): readonly string[] | undefined {

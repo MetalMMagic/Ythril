@@ -1,6 +1,6 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import type { Request, Response } from 'express';
-import { requireAuth, requireAdmin, requireAdminMfa } from '../auth/middleware.js';
+import { requireAuth, requireAdminOrSpaceAdmin, requireAdminOrSpaceAdminMfa } from '../auth/middleware.js';
 import { authRateLimit, globalRateLimit } from '../rate-limit/middleware.js';
 import { createToken, listTokens, revokeToken, regenerateToken, renameToken, setTokenRights, setTokenMfa } from '../auth/tokens.js';
 import { isMfaEnabled, verifyMfaCode } from '../auth/totp.js';
@@ -14,28 +14,28 @@ import { migrateToken } from '../auth/rights-migration.js';
 
 export const tokensRouter = Router();
 
-// GET /api/auth/me — returns the current token's metadata (used by the Angular SPA to verify a PAT)
+// GET /api/auth/me â€” returns the current token's metadata (used by the Angular SPA to verify a PAT)
 tokensRouter.get('/me', globalRateLimit, requireAuth, (req, res) => {
   res.json(req.authToken);
 });
 
 /**
- * GET /api/tokens/rights-catalog — what each area and rung actually GRANTS.
+ * GET /api/tokens/rights-catalog â€” what each area and rung actually GRANTS.
  *
- * The rights grid is four areas × four rungs of bare words, and nothing told an operator what any cell does.
+ * The rights grid is four areas Ã— four rungs of bare words, and nothing told an operator what any cell does.
  * The answer already exists and is authoritative: `ROUTE_RIGHTS` is the table the server ENFORCES against, so
  * it is the only description of a right that cannot be wrong. A list typed into the client would be a second
  * copy of a security control, and the copy that drifts is the one people read.
  *
- * **Authenticated, not admin.** It is capability documentation — every route in it is published in the
- * integration guide — and the caller who most needs it is the non-admin trying to understand the rights they
+ * **Authenticated, not admin.** It is capability documentation â€” every route in it is published in the
+ * integration guide â€” and the caller who most needs it is the non-admin trying to understand the rights they
  * hold. Gating it to admins would withhold the explanation from exactly that person.
  *
  * The table is sent FLAT and the cumulative view is computed by the caller, because rungs contain the ones
  * below: `write` grants every `read` route as well. Sending pre-expanded lists would ship the same route many
  * times and put the containment rule in two places.
  *
- * `scope` is deliberately omitted — how a route learns which space it is about is internal, and a tooltip has
+ * `scope` is deliberately omitted â€” how a route learns which space it is about is internal, and a tooltip has
  * no use for it.
  *
  * `implications` is published for the same reason the routes are: `knowledge: write` entails `schema: read`
@@ -53,12 +53,12 @@ tokensRouter.get('/rights-catalog', globalRateLimit, requireAuth, (_req, res) =>
 });
 
 /**
- * Fields the SERVER owns on a token record. A client that posts a token it read back — `id`, `hash`,
- * `prefix` — is round-tripping, not attacking, and being told "unknown key" for a field we ourselves emitted
+ * Fields the SERVER owns on a token record. A client that posts a token it read back â€” `id`, `hash`,
+ * `prefix` â€” is round-tripping, not attacking, and being told "unknown key" for a field we ourselves emitted
  * would be a worse answer than ignoring it.
  *
  * Same shape as `SERVER_OWNED_META_FIELDS` in `api/spaces.ts`: strip exactly the server-owned set, then let
- * a STRICT schema refuse everything else. The two halves are the point — the strip keeps a round-trip
+ * a STRICT schema refuse everything else. The two halves are the point â€” the strip keeps a round-trip
  * working, and the strictness is what stops `spaceIds` minting an unscoped token in silence.
  *
  * A red-team test (`mass-assignment.test.js`) pins the strip; `credential-bodies-are-strict.test.js` pins
@@ -81,8 +81,8 @@ function stripServerOwnedToken(body: unknown): unknown {
  * returned 201. The caller is told the operation succeeded, their own notes say the token is scoped, and it
  * reaches every space on the instance. Nothing in the response, the record or the logs tells the two apart.
  *
- * Reported by an operator on 2026-08-09 who probed four plausible spellings — `allowedSpaces`, `scope`,
- * `spaceIds`, `denySpaces` — and got 201 from every one. They found it by reading the stored token back and
+ * Reported by an operator on 2026-08-09 who probed four plausible spellings â€” `allowedSpaces`, `scope`,
+ * `spaceIds`, `denySpaces` â€” and got 201 from every one. They found it by reading the stored token back and
  * noticing four of five probes had no `spaces` at all. Their words: "somebody guessing the field name gets a
  * token that looks scoped, reports success, and is not scoped at all."
  *
@@ -105,7 +105,7 @@ const CreateTokenBody = z.object({
   /**
    * The per-space rights matrix for the new token.
    *
-   * Mutually exclusive with `spaces` / `admin` / `readOnly` — see the refusal below. Accepting both would
+   * Mutually exclusive with `spaces` / `admin` / `readOnly` â€” see the refusal below. Accepting both would
    * put two descriptions of the same thing in one request, and the loser would be silent.
    */
   rights: z.object({
@@ -119,7 +119,7 @@ const CreateTokenBody = z.object({
 /**
  * Granting an MFA exemption always costs a live second factor.
  *
- * `requireAdminMfa` on this route is satisfied by an admin token that is ITSELF exempt — which is correct for
+ * `requireAdminMfa` on this route is satisfied by an admin token that is ITSELF exempt â€” which is correct for
  * ordinary work and catastrophic here: one exemption could mint another, and another, until the instance-wide
  * switch protected nothing. Exemptions must not be able to widen themselves.
  *
@@ -140,11 +140,11 @@ function exemptionNeedsLiveCode(req: Request, res: Response, mfa: string | undef
   return true;
 }
 
-// GET /api/tokens — list tokens (hashes excluded) — admin only
-tokensRouter.get('/', requireAdmin, (req, res) => {
+// GET /api/tokens â€” list tokens (hashes excluded) â€” admin only
+tokensRouter.get('/', requireAdminOrSpaceAdmin, (req, res) => {
   // A space-restricted administrator sees only the tokens it could act on.
   //
-  // It used to receive every token on the instance — names, prefixes, scopes and rights for spaces it cannot reach.
+  // It used to receive every token on the instance â€” names, prefixes, scopes and rights for spaces it cannot reach.
   // Nothing secret leaks (`listTokens()` omits the hash by its own type), but it is an inventory of the instance's
   // access, and the same token is now refused when it tries to EDIT any of those rows. A list that shows what you
   // cannot touch is an invitation to try.
@@ -152,8 +152,8 @@ tokensRouter.get('/', requireAdmin, (req, res) => {
   // Unrestricted admins are unaffected. A `schemaLibrary` token has no space access, so it is inside every scope.
   //
   // Scope comes from `editorScopeFor`, which reads the RIGHTS MATRIX and falls back to the legacy allowlist.
-  // Reading `spaces` directly here meant a token minted with a matrix and no allowlist — every token minted
-  // since 2.6 — answered `undefined` and was treated as an unrestricted instance administrator.
+  // Reading `spaces` directly here meant a token minted with a matrix and no allowlist â€” every token minted
+  // since 2.6 â€” answered `undefined` and was treated as an unrestricted instance administrator.
   const callerSpaces = editorScopeFor(req.authToken);
   const all = listTokens();
   const visible = callerSpaces
@@ -162,9 +162,9 @@ tokensRouter.get('/', requireAdmin, (req, res) => {
   res.json({ tokens: visible });
 });
 
-// POST /api/tokens — create a new PAT — admin + MFA
+// POST /api/tokens â€” create a new PAT â€” admin + MFA
 // admin:true may only be set when the calling token is itself admin (enforced by requireAdminMfa above)
-tokensRouter.post('/', authRateLimit, requireAdminMfa, async (req, res) => {
+tokensRouter.post('/', authRateLimit, requireAdminOrSpaceAdminMfa, async (req, res) => {
   const parsed = CreateTokenBody.safeParse(stripServerOwnedToken(req.body));
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -173,7 +173,7 @@ tokensRouter.post('/', authRateLimit, requireAdminMfa, async (req, res) => {
   const { name, expiresAt, spaces, admin, readOnly, peerInstanceId, schemaLibrary, mfa, rights } = parsed.data;
 
   // One description of access per request. A body carrying both `rights` and a legacy field describes the
-  // same thing twice, and whichever lost would do so silently — which is the failure this whole area keeps
+  // same thing twice, and whichever lost would do so silently â€” which is the failure this whole area keeps
   // producing. Refusing costs one call; guessing costs an access nobody chose.
   if (rights && (spaces !== undefined || admin !== undefined || readOnly !== undefined)) {
     res.status(400).json({
@@ -185,15 +185,15 @@ tokensRouter.post('/', authRateLimit, requireAdminMfa, async (req, res) => {
   // A token may never mint above itself. Enforced HERE and not only in the UI: the grid is one API call away
   // from being bypassed, and the API is exactly where a token would be used to widen itself.
   if (rights) {
-    // OIDC records carry no `rights` — they are built per request and never pass through the config
-    // backfill — so the minter's matrix is derived on the spot from the same legacy fields. Deriving is the
+    // OIDC records carry no `rights` â€” they are built per request and never pass through the config
+    // backfill â€” so the minter's matrix is derived on the spot from the same legacy fields. Deriving is the
     // same answer, not a weaker one; treating a missing matrix as "unrestricted" would be the widening.
     const held = (req.authToken as { rights?: unknown } | undefined)?.rights;
     const minter = held ?? migrateToken(req.authToken ?? {});
     const excess = capRights(minter as never, rights as never);
     if (excess.length > 0) {
       res.status(403).json({
-        error: `A token cannot mint rights it does not hold — ${describeExcess(excess)}`,
+        error: `A token cannot mint rights it does not hold â€” ${describeExcess(excess)}`,
       });
       return;
     }
@@ -213,12 +213,12 @@ tokensRouter.post('/', authRateLimit, requireAdminMfa, async (req, res) => {
   // spaces, `admin: true`) and defeat its own scoping. An unrestricted creator may mint any scope.
   //
   // Scope from `editorScopeFor`, the same source the list filter and the PATCH guard now read. It used to be
-  // `req.authToken?.spaces` here, in the list filter, and inside `refusalsOutsideEditorScope` — three reads
+  // `req.authToken?.spaces` here, in the list filter, and inside `refusalsOutsideEditorScope` â€” three reads
   // of a deprecated field, and the comment on the PATCH guard already claimed all three shared one rule.
   const creatorSpaces = editorScopeFor(req.authToken);
   if (creatorSpaces) {
     if (schemaLibrary) {
-      // schemaLibrary tokens have no space access — always within any scope.
+      // schemaLibrary tokens have no space access â€” always within any scope.
     } else if (!spaces) {
       res.status(403).json({ error: 'A space-restricted token cannot create an unrestricted (all-spaces) token' });
       return;
@@ -235,17 +235,17 @@ tokensRouter.post('/', authRateLimit, requireAdminMfa, async (req, res) => {
   const effectiveReadOnly = schemaLibrary ? true : (readOnly ?? false);
   const effectiveSpaces = schemaLibrary ? [] : spaces;
   const { record, plaintext } = await createToken({ name, expiresAt: expiresAt ?? null, spaces: effectiveSpaces, admin, readOnly: effectiveReadOnly, peerInstanceId, schemaLibrary, mfa, rights: rights as never });
-  // Return plaintext only on creation — never retrievable again
+  // Return plaintext only on creation â€” never retrievable again
   const { hash: _h, ...safeRecord } = record;
   res.status(201).json({ token: safeRecord, plaintext });
 });
 
 /**
- * Fields `GET /api/tokens` emits that `PATCH` does not edit — and the remedy for each, where one exists.
+ * Fields `GET /api/tokens` emits that `PATCH` does not edit â€” and the remedy for each, where one exists.
  *
  * ## Why this list exists at all
  *
- * A reporter round-tripped a token — GET it, change the name, PATCH it back — and got
+ * A reporter round-tripped a token â€” GET it, change the name, PATCH it back â€” and got
  * `Unrecognized key(s) in object: 'spaces'`. Their words: *"the shape you read is not the shape you may
  * write, and nothing says which fields are which."* The response carries twelve fields; PATCH accepted two.
  *
@@ -259,7 +259,7 @@ tokensRouter.post('/', authRateLimit, requireAdminMfa, async (req, res) => {
  *
  * So the rule distinguishes an ECHO from a CHANGE, which is the distinction both of those answers lose:
  * the same value back is a round-trip and is ignored; a different value is a refusal that names the field
- * to use instead. `spaces`/`admin`/`readOnly` have a real remedy in the rights matrix and say so — the rest
+ * to use instead. `spaces`/`admin`/`readOnly` have a real remedy in the rights matrix and say so â€” the rest
  * are set at mint and cannot be edited on any route, which the message states rather than implying.
  */
 export const ECHOABLE: Record<string, string | null> = {
@@ -280,7 +280,7 @@ const ECHOABLE_FIELDS = Object.keys(ECHOABLE);
 /**
  * Is this the value already stored, or an attempted change?
  *
- * `spaces` is compared as a SET, because a round-trip may reorder it and an allowlist has no order — but
+ * `spaces` is compared as a SET, because a round-trip may reorder it and an allowlist has no order â€” but
  * `undefined` is only ever equal to `undefined`. Absent means "all spaces" and `[]` means "no spaces", the
  * conflation this repo has now fixed in four separate files, and it must not come back inside an equality
  * check where reading them as the same would let a token be widened to the whole instance in silence.
@@ -312,19 +312,19 @@ const RenameTokenBody = z.object({
     perSpace: z.record(z.string(), z.record(z.enum(SPACE_AREAS), z.enum(RUNGS))),
   }).strict().optional(),
   /**
-   * This token's relationship to the second factor — editable HERE and nowhere else.
+   * This token's relationship to the second factor â€” editable HERE and nowhere else.
    *
    * It used to be settable only while minting, which put the decision before there was a token to decide it
    * about: an operator who wanted their scheduler exempt had to revoke it and mint a replacement, rotating a
    * secret to change a flag. It is a property of the token, so it is set on the token.
    *
-   * Granting `exempt` costs a live TOTP code on THIS request when the instance switch is on — the same rule
+   * Granting `exempt` costs a live TOTP code on THIS request when the instance switch is on â€” the same rule
    * create has, applied here for the same reason. `requireAdminMfa` is satisfied by an admin token that is
    * itself exempt, so without it one exemption could grant another by the shorter route, and editing yourself
    * is shorter still than minting.
    */
   mfa: z.enum(['inherit', 'exempt', 'required']).optional(),
-  // ── The rest of the record, accepted ONLY unchanged ──────────────────────────────────────────────
+  // â”€â”€ The rest of the record, accepted ONLY unchanged â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   //
   // These are declared so that echoing back a token you just read does not 400 on the first field the
   // schema had never heard of. They are NOT editable here; the handler compares each one it was sent
@@ -333,8 +333,8 @@ const RenameTokenBody = z.object({
   ...Object.fromEntries(ECHOABLE_FIELDS.map(f => [f, z.unknown()])),
 }).strict();
 
-// PATCH /api/tokens/:id — rename a token's label (only) — admin + MFA
-tokensRouter.patch('/:id', requireAdminMfa, (req, res) => {
+// PATCH /api/tokens/:id â€” rename a token's label (only) â€” admin + MFA
+tokensRouter.patch('/:id', requireAdminOrSpaceAdminMfa, (req, res) => {
   const parsed = RenameTokenBody.safeParse(stripServerOwnedToken(req.body));
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -350,7 +350,7 @@ tokensRouter.patch('/:id', requireAdminMfa, (req, res) => {
 
   // A SPACE-RESTRICTED administrator may only touch its own spaces' rows.
   //
-  // `requireAdminMfa` admits a space-restricted admin, because it carries `admin: true` — so before this guard existed,
+  // `requireAdminMfa` admits a space-restricted admin, because it carries `admin: true` â€” so before this guard existed,
   // such a token could rename any token on the instance and write `rights.instanceAdmin` onto it. Measured, not
   // supposed: both answered 200 and the rights were stored. They were inert only because the admin routes still gate on
   // the legacy `admin` flag rather than on `rights`.
@@ -364,7 +364,7 @@ tokensRouter.patch('/:id', requireAdminMfa, (req, res) => {
   });
   if (scopeRefusals.length > 0) {
     res.status(403).json({
-      error: `A space-restricted administrator cannot make this edit — ${scopeRefusals.join('; ')}.`,
+      error: `A space-restricted administrator cannot make this edit â€” ${scopeRefusals.join('; ')}.`,
       refusals: scopeRefusals,
     });
     return;
@@ -372,7 +372,7 @@ tokensRouter.patch('/:id', requireAdminMfa, (req, res) => {
 
   // An echoed field is a round-trip and is ignored; a CHANGED one is refused by name. Presence is read off
   // the raw body rather than the parsed data, because `z.unknown()` cannot distinguish an absent key from
-  // one explicitly set to `undefined` — and "absent" vs "present and null" is the whole question here.
+  // one explicitly set to `undefined` â€” and "absent" vs "present and null" is the whole question here.
   const sentBody = (stripServerOwnedToken(req.body) ?? {}) as Record<string, unknown>;
   const stored = previous as unknown as Record<string, unknown>;
   const attempted = ECHOABLE_FIELDS
@@ -382,7 +382,7 @@ tokensRouter.patch('/:id', requireAdminMfa, (req, res) => {
     res.status(400).json({
       error: `Cannot change ${attempted.map(f => `\`${f}\``).join(', ')} on this route. `
         + attempted.map(f => ECHOABLE[f] ? `For \`${f}\`, ${ECHOABLE[f]}.` : `\`${f}\` is set when the token is minted.`).join(' ')
-        + ' Sending these fields UNCHANGED is fine — a token you read back round-trips.',
+        + ' Sending these fields UNCHANGED is fine â€” a token you read back round-trips.',
     });
     return;
   }
@@ -396,24 +396,24 @@ tokensRouter.patch('/:id', requireAdminMfa, (req, res) => {
   }
 
   // The same live-code rule create has. `requireAdminMfa` is satisfied by an admin token that is itself
-  // exempt, so without this one exemption could grant another — and editing yourself is a shorter route to
+  // exempt, so without this one exemption could grant another â€” and editing yourself is a shorter route to
   // that than minting a replacement. Checked before anything is written, so a refused exemption leaves the
   // token exactly as it was rather than renamed-but-not-exempted.
   if (!exemptionNeedsLiveCode(req, res, mfa)) return;
 
   if (rights) {
-    // A token may never GRANT above itself, edit or mint. Same rule, same function — a second
+    // A token may never GRANT above itself, edit or mint. Same rule, same function â€” a second
     // implementation here is how the two would come to disagree about what "above" means.
     const editorRights = (req.authToken as { rights?: unknown } | undefined)?.rights
       ?? migrateToken(req.authToken ?? {});
     const excess = capRights(editorRights as never, rights as never);
     if (excess.length > 0) {
-      res.status(403).json({ error: `A token cannot grant rights it does not hold — ${describeExcess(excess)}` });
+      res.status(403).json({ error: `A token cannot grant rights it does not hold â€” ${describeExcess(excess)}` });
       return;
     }
 
     // And it may never raise its OWN floor. The mint cap stops handing more to a NEW token; without this
-    // the same escalation is available by a shorter route — edit yourself, then use yourself — and nothing
+    // the same escalation is available by a shorter route â€” edit yourself, then use yourself â€” and nothing
     // about the result looks unusual afterwards.
     const raised = refuseSelfFloorRaise(
       (req.authToken as { id?: string } | undefined)?.id,
@@ -423,7 +423,7 @@ tokensRouter.patch('/:id', requireAdminMfa, (req, res) => {
     );
     if (raised.length > 0) {
       res.status(403).json({
-        error: `A token cannot raise its own floor — ${raised.join(', ')}. Ask another administrator.`,
+        error: `A token cannot raise its own floor â€” ${raised.join(', ')}. Ask another administrator.`,
       });
       return;
     }
@@ -458,8 +458,8 @@ tokensRouter.patch('/:id', requireAdminMfa, (req, res) => {
   res.json({ token: updated });
 });
 
-// POST /api/tokens/:id/regenerate — rotate a token's secret — admin + MFA
-tokensRouter.post('/:id/regenerate', authRateLimit, requireAdminMfa, async (req, res) => {
+// POST /api/tokens/:id/regenerate â€” rotate a token's secret â€” admin + MFA
+tokensRouter.post('/:id/regenerate', authRateLimit, requireAdminOrSpaceAdminMfa, async (req, res) => {
   const plaintext = await regenerateToken(req.params['id'] as string);
   if (!plaintext) {
     res.status(404).json({ error: 'Token not found' });
@@ -468,8 +468,8 @@ tokensRouter.post('/:id/regenerate', authRateLimit, requireAdminMfa, async (req,
   res.json({ plaintext });
 });
 
-// DELETE /api/tokens/:id — revoke a token — admin + MFA
-tokensRouter.delete('/:id', requireAdminMfa, async (req, res) => {
+// DELETE /api/tokens/:id â€” revoke a token â€” admin + MFA
+tokensRouter.delete('/:id', requireAdminOrSpaceAdminMfa, async (req, res) => {
   const id = req.params['id'] as string;
   const all = listTokens();
   const target = all.find(t => t.id === id);
@@ -485,3 +485,5 @@ tokensRouter.delete('/:id', requireAdminMfa, async (req, res) => {
   await revokeToken(id);
   res.status(204).end();
 });
+
+

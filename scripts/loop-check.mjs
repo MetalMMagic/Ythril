@@ -78,6 +78,14 @@ const NOT_WORK_HEADING = /watch|parked|not work|release|reference|note/i;
 const DONE_ONLY = /^(?:done|shipped|merged)\b[^a-z]*$/i;
 
 /**
+ * A queue row's ID: `B-3`, `RX-1`, `P0-1`, `D-8d`.
+ *
+ * Loose on purpose — see `parseRows`. No `g` flag: `test()` on a global regex advances `lastIndex` between calls
+ * and would skip every other row.
+ */
+const ROW_ID = /^[A-Z][A-Z0-9]{0,3}-\d+[a-z]?$/;
+
+/**
  * Open rows in the ordered queue.
  *
  * The file is a table, one task per line (owner, 2026-08-09), so a row is a `|`-delimited line whose first cell
@@ -89,6 +97,19 @@ const DONE_ONLY = /^(?:done|shipped|merged)\b[^a-z]*$/i;
  * queue is drained* with eleven rows open, in green. Sections are what the owner maintains by hand, and `W-8`
  * proves the ID cannot stand in for one — it is open work carrying a watch-tier ID because its home tracker keyed
  * it that way.
+ *
+ * **The ID SHAPE drifted the same way the prefix did, and cost the same eleven rows.** The replacement rule was
+ * `^[A-Z]-\d+$` — one letter, a dash, digits — which was every ID that existed when it was written. The queue
+ * has since keyed rows by domain initials and by sub-item: `RX-1` reindex, `EJ-1` embed jobs, `SA-1` space admin,
+ * `P0-1` for a priority-zero report, `D-8d` for the fourth part of deprecation row 8. None of those are one
+ * letter, so none of them were rows. On 2026-08-15 the file held eleven open rows and the gate reported two —
+ * the identical failure, in the identical direction, one regex further along.
+ *
+ * So the pattern is now deliberately loose: an uppercase letter, up to three more uppercase-or-digit characters,
+ * a dash, digits, and an optional lowercase sub-item letter. It is written to admit an ID nobody has invented
+ * yet, because the two failure directions are not symmetric — over-counting says *keep working* on a drained
+ * queue, which costs a wasted lens; under-counting says *drained* on a full one, which is what this file exists
+ * to prevent and what it has now shipped twice.
  *
  * A row whose status is *only* a done marker is not open either — the queue is what is left, not what was listed.
  * That test used to match `done|shipped|merged` anywhere in the cell, which read `2 wrappers shipped (#842,
@@ -104,7 +125,7 @@ export function parseRows(text) {
     if (!inWork || !line.trim().startsWith('|')) continue;
     const cells = line.split('|').map((c) => c.trim()).filter((_, i, a) => i > 0 && i < a.length - 1);
     const id = cells[0];
-    if (!id || !/^[A-Z]-\d+$/.test(id)) continue;
+    if (!id || !ROW_ID.test(id)) continue;
     if (DONE_ONLY.test(cells[3] ?? '')) continue;
     rows.push({ id, what: cells[1] ?? '', status: cells[3] ?? '' });
   }

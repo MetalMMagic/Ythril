@@ -137,6 +137,14 @@ This dialog has no "Library Access" toggle. Library Access tokens (for sharing y
 
 **Editing a token.** Each row has a pencil button. It opens the token editor, where the **label** and the **rights matrix** are both editable and are saved together in one request — so a rename and a scope change are one audited edit, not two that can half-fail. The secret is untouched; use **Rotate** for that.
 
+#### Hover a rung to see what it grants
+
+Each of the four segments in a cell carries a tooltip, and it leads with what that level actually allows —
+*"Your agent can add, edit and delete single records"* — in the same words as the column header's `?`. The
+description differs per column, because `write` on Files and `write` on Knowledge are not the same permission.
+What clicking will do follows after it, including the fact that clicking the level you are already on steps
+down one.
+
 #### Some cells hold each other up
 
 A cell will not always go as low as you click, and the greyed-out segments say why when you hover them. There

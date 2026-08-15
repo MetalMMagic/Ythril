@@ -4,6 +4,8 @@ import { TranslocoPipe } from '@jsverse/transloco';
 import { PropertySchema } from '../core/api.types';
 import { PhIconComponent } from './ph-icon.component';
 import { CHIP_STYLES } from './chip.styles';
+import { PROP_TABLE_STYLES } from './prop-table.styles';
+import { mergeFnsFor, mergeFnAfterTypeChange } from './merge-fns';
 
 export interface PropSchemaRow {
   key: string;
@@ -15,20 +17,9 @@ export interface PropSchemaRow {
   selector: 'app-prop-schema-table',
   standalone: true,
   imports: [FormsModule, TranslocoPipe, PhIconComponent],
-  styles: [CHIP_STYLES, `
-    .prop-table { width:100%; border-collapse:collapse; font-size:13px; }
-    .prop-table th { text-align:left; font-size:11px; font-weight:600; color:var(--text-muted); padding:5px 8px; border-bottom:1px solid var(--border); }
-    .prop-table td { padding:6px 8px; border-bottom:1px solid var(--border); vertical-align:middle; }
-    .prop-row { cursor:pointer; }
-    .prop-row:hover td { background:var(--bg-elevated); }
-    .prop-row.prow-open td { background:color-mix(in srgb,var(--accent) 6%,transparent); }
-    .prop-expand-row td { background:var(--bg-elevated); padding:0; }
-    .pdet { background:var(--bg-surface); border-top:2px solid color-mix(in srgb,var(--accent) 30%,transparent); }
-    .pdet-fields { display:grid; grid-template-columns:repeat(3,1fr); gap:10px 16px; padding:14px; }
-    .pdet-full { padding:0 14px 14px; }
-    .req-toggle { display:inline-flex; align-items:center; gap:6px; font-size:12px; cursor:pointer; color:var(--text-muted); background:none; border:1px solid var(--border); font-family:var(--font); padding:3px 10px; border-radius:var(--radius-sm); transition:all .15s; }
-    .req-toggle:hover { background:var(--bg-elevated); color:var(--text-primary); border-color:color-mix(in srgb,var(--accent) 40%,transparent); }
-    .req-toggle.is-req { color:var(--warning); border-color:color-mix(in srgb,var(--warning) 50%,transparent); background:color-mix(in srgb,var(--warning) 8%,transparent); font-weight:600; }
+  // The table, row, detail-card and Required rules were a character-identical SECOND copy of the ones in
+  // `SPACE_DIALOG_STYLES`. Both are now PROP_TABLE_STYLES; only this component's own add-row is local.
+  styles: [CHIP_STYLES, PROP_TABLE_STYLES, `
     .add-prop-row { display:flex; gap:8px; align-items:center; margin-top:10px; padding-top:10px; border-top:1px solid var(--border); }
   `],
   template: `
@@ -44,10 +35,10 @@ export interface PropSchemaRow {
           @for (p of rows; track p.key) {
             <tr class="prop-row" [class.prow-open]="expandedKey() === p.key" (click)="toggleExpand(p.key)">
               <td>
-                <div style="display:flex;align-items:center;gap:7px;">
-                  <span style="font-family:var(--font-mono);font-size:12px;">{{ p.key }}</span>
+                <div class="prop-name">
+                  <span class="prop-name-key">{{ p.key }}</span>
                   <label class="req-toggle" [class.is-req]="p.s.required" (click)="$event.stopPropagation()">
-                    <input type="checkbox" [checked]="p.s.required" (change)="p.s.required = !p.s.required; changed.emit()" style="pointer-events:none;" />
+                    <input type="checkbox" [checked]="p.s.required" (change)="p.s.required = !p.s.required; changed.emit()" />
                     {{ 'spaces.schema.propDetail.required' | transloco }}
                   </label>
                 </div>
@@ -86,14 +77,15 @@ export interface PropSchemaRow {
                         <label>{{ 'spaces.schema.propDetail.default' | transloco }}</label>
                         <input type="text" [(ngModel)]="p.s.default" placeholder="—" (ngModelChange)="changed.emit()" />
                       </div>
+                      <!-- Only what the API accepts for this type — see merge-fns.ts.
+                           NO BACKTICKS in this template, comments included: one ends the string, and the
+                           error points at @Component rather than at the line that caused it. -->
                       <div class="field" style="margin:0;">
                         <label>{{ 'spaces.schema.propDetail.mergeFn' | transloco }}</label>
-                        <select [(ngModel)]="p.s.mergeFn" (ngModelChange)="changed.emit()">
+                        <select [(ngModel)]="p.s.mergeFn" (ngModelChange)="changed.emit()"
+                                [disabled]="!mergeFnsFor(p.s.type).length">
                           <option [ngValue]="undefined">—</option>
-                          <option value="avg">avg</option><option value="min">min</option>
-                          <option value="max">max</option><option value="sum">sum</option>
-                          <option value="and">and</option><option value="or">or</option>
-                          <option value="xor">xor</option>
+                          @for (fn of mergeFnsFor(p.s.type); track fn) { <option [value]="fn">{{ fn }}</option> }
                         </select>
                       </div>
                       @if (p.s.type === 'string' || p.s.type === undefined) {
@@ -175,9 +167,18 @@ export class PropSchemaTableComponent {
     this.changed.emit();
   }
 
+  /** The API's own rule about which merge functions a type may hold. */
+  mergeFnsFor = mergeFnsFor;
+
+  /**
+   * Changing the type clears a merge function the new type cannot hold.
+   *
+   * The two hand-written lists this replaced covered `boolean` and `number` and left `string` and `date`
+   * alone — but the server accepts NO merge function on either, so switching `number` to `date` kept `min`
+   * and the save was refused.
+   */
   onTypeChange(p: PropSchemaRow): void {
-    if (p.s.type === 'boolean' && p.s.mergeFn && ['avg', 'min', 'max', 'sum'].includes(p.s.mergeFn)) p.s.mergeFn = undefined;
-    if (p.s.type === 'number'  && p.s.mergeFn && ['and', 'or', 'xor'].includes(p.s.mergeFn))         p.s.mergeFn = undefined;
+    p.s.mergeFn = mergeFnAfterTypeChange(p.s.type, p.s.mergeFn);
     this.changed.emit();
   }
 

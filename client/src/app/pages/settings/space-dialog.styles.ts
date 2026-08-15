@@ -9,9 +9,11 @@
  * compiles; if it ever could not, the build would fail loudly rather than drop the styles.
  */
 import { CHIP_STYLES } from '../../shared/chip.styles';
+import { PROP_TABLE_STYLES } from '../../shared/prop-table.styles';
 
 export const SPACE_DIALOG_STYLES = `
 ${CHIP_STYLES}
+${PROP_TABLE_STYLES}
 /* storage bar */
 .st-bar { height:6px; border-radius:3px; background:var(--border); overflow:hidden; }
 .st-bar-fill { height:100%; border-radius:3px; transition:width .3s; }
@@ -61,11 +63,6 @@ ${CHIP_STYLES}
 .sch-section-title { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.06em; color:var(--text-muted); margin-bottom:12px; padding-bottom:6px; border-bottom:1px solid var(--border); }
 .sch-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
 .sch-grid-3 { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
-.prop-table { width:100%; border-collapse:collapse; font-size:13px; }
-.prop-table th { text-align:left; font-size:11px; font-weight:600; color:var(--text-muted); padding:5px 8px; border-bottom:1px solid var(--border); }
-.prop-table td { padding:6px 8px; border-bottom:1px solid var(--border); vertical-align:middle; }
-.prop-expand-row td { background:var(--bg-elevated); padding:0; }
-.prop-expand-inner { padding:12px 16px; }
 /* danger zone */
 .dz-section { border:1px solid var(--border); border-radius:var(--radius-md); padding:16px; margin-bottom:16px; }
 .dz-section.dz-red { border-color:var(--danger); }
@@ -93,17 +90,8 @@ ${CHIP_STYLES}
 .type-table th { text-align:left; font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.05em; padding:5px 10px; border-bottom:1px solid var(--border); background:var(--bg-elevated); }
 .type-table td { padding:8px 10px; border-bottom:1px solid var(--border); vertical-align:middle; }
 .type-table tr:hover td { background:var(--bg-elevated); }
-/* ── property rows ── */
-.prop-row { cursor:pointer; user-select:none; }
-.prop-row:hover td { background:var(--bg-elevated); }
-.prop-row.prow-open td { background:color-mix(in srgb,var(--accent) 6%,transparent); }
-/* ── property detail card ── */
-.pdet { background:var(--bg-surface); border-top:2px solid color-mix(in srgb,var(--accent) 30%,transparent); }
-.pdet-fields { display:grid; grid-template-columns:repeat(3,1fr); gap:10px 16px; padding:14px; }
-.pdet-full { padding:0 14px 14px; }
-.req-toggle { display:inline-flex; align-items:center; gap:6px; font-size:12px; cursor:pointer; color:var(--text-muted); background:none; border:1px solid var(--border); font-family:var(--font); padding:3px 10px; border-radius:var(--radius-sm); transition:all .15s; }
-.req-toggle:hover { background:var(--bg-elevated); color:var(--text-primary); border-color:color-mix(in srgb,var(--accent) 40%,transparent); }
-.req-toggle.is-req { color:var(--warning); border-color:color-mix(in srgb,var(--warning) 50%,transparent); background:color-mix(in srgb,var(--warning) 8%,transparent); font-weight:600; }
+/* The property table, its rows, its detail card and the Required toggle are interpolated at the top of this
+   const from PROP_TABLE_STYLES — three components render them, so they are not owned by this file. */
 /* ── schema sub-section headers ── */
 .sch-sub { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--text-muted); padding:14px 0 8px; margin-bottom:2px; }
 `;

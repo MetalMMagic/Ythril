@@ -1882,6 +1882,7 @@
   "tokens.rights.explain": "Was erlaubt das?",
   "tokens.rights.endpoint": "Endpunkt",
   "tokens.rights.fromRung": "Ab",
+  "spaces.schema.propDetail.mergeFnUnavailable": "— für diesen Typ gibt es keine Merge-Funktion",
   "tokens.rights.endpointsUnavailable": "Die Endpunktliste konnte nicht geladen werden. Die Beschreibungen oben gelten weiterhin.",
   "tokens.rights.clamp.floor": "Durch die Untergrenze für alle Spaces auf {{rung}} gehalten",
   "tokens.rights.clamp.implied": "Auf {{rung}} gehalten, weil {{area}} auf {{cause}} steht und ohne dies nicht funktioniert",

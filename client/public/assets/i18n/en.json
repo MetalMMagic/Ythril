@@ -1882,6 +1882,7 @@
   "tokens.rights.explain": "What does this grant?",
   "tokens.rights.endpoint": "Endpoint",
   "tokens.rights.fromRung": "From",
+  "spaces.schema.propDetail.mergeFnUnavailable": "— no merge function applies to this type",
   "tokens.rights.endpointsUnavailable": "The endpoint list could not be loaded. The descriptions above still apply.",
   "tokens.rights.clamp.floor": "Held at {{rung}} by the all-spaces floor",
   "tokens.rights.clamp.implied": "Held at {{rung}} because {{area}} is {{cause}}, which cannot work without it",

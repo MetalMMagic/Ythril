@@ -286,6 +286,21 @@ describe('the match TOTAL and a caller-chosen order, on both surfaces', () => {
     assert.deepEqual(times, [...times].sort());
   });
 
+  it('the ROWS are in structuredContent, not only in content', async () => {
+    // A client that surfaces structuredContent in preference to content used to see
+    // `{count, total, limit, skip}` and not one row — observed against Claude Code, four calls in a row,
+    // while a tool returning no structuredContent rendered its whole body in the same session. That is the
+    // worst shape available: the answer is absent while the metadata reports how many rows were returned,
+    // so it reads as a thin page rather than as a dropped payload.
+    const r = await session.callTool('query', { space: SPACE, collection: 'memories', filter: {}, limit: 3 });
+    assert.ok(!r?.isError, JSON.stringify(r));
+    assert.ok(Array.isArray(r.structuredContent.results), 'structuredContent carries no rows at all');
+    assert.equal(r.structuredContent.results.length, r.structuredContent.count,
+      'count must describe the rows beside it, not rows the caller cannot see');
+    // And the two views must be the same answer, or a caller gets a different result per client.
+    assert.deepEqual(r.structuredContent.results, JSON.parse(r.content[0].text));
+  });
+
   it('MCP refuses an unsortable field with the same message', async () => {
     const r = await session.callTool('query', { space: SPACE, collection: 'memories', filter: {}, sort: 'fact' });
     assert.ok(r?.isError, `MCP accepted an unlisted sort field: ${JSON.stringify(r)}`);

@@ -51,6 +51,14 @@ export type ToolResult = {
    * show it. Optional in the MCP spec and unvalidated when a tool declares no `outputSchema`, so a client
    * that ignores it loses nothing — `content` remains the complete answer.
    *
+   * **The opposite client is the one to design for, and that half was missing here.** A client may SURFACE
+   * `structuredContent` in preference to `content`, and then whatever is not in this object does not exist.
+   * `query` carried the paging facts alone on the reasoning above, and against such a client it answered
+   * `{count: 25, total: 32, limit, skip}` with not one row — the answer absent while the metadata says how
+   * many rows were returned, which reads as a thin page rather than a dropped payload. So: **if `content`
+   * carries the ANSWER, `structuredContent` must carry it too.** It is the structured form of the same
+   * result, never a sidecar to it.
+   *
    * Added because a schema refusal distinguishes violations the write INTRODUCED from ones the record
    * already carried, and over MCP that distinction survived only as a sentence: the arrays were flattened
    * into the message text (the create paths appended `JSON.stringify`) or dropped entirely (the update

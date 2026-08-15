@@ -32,6 +32,16 @@ On connect, the server sends global instructions listing all available space IDs
 > include the offending field in the same request and the write repairs the record. `content` still carries the same
 > information as a sentence, so a client that reads only text loses nothing.
 >
+> **`query` puts its rows in BOTH places.** `content[0].text` is the JSON array it has always been, and
+> `structuredContent` carries `results` (the same array) plus `count`, `total`, `limit`, `skip` and the
+> `sort`/`dir` in force. Read whichever suits your client — they are the same answer, and `count` always
+> describes `results`.
+>
+> Until this release `structuredContent` held the paging facts alone. A client that surfaces
+> `structuredContent` in preference to `content` therefore saw `{"count": 25, "total": 32, ...}` and no
+> rows, which reads as a page that returned nothing rather than as a payload the client dropped. If you
+> built against the old shape nothing changes: `content` was, and remains, complete.
+>
 > **The consequence to plan for: tightening a schema freezes the records that no longer fit it.** Remove a value from
 > an `enum` and every stored record still carrying it is uneditable until that field is repaired — even an edit to an
 > unrelated field like `description`. Under `warn` the same violations are reported and the write proceeds. Branch on

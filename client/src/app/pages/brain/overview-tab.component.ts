@@ -24,7 +24,10 @@ import { SkeletonLinesComponent } from '../../shared/skeleton-lines.component';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 import { DatePipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
-import { Space, SpaceStats, AboutInfo, EmbeddingQueue, VoteRound, TokenAccessEntry, CompletenessReport, CompletenessCheck, SpaceActivity, TTL_BUCKETS, recordTtlWindows } from '../../core/api.types';
+import { Space, SpaceStats, AboutInfo, EmbeddingQueue, VoteRound, TokenAccessEntry, CompletenessReport, CompletenessCheck, SpaceActivity } from '../../core/api.types';
+// Aliased: the class members below carry the same names, and a bare call that resolves to the import
+// rather than the member is the kind of line a reader has to stop and check.
+import { retentionSummary as summariseRetention, retentionTypeOverrides as retentionOverridesOf } from './overview-retention';
 
 import { CollectionTab } from './brain-tabs';
 import { ErModelPanelComponent } from './er-model-panel.component';
@@ -386,10 +389,18 @@ interface StatCard { key: CollectionTab; icon: string; label: string; value: num
             <app-status-pill [variant]="indexVariant()" [dot]="true">{{ 'brain.overview.idx.' + indexState() | transloco }}</app-status-pill>
           </div>
 
-          @if (needsReindex()) {
+          @if (needsReindex() && !isProxy()) {
             <div class="reindex-note">
               <ph-icon name="warning" [size]="15"/>
               <span>{{ 'brain.overview.reindexNeeded' | transloco }}</span>
+            </div>
+          }
+          @if (isProxy()) {
+            <!-- Said rather than left blank: a card whose action silently vanishes reads as broken, and the
+                 remedy (reindex the members) is not guessable from an absent button. -->
+            <div class="reindex-note">
+              <ph-icon name="info" [size]="15"/>
+              <span>{{ 'brain.overview.reindexProxy' | transloco }}</span>
             </div>
           }
 
@@ -410,12 +421,17 @@ interface StatCard { key: CollectionTab; icon: string; label: string; value: num
             <p class="muted ret-edit">{{ 'brain.overview.retentionEdit' | transloco }}</p>
           </div>
 
-          <div class="actions">
-            <button class="btn btn-sm btn-secondary" type="button" [disabled]="reindexing()" (click)="requestReindex()">
-              @if (reindexing()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
-              <ph-icon name="arrows-clockwise" [size]="14" style="margin-right:5px;vertical-align:-2px;"/>{{ 'brain.overview.reindexButton' | transloco }}
-            </button>
-          </div>
+          <!-- Not offered on a proxy at all. The server has refused it since the double-embed fix -- a proxy
+               has no index of its own, and reindexing one re-embedded every member a second time -- so the
+               button could only ever produce a 400. -->
+          @if (!isProxy()) {
+            <div class="actions">
+              <button class="btn btn-sm btn-secondary" type="button" [disabled]="reindexing()" (click)="requestReindex()">
+                @if (reindexing()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
+                <ph-icon name="arrows-clockwise" [size]="14" style="margin-right:5px;vertical-align:-2px;"/>{{ 'brain.overview.reindexButton' | transloco }}
+              </button>
+            </div>
+          }
         </div>
       </section>
 
@@ -587,6 +603,15 @@ export class OverviewTabComponent {
   editSchemaType = output<string>();
   stats = input<SpaceStats | undefined>(undefined);
   reindexing = input(false);
+  /**
+   * A proxy space stands in for its members and holds no records — so it has no index of its own and
+   * nothing to reindex. The server has refused the call since the double-embed fix (`planReindex` answers
+   * 400 naming the members), so offering the button could only ever produce that refusal.
+   *
+   * Read from the space this panel was already given, not fetched: `proxyFor` is on the record, and the
+   * space chip beside this panel already branches on it to draw the proxy badge.
+   */
+  isProxy = () => (this.space().proxyFor?.length ?? 0) > 0;
   needsReindex = input(false);
   /** Instance identity/health (from /api/about), preloaded by the shell — null until it lands. */
   about = input<AboutInfo | null>(null);
@@ -660,46 +685,11 @@ export class OverviewTabComponent {
    * still says the one sentence it always did — a space with one window should not be made to look complicated
    * by an implementation detail — and only lists per bucket when they actually differ.
    */
-  retentionSummary = computed<string>(() => {
-    const w = recordTtlWindows(this.space()?.recordTtlDays);
-    const set = TTL_BUCKETS.filter(b => w[b] !== null);
-    const t = (k: string, p?: Record<string, unknown>) => this.transloco.translate(k, p);
-    if (set.length === 0) return t('brain.overview.retentionNone');
-    if (set.length === TTL_BUCKETS.length && new Set(set.map(b => w[b])).size === 1) {
-      return t('brain.overview.retentionSpaceWide', { days: w[set[0]] });
-    }
-    return t('brain.overview.retentionBuckets', {
-      list: set.map(b => t('brain.overview.retentionBucketOne', {
-        bucket: t(`spaces.dangerZone.retentionBucket.${b}`), days: w[b],
-      })).join(', '),
-    });
-  });
+  /** Delegated to `overview-retention.ts` — pure, and out of a file the ratchet has frozen. */
+  retentionSummary = computed<string>(() => summariseRetention(this.space(), (k, p) => this.transloco.translate(k, p)));
 
-  /**
-   * Types whose schema overrides the space-wide window.
-   *
-   * Listed because the line above is a half-truth without them: an operator who set 30 days and sees one type
-   * keeping records for ten years needs the reason on the same card, not in another tab.
-   */
-  retentionTypes = computed<Array<{ key: string; label: string }>>(() => {
-    const schemas = this.space()?.meta?.typeSchemas ?? {};
-    const t = (k: string, p?: Record<string, unknown>) => this.transloco.translate(k, p);
-    const out: Array<{ key: string; label: string }> = [];
-    for (const [collection, types] of Object.entries(schemas)) {
-      for (const [type, schema] of Object.entries(types ?? {})) {
-        const r = schema?.retention;
-        if (!r || (!r.days && !r.contentDays)) continue;
-        const name = `${collection}.${type}`;
-        const label = r.days && r.contentDays
-          ? t('brain.overview.retentionTypeContent', { type: name, days: r.days, contentDays: r.contentDays })
-          : r.days
-            ? t('brain.overview.retentionType', { type: name, days: r.days })
-            : t('brain.overview.retentionTypeContentOnly', { type: name, contentDays: r.contentDays });
-        out.push({ key: name, label });
-      }
-    }
-    return out.sort((a, b) => a.key.localeCompare(b.key));
-  });
+  /** Same. The list of types whose own schema overrides the space-wide window. */
+  retentionTypes = computed(() => retentionOverridesOf(this.space(), (k, p) => this.transloco.translate(k, p)));
 
   // `total` and `statCards` went with the statistics strip. Both existed only to feed those tiles, and the
   // ER diagram computes its own per-type counts from the model it already fetched — keeping a second

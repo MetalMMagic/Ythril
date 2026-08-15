@@ -30,6 +30,7 @@ import { FileManagerComponent } from '../files/file-manager.component';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
 import { httpErrorReason } from '../../core/http-error';
+import { ToastService } from '../../core/toast.service';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
 import { ActivatedRoute, Router } from '@angular/router';
@@ -152,11 +153,6 @@ interface SpaceView {
       font-size: 13px;
       color: var(--text-secondary);
     }
-    .reindex-result {
-      font-size: 12px;
-      color: var(--text-muted);
-      margin-left: auto;
-    }
 
     .tab-spacer { flex: 1; }
     /* The cog. Square rather than label-width, and it never takes the active treatment: it opens a modal,
@@ -225,18 +221,18 @@ interface SpaceView {
         }
       </div>
 
-      @if (needsReindex()) {
+      <!-- Never offered on a proxy: it has no index of its own and the server refuses it with a 400.
+           The outcome is a TOAST, not a line in this banner -- see runReindex(). An inline result had no
+           dismiss and was cleared only by switching space, so a message about a finished job sat on screen
+           through everything that came after it. -->
+      @if (needsReindex() && !activeSpaceIsProxy()) {
         <div class="reindex-banner">
           <span><ph-icon name="warning" [size]="16" style="display:inline-flex;vertical-align:middle;margin-right:4px;"/> {{ 'brain.reindex.stale' | transloco }}</span>
           <button class="btn btn-sm btn-primary" [disabled]="reindexing()" (click)="runReindex()">
             @if (reindexing()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
             {{ 'brain.reindex.button' | transloco }}
           </button>
-          @if (reindexResult()) { <span class="reindex-result">{{ reindexResult() }}</span> }
         </div>
-      }
-      @if (!needsReindex() && reindexResult()) {
-        <div class="alert alert-success" style="margin-bottom:10px; font-size:13px;"><ph-icon name="check" [size]="14" style="display:inline-flex;vertical-align:middle;margin-right:4px;"/> {{ reindexResult() }}</div>
       }
 
       <!-- Sub-tabs: Query on left, collections on right.
@@ -398,6 +394,8 @@ export class BrainComponent implements OnInit, OnDestroy {
   private adminApi = inject(AdminApi);
   private networksApi = inject(NetworksApi);
   private transloco = inject(TranslocoService);
+  /** Transient outcomes go through the app's one toast channel — see runReindex() for why not inline. */
+  private toast = inject(ToastService);
 
   // File Meta merged into the Files tab (rendered separately, after these, in the same group).
   /**
@@ -445,7 +443,6 @@ export class BrainComponent implements OnInit, OnDestroy {
   // Reindex
   needsReindex = signal(false);
   reindexing = signal(false);
-  reindexResult = signal('');
 
   // Entity picker
 
@@ -615,7 +612,6 @@ export class BrainComponent implements OnInit, OnDestroy {
     this.store.edgeSearch.set('');
     this.store.chronoSearch.set('');
     this.recordList.confirmDeleteId.set('');
-    this.reindexResult.set('');
     this.ov.blankForSpaceSwitch();
     this.loadStats(id);
     this.loadSpaceMeta(id);
@@ -766,18 +762,46 @@ export class BrainComponent implements OnInit, OnDestroy {
     });
   }
 
+  /** A proxy holds no records of its own, so it has no index — and the server refuses to reindex one. */
+  activeSpaceIsProxy = (): boolean => (this.activeSpace()?.proxyFor?.length ?? 0) > 0;
+
+  /**
+   * Start a reindex and say that it STARTED.
+   *
+   * ## The report this rewrites
+   *
+   * Owner, 2026-08-15: *"on clicking reindex on overview it sais reindexed 0 documents in green as if it
+   * worked on an unclosable inline message."*
+   *
+   * The route never awaits the job — `startReindex` schedules the work and both surfaces answer immediately
+   * with ZEROED counters, deliberately, so the HTTP call does not hang for the length of a re-embed. This
+   * method summed those zeros and printed "Reindexed 0 documents." So the acknowledgement of a job that had
+   * just been scheduled was rendered as its result, in green, at the moment it began.
+   *
+   * There is no count to print here and there never was. Progress lives in `reindex-status` and the log,
+   * which is where the panel's own indicator reads it from.
+   *
+   * A toast rather than an inline banner, for the reason the report gives: the inline one had no dismiss and
+   * was cleared only by switching space, so a note about a finished job outlived everything after it.
+   */
   runReindex(): void {
     this.reindexing.set(true);
-    this.reindexResult.set('');
     this.spacesApi.reindex(this.activeSpaceId()).subscribe({
-      next: (result) => {
+      next: () => {
         this.reindexing.set(false);
-        const total = Object.values(result).reduce((s: number, n) => s + (typeof n === 'number' ? n : 0), 0);
-        this.reindexResult.set(`Reindexed ${total} documents.`);
-        this.needsReindex.set(false);
+        this.toast.info(this.transloco.translate('brain.reindex.started'));
+        // The stale-index banner is NOT cleared here. It was, optimistically — and the index really is
+        // still stale, because the job has only just been scheduled. `loadStats` re-reads the true state
+        // from `reindex-status` a moment later and would put the banner straight back, so the optimism
+        // bought a flicker and a false claim. The toast is what says the work has begun.
         this.loadStats(this.activeSpaceId());
       },
-      error: () => { this.reindexing.set(false); this.reindexResult.set('Reindex failed — check server logs.'); },
+      error: (err) => {
+        this.reindexing.set(false);
+        // The server's own words when it has them: a proxy refusal names the member spaces to reindex
+        // instead, and "check server logs" would send the reader to the one place that does not say it.
+        this.toast.error(err?.error?.error ?? this.transloco.translate('brain.reindex.failed'));
+      },
     });
   }
 

@@ -714,14 +714,28 @@ error. Nothing in the record's own data is lost.
 
 ### Partial Update with deleteFields
 
-**All four** `PATCH` update endpoints — entities, edges, memories and chrono entries — accept an optional `deleteFields` array of dot-notation paths. This allows callers to remove specific fields from a document in the same atomic operation as normal property/tag updates.
+**All five** `PATCH` update endpoints — entities, edges, memories, chrono entries and file metadata — accept an optional `deleteFields` array of dot-notation paths. This allows callers to remove specific fields from a document in the same atomic operation as normal property/tag updates.
 
 ```http
 PATCH /api/brain/spaces/:spaceId/entities/:id
 PATCH /api/brain/spaces/:spaceId/edges/:id
 PATCH /api/brain/spaces/:spaceId/memories/:id
 PATCH /api/brain/spaces/:spaceId/chrono/:id
+PATCH /api/brain/spaces/:spaceId/files?path=…
 ```
+
+> **`properties` MERGE on all five as of 3.1, and file metadata is the one that CHANGED.** Until 3.1 the file
+> route replaced the whole `properties` object, so patching a single key destroyed the rest — the same defect
+> that had already been fixed on the other four. It now merges, and `deleteFields` arrived with it in the
+> same release, because merging alone would have removed the only way to clear a file property.
+>
+> **A caller that resends the whole object is unaffected** — until 3.1 that was the only thing that worked.
+> A caller that patches a single key now keeps what it did not name, instead of losing it.
+>
+> **The lists still replace on every type**: `tags`, `entityIds`, `memoryIds` and `chronoIds` are overwritten
+> by what you send. Only `properties` merge.
+
+<!-- markdownlint-disable-next-line MD028 -->
 
 > **Chrono gained this in 3.1, and until then nothing could be removed from a chrono entry at all.** Its
 > `properties` merge and an absent field means "leave alone", so with no `deleteFields` there was no request

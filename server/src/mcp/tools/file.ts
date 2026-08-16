@@ -412,12 +412,14 @@ export const update_file_metaTool: ToolHandler = {
   description: 'Change a file record\'s description, tags, properties or links WITHOUT resending the file. '
     + '`write_file` can set those fields, but only together with new content, so correcting one tag used to '
     + 'mean re-uploading the bytes. Only the fields you pass are touched; omit one to leave it alone.\n\n'
-    + 'EVERY FIELD REPLACES, INCLUDING `properties` — AND THAT IS NOT WHAT THE BRAIN TOOLS DO. On entities, '
-    + 'edges, memories and chrono entries `properties` MERGES: you patch one key and the others survive. Here '
-    + 'it does not. Sending `properties: {"source":"scan"}` on a file that had three other properties leaves '
-    + 'it with ONE. `tags` and the three id lists replace the same way, and there is no `deleteFields` on this '
-    + 'tool, so the only way to change one key is to send the whole object back. READ THE RECORD FIRST, merge '
-    + 'your change into what you read, and send the result.\n\n'
+    + '`properties` MERGES, like every other record type: patch one key and the others survive. It REPLACED '
+    + 'until 3.1, so a caller written against the old behaviour that resends the whole object is unaffected, '
+    + 'while one that patches a single key now keeps what it did not name instead of destroying it.\n\n'
+    + 'THE LISTS STILL REPLACE. `tags`, `entityIds`, `memoryIds` and `chronoIds` are each overwritten by what '
+    + 'you send, so sending one id drops the rest — send the full list you want. Only `properties` merges.\n\n'
+    + 'REMOVING SOMETHING IS `deleteFields`, NEVER AN OMISSION. An omitted field means "leave alone", so there '
+    + 'is no value that clears one; send its dot path instead, applied AFTER the merge and permanent. A path '
+    + 'that cannot be honoured is refused by name rather than ignored.\n\n'
     + 'UNDER STRICT LINKAGE EVERY ID MUST RESOLVE. `entityIds`, `memoryIds` and `chronoIds` are each checked '
     + 'against records that actually exist in the member space holding the file, and the call is refused '
     + 'rather than storing a dangling link. On a space without strict linkage they are stored as given.\n\n'
@@ -429,8 +431,10 @@ export const update_file_metaTool: ToolHandler = {
     + '- `description` — replaces the description. This is what `recall` ranks a file on, alongside its '
     + 'extracted text.\n'
     + '- `tags` — REPLACES the tag list. Send the full list you want.\n'
-    + '- `properties` — REPLACES the whole object. See above; this is the one that costs people data.\n'
+    + '- `properties` — MERGED key by key. Use `deleteFields` with `properties.<key>` to remove one.\n'
     + '- `entityIds` / `memoryIds` / `chronoIds` — REPLACE those link lists. Sending one id drops the rest.\n'
+    + '- `deleteFields` — dot-notation paths to remove, permanently and with no undo. Applied after the '
+    + 'merge. The only way to unset anything.\n'
     + '- `targetSpace` — required when `space` is a proxy: the member space holding the file.\n\n'
     + 'RESPONSE: confirmation naming the path and which fields were changed. A path that does not exist is an '
     + 'error, so a successful reply means a record really was updated.',
@@ -447,6 +451,13 @@ export const update_file_metaTool: ToolHandler = {
       entityIds: { type: 'array', items: { type: 'string' }, description: 'Entity ids this file relates to.' },
       memoryIds: { type: 'array', items: { type: 'string' }, description: 'Memory ids this file relates to.' },
       chronoIds: { type: 'array', items: { type: 'string' }, description: 'Chrono ids this file relates to.' },
+      deleteFields: {
+        type: 'array', items: { type: 'string' },
+        description: 'Dot-notation paths to REMOVE, applied after the merge — the only way to unset, since an '
+          + 'omitted field means "leave alone" and `properties` merge. E.g. '
+          + '`["properties.oldKey", "description"]`. Permanent, with no undo. Server-owned fields are REFUSED '
+          + 'by name rather than ignored.',
+      },
       targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space holding the file.' },
     },
     required: ['space', 'path'],
@@ -480,7 +491,16 @@ export const update_file_metaTool: ToolHandler = {
       await assertRefsResolve(wt.target, 'chronoIds', 'chrono', patch.chronoIds);
     }
 
-    const updated = await updateFileMeta(wt.target, filePath, patch);
+    // X-6: same parameter, same helper, same refusals as the REST route — checked here rather than trusting
+    // the writer, so a bad path is a refusal on both doors instead of a silent no-op on one.
+    const { validateDeleteFields } = await import('../../brain/delete-fields.js');
+    const dfResult = validateDeleteFields(a['deleteFields']);
+    if (!dfResult.ok) throw new Error(dfResult.error);
+    const dfPaths: string[] | undefined = Array.isArray(a['deleteFields']) && (a['deleteFields'] as string[]).length > 0
+      ? a['deleteFields'] as string[]
+      : undefined;
+
+    const updated = await updateFileMeta(wt.target, filePath, patch, dfPaths);
     if (!updated) throw new Error(`No file metadata record for '${filePath}' in '${wt.target}'.`);
 
     return {

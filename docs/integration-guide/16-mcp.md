@@ -238,6 +238,14 @@ row survives its own tool being built, so the list cannot keep advertising a gap
 
 <!-- markdownlint-disable-next-line MD028 -->
 
+> **`update_file_meta` changed in 3.1: its `properties` now MERGE.** Until then it replaced the whole
+> object, so patching one key destroyed the rest — the same defect already fixed on the four brain record
+> types. `deleteFields` arrived with the merge, because merging alone would have removed the only way to
+> clear a file property. A caller that resends the whole object is unaffected; one that patches a single key
+> now keeps what it did not name. The lists (`tags`, `entityIds`, `memoryIds`, `chronoIds`) still replace.
+
+<!-- markdownlint-disable-next-line MD028 -->
+
 > **`update_space` and `update_space_schema` are SPACE-admin tools**, which is a different requirement.
 > Either instance-admin rights, **or** the `admin` rung on all four areas (`knowledge`, `files`, `schema`,
 > `dataQuality`) of the space named in `space`. These are the MCP counterparts of `PATCH /api/spaces/:id` and

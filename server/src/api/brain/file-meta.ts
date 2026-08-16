@@ -16,6 +16,7 @@ import { listTokens } from '../../auth/tokens.js';
 import { globalRateLimit } from '../../rate-limit/middleware.js';
 import { updateFileMeta, deleteFileMeta, getFileMeta } from '../../files/file-meta.js';
 import { assertRefsResolve } from '../../brain/entity-refs.js';
+import { validateDeleteFields } from '../../brain/delete-fields.js';
 import { fileExists, readFile } from '../../files/files.js';
 import { log } from '../../util/log.js';
 import { getConfig } from '../../config/loader.js';
@@ -415,7 +416,15 @@ fileMetaRouter.patch('/spaces/:spaceId/files', globalRateLimit, requireSpaceAuth
     return;
   }
 
-  const { description, tags, entityIds, chronoIds, memoryIds, properties } = req.body ?? {};
+  const { description, tags, entityIds, chronoIds, memoryIds, properties, deleteFields } = req.body ?? {};
+  // X-6: `properties` MERGE on this route now, matching the four brain types. `deleteFields` lands with the
+  // merge and not after it — the merge alone would remove the only way a file property could be cleared, so
+  // shipping them apart trades one silent data loss for a stale key nobody can delete.
+  const dfResult = validateDeleteFields(deleteFields);
+  if (!dfResult.ok) { res.status(400).json({ error: dfResult.error }); return; }
+  const dfPaths: string[] | undefined = Array.isArray(deleteFields) && deleteFields.length > 0
+    ? deleteFields as string[]
+    : undefined;
   if (tags !== undefined && !Array.isArray(tags)) { res.status(400).json({ error: '`tags` must be an array' }); return; }
   if (entityIds !== undefined && !Array.isArray(entityIds)) { res.status(400).json({ error: '`entityIds` must be an array' }); return; }
   if (chronoIds !== undefined && !Array.isArray(chronoIds)) { res.status(400).json({ error: '`chronoIds` must be an array' }); return; }
@@ -443,7 +452,7 @@ fileMetaRouter.patch('/spaces/:spaceId/files', globalRateLimit, requireSpaceAuth
   // so handing the record over cannot publish it.
   const prior = await findFirstAcrossMembers(wt.target, mid => getFileMeta(mid, path));
   const updated = await findFirstAcrossMembers(wt.target,
-    mid => updateFileMeta(mid, path, { description, tags, entityIds, chronoIds, memoryIds, properties }));
+    mid => updateFileMeta(mid, path, { description, tags, entityIds, chronoIds, memoryIds, properties }, dfPaths));
   if (updated) {
     req.auditSnapshots = { before: prior ?? {}, after: updated };
     res.json(updated);

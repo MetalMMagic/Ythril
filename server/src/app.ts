@@ -14,6 +14,7 @@ import { conflictsRouter } from './api/conflicts.js';
 import { duplicatesRouter } from './api/duplicates.js';
 import { contradictionsRouter } from './api/contradictions.js';
 import { syncRouter } from './api/sync/index.js';
+import { editorScopeFor } from './auth/editor-scope.js';
 import { networksRouter } from './api/networks/index.js';
 import { notifyRouter } from './api/notify.js';
 import { inviteRouter } from './api/invite.js';
@@ -563,7 +564,13 @@ export function createApp() {
   // gossip; the new public key propagates on the next sync cycle. Requires an
   // unrestricted admin token (+ TOTP when MFA is enabled).
   app.post('/api/admin/rotate-signing-key', globalRateLimit, requireAdminMfa, async (req, res) => {
-    if (req.authToken?.spaces) {
+    // "Unrestricted" from the MATRIX, with the legacy allowlist only as a fallback — `editorScopeFor`
+    // returns `undefined` for a token that reaches everything and a list for one that does not.
+    //
+    // This tested `req.authToken?.spaces` for truthiness, and that array is `undefined` on every token
+    // minted since the matrix. So a space-restricted administrator whose scope lives in `rights` read as
+    // unrestricted here and could rotate the INSTANCE signing key — the credential every peer pins.
+    if (editorScopeFor(req.authToken) !== undefined) {
       res.status(403).json({ error: 'Signing-key rotation requires an unrestricted admin token' });
       return;
     }

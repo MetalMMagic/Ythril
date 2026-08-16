@@ -26,6 +26,7 @@ const NotifyBody = z.object({
     'member_departed',
     'member_removed',           // sent to the ejected instance after a remove vote passes
     'space_deletion_pending',
+    'space_wipe_pending',       // a wipe round is open — pull it now rather than at the next scheduled sync
     'sync_available',   // "I have new data, come pull me"
     'ping',             // health check / keep-alive
   ]),
@@ -116,13 +117,15 @@ notifyRouter.post('/', notifyRateLimit, requireAuth, (req, res) => {
     }).catch(err => log.error(`Failed to import sync engine: ${err}`));
   }
 
-  // For space_deletion_pending events, trigger a sync so we pull the vote round immediately
-  if (event === 'space_deletion_pending') {
+  // For a pending space_deletion or space_wipe, trigger a sync so we pull the vote round immediately.
+  // Both are irreversible and space-scoped, so the round wants to be in front of an operator now rather
+  // than at the next scheduled cycle — a deadline that expires unseen is a vote nobody got to cast.
+  if (event === 'space_deletion_pending' || event === 'space_wipe_pending') {
     import('../sync/engine.js').then(({ runSyncForNetwork }) => {
       runSyncForNetwork(networkId).catch(err =>
-        log.error(`Triggered sync (space_deletion_pending) for network ${networkId} failed: ${err}`),
+        log.error(`Triggered sync (${event}) for network ${networkId} failed: ${err}`),
       );
-    }).catch(err => log.error(`Failed to import sync engine (space_deletion_pending): ${err}`));
+    }).catch(err => log.error(`Failed to import sync engine (${event}): ${err}`));
   }
 
   // N-7: when a member departs, auto-adopt its children as direct children of this instance

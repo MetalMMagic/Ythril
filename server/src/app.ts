@@ -15,6 +15,7 @@ import { duplicatesRouter } from './api/duplicates.js';
 import { contradictionsRouter } from './api/contradictions.js';
 import { syncRouter } from './api/sync/index.js';
 import { editorScopeFor } from './auth/editor-scope.js';
+import { planSpaceWipe, notifyPeersOfWipe } from './spaces/wipe-vote.js';
 import { networksRouter } from './api/networks/index.js';
 import { notifyRouter } from './api/notify.js';
 import { inviteRouter } from './api/invite.js';
@@ -346,6 +347,16 @@ export function createApp() {
         return;
       }
     }
+    // X-5: on a space that belongs to a network, emptying it is a governed act and opens a vote instead of
+    // happening now. A space in no network is unaffected — `planSpaceWipe` says which, and the same planner
+    // answers for the `wipe_space` tool so the two doors cannot drift.
+    const plan = planSpaceWipe(spaceId, rawTypes);
+    if (plan.governed) {
+      notifyPeersOfWipe(spaceId, rawTypes);
+      res.status(202).json({ status: 'vote_pending', rounds: plan.rounds });
+      return;
+    }
+
     try {
       const deleted = await wipeSpace(spaceId, rawTypes);
       res.json({ deleted });

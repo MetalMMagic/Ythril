@@ -29,7 +29,7 @@ import type { SpaceMeta } from './types-knowledge.js';
 export type NetworkType = 'closed' | 'democratic' | 'club' | 'braintree' | 'pubsub';
 export type SyncDirection = 'both' | 'push' | 'pull';
 export type VoteValue = 'yes' | 'veto';
-export type VoteRoundType = 'join' | 'remove' | 'space_deletion' | 'meta_change';
+export type VoteRoundType = 'join' | 'remove' | 'space_deletion' | 'space_wipe' | 'meta_change';
 
 export interface NetworkMember {
   instanceId: string;
@@ -85,7 +85,15 @@ export interface VoteRound {
   concluded?: boolean;
   passed?: boolean;          // true if concluded and the motion carried; false if vetoed/expired
   pendingMember?: NetworkMember;  // stored on join rounds; added to members when vote passes
-  spaceId?: string;              // populated for space_deletion and meta_change rounds
+  spaceId?: string;              // populated for space_deletion, space_wipe and meta_change rounds
+  /**
+   * Which collections a `space_wipe` round will empty, or absent for all five.
+   *
+   * Carried ON THE ROUND rather than resolved at conclusion, because a partial wipe is what the members
+   * voted for. Resolving it later — from a request that no longer exists, or by defaulting to everything —
+   * would let a round approved for `files` conclude by emptying the knowledge graph.
+   */
+  wipeTypes?: string[];
   pendingMeta?: SpaceMeta;       // stored on meta_change rounds; applied when vote passes
   /**
    * Top-level `meta` fields the proposer changed (meta_change rounds).

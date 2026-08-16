@@ -6,6 +6,7 @@ import { canWriteAnywhere } from '../../auth/write-anywhere.js';
 import type { TokenRights } from '../../config/rights-shape.js';
 import { memberSpacesWithin } from '../../spaces/proxy-scoped.js';
 import { WIPE_COLLECTION_TYPES, type WipeCollectionType, wipeSpace } from '../../spaces/lifecycle.js';
+import { planSpaceWipe, notifyPeersOfWipe } from '../../spaces/wipe-vote.js';
 import { updateSpace, spacePurpose } from '../../spaces/spaces.js';
 import { SPACE_PURPOSE_MAX, needsReindex } from '../../spaces/_shared.js';
 
@@ -604,13 +605,17 @@ export const wipe_spaceTool: ToolHandler = {
   description: 'Empty a space of its DATA while keeping the space itself — its id, label, purpose, schema, '
     + 'rights and network membership all survive. Requires instance-admin rights. IRREVERSIBLE: there is no '
     + 'undo, no trash, and no confirmation step, so the call that arrives is the call that runs.\n\n'
-    + 'IT IS A LOCAL WIPE, AND ON A NETWORKED SPACE THAT IS PROBABLY NOT WHAT YOU WANT. Unlike every '
-    + '`delete_*` tool, this writes NO tombstones — it deletes the existing ones as well. Tombstones are the '
-    + 'only thing that tells a peer a record is gone; without them a peer\'s manifest still offers everything '
-    + 'it holds and this instance, now empty and with no record of any deletion, has no reason to refuse it. '
-    + 'So on a space that belongs to a sync network, expect the next round to put much of it back. Wipe every '
-    + 'peer, or leave the network first, or use the per-record `delete_*` tools — those do tombstone.\n\n'
-    + 'On a space in no network there is nothing to bring it back and the wipe is simply final.\n\n'
+    + 'ON A NETWORKED SPACE IT OPENS A VOTE AND WIPES NOTHING YET. Emptying a space the network shares is a '
+    + 'governed act, like deleting one: a round opens in every network that holds the space, this instance '
+    + 'votes yes, and the wipe happens on EVERY member when a round passes. A single veto stops it there. So '
+    + 'a reply saying `vote_pending` is the success case — do not retry it, and do not read the absence of '
+    + 'counts as a failure. Watch the rounds.\n\n'
+    + 'ON A SPACE IN NO NETWORK it wipes immediately and finally, exactly as it always has. Nothing about an '
+    + 'unnetworked instance changed.\n\n'
+    + 'WHY IT VOTES RATHER THAN PROPAGATING. A wipe writes NO tombstones and deletes the existing ones, and '
+    + 'tombstones are the only thing that tells a peer a record is gone — so a local wipe on a shared space '
+    + 'used to be undone by the next sync, which offered everything back to an instance with no record of any '
+    + 'deletion. Voting removes that problem rather than solving it: the peers are wiping too.\n\n'
     + 'IT IS IDEMPOTENT. Wiping an empty space succeeds and returns zeroes rather than erroring, so a retry '
     + 'after a dropped connection is safe.\n\n'
     + 'WHAT ELSE GOES WITH IT: the review queues are cleared for whatever you wiped — duplicate and '
@@ -654,8 +659,29 @@ export const wipe_spaceTool: ToolHandler = {
       throw new Error(`types must be an array of: ${WIPE_COLLECTION_TYPES.join(', ')}`);
     }
     const wipeTypes = rawTypes as WipeCollectionType[] | undefined;
-    const result = await wipeSpace(callSpace, wipeTypes);
     const typesLabel = wipeTypes && wipeTypes.length > 0 ? wipeTypes.join(', ') : 'all';
+
+    // X-5: the SAME planner the REST route calls. Both doors ask one function whether this space is governed
+    // and it opens the rounds; neither decides for itself, because a second copy of that rule is how one
+    // surface ends up wiping immediately while the other votes.
+    const plan = planSpaceWipe(callSpace, wipeTypes);
+    if (plan.governed) {
+      notifyPeersOfWipe(callSpace, wipeTypes);
+      const where = plan.rounds.map(r => r.networkLabel).join(', ');
+      return {
+        content: [{
+          type: 'text' as const,
+          text: `Nothing has been wiped yet. '${callSpace}' belongs to ${plan.rounds.length} network`
+            + `${plan.rounds.length === 1 ? '' : 's'} (${where}), so emptying it is a governed act: a vote is `
+            + `now open in each, and this instance has voted yes. [${typesLabel}] is wiped on every member `
+            + 'when a round passes, and a single veto stops it there. Watch the rounds rather than expecting '
+            + 'counts from this call.',
+        }],
+        structuredContent: { status: 'vote_pending', rounds: plan.rounds, types: wipeTypes ?? null },
+      };
+    }
+
+    const result = await wipeSpace(callSpace, wipeTypes);
     const summary = `Wiped [${typesLabel}] in space '${callSpace}': ${result.memories} memories, ${result.entities} entities, ${result.edges} edges, ${result.chrono} chrono, ${result.files} files.`;
     return {
       content: [{ type: 'text' as const, text: summary }],

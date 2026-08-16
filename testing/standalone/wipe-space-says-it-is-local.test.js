@@ -39,28 +39,41 @@ const WIPE = (() => {
   return s.slice(d, d + end);
 })();
 
-describe('wipe_space warns that it does not reach peers', () => {
-  it('says it is LOCAL', () => {
-    assert.match(WIPE, /LOCAL WIPE/, 'the single most consequential fact about this tool');
+describe('wipe_space says a networked space VOTES', () => {
+  /**
+   * This file asserted the opposite until X-5 shipped: that the description warned the wipe was LOCAL, named
+   * the three workarounds, and told a caller to expect the next sync to put the data back. All true at the
+   * time, and writing it down is what got the owner to rule *"thats a voting thing"*.
+   *
+   * Inverted rather than deleted. The rule it protects never moved: **the description must say what actually
+   * happens on a networked space, unmissably**, because the failure mode is a caller who thinks the data is
+   * gone when it is not — or now, one who reads `vote_pending` as an error and retries into a second round.
+   */
+  it('says it opens a vote and wipes nothing yet', () => {
+    assert.match(WIPE, /OPENS A VOTE AND WIPES NOTHING YET/,
+      'the single most consequential fact about this tool');
   });
 
-  it('says it writes NO tombstones and removes the existing ones', () => {
+  it('says a reply with no counts is the SUCCESS case', () => {
+    // The new mistake to pre-empt, replacing the old one. Retrying opens a second round.
+    assert.match(WIPE, /do not retry it/, 'a caller must not read the absent counts as a failure');
+  });
+
+  it('still explains the tombstone mechanism — it is why this votes at all', () => {
     assert.match(WIPE, /NO tombstones/, 'name the mechanism, not just the outcome');
     assert.match(WIPE, /deletes the existing ones/,
       'clearing them is worse than not writing them and has to be said separately');
   });
 
-  it('says what to do instead, so the warning is actionable', () => {
-    // A warning with no alternative gets ignored by the caller who still has to empty the space.
-    assert.match(WIPE, /leave the network|Wipe every peer/,
-      'name at least one way to actually empty a networked space');
-    assert.match(WIPE, /delete_\*|delete_/, 'and point at the tools that DO tombstone');
+  it('and does not overstate it for a space in no network', () => {
+    // Accuracy in the other direction, unchanged in intent: an unnetworked wipe is immediate and final, and
+    // a caller who reads this as "wipe now always votes" would go looking for a round that never opened.
+    assert.match(WIPE, /NO NETWORK it wipes immediately/, 'the unnetworked case must be stated too');
   });
 
-  it('and does not overstate it for a space in no network', () => {
-    // Accuracy in the other direction: on an unnetworked space the wipe is simply final, and a caller who
-    // reads this as "wipe never works" would go looking for a tool that does not exist.
-    assert.match(WIPE, /no network/, 'the unnetworked case must be stated too');
+  it('and the old "expect it back" warning is gone with the behaviour it described', () => {
+    assert.doesNotMatch(WIPE, /expect the next round to put much of it back/,
+      'that was true of a local wipe and is false of a voted one');
   });
 });
 

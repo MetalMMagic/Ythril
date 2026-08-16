@@ -143,6 +143,25 @@ Content-Type: application/json
 
 **Requires admin token** (and TOTP code when MFA is enabled).
 
+> **On a space that belongs to a network, this OPENS A VOTE and wipes nothing yet — new in 3.1.** Emptying a
+> space the network shares is a governed act, like deleting one. A round opens in every network holding the
+> space, this instance votes yes, and the wipe happens on **every member** when a round passes. A single veto
+> stops it there.
+>
+> The answer is `202` with `{ "status": "vote_pending", "rounds": [...] }` instead of `200` with `deleted`
+> counts. **Treat that as success** — do not retry, and do not read the missing counts as a failure. Watch
+> the rounds via `GET /api/networks/:id/votes`.
+>
+> **A space in no network is unaffected**: it wipes immediately and answers `200` with counts, exactly as
+> before.
+>
+> *Why it votes rather than propagating.* A wipe writes no tombstones and deletes the existing ones, and
+> tombstones are the only thing that tells a peer a record is gone — so a local wipe on a shared space was
+> undone by the next sync, which offered everything back to an instance that had no record of any deletion.
+> Voting removes that problem rather than working around it: the peers are wiping too.
+>
+> The same rule governs the `wipe_space` MCP tool, through the same planner.
+
 #### Request body
 
 | Field | Type | Description |

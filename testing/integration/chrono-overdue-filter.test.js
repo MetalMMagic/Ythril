@@ -49,8 +49,11 @@ const listByStatus = async (status) => {
 };
 
 before(async () => {
-  const cfg = JSON.parse(fs.readFileSync(path.join(CONFIGS, 'a', 'config.json'), 'utf8'));
-  tokenA = cfg.tokens[0].token;
+  // `token.txt`, which is what every other integration suite reads. Reading `config.json` works on a
+  // Windows working copy and fails in CI with `EACCES`: the container writes that file as root, while
+  // `token.txt` is deposited for the tests. The suite's existing convention was right; inventing a second
+  // way to get the same value is what cost a CI run.
+  tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
 });
 
 after(async () => {

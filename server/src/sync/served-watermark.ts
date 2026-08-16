@@ -23,6 +23,8 @@
  * enumerated rather than defaulted, so a caller can log WHY nothing happened.
  */
 import { getConfig, saveConfigSoon } from '../config/loader.js';
+import { reachesSpace } from '../auth/space-reach.js';
+import { legacySpacesOf } from '../auth/legacy-spaces.js';
 import type { Config, NetworkMember } from '../config/types.js';
 
 /** The subset of a member this decision needs — so the pure part is testable without a config. */
@@ -53,7 +55,11 @@ export type TombstoneFloor =
 export function peerTokensReaching(cfg: Config, spaceId: string): string[] {
   return (cfg.tokens ?? [])
     .filter(t => typeof t.peerInstanceId === 'string' && t.peerInstanceId !== '')
-    .filter(t => t.spaces === undefined || t.spaces.includes(spaceId))
+    // Matrix first. This read the legacy allowlist alone, which is `undefined` on every token minted
+    // since 2.9 — so every peer token counted as reaching every space, and the watermark was computed
+    // against peers that could not see it.
+    .filter(t => (t.rights ? reachesSpace(t.rights, spaceId) : (legacySpacesOf(t) ?? []).includes(spaceId)
+      || legacySpacesOf(t) === undefined))
     .map(t => t.peerInstanceId as string);
 }
 

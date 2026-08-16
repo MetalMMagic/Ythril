@@ -43,6 +43,7 @@ import { createOAuthToken, findMatchingToken } from '../auth/tokens.js';
 import { authRateLimit } from '../rate-limit/middleware.js';
 import { log } from '../util/log.js';
 import { isInstanceAdmin } from '../auth/instance-admin.js';
+import { legacySpacesOf } from '../auth/legacy-spaces.js';
 import { envInt } from '../config/env-num.js';
 import type { TokenRecord } from '../config/types.js';
 
@@ -350,7 +351,7 @@ async function handleConsent(req: Request, res: Response): Promise<void> {
     // authorising token's `rights` are carried through directly below. The minted token derives its matrix
     // from those, so this flag no longer shapes anything; it stays only until the identity shape itself is
     // trimmed, and `false` is the value that cannot narrow or widen what `rights` already says.
-    identity: { admin: isInstanceAdmin(record), readOnly: false, spaces: record.spaces,
+    identity: { admin: isInstanceAdmin(record), readOnly: false, spaces: legacySpacesOf(record),
       rights: (record as { rights?: TokenRecord['rights'] }).rights },
     expiresAt: now + AUTH_CODE_TTL_MS,
   });

@@ -9,6 +9,7 @@ import { spaceAdminSpacesFor, isSpaceAdminFor } from './editor-scope.js';
 import type { OidcTokenRecord } from './oidc.js';
 import { resolveMemberSpaces } from '../spaces/proxy.js';
 import { reachesSpace } from './space-reach.js';
+import { legacySpacesOf } from './legacy-spaces.js';
 import { requiredRung, satisfies } from './required-rung.js';
 import { effectiveRung } from './mint-cap.js';
 import { authAttemptsTotal } from '../metrics/registry.js';
@@ -370,7 +371,7 @@ function spaceTargets(spaceId: string | undefined, record?: Omit<TokenRecord, 'h
     // Same asymmetry as the reach check, for the same reason: `spaces === undefined` is unrestricted and
     // reaches everything, while an EMPTY allowlist reaches nothing. Reading empty as absent would turn the
     // narrowest token into the widest — the bug we removed three copies of in 2.6.0.
-    : record.spaces === undefined ? all : all.filter(sid => record.spaces!.includes(sid));
+    : legacySpacesOf(record) === undefined ? all : all.filter(sid => legacySpacesOf(record)!.includes(sid));
 
   // Narrowing a real (non-proxy) space to nothing must not silently become "check no space at all": the reach
   // guard owns that refusal, and handing back the original keeps its 403 the one a caller sees.
@@ -441,7 +442,7 @@ function enforceSpaceScope(
   const rights = (record as { rights?: Parameters<typeof reachesSpace>[0] }).rights;
   const reachable = rights
     ? targets.filter(sid => reachesSpace(rights, sid))
-    : record.spaces === undefined ? targets : targets.filter(sid => record.spaces!.includes(sid));
+    : legacySpacesOf(record) === undefined ? targets : targets.filter(sid => legacySpacesOf(record)!.includes(sid));
 
   if (reachable.length === 0) {
     res.status(403).json({ error: `Token does not have access to space '${spaceId}'` });

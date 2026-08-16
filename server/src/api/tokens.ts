@@ -40,6 +40,10 @@ function withReadOnlyAlias<T extends { rights?: unknown }>(t: T): T & { readOnly
   return {
     ...t,
     readOnly: !canWriteAnywhere(rights),
+    // spaces joined the alias when it was deleted from the record, for the same reason as the other two:
+    // the response shape is a published contract, and editorScopeFor gives the same answer the stored
+    // array did — the spaces this token reaches, or undefined for unrestricted.
+    spaces: editorScopeFor(t as { rights?: TokenRights | null }) as string[] | undefined,
     // `admin` joined the alias when it was deleted from the record, for the same reason and by the same
     // measurement: `schema-library.test.js` asserts a library token comes back `admin: false`, and that
     // assertion lives only in the Docker-only suite that `preflight` cannot run. Found by grepping those
@@ -191,7 +195,11 @@ tokensRouter.get('/', requireAdminOrSpaceAdmin, (req, res) => {
   const callerSpaces = editorScopeFor(req.authToken);
   const all = listTokens().map(withReadOnlyAlias);
   const visible = callerSpaces
-    ? all.filter(t => t.schemaLibrary || (t.spaces?.every(s => callerSpaces.includes(s)) ?? false))
+    // `editorScopeFor` rather than the raw allowlist: it is the same resolution the mint and edit guards
+    // use, and reading `spaces` here would show a space-restricted admin every modern token as unrestricted
+    // and therefore hide all of them.
+    ? all.filter(t => t.schemaLibrary || ((editorScopeFor(t) ?? []).every(s => callerSpaces.includes(s))
+      && editorScopeFor(t) !== undefined))
     : all;
   res.json({ tokens: visible });
 });

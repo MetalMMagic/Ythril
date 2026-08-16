@@ -202,7 +202,6 @@ export async function createToken(opts: {
     createdAt: new Date().toISOString(),
     lastUsed: null,
     expiresAt: opts.expiresAt ?? null,
-    spaces: opts.spaces,
     peerInstanceId: opts.peerInstanceId,
     ...(opts.schemaLibrary ? { schemaLibrary: true } : {}),
     // Stored only when it says something. `inherit` IS the absent state, so writing it would put a field on
@@ -266,7 +265,6 @@ export async function createOAuthToken(opts: {
     createdAt: new Date().toISOString(),
     lastUsed: null,
     expiresAt: opts.ttlMs === null ? null : new Date(Date.now() + opts.ttlMs).toISOString(),
-    spaces: opts.spaces,
     oauthClientId: opts.clientId,
     // ALWAYS stored, for the reason spelled out on `createToken` above — and this is the path that fix
     // MISSED. `createToken` was given an unconditional matrix because a token minted after boot had none

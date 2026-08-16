@@ -237,10 +237,6 @@ export function applySpaceRenameToConfig(cfg: Config, space: SpaceConfig, oldId:
    * unreviewable.
    */
   for (const tok of cfg.tokens) {
-    if (tok.spaces) {
-      const idx = tok.spaces.indexOf(oldId);
-      if (idx !== -1) tok.spaces[idx] = newId;
-    }
     const perSpace = tok.rights?.perSpace;
     if (perSpace && perSpace[oldId] !== undefined && perSpace[newId] === undefined) {
       perSpace[newId] = perSpace[oldId]!;

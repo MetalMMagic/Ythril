@@ -44,7 +44,9 @@ before(async () => {
 describe('the field is gone from the record and the plumbing', () => {
   it('TokenRecord no longer declares it', () => {
     const types = src('server/src/config/types.ts');
-    const at = types.indexOf('spaces?: string[]');
+    // Anchored on `peerInstanceId`: `spaces?: string[]` was the previous anchor and has since been deleted
+    // too, which broke both of these gates at once — an anchor inside the thing being removed cannot last.
+    const at = types.indexOf('peerInstanceId?: string');
     assert.ok(at > 0, 'the TokenRecord block was not found — the scanner is wrong, not the code');
     assert.doesNotMatch(types.slice(at, at + 400), /\n\s+admin: boolean;/, 'the stored field must be gone');
   });
@@ -123,6 +125,22 @@ describe('the search shape that missed one', () => {
     const offenders = files.filter(f => BAD.test(stripComments(readFileSync(f, 'utf8'))));
     assert.deepEqual(offenders, [],
       'these read a deleted field — ask `isInstanceAdmin` / the rights matrix instead:\n  ' + offenders.join('\n  '));
+  });
+
+  it('nor probes for them with `in`, which answers "unrestricted" once they are gone', () => {
+    // The fourth instance of this shape, and the first I caused rather than found. `GET /api/spaces` asked
+    // `'spaces' in req.authToken` — true while the field existed, false for every PAT the moment it was
+    // deleted — so the listing silently stopped filtering and showed a scoped token every space on the
+    // instance.
+    //
+    // `in` is invisible to a property-access sweep, exactly as bracket notation was. Same lesson, third
+    // spelling: search for the QUESTION, not for one way of writing it.
+    const files = execSync('git ls-files "server/src/**/*.ts"', { encoding: 'utf8' })
+      .split('\n').map(s => s.trim()).filter(Boolean);
+    const probes = files.filter(f =>
+      /['"](?:spaces|admin|readOnly)['"]\s+in\s+/.test(stripComments(readFileSync(f, 'utf8'))));
+    assert.deepEqual(probes, [],
+      'these probe for a deleted field and read its absence as "no restriction":\n  ' + probes.join('\n  '));
   });
 
   it('and the detector really matches the bracket form that got through', () => {

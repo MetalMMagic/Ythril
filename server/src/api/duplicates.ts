@@ -10,6 +10,7 @@
 
 import { Router } from 'express';
 import { requireAuth, requireAdminMfa, denyReadOnly } from '../auth/middleware.js';
+import { legacySpacesOf } from '../auth/legacy-spaces.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { col, asFilter, asUpdate } from '../db/mongo.js';
 import { spacesWhereTokenMay } from '../auth/reachable-spaces.js';
@@ -290,7 +291,7 @@ duplicatesRouter.post('/:id/reopen', globalRateLimit, requireAuth, denyReadOnly,
 // Returns 409 with the merge plan if the pair has a property-value conflict.
 duplicatesRouter.post('/:id/merge', globalRateLimit, requireAuth, denyReadOnly, async (req, res) => {
   try {
-    const found = await findCandidate(req.params['id'] as string, req.authToken?.spaces, (req.authToken as { rights?: TokenRights } | undefined)?.rights);
+    const found = await findCandidate(req.params['id'] as string, legacySpacesOf(req.authToken), (req.authToken as { rights?: TokenRights } | undefined)?.rights);
     if (!found) { res.status(404).json({ error: 'Duplicate candidate not found' }); return; }
     const { doc, spaceId } = found;
     if (doc.type !== 'entity') { res.status(400).json({ error: 'Merge is only supported for entity candidates' }); return; }

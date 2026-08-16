@@ -12,6 +12,7 @@ import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
 import { reachesSpace } from '../auth/space-reach.js';
 import { toolRightsRefusal, spaceAdminRefusal } from './tool-rights-guard.js';
+import { legacySpacesOf } from '../auth/legacy-spaces.js';
 import type { TokenRights } from '../config/rights-shape.js';
 import { memberSpacesWithin } from '../spaces/proxy-scoped.js';
 import { ALL_TOOLS, TOOLS_BY_NAME, type ToolSchemas } from './tools/index.js';
@@ -352,7 +353,7 @@ mcpRouter.get('/', globalRateLimit, async (req, res) => {
     log.debug(`MCP global session ${sessionTag(transport.sessionId)} closed`);
   });
 
-  const server = createGlobalMcpServer(req.authToken?.spaces, req.authToken?.id, req.authToken?.name,
+  const server = createGlobalMcpServer(legacySpacesOf(req.authToken), req.authToken?.id, req.authToken?.name,
     { ip: req.ip ?? '', authMethod: auditAuthMethod(req.authToken), oidcSubject: auditOidcSubject(req.authToken), transport: 'sse' }, tokenRights(req.authToken));
   log.debug(`MCP global session ${sessionTag(transport.sessionId)} opened`);
   await server.connect(transport);
@@ -384,7 +385,7 @@ mcpRouter.post('/messages', globalRateLimit, async (req, res) => {
 // This transport requires no persistent connection and works through standard HTTP proxies.
 mcpRouter.post('/', globalRateLimit, async (req, res) => {
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-  const server = createGlobalMcpServer(req.authToken?.spaces, req.authToken?.id, req.authToken?.name,
+  const server = createGlobalMcpServer(legacySpacesOf(req.authToken), req.authToken?.id, req.authToken?.name,
     { ip: req.ip ?? '', authMethod: auditAuthMethod(req.authToken), oidcSubject: auditOidcSubject(req.authToken), transport: 'http' }, tokenRights(req.authToken));
   // Register cleanup before handling the request so it fires regardless of outcome.
   res.on('close', () => {

@@ -234,6 +234,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on the peer. `list_tokens` still lists **expired** tokens, because expiry is enforced when a token is used,
   so appearing there is not proof of access.
 
+- **`help` now says that the tool list it returns is filtered to your token — which was the one thing it most
+  needed to say.** A read-only token is shown no mutating tools and a token without instance-admin rights is
+  shown no admin tools, correctly and deliberately. What nobody was told is the consequence: a tool missing
+  from that reply means *this token cannot invoke it*, never that the instance lacks the capability. The
+  unsupportable conclusion — "there is no way to do X here" — is exactly the one that gets reported outward as
+  a missing feature, and it had to be written into three individual tool descriptions this release because the
+  one place it belonged did not carry it. `help` also now states that each tool's own schema description is
+  the authoritative reference, and that adding words to `query` narrows the answer rather than broadening it.
+
+- **`get_space_meta` now distinguishes what a space DECLARES from what it actually holds.** It returns the
+  types somebody defined; `er_model` returns the types that have records. A space can declare twenty types and
+  hold three, so a declaration read as an inventory produces plans against empty types. It also explains what
+  each validation mode does to a write, pre-empts the reasonable "strict validation on a space that accepts
+  everything must be a bug" (a space with no type schemas has nothing to violate), notes that strict refuses
+  what your change *breaks* rather than what was already broken, and describes `needsReindex` as what it is —
+  a quality signal where recall keeps answering while comparing new queries against vectors made by a
+  different model, so results degrade quietly instead of erroring.
+
 ### Added
 
 - **A space administrator can now manage that space's tokens.** Until now "administers this space" was only

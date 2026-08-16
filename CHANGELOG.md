@@ -21,6 +21,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The four delete tools now say what they do *not* delete, and which of them can refuse.** Three of them
+  read *"Delete an X by ID. Creates a tombstone for sync propagation"* and nothing else, which left a caller
+  to discover the interesting parts by doing it. Deleting an **entity** is refused while something still
+  points at it, on a space with strict linkage — that guard exists only for entities, so deleting a memory,
+  edge or chrono entry is never refused and can leave a reference dangling on a space configured to forbid
+  exactly that. Each description now says which side it is on. They also say that deleting an edge leaves both
+  entities and every other edge between them untouched; that a chrono entry's links are references rather than
+  contents; that a recurrence rule creates no series, so there is no "and all future occurrences" to worry
+  about; and that the tombstone is why re-creating a record with the same id does **not** undo the delete. Each
+  one now points at `excludeFromVectorSearch` first, because "stop this appearing in search" is a different
+  request from "destroy this" and only one of them is reversible.
+
 - **The four record-editing tools now say whether a list you send is added to what is stored or replaces it —
   and they do not all do the same thing.** Editing an entity or an edge MERGES tags; editing a memory or a
   chrono entry REPLACES them. So sending one tag adds it in two cases and destroys every other tag in the

@@ -105,7 +105,39 @@ export const upsert_edgeTool: ToolHandler = {
 
 export const update_edgeTool: ToolHandler = {
   name: 'update_edge',
-  description: 'Update an existing edge by its ID. All fields are optional — only supplied fields are changed.',
+  description: 'Update one edge by its ID. Every field except `id` is optional; a field you omit is left '
+    + 'exactly as it was.\n\n'
+    + 'IT CANNOT REPOINT AN EDGE. There is no `from`/`to` here, deliberately: an edge that changes either end '
+    + 'is a different relationship, not an edited one, and rewriting it in place would silently invalidate '
+    + 'anything already traversed through it. Delete this edge and `upsert_edge` the new one.\n\n'
+    + 'MERGE, NOT REPLACE, for `tags` and `properties`. Sending `tags: ["b"]` on an edge tagged `["a"]` leaves '
+    + 'it tagged `["a","b"]`. Note that `update_memory` REPLACES tags instead — one word of difference between '
+    + 'tools that otherwise take the same arguments. To remove a tag or a property here, use `deleteFields` '
+    + 'with its dot path; there is no way to shrink either by sending a smaller value.\n\n'
+    + 'EDGES ARE SEARCHABLE RECORDS, which is why `excludeFromVectorSearch` exists on this tool at all: an edge '
+    + 'carries a label and a description, they get embedded, and they compete with knowledge records for a '
+    + 'recall `topK`. Excluding a busy structural edge is how you stop it crowding out the records it '
+    + 'connects.\n\n'
+    + 'PARAMETERS:\n'
+    + '- `id` — the edge\'s `_id`, as `traverse`, `query` and `recall`\'s `_graph` report it. Required.\n'
+    + '- `label` — the relationship\'s name, replaced when sent. Re-embeds.\n'
+    + '- `type` — replaced when sent, and re-validated against the space\'s edge-type allowlist.\n'
+    + '- `weight` — 0 to 1. Ranking uses it; traversal does not filter on it.\n'
+    + '- `description` — replaced when sent.\n'
+    + '- `tags` — MERGED into the existing tags, never replacing them.\n'
+    + '- `properties` — MERGED key by key. String, number or boolean values only.\n'
+    + '- `deleteFields` — dot-notation paths to remove, permanently and with no undo. System fields are '
+    + 'refused. This is the ONLY way to unset anything, and it runs AFTER the merge above.\n'
+    + '- `excludeFromVectorSearch` — see its own description. It removes the vector, so `recall` can no longer '
+    + 'RANK this edge by meaning. It does NOT remove the edge from the graph: `traverse` still walks it, and a '
+    + 'recall on either endpoint still expands through it into `_graph`. Excluding an edge hides it from '
+    + 'ranking, never from traversal.\n'
+    + '- `ttlDays` — this edge\'s own expiry, the MOST specific of three tiers: it beats the type\'s retention '
+    + 'window, which beats the space-wide one.\n'
+    + '- `targetSpace` — required when `space` is a proxy: the member space holding the edge.\n\n'
+    + 'RESPONSE: one line with the edge\'s id and its new `seq` — the sync sequence number, which increments on '
+    + 'every write and is how a peer knows this version is newer. An id that does not exist is an error, not a '
+    + 'silent no-op.',
   mutating: true,
   spaceRequired: true,
   inputSchema: (s: ToolSchemas) => ({

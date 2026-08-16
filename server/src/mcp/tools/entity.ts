@@ -104,7 +104,41 @@ export const upsert_entityTool: ToolHandler = {
 
 export const update_entityTool: ToolHandler = {
   name: 'update_entity',
-  description: 'Update an existing entity by its ID. All fields are optional — only supplied fields are changed.',
+  description: 'Update one entity by its ID. Every field except `id` is optional; a field you omit is left '
+    + 'exactly as it was.\n\n'
+    + 'MERGE, NOT REPLACE, for `tags` and `properties` — this is the trap. Sending `tags: ["b"]` on an entity '
+    + 'tagged `["a"]` leaves it tagged `["a","b"]`, and sending `properties: {"colour":"red"}` keeps every '
+    + 'other property. There is no way to shrink either by sending a smaller value; to REMOVE something use '
+    + '`deleteFields` with its dot path (`properties.colour`, or `tags` for all of them). Scalar fields — '
+    + '`name`, `type`, `description` — do replace, because there is nothing to merge.\n\n'
+    + 'VALIDATION IS OF THE RESULT, and it refuses only what your edit BREAKS. The record as it will be — your '
+    + 'fields plus the ones already stored — is checked against the space schema. A record that was already '
+    + 'invalid before you touched it (written before the schema was tightened, imported, or synced from a peer) '
+    + 'is REPORTED and still saved: the problem is already stored, so refusing your edit would not fix it, only '
+    + 'stop you maintaining the record. Before 3.1 it did refuse, which quietly froze every record that no '
+    + 'longer fitted a tightened schema. Violations your change introduces are refused as before, in a '
+    + '`strict` space.\n\n'
+    + 'PARAMETERS:\n'
+    + '- `id` — the entity\'s `_id`, as `query`, `recall` and `find_entities_by_name` report it. Required.\n'
+    + '- `name` / `type` / `description` — replaced when sent. Changing `type` is re-validated against the '
+    + 'space\'s type allowlist, so it cannot be moved somewhere `upsert_entity` would have refused.\n'
+    + '- `tags` — MERGED into the existing tags, never replacing them.\n'
+    + '- `properties` — MERGED key by key. Values must be string, number or boolean; nested objects are not '
+    + 'stored.\n'
+    + '- `deleteFields` — dot-notation paths to remove, permanently and with no undo. The system fields (`id`, '
+    + '`name`, `type`, `spaceId`, `createdAt`, `updatedAt`) are refused. This is the ONLY way to unset '
+    + 'anything.\n'
+    + '- `excludeFromVectorSearch` — see its own description. In short: it removes the vector, so `recall` can '
+    + 'no longer RANK this record by meaning, but `query`, `list`, `get` and recall\'s own `traverse` expansion '
+    + 'all still reach it. An excluded entity linked to an embedded one still appears in that neighbour\'s '
+    + '`_graph`.\n'
+    + '- `ttlDays` — this record\'s own expiry, and the MOST specific of three tiers: it beats the type\'s '
+    + 'retention window, which beats the space-wide one.\n'
+    + '- `targetSpace` — required when `space` is a proxy: the member space holding the record. Without it the '
+    + 'call is refused rather than guessing which member you meant.\n\n'
+    + 'RESPONSE: one line naming the entity, its type, its id and its new `seq` — the sync sequence number, '
+    + 'which increments on every write and is how a peer knows this version is newer. An id that does not exist '
+    + 'is an error, not a silent no-op, so a successful reply means a record really changed.',
   mutating: true,
   spaceRequired: true,
   inputSchema: (s: ToolSchemas) => ({

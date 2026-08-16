@@ -21,6 +21,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The four record-editing tools now say whether a list you send is added to what is stored or replaces it —
+  and they do not all do the same thing.** Editing an entity or an edge MERGES tags; editing a memory or a
+  chrono entry REPLACES them. So sending one tag adds it in two cases and destroys every other tag in the
+  other two, with no error either way, and nothing in the tool descriptions said which you were doing. The
+  split is deliberate and long-standing, so it is now stated in capitals on the tools that replace, rather than
+  quietly unified. Properties merge on all four, as they always should have. Each description also answers a
+  question that had no written answer anywhere: excluding a record from vector search removes its **ranking**,
+  not the record — traversal, listing and direct reads all still reach it, and an excluded record linked to an
+  embedded one still appears in that neighbour's graph. A build check pins each claim against the store it
+  describes, so unifying the behaviour later fails the prose instead of silently outdating it.
+
+  This surfaced one real gap, filed rather than fixed here because it is a capability change: **a property
+  written to a chrono entry cannot be removed at all.** Chrono is the one record type with no `deleteFields`,
+  its properties merge, and an absence never means "delete" — so there is no expression that unsets a key. The
+  description now says so where a caller looks for the parameter, and names the two workarounds.
+
 - **The embedding-queue tools now say which queue they act on — one of them is not the queue its name
   suggests.** `retry_failed_embeddings` sits directly beside the tool that lists pending and failed record
   embeddings, and re-queues the **media** pipeline instead: image captioning, transcription, document

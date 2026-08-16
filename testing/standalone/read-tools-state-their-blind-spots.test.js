@@ -61,9 +61,16 @@ describe('list_chrono: the date filter answers a different question', () => {
       'the range moved off createdAt — rewrite the warning rather than leaving it wrong');
   });
 
-  it('says status is not recomputed from the clock', () => {
-    assert.match(CHRONO, /NOTHING RECOMPUTES `status` FROM THE CLOCK/,
-      'filtering status: upcoming to find future entries is the natural mistake');
+  it('says `overdue` IS derived from the clock', () => {
+    // THIS ASSERTION USED TO PIN THE OPPOSITE, and that is the lesson worth keeping. It required the
+    // sentence "NOTHING RECOMPUTES `status` FROM THE CLOCK" — which was false, and had been false since C5
+    // shipped the derivation. A gate written from a description rather than from the code does not catch a
+    // wrong description; it CEMENTS it, and turns rewriting it into a test failure that looks like a
+    // regression. `deriveChronoStatus` is exercised against these claims in
+    // `chrono-status-descriptions-match-the-derivation.test.js`, which is what this one should have done.
+    assert.match(CHRONO, /DERIVED FROM THE CLOCK/,
+      'an entry left `upcoming` past its date reads back as `overdue`, and the list filter is translated to match');
+    assert.doesNotMatch(CHRONO, /nothing recomputes/i, 'the old claim must not come back in any casing');
   });
 
   it('and the default order really is newest-written first', () => {

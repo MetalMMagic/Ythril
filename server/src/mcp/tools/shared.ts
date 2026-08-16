@@ -88,6 +88,37 @@ export function unitScoreSchema(description: string) {
   return { type: 'number', minimum: 0, maximum: 1, description } as const;
 }
 
+/**
+ * The chrono `recurrence` block, shared by `create_chrono` and `update_chrono`.
+ *
+ * It was two near-identical literals differing only in the word "Optional", and `freq` — the one REQUIRED
+ * field — had no description in either copy. Two copies of one schema is the shape this repo produces most,
+ * so it is one function called twice rather than a second literal kept in step by hand.
+ *
+ * The trap is in the lead sentence and it is worth stating on both tools: the rule is STORED and validated
+ * (`parseRecurrence`), and nothing anywhere expands it. It describes the entry; it does not generate more.
+ */
+export function recurrenceSchema(lead: string) {
+  return {
+    type: 'object',
+    description: lead + ' e.g. { freq: "weekly", interval: 1, until: "2027-01-01T00:00:00Z" }. '
+      + 'IT DESCRIBES THE ENTRY AND GENERATES NOTHING — no further entries are created from it, and no '
+      + 'listing expands it into occurrences. If you need each occurrence to be findable by date, write '
+      + 'each one.',
+    properties: {
+      freq: {
+        type: 'string', enum: ['daily', 'weekly', 'monthly', 'yearly'],
+        description: 'How often the entry repeats. The only required field of the block, and the four values '
+          + 'listed are the whole set — anything else is refused by name rather than ignored.',
+      },
+      interval: { type: 'integer', minimum: 1, default: 1, description: 'Repeat every N periods (positive integer, default 1).' },
+      until: { type: 'string', description: 'Optional ISO 8601 date the repetition stops at. Omit for open-ended.' },
+    },
+    required: ['freq'],
+    additionalProperties: false,
+  } as const;
+}
+
 /** MongoDB operators the structured `query` filter accepts — mirrors `ALLOWED_OPERATORS` (brain/query.ts). */
 export const QUERY_FILTER_OPERATORS = [
   '$eq', '$ne', '$gt', '$gte', '$lt', '$lte', '$in', '$nin', '$and', '$or', '$nor', '$not',

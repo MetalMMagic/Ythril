@@ -74,7 +74,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the access token appears, and it works on the API. Nothing changes for an instance that is already
   configured — the old form returned `404` there anyway — and `/api/setup` is untouched.
 
+### Fixed
+
+- **The chrono tools said the opposite of what the code does about `status`, on four tools.** A capitalised
+  warning on `list_chrono`, repeated on `create_chrono`, `update_chrono` and `delete_chrono`, read *"NOTHING
+  RECOMPUTES `status` FROM THE CLOCK … `status: "overdue"` only finds entries somebody marked overdue. Filter
+  on the dates if you want the truth about time."*
+
+  Every clause was false. `overdue` is **derived on read** and always has been: an entry whose due moment has
+  passed and that is still `upcoming`/`active` reads back as `overdue` from `list_chrono`, `recall` and a
+  single-entry get, and the list filter is translated to match — so `status: "overdue"` finds exactly those,
+  and `status: "upcoming"` *excludes* them. The paragraph steered a caller away from the one filter that
+  answers the question, toward a date predicate they did not need.
+
+  The REST reference described it correctly the whole time. One behaviour, two contradictory descriptions,
+  and the wrong one was the one an agent reads while constructing arguments. All four now say it is derived,
+  name the one path that does **not** derive (`query`, which reads documents as stored), and warn against
+  storing `overdue` by hand — a stored `overdue` is missed by the `status=overdue` filter, which looks for
+  the derivable ones. That last point is a defect rather than a design and is now written down as one.
+
+  A gate exercises `deriveChronoStatus` and holds the sentences to what it returns, rather than checking the
+  spelling of the old paragraph.
+
 ### Changed
+
+- **Every MCP tool parameter now carries a description — including the nested ones.** 26 had none at all, so
+  a caller constructing arguments from `tools/list` — which `help()` names as the authoritative reference —
+  had nothing to read. 18 of the 26 were inside `bulk_write`'s per-item schemas, which a top-level sweep
+  reports as clean.
+
+  The new text says the trap rather than the type. `bulk_write`'s per-item schemas are for discovery only, so
+  `edges[].weight` is **not** bounded to 0–1 there while `upsert_edge` bounds it, and a `chrono[].status`
+  outside the enum is discarded silently without appearing in `errors` — a third silent loss on a tool that
+  already documented two. `upsert_entity.tags` merges rather than replaces, so no value sent there removes a
+  tag. The chrono `recurrence` block became one shared schema instead of two near-identical copies whose one
+  required field, `freq`, was undescribed in both; it now states that the rule describes an entry and
+  generates nothing.
+
+  A gate walks every schema to full depth and refuses a parameter with no description, or one that merely
+  restates its own key.
 
 - **`wipe_space` now describes what it actually does to a space, beyond removing the records.** Omitting
   `types` wipes **all five** collections rather than none — an absent filter is not a safe default. The

@@ -63,7 +63,13 @@ export const bulk_writeTool: ToolHandler = {
                   entityIds:   { type: 'array', items: { type: 'string' }, description: 'Related entity IDs.' },
                   description: { type: 'string', description: 'Optional prose context.' },
                   type:        { type: 'string', description: 'Optional memory type — selects the per-type schema used to validate `properties`.' },
-                  properties:  { type: 'object', additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] } },
+                  properties:  {
+                    type: 'object',
+                    description: 'Key-value metadata. String, number or boolean values only — a nested '
+                      + 'object or array is not accepted. Validated against the per-type schema when `type` '
+                      + 'is set, and a failure REJECTS this item alone rather than the batch.',
+                    additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] },
+                  },
                   ttlDays:     TTL_DAYS_SCHEMA,
                 },
                 required: ['fact'],
@@ -78,11 +84,22 @@ export const bulk_writeTool: ToolHandler = {
                 additionalProperties: false,
                 properties: {
                   id:          uuidSchema('UUID v4 of an EXISTING entity to update. It is not a way to choose an id: identity is server-generated, so an id that names nothing is ignored rather than adopted. To carry your own reference, use `name` or `description`.'),
-                  name:        { type: 'string', description: 'Entity name.' },
-                  type:        { type: 'string', description: 'Entity type.' },
-                  tags:        { type: 'array', items: { type: 'string' } },
-                  description: { type: 'string' },
-                  properties:  { type: 'object', additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] } },
+                  name:        { type: 'string', description: 'Entity name. Nothing deduplicates by name — an item with no `id` always INSERTS, even when a record of the same name already exists.' },
+                  type:        { type: 'string', description: 'Entity type (person, place, concept, …). Validated against the space schema when the space validates.' },
+                  tags:        {
+                    type: 'array', items: { type: 'string' },
+                    description: 'Categorisation tags. MERGED over the stored tags when `id` names an '
+                      + 'existing entity, exactly as `upsert_entity` merges — so no value here removes a tag.',
+                  },
+                  description: { type: 'string', description: 'Optional prose description or summary of this entity. Replaced when sent.' },
+                  properties:  {
+                    type: 'object',
+                    description: 'Key-value metadata (string, number or boolean values only). MERGED key by '
+                      + 'key when `id` names an existing entity, and validated in its MERGED form — which is '
+                      + 'why a partial item can be accepted where the fragment alone would fail a '
+                      + 'required-property rule.',
+                    additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] },
+                  },
                   ttlDays:     TTL_DAYS_SCHEMA,
                 },
                 required: ['name', 'type'],
@@ -99,11 +116,27 @@ export const bulk_writeTool: ToolHandler = {
                   from:        { type: 'string', description: 'Source entity ID.' },
                   to:          { type: 'string', description: 'Target entity ID.' },
                   label:       { type: 'string', description: 'Relationship label.' },
-                  type:        { type: 'string' },
-                  weight:      { type: 'number' },
-                  description: { type: 'string' },
-                  tags:        { type: 'array', items: { type: 'string' } },
-                  properties:  { type: 'object', additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] } },
+                  type:        { type: 'string', description: 'Optional edge type (e.g. "causal", "attribution"). Free text; nothing validates it against a list.' },
+                  weight:      {
+                    type: 'number',
+                    description: 'Optional edge weight. `upsert_edge` BOUNDS this to 0–1 and this door does '
+                      + 'NOT — the per-item schemas here are for discovery only (`skipSchemaValidation`), so '
+                      + 'a weight outside 0–1 is stored as sent rather than refused. Send 0–1 to match what '
+                      + 'the single-record tool would have accepted. A non-number is dropped silently and '
+                      + 'does not appear in `errors`.',
+                  },
+                  description: { type: 'string', description: 'Optional prose description of why this relationship exists. Replaced when sent.' },
+                  tags:        {
+                    type: 'array', items: { type: 'string' },
+                    description: 'Categorisation tags. MERGED over the stored tags when the triplet already '
+                      + 'exists, exactly as `upsert_edge` merges — so no value here removes a tag.',
+                  },
+                  properties:  {
+                    type: 'object',
+                    description: 'Key-value metadata (string, number or boolean values only). MERGED key by '
+                      + 'key over an existing edge and validated in its merged form.',
+                    additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] },
+                  },
                   ttlDays:     TTL_DAYS_SCHEMA,
                 },
                 required: ['from', 'to', 'label'],
@@ -117,17 +150,29 @@ export const bulk_writeTool: ToolHandler = {
                 type: 'object',
                 additionalProperties: false,
                 properties: {
-                  title:       { type: 'string' },
-                  type:        { type: 'string', description: 'Entry type (e.g. event, deadline, plan, prediction, milestone, or a custom type defined in the space schema).' },
-                  startsAt:    { type: 'string', description: 'ISO 8601 start date/time.' },
-                  endsAt:      { type: 'string' },
-                  status:      { type: 'string', enum: ['upcoming', 'active', 'completed', 'overdue', 'cancelled'] },
-                  confidence:  { type: 'number' },
-                  description: { type: 'string' },
-                  tags:        { type: 'array', items: { type: 'string' } },
-                  entityIds:   { type: 'array', items: { type: 'string' } },
-                  memoryIds:   { type: 'array', items: { type: 'string' } },
-                  properties:  { type: 'object', additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] } },
+                  title:       { type: 'string', description: 'Entry title. Required — an item without one is rejected by index in `errors`.' },
+                  type:        { type: 'string', description: 'Entry type (e.g. event, deadline, plan, prediction, milestone, or a custom type defined in the space schema). Checked against the space\'s allowlist, and a type outside it rejects THIS item by index.' },
+                  startsAt:    { type: 'string', description: 'ISO 8601 start date/time. Required.' },
+                  endsAt:      { type: 'string', description: 'Optional ISO 8601 end date/time.' },
+                  status:      {
+                    type: 'string', enum: ['upcoming', 'active', 'completed', 'overdue', 'cancelled'],
+                    description: 'Stored status (default `upcoming`). A value outside this list is DISCARDED '
+                      + 'SILENTLY — the entry is still written, with the default, and nothing appears in '
+                      + '`errors`. `create_chrono` refuses the same value, because the per-item schemas here '
+                      + 'are for discovery only (`skipSchemaValidation`). Do not set `overdue`: it is derived '
+                      + 'on read from the due moment, so leaving an entry `upcoming` is what makes it overdue.',
+                  },
+                  confidence:  { type: 'number', description: 'Confidence 0 to 1, for entries that are predictions. A non-number is dropped silently and does not appear in `errors`; unlike `create_chrono`, the 0–1 bound is not enforced on this door.' },
+                  description: { type: 'string', description: 'Optional longer description of the entry.' },
+                  tags:        { type: 'array', items: { type: 'string' }, description: 'Categorisation tags. Every chrono item is an INSERT, so there is nothing to merge with.' },
+                  entityIds:   { type: 'array', items: { type: 'string' }, description: 'Entity IDs this entry concerns — what lets `traverse` reach it from that entity. NEVER checked for existence on this door, and checked for UUID shape only when the space uses strict linkage, so a well-formed id pointing at nothing is stored as a dangling link.' },
+                  memoryIds:   { type: 'array', items: { type: 'string' }, description: 'Memory IDs this entry relates to. Shape-checked under strict linkage only, and never for existence — like `entityIds`.' },
+                  properties:  {
+                    type: 'object',
+                    description: 'Key-value metadata (string, number or boolean values only), validated '
+                      + 'against the space\'s schema for this chrono type.',
+                    additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] },
+                  },
                   ttlDays:     TTL_DAYS_SCHEMA,
                 },
                 required: ['title', 'type', 'startsAt'],

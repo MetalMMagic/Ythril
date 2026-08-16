@@ -1,0 +1,156 @@
+/**
+ * What the chrono tools SAY about `status` agrees with what `deriveChronoStatus` DOES.
+ *
+ * ## The defect this pins
+ *
+ * Four MCP tool descriptions carried a capitalised warning that was the opposite of the code:
+ *
+ * > "NOTHING RECOMPUTES `status` FROM THE CLOCK. An entry stays `upcoming` after its date has passed until
+ * > something sets it otherwise, so `status: "upcoming"` means "nobody has updated this", not "still in the
+ * > future", and `status: "overdue"` only finds entries somebody marked overdue. Filter on the dates if you
+ * > want the truth about time."
+ *
+ * Every clause is false. `overdue` is DERIVED on read (`brain/chrono-status.ts`, C5) and applied on every
+ * chrono read path; `listChrono` translates the filter, so `status: "overdue"` finds exactly the derived ones
+ * and `status: "upcoming"` EXCLUDES them. The paragraph therefore steered a caller away from the one filter
+ * that answers the question, toward a date predicate it did not need.
+ *
+ * `docs/integration-guide/04c-chrono-api.md` described it CORRECTLY the whole time. Two surfaces, one
+ * behaviour, two contradictory descriptions — and the wrong one was the one an agent reads while
+ * constructing arguments. That is the exact cost CLAUDE.md records for a stale schema sentence.
+ *
+ * ## Why this asserts against the function, not against the docs
+ *
+ * A gate that only refuses the old wording is a spelling check: it goes green the moment somebody rephrases
+ * the same wrong claim. So the derivation is EXERCISED here — it is a pure function with no database — and
+ * the sentences are held to what it returns.
+ *
+ * Run: node --test testing/standalone/chrono-status-descriptions-match-the-derivation.test.js
+ * (requires a prior `npm run build` in server/)
+ */
+import { describe, it, before } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { stripComments } from './_strip-comments.mjs';
+
+let deriveChronoStatus, ALL_TOOLS;
+before(async () => {
+  ({ deriveChronoStatus } = await import('../../server/dist/brain/chrono-status.js'));
+  ({ ALL_TOOLS } = await import('../../server/dist/mcp/tools/index.js'));
+});
+
+/** The space fragments the router injects; only their presence matters here. */
+const STUB = {
+  requiredSpace: { type: 'string', description: 'Space ID to operate on.' },
+  optionalSpace: { type: 'string', description: 'Optional space ID.' },
+};
+
+const NOW = new Date('2026-08-16T12:00:00Z');
+const PAST = '2026-01-01T00:00:00Z';
+const FUTURE = '2027-01-01T00:00:00Z';
+
+describe('what the code actually does', () => {
+  it('a past-due upcoming entry reads back as overdue — nobody marks it', () => {
+    assert.equal(deriveChronoStatus({ status: 'upcoming', startsAt: PAST }, NOW), 'overdue');
+    assert.equal(deriveChronoStatus({ status: 'active', startsAt: PAST }, NOW), 'overdue');
+  });
+
+  it('the due moment is endsAt when there is one, startsAt otherwise', () => {
+    // An event that started last month and runs until next year is NOT overdue. Reading only `startsAt`
+    // would call every in-progress entry late, which is the opposite error.
+    assert.equal(deriveChronoStatus({ status: 'active', startsAt: PAST, endsAt: FUTURE }, NOW), 'active');
+    assert.equal(deriveChronoStatus({ status: 'upcoming', startsAt: FUTURE }, NOW), 'upcoming');
+  });
+
+  it('completed and cancelled are never re-derived', () => {
+    assert.equal(deriveChronoStatus({ status: 'completed', startsAt: PAST }, NOW), 'completed');
+    assert.equal(deriveChronoStatus({ status: 'cancelled', startsAt: PAST }, NOW), 'cancelled');
+  });
+
+  it('and a hand-stored `overdue` is passed straight through', () => {
+    // Which is why storing it is a bad idea: the `listChrono` filter looks for stored `upcoming`/`active`,
+    // so this record is invisible to `status: "overdue"`. The descriptions now say so by name.
+    assert.equal(deriveChronoStatus({ status: 'overdue', startsAt: FUTURE }, NOW), 'overdue');
+  });
+});
+
+describe('every chrono read path applies it, which is what makes the sentences true', () => {
+  const src = () => stripComments(readFileSync('server/src/brain/chrono.ts', 'utf8'));
+
+  it('a single-entry get derives', () => {
+    assert.match(src(), /getChronoById[\s\S]{0,300}?withDerivedStatus/,
+      'the tools say a get reads back overdue');
+  });
+
+  it('a list derives its OUTPUT as well as translating its filter', () => {
+    const s = src();
+    assert.match(s, /entries\.map\(e => withDerivedStatus\(e, now\)\)/,
+      'translating the filter alone would return rows whose status contradicts the filter that found them');
+    assert.match(s, /filter\.status === 'overdue'[\s\S]{0,200}?\$in: \['upcoming', 'active'\]/,
+      'and `status: "overdue"` must be translated, not matched literally');
+    assert.match(s, /filter\.status === 'upcoming' \|\| filter\.status === 'active'[\s\S]{0,200}?\$gte/,
+      '`upcoming`/`active` must EXCLUDE the now-overdue ones — the tools promise both directions');
+  });
+
+  it('recall derives too', () => {
+    assert.match(stripComments(readFileSync('server/src/brain/recall.ts', 'utf8')), /status: deriveChronoStatus\(/,
+      'recall presents a chrono hit\'s status, and `update_chrono` names it as one of the deriving paths');
+  });
+
+  it('but `query` does NOT — which the tools now state as a difference', () => {
+    // If query ever starts deriving, "the same records, two answers" becomes false and the sentence
+    // pointing a caller at `list_chrono` for status stops being advice.
+    assert.doesNotMatch(stripComments(readFileSync('server/src/brain/query.ts', 'utf8')), /deriveChronoStatus/,
+      'query reads documents as stored; that contrast is now written into three tool descriptions');
+  });
+});
+
+describe('no tool repeats the claim that was false', () => {
+  it('nothing says the clock is ignored', () => {
+    // CASE-INSENSITIVE, and that is not a detail: the sentence being refused was CAPITALISED in three of the
+    // four tools, and the first draft of this pattern was `/[Nn]othing recomputes/`. Restoring the exact
+    // paragraph this gate exists to refuse left it green. Its own mutation check is what said so.
+    // Whole-body, not description-only, for the same reason — on `create_chrono` the claim lived in the
+    // parameter schema rather than in the prose.
+    const BAD = [
+      [/nothing recomputes[\s\S]{0,20}status/i, 'nothing recomputes'],
+      [/only finds entries somebody marked overdue/i, 'somebody marked overdue'],
+      [/stays `upcoming` after its date (has )?passed/i, 'stays upcoming'],
+    ];
+    const offenders = [];
+    for (const t of ALL_TOOLS) {
+      const text = (t.description ?? '') + JSON.stringify(t.inputSchema(STUB));
+      for (const [re, label] of BAD) if (re.test(text)) offenders.push(`${t.name}: "${label}"`);
+    }
+    assert.deepEqual(offenders, [],
+      'these describe the opposite of `deriveChronoStatus`:\n  ' + offenders.join('\n  '));
+  });
+
+  it('and the pattern really matches the paragraph it exists to refuse', () => {
+    // Mutation-proof for the regex. A gate that misses its own subject reports clean, which is worse than
+    // having no gate: the wrong sentence then looks reviewed.
+    const ORIGINAL = 'NOTHING RECOMPUTES `status` FROM THE CLOCK. An entry stays `upcoming` after its date '
+      + 'has passed until something sets it otherwise, so `status: "upcoming"` means "nobody has updated '
+      + 'this", and `status: "overdue"` only finds entries somebody marked overdue.';
+    assert.match(ORIGINAL, /nothing recomputes[\s\S]{0,20}status/i);
+    assert.match(ORIGINAL, /only finds entries somebody marked overdue/i);
+    assert.match(ORIGINAL, /stays `upcoming` after its date (has )?passed/i);
+    // And not the corrected wording, or the gate can never go green.
+    const CORRECTED = '`overdue` IS DERIVED FROM THE CLOCK, AND IS NEVER STORED. An entry whose due moment '
+      + 'has passed and that is still `upcoming`/`active` is RETURNED as `overdue`.';
+    for (const [re] of [[/nothing recomputes[\s\S]{0,20}status/i], [/only finds entries somebody marked overdue/i], [/stays `upcoming` after its date (has )?passed/i]]) {
+      assert.doesNotMatch(CORRECTED, re);
+    }
+  });
+
+  it('and the four tools that discuss status say it is derived', () => {
+    // Presence, not spelling: each of these had a wrong paragraph, so each must now carry the right one.
+    // Checked across the description AND the schema, because on `create_chrono` the correction lives in the
+    // parameter rather than in the prose.
+    for (const name of ['create_chrono', 'update_chrono', 'list_chrono', 'delete_chrono']) {
+      const t = ALL_TOOLS.find(x => x.name === name);
+      const text = (t.description ?? '') + JSON.stringify(t.inputSchema(STUB));
+      assert.match(text, /derive[ds]?/i, `${name} must tell a caller that overdue is derived`);
+    }
+  });
+});

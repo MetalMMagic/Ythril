@@ -24,7 +24,13 @@ export const upsert_entityTool: ToolHandler = {
             id: uuidSchema('UUID v4 of an EXISTING record to update. It is not a way to choose an id: identity is server-generated, so an id that names nothing is ignored rather than adopted. To carry your own reference, use `name` or `description`.'),
             name: { type: 'string', minLength: 1, description: 'Entity name.' },
             type: { type: 'string', minLength: 1, description: 'Entity type (person, place, concept, …).' },
-            tags: { type: 'array', items: { type: 'string' } },
+            tags: {
+              type: 'array', items: { type: 'string' },
+              description: 'Categorisation tags. MERGED over the stored tags when this upsert lands on an '
+                + 'existing record, so sending `["b"]` on an entity tagged `["a"]` leaves it `["a","b"]` — '
+                + 'there is no value here that removes a tag. Clearing them is `update_entity` with '
+                + '`deleteFields: ["tags"]`.',
+            },
             description: { type: 'string', description: 'Optional prose description or summary of this entity.' },
             properties: {
               type: 'object',

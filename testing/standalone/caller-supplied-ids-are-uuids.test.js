@@ -63,7 +63,14 @@ function idDeclarations(src) {
     // EVERY `required` array in the window, not the first: `update_chrono` nests a recurrence object whose own
     // `required: ['freq']` sits between the id and the schema's real one, so taking the first match read the
     // wrong list and called a required id optional.
-    const window = src.slice(m.index, m.index + 4000);
+    //
+    // The window ends at the NEXT tool, not after a fixed 4000 characters. It was a fixed count, and that is a
+    // guard on the wrong axis: it bounds DISTANCE while the thing between the id and its `required` array is
+    // parameter PROSE, which has no bound at all. Writing four sentences onto `update_chrono`'s parameters
+    // pushed its own `required: ['space', 'id']` past the cutoff, so a required id read as caller-supplied and
+    // this gate failed on a tool nobody had changed the shape of. A schema cannot outrun its own module.
+    const nextTool = src.indexOf('export const ', m.index + 1);
+    const window = src.slice(m.index, nextTool > 0 ? nextTool : undefined);
     const addressesExisting = [...window.matchAll(/required:\s*\[([^\]]*)\]/g)].some(r => /'id'/.test(r[1]));
     out.push({ line, helper: blob.startsWith('uuidSchema('), blob, addressesExisting });
   }

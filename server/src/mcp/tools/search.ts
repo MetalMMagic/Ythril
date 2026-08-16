@@ -58,7 +58,8 @@ export const recallTool: ToolHandler = {
   name: 'recall',
   description: 'Search all knowledge types (memories, entities, edges, chrono entries, files) by MEANING and by exact tokens: a semantic vector ranking is fused with a lexical (BM25) ranking, so identifiers such as article numbers or form ids rank even though their embeddings carry little meaning. A cross-encoder refines the top candidates when the operator has configured one. Searches the specified space if provided, otherwise across all accessible spaces.\n\n'
     + 'THE RESPONSE, because knowing the parameters is only half of it:\n'
-    + '• `results` — the ranked matches. Each carries `_id`, its name/fact/title, type, tags, properties, `spaceId`, timestamps, `seq`, `matchedText` and `score` (vector similarity). The per-stage `lexicalScore`/`fusedScore`/`rerankScore` are omitted HERE to keep responses small; the REST endpoint returns them for debugging.\n'
+    + '• `results` — the ranked matches. Each carries `_id`, its name/fact/title, type, tags, properties, `spaceId`, timestamps and `score` (vector similarity).\n'
+    + '• WHAT THIS DOOR DOES NOT SEND YOU, so you do not go looking for a flag to switch it off: the embedding VECTOR (never returned by anything here, and no parameter can ask for it), `matchedText` (the pre-embedding source string — for a file chunk it is the passage a SECOND time), `embeddingModel` (identical for every record in a space), `seq` (a sync counter that is not an input to any tool), and the per-stage `lexicalScore`/`fusedScore`/`rerankScore`. The REST endpoint returns all of them; this one is deliberately the slim door, because every field here is multiplied by `topK` and paid for in your context. The one size lever you DO hold is `includeContent: false`, which drops file-passage bodies and keeps their locations.\n'
     + '• `count` — the number of MATCHES. Traversed nodes are NOT counted in it.\n'
     + '• `graphNodes` — an integer COUNT of what a traversal reached, not the content. The content is nested per-result under `_graph`, and a result with no edges simply has no `_graph` at all: reading `results[0]` and concluding the feature is absent is the mistake to avoid.\n'
     + '• `truncated` + `complete` — THE ONE THAT BITES. The inline answer is capped by SIZE, not by count, and it is a cliff rather than a slope: around 25 results answer in full and 30 can come back as three. When it spills, `truncated: true` is set and `complete` carries {matches, records, inline, path, download, expiresAt} — the full set written to the space as JSON, with an authenticated download valid one day. A caller that asks for topK 80 and reads only `results` is silently working from a handful of records. Read `truncated` before you trust the length.\n'
@@ -422,6 +423,10 @@ export const queryTool: ToolHandler = {
   name: 'query',
   description: 'Run a structured read-only query (MongoDB filter) against brain collections. This is the EXACT counterpart to `recall`: no embedding, no ranking, no score — a predicate, and every row that satisfies it. Reach for it when you know what you are looking for, and for `recall` when you know what it is about.\n\n'
     + 'It also reaches records `recall` cannot: a record retired from semantic ranking has no vector, and this reads the collection.\n\n'
+    + 'PAY FOR THE FIELDS YOU BRANCH ON, AND NOTHING ELSE: `projection` is the field-selection lever, and '
+    + 'this is the only tool that has one. The embedding vector is never returned by anything here and '
+    + 'cannot be asked for, so there is no flag to hunt for — what costs you is the record BODIES, and a '
+    + 'projection of the four fields you actually read turns a page of them into something small.\n\n'
     + 'THE RESPONSE:\n'
     + '• `results` — the matching documents, `embedding` always stripped. Ordered seq/updatedAt/createdAt descending unless you pass `sort`.\n'
     + '• `count` — how many rows are in THIS page. `total` — how many satisfy the filter overall. They differ whenever `limit` bit, and that difference is the only signal that there is more to page through.\n'

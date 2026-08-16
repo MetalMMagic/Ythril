@@ -673,6 +673,33 @@ Notes:
 The same header, in the same spellings, is honoured on space-meta writes against `meta.version` — see the
 [Spaces API](06-spaces-api.md).
 
+### What a read never sends, and what you can drop
+
+**The embedding vector is never returned — by any endpoint, on either door, and there is no parameter that
+asks for it.** `POST /query` merges a mandatory exclusion into whatever projection you send and strips an
+explicit `"embedding": 1` out of it, so the vector cannot be opted back in; the list routes project it out
+before the documents leave the database. If you have been hunting for a flag to switch it off, this is why
+you could not find one.
+
+What you *can* control:
+
+| lever | where | what it drops |
+|---|---|---|
+| `projection` | `POST /api/brain/spaces/:spaceId/query` | any field you do not name. The only field-selection lever on either door |
+| `includeContent: false` | recall | file-passage **bodies**, keeping path, heading, chunk index, tags and properties |
+
+A projection is worth reaching for rather than skipping: a bare query over a dozen records with full
+descriptions and properties is the cheapest way to overrun a token budget, and naming the four fields you
+actually branch on turns that into a page you can read.
+
+**REST returns more than MCP, deliberately, and only on recall.** Three fields are dropped from the MCP
+response and kept here: `matchedText` (the pre-embedding source string — for a file chunk it is
+`headingText + ' ' + content`, so the passage a second time), `embeddingModel` (identical for every record in
+a space) and `seq` (the sync counter). The reasoning is that every field an MCP result carries is multiplied
+by `topK` and paid for in a calling model's context, which is not a constraint a REST integrator has. If it
+is a constraint for yours, the list routes have **no** field selection today — say so and it becomes a
+parity question rather than a preference.
+
 ### Retiring a record from semantic search
 
 `suppressEmbeddings` is a boolean on **all four** record types (`memories`, `entities`, `edges`,

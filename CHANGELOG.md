@@ -36,6 +36,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`recall`'s MCP description listed two fields it does not return, so callers budgeted for them and went
+  looking for the flag to switch them off.** It said each result carries `seq` and `matchedText`;
+  `toRecallRecord` is an allowlist and has never emitted either. `matchedText` is the pre-embedding source
+  string — for a file chunk, the passage a second time — so the sentence described a response roughly twice
+  the size of the real one. `docs/integration-guide/16-mcp.md` had it right, in a blockquote partway down
+  the page: two surfaces describing one behaviour, and the wrong one was the one read while constructing
+  arguments.
+
+  The description now lists what the door withholds and why, rather than only what it sends. **And the thing
+  nobody had written down anywhere: the embedding vector is never returned, by anything, on either door, and
+  there is no parameter that asks for it** — `query` strips an explicit `embedding: 1` out of a caller's own
+  projection, so it cannot be opted back in. An absent statement is indistinguishable from an undiscovered
+  feature, which is how this was raised.
+
+  `help()`'s retrieval section, the `query` tool description and the brain-API reference now all name the
+  two levers that do exist — `projection` on `query`, `includeContent: false` on `recall` — from where
+  somebody would look for them rather than only from inside the tool that carries them. The REST list routes
+  still have no field selection; that is now stated instead of being silent.
+
 - **`excludeFromVectorSearch: false` was documented as "do embed" and does not mean that.** It is the top of
   three tiers of one mechanism — a type schema and the space both carry `suppressEmbeddings`, resolving
   `record > schema > space` — and a stored `false` arrives at the resolver as *not stated*, so it falls

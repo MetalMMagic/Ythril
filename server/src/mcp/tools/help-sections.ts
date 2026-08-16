@@ -88,6 +88,34 @@ const RETRIEVAL_GUIDE = `Three retrieval modes exist and they are easy to confus
    Other filters (undeclared properties.*, exists) are still correct but scan
    exhaustively, so prefer declared fields on large spaces.
 
+KEEPING A READ CHEAP -- the answer to "how do I avoid fetching the internal
+fields":
+
+THE EMBEDDING VECTOR IS NEVER RETURNED. By anything, on either door. There is no
+parameter for it because there is nothing to switch off: query strips it and
+refuses to let a projection put it back, and every list path projects it out
+before the documents leave the database. If you have been looking for that flag,
+this is why you could not find it.
+
+What you CAN control, and where:
+
+- query -> projection. The only field-selection lever there is. Naming the four
+  fields you actually branch on turns a page of full record bodies into
+  something you can read; a bare query over a dozen records with descriptions
+  and properties is the cheapest way to overrun a context budget.
+- recall -> includeContent: false. Drops file-passage BODIES and keeps their
+  locations, so you can find WHICH document holds something and then read only
+  the part you decided you need. Passage bodies are by far the largest thing a
+  result carries.
+- recall over MCP is ALREADY slimmer than over REST, with no flag needed. Four
+  things REST returns are dropped here: matchedText (the pre-embedding source
+  string -- for a file chunk, the passage a second time), embeddingModel
+  (identical for every record in a space), seq (a sync counter that is not an
+  input to any tool), and the per-stage lexical/fused/rerank scores.
+- The other read tools return a formatted summary line per record rather than a
+  document. list_chrono and find_entities_by_name cost you an id, a name and a
+  type whatever the record holds, so there is nothing to trim.
+
 Rule of thumb: exact criteria you can name as a FIELD → query; meaning, or an
 exact TOKEN you can only find inside the text → recall; both → recall +
 tags/filter. (Before hybrid ranking, recall was a poor choice for exact tokens

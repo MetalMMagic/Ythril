@@ -289,7 +289,26 @@ export const traverseTool: ToolHandler = {
  */
 export const delete_edgeTool: ToolHandler = {
   name: 'delete_edge',
-  description: 'Delete an edge by ID. Creates a tombstone for sync propagation.',
+  description: 'Delete one edge by its ID. IRREVERSIBLE — there is no undelete and no trash.\n\n'
+    + 'THE ENTITIES AT EITHER END ARE NOT TOUCHED. Deleting an edge removes the RELATIONSHIP and nothing '
+    + 'else: both endpoints stay exactly as they were, and every other edge between them survives. This is '
+    + 'the tool for "these two are not related after all", not for removing a record.\n\n'
+    + 'IT IS ALSO HOW YOU REPOINT AN EDGE. `update_edge` deliberately has no `from`/`to` — an edge whose end '
+    + 'changed is a different relationship — so the sequence is delete this one, then `upsert_edge` the new '
+    + 'one.\n\n'
+    + 'IF YOU WANT IT OUT OF SEARCH RATHER THAN GONE, set `excludeFromVectorSearch` with `update_edge` '
+    + 'instead. Edges are searchable records and compete with knowledge for a recall `topK`; excluding one '
+    + 'stops it being ranked while `traverse` still walks it and recall still expands through it. Deleting it '
+    + 'removes it from the graph as well, which is a much larger change than "it was crowding my results".\n\n'
+    + 'IT IS NEVER REFUSED FOR BEING REFERENCED. Strict linkage guards ENTITY deletion only.\n\n'
+    + 'A TOMBSTONE IS WRITTEN, so the deletion propagates to peer instances on the next sync and the edge is '
+    + 'not quietly resurrected from a peer that still has it. That is also why re-creating it with the same '
+    + 'id does not undo this — the tombstone outranks it. Use a new id.\n\n'
+    + 'PARAMETERS:\n'
+    + '- `id` — the edge\'s `_id`, as `traverse`, `query` and recall\'s `_graph` report it. Required. An id '
+    + 'that does not exist is an ERROR, not a silent success.\n'
+    + '- `targetSpace` — required when `space` is a proxy: the member space holding the edge.\n\n'
+    + 'RESPONSE: one line confirming the id that was deleted.',
   mutating: true,
   spaceRequired: true,
   inputSchema: (s: ToolSchemas) => ({

@@ -279,7 +279,23 @@ export const update_memoryTool: ToolHandler = {
 
 export const delete_memoryTool: ToolHandler = {
   name: 'delete_memory',
-  description: 'Delete a memory by ID. Creates a tombstone for sync propagation.',
+  description: 'Delete one memory by its ID. IRREVERSIBLE — there is no undelete and no trash.\n\n'
+    + 'IF YOU WANT IT OUT OF SEARCH RATHER THAN GONE, this is the wrong tool. Set '
+    + '`excludeFromVectorSearch` with `update_memory` instead: the record stays readable, listable and '
+    + 'traversable, and only stops being ranked by meaning. Deleting is for records that should not exist.\n\n'
+    + 'IT IS NEVER REFUSED FOR BEING REFERENCED, and that differs from `delete_entity`. A chrono entry '
+    + 'listing this memory in `memoryIds` keeps the id after the memory is gone, and nothing reports it — '
+    + 'strict linkage guards ENTITY deletion only. Check `query` for referrers first if a dangling id would '
+    + 'matter to you.\n\n'
+    + 'A TOMBSTONE IS WRITTEN, so the deletion propagates to peer instances on the next sync and the record '
+    + 'is not quietly resurrected from a peer that still has it. That is also why this cannot be undone by '
+    + 'writing the record back with the same id — the tombstone outranks it.\n\n'
+    + 'PARAMETERS:\n'
+    + '- `id` — the memory\'s `_id`. Required. An id that does not exist is an ERROR, not a silent success, '
+    + 'so a successful reply means a record really was deleted.\n'
+    + '- `targetSpace` — required when `space` is a proxy: the member space holding the memory. Without it '
+    + 'the call is refused rather than guessing which member you meant.\n\n'
+    + 'RESPONSE: one line confirming the id that was deleted.',
   mutating: true,
   spaceRequired: true,
   inputSchema: (s: ToolSchemas) => ({

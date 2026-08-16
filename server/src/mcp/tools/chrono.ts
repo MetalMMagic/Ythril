@@ -384,7 +384,26 @@ export const list_chronoTool: ToolHandler = {
 /** Delete one chrono entry. Mirrors `DELETE /api/brain/spaces/:spaceId/chrono/:id`. */
 export const delete_chronoTool: ToolHandler = {
   name: 'delete_chrono',
-  description: 'Delete a chrono entry by ID. Creates a tombstone for sync propagation.',
+  description: 'Delete one chrono entry by its ID. IRREVERSIBLE — there is no undelete and no trash.\n\n'
+    + 'A PAST OR CANCELLED ENTRY IS USUALLY NOT A DELETE. Nothing recomputes `status` from the clock, so an '
+    + 'entry that has happened simply keeps whatever status it was given; set `status: "completed"` or '
+    + '`"cancelled"` with `update_chrono` and the entry stays as the record that it happened. Deleting is for '
+    + 'entries that should never have existed. If you only want it out of meaning-ranking, set '
+    + '`excludeFromVectorSearch` — it stays listable by `list_chrono` and reachable by traversal.\n\n'
+    + 'THE ENTITIES AND MEMORIES IT LINKS ARE NOT TOUCHED. `entityIds` and `memoryIds` are references; '
+    + 'deleting the entry drops the references and leaves every referenced record in place.\n\n'
+    + 'IT IS NEVER REFUSED FOR BEING REFERENCED. Strict linkage guards ENTITY deletion only.\n\n'
+    + 'A RECURRENCE RULE DOES NOT SPREAD THE DELETE, because it never created anything to delete. '
+    + '`recurrence` describes one entry as repeating; it does not generate further entries, so there is no '
+    + 'series here and no "this and all future occurrences" to choose between.\n\n'
+    + 'A TOMBSTONE IS WRITTEN, so the deletion propagates to peer instances on the next sync and the entry is '
+    + 'not quietly resurrected from a peer that still has it. That is also why re-creating it with the same '
+    + 'id does not undo this — the tombstone outranks it.\n\n'
+    + 'PARAMETERS:\n'
+    + '- `id` — the entry\'s `_id`, as `list_chrono` and `query` report it. Required. An id that does not '
+    + 'exist is an ERROR, not a silent success.\n'
+    + '- `targetSpace` — required when `space` is a proxy: the member space holding the entry.\n\n'
+    + 'RESPONSE: one line confirming the id that was deleted.',
   mutating: true,
   spaceRequired: true,
   inputSchema: (s: ToolSchemas) => ({

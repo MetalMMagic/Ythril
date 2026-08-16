@@ -22,7 +22,13 @@ export const upsert_entityTool: ToolHandler = {
           properties: {
             space: s.requiredSpace,
             id: uuidSchema('UUID v4 of an EXISTING record to update. It is not a way to choose an id: identity is server-generated, so an id that names nothing is ignored rather than adopted. To carry your own reference, use `name` or `description`.'),
-            name: { type: 'string', minLength: 1, description: 'Entity name.' },
+            name: {
+              type: 'string', minLength: 1,
+              description: 'Entity name. NOTHING DEDUPLICATES BY IT — omit `id` and a NEW record is always '
+                + 'inserted, even when an entity of the same name already exists, so two entities may share '
+                + 'a name. Call `find_entities_by_name` first if you meant to update one. The name is '
+                + 'embedded, so it also affects how `recall` ranks this entity.',
+            },
             type: { type: 'string', minLength: 1, description: 'Entity type (person, place, concept, …).' },
             tags: {
               type: 'array', items: { type: 'string' },
@@ -151,11 +157,36 @@ export const update_entityTool: ToolHandler = {
           type: 'object',
           properties: {
             space: s.requiredSpace,
-            id: { type: 'string', minLength: 1, description: 'Entity ID to update.' },
-            name: { type: 'string', description: 'New entity name.' },
-            type: { type: 'string', description: 'New entity type.' },
-            description: { type: 'string', description: 'New prose description or summary.' },
-            tags: { type: 'array', items: { type: 'string' }, description: 'Tags to merge with existing tags.' },
+            id: {
+              type: 'string', minLength: 1,
+              description: 'The entity\'s `_id`, as `find_entities_by_name`, `recall` and `query` report '
+                + 'it. Required, and an id that names nothing is an ERROR rather than a silent no-op.',
+            },
+            name: {
+              type: 'string',
+              description: 'Replaces the stored name. Renaming does not merge anything: edges point at the '
+                + 'id, so they follow automatically, but a SECOND entity that already carries the new name '
+                + 'stays a separate record — use `merge_entities` for that.',
+            },
+            type: {
+              type: 'string',
+              description: 'Replaces the stored type. It selects the per-type schema used to validate '
+                + '`properties`, so changing it re-validates the record against a DIFFERENT set of rules — a '
+                + 'move that was valid under the old type can be refused under the new one.',
+            },
+            description: {
+              type: 'string',
+              description: 'Replaces the stored description. Embedded alongside the name and type, so it '
+                + 'widens what a `recall` can match. An omitted field is left alone, so clearing it needs '
+                + '`deleteFields: ["description"]`.',
+            },
+            tags: {
+              type: 'array', items: { type: 'string' },
+              description: 'MERGED into the stored tags, never replacing them — sending `["b"]` on an entity '
+                + 'tagged `["a"]` leaves it `["a","b"]`, so no value here removes a tag. `update_memory` and '
+                + '`update_chrono` REPLACE the same field. Removing one is `deleteFields`, with `tags` for '
+                + 'all of them.',
+            },
             properties: {
               type: 'object',
               description: 'Key-value properties to merge with existing (e.g. {"wheels": 4}). Values must be string, number, or boolean.',
@@ -373,7 +404,13 @@ export const find_entities_by_nameTool: ToolHandler = {
           type: 'object',
           properties: {
             space: s.requiredSpace,
-            name: { type: 'string', minLength: 1, description: 'Exact entity name to look up.' },
+            name: {
+              type: 'string', minLength: 1,
+              description: 'The name to look up, matched EXACTLY and case-sensitively — no substring, no '
+                + 'fuzzy, no synonym. An empty result therefore does NOT mean the entity is absent, only that '
+                + 'nothing carries that exact string; `recall` is what answers "is there anything about X". '
+                + 'Several results is the normal signal that duplicates exist.',
+            },
           },
           required: ['space', 'name'],
           additionalProperties: false,
@@ -419,7 +456,13 @@ export const delete_entityTool: ToolHandler = {
     type: 'object',
     properties: {
       space: s.requiredSpace,
-      id: { type: 'string', minLength: 1, description: 'Entity ID to delete.' },
+      id: {
+        type: 'string', minLength: 1,
+        description: 'The entity\'s `_id`. An id that does not exist is an ERROR, not a silent success. In '
+          + 'a space with strict linkage the delete is REFUSED while anything still references this entity, '
+          + 'which is the one delete tool that behaves that way. A tombstone is written, so re-creating the '
+          + 'record with the same id does not undo it.',
+      },
       targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
     },
     required: ['space', 'id'],

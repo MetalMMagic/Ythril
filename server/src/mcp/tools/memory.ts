@@ -24,7 +24,8 @@ import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
 export const rememberTool: ToolHandler = {
   name: 'remember',
   description: 'Store a fact in the knowledge graph. It is embedded for semantic search, so write it as a SENTENCE that carries its own context — a memory retrieved months later arrives without the conversation it was written in, and "he agreed to the change" is unusable on its own.\n\n'
-    + 'Always an INSERT. There is no id to update and nothing deduplicates: remembering the same fact twice stores it twice, and both then compete for the same result slots in a recall. Search before writing if a fact may already be there, and use `update_memory` when you mean to revise one.\n\n'
+    + 'WITHOUT `id` IT IS ALWAYS AN INSERT, and nothing deduplicates by content: remembering the same fact twice stores it twice, and both then compete for the same result slots in a recall. Search before writing if a fact may already be there, and use `update_memory` when you mean to revise one.\n\n'
+    + 'WITH an `id` that already names a record it CONVERGES instead of duplicating — that is the retry-safety contract, and it is why a repeated call after a timeout is safe. Convergence MERGES, the same way `upsert_entity` does: tags are unioned and properties shallow-merged over what is stored, so a partial payload does not erase the rest. An id that names nothing is ignored rather than adopted; identity is server-generated.\n\n'
     + 'Embedding is ASYNCHRONOUS. The write returns as soon as the record is stored, and a queued job computes the vector — so a `recall` issued seconds later may not find what you just wrote. Pass `includeFreshWrites: true` on that recall to read straight from the collection instead of waiting.\n\n'
     + 'IF THE SPACE VALIDATES, a refusal names WHOSE FAULT it is: `introduced` are violations this write caused and are what refuses it; `preExisting` were already stored, are reported, and do NOT block. Branch on `introduced`.',
   mutating: true,
@@ -43,7 +44,10 @@ export const rememberTool: ToolHandler = {
             tags: {
               type: 'array',
               items: { type: 'string' },
-              description: 'Categorisation tags.',
+              description: 'Categorisation tags. They are part of what gets EMBEDDED, so a tag influences '
+                + 'meaning-ranking as well as being a filter — and they are filterable exactly, by `query` on '
+                + '`tags` and by `recall`\'s own `filter`. On the idempotent path (an `id` naming an entry '
+                + 'that already exists) they are MERGED over the stored list rather than replacing it.',
             },
             description: { type: 'string', description: 'Optional prose context or rationale for this memory.' },
             type: { type: 'string', description: 'Optional memory type (e.g. "note", "decision"). Selects the per-type schema used to validate `properties` — see the space\'s typeSchemas.memory.' },
@@ -198,11 +202,33 @@ export const update_memoryTool: ToolHandler = {
           type: 'object',
           properties: {
             space: s.requiredSpace,
-            id: { type: 'string', description: 'Memory ID to update.' },
-            fact: { type: 'string', description: 'New fact text (triggers re-embedding).' },
-            tags: { type: 'array', items: { type: 'string' }, description: 'New tags (replaces existing).' },
+            id: {
+              type: 'string',
+              description: 'The memory\'s `_id`, as `recall`, `query` and the list endpoints report it. '
+                + 'Required. An id that names nothing is an ERROR, not a silent no-op — so a failed update '
+                + 'is something you find out about rather than something you assume worked.',
+            },
+            fact: {
+              type: 'string',
+              description: 'Replaces the stored fact. Write it as a SENTENCE carrying its own context: it is '
+                + 'what gets embedded, and a memory read back months later arrives without the conversation '
+                + 'it was written in. A re-embed is queued after EVERY successful update, not only when this '
+                + 'field changes, so there is nothing to trigger by hand.',
+            },
+            tags: {
+              type: 'array', items: { type: 'string' },
+              description: 'REPLACES the stored tag list — send the FULL list you want the memory to end up '
+                + 'with, because sending one tag drops the rest. `update_entity` and `update_edge` MERGE tags '
+                + 'instead; this tool and `update_chrono` replace, and the split is not guessable from the '
+                + 'field name. To clear them, send `deleteFields: ["tags"]`.',
+            },
             entityIds: { type: 'array', items: { type: 'string', pattern: UUID_V4_PATTERN }, description: 'New entity ID links (UUID v4, replaces existing). Every id must reference an existing entity.' },
-            description: { type: 'string', description: 'New prose description or context.' },
+            description: {
+              type: 'string',
+              description: 'Replaces the stored prose context. Embedded alongside the fact, so it widens what '
+                + 'a `recall` can match this memory on. An omitted field is left alone, so there is no value '
+                + 'that clears it — use `deleteFields: ["description"]`.',
+            },
             properties: {
               type: 'object',
               description: 'Key-value properties to merge into the stored map (e.g. {"source": "manual"}) — keys you do not name are kept. Use deleteFields to remove one. Values must be string, number, or boolean.',
@@ -302,7 +328,13 @@ export const delete_memoryTool: ToolHandler = {
           type: 'object',
           properties: {
             space: s.requiredSpace,
-            id: { type: 'string', minLength: 1, description: 'Memory ID to delete.' },
+            id: {
+              type: 'string', minLength: 1,
+              description: 'The memory\'s `_id`, as `recall` and `query` report it. An id that does not exist '
+                + 'is an ERROR, not a silent success, so a successful reply means a record really was '
+                + 'deleted. A tombstone is written under this id, which is why re-creating the record with '
+                + 'it does not undo the delete.',
+            },
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
           },
           required: ['space', 'id'],

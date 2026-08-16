@@ -89,6 +89,31 @@ export function unitScoreSchema(description: string) {
 }
 
 /**
+ * A file-store path argument, shared by the five tools that take one.
+ *
+ * It was the same 37-character sentence copied four times — "File path relative to the space root." —
+ * which is true and says nothing a caller could not read off the key. The three facts below are the ones
+ * that actually decide whether a call works, and all three come from `files/sandbox.ts`:
+ *
+ * - a LEADING SLASH IS STRIPPED rather than refused, so `/a/b.md` and `a/b.md` are the same file. Browsers
+ *   supply the first form and nothing warns you they are the same;
+ * - paths are NFC-normalised, so two Unicode spellings of one accented name resolve to one path;
+ * - a `..` that would leave the space is refused outright.
+ *
+ * `extra` carries what differs per tool — whether the path must exist, and what happens if it does.
+ */
+export function filePathSchema(extra: string) {
+  return {
+    type: 'string',
+    minLength: 1,
+    description: 'Path relative to the space root, exactly as `list_dir` and `recall` report it. ' + extra
+      + ' A LEADING SLASH IS STRIPPED rather than refused, so `/notes/a.md` and `notes/a.md` name the same '
+      + 'file; the path is Unicode-normalised, so two spellings of one accented name resolve together; and '
+      + 'a `..` that would leave the space is refused.',
+  } as const;
+}
+
+/**
  * The chrono `recurrence` block, shared by `create_chrono` and `update_chrono`.
  *
  * It was two near-identical literals differing only in the word "Optional", and `freq` — the one REQUIRED

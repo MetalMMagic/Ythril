@@ -1,6 +1,6 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
 import { recall } from '../../brain/recall.js';
-import { TTL_DAYS_SCHEMA, ttlDaysFromArgs } from './shared.js';
+import { TTL_DAYS_SCHEMA, filePathSchema, ttlDaysFromArgs } from './shared.js';
 import { type InputFormat } from '../../files/converters/pipeline.js';
 import { renameFileMeta, renameFileMetaByPrefix, upsertFileMeta } from '../../files/file-meta.js';
 import { createDir, listDir, listFilesRecursive, moveFile, readFile, writeFile } from '../../files/files.js';
@@ -23,7 +23,8 @@ export const read_fileTool: ToolHandler = {
           type: 'object',
           properties: {
             space: s.requiredSpace,
-            path: { type: 'string', minLength: 1, description: 'File path relative to the space root.' },
+            path: filePathSchema('This is a LOOKUP, not a search: an unknown path is an error rather '
+              + 'than an empty result, and nothing here matches a partial name.'),
           },
           required: ['space', 'path'],
           additionalProperties: false,
@@ -54,10 +55,22 @@ export const write_fileTool: ToolHandler = {
           type: 'object',
           properties: {
             space: s.requiredSpace,
-            path: { type: 'string', minLength: 1, description: 'File path relative to the space root.' },
-            content: { type: 'string', description: 'Text content to write.' },
+            path: filePathSchema('An existing file at this path is OVERWRITTEN without a warning, and '
+              + 'missing parent directories are created for you.'),
+            content: {
+              type: 'string',
+              description: 'The ENTIRE new contents. There is no append and no patch — whatever you send '
+                + 'replaces the whole file, so read it first if you meant to add to it. It is chunked and '
+                + 'each chunk embedded separately, which is why structure matters: a chunk beginning under a '
+                + 'heading carries that heading, and that is what makes a recall hit locatable.',
+            },
             description: { type: 'string', description: 'Optional human-readable summary stored as file metadata.' },
-            tags: { type: 'array', items: { type: 'string' }, description: 'Optional tags for filtering and recall.' },
+            tags: {
+              type: 'array', items: { type: 'string' },
+              description: 'Tags stored on the file\'s metadata record. REPLACES the stored list on a '
+                + 'rewrite; `update_file_meta` replaces too, unlike the brain update tools, which merge. '
+                + 'Filterable by `query` on the `files` collection and by `recall`\'s own filter.',
+            },
             properties: {
               type: 'object',
               description: 'Optional structured key-value metadata for this file.',
@@ -199,7 +212,9 @@ export const delete_fileTool: ToolHandler = {
           type: 'object',
           properties: {
             space: s.requiredSpace,
-            path: { type: 'string', minLength: 1, description: 'File path relative to the space root.' },
+            path: filePathSchema('IRREVERSIBLE — the bytes, the metadata record and every chunk '
+              + 'embedding go together, and a tombstone under this path stops a peer restoring it. A path '
+              + 'that does not exist is an error, not a silent success.'),
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
           },
           required: ['space', 'path'],
@@ -290,8 +305,11 @@ export const move_fileTool: ToolHandler = {
           type: 'object',
           properties: {
             space: s.requiredSpace,
-            src: { type: 'string', minLength: 1, description: 'Source path.' },
-            dst: { type: 'string', minLength: 1, description: 'Destination path.' },
+            src: filePathSchema('The existing file OR directory to move. Moving a directory carries '
+              + 'everything under it, including each file\'s metadata record.'),
+            dst: filePathSchema('Where it should end up. NOTHING CHECKS THIS FIRST — the move is a '
+              + 'rename, so an existing file here is REPLACED with no refusal and no warning. Missing parent '
+              + 'directories are created. The file is not re-read, so a failed extraction stays failed.'),
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
           },
           required: ['space', 'src', 'dst'],
@@ -355,7 +373,9 @@ export const retry_embeddingTool: ToolHandler = {
     type: 'object',
     properties: {
       space: s.requiredSpace,
-      path: { type: 'string', minLength: 1, description: 'File path relative to the space root.' },
+      path: filePathSchema('The file must already exist and its indexing must have FAILED — retrying '
+        + 'one that succeeded, or one still queued, does nothing useful. `list_embed_jobs` is where the '
+        + 'failures and their reasons are.'),
       targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
     },
     required: ['space', 'path'],
@@ -446,11 +466,32 @@ export const update_file_metaTool: ToolHandler = {
       space: s.requiredSpace,
       path: { type: 'string', minLength: 1, description: 'The file path within the space, as list_dir reports it.' },
       description: { type: 'string', description: 'Replaces the description. Omit to leave it unchanged.' },
-      tags: { type: 'array', items: { type: 'string' }, description: 'Replaces the tag list.' },
-      properties: { type: 'object', description: 'Replaces the properties object.' },
-      entityIds: { type: 'array', items: { type: 'string' }, description: 'Entity ids this file relates to.' },
-      memoryIds: { type: 'array', items: { type: 'string' }, description: 'Memory ids this file relates to.' },
-      chronoIds: { type: 'array', items: { type: 'string' }, description: 'Chrono ids this file relates to.' },
+      tags: {
+        type: 'array', items: { type: 'string' },
+        description: 'REPLACES the stored tag list — send the FULL list, because sending one tag drops the '
+          + 'rest. This is the opposite of `update_entity` and `update_edge`, which MERGE the same field.',
+      },
+      properties: {
+        type: 'object',
+        description: 'REPLACES the whole properties object — keys you do not send are DELETED, where the '
+          + 'brain update tools merge key by key and keep them. Send the complete map you want stored.',
+      },
+      entityIds: {
+        type: 'array', items: { type: 'string' },
+        description: 'REPLACES the stored entity links. These are what let `traverse` reach the file from '
+          + 'an entity; they are not edges, so a file with an empty list is reachable only by path or by '
+          + 'search.',
+      },
+      memoryIds: {
+        type: 'array', items: { type: 'string' },
+        description: 'REPLACES the stored memory links — send the full list, because sending one drops the '
+          + 'rest.',
+      },
+      chronoIds: {
+        type: 'array', items: { type: 'string' },
+        description: 'REPLACES the stored chrono links — send the full list, because sending one drops the '
+          + 'rest.',
+      },
       deleteFields: {
         type: 'array', items: { type: 'string' },
         description: 'Dot-notation paths to REMOVE, applied after the merge — the only way to unset, since an '

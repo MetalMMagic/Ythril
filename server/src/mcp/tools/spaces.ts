@@ -441,7 +441,13 @@ export const create_spaceTool: ToolHandler = {
   inputSchema: (_s: ToolSchemas) => ({
     type: 'object',
     properties: {
-      label: { type: 'string', minLength: 1, maxLength: 200, description: 'Display label (1–200 chars). Required.' },
+      label: {
+        type: 'string', minLength: 1, maxLength: 200,
+        description: 'Human-readable name for the space, 1 to 200 characters. Required, and it is NOT the '
+          + 'identity — the `id` is, and it is derived from this label when you omit one. Two spaces may '
+          + 'carry the same label; nothing deduplicates on it. Changing it later never moves data, because '
+          + 'nothing is keyed on it.',
+      },
       id: {
         type: 'string', minLength: 1, maxLength: 40, pattern: '^[a-z0-9-]+$',
         description: 'Space id — lowercase letters, digits and hyphens. Derived from the label when omitted.',

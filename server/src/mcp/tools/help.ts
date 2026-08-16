@@ -24,12 +24,28 @@ import { helpSections, renderHelp, renderHelpIndex, renderSection, searchHelp } 
 export const helpTool: ToolHandler = {
   name: 'help',
   description:
-    'Explain this Ythril instance: the tools available to your token, the knowledge model '
-    + '(spaces, memories, entities, edges, chrono, files), how to choose between query / recall / '
-    + 'filtered recall, schema authoring, and the REST API map. Call this first when unsure. '
-    + 'Pass `query` to get only the matching sections instead of the whole guide — matching is plain '
-    + 'keyword (all words must appear), never semantic, so it works when the embedder does not. A query '
-    + 'that matches nothing returns the section index rather than an empty answer.',
+    'Explain this Ythril instance: the tools available to your token, the knowledge model (spaces, '
+    + 'memories, entities, edges, chrono, files), how to choose between query / recall / filtered recall, '
+    + 'schema authoring, and the REST API map. Call this first when unsure.\n\n'
+    + 'THE TOOL LIST IS FILTERED TO WHAT YOUR TOKEN CAN REACH, and that is the most important thing to know '
+    + 'about this answer. A tool missing from it does NOT mean the instance lacks that capability — it means '
+    + 'THIS TOKEN cannot invoke it. A read-only token is shown no mutating tools; a token without '
+    + 'instance-admin rights is shown no admin tools. So "there is no way to do X here" is a conclusion you '
+    + 'cannot draw from this reply, and reporting it as a missing feature is the mistake this paragraph '
+    + 'exists to prevent. The supportable conclusion is "this token cannot do X", and the remedy is a token '
+    + 'holding the rung for it.\n\n'
+    + 'THE TOOL SCHEMAS ARE THE AUTHORITATIVE REFERENCE. Each tool\'s own `inputSchema` description is what '
+    + 'to read while constructing arguments: it carries the per-parameter behaviour, the traps and the '
+    + 'response shape in more detail than this guide does. Where this guide and a tool schema disagree, the '
+    + 'schema is the one maintained against the code.\n\n'
+    + 'PARAMETERS:\n'
+    + '- `query` — keywords. Returns only the sections containing ALL of them, so extra words NARROW the '
+    + 'answer rather than broadening it. Matching is plain keyword, never semantic: it works when the '
+    + 'embedder is down or absent, and it will not find a synonym. A tool name returns just that tool\'s '
+    + 'line. Omit it for the complete guide.\n\n'
+    + 'RESPONSE: the matching sections, or the whole guide when `query` is omitted. A query matching NOTHING '
+    + 'returns the section index rather than an empty answer — so a reply that is a list of section names '
+    + 'means your keywords missed, and the fix is fewer words or a tool name.',
   // Deliberately not mutating, not admin, not spaceRequired: read-only and instance-global.
   inputSchema: (_s: ToolSchemas) => ({
     type: 'object',

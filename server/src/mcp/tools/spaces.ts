@@ -144,10 +144,31 @@ export const get_space_metaTool: ToolHandler = {
         // Deliberately NOT the words "reindex state": `mcp-help.test.js` holds that a read-only token is never told
         // the name of a tool it cannot call, and `reindex` is one. Naming the STATE rather than the repair is also
         // the more useful sentence for a reader who cannot perform the repair — `needsReindex` still names the field.
-        'Returns the schema, purpose, usage notes, validation mode, entry counts and whether the stored '
-        + 'embeddings are stale (`needsReindex`) for this space. ' +
-        'Call this before writing to an unfamiliar space to learn what entity types, edge labels, ' +
-        'required properties, and naming patterns are expected.',
+        'What this space DECLARES: its purpose, usage notes, per-type schemas, validation posture and entry '
+        + 'counts. Call it before writing to an unfamiliar space, so the write is shaped to what the space '
+        + 'expects instead of being refused by it.\n\n'
+        + 'DECLARED, NOT ACTUAL — and the difference matters. This returns what MAY exist: the types somebody '
+        + 'defined, with their naming patterns and required properties. `er_model` returns what DOES exist: '
+        + 'the types that actually hold records, and which edge labels really connect which types. A space '
+        + 'can declare twenty types and hold three, or hold records of a type nobody declared. Read this to '
+        + 'learn the rules, `er_model` to learn the shape.\n\n'
+        + 'WHAT `validationMode` MEANS FOR YOUR WRITE: `off` accepts anything; `warn` accepts the write and '
+        + 'reports violations; `strict` REFUSES a write that breaks a schema. With `strictLinkage` on, a '
+        + 'reference that does not resolve is refused too. A space with no `typeSchemas` yet accepts every '
+        + 'type even on `strict`, because there is nothing to violate — so `strict` plus an empty schema is '
+        + 'not a contradiction.\n\n'
+        + 'AND A SUBTLETY ON `strict`: it refuses what your change BREAKS, not what was already broken. '
+        + 'Editing a record that was invalid before you touched it reports the pre-existing violation and '
+        + 'still saves, because refusing would not fix a problem that is already stored.\n\n'
+        + '`needsReindex` IS TRUE WHEN THE STORED VECTORS WERE MADE BY A DIFFERENT EMBEDDING MODEL from the '
+        + 'one configured now. Recall still answers while it is true, but it compares new queries against old '
+        + 'vectors, so results degrade quietly rather than erroring. Treat a true value as the explanation '
+        + 'for poor ranking, and as something for whoever administers the instance — not a reason to stop '
+        + 'reading.\n\n'
+        + 'RESPONSE: `purpose` and `usageNotes` (prose written for whoever reads this space), `typeSchemas` '
+        + 'per knowledge type, `validationMode`, `strictLinkage`, the entry counts, `needsReindex`, and '
+        + '`version` — which increments on every meta write and is what a conditional update is checked '
+        + 'against.',
   spaceRequired: true,
   inputSchema: (s: ToolSchemas) => ({
           type: 'object',

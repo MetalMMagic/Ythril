@@ -33,7 +33,19 @@ export const list_embed_jobsTool: ToolHandler = {
   description: 'List brain records whose embedding is pending, in progress, or has failed, with the attempt count and '
     + 'last error for each. A record with an unfinished job is STORED but not yet findable by recall or query — this is '
     + 'how you tell "the record is missing" from "the record has no vector yet". Filter with `status`; omit it for the '
-    + 'whole backlog. Counts are returned either way.',
+    + 'whole backlog. Counts are returned either way.\n\n'
+    + 'READING `attempts` AND `transientFailures`: they answer different questions and a job can climb one without the '
+    + 'other. `attempts` is the PERMANENT-failure budget and is spent only on errors a retry cannot fix — a malformed '
+    + 'input, a rejection from a reachable embedder. `transientFailures` counts the times the embedder simply did not '
+    + 'answer (connection refused, DNS, a timeout, a 429 or 5xx); those hand the attempt back and back off instead, up '
+    + 'to half-hourly, and NEVER go terminal. So a high `transientFailures` with `attempts` at zero is an outage waiting '
+    + 'itself out and needs nothing from you; a `failed` job with `attempts` at its maximum is a record that cannot be '
+    + 'embedded and needs the content fixed. `lastError` tells you which.\n\n'
+    + 'A terminal `failed` job is also revived once per server VERSION at startup, so an upgrade retries everything that '
+    + 'died under the old one without anybody asking.\n\n'
+    + 'This tool only REPORTS. The per-record retry lives on its own mutating tool, and a read-only token is '
+    + 'deliberately not shown one — `help()` lists what your token can actually reach, so if no retry appears there, '
+    + 'the answer is that this token cannot retry rather than that no such tool exists.',
   mutating: false,
   spaceRequired: true,
   inputSchema: (s: ToolSchemas) => ({
@@ -149,8 +161,13 @@ export const retry_record_embeddingTool: ToolHandler = {
  */
 export const retry_failed_embeddingsTool: ToolHandler = {
   name: 'retry_failed_embeddings',
-  description: 'Re-queue EVERY failed media job in a space at once, so the worker picks them all up again — the '
-    + 'recovery path after an embedder or model outage. Returns how many jobs were reset. Use this instead of '
+  description: 'THE MEDIA QUEUE, NOT THE BRAIN ONE — read this before reaching for it. Despite the name, and '
+    + 'despite sitting beside `list_embed_jobs`, this re-queues failed MEDIA jobs: image captioning, audio and '
+    + 'video transcription, document extraction. It does NOT touch the brain embed jobs that `list_embed_jobs` '
+    + 'reports; for one of those use `retry_record_embedding`, and note that a brain job that failed against an '
+    + 'unreachable embedder is already retried on its own and needs no intervention at all.\n\n'
+    + 'Re-queues EVERY failed media job in a space at once, so the worker picks them all up again — the '
+    + 'recovery path after an extractor or model outage. Returns how many jobs were reset. Use this instead of '
     + 'calling retry_embedding once per file; use retry_embedding when you want one specific file. Jobs the '
     + 'worker currently holds are left alone rather than interrupted. On a proxy space every member is retried, '
     + 'because that is what asking the proxy means.',

@@ -21,6 +21,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The embedding-queue tools now say which queue they act on — one of them is not the queue its name
+  suggests.** `retry_failed_embeddings` sits directly beside the tool that lists pending and failed record
+  embeddings, and re-queues the **media** pipeline instead: image captioning, transcription, document
+  extraction. So the obvious sequence — list the failures, then retry them — quietly acted on a different
+  queue and reported a count unrelated to what was listed. Both references now say which queue is which and
+  name the right tool for a single record, and a build check pins that description against the code it calls
+  so the two cannot drift. Renaming it properly is a breaking change and is filed separately. The job listing
+  also now explains its two counters, one of which is new in this release: attempts spent on failures a retry
+  cannot fix, versus times the embedder simply did not answer. A job with many of the second and none of the
+  first is an outage waiting itself out and needs nothing from an operator; a failed job that used up the
+  first is a record whose content needs fixing. It also notes that failed jobs are retried once automatically
+  after a version upgrade, so there is no need to sweep them by hand.
+
 - **Listing spaces and reading their counts now orient an assistant that has just connected.** Listing spaces
   is the first call anything makes in an unfamiliar instance — every other tool needs a space id, and the ids
   are not guessable from the labels — and the reference never said so. It also now says that a space's stated

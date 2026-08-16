@@ -33,6 +33,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   one now points at `excludeFromVectorSearch` first, because "stop this appearing in search" is a different
   request from "destroy this" and only one of them is reversible.
 
+- **The file move, delete and mkdir tools now describe what they do besides the obvious.** Deleting a file is
+  a **cascade**, not an unlink: it also writes a sync tombstone, removes the metadata record, **cancels any
+  queued media or text job** so it cannot outlive the file and retry for ever, removes extracted text and
+  thumbnails, and fires a webhook. It is also **idempotent** — deleting a path that is not there succeeds,
+  which is the opposite of all four brain deletes, so a success is not proof the file existed. Moving
+  tombstones the old path because sync has no rename detection and would otherwise push the original back
+  from a peer, leaving you holding both; a directory move re-roots every child's tags and description; and
+  nothing checks the destination first, so a move onto an existing path is not refused. Creating a directory
+  is mostly unnecessary — writing and moving create their own parents — and an empty directory never reaches
+  a peer, because only files sync. Each claim is pinned to the function that makes it true, so a behaviour
+  that changes fails the description instead of quietly outdating it.
+
 - **The four record-editing tools now say whether a list you send is added to what is stored or replaces it —
   and they do not all do the same thing.** Editing an entity or an edge MERGES tags; editing a memory or a
   chrono entry REPLACES them. So sending one tag adds it in two cases and destroys every other tag in the

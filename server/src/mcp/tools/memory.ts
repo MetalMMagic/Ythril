@@ -155,7 +155,43 @@ export const rememberTool: ToolHandler = {
 
 export const update_memoryTool: ToolHandler = {
   name: 'update_memory',
-  description: 'Update an existing memory\'s fact, tags, entity links, description, or properties, or retire it from semantic search with excludeFromVectorSearch. Re-embeds automatically if any content field changes.',
+  description: 'Update one memory by its ID. Every field except `id` is optional; a field you omit is left '
+    + 'exactly as it was. Changing content re-embeds the record automatically — you never queue that '
+    + 'yourself.\n\n'
+    + 'TAGS REPLACE HERE. THEY MERGE ON `update_entity` AND `update_edge`. Read that twice: it is one word of '
+    + 'difference between three tools that otherwise take the same arguments. Sending `tags: ["b"]` on a memory '
+    + 'tagged `["a"]` leaves it tagged `["b"]` — `"a"` is gone. The same call on an entity would leave it '
+    + 'tagged `["a","b"]`. The difference is deliberate and pinned by a test rather than an accident waiting to '
+    + 'be unified, so do not expect it to change: send the FULL tag list you want this memory to end up with. '
+    + '`entityIds` replaces the same way.\n\n'
+    + '`properties` MERGES, on this tool and on the other two. Keys you do not name are kept, so patching one '
+    + 'key is safe. It used to replace, which silently destroyed every other property on the record; removing a '
+    + 'key is `deleteFields`\' job, and an absence never means "delete".\n\n'
+    + 'VALIDATION IS OF THE RESULT, and it refuses only what your edit BREAKS. The memory as it will be — your '
+    + 'fields plus the stored ones — is checked against the space schema. A record that was ALREADY invalid '
+    + 'before you touched it is reported and still saved, because refusing your edit would not fix a problem '
+    + 'that is already stored, it would only stop you maintaining the record. Violations your change introduces '
+    + 'are refused as before, in a `strict` space.\n\n'
+    + 'PARAMETERS:\n'
+    + '- `id` — the memory\'s `_id`, as `recall` and `query` report it. Required.\n'
+    + '- `fact` — the memory\'s text, replaced when sent. Re-embeds. Must not be empty.\n'
+    + '- `tags` — REPLACES the stored list. See above.\n'
+    + '- `entityIds` — REPLACES the stored links. UUID v4 each, and in a space with strict linkage every one '
+    + 'must resolve to an entity that exists in the member space this write lands in. Before 3.0 this path '
+    + 'checked nothing and wrote any string through as a link.\n'
+    + '- `description` — replaced when sent.\n'
+    + '- `properties` — MERGED key by key. String, number or boolean values only.\n'
+    + '- `deleteFields` — dot-notation paths to remove, permanently and with no undo. System fields are '
+    + 'refused. This is the ONLY way to unset a property; applied AFTER the merge above.\n'
+    + '- `excludeFromVectorSearch` — see its own description. In short: it removes the vector, so `recall` can '
+    + 'no longer RANK this memory by meaning, but `query`, `list`, `get` and recall\'s `traverse` expansion all '
+    + 'still reach it. Excluding a record does not hide it from the graph.\n'
+    + '- `ttlDays` — this record\'s own expiry, the MOST specific of three tiers: it beats the type\'s '
+    + 'retention window, which beats the space-wide one.\n'
+    + '- `targetSpace` — required when `space` is a proxy: the member space holding the record.\n\n'
+    + 'RESPONSE: one line with the memory\'s id and its new `seq` — the sync sequence number, which increments '
+    + 'on every write and is how a peer knows this version is newer. An id that does not exist is an error, not '
+    + 'a silent no-op.',
   mutating: true,
   spaceRequired: true,
   inputSchema: (s: ToolSchemas) => ({

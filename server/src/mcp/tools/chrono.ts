@@ -166,7 +166,42 @@ function chronoTypeGate(spaceId: string): { meta: ReturnType<typeof resolveMetaR
 
 export const update_chronoTool: ToolHandler = {
   name: 'update_chrono',
-  description: 'Update an existing chronological entry.',
+  description: 'Update one chrono entry by its ID. Every field except `id` is optional; a field you omit is '
+    + 'left exactly as it was.\n\n'
+    + 'ONE FIELD MERGES AND THE REST REPLACE, and the split is not guessable. `properties` MERGES key by key, '
+    + 'so patching one key keeps the others. `tags`, `entityIds` and `memoryIds` REPLACE — send the FULL list '
+    + 'you want the entry to end up with, because sending one id drops the rest. (`update_entity` and '
+    + '`update_edge` merge tags instead; `update_memory` replaces them, like this tool.)\n\n'
+    + 'THERE IS NO `deleteFields` ON THIS TOOL. That is a real limitation rather than an omission from this '
+    + 'text: because `properties` merges and nothing here unsets, a property once written to a chrono entry '
+    + 'CANNOT be removed through this tool. Overwrite it with an empty string if a stale key is a problem, or '
+    + 'delete and recreate the entry. The other three record types do offer `deleteFields`.\n\n'
+    + 'A RE-EMBED IS ALWAYS QUEUED after a successful write, whether or not you changed anything embeddable. '
+    + 'The worker reads the record as STORED, so it cannot embed a stale version — deciding here would mean '
+    + 'deciding from this function\'s own read, which is what made the older inline embedding wrong.\n\n'
+    + 'PARAMETERS:\n'
+    + '- `id` — the entry\'s `_id`, as `list_chrono` and `query` report it. Required.\n'
+    + '- `title` — replaced when sent.\n'
+    + '- `type` — `event`, `deadline`, `plan`, `prediction`, `milestone`, or any custom type the space schema '
+    + 'defines. Re-validated against the allowlist.\n'
+    + '- `startsAt` / `endsAt` — ISO 8601. `endsAt` before `startsAt` is refused.\n'
+    + '- `status` — `upcoming`, `active`, `completed`, `overdue`, `cancelled`. Nothing recomputes this from '
+    + 'the clock, so an entry stays `upcoming` after its date passes until something sets it.\n'
+    + '- `confidence` — 0 to 1, for entries that are predictions rather than records.\n'
+    + '- `tags` / `entityIds` / `memoryIds` — each REPLACES the stored list.\n'
+    + '- `description` — replaced when sent.\n'
+    + '- `properties` — MERGED key by key. String, number or boolean values only.\n'
+    + '- `recurrence` — the repeat rule, replaced wholesale when sent. It describes the entry; it does not '
+    + 'generate further entries.\n'
+    + '- `excludeFromVectorSearch` — removes the vector, so `recall` can no longer RANK this entry by meaning. '
+    + '`list_chrono`, `query`, `get` and recall\'s `traverse` expansion all still reach it — excluding an entry '
+    + 'never hides it from the graph or from a time-ordered listing.\n'
+    + '- `ttlDays` — this entry\'s own expiry, the MOST specific of three tiers: it beats the type\'s retention '
+    + 'window, which beats the space-wide one.\n'
+    + '- `targetSpace` — required when `space` is a proxy: the member space holding the entry.\n\n'
+    + 'RESPONSE: one line with the entry\'s id and its new `seq` — the sync sequence number, which increments '
+    + 'on every write and is how a peer knows this version is newer. An id that does not exist is an error, not '
+    + 'a silent no-op.',
   mutating: true,
   spaceRequired: true,
   inputSchema: (s: ToolSchemas) => ({

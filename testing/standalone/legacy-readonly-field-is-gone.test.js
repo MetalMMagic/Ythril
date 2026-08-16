@@ -80,6 +80,47 @@ describe('the field is gone from the record and from the plumbing', () => {
   });
 });
 
+describe('the API response still carries readOnly, derived', () => {
+  /**
+   * The contract this nearly broke, and why the assertion belongs HERE.
+   *
+   * Removing the stored field also removed it from `GET /api/tokens`, and the only thing pinning that shape
+   * was an INTEGRATION test — Docker-only, so `preflight` cannot run it and the break reached CI.
+   *
+   * D-8d's goal is that nothing STORES the flag and nothing DECIDES on it. Dropping it from a published
+   * response is a separate, breaking change to a contract clients read, and it does not belong in the same
+   * release as an internal cleanup. So the response keeps it, derived — the same shape the
+   * `space.description` alias used while that field was on its way out.
+   */
+  it('every response path applies the alias', () => {
+    const api = src('server/src/api/tokens.ts');
+    assert.match(api, /listTokens\(\)\.map\(withReadOnlyAlias\)/, 'the list');
+    assert.match(api, /withReadOnlyAlias\(safeRecord\)/, 'the create response');
+    assert.match(api, /withReadOnlyAlias\(updated\)/, 'the patch response');
+  });
+
+  it('and it is derived from the matrix, not from a stored flag', () => {
+    assert.match(src('server/src/api/tokens.ts'), /readOnly: !canWriteAnywhere\(/,
+      'read-only means "no write rung anywhere", which is the honest definition');
+  });
+
+  it('the derived answer matches what the flag said, for every legacy shape', async () => {
+    // The agreement that makes the alias a faithful replacement rather than a plausible one — a
+    // schema-library token in particular is asserted `readOnly: true` by the integration suite.
+    const { canWriteAnywhere } = await import('../../server/dist/auth/write-anywhere.js');
+    for (const [legacy, expected] of [
+      [{ schemaLibrary: true, spaces: [] }, true],
+      [{ readOnly: true, spaces: ['qa'] }, true],
+      [{ readOnly: true }, true],
+      [{ spaces: ['qa'] }, false],
+      [{ admin: true }, false],
+    ]) {
+      assert.equal(!canWriteAnywhere(migrateToken(legacy)), expected,
+        `${JSON.stringify(legacy)} should be readOnly=${expected}`);
+    }
+  });
+});
+
 describe('what it is replaced BY still answers the question', () => {
   it('the token listing derives read-only from the matrix', () => {
     // Better than the flag it replaces: correct for a token that was never given the boolean but holds only

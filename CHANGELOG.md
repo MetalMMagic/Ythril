@@ -19,9 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   every space it reaches, exactly as before; the result is now expressed only in the matrix. **Tokens created
   earlier keep their scope** — the load-time migration still reads the stored flag to derive their rights.
 
-  **If you read `readOnly` off a token record, read `rights` instead.** A token is read-only precisely when
-  its matrix grants no write rung anywhere — which is also right for a token that was never given the flag
-  but holds only `read`, a case the boolean could not express. The token listing now derives it that way.
+  **The token API still returns `readOnly`, so no client breaks.** It is derived from the matrix now rather
+  than read from the record: a token is read-only precisely when its rights grant no write rung anywhere.
+  That is also right for a token nobody ever set the boolean on but which holds only `read` — a case the
+  stored flag could not express and answered `false` for. Dropping the field from a published response is a
+  separate, breaking change and is not part of this one.
 
   `admin` and `spaces` follow separately: deleting a field is all-or-nothing, so they are measured and
   scheduled on their own rather than half-done together.

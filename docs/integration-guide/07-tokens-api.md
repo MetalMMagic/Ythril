@@ -146,22 +146,24 @@ POST /api/tokens
 |---|---|
 | `name` | Required. Human-readable label. |
 | `admin` | `true` for full admin scope. Mutually exclusive with `schemaLibrary`. |
-| `readOnly` | Block all writes. Ignored when `schemaLibrary` is `true` (always read-only). **Accepted as an input, no longer stored** — see below. |
+| `readOnly` | Block all writes. Ignored when `schemaLibrary` is `true` (always read-only). Still accepted and still returned; **no longer stored** — see below. |
 | `spaces` | Array of space IDs to scope this token. Omit for all-spaces access. Must be empty or omitted when `schemaLibrary` is `true`. |
 | `expiresAt` | ISO 8601 expiry timestamp. Omit for non-expiring. |
 | `peerInstanceId` | Bind this token to a network peer (UUID). Required for tokens a peer will present on the `/api/sync/*` **data-write** endpoints in manually-configured networks — the invite handshake sets it automatically. Peer identity is server-issued and cannot be self-declared by the caller. |
 | `schemaLibrary` | `true` to issue a **library access token**. See below. |
 
-> **`readOnly` is no longer a field on the stored token — 3.1.** Sending it still does exactly what it always
-> did: the token is created with `read` in every area of every space it can reach. What changed is that the
-> result is expressed **only** in the rights matrix, and the boolean is not written to the record or returned
-> on it. Nothing decided on it any more — every write check has read the matrix since 3.0 — so keeping the
-> flag alongside meant two spellings of one fact, with the older one able to drift.
+> **`readOnly` is no longer STORED on a token — 3.1. Nothing you send or read changes.** Sending it still
+> does exactly what it always did: the token is created with `read` in every area of every space it reaches.
+> The token responses still carry it. What changed is where the answer comes from — the rights matrix rather
+> than a separate boolean on the record.
 >
-> **If you read `readOnly` off a token record, read `rights` instead.** A token is read-only exactly when its
-> matrix grants no write rung anywhere; that is also correct for a token that was never given the flag but
-> holds only `read`, which the boolean could not express. Tokens created before 3.1 keep their scope — the
-> load-time migration still reads the stored flag to derive their matrix.
+> Nothing had decided on that boolean since 3.0, because every write check reads the matrix. Keeping it
+> stored alongside meant two spellings of one fact, with the older one free to drift.
+>
+> **The returned value is now derived**: a token is read-only exactly when its matrix grants no write rung
+> anywhere. That is also correct for a token nobody ever set the flag on but which holds only `read` — a case
+> the stored boolean could not express and answered `false` for. Tokens created before 3.1 keep their scope:
+> the load-time migration still reads the stored flag to derive their matrix.
 >
 > `admin` and `spaces` are unchanged for now and follow separately.
 

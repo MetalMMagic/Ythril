@@ -447,6 +447,8 @@
   "brain.query.includeFreshWrites.tooltip": "Durchsucht zusätzlich die neuesten Datensätze direkt, falls der Vektorindex noch nicht aufgeholt hat. Langsamer und nur direkt nach einem Schreibvorgang sinnvoll.",
   "brain.query.includeContent": "Textstellen einbeziehen",
   "brain.query.includeContent.tooltip": "Ob Datei-Treffer die passende Textstelle mitliefern. Abschalten liefert nur Fundort und Metadaten — deutlich kleinere Antworten, aber ohne den passenden Text.",
+  "brain.query.includeDiagnostics": "Diagnosefelder einbeziehen",
+  "brain.query.includeDiagnostics.tooltip": "Liefert die intern genutzten Felder mit: den tatsächlich eingebetteten Text, das Embedding-Modell, den Sync-Zähler und die Bewertungen der einzelnen Ranking-Stufen. Gilt auch für Graph-Sprünge, in jeder Tiefe. Einschalten, um nachzuvollziehen, warum etwas so platziert wurde; sonst ausgelassen, da jedes Feld pro Treffer mitkommt. Der Embedding-Vektor selbst wird nie zurückgegeben.",
   "brain.query.showAdvanced": "Mehr Optionen",
   "brain.query.hideAdvanced": "Weniger Optionen",
   "brain.query.types": "Auf Typen beschränken",

@@ -75,12 +75,26 @@ describe('recall exposes includeContent on both surfaces', () => {
     // Both routes, not one: `/recall` and `/find-similar` each expand a graph, and the flag has to survive on
     // both. `find_similar`'s traverse existed on MCP alone for a while, so this is the site where the two
     // surfaces most recently disagreed.
+    // The window used to be `at + 900`, and a comment added above the strip pushed the call out of it — the
+    // gate went red against code that still did the right thing, for the second time in this file's life. A
+    // character count is the wrong bound twice over: it also spans different LINES on a CRLF working copy
+    // than in CI's LF checkout. So the window now ends at the next `res.json(` — the structural end of the
+    // response this branch is building — and the assertion is about what happens inside it.
     const sites = [...rest.matchAll(/buildGraphWithSpill\(/g)].map(m => m.index);
     assert.equal(sites.length, 2, `expected /recall and /find-similar to build a graph, found ${sites.length}`);
     for (const at of sites) {
-      const window = rest.slice(at, at + 900);
+      const responseAt = rest.indexOf('res.json(', at);
+      assert.ok(responseAt > at,
+        'no `res.json(` after a graph build — the handler changed shape, so this gate measures nothing');
+      const window = rest.slice(at, responseAt);
       assert.match(window, /stripContentIfAsked\([^)]*safeIncludeContent\)/,
         'a traverse response must apply the same strip as the plain one');
+      // The same question for the flag that arrived beside it. `includeDiagnostics` is recursive by the
+      // owner's ruling — the `_graph` subtree follows it at every depth — and the only way a traverse branch
+      // can honour that is by nesting through `mapGraphNodes`, which takes the flag. Attaching
+      // `graph.bySeed` raw is how REST used to return the whole edge document, vector included.
+      assert.match(window, /mapGraphNodes\([^;]*safeIncludeDiagnostics\)/,
+        'a traverse response must nest through mapGraphNodes and pass the diagnostics flag down');
     }
   });
 

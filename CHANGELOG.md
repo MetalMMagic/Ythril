@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking
+
+- **`recall` and `find-similar` over REST no longer return six system fields by default.** `matchedText`,
+  `embeddingModel`, `seq` and the per-stage `lexicalScore`/`fusedScore`/`rerankScore` were returned
+  unconditionally on REST and never on MCP, and neither door said so. Pass `includeDiagnostics: true` to get
+  them back — the same parameter, the same default, on both doors.
+
+  `matchedText` is the pre-embedding source string, which for a file chunk is the passage a SECOND time, so
+  the old default sent the largest field twice per result, `topK` times, to callers who had not asked.
+
+  **It applies recursively.** A `traverse` answer's `_graph` follows the flag at every depth, on the nodes
+  and on the edges — an edge is a searchable record with a `matchedText` of its own, and a depth-2 walk off
+  ten seeds could carry more diagnostic text than the matches it was expanding.
+
+- **`_graph[].node` is now the same field set on both doors.** MCP mapped the entity through an allowlist
+  while REST attached the stored document, so a REST caller received `_expireAt` and every other stored
+  field. Both now use one shaper. The envelope still differs by transport — REST returns a flat result, MCP
+  nests it under `record` — which is deliberate: the owner's rule is the same CONTENT in each transport's
+  natural shape, and a gate compares the flattened key sets of both doors at the result level and at every
+  depth of `_graph`.
+
 ### Changed
 
 - **`excludeFromVectorSearch` is now `suppressEmbeddings`, which is what the two tiers below it were already
@@ -35,6 +56,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a non-boolean by silently dropping it while REST answered `400`. Both now refuse it with the same message.
 
 ### Fixed
+
+- **A graph traversal returned raw embedding VECTORS.** The edge lookup inside `traverseFromSeeds` was the
+  one query in the codebase fetching documents with no projection, and the edge document is returned
+  verbatim as `_graph[].edge` — so every `recall(traverse: n)` and every `traverse` call shipped a float
+  array per hop, on both doors, while the documentation said the vector is never returned by anything.
+
+  The query now projects it out, and the result shaping strips it a second time on a path
+  `includeDiagnostics` cannot reach. Nothing consumed it, so this is pure subtraction.
+
 
 - **`recall`'s MCP description listed two fields it does not return, so callers budgeted for them and went
   looking for the flag to switch them off.** It said each result carries `seq` and `matchedText`;

@@ -105,7 +105,7 @@ export const RECALL_BODY_FIELDS: ReadonlySet<string> = new Set([
   // That is the standing hazard of making a body strict: the allowed set has to be the keys the handler READS, and a
   // handler that reads its body in two places will be described by whichever place you looked at. Grep for `req.body`
   // across the whole handler, not for the destructure.
-  'includeFreshWrites', 'includeContent',
+  'includeFreshWrites', 'includeContent', 'includeDiagnostics',
 
 ]);
 
@@ -114,7 +114,7 @@ export const FIND_SIMILAR_BODY_FIELDS: ReadonlySet<string> = new Set([
   // `traverse` and `includeContent` were on the MCP tool's schema and read by its handler while this route read
   // neither. Found by the gate that compares every declared surface against these sets, not by a report — the
   // strict body turned a silently-ignored parameter into a 400, which is how it surfaced at all.
-  'traverse', 'includeContent',
+  'traverse', 'includeContent', 'includeDiagnostics',
 ]);
 
 /**

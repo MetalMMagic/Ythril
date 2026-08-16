@@ -34,6 +34,7 @@ Available as both:
 | `traverse` | — | `0` | Graph-expansion depth (integer 0–5). `0` = classic recall; > 0 follows edges from each match (see [Graph-Augmented Recall](#graph-augmented-recall-traverse-parameter)) |
 | `includeFreshWrites` | — | `false` | Also scan the newest records straight from each collection, so a record written seconds ago is findable before the vector index has ingested it. See below. A non-boolean is a `400`, never coerced |
 | `includeContent` | — | `true` | Whether file-chunk results carry `content` — the passage body. `false` returns locations and metadata only (path, heading, chunk index, tags, properties). A non-boolean is a `400`, never coerced |
+| `includeDiagnostics` | — | `false` | Add back the fields a result carries for the SYSTEM rather than for you: `matchedText` (the exact pre-embedding source string — for a file chunk, the passage a SECOND time), `embeddingModel`, `seq`, and the per-stage `lexicalScore`/`fusedScore`/`rerankScore`. **Applies recursively**, so a `traverse` answer's `_graph` nodes and edges follow it at every depth. Off by default since 3.1.0 — before then this door sent all six unconditionally while MCP sent none. The embedding VECTOR is not among them and is never returned by anything. A non-boolean is a `400`, never coerced |
 
 **Response** `200`:
 
@@ -622,6 +623,7 @@ Given an existing entry's `_id`, find other entries with high vector similarity.
 | `minScore` | — | `0.0` | Minimum cosine similarity threshold |
 | `traverse` | — | `0` | Graph-expansion depth (0–5). With `traverse > 0` each match is expanded along edges and the connected entities come back alongside it — see the response shape below |
 | `includeContent` | — | `true` | Whether file-chunk results carry their passage `content`. `false` returns locations and metadata only, exactly as on `recall` |
+| `includeDiagnostics` | — | `false` | Add back the fields a result carries for the SYSTEM rather than for you: `matchedText` (the exact pre-embedding source string — for a file chunk, the passage a SECOND time), `embeddingModel`, `seq`, and the per-stage `lexicalScore`/`fusedScore`/`rerankScore`. **Applies recursively**, so a `traverse` answer's `_graph` nodes and edges follow it at every depth. Off by default since 3.1.0 — before then this door sent all six unconditionally while MCP sent none. The embedding VECTOR is not among them and is never returned by anything. A non-boolean is a `400`, never coerced |
 | `crossSpace` | — | `false` | If `true`, search across all spaces the token can access |
 
 **Response** `200`:

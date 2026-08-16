@@ -35,7 +35,8 @@ import type { MemoryDoc, EntityDoc, EdgeDoc, ChronoEntry, FileMetaDoc } from '..
 import { reindexInProgress } from '../../metrics/registry.js';
 import { UUID_V4_RE } from './_shared.js';
 import { buildErModel } from '../../brain/er-model.js';
-import { rankOf, mergeRecallResults } from '../../brain/recall-shape.js';
+import { rankOf, mergeRecallResults, withoutDiagnostics } from '../../brain/recall-shape.js';
+import { mapGraphNodes, graphNodeRecord } from '../../brain/recall-graph.js';
 
 export const searchRouter = Router();
 
@@ -467,6 +468,21 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
     }
     const safeIncludeContent = includeContentRaw !== false;
 
+    // `includeDiagnostics` (default FALSE) restores the six fields a recall result carries for the system
+    // rather than for the caller: `matchedText`, `embeddingModel`, `seq`, and the three per-stage scores.
+    //
+    // This door used to return all six unconditionally while MCP returned none, and neither said so. Owner
+    // ruled 2026-08-16 that the two surfaces match and that the fields are off by default on both — so this
+    // is a BREAKING change to the REST response, and deliberately: `matchedText` is the pre-embedding source
+    // string, which for a file chunk is the passage a SECOND time, so the old default sent a large field
+    // nobody had asked for `topK` times.
+    const includeDiagRaw = (req.body as { includeDiagnostics?: unknown }).includeDiagnostics;
+    if (includeDiagRaw !== undefined && typeof includeDiagRaw !== 'boolean') {
+      res.status(400).json({ error: '`includeDiagnostics` must be a boolean' });
+      return;
+    }
+    const safeIncludeDiagnostics = includeDiagRaw === true;
+
     const degraded: string[] = [];
     const all = (await Promise.all(
       memberIds.map(mid => recall(mid, query.trim(), safeTopK, safeTags, safeTypes, safeMinPerType, safeMinScore, safeFilter, { maxPerType: safeMaxPerType, maxTimeMS: safeMaxTimeMS, degraded, includeFreshWrites: safeIncludeFresh })),
@@ -507,7 +523,7 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
       // A large answer spills even with NO traversal: `topK: 100` is 100 records, and this branch used to
       // return all of them because the spill lived in the graph branch alone. That was the bug the E2E caught —
       // the rule is about the size of the result set, not about whether a graph is attached.
-      const plain = stripContentIfAsked(seeds, safeIncludeContent);
+      const plain = withoutDiagnostics(stripContentIfAsked(seeds, safeIncludeContent), safeIncludeDiagnostics);
       const plainSpill = await spillResultSet({
         memberSpaceId: seeds[0]?.spaceId ?? spaceId,
         results: plain,
@@ -539,10 +555,15 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
     // The flag applies here too. A caller who asked not to be sent passage bodies did not stop meaning it
     // because they also asked for graph expansion — and an option that silently lapses on one code path is
     // the same shape of defect as one that reaches only one surface.
-    const results = stripContentIfAsked(seeds, safeIncludeContent).map(s => {
-      const nested = graph.bySeed.get(s._id);
-      return nested ? { ...s, _graph: nested } : s;
-    });
+    // Through `mapGraphNodes` rather than attaching `graph.bySeed` raw. It was the raw attach that let the
+    // whole edge document — vector included, until the projection added beside this change — reach a REST
+    // caller while MCP's copy of the same tree went through a shaping function. One nesting implementation
+    // is the point of that function; this door had been going round it.
+    const results = withoutDiagnostics(stripContentIfAsked(seeds, safeIncludeContent), safeIncludeDiagnostics)
+      .map(s => {
+        const nested = mapGraphNodes(graph.bySeed.get(s._id), graphNodeRecord, safeIncludeDiagnostics);
+        return nested ? { ...s, _graph: nested } : s;
+      });
     // `graphNodes` reports what `count` used to conflate: how much graph came back. Two numbers, each meaning
     // one thing, rather than one number meaning whichever the reader assumes.
     // The WHOLE result set spills, not the graph alone: `topK: 100, traverse: 2` is a large answer even when
@@ -618,6 +639,17 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
     return;
   }
   const safeIncludeContent = includeContentRaw !== false;
+  // The same flag, on the same rule: find-similar returns recall RESULTS, so it carried the same six
+  // system fields REST's recall did while MCP's `find_similar` — which builds its records through
+  // `toRecallRecord` — has never sent any of them. Fixing recall alone would leave the identical
+  // asymmetry one route to the left.
+  const similarDiagRaw = body['includeDiagnostics'];
+  if (similarDiagRaw !== undefined && typeof similarDiagRaw !== 'boolean') {
+    res.status(400).json({ error: '`includeDiagnostics` must be a boolean' });
+    return;
+  }
+  const safeIncludeDiagnostics = similarDiagRaw === true;
+
 
   if (!entryId || !UUID_V4_RE.test(entryId)) {
     res.status(400).json({ error: 'entryId must be a valid UUID v4' });
@@ -660,7 +692,8 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
       crossSpaceIds,
     );
     if (safeTraverse === 0) {
-      const plainItems = stripContentIfAsked(result.results, safeIncludeContent);
+      const plainItems = withoutDiagnostics(
+        stripContentIfAsked(result.results, safeIncludeContent), safeIncludeDiagnostics);
       const plainItemSpill = await spillResultSet({
         memberSpaceId: result.results[0]?.spaceId ?? spaceId,
         results: plainItems,
@@ -686,10 +719,12 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
       safeTraverse,
       Math.max(0, totalCap - result.results.length),
     );
-    const items = stripContentIfAsked(result.results, safeIncludeContent).map(r => {
-      const nested = graph.bySeed.get(r._id);
-      return nested ? { ...r, _graph: nested } : r;
-    });
+    const items = withoutDiagnostics(
+      stripContentIfAsked(result.results, safeIncludeContent), safeIncludeDiagnostics)
+      .map(r => {
+        const nested = mapGraphNodes(graph.bySeed.get(r._id), graphNodeRecord, safeIncludeDiagnostics);
+        return nested ? { ...r, _graph: nested } : r;
+      });
     const itemSpill = await spillResultSet({
       memberSpaceId: result.results[0]?.spaceId ?? spaceId,
       results: items,

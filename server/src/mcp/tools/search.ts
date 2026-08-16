@@ -8,9 +8,9 @@
  */
 
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
-import { UUID_V4_RE, entityDocToRecord, formatRecallSummary, toRecallRecord, uuidSchema, unitScoreSchema, QUERY_FILTER_OPERATORS, RECALL_FILTER_KEY_PATTERN } from './shared.js';
+import { UUID_V4_RE, formatRecallSummary, toRecallRecord, uuidSchema, unitScoreSchema, QUERY_FILTER_OPERATORS, RECALL_FILTER_KEY_PATTERN } from './shared.js';
 import { MAX_RECALL_TRAVERSE } from '../../brain/edges.js';
-import { mapGraphNodes } from '../../brain/recall-graph.js';
+import { mapGraphNodes, graphNodeRecord } from '../../brain/recall-graph.js';
 import { buildGraphWithSpill, spillResultSet, SPILL_INLINE_RESULTS } from '../../brain/graph-spill.js';
 import { type FilterExpression } from '../../brain/filter.js';
 import { resolveRecallFilter, type RawMongoFilter } from '../../brain/recall-filter.js';
@@ -22,7 +22,9 @@ import { type RecallKnowledgeType, type RecallResult, findSimilar, recall, recal
 import { memberSpacesWithin } from '../../spaces/proxy-scoped.js';
 import { pageAcrossMembers } from '../../spaces/page-across-members.js';
 import { NotFoundError } from '../../util/errors.js';
-import { rankOf, mergeRecallResults } from '../../brain/recall-shape.js';
+import {
+  rankOf, mergeRecallResults, diagnosticFields, RECALL_RANKING_DIAGNOSTICS,
+} from '../../brain/recall-shape.js';
 
 /**
  * Space scope for find_similar — mirrors recall's omit-space idiom (F1 consistency).
@@ -98,6 +100,11 @@ export const recallTool: ToolHandler = {
               default: true,
               description: 'Whether to return each file chunk’s `content` — the passage body (default true). Set false to get locations and metadata only: path, heading, chunk index, tags, properties. Use it for a two-phase flow — recall to find WHERE something is, then read only the chunk you decided you need. Every field a result carries is multiplied by topK and paid for in tokens, and passage bodies are by far the largest of them.',
             },
+            includeDiagnostics: {
+              type: 'boolean',
+              default: false,
+              description: 'Add back the fields a result carries for the SYSTEM rather than for you (default false, and false is what you want almost always). On the record: `matchedText` — the exact pre-embedding source string, which for a file chunk is the heading plus the passage, so the passage a SECOND time; `embeddingModel`, identical for every record in a space; and `seq`, a sync counter that is not an input to any tool. Beside `score`: the per-stage `lexicalScore`, `fusedScore` and `rerankScore`, each present only if that stage ran. Turn it on to answer WHY something ranked where it did — which text was embedded, which stage promoted it — then turn it off, because every one of these is multiplied by `topK` and paid for in your context. REST takes the same parameter with the same default; before 3.1.0 REST sent all six unconditionally and this door sent none, which is the asymmetry it closes.',
+            },
             traverse: {
               type: 'number',
               minimum: 0,
@@ -139,6 +146,7 @@ export const recallTool: ToolHandler = {
       : undefined;
     const minScore = typeof a['minScore'] === 'number' ? a['minScore'] : undefined;
     const includeContent = a['includeContent'] !== false;
+    const includeDiagnostics = a['includeDiagnostics'] === true;
 
     // The ceiling to minPerType's floor. Validated here as well as in the schema, because
     // `additionalProperties: { minimum: 1 }` cannot express "not below minPerType for the same type" — and
@@ -230,9 +238,11 @@ export const recallTool: ToolHandler = {
       // alone, which meant the plainest large call was the one that returned everything.
       const plain = seeds.map(r => ({
         score: r.score,
+        ...diagnosticFields(r as unknown as Record<string, unknown>,
+          RECALL_RANKING_DIAGNOSTICS, includeDiagnostics),
         spaceId: r.spaceId,
         type: r.type,
-        record: toRecallRecord(r, { includeContent }),
+        record: toRecallRecord(r, { includeContent, includeDiagnostics }),
       }));
       const plainSpill = await spillResultSet({
         memberSpaceId: seeds[0]?.spaceId ?? traverseSpaces[0] ?? callSpace,
@@ -264,9 +274,12 @@ export const recallTool: ToolHandler = {
       Math.max(0, totalCap - seeds.length),
     );
     const results = seeds.map(r => {
-      const nested = mapGraphNodes(graph.bySeed.get(r._id), entityDocToRecord);
+      const nested = mapGraphNodes(graph.bySeed.get(r._id), graphNodeRecord, includeDiagnostics);
       return {
-        score: r.score, spaceId: r.spaceId, type: r.type, record: toRecallRecord(r, { includeContent }),
+        score: r.score,
+        ...diagnosticFields(r as unknown as Record<string, unknown>,
+          RECALL_RANKING_DIAGNOSTICS, includeDiagnostics),
+        spaceId: r.spaceId, type: r.type, record: toRecallRecord(r, { includeContent, includeDiagnostics }),
         ...(nested ? { _graph: nested } : {}),
       };
     });
@@ -311,6 +324,11 @@ export const find_similarTool: ToolHandler = {
               type: 'array',
               items: { type: 'string', enum: ['memory', 'entity', 'edge', 'chrono', 'file'] },
               description: 'Which knowledge types to search in. Omit to search all types.',
+            },
+            includeDiagnostics: {
+              type: 'boolean',
+              default: false,
+              description: 'Add back the fields a result carries for the SYSTEM rather than for you (default false, and false is what you want almost always). On the record: `matchedText` — the exact pre-embedding source string, which for a file chunk is the heading plus the passage, so the passage a SECOND time; `embeddingModel`, identical for every record in a space; and `seq`, a sync counter that is not an input to any tool. Beside `score`: the per-stage `lexicalScore`, `fusedScore` and `rerankScore`, each present only if that stage ran. Turn it on to answer WHY something ranked where it did — which text was embedded, which stage promoted it — then turn it off, because every one of these is multiplied by `topK` and paid for in your context. REST takes the same parameter with the same default; before 3.1.0 REST sent all six unconditionally and this door sent none, which is the asymmetry it closes.',
             },
             topK: { type: 'number', minimum: 1, maximum: 100, default: 10, description: 'Max results to return (clamped to 1–100). Default 10.' },
             minScore: unitScoreSchema('Minimum cosine similarity (0.0–1.0). Results below it are excluded. Unlike on `recall`, this IS the relevance gate — cosine distance is the only ranking here, so raising it narrows the answer honestly rather than cutting candidates a reranker would have rescued. For deduplication, start high: near-duplicates sit well above 0.9 and everything below that is a topic match rather than a repeat.'),
@@ -385,6 +403,7 @@ export const find_similarTool: ToolHandler = {
 
     // Graph-augmented: expand the similar seeds along edges (mirrors recall's traverse), JSON output.
     const includeContent = a['includeContent'] !== false;
+    const includeDiagnostics = a['includeDiagnostics'] === true;
     const traverseSpaces = searchIds ?? [usedBase];
     const totalCap = topK * (traverse + 1) * 4;
     const { graph, spill } = await buildGraphWithSpill(
@@ -394,9 +413,12 @@ export const find_similarTool: ToolHandler = {
       Math.max(0, totalCap - result.results.length),
     );
     const results = result.results.map(r => {
-      const nested = mapGraphNodes(graph.bySeed.get(r._id), entityDocToRecord);
+      const nested = mapGraphNodes(graph.bySeed.get(r._id), graphNodeRecord, includeDiagnostics);
       return {
-        score: r.score, spaceId: r.spaceId, type: r.type, record: toRecallRecord(r, { includeContent }),
+        score: r.score,
+        ...diagnosticFields(r as unknown as Record<string, unknown>,
+          RECALL_RANKING_DIAGNOSTICS, includeDiagnostics),
+        spaceId: r.spaceId, type: r.type, record: toRecallRecord(r, { includeContent, includeDiagnostics }),
         ...(nested ? { _graph: nested } : {}),
       };
     });

@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`excludeFromVectorSearch: false` was documented as "do embed" and does not mean that.** It is the top of
+  three tiers of one mechanism — a type schema and the space both carry `suppressEmbeddings`, resolving
+  `record > schema > space` — and a stored `false` arrives at the resolver as *not stated*, so it falls
+  through rather than overriding. Sending `false` on a record whose type or space suppresses embedding
+  therefore succeeds and changes nothing, while the MCP schema said in as many words "or return it to it
+  (false)".
+
+  Both doors now say what `false` does, and both name the other two tiers. Nothing in the record-level name
+  suggested they existed, so a record with no vector and no flag set read as a bug rather than as the space
+  setting doing its job. The record-side reference now states the tiers the schema-side page already
+  described; one direction is not parity, because a reader who starts at the record flag never opens the
+  schema page.
+
+  The traversal answer the owner asked for is unchanged and still stated: recall's `traverse` expansion walks
+  edges and never consults a vector, so an excluded record is reached exactly as before.
+
 - **Listing chrono entries by `status=overdue` hid the entries somebody had marked overdue.** `overdue` is
   worked out from the clock rather than stored — an entry left `upcoming` past its due moment is returned as
   overdue — so the filter was translated to look for exactly that: stored `upcoming`/`active`, past due.

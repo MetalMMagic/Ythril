@@ -46,13 +46,20 @@ export const TTL_DAYS_SCHEMA = {
 export const EXCLUDE_FROM_VECTOR_SEARCH_SCHEMA = {
   type: 'boolean',
   description:
-    'Retire this record from semantic RANKING (true), or return it to it (false). Implemented as the ABSENCE '
-    + 'of a vector, NOT a query-time filter: an excluded record cannot be RANKED by recall even '
-    + 'deliberately, because there is no vector to rank. Everything that does not rank still reaches it in '
-    + 'full — query, list, get, the `traverse` tool, AND recall\'s own `traverse` expansion, which walks '
-    + 'edges out of a match and never consults a vector. So a record excluded here is still findable through '
-    + 'its relationships; it just stops competing on meaning. Toggling back to false re-embeds it. May be the '
-    + 'only field you send — retiring a record is a complete edit in itself.',
+    'Retire this record from semantic RANKING. Implemented as the ABSENCE of a vector, NOT a query-time '
+    + 'filter: an excluded record cannot be RANKED by recall even deliberately, because there is no vector '
+    + 'to rank. Everything that does not rank still reaches it in full — query, list, get, the `traverse` '
+    + 'tool, AND recall\'s own `traverse` expansion, which walks edges out of a match and never consults a '
+    + 'vector. So a record excluded here is still findable through its relationships; it just stops '
+    + 'competing on meaning. May be the only field you send — retiring a record is a complete edit.\n\n'
+    + 'THIS IS THE TOP OF THREE TIERS OF ONE SWITCH, and the other two are called something else. A type '
+    + 'schema carries `suppressEmbeddings`, and so does the space; they resolve `record > schema > space`, '
+    + 'the same order `ttlDays` uses. Same mechanism, three names, so finding one gives you no reason to '
+    + 'look for the others — check `get_space_meta` when a record is unembedded and this flag is not why.\n\n'
+    + '`false` MEANS "NOT STATED", NOT "DO EMBED". It falls through to the tiers below rather than '
+    + 'overriding them, so setting it false CANNOT re-embed a record whose type or space suppresses '
+    + 'embedding — the suppression there still wins, and the write succeeds while nothing changes. On a '
+    + 'record that no other tier suppresses, false does restore the vector.',
 } as const;
 
 /**

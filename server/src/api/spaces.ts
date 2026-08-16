@@ -276,7 +276,7 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminOrSpaceAdminMfaScoped('i
   // whole volume, which is the instance's to give — so the guard admits them to the route and this refuses the
   // single field, rather than the route staying shut over one number.
   //
-  // Checked against `record.admin` for the same reason the guard is: it is the instance-admin bit, and a space
+  // Asks `isInstanceAdmin` for the same reason every guard does: it is the instance-admin question, and a space
   // administrator is by construction not it.
   if (req.body?.maxGiB !== undefined && !(req.authToken && isInstanceAdmin(req.authToken))) {
     res.status(403).json({

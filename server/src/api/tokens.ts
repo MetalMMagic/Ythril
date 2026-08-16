@@ -35,8 +35,17 @@ export const tokensRouter = Router();
  * nobody ever set the boolean on but which holds only `read` — a case the stored flag could not express, and
  * answered `false` for.
  */
-function withReadOnlyAlias<T extends { rights?: unknown }>(t: T): T & { readOnly: boolean } {
-  return { ...t, readOnly: !canWriteAnywhere(t.rights as TokenRights | undefined) };
+function withReadOnlyAlias<T extends { rights?: unknown }>(t: T): T & { readOnly: boolean; admin: boolean } {
+  const rights = t.rights as TokenRights | undefined;
+  return {
+    ...t,
+    readOnly: !canWriteAnywhere(rights),
+    // `admin` joined the alias when it was deleted from the record, for the same reason and by the same
+    // measurement: `schema-library.test.js` asserts a library token comes back `admin: false`, and that
+    // assertion lives only in the Docker-only suite that `preflight` cannot run. Found by grepping those
+    // suites BEFORE pushing this time, rather than by a red CI run as with `readOnly`.
+    admin: rights?.instanceAdmin === true,
+  };
 }
 
 // GET /api/auth/me — returns the current token's metadata (used by the Angular SPA to verify a PAT)

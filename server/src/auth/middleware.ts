@@ -16,6 +16,10 @@ import { logAuthFailure } from '../audit/middleware.js';
 import { mcpResourceMetadataUrl } from '../mcp/oauth.js';
 import { canWriteAnywhere } from './write-anywhere.js';
 import type { TokenRights } from '../config/rights-shape.js';
+// Re-exported so the guards here and every existing importer keep one name for one rule. The definition
+// lives in its own module because `mcp/oauth.ts` needs it too, and this file already imports from there.
+export { isInstanceAdmin } from './instance-admin.js';
+import { isInstanceAdmin } from './instance-admin.js';
 
 // Augment Express Request type
 declare global {
@@ -216,30 +220,6 @@ async function resolveAuthOrFail(
   return { record, bearer };
 }
 
-/**
- * Is this token an instance administrator? The MATRIX decides, with the legacy flag as the fallback.
- *
- * One function, because this question is asked by `enforceAdmin`, by `enforceAdminOrSpaceAdmin`, and by the
- * scoped guard — three call sites that read `record.admin` directly until now. Three copies of one
- * authorization predicate is how this repo produces its most expensive defects, and here the failure mode is
- * the worst available: a token reaching a route it never could, silently.
- *
- * `rights` absent means the record never passed the config backfill — an OIDC session, built per request from
- * the identity — so the legacy flag answers for it. Every PAT carries a matrix: `createToken` always writes
- * one and a boot migration backfills the rest.
- *
- * **The two provably agree**, which is why this switch is safe to make at all:
- * `instance-admin-agrees-with-the-legacy-flag.test.js` exercises `migrateToken` over all nine storable legacy
- * shapes, and the mint route refuses `admin` as an input so a divergent pair cannot be created. That evidence
- * landed in its own PR first, deliberately — see `auth/space-reach.ts` for why this feature does it that way.
- */
-export function isInstanceAdmin(
-  record: Pick<TokenRecord, 'admin'> | OidcTokenRecord | { admin?: boolean },
-): boolean {
-  const rights = (record as { rights?: TokenRights | null }).rights;
-  if (rights) return rights.instanceAdmin === true;
-  return (record as { admin?: boolean }).admin === true;
-}
 
 /** Enforce instance-admin; writes 403 and returns false when the token is not one. */
 function enforceAdmin(res: Response, record: Omit<TokenRecord, 'hash'> | OidcTokenRecord): boolean {

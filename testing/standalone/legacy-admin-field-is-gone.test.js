@@ -1,0 +1,132 @@
+/**
+ * The second pre-3.0 token field is deleted: `TokenRecord.admin`.
+ *
+ * ## Why it could go now, and not before
+ *
+ * Two changes had to land first, and deliberately did so separately:
+ *
+ * 1. **The evidence** — `instance-admin-agrees-with-the-legacy-flag.test.js` proved `rights.instanceAdmin`
+ *    and the boolean answer identically for all nine storable token shapes.
+ * 2. **The switch** — seven call sites that each read `record.admin` their own way became one predicate,
+ *    `isInstanceAdmin`.
+ *
+ * With one reader instead of seven, deleting the field is mechanical rather than a hunt. That sequencing is
+ * the shape `auth/space-reach.ts` records for the change in this feature where a mistake is silent widening.
+ *
+ * ## What must NOT disappear with it
+ *
+ * - **`migrateToken` still reads it.** `LegacyToken` is its own interface over raw stored config, so a token
+ *   minted before the matrix keeps its scope — including `createSpaces`, which the migration also derives
+ *   from the old flag.
+ * - **`OidcTokenRecord` keeps its own `admin`.** An OIDC session is built per request from a claim mapping
+ *   and carries no matrix, so the flag is where its answer legitimately lives. `isInstanceAdmin`'s fallback
+ *   is what serves it.
+ * - **`createToken` still accepts it**, feeding `migrateToken`. "Mint an admin token" must stay sayable
+ *   without hand-building a matrix.
+ *
+ * Run: node --test testing/standalone/legacy-admin-field-is-gone.test.js
+ * (requires a prior `npm run build` in server/)
+ */
+import { describe, it, before } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
+import { stripComments } from './_strip-comments.mjs';
+
+const src = (p) => stripComments(readFileSync(p, 'utf8'));
+
+let isInstanceAdmin, migrateToken;
+before(async () => {
+  ({ isInstanceAdmin } = await import('../../server/dist/auth/middleware.js'));
+  ({ migrateToken } = await import('../../server/dist/auth/rights-migration.js'));
+});
+
+describe('the field is gone from the record and the plumbing', () => {
+  it('TokenRecord no longer declares it', () => {
+    const types = src('server/src/config/types.ts');
+    const at = types.indexOf('spaces?: string[]');
+    assert.ok(at > 0, 'the TokenRecord block was not found — the scanner is wrong, not the code');
+    assert.doesNotMatch(types.slice(at, at + 400), /\n\s+admin: boolean;/, 'the stored field must be gone');
+  });
+
+  it('nothing writes it onto a record — on either minting path', () => {
+    // Two paths mint: `createToken` and the OAuth one. The second was missed once before, when the matrix
+    // was made unconditional, so it is asserted by count rather than by finding one.
+    const tokens = src('server/src/auth/tokens.ts');
+    assert.doesNotMatch(tokens, /^ {4}admin: opts\.admin \?\? false,/m, 'no record literal may carry it');
+    assert.equal((tokens.match(/^ {6}admin: opts\.admin \?\? false,/gm) ?? []).length, 2,
+      'both minting paths must still FEED migrateToken with it — that is the whole safety property');
+  });
+
+  it('ToolContext no longer declares isAdmin, and the MCP server no longer takes it', () => {
+    assert.doesNotMatch(src('server/src/mcp/tools/types.ts'), /isAdmin\?: boolean;/,
+      'it followed readOnly out for the same reason');
+    assert.doesNotMatch(src('server/src/mcp/router.ts'), /createGlobalMcpServer\(tokenSpaces\?: string\[\], isAdmin/,
+      'the parameter must be gone from the signature');
+  });
+
+  it('and no tool re-checks it, because the dispatcher already refused them', () => {
+    // The three handlers that did — create_space, reindex, wipe_space — are each declared `admin: true`, so
+    // `toolIsVisible` refuses the call before the handler runs. A second copy one layer down is the shape
+    // that made `update_space` refuse a space administrator the guard had just admitted.
+    // `git grep` exits 1 on no match, and shell `||` is not portable here — catch instead, as the readOnly
+    // gate does. No match IS the passing case.
+    let out = '';
+    try {
+      out = execSync('git grep -n "ctx\\.isAdmin" -- server/src', { encoding: 'utf8', stdio: 'pipe' }).trim();
+    } catch { out = ''; }
+    assert.equal(out, '', `these still read a context flag that no longer exists:\n${out}`);
+
+    // And the destructure form, which is how all three actually read it.
+    let destructured = '';
+    try {
+      destructured = execSync('git grep -n ", isAdmin }" -- server/src', { encoding: 'utf8', stdio: 'pipe' }).trim();
+    } catch { destructured = ''; }
+    assert.equal(destructured, '', `these still destructure it off the context:\n${destructured}`);
+  });
+});
+
+describe('what still answers the question', () => {
+  it('one predicate, reading the matrix', () => {
+    assert.equal(isInstanceAdmin({ rights: { instanceAdmin: true, createSpaces: false, floor: null, perSpace: {} } }), true);
+    assert.equal(isInstanceAdmin({ rights: { instanceAdmin: false, createSpaces: false, floor: null, perSpace: {} } }), false);
+  });
+
+  it('and the OIDC fallback, which is now its only legacy reader', () => {
+    // An OIDC record carries no matrix by design. Without this branch every OIDC admin would lose access —
+    // a silent NARROWING, which is the opposite failure and just as bad.
+    assert.equal(isInstanceAdmin({ admin: true }), true);
+    assert.equal(isInstanceAdmin({}), false);
+  });
+
+  it('OidcTokenRecord keeps its own admin field', () => {
+    assert.match(src('server/src/auth/oidc.ts'), /admin: perms\.admin/,
+      'the claim mapping is where that flag is legitimately produced');
+  });
+
+  it('the token listing derives instance-admin from the matrix', () => {
+    assert.match(src('server/src/mcp/tools/spaces.ts'), /t\.rights\?\.instanceAdmin \? 'instance-admin'/,
+      'not from a field that no longer exists');
+  });
+});
+
+describe('a pre-matrix token keeps everything the flag gave it', () => {
+  it('migrateToken still turns admin into instanceAdmin', () => {
+    assert.equal(migrateToken({ admin: true }).instanceAdmin, true);
+    assert.equal(migrateToken({}).instanceAdmin, false);
+  });
+
+  it('and into createSpaces, which is easy to forget', () => {
+    // The migration derives TWO instance-level flags from the one boolean. A deletion that preserved only
+    // the first would quietly remove space-creation from every legacy admin.
+    assert.equal(migrateToken({ admin: true }).createSpaces, true);
+    assert.equal(migrateToken({}).createSpaces, false);
+  });
+
+  it('and still gives it the admin rung, not merely the flags', () => {
+    const r = migrateToken({ admin: true, spaces: ['qa'] });
+    for (const area of ['knowledge', 'files', 'schema', 'dataQuality']) {
+      assert.equal(r.perSpace.qa[area], 'admin', `${area} must come back as admin`);
+    }
+  });
+});

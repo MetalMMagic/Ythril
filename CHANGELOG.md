@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **`spaces` is no longer stored on a token — the last of the three, and the pre-3.0 triple is gone.** Every
+  scoping decision has read the rights matrix for some time; this release closed three separate holes where
+  one had not, each a check shaped `if (token.spaces)` that meant *unrestricted* on a token whose scope lived
+  only in the matrix. With nothing consulting the allowlist first, the field itself could go.
+
+  **Creating a scoped token is unchanged.** Send `spaces: ["research"]` and you get a matrix row for that
+  space, exactly as before; responses still carry `spaces`, derived. Tokens created earlier keep their
+  scope — the load-time migration reads the stored value to build their matrix, and OIDC sessions keep their
+  own copy because they are built per request from a claim mapping and have no matrix.
+
+  Removing it surfaced two more places reading the allowlist alone, both now on the matrix: which peer tokens
+  a sync watermark is computed for, and which tokens a space-restricted administrator can see in the token
+  list. Both would have treated every modern token as unrestricted.
+
 - **`admin` is no longer stored on a token either — the second of the three pre-3.0 fields.** Every check had
   already moved to the rights matrix in this release, and the seven places that each asked *"is this an
   instance admin"* their own way became one predicate first, against evidence that the two answers were

@@ -44,7 +44,9 @@ before(async () => {
 describe('the field is gone from the record and the plumbing', () => {
   it('TokenRecord no longer declares it', () => {
     const types = src('server/src/config/types.ts');
-    const at = types.indexOf('spaces?: string[]');
+    // Anchored on `peerInstanceId`: `spaces?: string[]` was the previous anchor and has since been deleted
+    // too, which broke both of these gates at once — an anchor inside the thing being removed cannot last.
+    const at = types.indexOf('peerInstanceId?: string');
     assert.ok(at > 0, 'the TokenRecord block was not found — the scanner is wrong, not the code');
     assert.doesNotMatch(types.slice(at, at + 400), /\n\s+admin: boolean;/, 'the stored field must be gone');
   });

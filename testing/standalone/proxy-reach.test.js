@@ -202,7 +202,9 @@ describe('the proxy lens narrows instead of failing closed', () => {
     // The conflation that granted whole instances on three routes in 2.6.0. It must not come back inside the
     // narrowing, where it would turn the narrowest token into the widest.
     const fn = src.slice(src.indexOf('function spaceTargets'), src.indexOf('function enforceAreaRung'));
-    assert.match(fn, /record\.spaces === undefined \? all :/,
+    // Spelled `legacySpacesOf(record)` since the field left `TokenRecord` (D-8d). The RULE it encodes is
+    // untouched, and the rule is what this asserts.
+    assert.match(fn, /legacySpacesOf\(record\) === undefined \? all :/,
       'absent means unrestricted; length === 0 would read empty as absent');
     assert.ok(!/spaces\?\.length === 0|spaces\.length === 0/.test(fn),
       'an empty allowlist must not be treated as unrestricted');

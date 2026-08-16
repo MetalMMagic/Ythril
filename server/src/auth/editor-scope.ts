@@ -159,7 +159,7 @@ export type EditableRights = {
  */
 export function refusalsOutsideEditorScope(input: {
   editorSpaces: readonly string[] | undefined;
-  target: Pick<TokenRecord, 'spaces' | 'schemaLibrary'> | undefined;
+  target: { spaces?: string[]; schemaLibrary?: boolean; rights?: TokenRights | null } | undefined;
   rights: EditableRights | undefined;
 }): string[] {
   const { editorSpaces, target, rights } = input;
@@ -173,10 +173,14 @@ export function refusalsOutsideEditorScope(input: {
   // rename above succeeded. A `schemaLibrary` token has no space access at all, so it is inside any scope; a token
   // with NO allowlist reaches every space and is therefore outside every restricted scope.
   if (target && !target.schemaLibrary) {
-    if (!target.spaces) {
+    // The target's own scope, MATRIX first — `editorScopeFor` is the same resolution applied to the EDITOR,
+    // so both sides of this comparison now answer one question one way. Reading the raw allowlist here
+    // would call every token minted since 2.9 unrestricted, and refuse a space administrator every edit.
+    const targetSpaces = editorScopeFor(target);
+    if (!targetSpaces) {
       out.push('that token is unrestricted (it reaches every space), so a space-restricted administrator cannot edit it');
     } else {
-      const outside = target.spaces.filter(s => !editorSpaces.includes(s));
+      const outside = targetSpaces.filter(s => !editorSpaces.includes(s));
       if (outside.length > 0) {
         out.push(`that token reaches space(s) outside your scope: ${outside.join(', ')}`);
       }

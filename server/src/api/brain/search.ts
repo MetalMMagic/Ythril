@@ -6,6 +6,7 @@
 import { Router } from 'express';
 import { requireSpaceAuth, denyReadOnly } from '../../auth/middleware.js';
 import { spacesWhereTokenMay } from '../../auth/reachable-spaces.js';
+import { legacySpacesOf } from '../../auth/legacy-spaces.js';
 import type { TokenRights } from '../../config/rights-shape.js';
 import { summariseActivity } from '../../metrics/space-activity-store.js';
 import { globalRateLimit } from '../../rate-limit/middleware.js';
@@ -642,7 +643,7 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
     // business having its records ranked here.
     crossSpaceIds = spacesWhereTokenMay(
       (req.authToken as { rights?: TokenRights } | undefined)?.rights,
-      req.authToken?.spaces,
+      legacySpacesOf(req.authToken),
       'knowledge',
       'read',
     );

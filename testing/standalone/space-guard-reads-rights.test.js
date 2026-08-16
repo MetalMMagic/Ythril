@@ -52,7 +52,9 @@ describe('the space guard', () => {
 
   it('keeps the legacy branch for records with no rights', () => {
     // OIDC tokens are built per request and never reach the config backfill. Removing this refuses them all.
-    assert.match(guardBody(), /record\.spaces/,
+    // Spelled `legacySpacesOf(record)` since the field left `TokenRecord` (D-8d). It still lives on the
+    // OIDC record, which is exactly who this branch serves.
+    assert.match(guardBody(), /legacySpacesOf\(record\)/,
       'the fallback is gone; every OIDC caller would be refused, and no unit test stands one up');
   });
 

@@ -7,7 +7,14 @@ export interface TokenRecord {
   createdAt: string;    // ISO8601
   lastUsed: string | null;
   expiresAt: string | null;
-  spaces?: string[];    // allowlist of space IDs; omit = all spaces
+  // `spaces` was REMOVED in 3.1 (D-8d), the last of the pre-3.0 triple. Nothing consults it first any more:
+  // every scoping decision reads `rights` — `reachesSpace`, `editorScopeFor`, `spacesWhereTokenMay` — and
+  // three separate holes were closed on the way, each one a check written `if (token.spaces)` that meant
+  // "unrestricted" on a token whose scope lived only in the matrix.
+  //
+  // It survives where it is still MEANINGFUL: as an INPUT to `migrateToken`, which derives a matrix for a
+  // token minted before the matrix existed, and on `OidcTokenRecord`, which is built per request from a
+  // claim mapping and carries no matrix at all. Every fallback that reads it now reads it from there.
   // `admin` was REMOVED in 3.1 (D-8d), the second of the pre-3.0 triple. Nothing decides on it any more:
   // `isInstanceAdmin` reads `rights.instanceAdmin`, and the seven places that each asked the question their
   // own way were unified onto that one predicate first, in its own change, against evidence that the two

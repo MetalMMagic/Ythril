@@ -25,6 +25,8 @@
  */
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { stripComments } from './_strip-comments.mjs';
 
 let applySpaceRenameToConfig;
 before(async () => {
@@ -67,10 +69,12 @@ describe('the matrix row follows the rename', () => {
   });
 
   it('a token with no matrix at all does not throw', () => {
-    // Pre-matrix records exist until the field goes; the re-key must skip them rather than crash a rename.
-    const cfg = cfgWith([{ id: 't1', spaces: ['old'] }, { id: 't2' }]);
-    applySpaceRenameToConfig(cfg, space(cfg), 'old', 'new');
-    assert.deepEqual(cfg.tokens[0].spaces, ['new'], 'the legacy allowlist still moves');
+    // A record with no `rights` must be SKIPPED, not crash the rename. It no longer gets an allowlist
+    // re-keyed either — `TokenRecord.spaces` was deleted in the change that followed this one, and its only
+    // remaining readers derive a matrix from it at load. A stored config still holding one is pre-migration
+    // by definition, and the boot backfill gives it a matrix before any rename can reach it.
+    const cfg = cfgWith([{ id: 't1' }, { id: 't2' }]);
+    assert.doesNotThrow(() => applySpaceRenameToConfig(cfg, space(cfg), 'old', 'new'));
   });
 
   it('every token is carried, not just the first', () => {
@@ -104,23 +108,19 @@ describe('it refuses to overwrite an existing row', () => {
   });
 });
 
-describe('the legacy half still works while the field exists', () => {
-  it('the allowlist is re-keyed too', () => {
-    const cfg = cfgWith([{ id: 't1', spaces: ['other', 'old'] }]);
-    applySpaceRenameToConfig(cfg, space(cfg), 'old', 'new');
-    assert.deepEqual(cfg.tokens[0].spaces, ['other', 'new'], 'position preserved, id updated');
-  });
-
-  it('and a token holding BOTH shapes has both carried', () => {
-    // The state a pre-matrix token is in after the boot backfill: allowlist and matrix, both naming the
-    // space. Missing either leaves it half-scoped.
-    const cfg = cfgWith([{
-      id: 't1',
-      spaces: ['old'],
-      rights: { instanceAdmin: false, createSpaces: false, floor: null, perSpace: { old: ALL('write') } },
-    }]);
-    applySpaceRenameToConfig(cfg, space(cfg), 'old', 'new');
-    assert.deepEqual(cfg.tokens[0].spaces, ['new']);
-    assert.deepEqual(cfg.tokens[0].rights.perSpace['new'], ALL('write'));
+describe('the legacy half went with the field', () => {
+  it('the allowlist is no longer re-keyed, because it no longer exists', () => {
+    // These two cases asserted that `tok.spaces` was carried, which was the ONLY thing the rename did until
+    // the fix above. `TokenRecord.spaces` was deleted in the change that followed, so re-keying it would be
+    // dead code wearing the shape of a safeguard — and the matrix re-key is what carries a token's scope.
+    //
+    // Inverted rather than deleted, so a reader finding no allowlist handling in `rename.ts` can see it was
+    // removed deliberately rather than forgotten.
+    // Comments stripped: the doc block above the loop EXPLAINS the old `tok.spaces` re-key, so a raw read
+    // fires on the sentence describing the fix. This repo has a rule about that, and this is the third time
+    // it has applied.
+    const src = stripComments(readFileSync('server/src/spaces/rename.ts', 'utf8'));
+    assert.doesNotMatch(src, /tok\.spaces/, 'nothing should re-key a deleted field');
+    assert.match(src, /perSpace\[newId\] = perSpace\[oldId\]/, 'the matrix re-key is the whole of it now');
   });
 });

@@ -1,6 +1,6 @@
 ﻿import { Router } from 'express';
 import type { Request, Response } from 'express';
-import { requireAuth, requireAdminOrSpaceAdmin, requireAdminOrSpaceAdminMfa } from '../auth/middleware.js';
+import { requireAuth, requireAdminOrSpaceAdmin, requireAdminOrSpaceAdminMfa, isInstanceAdmin } from '../auth/middleware.js';
 import { authRateLimit, globalRateLimit } from '../rate-limit/middleware.js';
 import { createToken, listTokens, revokeToken, regenerateToken, renameToken, setTokenRights, setTokenMfa } from '../auth/tokens.js';
 import { isMfaEnabled, verifyMfaCode } from '../auth/totp.js';
@@ -503,7 +503,7 @@ tokensRouter.delete('/:id', requireAdminOrSpaceAdminMfa, async (req, res) => {
     return;
   }
   // Prevent locking out all admin access
-  if (target.admin && all.filter(t => t.admin).length === 1) {
+  if (isInstanceAdmin(target) && all.filter(t => isInstanceAdmin(t)).length === 1) {
     res.status(409).json({ error: 'Cannot revoke the last admin token' });
     return;
   }

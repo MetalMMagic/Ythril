@@ -10,7 +10,7 @@ import { col, asFilter, asUpdate } from '../../db/mongo.js';
 import { syncRateLimit } from '../../rate-limit/middleware.js';
 import { getDataRoot } from '../../config/loader.js';
 import { listTombstones, applyRemoteTombstone } from '../../brain/tombstones.js';
-import { requireAuth, denyReadOnly } from '../../auth/middleware.js';
+import { requireAuth, denyReadOnly, isInstanceAdmin } from '../../auth/middleware.js';
 import { log } from '../../util/log.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -89,7 +89,7 @@ syncTombstonesRouter.post('/tombstones', syncRateLimit, requireAuth, denyReadOnl
     // A peer token may only delete content it authored (peerInstanceId === tombstone issuer);
     // a trusted local/admin token (no peerInstanceId) may relay any tombstone.
     const callerPeerId = (req.authToken as Record<string, unknown>)?.['peerInstanceId'] as string | undefined;
-    const trustedRelay = !callerPeerId && req.authToken?.admin === true;
+    const trustedRelay = !callerPeerId && !!req.authToken && isInstanceAdmin(req.authToken);
     await Promise.all(parsed.data.map(t =>
       applyRemoteTombstone(t as TombstoneDoc, { peerInstanceId: callerPeerId, trustedRelay }),
     ));

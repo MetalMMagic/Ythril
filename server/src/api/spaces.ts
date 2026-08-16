@@ -4,7 +4,7 @@ import { registerActivityResetRoute } from './spaces-activity.js';
 import path from 'path';
 import {
   requireAuth, requireSpaceAuthScoped, requireAdmin, requireAdminMfa, requireAdminMfaScoped,
-  requireAdminOrSpaceAdminMfaScoped,
+  requireAdminOrSpaceAdminMfaScoped, isInstanceAdmin,
 } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { getConfig, saveConfig, getSecrets, getDataRoot, getSchemaLibrary, getDocumentProcessingConfig, getMediaEmbeddingConfig, getStorageConfig } from '../config/loader.js';
@@ -278,7 +278,7 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminOrSpaceAdminMfaScoped('i
   //
   // Checked against `record.admin` for the same reason the guard is: it is the instance-admin bit, and a space
   // administrator is by construction not it.
-  if (req.body?.maxGiB !== undefined && !req.authToken?.admin) {
+  if (req.body?.maxGiB !== undefined && !(req.authToken && isInstanceAdmin(req.authToken))) {
     res.status(403).json({
       error: 'maxGiB is an instance setting: a space administrator may change this space\'s settings but not '
         + 'its share of the host\'s storage. Ask an instance administrator to change the quota.',

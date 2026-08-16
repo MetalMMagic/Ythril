@@ -8,7 +8,7 @@
 
 import { Router } from 'express';
 import { z } from 'zod';
-import { requireAuth } from '../auth/middleware.js';
+import { requireAuth, isInstanceAdmin } from '../auth/middleware.js';
 import { notifyRateLimit } from '../rate-limit/middleware.js';
 import { getConfig, saveConfig } from '../config/loader.js';
 import { revokePeerCredentialsIfOrphaned } from '../auth/tokens.js';
@@ -88,7 +88,7 @@ notifyRouter.post('/', notifyRateLimit, requireAuth, (req, res) => {
   // send events as the local instance (self-test pings).
   if (instanceId !== cfg.instanceId) {
     const authToken = req.authToken as { peerInstanceId?: string; admin?: boolean };
-    if (!authToken.admin && authToken.peerInstanceId !== instanceId) {
+    if (!isInstanceAdmin(authToken) && authToken.peerInstanceId !== instanceId) {
       res.status(403).json({ error: 'Token is not authorised for the claimed instanceId' });
       return;
     }

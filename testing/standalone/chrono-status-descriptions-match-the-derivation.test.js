@@ -83,12 +83,28 @@ describe('every chrono read path applies it, which is what makes the sentences t
   });
 
   it('a list derives its OUTPUT as well as translating its filter', () => {
+    // The filter's own construction is exercised in `chrono-list-filter-composes.test.js` against
+    // `buildChronoQuery`, which is why the source reads here are only about the parts that function does not
+    // return: that the OUTPUT is derived too, and that the translation lives in `listChrono` at all.
+    //
+    // The `{0,200}` bounds below were written as character counts before that lesson landed. They are
+    // POSITIVE assertions, so a window that spans fewer lines fails loudly rather than passing quietly —
+    // but the statement bound is right either way and costs nothing.
     const s = src();
     assert.match(s, /entries\.map\(e => withDerivedStatus\(e, now\)\)/,
       'translating the filter alone would return rows whose status contradicts the filter that found them');
-    assert.match(s, /filter\.status === 'overdue'[\s\S]{0,200}?\$in: \['upcoming', 'active'\]/,
-      'and `status: "overdue"` must be translated, not matched literally');
-    assert.match(s, /filter\.status === 'upcoming' \|\| filter\.status === 'active'[\s\S]{0,200}?\$gte/,
+
+    const at = s.indexOf("filter.status === 'overdue'");
+    assert.ok(at > 0, 'the overdue branch was not found — the scanner is wrong, not the code');
+    const branch = s.slice(at, s.indexOf('} else if', at));
+    assert.match(branch, /\$in: \['upcoming', 'active'\]/,
+      '`status: "overdue"` must be TRANSLATED — the derivable entries are found by comparing the clock');
+    assert.match(branch, /status: 'overdue'/,
+      'and it must ALSO match a stored `overdue` (CH-1) — the tools now promise both kinds');
+
+    const upAt = s.indexOf("filter.status === 'upcoming' || filter.status === 'active'");
+    assert.ok(upAt > 0, 'the upcoming/active branch was not found');
+    assert.match(s.slice(upAt, s.indexOf('} else', upAt)), /\$gte/,
       '`upcoming`/`active` must EXCLUDE the now-overdue ones — the tools promise both directions');
   });
 
@@ -141,6 +157,30 @@ describe('no tool repeats the claim that was false', () => {
     for (const [re] of [[/nothing recomputes[\s\S]{0,20}status/i], [/only finds entries somebody marked overdue/i], [/stays `upcoming` after its date (has )?passed/i]]) {
       assert.doesNotMatch(CORRECTED, re);
     }
+  });
+
+  it('nor that a stored `overdue` is invisible — CH-1 is fixed, so that sentence would be the next stale one', () => {
+    // These descriptions NAMED the defect while it stood, which was right. Leaving them naming it after the
+    // filter was fixed is the same failure the whole suite is about, one release later — and the sentence
+    // reads as authoritative either way. The filter's own behaviour is proved in
+    // `chrono-list-filter-composes.test.js`; this only holds the prose to it.
+    const BAD = [
+      [/stored as `overdue`[\s\S]{0,40}(invisible|not matched|missed)/i, 'stored overdue is invisible'],
+      [/looks for the derivable ones/i, 'only the derivable ones'],
+    ];
+    const offenders = [];
+    for (const t of ALL_TOOLS) {
+      const text = (t.description ?? '') + JSON.stringify(t.inputSchema(STUB));
+      for (const [re, label] of BAD) if (re.test(text)) offenders.push(`${t.name}: "${label}"`);
+    }
+    assert.deepEqual(offenders, [], 'these still describe CH-1 as open:\n  ' + offenders.join('\n  '));
+  });
+
+  it('and `list_chrono` says the filter returns BOTH kinds', () => {
+    const t = ALL_TOOLS.find(x => x.name === 'list_chrono');
+    const text = (t.description ?? '') + JSON.stringify(t.inputSchema(STUB));
+    assert.match(text, /BOTH kinds|ALSO RETURNS AN ENTRY SOMEBODY STORED/,
+      'a caller who reads only "derived from the clock" would still not know a marked entry comes back');
   });
 
   it('and the four tools that discuss status say it is derived', () => {

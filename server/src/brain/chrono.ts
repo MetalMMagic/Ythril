@@ -372,28 +372,57 @@ export interface ChronoFilter {
   search?: string;
 }
 
-export async function listChrono(
+/**
+ * The Mongo filter behind `listChrono`, and whether it compares a stored date against the clock.
+ *
+ * Exported and pure so it can be asserted without a database. That matters here specifically: what this
+ * builder gets wrong is never an exception, it is a clause that silently stops applying — and a suite that
+ * needs Docker to see that is a suite nobody runs before pushing.
+ */
+export function buildChronoQuery(
   spaceId: string,
-  filter: ChronoFilter = {},
-  limit = 50,
-  skip = 0,
-  sort?: SortSpec,
-): Promise<ChronoEntry[]> {
-  const now = new Date();
+  filter: ChronoFilter,
+  now: Date,
+): { query: Record<string, unknown>; comparesAgainstTheClock: boolean } {
   const query: Record<string, unknown> = { spaceId };
+  // Whether the status filter compares a stored date against the clock, which is a per-document evaluation
+  // rather than an index lookup and therefore wants the shorter scan budget. Tracked as a DECISION rather
+  // than re-derived from `query['$expr']` at the cursor: `overdue` moved its comparison inside an `$or`, so
+  // the top-level key vanished while the scan did not, and the budget would have silently gone back to 60 s.
+  let comparesAgainstTheClock = false;
+  /**
+   * Compound clauses ACCUMULATE here instead of being assigned to `query.$or` / `query.$and` directly.
+   *
+   * Three separate filters wanted one of those two keys and each wrote it with `=`: the tag pair took `$and`,
+   * the substring search took `$or`, and the `overdue` fix below needs an `$or` of its own. Two of those in
+   * one call and the later assignment ERASES the earlier constraint — silently, and in the widening
+   * direction, which is the failure this repo produces most. Accumulating cannot express that mistake.
+   */
+  const and: Record<string, unknown>[] = [];
 
-  // Status filter is `overdue`-aware (C5): `overdue` is derived from the due moment, never stored.
+  // Status filter is `overdue`-aware (C5): `overdue` is normally DERIVED from the due moment, not stored.
   if (filter.status !== undefined) {
     // The due moment: endsAt, or startsAt when there is no end. `$toDate` so mixed-offset ISO strings
     // compare chronologically, not lexically.
     const refDate = { $toDate: { $ifNull: ['$endsAt', '$startsAt'] } };
     if (filter.status === 'overdue') {
-      query['status'] = { $in: ['upcoming', 'active'] };
-      query['$expr'] = { $lt: [refDate, now] };
+      // BOTH kinds, and the second half is the fix. `overdue` is a legal value on every write door — the
+      // enum accepts it on `create_chrono`, `update_chrono`, `bulk_write`, both REST routes and the Brain
+      // UI's own status dropdown — so a caller can store it, and `deriveChronoStatus` passes a stored one
+      // straight through. Matching only the derivable ones therefore hid exactly the entries somebody had
+      // taken the trouble to mark, from the filter that names them.
+      and.push({
+        $or: [
+          { status: 'overdue' },
+          { status: { $in: ['upcoming', 'active'] }, $expr: { $lt: [refDate, now] } },
+        ],
+      });
+      comparesAgainstTheClock = true;
     } else if (filter.status === 'upcoming' || filter.status === 'active') {
       // Exclude entries that are now derived-overdue so they don't surface under their stored status.
       query['status'] = filter.status;
       query['$expr'] = { $gte: [refDate, now] };
+      comparesAgainstTheClock = true;
     } else {
       query['status'] = filter.status; // completed / cancelled — no derivation
     }
@@ -414,11 +443,8 @@ export async function listChrono(
   // If both tags and tagsAny are provided, combine with $and
   if (filter.tagsAny && filter.tagsAny.length > 0) {
     if (filter.tags && filter.tags.length > 0) {
-      // Already have an $all constraint on tags — wrap both with $and
-      query['$and'] = [
-        { tags: { $all: filter.tags } },
-        { tags: { $in: filter.tagsAny } },
-      ];
+      // Already have an $all constraint on tags — both go through the accumulator
+      and.push({ tags: { $all: filter.tags } }, { tags: { $in: filter.tagsAny } });
       delete query['tags'];
     } else {
       query['tags'] = { $in: filter.tagsAny };
@@ -436,11 +462,26 @@ export async function listChrono(
   // Full-text substring search on title and/or description. Escaped (2b-iii-a): the raw value used to
   // reach `$regex` un-escaped, so a value like `(a+)+$` was a ReDoS / regex-injection vector.
   const search = textSearchOr(filter.search, SEARCHABLE_FIELDS.chrono);
-  if (search) query['$or'] = search.$or;
+  if (search) and.push({ $or: search.$or });
+
+  if (and.length > 0) query['$and'] = and;
+
+  return { query, comparesAgainstTheClock };
+}
+
+export async function listChrono(
+  spaceId: string,
+  filter: ChronoFilter = {},
+  limit = 50,
+  skip = 0,
+  sort?: SortSpec,
+): Promise<ChronoEntry[]> {
+  const now = new Date();
+  const { query, comparesAgainstTheClock } = buildChronoQuery(spaceId, filter, now);
 
   const entries = await col<ChronoEntry>(`${spaceId}_chrono`)
     .find(asFilter<ChronoEntry>(query))
-    .maxTimeMS(query['$expr'] ? PROPERTIES_SCAN_MAX_MS : 60_000)
+    .maxTimeMS(comparesAgainstTheClock ? PROPERTIES_SCAN_MAX_MS : 60_000)
     .sort(sort ? toMongoSort(sort) : { createdAt: -1 })
     .skip(parseSkip(skip))
     .limit(parseLimit(limit, 20, 1000))

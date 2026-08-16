@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Listing chrono entries by `status=overdue` hid the entries somebody had marked overdue.** `overdue` is
+  worked out from the clock rather than stored — an entry left `upcoming` past its due moment is returned as
+  overdue — so the filter was translated to look for exactly that: stored `upcoming`/`active`, past due.
+
+  But `overdue` is also a value you are allowed to store. Every write door accepts it, including the Brain's
+  own status dropdown, and it is passed through unchanged on read. So the filter returned the entries nobody
+  had touched and left out the ones somebody had deliberately marked — backwards from what the name promises.
+  It now matches both.
+
+- **Combining a chrono filter with a search could silently drop one of them.** Three separate filters wanted
+  the same two MongoDB keys and each assigned rather than accumulated: the tag pair took `$and`, the substring
+  search took `$or`, and the fix above needed an `$or` of its own. Two of those in one request and the later
+  assignment erased the earlier constraint — no error, just more rows than asked for. Compound clauses now
+  accumulate, so the mistake is no longer expressible, and the query builder is a pure exported function with
+  its combinations asserted directly.
+
+  The scan budget for those clock-comparing filters follows the decision rather than the shape of the query.
+  It was chosen by looking for a top-level `$expr`, which the fix above moves inside an `$or` — so the one
+  filter that got more expensive would have quietly gone back to the long timeout.
+
 ### Removed
 
 - **`spaces` is no longer stored on a token — the last of the three, and the pre-3.0 triple is gone.** Every

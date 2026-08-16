@@ -231,10 +231,33 @@ row survives its own tool being built, so the list cannot keep advertising a gap
 | `list_peers` | List all configured peer instances (admin only) |
 | `sync_now` | Trigger immediate sync (all networks or specific peer) (admin only) |
 
-> **Admin-only tools.** `list_peers`, `sync_now`, `update_space`, `update_space_schema`, `create_space`, `reindex`, and `wipe_space` require an `admin`
-> token: the first two are instance-level (they expose the whole peer topology and drive outbound
-> connections to every peer) and have no space scoping. They are hidden from `tools/list` for
-> non-admin tokens and rejected if called directly.
+> **Instance-admin tools.** `list_peers`, `sync_now`, `create_space`, `reindex`, and `wipe_space` require
+> instance-admin rights: they expose the whole peer topology, drive outbound connections to every peer, or
+> destroy data, and none of them is scoped to one space. They are hidden from `tools/list` for other tokens
+> and rejected if called directly.
+
+<!-- markdownlint-disable-next-line MD028 -->
+
+> **`update_space` and `update_space_schema` are SPACE-admin tools**, which is a different requirement.
+> Either instance-admin rights, **or** the `admin` rung on all four areas (`knowledge`, `files`, `schema`,
+> `dataQuality`) of the space named in `space`. These are the MCP counterparts of `PATCH /api/spaces/:id` and
+> `PUT /api/spaces/:id/schema`, and they admit exactly whom those routes admit — see
+> [Update a Space](06-spaces-api.md#update-a-space).
+>
+> **Administering one space does not grant another.** The check happens twice at two widths, and the second
+> is the one that matters:
+>
+> | Where | Question | Why not the other one |
+> | --- | --- | --- |
+> | `tools/list` | do you administer *any* space? | No space has been named yet — the listing is answered per connection |
+> | `tools/call` | do you administer *this* space? | The listing's question would let an administrator of Research reconfigure Finance |
+>
+> So a token that administers one space **sees** both tools and is refused on any space it does not
+> administer, with a message naming the four areas it needs. This mirrors how mutating tools have always been
+> listed on "can write anywhere" and then refused per space.
+>
+> `maxGiB` is not settable from either tool. It is the space's share of the host's disk, so it needs
+> instance-admin rights and the REST route.
 
 ### Example: remember
 

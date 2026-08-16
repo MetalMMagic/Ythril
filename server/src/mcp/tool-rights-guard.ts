@@ -1,6 +1,7 @@
 import { TOOL_RIGHTS } from '../auth/space-rights.js';
 import { effectiveRung } from '../auth/mint-cap.js';
 import { satisfies } from '../auth/required-rung.js';
+import { isSpaceAdminFor } from '../auth/editor-scope.js';
 import type { TokenRights } from '../config/rights-shape.js';
 
 /**
@@ -33,6 +34,33 @@ import type { TokenRights } from '../config/rights-shape.js';
  * grants access to a proxy; narrowing to members happens inside the tools. Checking a member here would let
  * a proxy grant be bypassed by naming the member instead.
  */
+/**
+ * Does this token administer THE space this call names?
+ *
+ * The precise half of the `spaceAdmin` flag, and the MCP mirror of `requireAdminOrSpaceAdminMfaScoped`.
+ * `toolIsVisible` already admitted anyone who administers *a* space, because `tools/list` is answered before
+ * any space is named; this asks the question that actually matters once one is.
+ *
+ * Separate from `toolRightsRefusal` above because it answers a different question against a different input —
+ * that one reads `TOOL_RIGHTS` for an area and a rung, this one asks whether all four areas are at `admin`.
+ * Folding them together would mean one of the two callers passing a flag to say which half it wanted.
+ *
+ * Returns the refusal TEXT or `null`, same contract as its neighbour, and pure for the same reason: a guard
+ * testable only through a transport is one whose test cannot tell live code from dead.
+ */
+export function spaceAdminRefusal(
+  tool: { name?: string; spaceAdmin?: boolean } | undefined,
+  rights: TokenRights | undefined,
+  space: string,
+): string | null {
+  if (!tool?.spaceAdmin) return null;
+  if (rights?.instanceAdmin === true) return null;
+  if (space && isSpaceAdminFor(rights, space)) return null;
+  return `Error: tool '${tool.name ?? 'unknown'}' configures a space, so it needs either instance-admin rights `
+    + `or the admin rung on all four areas (knowledge, files, schema, dataQuality) of space '${space}'. `
+    + 'Administering a different space does not grant this one.';
+}
+
 export function toolRightsRefusal(
   toolName: string,
   rights: TokenRights | undefined,

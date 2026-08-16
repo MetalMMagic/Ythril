@@ -11,7 +11,7 @@ import { globalRateLimit } from '../rate-limit/middleware.js';
 import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
 import { reachesSpace } from '../auth/space-reach.js';
-import { toolRightsRefusal } from './tool-rights-guard.js';
+import { toolRightsRefusal, spaceAdminRefusal } from './tool-rights-guard.js';
 import type { TokenRights } from '../config/rights-shape.js';
 import { memberSpacesWithin } from '../spaces/proxy-scoped.js';
 import { ALL_TOOLS, TOOLS_BY_NAME, type ToolSchemas } from './tools/index.js';
@@ -194,7 +194,13 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
           type: 'text' as const,
           text: tool.admin
             ? `Error: tool '${name}' requires a token with instance-admin rights`
-            : `Error: tool '${name}' mutates, and this token holds no write rung in any space`,
+            // Without its own branch a space-admin tool would be refused as "mutates, and this token holds no
+            // write rung", which names the wrong missing thing — a token can hold write everywhere and still
+            // administer nothing.
+            : tool.spaceAdmin
+              ? `Error: tool '${name}' configures a space, and this token administers none — it needs the admin `
+                + 'rung on all four areas (knowledge, files, schema, dataQuality) of some space, or instance-admin rights'
+              : `Error: tool '${name}' mutates, and this token holds no write rung in any space`,
         }],
         isError: true,
       };
@@ -236,6 +242,15 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
       const rightsRefusal = toolRightsRefusal(name, rights, rawSpace);
       if (rightsRefusal) {
         return { content: [{ type: 'text' as const, text: rightsRefusal }], isError: true };
+      }
+      // And the space-admin question, for the tools that configure ONE space. `toolIsVisible` admitted anyone
+      // administering *a* space, because `tools/list` runs before a space is named; this is where the space
+      // exists, so this is where "administers THIS one" can be asked. Same two-width split as the REST guard,
+      // and for the same reason: the wider one alone would let the administrator of Research reconfigure
+      // Finance.
+      const adminRefusal = spaceAdminRefusal(tool, rights, rawSpace);
+      if (adminRefusal) {
+        return { content: [{ type: 'text' as const, text: adminRefusal }], isError: true };
       }
     }
     const callSpace = rawSpace;

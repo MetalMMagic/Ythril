@@ -83,6 +83,19 @@ export interface ToolHandler {
   mutating?: boolean;
   /** Requires an admin token (instance-level, no space scoping). */
   admin?: boolean;
+  /**
+   * Requires administering THE SPACE this call names — or the instance.
+   *
+   * The MCP half of `requireAdminOrSpaceAdminMfaScoped`. `admin: true` asks an instance-level question and is
+   * right for a tool with no space to scope to; this one is for a tool that configures ONE space, where
+   * "administers that space" is the honest requirement and demanding the instance is simply the old flag
+   * showing through.
+   *
+   * Checked twice, deliberately and at different widths — see `toolIsVisible` (coarse, per connection, before
+   * any space is named) and `spaceAdminRefusal` (precise, per call). Setting this INSTEAD of `admin`, never
+   * alongside it: two flags for one decision is how the weaker one ends up deciding.
+   */
+  spaceAdmin?: boolean;
   /** Requires a non-empty `space` argument. */
   spaceRequired?: boolean;
   /**

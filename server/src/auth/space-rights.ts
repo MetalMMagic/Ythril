@@ -269,6 +269,14 @@ export const TOOL_RIGHTS: readonly ToolRight[] = [
   { tool: 'update_file_meta', area: 'files', needs: 'write' },
   { tool: 'get_space_meta', area: 'schema', needs: 'read' },
   { tool: 'update_space_schema', area: 'schema', needs: 'write' },
+  // Governed by a rung from the moment it stopped being an instance-admin tool. `admin: true` exempts a tool
+  // from this inventory because an instance-level capability has no space to scope to; `spaceAdmin: true` is
+  // the opposite claim — the space IS the subject — so the area check applies like any other space-scoped
+  // tool, on top of the four-area administrator check the dispatcher makes.
+  //
+  // `schema: write` to match `update_space_schema` beside it and the meta half of `PATCH /api/spaces/:id`:
+  // label and purpose are space meta, and meta is the schema area throughout this inventory.
+  { tool: 'update_space', area: 'schema', needs: 'write' },
 ];
 
 export const NOT_AREA_SCOPED: readonly { route: string; why: string }[] = [

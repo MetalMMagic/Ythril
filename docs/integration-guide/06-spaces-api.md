@@ -245,6 +245,23 @@ PATCH /api/spaces/:id
 
 Update space properties. Requires an admin token (+ TOTP if MFA is enabled). At least one of `label`, `description`, or `meta` must be provided.
 
+> **A SPACE ADMINISTRATOR reaches this route too, for its own space.** A token holding the `admin` rung on all
+> four areas (`knowledge`, `files`, `schema`, `dataQuality`) of space X administers X, and may change X's
+> settings without being an instance admin. Administering X grants nothing on space Y: the check is against the
+> space id in the URL, not against "administers something".
+>
+> **`maxGiB` is the exception and answers `403`.** It is that space's share of the *host's* disk, so it is the
+> instance's to give. Every other field in the body is accepted. The refusal names who can change it, so the
+> right escalation is obvious rather than guessed.
+>
+> The same admission applies to `PATCH :id/rename`, `PUT :id/schema`, the single-type `PUT`/`DELETE` on
+> `:id/meta/typeSchemas/...`, `POST :id/validate-schema` and `POST :id/rebuild-indexes` — a space's own
+> configuration. It does **not** apply to `POST /api/spaces` (create), `POST /api/spaces/reorder`, or
+> `DELETE /api/spaces/:id`: those are instance-shaped, and destroying a space is not one of its settings.
+>
+> MFA is unchanged. A space administrator is still a human with an authenticator, and exempting one would make
+> the role a way around an instance-wide second factor.
+
 **Optimistic concurrency (`If-Match`).** Meta writes are last-write-wins by default: if two clients read a space, both edit it, and both save, the second save replaces the first in full. To make your write conditional, send the `meta.version` you read as an `If-Match` header:
 
 ```http

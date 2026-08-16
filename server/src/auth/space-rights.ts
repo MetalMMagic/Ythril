@@ -136,8 +136,8 @@ export const ROUTE_RIGHTS: readonly RouteRight[] = [
   { route: '/api/files/:spaceId/upload-status', method: 'GET', area: 'files', needs: 'read', scope: 'path' },
   { route: '/api/brain/spaces/:spaceId/files', method: 'GET', area: 'files', needs: 'read', scope: 'path' },
   { route: '/api/brain/spaces/:spaceId/files/extract', method: 'GET', area: 'files', needs: 'read', scope: 'path' },
-  { route: '/api/brain/spaces/:spaceId/embedding-queue', method: 'GET', area: 'files', needs: 'read', scope: 'path' },
-  { route: '/api/brain/spaces/:spaceId/embedding-queue/retry-failed', method: 'POST', area: 'files', needs: 'write', scope: 'path' },
+  { route: '/api/brain/spaces/:spaceId/embedding-queue/media', method: 'GET', area: 'files', needs: 'read', scope: 'path' },
+  { route: '/api/brain/spaces/:spaceId/embedding-queue/media/retry-failed', method: 'POST', area: 'files', needs: 'write', scope: 'path' },
   // The RECORD half of the queue is `knowledge`, not `files`: it reports on memories, entities, edges and chrono.
   // A files-only token can read the media queue and must not read a listing of knowledge record ids.
   { route: '/api/brain/spaces/:spaceId/embedding-queue/records', method: 'GET', area: 'knowledge', needs: 'read', scope: 'path' },
@@ -258,7 +258,7 @@ export const TOOL_RIGHTS: readonly ToolRight[] = [
   { tool: 'reindex', area: 'schema', needs: 'admin' },
   { tool: 'list_embed_jobs', area: 'knowledge', needs: 'read' },
   { tool: 'retry_record_embedding', area: 'knowledge', needs: 'write' },
-  { tool: 'retry_failed_embeddings', area: 'files', needs: 'write' },
+  { tool: 'retry_failed_media_embeddings', area: 'files', needs: 'write' },
   { tool: 'read_file', area: 'files', needs: 'read' },
   { tool: 'write_file', area: 'files', needs: 'write' },
   { tool: 'delete_file', area: 'files', needs: 'write' },

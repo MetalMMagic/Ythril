@@ -78,7 +78,7 @@ const ROUTE_RULES: RouteRule[] = [
   { method: 'DELETE', pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/files$/,      operation: 'file.meta.delete', spaceGroup: 1 },
   { method: 'PATCH',  pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/files$/,      operation: 'file.meta.update', spaceGroup: 1 },
   { method: 'POST',   pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/reindex$/,    operation: 'space.reindex',  spaceGroup: 1 },
-  { method: 'POST',   pattern: /^\/api\/brain\/spaces\/([^/]+)\/embedding-queue\/retry-failed$/, operation: 'file.retry_embedding_all', spaceGroup: 1 },
+  { method: 'POST',   pattern: /^\/api\/brain\/spaces\/([^/]+)\/embedding-queue\/media\/retry-failed$/, operation: 'file.retry_embedding_all', spaceGroup: 1 },
   // A record retry is audited because it is the operator saying "embed this again" about a record that already gave
   // up, and the snapshot is the only place the failure it was retried FROM survives: a successful retry clears
   // `lastError`, so without this row the reason the job failed is gone the moment someone fixes it.

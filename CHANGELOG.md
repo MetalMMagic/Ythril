@@ -345,6 +345,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking
 
+- **The media half of the embedding queue is named, on both doors. No alias — update both paths.** The
+  namespace always had two halves: `/embedding-queue/records` for brain records, and the **bare**
+  `/embedding-queue` for media. Only one of them said which it was, so *"no qualifier means files"* was true
+  and knowable only from a paragraph in the integration guide. On MCP it was worse, because a tool name has
+  no namespace to sit in: `retry_failed_embeddings` sat directly beside `list_embed_jobs`, read as its
+  remedy, and acted on a different queue — so the obvious sequence *list the failed embed jobs, then retry
+  the failed embeddings* quietly did something else and returned a count unrelated to what was listed.
+
+  | was | is |
+  | --- | --- |
+  | `GET /api/brain/spaces/:spaceId/embedding-queue` | `GET …/embedding-queue/media` |
+  | `POST /api/brain/spaces/:spaceId/embedding-queue/retry-failed` | `POST …/embedding-queue/media/retry-failed` |
+  | MCP `retry_failed_embeddings` | MCP `retry_failed_media_embeddings` |
+
+  Responses, parameters and rights are unchanged — only the names. `/embedding-queue/records` and the two
+  record tools are untouched. **No alias, deliberately:** an alias on one door and a rename on the other is
+  the two-surfaces drift this project pays most for, and keeping both names would mean documenting both
+  until 4.0.
+
 - **A space request body with a key we do not recognise is now refused instead of silently ignored.** Four of
   the ten schemas already refused one and six did not, and the split fell across a nesting level, so the same
   misspelling got two answers: `PATCH {"meta":{"validationMdoe":"strict"}}` returned 400, while

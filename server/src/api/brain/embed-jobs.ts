@@ -15,9 +15,13 @@
  *
  * ## Why it nests under `embedding-queue` instead of a name of its own
  *
- * `GET /spaces/:spaceId/embedding-queue` already existed and answers for MEDIA jobs only — file chunks, not brain
- * records. Two sibling top-level names (`embedding-queue` and, say, `embed-jobs`) would have left a caller guessing
- * which half of the same subsystem each one meant. Nesting says it in the URL: the queue, the records in it.
+ * Two sibling top-level names (`embedding-queue` and, say, `embed-jobs`) would have left a caller guessing which
+ * half of the same subsystem each one meant. Nesting says it in the URL: the queue, and which half of it.
+ *
+ * **Both halves are named as of 3.1 — `/embedding-queue/media` and `/embedding-queue/records`.** The media half
+ * used to be the BARE `/embedding-queue`, so "the queue with no qualifier means files, not records" was true and
+ * knowable only from this comment and the integration guide. That is the half of X-3 that lived on REST; the MCP
+ * half was a flat tool name with no namespace to sit in at all.
  *
  * The media half stays where it is, in file-meta.ts next to the file records it reports on.
  */

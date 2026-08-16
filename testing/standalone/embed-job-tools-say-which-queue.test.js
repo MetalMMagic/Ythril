@@ -3,7 +3,7 @@
  *
  * ## The trap in the names
  *
- * `list_embed_jobs` reports BRAIN embed jobs. `retry_failed_embeddings` sits in the same module, next to it,
+ * `list_embed_jobs` reports BRAIN embed jobs. `retry_failed_media_embeddings` sits in the same module, next to it,
  * with a name that reads as its remedy — and re-queues the MEDIA queue instead: captioning, transcription,
  * document extraction. It imports `files/media/job-queue.js`, which is a fact about the code rather than a
  * suspicion.
@@ -60,15 +60,20 @@ const body = (name) => {
 };
 
 const LIST = tool('list_embed_jobs');
-const RETRY_ALL = tool('retry_failed_embeddings');
-const RETRY_ALL_BODY = body('retry_failed_embeddings');
+const RETRY_ALL = tool('retry_failed_media_embeddings');
+const RETRY_ALL_BODY = body('retry_failed_media_embeddings');
 
 describe('the queue each tool acts on is stated', () => {
-  it('retry_failed_embeddings says up front that it is the MEDIA queue', () => {
-    // It is the first thing in the description on purpose: a caller who reads one line must not act on the
-    // wrong queue, and the name actively misleads.
-    assert.match(RETRY_ALL, /THE MEDIA QUEUE, NOT THE BRAIN ONE/,
-      'the correction has to come before the description, not after it');
+  it('the NAME says media now, so the description need not open with a correction', () => {
+    // This required the description to LEAD with `THE MEDIA QUEUE, NOT THE BRAIN ONE`, because the tool was
+    // called `retry_failed_embeddings` and a caller reading one line had to be stopped before acting. X-3
+    // renamed it, so the correction stops being the first sentence and becomes history.
+    //
+    // Inverted rather than deleted: the rule never changed. Something must say which queue this acts on,
+    // unmissably — only which of the name and the prose carries it has moved.
+    assert.match(RETRY_ALL, /MEDIA, NOT THE BRAIN QUEUE/, 'still stated, just no longer as an apology');
+    assert.match(RETRY_ALL, /`retry_failed_embeddings` until 3\.1/,
+      'and the OLD name is named, so an integrator hitting an unknown-tool error can find out why');
     assert.match(RETRY_ALL, /retry_record_embedding/, 'name the tool that does the brain-side job');
   });
 
@@ -89,7 +94,7 @@ describe('the queue each tool acts on is stated', () => {
     // What replaces it is the more useful fact anyway: an absent retry in help() means THIS TOKEN cannot
     // retry, not that no such tool exists — which is the wrong conclusion a read-only caller would otherwise
     // draw and report.
-    assert.doesNotMatch(LIST, /retry_record_embedding|retry_failed_embeddings/,
+    assert.doesNotMatch(LIST, /retry_record_embedding|retry_failed_media_embeddings/,
       'a read-only tool must not advertise a mutating one');
     assert.match(LIST, /only REPORTS/, 'say what this tool does and does not do');
     assert.match(LIST, /cannot retry rather than that no such tool exists/,

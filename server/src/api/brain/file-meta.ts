@@ -276,9 +276,11 @@ fileMetaRouter.get('/spaces/:spaceId/files/extract', globalRateLimit, requireSpa
   });
 });
 
-// GET /api/brain/spaces/:spaceId/embedding-queue — this space's embedding-job backlog by status (F9 Overview).
+// GET /api/brain/spaces/:spaceId/embedding-queue/media — this space's MEDIA job backlog by status (F9
+// Overview). The `/media` segment is new in 3.1: this path used to be the bare `/embedding-queue`, where
+// being the media half was knowable only from the docs (X-3).
 // Read-only summary; sums across member spaces for a proxy space (resolveMemberSpaces → [spaceId] otherwise).
-fileMetaRouter.get('/spaces/:spaceId/embedding-queue', globalRateLimit, requireSpaceAuth, async (req, res) => {
+fileMetaRouter.get('/spaces/:spaceId/embedding-queue/media', globalRateLimit, requireSpaceAuth, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
   const cfg = getConfig();
   if (!cfg.spaces.some(s => s.id === spaceId)) {
@@ -305,9 +307,9 @@ fileMetaRouter.get('/spaces/:spaceId/embedding-queue', globalRateLimit, requireS
   res.json(total);
 });
 
-// POST /api/brain/spaces/:spaceId/embedding-queue/retry-failed — re-queue every failed media job in
+// POST /api/brain/spaces/:spaceId/embedding-queue/media/retry-failed — re-queue every failed media job in
 // this space (F9 Overview "retry all failed"). Sums across member spaces like the GET above.
-fileMetaRouter.post('/spaces/:spaceId/embedding-queue/retry-failed', globalRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
+fileMetaRouter.post('/spaces/:spaceId/embedding-queue/media/retry-failed', globalRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
   const cfg = getConfig();
   if (!cfg.spaces.some(s => s.id === spaceId)) {

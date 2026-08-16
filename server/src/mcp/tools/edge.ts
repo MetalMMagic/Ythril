@@ -28,8 +28,16 @@ export const upsert_edgeTool: ToolHandler = {
             to: { type: 'string', minLength: 1, description: 'Target entity ID (a UUID v4; required to be an existing entity ID when the space uses strict linkage).' },
             label: { type: 'string', minLength: 1, description: 'Relationship label (e.g. "works_at", "knows").' },
             type: { type: 'string', description: 'Optional edge type (e.g. "causal", "attribution").' },
-            weight: unitScoreSchema('Optional edge weight (0–1).'),
-            tags: { type: 'array', items: { type: 'string' }, description: 'Categorisation tags.' },
+            weight: unitScoreSchema('Optional strength for this relationship, 0 to 1. Nothing derives it '
+              + 'and nothing ranks on it — it is stored, returned, and sortable by `query`, so it means '
+              + 'whatever you decide it means. The 0–1 bound is enforced HERE and not on `bulk_write`, whose '
+              + 'per-item schemas are for discovery only.'),
+            tags: {
+              type: 'array', items: { type: 'string' },
+              description: 'Categorisation tags. MERGED over the stored tags when the same triplet already '
+                + 'exists, so no value here removes one. They are part of what gets embedded, so a tag '
+                + 'affects how this edge ranks in a `recall` as well as being filterable.',
+            },
             description: { type: 'string', description: 'Optional prose description of why this relationship exists.' },
             properties: {
               type: 'object',
@@ -144,12 +152,38 @@ export const update_edgeTool: ToolHandler = {
           type: 'object',
           properties: {
             space: s.requiredSpace,
-            id: { type: 'string', minLength: 1, description: 'Edge ID to update.' },
-            label: { type: 'string', description: 'New relationship label.' },
-            type: { type: 'string', description: 'New edge type.' },
-            weight: unitScoreSchema('New edge weight (0–1).'),
-            description: { type: 'string', description: 'New prose description.' },
-            tags: { type: 'array', items: { type: 'string' }, description: 'Tags to merge with existing tags.' },
+            id: {
+              type: 'string', minLength: 1,
+              description: 'The edge\'s `_id`, as `traverse`, `recall` and `query` report it. Required, '
+                + 'and an id that names nothing is an ERROR rather than a silent no-op. Note this addresses '
+                + 'the edge by id, while `upsert_edge` addresses it by the from/to/label TRIPLET.',
+            },
+            label: {
+              type: 'string',
+              description: 'Replaces the relationship label. It is part of the identity `upsert_edge` uses '
+                + '(from + to + label), so renaming it here means a later `upsert_edge` with the OLD label '
+                + 'creates a second edge instead of updating this one. It is also embedded, so it changes '
+                + 'how this edge ranks.',
+            },
+            type: {
+              type: 'string',
+              description: 'Replaces the edge type (e.g. "causal", "attribution"). Free text — nothing '
+                + 'validates it against a list, and it is not part of the edge\'s identity.',
+            },
+            weight: unitScoreSchema('Replaces the stored weight, 0 to 1. Omitting it leaves the old value '
+              + 'in place, so there is no value here that clears one — use `deleteFields: ["weight"]`.'),
+            description: {
+              type: 'string',
+              description: 'Replaces the prose explanation of why this relationship exists. Embedded with '
+                + 'the label, so it widens what a `recall` can match this edge on. Clearing it needs '
+                + '`deleteFields: ["description"]`.',
+            },
+            tags: {
+              type: 'array', items: { type: 'string' },
+              description: 'MERGED into the stored tags, never replacing them — so no value here removes a '
+                + 'tag. `update_memory` and `update_chrono` REPLACE the same field; this tool and '
+                + '`update_entity` merge. Removing one is `deleteFields`, with `tags` for all of them.',
+            },
             properties: {
               type: 'object',
               description: 'Key-value properties to merge with existing. Values must be string, number, or boolean.',
@@ -315,7 +349,12 @@ export const delete_edgeTool: ToolHandler = {
     type: 'object',
     properties: {
       space: s.requiredSpace,
-      id: { type: 'string', minLength: 1, description: 'Edge ID to delete.' },
+      id: {
+        type: 'string', minLength: 1,
+        description: 'The edge\'s `_id`. An id that does not exist is an ERROR, not a silent success. '
+          + 'Deleting an edge NEVER touches the two entities it joined — it removes the relationship only. A '
+          + 'tombstone is written, so re-creating it with the same id does not undo this.',
+      },
       targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
     },
     required: ['space', 'id'],

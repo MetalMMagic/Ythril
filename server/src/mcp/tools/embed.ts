@@ -116,7 +116,12 @@ export const retry_record_embeddingTool: ToolHandler = {
     type: 'object',
     properties: {
       space: s.requiredSpace,
-      recordType: { type: 'string', enum: RECORD_TYPES, description: 'Which collection the record is in.' },
+      recordType: {
+        type: 'string', enum: RECORD_TYPES,
+        description: 'Which collection the record lives in. Required alongside `recordId` because ids are '
+          + 'only unique within a collection, so the pair is what names one record — a wrong `recordType` '
+          + 'finds nothing rather than finding the wrong thing.',
+      },
       recordId: { type: 'string', minLength: 1, description: 'The record\'s _id, as list_embed_jobs reports it.' },
       targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space holding the record.' },
     },

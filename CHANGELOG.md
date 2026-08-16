@@ -29,6 +29,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   It was chosen by looking for a top-level `$expr`, which the fix above moves inside an `$or` — so the one
   filter that got more expensive would have quietly gone back to the long timeout.
 
+- **`remember` said "there is no id to update" while accepting an `id` to update.** The parameter sat in the
+  same schema, describing itself as *"UUID v4 of an EXISTING record to update"*, and the code has the branch to
+  match: a supplied id that already names a record **converges** rather than duplicating, unioning tags and
+  shallow-merging properties exactly as `upsert_entity` does.
+
+  That branch is the retry-safety contract — it is what makes repeating a timed-out write safe. A caller who
+  believed the prose would instead issue a fresh insert and end up with two records, which is the one outcome
+  the feature exists to prevent. The description now says what an id does, and a gate holds it to the code
+  rather than to a sentence.
+
+### Changed
+
+- **Every MCP parameter description now says the trap rather than the type, and a gate holds the line.** 62
+  were under forty characters — `"Source path."`, `"Entity name."`, `"Collection to query."` — which passes a
+  has-a-description check and tells a caller nothing they could not read off the key. `help()` names the tool
+  schema as the authoritative reference, so a parameter described that way is a capability nobody can use
+  properly.
+
+  Also corrected: `update_chrono` promised that **"`endsAt` before `startsAt` is refused"**, and nothing
+  anywhere performs that check. Such an entry is stored as sent — and because `endsAt` becomes the due
+  moment, it reads back as `overdue` immediately. Both the tool and the gate now say so, and the gate asserts
+  the *absence* of the check rather than the wording, so it flips the day somebody adds the validation.
+
+  What the new text adds is what the source says and the name does not: `upsert_entity.name` deduplicates
+  nothing, so omitting `id` inserts a second entity of the same name; `update_edge.label` is part of the
+  identity `upsert_edge` matches on, so renaming it makes a later upsert create a second edge; `move_file.dst`
+  replaces an existing file with no refusal; `update_file_meta.properties` replaces the whole object where the
+  brain tools merge key by key; `create_space.label` is not the identity, the derived `id` is.
+
+  The five file tools' path arguments became one shared `filePathSchema` instead of the same 37-character
+  sentence copied four times. It now states the three facts that decide whether a call works, all from
+  `files/sandbox.ts`: a leading slash is **stripped** rather than refused, so `/a/b.md` and `a/b.md` are the
+  same file; paths are Unicode-normalised, so two spellings of one accented name resolve together; and a `..`
+  that would leave the space is refused.
+
 ### Removed
 
 - **`spaces` is no longer stored on a token — the last of the three, and the pre-3.0 triple is gone.** Every

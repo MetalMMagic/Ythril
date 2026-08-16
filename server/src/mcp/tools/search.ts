@@ -435,7 +435,12 @@ export const queryTool: ToolHandler = {
             collection: {
               type: 'string',
               enum: ['memories', 'entities', 'edges', 'chrono', 'files'],
-              description: 'Collection to query.',
+              description: 'Which collection to read. ONE per call — there is no cross-collection query, so '
+                + 'answering "everything about X" means one call each. The listed names are the whole set, '
+                + 'and they also decide which `sort` fields are legal and which `filter` keys exist: an '
+                + '`edges` filter has `from`/`to`/`label`, a `chrono` one has `startsAt`/`status`, and a '
+                + 'predicate naming a field the collection does not have simply matches nothing rather than '
+                + 'failing.',
             },
             filter: {
               type: 'object',

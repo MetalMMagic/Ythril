@@ -181,10 +181,37 @@ describe('one merge rule', () => {
     it('update_memory documents tags as a REPLACE and update_entity as a union', () => {
       // Not an oversight to be tidied away: both halves are written down, so a future sweep that
       // "unifies" them is changing documented behaviour and has to say so.
-      assert.match(schema('server/src/mcp/tools/memory.ts'), /New tags \(replaces existing\)/,
+      //
+      // Asserted on the RULE, not on a phrase. This required the literals `New tags (replaces existing)`
+      // and `Tags to merge with existing tags`, so rewriting either description to say the SAME thing at
+      // more length turned a documentation improvement into a red gate. A pinned sentence is a pinned
+      // sentence even when the sentence is correct — and the version of this mistake that costs something
+      // is the one where the sentence is wrong, which `read-tools-state-their-blind-spots` shipped.
+      const tagsDescriptionOf = (file) => {
+        const src = schema(file);
+        const at = src.indexOf('export const update_');
+        assert.ok(at > 0, `${file}: no update tool found — the scanner is wrong, not the code`);
+        const tagsAt = src.indexOf('tags: {', at);
+        assert.ok(tagsAt > at, `${file}: the update tool declares no tags parameter`);
+        // The description VALUE, including the `+ '…'` continuation lines it is usually built from. Bounding
+        // at the property's closing `},` looked right and was not: `items: { type: 'string' },` closes
+        // first, so the slice stopped before the description began and the match failed on an empty string.
+        // A brace-counting bound would work; matching the value itself is simpler and says what it wants.
+        const m = /description:\s*((?:'(?:[^'\\]|\\.)*'\s*\+?\s*)+)/.exec(src.slice(tagsAt));
+        assert.ok(m, `${file}: the tags parameter has no description at all`);
+        assert.ok(m[1].length > 40, `${file}: captured only ${m[1].length} chars — the scanner is wrong`);
+        return m[1];
+      };
+
+      assert.match(tagsDescriptionOf('server/src/mcp/tools/memory.ts'), /\breplaces?\b/i,
         'update_memory still documents replace semantics for tags');
-      assert.match(schema('server/src/mcp/tools/entity.ts'), /Tags to merge with existing tags/,
+      assert.doesNotMatch(tagsDescriptionOf('server/src/mcp/tools/memory.ts'), /\bmerged into\b/i,
+        'and must not also claim to merge them');
+
+      assert.match(tagsDescriptionOf('server/src/mcp/tools/entity.ts'), /\bmerge[ds]?\b/i,
         'update_entity still documents union semantics for tags');
+      assert.doesNotMatch(tagsDescriptionOf('server/src/mcp/tools/entity.ts'), /\breplaces the stored tag\b/i,
+        'and must not also claim to replace them');
     });
 
     it('every update tool that merges properties says so in its schema', () => {

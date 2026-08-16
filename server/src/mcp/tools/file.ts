@@ -115,7 +115,24 @@ export const write_fileTool: ToolHandler = {
 
 export const list_dirTool: ToolHandler = {
   name: 'list_dir',
-  description: 'List files and directories at a path in the space file store.',
+  description: 'List one directory in the space file store. NOT recursive: it returns the immediate children '
+    + 'of `path` and nothing below them, so walking a tree means calling it per directory.\n\n'
+    + 'IT IS THE SOURCE OF THE PATHS EVERY OTHER FILE TOOL WANTS. `read_file` and every write-side file tool '
+    + 'your token can reach take a path relative to the space root, exactly as it is reported here. '
+    + 'Constructing one by hand is where the mistakes come from.\n\n'
+    + 'ON A PROXY SPACE THE MEMBERS ARE MERGED, AND A COLLISION IS RESOLVED SILENTLY. Every member the token '
+    + 'reaches is listed and the results are combined by NAME — so if two members both hold `notes.md`, you '
+    + 'see one entry and the other is dropped, with nothing saying which member won or that a second existed. '
+    + 'A member that has no such directory is skipped rather than erroring. When that ambiguity matters, list '
+    + 'the member space directly instead of the proxy.\n\n'
+    + 'A MISSING DIRECTORY IS AN EMPTY LISTING, not an error. So an empty result means "nothing here OR no '
+    + 'such path" and the two are indistinguishable — check the parent if you expected content.\n\n'
+    + 'PARAMETERS:\n'
+    + '- `path` — relative to the space root. OMIT IT (or send `""`) for the root itself, which is the usual '
+    + 'starting point.\n\n'
+    + 'RESPONSE: one entry per child with its `name`, its `type` (`file` or `dir`) and, for a file, its `size` '
+    + 'in bytes. Names only — not full paths — so join them onto `path` yourself when descending. There is no '
+    + 'limit or paging here: a very large directory returns in full.',
   spaceRequired: true,
   inputSchema: (s: ToolSchemas) => ({
           type: 'object',

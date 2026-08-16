@@ -662,10 +662,25 @@ export const wipe_spaceTool: ToolHandler = {
  */
 export const list_tokensTool: ToolHandler = {
   name: 'list_tokens',
-  description: 'List this instance\'s API tokens with their names, prefixes, expiry and rights matrix. Admin '
-    + 'only. Secrets are never included — a token\'s value exists only at the moment it is minted, and the '
-    + 'stored hash is not returned by this or any other surface. Use it to audit which tokens can reach which '
-    + 'spaces and at what level.',
+  description: 'List this instance\'s API tokens — names, prefixes, expiry and rights matrix. Requires '
+    + 'instance-admin rights. Read-only.\n\n'
+    + 'SECRETS ARE NEVER INCLUDED, and there is no parameter that changes that. A token\'s value exists only '
+    + 'at the moment it is minted; what is stored is a hash, and the hash is not returned by this or any other '
+    + 'surface. If a token\'s value is lost the answer is to rotate it, never to look it up.\n\n'
+    + 'THE `prefix` IS HOW YOU IDENTIFY A TOKEN FROM A LOG. Audit entries and error reports carry the prefix '
+    + 'rather than the secret, so matching one to a row here is how you find out who did something.\n\n'
+    + 'READ `rights`, NOT THE LEGACY FLAGS. `rights` is the matrix that actually governs access: a `floor` '
+    + 'applying to every space including ones created later, a `perSpace` row per space, and `instanceAdmin` / '
+    + '`createSpaces`. The older `admin` and `readOnly` booleans still appear on records that predate the '
+    + 'matrix and are on their way out — a token showing `legacy scope` has no matrix and is governed by its '
+    + '`spaces` allowlist instead. That distinction matters for an audit: the two are not different spellings '
+    + 'of the same thing.\n\n'
+    + 'An expired token is still LISTED. Expiry is enforced when the token is used, not by removing the row, '
+    + 'so seeing it here does not mean it works — check `expiresAt` before concluding anything about who has '
+    + 'access.\n\n'
+    + 'RESPONSE: one row per token with its id, name, prefix, expiry, whether it carries a rights matrix or '
+    + 'legacy scope, and the matrix itself. Use it to answer "which tokens reach this space, and at what '
+    + 'level" — the question the rights editor answers one token at a time.',
   admin: true,
   inputSchema: () => ({
     type: 'object',

@@ -220,6 +220,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   retired record stops competing on meaning, it does not disappear from the graph. **No behaviour changed**;
   this is what it always did.
 
+- **The six shortest tool descriptions now say where their answer is narrower than it looks.** Each was
+  accurate as far as it went, and each left out the same shape of thing. `list_chrono`'s `after` and `before`
+  filter **when an entry was written, not when it happens** — so "what is scheduled next quarter" was quietly
+  answering "what did we write down last quarter", on a tool whose whole subject is dates; it also now says
+  that nothing recomputes `status` from the clock, so `upcoming` means "nobody has updated this" rather than
+  "still in the future". `list_dir` merges a proxy's members **by filename**, so two members holding the same
+  name collapse to one entry with nothing saying which won; it is also not recursive and returns names rather
+  than paths. `find_entities_by_name` is exact and case-sensitive, several results usually means a duplicate
+  worth merging rather than a fact about the world, and an empty list does **not** mean the thing is absent.
+  `list_peers` returns one row per peer **per network**, not per machine. `sync_now` returns when the cycle
+  *starts*, and a peer that is unreachable does not make it fail — that surfaces as a climbing failure count
+  on the peer. `list_tokens` still lists **expired** tokens, because expiry is enforced when a token is used,
+  so appearing there is not proof of access.
+
 ### Added
 
 - **A space administrator can now manage that space's tokens.** Until now "administers this space" was only

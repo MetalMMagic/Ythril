@@ -27,7 +27,10 @@ export interface ToolContext {
   accessibleSpaces: SpaceConfig[];
   accessibleSpaceIds: string[];
   tokenSpaces?: string[];
-  isAdmin?: boolean;
+  // `isAdmin` was REMOVED in 3.1 (D-8d), following `readOnly` out for the same reason and by the same route.
+  // The dispatcher decides from the matrix — `toolIsVisible` refuses an `admin: true` tool unless
+  // `rights.instanceAdmin` — so the three handlers that re-checked it were each a second copy of a rule
+  // already enforced above them, reading a boolean that no longer exists.
   /** True when the calling token is read-only (mutating tools are gated out). */
   // `readOnly` was REMOVED here in 3.1 (D-8d). It was declared, threaded from the token record through
   // `createGlobalMcpServer` into every tool's context — and read by none of them. Every mutating decision

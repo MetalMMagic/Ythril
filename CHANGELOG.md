@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **`admin` is no longer stored on a token either — the second of the three pre-3.0 fields.** Every check had
+  already moved to the rights matrix in this release, and the seven places that each asked *"is this an
+  instance admin"* their own way became one predicate first, against evidence that the two answers were
+  identical for every storable token shape. With one reader instead of seven, removing the field was
+  mechanical.
+
+  **Creating an admin token is unchanged**, and so is every existing token's access. Send `admin: true` and
+  you get `instanceAdmin` plus `createSpaces` plus the admin rung everywhere, exactly as before; the result
+  lives only in the matrix now. Tokens created earlier keep their scope — the load-time migration still reads
+  the stored flag to derive their rights.
+
+  **OIDC sessions keep their own flag**, because they are built per request from a claim mapping and carry no
+  matrix; the predicate falls back to it for exactly that case.
+
+  **If you read `admin` off a token record, read `rights.instanceAdmin` instead.** Note it is *not* the same
+  as holding the admin rung in every space — that grants those spaces, and says nothing about spaces created
+  tomorrow or about instance-shaped routes.
+
+  Three MCP handlers also stopped re-checking it. Each sits inside a tool the dispatcher already refuses
+  without instance-admin rights, so the check was a second copy of a rule enforced above it — the same shape
+  that once made a tool refuse a space administrator its own guard had just admitted.
+
 - **`readOnly` is no longer stored on a token — the first of the three pre-3.0 fields to go.** Nothing had
   decided on it since 3.0: every write check reads the rights matrix, and the copy threaded from the token
   record through the MCP server into every tool's call context turned out to be read by **no tool at all** —

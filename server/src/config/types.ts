@@ -8,7 +8,14 @@ export interface TokenRecord {
   lastUsed: string | null;
   expiresAt: string | null;
   spaces?: string[];    // allowlist of space IDs; omit = all spaces
-  admin: boolean;       // true = may access admin-gated routes
+  // `admin` was REMOVED in 3.1 (D-8d), the second of the pre-3.0 triple. Nothing decides on it any more:
+  // `isInstanceAdmin` reads `rights.instanceAdmin`, and the seven places that each asked the question their
+  // own way were unified onto that one predicate first, in its own change, against evidence that the two
+  // answered identically for every storable token shape.
+  //
+  // It survives where it is still MEANINGFUL: as an INPUT to `migrateToken`, which derives a matrix for a
+  // token minted before the matrix existed, and on `OidcTokenRecord`, which is built per request from a
+  // claim mapping and carries no matrix at all. What is gone is the stored field.
   // `readOnly` was REMOVED in 3.1 (D-8d). It was the second of the pre-3.0 triple and the first to go,
   // because nothing decided on it any more: `toolIsVisible` asks `canWriteAnywhere(rights)`, every REST
   // guard asks `effectiveRung`, and the `ToolContext.readOnly` that was threaded through four layers to

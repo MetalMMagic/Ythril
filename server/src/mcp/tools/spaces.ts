@@ -472,13 +472,10 @@ export const create_spaceTool: ToolHandler = {
     additionalProperties: false,
   }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
-    const { args: a, isAdmin } = ctx;
-    if (!isAdmin) {
-      return {
-        content: [{ type: 'text' as const, text: 'Error: create_space requires an admin token' }],
-        isError: true,
-      };
-    }
+    // Authorised by `admin: true` in the dispatcher, which refuses this tool unless the token's matrix says
+    // `instanceAdmin`. The `if (!isAdmin)` that stood here was a second copy of that rule, reading the legacy
+    // boolean — and a second copy of an authorization rule is what this codebase pays most for.
+    const { args: a } = ctx;
 
     // `purpose` is the current name for what the create body still calls `description`. Translated here rather than
     // widening the body schema: the REST field is the deprecated spelling, and a tool that took the deprecated name
@@ -561,13 +558,10 @@ export const reindexTool: ToolHandler = {
     additionalProperties: false,
   }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
-    const { callSpace, isAdmin, accessibleSpaceIds } = ctx;
-    if (!isAdmin) {
-      return {
-        content: [{ type: 'text' as const, text: 'Error: reindex requires an admin token' }],
-        isError: true,
-      };
-    }
+    // Authorised by `admin: true` in the dispatcher, which refuses this tool unless the token's matrix says
+    // `instanceAdmin`. The `if (!isAdmin)` that stood here was a second copy of that rule, reading the legacy
+    // boolean — and a second copy of an authorization rule is what this codebase pays most for.
+    const { callSpace, accessibleSpaceIds } = ctx;
 
     const { planReindex, startReindex } = await import('../../brain/reindex.js');
     const space = getConfig().spaces.find(s => s.id === callSpace);
@@ -647,13 +641,10 @@ export const wipe_spaceTool: ToolHandler = {
           additionalProperties: false,
         }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
-    const { args: a, callSpace, isAdmin } = ctx;
-    if (!isAdmin) {
-      return {
-        content: [{ type: 'text' as const, text: 'Error: wipe_space requires an admin token' }],
-        isError: true,
-      };
-    }
+    // Authorised by `admin: true` in the dispatcher, which refuses this tool unless the token's matrix says
+    // `instanceAdmin`. The `if (!isAdmin)` that stood here was a second copy of that rule, reading the legacy
+    // boolean — and a second copy of an authorization rule is what this codebase pays most for.
+    const { args: a, callSpace } = ctx;
     const rawTypes = Array.isArray(a['types']) ? (a['types'] as unknown[]) : undefined;
     if (rawTypes !== undefined && rawTypes.some(t => typeof t !== 'string' || !WIPE_COLLECTION_TYPES.includes(t as WipeCollectionType))) {
       throw new Error(`types must be an array of: ${WIPE_COLLECTION_TYPES.join(', ')}`);
@@ -744,7 +735,9 @@ export const list_tokensTool: ToolHandler = {
 
     const lines = tokens.map(t => {
       const bits = [
-        t.admin ? 'instance-admin' : null,
+        // Derived from the MATRIX (D-8d): `admin` is gone from the record, and the matrix is what every
+        // guard has read since the predicate was unified.
+        t.rights?.instanceAdmin ? 'instance-admin' : null,
         // Derived from the MATRIX, not from the deleted `readOnly` flag (D-8d). "Read-only" is now a
         // property of what the rights say — no write rung anywhere — rather than a boolean somebody set,
         // which also makes it correct for a token that was never given the flag but holds only `read`.

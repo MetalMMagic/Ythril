@@ -117,7 +117,12 @@ describe('the guard has moved onto the matrix, and this evidence is why it could
   it('and the agreement remains the thing that justifies it', () => {
     // The guard now asks one predicate. If that predicate ever stops agreeing with the migration, the tests
     // above fail — which is the tie between this file and the switch, and the reason it is not deleted.
-    const mw = stripComments(readFileSync('server/src/auth/middleware.ts', 'utf8'));
-    assert.match(mw, /export function isInstanceAdmin/, 'one predicate, whose agreement this file pins');
+    // The predicate moved to `auth/instance-admin.ts` when `mcp/oauth.ts` needed it too and the import graph
+    // closed a cycle. `middleware.ts` re-exports it, so every existing importer keeps one name for one rule
+    // — which is what this assertion is actually about.
+    assert.match(stripComments(readFileSync('server/src/auth/instance-admin.ts', 'utf8')),
+      /export function isInstanceAdmin/, 'one predicate, whose agreement this file pins');
+    assert.match(stripComments(readFileSync('server/src/auth/middleware.ts', 'utf8')),
+      /export \{ isInstanceAdmin \}/, 'and one name for it, wherever a caller already imported from');
   });
 });

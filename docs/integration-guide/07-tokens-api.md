@@ -145,7 +145,7 @@ POST /api/tokens
 | Field | Notes |
 |---|---|
 | `name` | Required. Human-readable label. |
-| `admin` | `true` for full admin scope. Mutually exclusive with `schemaLibrary`. |
+| `admin` | `true` for full admin scope. Mutually exclusive with `schemaLibrary`. Still accepted and still returned; **no longer stored** — see below. |
 | `readOnly` | Block all writes. Ignored when `schemaLibrary` is `true` (always read-only). Still accepted and still returned; **no longer stored** — see below. |
 | `spaces` | Array of space IDs to scope this token. Omit for all-spaces access. Must be empty or omitted when `schemaLibrary` is `true`. |
 | `expiresAt` | ISO 8601 expiry timestamp. Omit for non-expiring. |
@@ -165,7 +165,21 @@ POST /api/tokens
 > the stored boolean could not express and answered `false` for. Tokens created before 3.1 keep their scope:
 > the load-time migration still reads the stored flag to derive their matrix.
 >
-> `admin` and `spaces` are unchanged for now and follow separately.
+> `spaces` is unchanged for now and follows separately.
+
+<!-- markdownlint-disable-next-line MD028 -->
+
+> **`admin` is no longer STORED either — 3.1, and again nothing you send or read changes.** Sending it still
+> does what it always did: the token gets `instanceAdmin`, `createSpaces`, and the admin rung in every space
+> it reaches. Responses still carry it, derived from `rights.instanceAdmin`.
+>
+> **If you branch on it, read `rights.instanceAdmin`.** And note what it is *not*: holding the `admin` rung
+> in every space is a different thing. That grants those spaces, and says nothing about spaces created
+> tomorrow or about instance-shaped routes like creating a space or joining a network — only `instanceAdmin`
+> or an all-spaces floor does.
+>
+> **OIDC sessions are unaffected.** They are built per request from a claim mapping and carry no matrix, so
+> the flag is where their answer legitimately lives; every admin check falls back to it for exactly that case.
 
 **Response** `201`:
 

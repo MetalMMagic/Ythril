@@ -10,6 +10,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { col, asFilter, asDoc } from '../../db/mongo.js';
 import { getConfig } from '../../config/loader.js';
 import { reachesSpace } from '../../auth/space-reach.js';
+import { isInstanceAdmin } from '../../auth/instance-admin.js';
 import type { TokenRights } from '../../config/rights-shape.js';
 import { log } from '../../util/log.js';
 import { isSeqImplausible, MAX_INGEST_SEQ } from '../../util/seq.js';
@@ -385,9 +386,20 @@ export function spaceAllowed(
  * defeating the documented one-way flow.
  *
  * Returns true if the write must be REJECTED (403).
+ *
+ * ## The admin half asks the matrix (D-8d)
+ *
+ * This read `authToken['admin']` — bracket notation, which is exactly why it survived the audit that moved
+ * every other instance-admin check onto `isInstanceAdmin`. A `git grep` for `record.admin` / `.admin` in
+ * dotted form does not match it, so the sweep reported clean while this one kept reading a field that was
+ * being deleted.
+ *
+ * The consequence was not subtle and was not a 403 anybody would have puzzled over: with the field gone,
+ * every admin token became a non-peer here, and the whole sync WRITE surface refused it. CI caught it as
+ * fifty-one failures in brain CRUD, because the integration suite seeds records through this endpoint.
  */
 export function isNonPeerSyncWrite(authToken: Record<string, unknown> | undefined): boolean {
-  if (authToken?.['admin'] === true) return false;
+  if (authToken && isInstanceAdmin(authToken as { admin?: boolean; rights?: TokenRights | null })) return false;
   return !callerPeerId(authToken);
 }
 

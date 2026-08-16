@@ -15,7 +15,32 @@ import { emitWebhookEvent } from '../../webhooks/dispatcher.js';
 
 export const bulk_writeTool: ToolHandler = {
   name: 'bulk_write',
-  description: 'Batch upsert memories, entities, edges, and/or chrono entries in a single call. Processing order: memories → entities → edges → chrono, so edges referencing newly created entities within the same batch resolve correctly. Each array is optional and capped at 500 entries. Per-item validation errors are reported in `errors` without aborting the rest of the batch.',
+  description: 'Write memories, entities, edges and chrono entries in one call. Every array is optional; send '
+    + 'any combination.\n\n'
+    + 'A SUCCESSFUL CALL MAY HAVE WRITTEN NOTHING. This is partial-success by design: a bad item is reported '
+    + 'in `errors` and the rest of the batch proceeds, so there is no failure status to check. ALWAYS read '
+    + '`inserted` and `errors` from the response — `inserted` counts what landed, per collection, and `errors` '
+    + 'names each rejection by `type` and by its INDEX in the array you sent. Treating a returned result as '
+    + 'proof of success is the mistake this tool most invites.\n\n'
+    + 'ANYTHING BEYOND 500 PER COLLECTION IS SILENTLY DROPPED. Not an error, not a warning, and not counted in '
+    + '`errors` — items 501 and beyond are discarded before validation, so `inserted` plus `errors` can be far '
+    + 'short of what you sent and nothing in the reply says so. The cap is per collection, so 500 memories AND '
+    + '500 entities in one call is fine. Split larger imports yourself and check the counts add up.\n\n'
+    + 'REFERENCES ARE CHECKED FOR SHAPE, NEVER FOR EXISTENCE — and that differs from the single-record tools. '
+    + 'In a space with strict linkage `remember` and `update_memory` refuse an `entityIds` value that does not '
+    + 'resolve; here a well-formed UUID that points at nothing is accepted and stored. That is deliberate: a '
+    + 'batch may legitimately reference an entity created LATER in the same payload, and an existence check '
+    + 'would reject valid forward references. The cost is that bulk can write a dangling link the single-record '
+    + 'path would have refused, so verify with `traverse` after a large import if linkage matters.\n\n'
+    + 'ORDER IS memories → entities → edges → chrono, which is why an edge may name an entity created in the '
+    + 'same batch. It also means a MEMORY cannot resolve an entity from the same batch at read time even '
+    + 'though its ids are accepted — the entity exists by the end of the call, so this only matters if you '
+    + 'read between calls.\n\n'
+    + 'PARAMETERS: each collection takes the same fields as its single-record tool — `memories` as `remember`, '
+    + '`entities` as `upsert_entity`, `edges` as `upsert_edge`, `chrono` as `create_chrono` — including '
+    + '`ttlDays` per item. `targetSpace` is required when `space` is a proxy.\n\n'
+    + 'RESPONSE: `inserted` (a count per collection) and `errors` (one entry per rejected item, with its '
+    + 'collection and index). Neither tells you about items dropped by the 500 cap; only your own count does.',
   mutating: true,
   spaceRequired: true,
   // Partial-success contract: invalid items are reported per-item in `errors`, not rejected up front.

@@ -13,7 +13,11 @@ import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
 
 export const upsert_edgeTool: ToolHandler = {
   name: 'upsert_edge',
-  description: 'Create or update a directed relationship edge between two entities.',
+  description: 'Create or update a directed relationship between two entities.\n\n'
+    + 'IDENTITY IS THE TRIPLET `(from, to, label)` — there is no id anywhere in the call, so EVERY repeat of the same triplet is an update of the existing edge and nothing in the arguments suggests it. Properties merge over what is stored; an absent `properties` means "leave them alone", not "clear them". Change the label and you have a second, different edge rather than a renamed one.\n\n'
+    + 'DIRECTION IS PART OF THE MEANING. `from`/`to` are not interchangeable, and `depends_on` reversed is a different claim about the world. A traversal follows them separately (`direction: outbound|inbound|both`), so a reversed edge is not merely untidy — it is unreachable from the side that should have found it.\n\n'
+    + 'Both endpoints must be entity ids that exist when the space uses strict linkage; that is a refusal, not a dangling edge. And an edge IS a searchable record: it carries its own embedding and competes with knowledge for a recall\'s result slots, which is why `recall` has a `types` filter.\n\n'
+    + 'IF THE SPACE VALIDATES: `introduced` are violations this write caused and are what refuses it; `preExisting` were already stored, are reported, and do NOT block. Branch on `introduced`.',
   mutating: true,
   spaceRequired: true,
   inputSchema: (s: ToolSchemas) => ({

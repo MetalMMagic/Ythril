@@ -38,9 +38,16 @@ const toolText = (file, name) => {
 
 const UPSERT_ENTITY = toolText('server/src/mcp/tools/entity.ts', 'upsert_entity');
 const REMEMBER = toolText('server/src/mcp/tools/memory.ts', 'remember');
+const UPSERT_EDGE = toolText('server/src/mcp/tools/edge.ts', 'upsert_edge');
+const CREATE_CHRONO = toolText('server/src/mcp/tools/chrono.ts', 'create_chrono');
 
-describe('both write tools explain the refusal shape', () => {
-  for (const [label, text] of [['upsert_entity', UPSERT_ENTITY], ['remember', REMEMBER]]) {
+describe('every write tool explains the refusal shape', () => {
+  // Applied across the family rather than per tool: the refusal shape is identical on all four, so one of
+  // them documenting it and three not is the drift this loop exists to prevent.
+  for (const [label, text] of [
+    ['upsert_entity', UPSERT_ENTITY], ['remember', REMEMBER],
+    ['upsert_edge', UPSERT_EDGE], ['create_chrono', CREATE_CHRONO],
+  ]) {
     it(`${label} names introduced vs preExisting and says which one refuses`, () => {
       assert.match(text, /introduced/, 'name the half that is the caller\'s fault');
       assert.match(text, /preExisting/, 'name the half that is not');
@@ -70,6 +77,49 @@ describe('each says what its write does to what is already there', () => {
     assert.match(REMEMBER, /Always an INSERT/, 'there is no id to update');
     assert.match(REMEMBER, /compete for the same result slots/,
       'the cost of a duplicate is not storage, it is recall quality');
+  });
+});
+
+describe('upsert_edge: identity is the triplet, and direction is meaning', () => {
+  it('says every repeat of the same triplet is an UPDATE', () => {
+    // There is no id in the call, so nothing in the arguments hints that a repeat merges. This is the same
+    // shape that made a partial upsert fail validation before the merged form was validated.
+    assert.match(UPSERT_EDGE, /IDENTITY IS THE TRIPLET/, 'the triplet IS the id');
+    assert.match(UPSERT_EDGE, /nothing in the arguments suggests it/,
+      'say that the call gives no hint — that is why it surprises people');
+  });
+
+  it('says direction is not interchangeable', () => {
+    assert.match(UPSERT_EDGE, /not interchangeable/, 'from/to reversed is a different claim');
+    assert.match(UPSERT_EDGE, /unreachable from the side that should have found it/,
+      'a reversed edge is not untidy, it is missing from a traversal');
+  });
+
+  it('warns that an edge is a searchable record', () => {
+    assert.match(UPSERT_EDGE, /competes with knowledge/,
+      'edges take result slots in recall, which is why recall has a types filter');
+  });
+});
+
+describe('create_chrono: what belongs here rather than in a memory', () => {
+  it('says a custom chrono schema REPLACES the defaults', () => {
+    // The trap: a space that declares its own chrono types stops accepting `event`, and the refusal reads
+    // like a bug unless you know the list is a replacement rather than an extension.
+    assert.match(CREATE_CHRONO, /INSTEAD, not in addition/,
+      'a custom schema replaces the default type names, it does not add to them');
+  });
+
+  it('says what makes something a chrono entry rather than a memory', () => {
+    assert.match(CREATE_CHRONO, /whose truth expires/,
+      'a dated fact stored as a memory cannot be closed, only contradicted');
+    assert.match(CREATE_CHRONO, /If it has a date, it belongs here/, 'give the caller the rule, not a hint');
+  });
+
+  it('says entityIds are what make it reachable from the entity', () => {
+    assert.match(CREATE_CHRONO, /NOT edges/,
+      'the reference is not an edge, which is why only the traverse TOOL reaches it');
+    assert.match(CREATE_CHRONO, /never from the thing it concerns/,
+      'an unlinked chrono entry is findable by search and date only — say the cost of forgetting');
   });
 });
 

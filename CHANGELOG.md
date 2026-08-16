@@ -21,6 +21,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Storing a relationship now says that the two endpoints and the label ARE its identity.** There is no id
+  anywhere in the call, so repeating the same from/to/label pair updates the existing relationship rather
+  than adding a second one — and nothing in the arguments hints at that. Direction is part of the meaning
+  too: *depends on* reversed is a different claim, and a walk follows the two directions separately, so a
+  backwards relationship is not merely untidy, it is unreachable from the side that should have found it.
+  It also now says that relationships are searchable records in their own right and compete for slots in a
+  search, which is why searching has a type filter.
+
+- **Storing a dated entry now says what belongs there rather than in a plain fact.** Anything with a date —
+  an event, a deadline, a plan — carries start and end times and a status, so it can be listed by date and
+  *closed*, where the same thing written as a fact can only ever be contradicted later. It also warns that a
+  space defining its own dated-entry types **replaces** the built-in list rather than adding to it, so a
+  space with a custom schema will refuse `event`; and that linking the entry to the entities it concerns is
+  what makes it reachable from them, since those links are not relationships in the graph sense.
+
 - **The two most-used write tools now explain what a validation refusal means, and what the write does to a
   record that already exists.** A refusal is the only response a caller has to branch on, and it has two
   halves: what *this* write broke, and what was already broken before it. Only the first refuses — that

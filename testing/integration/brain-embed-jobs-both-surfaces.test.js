@@ -112,10 +112,10 @@ describe('REST: the record half of the embedding queue', () => {
   });
 
   it('does not collide with the MEDIA queue endpoint it nests under', async () => {
-    // `/embedding-queue` and `/embedding-queue/records` are different answers about different halves of the same
+    // `/embedding-queue/media` and `/embedding-queue/records` are different answers about different halves of the same
     // subsystem. If the nested path ever shadowed its parent, the F9 Overview panel would silently start reading brain
     // counts as media counts — the two shapes are similar enough that nothing would throw.
-    const media = await get(INSTANCES.a, token, `/api/brain/spaces/${SPACE}/embedding-queue`);
+    const media = await get(INSTANCES.a, token, `/api/brain/spaces/${SPACE}/embedding-queue/media`);
     assert.equal(media.status, 200, JSON.stringify(media.body));
     assert.ok('complete' in media.body, 'the media summary has a `complete` counter; the record listing does not');
     assert.ok(!('jobs' in media.body), 'and it does not carry a jobs array');

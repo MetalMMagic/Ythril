@@ -436,7 +436,7 @@ describe('Recall traverse — the complete graph is downloadable when it does no
 
     // Not embedded: embedding a read's own output would let the next recall match the JSON dump of an
     // earlier one, and would spend model time doing it.
-    const queue = await get(INSTANCES.a, token(), `/api/brain/spaces/${SPACE_DENSE}/embedding-queue`);
+    const queue = await get(INSTANCES.a, token(), `/api/brain/spaces/${SPACE_DENSE}/embedding-queue/media`);
     assert.equal(queue.status, 200, JSON.stringify(queue.body));
     const jobs = JSON.stringify(queue.body);
     assert.ok(!jobs.includes('_tmp/'), `no spill may be queued: ${jobs.slice(0, 300)}`);

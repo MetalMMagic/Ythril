@@ -247,12 +247,19 @@ appear.
 ### Media embedding queue for a space
 
 ```http
-GET /api/brain/spaces/:spaceId/embedding-queue
+GET /api/brain/spaces/:spaceId/embedding-queue/media
 ```
 
 The **media** half of the queue — file chunks produced by the conversion pipeline. For brain records (memories, entities,
 edges, chrono) see [Vectorless records](#vectorless-records--the-embed-queue-for-brain-records), which is a separate
 collection with a separate worker.
+
+> **The `/media` segment is new in 3.1, and this path was `/embedding-queue` with nothing after it.** The
+> namespace always had two halves — `/records` for brain records, and the bare path for media — but only one
+> of them said which it was, so "no qualifier means files" was true and knowable only from this paragraph.
+> Both halves are named now.
+>
+> **This is a breaking change with no alias.** Update the path; the response is unchanged.
 
 **Response** `200`:
 
@@ -271,7 +278,7 @@ proxy's grouping describes its members rather than whichever one was read first.
 ### Retry every failed media job in a space
 
 ```http
-POST /api/brain/spaces/:spaceId/embedding-queue/retry-failed
+POST /api/brain/spaces/:spaceId/embedding-queue/media/retry-failed
 ```
 
 Re-queues **all** failed media jobs in the space (and across members for a proxy). Requires `files: write`.

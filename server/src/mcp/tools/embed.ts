@@ -149,7 +149,7 @@ export const retry_record_embeddingTool: ToolHandler = {
 /**
  * Re-queue EVERY failed media job in a space — the bulk counterpart to `retry_embedding`.
  *
- * `POST /api/brain/spaces/:spaceId/embedding-queue/retry-failed` was REST-only, so an agent recovering a space
+ * `POST /api/brain/spaces/:spaceId/embedding-queue/media/retry-failed` was REST-only, so an agent recovering a space
  * after an embedder outage had to enumerate the failures and call the single-file tool once per file. That is the
  * shape of the reindex-by-curl-loop that motivated the `reindex` tool in the first place: a customer did fourteen
  * spaces by hand because the agent that planned their work could not do it.
@@ -159,18 +159,24 @@ export const retry_record_embeddingTool: ToolHandler = {
  * **Sums across member spaces**, exactly as the route does: on a proxy the failures live in the members, and a
  * caller who asked the proxy to retry means all of them.
  */
-export const retry_failed_embeddingsTool: ToolHandler = {
-  name: 'retry_failed_embeddings',
-  description: 'THE MEDIA QUEUE, NOT THE BRAIN ONE — read this before reaching for it. Despite the name, and '
-    + 'despite sitting beside `list_embed_jobs`, this re-queues failed MEDIA jobs: image captioning, audio and '
-    + 'video transcription, document extraction. It does NOT touch the brain embed jobs that `list_embed_jobs` '
-    + 'reports; for one of those use `retry_record_embedding`, and note that a brain job that failed against an '
-    + 'unreachable embedder is already retried on its own and needs no intervention at all.\n\n'
-    + 'Re-queues EVERY failed media job in a space at once, so the worker picks them all up again — the '
-    + 'recovery path after an extractor or model outage. Returns how many jobs were reset. Use this instead of '
-    + 'calling retry_embedding once per file; use retry_embedding when you want one specific file. Jobs the '
-    + 'worker currently holds are left alone rather than interrupted. On a proxy space every member is retried, '
-    + 'because that is what asking the proxy means.',
+export const retry_failed_media_embeddingsTool: ToolHandler = {
+  name: 'retry_failed_media_embeddings',
+  description: 'Re-queue EVERY failed MEDIA job in a space at once — image captioning, audio and video '
+    + 'transcription, document extraction — so the worker picks them all up again. The recovery path after an '
+    + 'extractor or model outage.\n\n'
+    + 'MEDIA, NOT THE BRAIN QUEUE, and the name now says so. It was `retry_failed_embeddings` until 3.1, which '
+    + 'sat beside `list_embed_jobs` and read as its remedy while acting on a different queue entirely. It does '
+    + 'NOT touch the brain embed jobs that `list_embed_jobs` reports; for one of those use '
+    + '`retry_record_embedding`. And usually you need neither: a brain job that failed against an unreachable '
+    + 'embedder is retried on its own, backing off, and needs no intervention at all.\n\n'
+    + 'ONE FILE OR ALL OF THEM. Use `retry_embedding` for one specific file; use this instead of calling it in '
+    + 'a loop. Jobs the worker currently holds are left alone rather than interrupted, so a retry during a run '
+    + 'cannot take work away from it.\n\n'
+    + 'PARAMETERS:\n'
+    + '- `space` — the space to sweep. On a PROXY every member is retried, because that is what asking the '
+    + 'proxy means; the count returned is the total across them.\n\n'
+    + 'RESPONSE: how many jobs were reset. Zero means nothing was failed — not that the call did nothing '
+    + 'wrong. Check `list_embed_jobs` for the brain queue, which this does not touch.',
   mutating: true,
   spaceRequired: true,
   inputSchema: (s: ToolSchemas) => ({

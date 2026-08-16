@@ -3,7 +3,7 @@
  *
  * ## Why the tool exists
  *
- * `POST /api/brain/spaces/:spaceId/embedding-queue/retry-failed` was REST-only. An agent recovering a space
+ * `POST /api/brain/spaces/:spaceId/embedding-queue/media/retry-failed` was REST-only. An agent recovering a space
  * after an embedder outage had to list the failures and call the single-file `retry_embedding` once per file —
  * the shape of the reindex-by-curl-loop that motivated the `reindex` tool, where a customer did fourteen spaces
  * by hand because the agent planning their work could not do it.
@@ -52,9 +52,9 @@ after(async () => {
   }).catch(() => {});
 });
 
-describe('retry_failed_embeddings answers the same as its route', () => {
+describe('retry_failed_media_embeddings answers the same as its route', () => {
   it('REST reports a count, and zero is an answer rather than an error', async () => {
-    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/embedding-queue/retry-failed`, {});
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/embedding-queue/media/retry-failed`, {});
     assert.equal(r.status, 202, JSON.stringify(r.body));
     assert.equal(typeof r.body.retried, 'number', `a count, not a message: ${JSON.stringify(r.body)}`);
     assert.equal(r.body.retried, 0, 'a fresh space has no failed jobs');
@@ -68,7 +68,7 @@ describe('retry_failed_embeddings answers the same as its route', () => {
       return t.skip(`MCP session unavailable: ${e.message}`);
     }
     try {
-      const res = await session.callTool('retry_failed_embeddings', { space: SPACE });
+      const res = await session.callTool('retry_failed_media_embeddings', { space: SPACE });
       const text = JSON.stringify(res ?? {});
       // The tool must EXIST — against a stale image this is where an "Unknown tool" answer would hide.
       assert.doesNotMatch(text, /Unknown tool/i, 'the tool is missing — rebuild the test image');
@@ -99,7 +99,7 @@ describe('retry_failed_embeddings answers the same as its route', () => {
     let session;
     try {
       session = await openMcpSession(roToken);
-      const res = await session.callTool('retry_failed_embeddings', { space: SPACE });
+      const res = await session.callTool('retry_failed_media_embeddings', { space: SPACE });
       const text = JSON.stringify(res ?? {});
       // The refusal names the missing GRANT now rather than a flag: mutating tools are gated on holding a
       // write rung somewhere. `Unknown tool` stays in the alternation because a hidden tool can legitimately
@@ -109,7 +109,7 @@ describe('retry_failed_embeddings answers the same as its route', () => {
 
       // And it must not even be OFFERED: a tool a token cannot call should not appear in its listing.
       const listed = await session.listTools();
-      assert.ok(!listed.some(x => x.name === 'retry_failed_embeddings'),
+      assert.ok(!listed.some(x => x.name === 'retry_failed_media_embeddings'),
         'a mutating tool must be hidden from a read-only token, not merely refused on call');
     } finally {
       session?.close();

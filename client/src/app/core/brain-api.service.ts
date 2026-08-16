@@ -49,12 +49,12 @@ export class BrainApi {
 
   /** Embedding-job backlog for a space (F9 Overview embedding-queue panel). */
   getEmbeddingQueue(spaceId: string): Observable<EmbeddingQueue> {
-    return this.http.get<EmbeddingQueue>(`/api/brain/spaces/${spaceId}/embedding-queue`);
+    return this.http.get<EmbeddingQueue>(`/api/brain/spaces/${spaceId}/embedding-queue/media`);
   }
 
   /** Re-queue every failed media job in a space (F9 Overview "retry all failed"). Returns the count reset. */
   retryFailedEmbeddings(spaceId: string): Observable<{ retried: number }> {
-    return this.http.post<{ retried: number }>(`/api/brain/spaces/${spaceId}/embedding-queue/retry-failed`, {});
+    return this.http.post<{ retried: number }>(`/api/brain/spaces/${spaceId}/embedding-queue/media/retry-failed`, {});
   }
 
   /** Which tokens can reach a space and at what level (F9 Overview matrix). ADMIN-only — 403 for others. */

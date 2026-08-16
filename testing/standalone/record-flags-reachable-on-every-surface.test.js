@@ -241,21 +241,50 @@ describe('suppressEmbeddings is reachable on every surface that can set it', () 
       + 'One rule, two surfaces: gate on consistency, not on presence.');
   });
 
-  it('neither door ADVERTISES the pre-3.1.0 spelling, though both still accept it', () => {
-    // The rename's whole point is that a reader finds ONE name. `parseRecordSuppression` takes the old
-    // spelling as an input alias so existing callers do not break and so the stored key stays reachable, but
-    // an MCP schema description is what an agent constructs arguments from — naming both there would rebuild
-    // the defect this change exists to end, and a JSON-schema PROPERTY under the old name would make it
-    // permanent. The alias lives in exactly one file, which is what makes it removable in 4.0.
+  it('the pre-3.1.0 spelling is DECLARED on MCP, or the dispatcher refuses what REST accepts', () => {
+    // This assertion is inverted from what it was, and CI is why. It used to demand the old name appear
+    // nowhere in a tool file, on the reasoning that a schema description is what an agent constructs
+    // arguments from. That reasoning is sound and the conclusion was wrong: MCP input schemas are
+    // `additionalProperties: false` and the DISPATCHER validates against them, so an undeclared property is
+    // refused before `parseRecordSuppression` ever runs. The tools answered "unexpected property
+    // 'excludeFromVectorSearch'" while the REST routes answered 200 for the same field — one rule, two
+    // doors, and the behaviour depending on which client the caller picked.
     for (const [type, file] of Object.entries(MCP_TOOLS)) {
-      assert.doesNotMatch(code(file), /excludeFromVectorSearch/,
-        `the ${type} MCP tool still names excludeFromVectorSearch. The alias belongs in `
-        + 'parseRecordSuppression alone — see _DEPRECATIONS.md for when it goes.');
+      assert.match(code(file), /excludeFromVectorSearch: LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA/,
+        `the ${type} MCP tool does not declare the legacy spelling, so it will 400 for a body REST accepts`);
+    }
+  });
+
+  it('and it appears ONLY as that shared alias — never as prose, never with its own semantics', () => {
+    // The half of the old rule that was right: one name is what a reader should find. The alias is allowed
+    // to exist as a declared property so the call validates; it is not allowed to describe the behaviour a
+    // second time, or to be mentioned in a tool's own prose where somebody would read it as a live choice.
+    for (const [type, file] of Object.entries(MCP_TOOLS)) {
+      const mentions = [...code(file).matchAll(/excludeFromVectorSearch/g)];
+      assert.equal(mentions.length, 1,
+        `the ${type} MCP tool names excludeFromVectorSearch ${mentions.length} times; exactly one is `
+        + 'allowed, the declaration of the shared deprecated alias');
     }
     for (const [type, { file }] of Object.entries(ROUTES)) {
-      assert.doesNotMatch(code(file), /excludeFromVectorSearch/,
-        `the ${type} REST route still names excludeFromVectorSearch rather than deferring to the parser`);
+      assert.doesNotMatch(code(file), /'excludeFromVectorSearch'|`excludeFromVectorSearch`/,
+        `the ${type} REST route spells the legacy name out instead of taking it from the constants — see `
+        + 'chrono.ts, where a literal list of patchable fields lost the alias and 400d a body the parser '
+        + 'was willing to read');
     }
+  });
+
+  it('the alias schema redirects and does nothing else', () => {
+    // A deprecated alias that re-explains the mechanism IS a second name. Its whole job is to point at the
+    // one place the behaviour is described, so that is what it must say — and it must not be the place a
+    // reader learns what the switch does.
+    const shared = code('server/src/mcp/tools/shared.ts');
+    const at = shared.indexOf('export const LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA');
+    assert.ok(at > 0, 'the shared alias schema is gone — the declarations above cannot be what they claim');
+    const decl = shared.slice(at, shared.indexOf('} as const;', at));
+    assert.match(decl, /deprecated: true/, 'it must be marked deprecated in the schema itself');
+    assert.match(decl, /suppressEmbeddings/, 'and name its replacement');
+    assert.doesNotMatch(decl, /vector|traversal|three tiers|falls through/i,
+      'the alias restates the behaviour, which makes it a second name rather than a redirect');
   });
 
   it('the legacy chrono POST-as-update form is GONE, so there is no deprecated door to drop it on', () => {

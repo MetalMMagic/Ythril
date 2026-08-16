@@ -66,6 +66,36 @@ export const SUPPRESS_EMBEDDINGS_SCHEMA = {
 } as const;
 
 /**
+ * The pre-3.1.0 spelling of `suppressEmbeddings`, declared so the DISPATCHER lets it through.
+ *
+ * ## Why it has to be here, and why that is not a second name
+ *
+ * MCP input schemas are `additionalProperties: false` and the dispatcher validates against them, so a
+ * property that is not declared is refused before any handler runs. `parseRecordSuppression` accepts the old
+ * spelling on both doors — but on MCP the call never reached it, and the tool answered *"unexpected property
+ * 'excludeFromVectorSearch'"* while REST answered `200`. CI caught it. That is the forbidden shape written
+ * out in `CLAUDE.md`: a `400` on one door and acceptance on the other, so the behaviour depends on which
+ * client the caller happened to pick.
+ *
+ * The alternative was to refuse it on both doors. It is worse while the key is still STORED and still
+ * synced — the API would deny a name the database depends on — and it breaks every 3.0 caller for no gain
+ * the rename does not already deliver.
+ *
+ * So the property exists and says one thing: use the other name. It carries no semantics of its own, which
+ * is what keeps this one name rather than two — `SUPPRESS_EMBEDDINGS_SCHEMA` is where the behaviour is
+ * described, and a gate asserts this description does nothing but redirect. Both go in 4.0 together with the
+ * stored key; `_DEPRECATIONS.md` row 1.8 has the list.
+ */
+export const LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA = {
+  type: 'boolean',
+  deprecated: true,
+  description:
+    'DEPRECATED — renamed to `suppressEmbeddings` in 3.1.0. Send that instead; it is the same switch and '
+    + 'its description is the one to read. Still accepted here, and on the REST route, so a caller written '
+    + 'against 3.0 keeps working; if you send both, `suppressEmbeddings` wins. Scheduled for removal in 4.0.',
+} as const;
+
+/**
  * Parse + validate `ttlDays` from MCP tool args (F10): a non-negative integer ≤ 36500 sets an expiry,
  * `null` clears it, and absent → `undefined` (inherit the space default). Throws on a present-but-invalid
  * value so the MCP surface fails loud like REST rather than silently dropping the intent.

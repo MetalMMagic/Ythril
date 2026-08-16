@@ -925,11 +925,16 @@ describe('MCP brain tools � update_memory / delete_memory / get_stats', () => 
     assert.equal(reread.body.fact, factText, 'untouched fields must survive the update');
   });
 
-  it('update_memory sets excludeFromVectorSearch as the only field', async (t) => {
+  it('update_memory accepts the legacy excludeFromVectorSearch as the only field', async (t) => {
     if (!storedMemoryId) return t.skip('No storedMemoryId � prior test failed');
     // The flag reached three REST handlers and zero MCP tools, so it was documented, implemented and
     // unusable from the surface an agent holds — and `additionalProperties: false` made sending it a hard
     // rejection. Both halves are covered here: the call is accepted, and the value is persisted.
+    //
+    // Renamed to `suppressEmbeddings` in 3.1.0, and this case now covers the ALIAS. It is the same
+    // `additionalProperties: false` that makes it worth a test of its own: dropping the old property from
+    // the schema made the tool refuse a body the REST route accepted, which is how this suite caught the
+    // rename's compatibility half breaking on one door only.
     const result = await session.callTool('update_memory', {
       space: 'general',
       id: storedMemoryId,
@@ -955,6 +960,29 @@ describe('MCP brain tools � update_memory / delete_memory / get_stats', () => 
       tags: ['irrelevant'],
     });
     assert.ok(result?.isError, 'Non-existent memory ID must return isError');
+  });
+
+  it('update_memory takes the 3.1.0 suppressEmbeddings, and it wins over the alias', async (t) => {
+    if (!storedMemoryId) return t.skip('No storedMemoryId — prior test failed');
+    // The new name has to work on the door where the old one is only a declared alias, and a body carrying
+    // both has to resolve the same way it does over REST — otherwise "same parameters on both doors" is
+    // true of the names and false of the precedence.
+    const on = await session.callTool('update_memory', {
+      space: 'general', id: storedMemoryId, suppressEmbeddings: true,
+    });
+    assert.ok(!on?.isError, `update_memory rejected suppressEmbeddings: ${JSON.stringify(on)}`);
+    let reread = await get(INSTANCES.a, tokenA, `/api/brain/spaces/general/memories/${storedMemoryId}`);
+    assert.equal(reread.body.suppressEmbeddings, true, 'the new name must persist');
+    assert.equal(reread.body.excludeFromVectorSearch, true,
+      'and the pre-3.1.0 key alongside it, so a peer on an older build still honours the suppression');
+
+    const both = await session.callTool('update_memory', {
+      space: 'general', id: storedMemoryId, suppressEmbeddings: false, excludeFromVectorSearch: true,
+    });
+    assert.ok(!both?.isError, `update_memory rejected both spellings together: ${JSON.stringify(both)}`);
+    reread = await get(INSTANCES.a, tokenA, `/api/brain/spaces/general/memories/${storedMemoryId}`);
+    assert.equal(reread.body.suppressEmbeddings, false, 'the new spelling decides');
+    assert.equal(reread.body.excludeFromVectorSearch, false, 'and the legacy key follows it, not the body');
   });
 
   it('delete_memory with no id returns isError', async () => {

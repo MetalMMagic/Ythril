@@ -517,6 +517,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Renaming a space no longer strips every token's access to it.** The rename updated each token's pre-3.0
+  `spaces` allowlist and nothing at all updated the rights matrix — so a token's `perSpace` row stayed under
+  the OLD id, which now named nothing, and the token silently lost the space it had rights in. That is
+  **every token created since 2.9**, because the rights editor writes the matrix and nothing writes the
+  allowlist: the half being maintained was the half nobody has.
+
+  It failed quietly at both ends — no error when renaming, and later a `403` that reads as though the rights
+  were never granted. Both halves are carried now, with the rung unchanged, because a rename is not a
+  re-grant. A token that somehow already holds rights under the new id keeps them rather than being
+  overwritten.
+
 - **Join labels in the data-model diagram no longer run across the next column.** Reported with a screenshot:
   `implements · 113` and `refines · 53` ended on top of the neighbouring card, and `conflicts` was clipped.
   Each join gets its own vertical lane and its label sits beside that lane, growing rightward — and the gap

@@ -109,7 +109,7 @@ export async function checkEntityIdLinkViolations(
  * to permanently poison the high-water mark, causing all future legitimate
  * writes by other peers to be silently ignored.
  *
- * 2^50 â‰ˆ 1.1 quadrillion â€” larger than any realistic counter, but safely
+ * 2^50 â‰ˆ 1.1 quadrillion — larger than any realistic counter, but safely
  * below MAX_SAFE_INTEGER so that nextSeq() arithmetic stays in safe range.
  */
 export const MAX_SYNC_SEQ = 2 ** 50; // 1_125_899_906_842_624

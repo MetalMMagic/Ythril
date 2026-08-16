@@ -103,7 +103,7 @@ syncDocsRouter.post('/memories', syncRateLimit, requireAuth, denyReadOnly, async
     const incoming = parsed.data as MemoryDoc;
     if (rejectImplausibleSeq(spaceId, incoming.seq, res, callerPeerId(req.authToken as Record<string, unknown>))) return;
 
-    // Check for tombstone â€” if a tombstone with >= seq exists, skip
+    // Check for tombstone — if a tombstone with >= seq exists, skip
     const tombstone = await col<TombstoneDoc>(`${spaceId}_tombstones`)
       .findOne(asFilter<TombstoneDoc>({ _id: incoming._id, type: 'memory' })) as TombstoneDoc | null;
     if (tombstone && tombstone.seq >= incoming.seq) {
@@ -119,7 +119,7 @@ syncDocsRouter.post('/memories', syncRateLimit, requireAuth, denyReadOnly, async
       .findOne(asFilter<MemoryDoc>({ _id: incoming._id })) as MemoryDoc | null;
 
     if (!existing) {
-      // No local copy â€” insert directly
+      // No local copy — insert directly
       await col<MemoryDoc>(`${spaceId}_memories`).insertOne(asDoc<MemoryDoc>(incoming));
       // A peer strips `embedding` before sending — it is derived, and the peer may run a
       // different model — so this record landed unsearchable. Queue it a vector.
@@ -131,7 +131,7 @@ syncDocsRouter.post('/memories', syncRateLimit, requireAuth, denyReadOnly, async
     }
 
     if (incoming.seq > existing.seq) {
-      // Remote is newer â€” overwrite
+      // Remote is newer — overwrite
       await col<MemoryDoc>(`${spaceId}_memories`).replaceOne(asFilter<MemoryDoc>({ _id: incoming._id }), asDoc<MemoryDoc>(incoming));
       // A peer strips `embedding` before sending — it is derived, and the peer may run a
       // different model — so this record landed unsearchable. Queue it a vector.

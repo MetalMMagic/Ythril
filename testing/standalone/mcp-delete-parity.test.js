@@ -85,8 +85,13 @@ describe('MCP can delete everything REST can delete', () => {
       const src = read(file);
       const at = src.indexOf(`name: '${tool}'`);
       assert.ok(at > 0, `${tool} not found in ${file}`);
-      // `mutating` sits within the handful of lines after `name`. The read-only gate is derived from it.
-      assert.match(src.slice(at, at + 400), /mutating: true/, `${tool} must be marked mutating`);
+      // Sliced to the NEXT tool rather than a fixed 400 characters. `mutating` sits a few lines after `name`
+      // in source order, but a `description` between them is prose and can be any length — X-2 grew several
+      // past 400 and this reported `delete_entity` as unmarked while it was marked all along. A window sized
+      // to today's prose is a gate that fails on an edit to a comment.
+      const next = src.indexOf("name: '", at + 20);
+      const block = next === -1 ? src.slice(at) : src.slice(at, next);
+      assert.match(block, /mutating: true/, `${tool} must be marked mutating`);
     }
   });
 });

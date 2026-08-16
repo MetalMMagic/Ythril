@@ -21,6 +21,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Punctuation mangled into `â€"` is repaired across the server sources.** Seven files carried text that had
+  been read as one character encoding and written back as another, turning every dash and curly quote into
+  three garbled characters. Six were long-standing; one was introduced earlier in this same release and
+  affected the token API's own reference text, which is read by agents. It compiled and every test passed,
+  because the damage only ever lands inside comments and human-readable strings — which is exactly where it
+  matters, since some of those strings are what an assistant reads to decide how to call the API. A build
+  gate now scans every tracked source file for the signature, so it cannot happen quietly a third time.
+
+- **The two destructive entity tools now say they cannot be undone, and name the gentler thing you may have
+  meant.** An agent deciding whether to call a tool has no undo and no confirmation dialog, so the reference
+  is the only place that warning can live. Deleting a record now points at retiring it from search instead —
+  which keeps it readable and reachable through its links — because a reference that does not name the
+  alternative makes the destructive option the only one anybody finds. It also explains that a refusal to
+  delete a record other things still point at is usually **correct**: it means the deletion would orphan
+  something, and merging is the way to resolve it. Merging now says that its first call is *expected* to come
+  back asking for decisions rather than failing — a client treating that as an error reports a working merge
+  as broken — that leaving any conflict unresolved merges nothing at all, and that properties the two records
+  agree on are carried across without appearing in the list, so a short list is complete rather than partial.
+
 - **Reading and writing files now say what a call costs and what an empty answer means.** Reading returns the
   whole file with no windowing, and a document is the largest thing stored — so the reference now points at
   the cheaper route it never mentioned: search with passage bodies switched off to find *which* file and

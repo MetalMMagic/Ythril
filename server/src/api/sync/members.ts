@@ -16,7 +16,7 @@ export const syncMembersRouter = Router();
 
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// GOSSIP â€” member list & votes
+// GOSSIP — member list & votes
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 // â”€â”€ Ejection guard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -80,7 +80,7 @@ syncMembersRouter.post('/networks/:networkId/members', syncRateLimit, requireAut
 
     const existing = net.members.find(m => m.instanceId === incoming.instanceId);
     if (!existing) {
-      // Unknown member â€” relay is informational; don't auto-add
+      // Unknown member — relay is informational; don't auto-add
       res.status(200).json({ status: 'unknown_member' });
       return;
     }

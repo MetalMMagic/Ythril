@@ -29,7 +29,9 @@ export interface ToolContext {
   tokenSpaces?: string[];
   isAdmin?: boolean;
   /** True when the calling token is read-only (mutating tools are gated out). */
-  readOnly?: boolean;
+  // `readOnly` was REMOVED here in 3.1 (D-8d). It was declared, threaded from the token record through
+  // `createGlobalMcpServer` into every tool's context — and read by none of them. Every mutating decision
+  // asks the rights matrix instead: `canWriteAnywhere` for visibility, `effectiveRung` per call.
   /**
    * The calling token's rights matrix — what tool visibility and the per-call rung check are decided from.
    *

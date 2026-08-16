@@ -80,7 +80,14 @@ function tokenRights(record: unknown): TokenRights | undefined {
   return (record as { rights?: TokenRights } | undefined)?.rights;
 }
 
-function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdmin?: boolean, tokenId?: string, tokenLabel?: string,
+/**
+ * `readOnly` is gone from this parameter list (D-8d).
+ *
+ * It was threaded from the token record through here into `ToolContext.readOnly` — four layers — and READ
+ * BY NO TOOL. Every mutating decision asks the rights matrix instead: `canWriteAnywhere` for visibility,
+ * `effectiveRung` per call. Deleting the field is what makes that provable rather than merely true today.
+ */
+function createGlobalMcpServer(tokenSpaces?: string[], isAdmin?: boolean, tokenId?: string, tokenLabel?: string,
   audit?: { ip: string; authMethod: 'pat' | 'oidc' | null; oidcSubject: string | null; transport: 'sse' | 'http' },
   rights?: TokenRights): Server {
   const cfg = getConfig();
@@ -281,7 +288,6 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
         accessibleSpaceIds,
         tokenSpaces,
         isAdmin,
-        readOnly,
         // Populated, not merely declared. `toolIsVisible(t, undefined)` hides every mutating and admin
         // tool, so an unpopulated `rights` here would empty `help`'s listing while `tools/list` stayed
         // correct — the two disagreeing again, in the one mechanism built to stop that.
@@ -347,7 +353,7 @@ mcpRouter.get('/', globalRateLimit, async (req, res) => {
     log.debug(`MCP global session ${sessionTag(transport.sessionId)} closed`);
   });
 
-  const server = createGlobalMcpServer(req.authToken?.spaces, req.authToken?.readOnly, req.authToken?.admin, req.authToken?.id, req.authToken?.name,
+  const server = createGlobalMcpServer(req.authToken?.spaces, req.authToken?.admin, req.authToken?.id, req.authToken?.name,
     { ip: req.ip ?? '', authMethod: auditAuthMethod(req.authToken), oidcSubject: auditOidcSubject(req.authToken), transport: 'sse' }, tokenRights(req.authToken));
   log.debug(`MCP global session ${sessionTag(transport.sessionId)} opened`);
   await server.connect(transport);
@@ -379,7 +385,7 @@ mcpRouter.post('/messages', globalRateLimit, async (req, res) => {
 // This transport requires no persistent connection and works through standard HTTP proxies.
 mcpRouter.post('/', globalRateLimit, async (req, res) => {
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-  const server = createGlobalMcpServer(req.authToken?.spaces, req.authToken?.readOnly, req.authToken?.admin, req.authToken?.id, req.authToken?.name,
+  const server = createGlobalMcpServer(req.authToken?.spaces, req.authToken?.admin, req.authToken?.id, req.authToken?.name,
     { ip: req.ip ?? '', authMethod: auditAuthMethod(req.authToken), oidcSubject: auditOidcSubject(req.authToken), transport: 'http' }, tokenRights(req.authToken));
   // Register cleanup before handling the request so it fires regardless of outcome.
   res.on('close', () => {

@@ -345,7 +345,11 @@ async function handleConsent(req: Request, res: Response): Promise<void> {
     redirectUri,
     codeChallenge,
     scopes: scope.split(' ').filter(Boolean),
-    identity: { admin: !!record.admin, readOnly: !!record.readOnly, spaces: record.spaces,
+    // `readOnly: false`, not `!!record.readOnly` — the field is gone from the record (D-8d), and the
+    // authorising token's `rights` are carried through directly below. The minted token derives its matrix
+    // from those, so this flag no longer shapes anything; it stays only until the identity shape itself is
+    // trimmed, and `false` is the value that cannot narrow or widen what `rights` already says.
+    identity: { admin: !!record.admin, readOnly: false, spaces: record.spaces,
       rights: (record as { rights?: TokenRecord['rights'] }).rights },
     expiresAt: now + AUTH_CODE_TTL_MS,
   });

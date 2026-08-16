@@ -1,0 +1,122 @@
+/**
+ * The first of the three pre-3.0 token fields is deleted: `TokenRecord.readOnly`.
+ *
+ * ## Why this one first, and why it is safe
+ *
+ * Nothing decided on it any more. `toolIsVisible` asks `canWriteAnywhere(rights)`, every REST guard asks
+ * `effectiveRung`, and the `ToolContext.readOnly` that was threaded from the record through
+ * `createGlobalMcpServer` into every tool's context was **read by no tool at all** — four layers of plumbing
+ * carrying a value nobody consulted.
+ *
+ * D-8d is otherwise atomic: a field cannot be half-removed. But there are THREE fields, and per-field
+ * measurement made a real scope cut available — `readOnly` was 6 type errors across 4 files, against 23 for
+ * `spaces` and 13 for `admin`. One field, deleted completely, beats three fields half-done.
+ *
+ * ## What must NOT disappear with it
+ *
+ * A token minted before the matrix existed still has its scope derived from these fields at load, by
+ * `migrateToken`. That reads `LegacyToken` — its own interface over raw stored config — so deleting the
+ * runtime field cannot strand a pre-3.1 record. `createToken` also keeps `readOnly` as an INPUT, because
+ * "mint a read-only token" is the commonest grant and forcing every caller to hand-build a matrix to say it
+ * would be a worse API.
+ *
+ * The distinction this file pins: **gone as a stored field and as a decision input, kept as a migration
+ * input and a mint parameter.**
+ *
+ * Run: node --test testing/standalone/legacy-readonly-field-is-gone.test.js
+ * (requires a prior `npm run build` in server/)
+ */
+import { describe, it, before } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
+import { stripComments } from './_strip-comments.mjs';
+
+const src = (p) => stripComments(readFileSync(p, 'utf8'));
+
+let migrateToken;
+before(async () => {
+  ({ migrateToken } = await import('../../server/dist/auth/rights-migration.js'));
+});
+
+describe('the field is gone from the record and from the plumbing', () => {
+  it('TokenRecord no longer declares it', () => {
+    const types = src('server/src/config/types.ts');
+    const at = types.indexOf('spaces?: string[]');
+    assert.ok(at > 0, 'the TokenRecord block was not found — the scanner is wrong, not the code');
+    const block = types.slice(at, at + 400);
+    assert.doesNotMatch(block, /readOnly\?: boolean;/, 'the stored field must be gone');
+  });
+
+  it('nothing writes it onto a record', () => {
+    // Indentation is the discriminator, and it has to be: the record literal and the `migrateToken` argument
+    // are the same text — `readOnly: opts.readOnly ?? false,` — and only one of them may survive. Record
+    // fields sit at four spaces, the migrate call's arguments at six.
+    const tokens = src('server/src/auth/tokens.ts');
+    assert.doesNotMatch(tokens, /^ {4}readOnly:/m, 'a record literal must not carry it');
+    assert.match(tokens, /^ {6}readOnly: opts\.readOnly \?\? false,/m,
+      'while the migrateToken argument must remain — that is the whole safety property');
+  });
+
+  it('ToolContext no longer declares it, and the MCP server no longer takes it', () => {
+    assert.doesNotMatch(src('server/src/mcp/tools/types.ts'), /readOnly\?: boolean;/,
+      'four layers of plumbing for a value no tool read');
+    assert.doesNotMatch(src('server/src/mcp/router.ts'), /createGlobalMcpServer\(tokenSpaces\?: string\[\], readOnly/,
+      'the parameter must be gone from the signature');
+  });
+
+  it('and no tool reads it — which is what made this safe', () => {
+    // Asserted rather than assumed. If a tool starts consulting a `readOnly` on its context, this fails
+    // before the field can be reintroduced to feed it.
+    // `git grep` exits 1 when it finds nothing, and `|| true` is not cmd.exe syntax — so the shell form is
+    // not portable here. Catch the exit code instead: no match IS the passing case.
+    let out = '';
+    try {
+      out = execSync('git grep -l "ctx.readOnly" -- server/src', { encoding: 'utf8', stdio: 'pipe' }).trim();
+    } catch {
+      out = ''; // exit 1 = no matches
+    }
+    assert.equal(out, '', `these read a context flag that no longer exists: ${out}`);
+  });
+});
+
+describe('what it is replaced BY still answers the question', () => {
+  it('the token listing derives read-only from the matrix', () => {
+    // Better than the flag it replaces: correct for a token that was never given the boolean but holds only
+    // `read`, which the old display called nothing at all.
+    assert.match(src('server/src/mcp/tools/spaces.ts'), /canWriteAnywhere\(t\.rights/,
+      'read-only is now a property of the rights, not a boolean somebody set');
+  });
+});
+
+describe('a pre-matrix token keeps its scope', () => {
+  it('migrateToken still reads readOnly and still derives `read` everywhere', () => {
+    // The safety property of the whole deletion. `LegacyToken` is its own interface over raw stored config,
+    // so the runtime field going away cannot strand a record written before the matrix existed.
+    const m = migrateToken({ readOnly: true, spaces: ['qa'] });
+    for (const area of ['knowledge', 'files', 'schema', 'dataQuality']) {
+      assert.equal(m.perSpace.qa[area], 'read', `${area} must come back as read`);
+    }
+  });
+
+  it('and an unrestricted read-only token still gets a floor rather than nothing', () => {
+    const m = migrateToken({ readOnly: true });
+    assert.ok(m.floor, 'no allowlist means every space, including ones created later');
+    assert.equal(m.floor.knowledge, 'read');
+  });
+
+  it('write is still the default when neither flag is set', () => {
+    assert.equal(migrateToken({ spaces: ['qa'] }).perSpace.qa.knowledge, 'write');
+  });
+});
+
+describe('minting a read-only token is still sayable', () => {
+  it('createToken keeps it as an input', () => {
+    // Dropping the parameter too would have forced every caller to hand-build a matrix to express the
+    // commonest grant there is.
+    const tokens = src('server/src/auth/tokens.ts');
+    assert.match(tokens, /readOnly\?: boolean;/, 'still a parameter');
+    assert.match(tokens, /readOnly: opts\.readOnly \?\? false,\s*\n\s*spaces: opts\.spaces,/,
+      'and still feeds migrateToken, which is the only thing it does now');
+  });
+});

@@ -9,7 +9,15 @@ export interface TokenRecord {
   expiresAt: string | null;
   spaces?: string[];    // allowlist of space IDs; omit = all spaces
   admin: boolean;       // true = may access admin-gated routes
-  readOnly?: boolean;   // true = read-only access; all mutations blocked
+  // `readOnly` was REMOVED in 3.1 (D-8d). It was the second of the pre-3.0 triple and the first to go,
+  // because nothing decided on it any more: `toolIsVisible` asks `canWriteAnywhere(rights)`, every REST
+  // guard asks `effectiveRung`, and the `ToolContext.readOnly` that was threaded through four layers to
+  // reach the tools was read by none of them.
+  //
+  // It survives where it is still MEANINGFUL: as an INPUT to `migrateToken`, which derives a matrix for a
+  // token minted before the matrix existed. That reads `LegacyToken`, its own interface over raw stored
+  // config, so a pre-3.1 record keeps its scope. What is gone is the runtime field — nothing writes it and
+  // nothing can start deciding on it again.
   peerInstanceId?: string; // set on tokens created for network peers — links this PAT to the peer that uses it inbound
   schemaLibrary?: boolean; // true = only valid on GET /api/schema-library/public*; no space access
   oauthClientId?: string;  // set on PATs minted by the MCP OAuth flow — links this token to the connector client that created it (for rotation, capping, and UI attribution)

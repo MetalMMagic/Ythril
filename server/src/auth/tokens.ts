@@ -171,6 +171,13 @@ export async function createToken(opts: {
   expiresAt?: string | null;
   spaces?: string[];
   admin?: boolean;
+  /**
+   * NOT stored on the record any more (D-8d) — kept as an INPUT that shapes the initial rights matrix.
+   *
+   * A caller minting without an explicit `rights` still says "read-only" and gets `read` in every area,
+   * because `migrateToken` is what turns that into a matrix. Dropping the parameter as well would have made
+   * that phrasing unsayable and forced every caller to hand-build a matrix to express the commonest grant.
+   */
   readOnly?: boolean;
   peerInstanceId?: string;
   schemaLibrary?: boolean;
@@ -197,7 +204,6 @@ export async function createToken(opts: {
     expiresAt: opts.expiresAt ?? null,
     spaces: opts.spaces,
     admin: opts.admin ?? false,
-    readOnly: opts.readOnly ?? false,
     peerInstanceId: opts.peerInstanceId,
     ...(opts.schemaLibrary ? { schemaLibrary: true } : {}),
     // Stored only when it says something. `inherit` IS the absent state, so writing it would put a field on
@@ -263,7 +269,6 @@ export async function createOAuthToken(opts: {
     expiresAt: opts.ttlMs === null ? null : new Date(Date.now() + opts.ttlMs).toISOString(),
     spaces: opts.spaces,
     admin: opts.admin ?? false,
-    readOnly: opts.readOnly ?? false,
     oauthClientId: opts.clientId,
     // ALWAYS stored, for the reason spelled out on `createToken` above — and this is the path that fix
     // MISSED. `createToken` was given an unconditional matrix because a token minted after boot had none

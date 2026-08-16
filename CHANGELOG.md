@@ -33,6 +33,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   already-empty space succeeds with zeroes rather than erroring. Whether wiping *should* propagate is a real
   question with three defensible answers, so it is filed rather than decided.
 
+- **`bulk_write` now says where it loses data quietly.** Anything past **500 entries per collection is
+  discarded before validation** — it appears in neither the inserted counts nor the error list, so a 600-item
+  import stores 500 and the reply says nothing about the other 100. The cap was previously mentioned only
+  inside one parameter's own text, where a caller reading the tool summary would never meet it, and nothing
+  said the loss went unreported. The description now leads with it, and with the related trap: because this
+  tool reports bad items rather than failing, **a call that returns normally may have written nothing**, so
+  the inserted counts and the error list both have to be read. It also states an asymmetry with the
+  single-record tools — bulk checks that a reference is a well-formed id but never that it exists, so it can
+  store a dangling link that `remember` or `update_memory` would have refused under strict linkage. That is
+  deliberate, since a batch may legitimately reference an entity created later in the same payload, and the
+  description now says so, so nobody "fixes" it into rejecting valid forward references.
+
 - **The four delete tools now say what they do *not* delete, and which of them can refuse.** Three of them
   read *"Delete an X by ID. Creates a tombstone for sync propagation"* and nothing else, which left a caller
   to discover the interesting parts by doing it. Deleting an **entity** is refused while something still

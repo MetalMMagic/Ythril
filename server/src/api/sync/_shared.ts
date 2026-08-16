@@ -103,7 +103,7 @@ export async function checkEntityIdLinkViolations(
   }
 }
 
-// â”€â”€ Safety limits â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Safety limits ─────────────────────────────────────────────────────────
 
 /**
  * Upper bound on any seq value accepted from a remote peer.
@@ -111,7 +111,7 @@ export async function checkEntityIdLinkViolations(
  * to permanently poison the high-water mark, causing all future legitimate
  * writes by other peers to be silently ignored.
  *
- * 2^50 â‰ˆ 1.1 quadrillion — larger than any realistic counter, but safely
+ * 2^50 ≈ 1.1 quadrillion — larger than any realistic counter, but safely
  * below MAX_SAFE_INTEGER so that nextSeq() arithmetic stays in safe range.
  */
 export const MAX_SYNC_SEQ = 2 ** 50; // 1_125_899_906_842_624
@@ -128,7 +128,7 @@ export const MAX_SYNC_SEQ = 2 ** 50; // 1_125_899_906_842_624
  */
 export const MAX_FORK_DEPTH = 10;
 
-// â”€â”€ Incoming document schemas (Zod validation for peer-submitted docs) â”€â”€â”€â”€â”€
+// ── Incoming document schemas (Zod validation for peer-submitted docs) ─────
 
 export const AuthorRefSchema = z.object({
   instanceId: z.string().min(1),
@@ -208,7 +208,7 @@ export const IncomingChronoDoc = z.object({
   seq: z.number().int().nonnegative().max(MAX_SYNC_SEQ),
 });
 
-// â”€â”€ Paginated cursor helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Paginated cursor helpers ─────────────────────────────────────────────────
 
 export function encodeCursor(seq: number): string {
   return Buffer.from(String(seq)).toString('base64url');
@@ -218,7 +218,7 @@ export function decodeCursor(token: string): number {
   catch { return 0; }
 }
 
-// â”€â”€ Space access guard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Space access guard ─────────────────────────────────────────────────────
 
 /**
  * Walk the forkOf chain upward from a document to measure how deep
@@ -431,9 +431,9 @@ export function isDirectionalWriteBlocked(spaceId: string, authToken: Record<str
   });
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════════════
 // MEMORIES
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════════════
 
 /**
  * GET /api/sync/memories?spaceId=&networkId=&sinceSeq=&limit=&cursor=&full=

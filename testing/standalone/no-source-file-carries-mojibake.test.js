@@ -33,8 +33,26 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 
-/** The unambiguous signature: `â€` is the first two bytes of any mis-decoded U+20xx punctuation. */
-const MOJIBAKE = /â€|Ã¢â‚¬/;
+/**
+ * The unambiguous signatures.
+ *
+ * `â€` is the first two chars of any mis-decoded U+20xx punctuation — em-dashes and smart quotes, which is
+ * what prose corruption looks like.
+ *
+ * **`â”` and `â•` were added on 2026-08-16, after this gate passed a tree holding thousands of them.** Ten
+ * files carried mis-decoded BOX-DRAWING characters (U+25xx) — every `── section ──` divider in the sync
+ * routers and the graph component. They start `â”`/`â•`, never `â€`, so the original pattern could not see
+ * them: it was written for the corruption that had bitten me, and box-drawing is the same corruption applied
+ * to comment furniture rather than to prose.
+ *
+ * `api/tokens.ts` is the proof that this was a gap and not a new event. Its 49 `â€` sequences were repaired
+ * when this gate was written; its 48 `â”` sequences sat there untouched, in a file everyone believed clean.
+ *
+ * Each of these is `â` followed by a character that cannot follow it in any language this repo is written
+ * in, so none needs the tuning that kept `Â ` out — a lone `Â ` is a mis-decoded non-breaking space and
+ * those occur legitimately.
+ */
+const MOJIBAKE = /â€|â”|â•|Ã¢â‚¬/;
 
 const tracked = (globs) => execSync(`git ls-files ${globs}`, { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
   .split('\n').map(s => s.trim()).filter(Boolean);
@@ -65,5 +83,14 @@ describe('no source file carries mis-decoded UTF-8', () => {
     // Mutation-proof for the regex itself: a gate whose pattern never matches passes everything.
     assert.ok(MOJIBAKE.test('capability documentation â€” every route'), 'the pattern must match real mojibake');
     assert.ok(!MOJIBAKE.test('capability documentation — every route'), 'and must not match the correct text');
+  });
+
+  it('and detects the BOX-DRAWING corruption it used to walk straight past', () => {
+    // The regression assertion. These exact strings were in the tree, in ten files, while this gate was
+    // green — a divider comment corrupted the same way an em-dash is, in a range the pattern did not cover.
+    assert.ok(MOJIBAKE.test('// â”€â”€ Memories â”€â”€'), 'U+2500 dividers: `─` mis-decoded');
+    assert.ok(MOJIBAKE.test('// â•â•â• Section â•â•â•'), 'U+2550 dividers: `═` mis-decoded');
+    assert.ok(!MOJIBAKE.test('// ── Memories ──'), 'and the correct dividers must stay clean');
+    assert.ok(!MOJIBAKE.test('// ═══ Section ═══'), 'both of them');
   });
 });

@@ -324,7 +324,7 @@ const RenameTokenBody = z.object({
    * is shorter still than minting.
    */
   mfa: z.enum(['inherit', 'exempt', 'required']).optional(),
-  // â”€â”€ The rest of the record, accepted ONLY unchanged â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── The rest of the record, accepted ONLY unchanged ──────────────────────────────────────────────
   //
   // These are declared so that echoing back a token you just read does not 400 on the first field the
   // schema had never heard of. They are NOT editable here; the handler compares each one it was sent

@@ -21,7 +21,7 @@ export const GRAPH_STYLES = `
       min-height: 400px;
     }
 
-    /* â”€â”€ Space chips (matches brain style) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+    /* ── Space chips (matches brain style) ─────────────────────────────────── */
     .space-tabs {
       display: flex;
       gap: 8px;
@@ -57,7 +57,7 @@ export const GRAPH_STYLES = `
     .space-chip-id { font-size: 10px; color: var(--text-muted); }
     .space-chip.active .space-chip-id { color: var(--accent); opacity: 0.7; }
 
-    /* â”€â”€ Toolbar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+    /* ── Toolbar ───────────────────────────────────────────────────────────── */
 
     .graph-toolbar {
       display: flex;
@@ -191,7 +191,7 @@ export const GRAPH_STYLES = `
       font-family: var(--font-mono);
     }
 
-    /* â”€â”€ Canvas zone â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+    /* ── Canvas zone ──────────────────────────────────────────────────────── */
 
     .canvas-row {
       display: flex;
@@ -292,7 +292,7 @@ export const GRAPH_STYLES = `
     }
     @keyframes graph-spin { to { transform: rotate(360deg); } }
 
-    /* â”€â”€ Side panel (shown when node or edge selected) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+    /* ── Side panel (shown when node or edge selected) ───────────────────── */
 
     .side-panel {
       width: 560px;
@@ -400,7 +400,7 @@ export const GRAPH_STYLES = `
     }
 
 
-    /* â”€â”€ Shared badge, button helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+    /* ── Shared badge, button helpers ──────────────────────────────────────── */
     .tag {
       display: inline-block;
       padding: 1px 7px;

@@ -170,7 +170,7 @@ export function concludeRoundIfReady(
   return false;
 }
 
-// â”€â”€ Notify ejected member after a remove vote passes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Notify ejected member after a remove vote passes ──────────────────────
 // Fire-and-forget: non-fatal if the peer is unreachable.
 export function sendMemberRemovedNotify(
   subjectUrl: string,

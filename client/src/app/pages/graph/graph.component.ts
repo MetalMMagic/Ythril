@@ -81,7 +81,7 @@ import { canWriteAnywhere } from '../../core/token-capability';
   host: { '[class.embedded]': 'isEmbedded()' },
   styles: [GRAPH_STYLES],
   template: `
-    <!-- â•â•â• Space selector â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+    <!-- ═══ Space selector ══════════════════════════════════════════════════ -->
     @if (!isEmbedded() && spaces().length > 0) {
       <div class="space-tabs">
         @for (s of spaces(); track s.id) {
@@ -90,7 +90,7 @@ import { canWriteAnywhere } from '../../core/token-capability';
       </div>
     }
 
-    <!-- â•â•â• Toolbar â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+    <!-- ═══ Toolbar ════════════════════════════════════════════════════════ -->
     <div class="graph-toolbar">
       <div class="search-wrapper">
         <app-entity-search
@@ -130,10 +130,10 @@ import { canWriteAnywhere } from '../../core/token-capability';
       <button class="toolbar-btn" [attr.title]="'graph.toolbar.resetGraph' | transloco"     (click)="resetGraph()"><ph-icon name="arrows-clockwise" [size]="16"/></button>
     </div>
 
-    <!-- â•â•â• Canvas row (canvas + optional side panel) â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+    <!-- ═══ Canvas row (canvas + optional side panel) ══════════════════════ -->
     <div class="canvas-row">
 
-      <!-- â”€â”€ Canvas zone â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+      <!-- ── Canvas zone ────────────────────────────────────────────────── -->
       <div class="canvas-zone">
         @if (truncated()) {
           <div class="truncation-banner">
@@ -161,7 +161,7 @@ import { canWriteAnywhere } from '../../core/token-capability';
         <div #cyContainer class="cy-container" [style.visibility]="rootEntity() ? 'visible' : 'hidden'"></div>
       </div>
 
-      <!-- â”€â”€ Side panel (node selected) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+      <!-- ── Side panel (node selected) ────────────────────────────────── -->
       @if (selectedNode()) {
         <div class="side-panel">
           <div class="side-panel-header">
@@ -240,7 +240,7 @@ import { canWriteAnywhere } from '../../core/token-capability';
         </div>
       }
 
-      <!-- â”€â”€ Side panel (edge selected) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+      <!-- ── Side panel (edge selected) ────────────────────────────────── -->
       @if (selectedEdge()) {
         <div class="side-panel">
           <div class="side-panel-header">
@@ -333,7 +333,7 @@ import { canWriteAnywhere } from '../../core/token-capability';
 
     </div><!-- /canvas-row -->
 
-    <!-- â•â•â• Entry popup (entity / edge) â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+    <!-- ═══ Entry popup (entity / edge) ═══════════════════════════════════ -->
     @if (popupRecord()) {
       <app-entry-popup
         [record]="popupRecord()"
@@ -350,7 +350,7 @@ import { canWriteAnywhere } from '../../core/token-capability';
   `,
 })
 export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
-  // â”€â”€ DI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── DI ──────────────────────────────────────────────────────────────────────
   private spacesApi = inject(SpacesApi);
   private brainApi = inject(BrainApi);
   private authApi = inject(AuthApi);
@@ -400,10 +400,10 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     });
   }
 
-  // â”€â”€ Element refs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Element refs ────────────────────────────────────────────────────────────
   cyContainer = viewChild<ElementRef<HTMLDivElement>>('cyContainer');
 
-  // â”€â”€ Embedded input â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Embedded input ──────────────────────────────────────────────────────────
   @Input() set embeddedSpaceId(v: string | undefined) {
     if (v !== undefined) {
       this.isEmbedded.set(true);
@@ -428,7 +428,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
   }
   private pendingFocusId: string | null = null;
 
-  // â”€â”€ State signals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── State signals ───────────────────────────────────────────────────────────
   isEmbedded = signal(false);
 
   spaces = signal<Space[]>([]);
@@ -471,7 +471,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
   loadError = signal<string | null>(null);
   private lastTraverse: { startId: string; maxDepth: number; direction: 'outbound' | 'inbound' | 'both' } | null = null;
 
-  // â”€â”€ Computed â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Computed ────────────────────────────────────────────────────────────────
   allDetails = computed<DetailRow[]>(() => buildDetailRows(this.nodeMemories(), this.nodeChrono()));
 
   filteredDetails = computed<DetailRow[]>(() => filterAndSortDetails(this.allDetails(), {
@@ -527,7 +527,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     return this.theme.fallback;
   });
 
-  // â”€â”€ Private state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Private state ───────────────────────────────────────────────────────────
   private cy: GraphInstance | null = null;
   private subs = new Subscription();
 
@@ -545,7 +545,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
   /** Full-depth traversal cache — what makes a shallower depth free. See `graph-traversal-cache.ts`. */
   private cache: TraversalCache = emptyCache();
 
-  // â”€â”€ Lifecycle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Lifecycle ───────────────────────────────────────────────────────────────
 
   ngOnInit(): void {
     // Load spaces only in standalone mode; in embedded mode the space is injected via @Input
@@ -618,7 +618,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     });
   }
 
-  // â”€â”€ Cytoscape init â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Cytoscape init ──────────────────────────────────────────────────────────
 
   private initCytoscape(): void {
     const container = this.cyContainer()?.nativeElement;
@@ -631,7 +631,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     });
   }
 
-  // â”€â”€ Canvas interactions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Canvas interactions ───────────────────────────────────────────────────────
   //
   // These run OUTSIDE the Angular zone (cytoscape's own event system). Safe under OnPush only because
   // each writes a SIGNAL — a plain field would update nothing on screen.
@@ -676,7 +676,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     this.selectedEdgeRecord.set(null);
   }
 
-  // â”€â”€ Toolbar handlers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Toolbar handlers ────────────────────────────────────────────────────────
 
   onSearchQueryChange(q: string): void {
     this.searchQuery.set(q);
@@ -751,7 +751,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  // â”€â”€ Graph traversal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Graph traversal ─────────────────────────────────────────────────────────
 
   private traverse(startId: string, maxDepth: number, direction: 'outbound' | 'inbound' | 'both'): void {
     const spaceId = this.activeSpaceId();
@@ -836,7 +836,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     }, 50);
   }
 
-  // â”€â”€ Detail panel helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Detail panel helpers ────────────────────────────────────────────────────
 
   private loadNodeDetails(entityId: string): void {
     const spaceId = this.activeSpaceId();
@@ -871,7 +871,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   sortArrow(field: 'description' | 'createdAt'): string {
-    return this.sortField() === field ? (this.sortAsc() ? 'â–²' : 'â–¼') : '';
+    return this.sortField() === field ? (this.sortAsc() ? '▲' : '▼') : '';
   }
 
   openEntityPopup(node: TraverseNode): void {
@@ -996,7 +996,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  // â”€â”€ URL management â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── URL management ──────────────────────────────────────────────────────────
   private updateUrl(entityId: string, push = false): void {
     const spaceId = this.activeSpaceId();
     const path = this.location.path().split('?')[0];

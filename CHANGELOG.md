@@ -227,6 +227,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **The sync read routes enforced space scope only for tokens that still carried the pre-3.0 allowlist —
+  which no token minted today does.** The check that confined a caller to its own spaces was written
+  `if (tokenSpaces && ...)`, and `tokenSpaces` was the deprecated `spaces` array. The rights editor writes the
+  matrix and nothing writes that array any more, so on a current token the condition short-circuited and the
+  check simply did not run. Nothing downstream caught it: without a network id in the request the function
+  ended at *"does this space exist?"* and answered yes. Every `/api/sync/*` read is behind ordinary
+  authentication, so **any valid token could read any space's records** as long as its own scope was expressed
+  in the matrix. Writes were never exposed — those have always required a peer token or an instance admin — so
+  this was a read exposure, on an instance where more than one token exists with different reach.
+
+  The scope check now reads the matrix first and falls back to the old allowlist only for a token that has
+  none, so pre-matrix tokens keep working and a token carrying both is held to the matrix. The same guard was
+  written out **19 times** across the sync routes, which is why one wrong condition survived review; it is one
+  shared call now, and the parameter that made the mistake expressible is gone from the signature.
+
 - **A space-restricted administrator's scope is now read from its rights matrix, not from the deprecated
   space allowlist.** Three places decided what an administrator may reach — the token list, the mint guard and
   the edit guard — and all three read the pre-3.0 `spaces` array. The rights matrix has been the permission

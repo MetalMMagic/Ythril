@@ -172,6 +172,31 @@ shows `none` — both are correct, and the grid is showing you what the token ca
 > upgrading if you see one change; it never restores access from the pre-3.0 `admin` / `read-only` / spaces
 > fields.
 
+#### Setting all four areas to admin makes a space administrator
+
+Give a token **admin** on all four areas of one space and it becomes that space's administrator. It can then do
+two things it could not before:
+
+- **Manage that space's tokens** — create them, edit their rights, rotate and revoke them. It only ever sees
+  and edits tokens whose own reach sits inside the spaces it administers.
+- **Change that space's settings** — its name, its schema and types, and a re-index of its own search
+  indexes.
+
+All four areas, deliberately. Admin on **Files** alone would be enough to mint tokens if any single area
+counted, which is a bigger grant than the cell appears to make.
+
+**Administering one space grants nothing in another.** The check is against the space being edited, so an
+administrator of *Research* who opens *Finance* is refused exactly as before.
+
+**Two things stay with the instance owner**, and both refuse with a message saying so:
+
+| Stays instance-only | Why |
+| --- | --- |
+| **Max size (GiB)** of the space | It is that space's share of the machine's disk, not a setting of the space |
+| Creating, reordering and **deleting** spaces | There is no space to scope those to, and deleting one is not one of its settings |
+
+If MFA is on, a space administrator is prompted for a code like everybody else.
+
 **The second factor is not a token setting.** MFA is instance-wide and lives in **Settings → Preferences**;
 there is nothing about it in the token dialogs, and there is no per-token exemption to grant here.
 

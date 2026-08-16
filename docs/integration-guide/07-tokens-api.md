@@ -244,6 +244,23 @@ the diff.
 
 <!-- markdownlint-disable-next-line MD028 -->
 
+> **The SPACE ADMINISTRATOR, and how it differs from the legacy pair above.** The paragraph above describes an
+> `admin: true` token carrying a `spaces` allowlist. The matrix expresses the same role without the legacy
+> flag: a token holding the `admin` rung on **all four areas** (`knowledge`, `files`, `schema`, `dataQuality`)
+> of space X is X's administrator.
+>
+> All four, not any one — `admin` on Files alone would otherwise mint tokens, which is an escalation rather
+> than a role.
+>
+> Such a token reaches the token routes and is then held to exactly the rules above, scoped to the spaces it
+> administers. It also reaches **its own space's settings** — see
+> [Update a Space](06-spaces-api.md#update-a-space) for which routes and which single field is refused.
+>
+> What it never reaches is anything instance-shaped: creating a space, joining a network, instance settings,
+> the database page. There is no space to scope those to, which is what makes them the instance's.
+
+<!-- markdownlint-disable-next-line MD028 -->
+
 > **Granting `mfa: "exempt"` costs a live TOTP code on the request** whenever MFA is enabled instance-wide —
 > the same rule create has, and for the same reason. Admin authentication here is satisfied by an admin token
 > that is itself exempt, so without it one exemption could grant the next until the instance-wide switch

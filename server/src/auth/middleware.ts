@@ -5,7 +5,7 @@ import { consumeSseTicket } from './sse-ticket.js';
 import { isMfaEnabled, verifyMfaCode } from './totp.js';
 import { validateOidcJwt, getOidcConfig } from './oidc.js';
 import type { TokenRecord } from '../config/types.js';
-import { spaceAdminSpacesFor } from './editor-scope.js';
+import { spaceAdminSpacesFor, isSpaceAdminFor } from './editor-scope.js';
 import type { OidcTokenRecord } from './oidc.js';
 import { resolveMemberSpaces } from '../spaces/proxy.js';
 import { reachesSpace } from './space-reach.js';
@@ -598,6 +598,58 @@ export function requireAdminMfaScoped(paramName: string) {
     const spaceId = req.params[paramName] as string | undefined;
     if (!enforceSpaceScope(res, record, spaceId)) return;
   if (!enforceAreaRung(res, record, req, spaceTargets(spaceId, record))) return;
+
+    attachToken(req, record, bearer);
+    next();
+  };
+}
+
+/**
+ * As `requireAdminMfaScoped`, and the administrator of THAT SPACE also passes.
+ *
+ * Owner ruling P-8 = B, 2026-08-15, second clause: *"those are INSTANCE admin things. B and includes the rest
+ * of the matrixes rungs for this space."* A space administrator gets their space — its tokens (shipped) and
+ * its own settings (this). Creating a space, reordering the instance's spaces and joining a network stay where
+ * they were, because there is no space to scope them to.
+ *
+ * ## The scope check is the ADMISSION here, not a filter after it
+ *
+ * `requireAdminOrSpaceAdmin` admits any space administrator and lets `refusalsOutsideEditorScope` bound what
+ * they may then write. That works for the token routes, where the body names its own subject. A space route
+ * has no such body: the subject is `req.params[paramName]`, so the space being administered has to BE the
+ * space in the URL or the guard grants nothing it can take back.
+ *
+ * Hence `isSpaceAdminFor(rights, spaceId)` rather than `spaceAdminSpacesFor(...).length > 0`. Administering
+ * space A must not open space B's settings, and the looser predicate would have done exactly that.
+ *
+ * ## The instance-admin path is unchanged
+ *
+ * Byte for byte the old order — MFA, then the legacy allowlist, then the area rungs. A token that passes today
+ * passes identically, which is what keeps this a widening at one named door rather than a rewrite of the
+ * guard every admin route shares.
+ */
+export function requireAdminOrSpaceAdminMfaScoped(paramName: string) {
+  return async function (req: Request, res: Response, next: NextFunction): Promise<void> {
+    const auth = await resolveAuthOrFail(req, res, {});
+    if (!auth) return;
+    const { record, bearer } = auth;
+    const spaceId = req.params[paramName] as string | undefined;
+
+    if (!record.admin) {
+      // Narrowed to the one field the decision reads, for the same reason `enforceAdminOrSpaceAdmin` does it.
+      const withRights = record as { rights?: TokenRights | null };
+      if (!spaceId || !isSpaceAdminFor(withRights.rights, spaceId)) {
+        res.status(403).json({ error: 'Admin token required' });
+        return;
+      }
+    }
+
+    if (!enforceMfa(req, res, bearer, record)) return;
+    // Only meaningful on the instance-admin path: a space administrator was admitted by the space id itself,
+    // so the allowlist has nothing left to narrow. Run unconditionally anyway — a guard that is skipped for
+    // one class of caller is the shape of every "one rule, two implementations" defect in this repo.
+    if (!enforceSpaceScope(res, record, spaceId)) return;
+    if (!enforceAreaRung(res, record, req, spaceTargets(spaceId, record))) return;
 
     attachToken(req, record, bearer);
     next();

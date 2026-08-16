@@ -203,9 +203,14 @@ export const get_space_metaTool: ToolHandler = {
 
 export const update_spaceTool: ToolHandler = {
   name: 'update_space',
-  description: 'Update the label or purpose of the specified space. Requires an admin token. `purpose` is the space-level directive MCP clients receive at handshake. Its `description` alias was removed in 3.0 — sending `description` is now rejected, not silently folded into `purpose`.',
+  description: 'Update the label or purpose of the specified space. Needs EITHER instance-admin rights OR the '
+    + '`admin` rung on all four areas (knowledge, files, schema, dataQuality) of the space named in `space` — '
+    + 'administering a different space does not grant this one. `purpose` is the space-level directive MCP '
+    + 'clients receive at handshake. Its `description` alias was removed in 3.0 — sending `description` is now '
+    + 'rejected, not silently folded into `purpose`. To change the space\'s storage quota you need instance-admin '
+    + 'rights and the REST route: `maxGiB` is the space\'s share of the host disk, so it is not a space setting.',
   mutating: true,
-  admin: true,
+  spaceAdmin: true,
   spaceRequired: true,
   inputSchema: (s: ToolSchemas) => ({
           type: 'object',
@@ -218,13 +223,12 @@ export const update_spaceTool: ToolHandler = {
           additionalProperties: false,
         }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
-    const { args: a, callSpace, isAdmin } = ctx;
-    if (!isAdmin) {
-      return {
-        content: [{ type: 'text' as const, text: 'Error: update_space requires an admin token' }],
-        isError: true,
-      };
-    }
+    // No second copy of the authorisation rule here. `spaceAdmin: true` is decided in the dispatcher by
+    // `spaceAdminRefusal`, against the rights matrix and the space this call names. The `if (!isAdmin)` that
+    // used to sit here read the LEGACY boolean, which `ToolContext` says outright nothing should read for a
+    // new decision — and left in place it would have refused exactly the space administrator this feature
+    // admits, silently, one layer below the guard that let them in.
+    const { args: a, callSpace } = ctx;
     const newLabel = typeof a['label'] === 'string' ? a['label'].trim() : undefined;
     const newDesc = typeof a['purpose'] === 'string' ? a['purpose'] : undefined;
     if (newLabel === undefined && newDesc === undefined) {
@@ -317,7 +321,9 @@ async function runSpaceMetaUpdate(
  */
 export const update_space_schemaTool: ToolHandler = {
   name: 'update_space_schema',
-  description: 'Write a space\'s type schemas (and its other meta fields). Requires an admin token. '
+  description: 'Write a space\'s type schemas (and its other meta fields). Needs EITHER instance-admin rights OR '
+    + 'the `admin` rung on all four areas (knowledge, files, schema, dataQuality) of the space named in `space` — '
+    + 'administering a different space does not grant this one. '
     + 'MERGES by default: types you do not mention are preserved, so editing one type does not require resending '
     + 'the others. Pass `typeSchemasMode: "replace"` to make the payload authoritative — that is the only way to '
     + 'DELETE a type. Knowledge-type keys are singular: entity, memory, edge, chrono. A `$ref` to a schema-library '
@@ -325,7 +331,7 @@ export const update_space_schemaTool: ToolHandler = {
     + 'network votes on meta changes this opens a vote round instead of writing — the reply says so, and nothing is '
     + 'stored until the round concludes.',
   mutating: true,
-  admin: true,
+  spaceAdmin: true,
   spaceRequired: true,
   inputSchema: (s: ToolSchemas) => ({
     type: 'object',
@@ -356,13 +362,9 @@ export const update_space_schemaTool: ToolHandler = {
     additionalProperties: false,
   }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
-    const { args: a, callSpace, isAdmin } = ctx;
-    if (!isAdmin) {
-      return {
-        content: [{ type: 'text' as const, text: 'Error: update_space_schema requires an admin token' }],
-        isError: true,
-      };
-    }
+    // Authorised by `spaceAdmin: true` in the dispatcher — see the note on `update_space`. The legacy
+    // `isAdmin` check that stood here would have refused a space administrator the guard had just admitted.
+    const { args: a, callSpace } = ctx;
 
     // Everything except `space`/`typeSchemasMode` belongs inside `meta`, which is where the planner's `.strict()`
     // schema expects it. Built by picking the declared names rather than by spreading `args`: a spread would carry

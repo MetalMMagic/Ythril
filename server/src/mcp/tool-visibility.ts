@@ -1,10 +1,12 @@
 import type { TokenRights } from '../config/rights-shape.js';
 import { canWriteAnywhere } from '../auth/write-anywhere.js';
+import { spaceAdminSpacesFor } from '../auth/editor-scope.js';
 
 /** The shape this needs off a tool — the two flags that decide whether it is reachable at all. */
 export interface VisibilityFlags {
   mutating?: boolean;
   admin?: boolean;
+  spaceAdmin?: boolean;
 }
 
 /**
@@ -36,6 +38,12 @@ export interface VisibilityFlags {
  */
 export function toolIsVisible(tool: VisibilityFlags, rights: TokenRights | undefined): boolean {
   if (tool.admin) return rights?.instanceAdmin === true;
+  // A space-admin tool is LISTED to anyone who administers a space, and refused per call for the space they
+  // did not administer. Coarse here for the reason stated above — `tools/list` is answered before any space is
+  // named, so "administers something" is the only question that can be asked at this point. `spaceAdminRefusal`
+  // asks the real one. Listing a tool the dispatcher may then refuse is the same shape as the mutating case
+  // directly below, which has always been listed on "can write ANYWHERE" and refused per space.
+  if (tool.spaceAdmin) return rights?.instanceAdmin === true || spaceAdminSpacesFor({ rights }).length > 0;
   if (tool.mutating) return canWriteAnywhere(rights);
   return true;
 }

@@ -2,7 +2,10 @@ import { Router } from 'express';
 import { registerReembedRoute } from './spaces-reembed.js';
 import { registerActivityResetRoute } from './spaces-activity.js';
 import path from 'path';
-import { requireAuth, requireSpaceAuthScoped, requireAdmin, requireAdminMfa, requireAdminMfaScoped } from '../auth/middleware.js';
+import {
+  requireAuth, requireSpaceAuthScoped, requireAdmin, requireAdminMfa, requireAdminMfaScoped,
+  requireAdminOrSpaceAdminMfaScoped,
+} from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { getConfig, saveConfig, getSecrets, getDataRoot, getSchemaLibrary, getDocumentProcessingConfig, getMediaEmbeddingConfig, getStorageConfig } from '../config/loader.js';
 import { capDocExtractionMode } from '../files/converters/extraction-level.js';
@@ -52,7 +55,7 @@ export const spacesRouter = Router();
 // Deliberately `force`: the caller is here because something is wrong, so the "definition already
 // matches" shortcut is not to be trusted — a stale entry that mongot has not yet collected would make
 // the repair silently do nothing.
-spacesRouter.post('/:id/rebuild-indexes', globalRateLimit, requireAdminMfaScoped('id'), async (req, res) => {
+spacesRouter.post('/:id/rebuild-indexes', globalRateLimit, requireAdminOrSpaceAdminMfaScoped('id'), async (req, res) => {
   const spaceId = req.params['id'] as string;
   if (!getConfig().spaces.some(s => s.id === spaceId)) {
     res.status(404).json({ error: `Space '${spaceId}' not found` });
@@ -74,7 +77,7 @@ registerReembedRoute(spacesRouter);
 registerActivityResetRoute(spacesRouter);
 
 // PATCH /api/spaces/:id/rename
-spacesRouter.patch('/:id/rename', globalRateLimit, requireAdminMfaScoped('id'), async (req, res) => {
+spacesRouter.patch('/:id/rename', globalRateLimit, requireAdminOrSpaceAdminMfaScoped('id'), async (req, res) => {
   const oldId = req.params['id'] as string;
   const parsed = RenameSpaceBody.safeParse(req.body);
   if (!parsed.success) {
@@ -263,10 +266,25 @@ spacesRouter.post('/', globalRateLimit, requireAdminMfa, async (req, res) => {
 //
 // `space-meta-update-contract.test.js` pins the chain the planner now owns, including its ORDER, and it was proven
 // against this handler before the move.
-spacesRouter.patch('/:id', globalRateLimit, requireAdminMfaScoped('id'), async (req, res) => {
+spacesRouter.patch('/:id', globalRateLimit, requireAdminOrSpaceAdminMfaScoped('id'), async (req, res) => {
   const id = req.params['id'] as string;
   const cfg = getConfig();
   const space = cfg.spaces.find(s => s.id === id);
+
+  // `maxGiB` is the one field in this body that spends an INSTANCE resource rather than configuring a space:
+  // it is that space's share of the host's disk. A space administrator setting their own quota could take the
+  // whole volume, which is the instance's to give — so the guard admits them to the route and this refuses the
+  // single field, rather than the route staying shut over one number.
+  //
+  // Checked against `record.admin` for the same reason the guard is: it is the instance-admin bit, and a space
+  // administrator is by construction not it.
+  if (req.body?.maxGiB !== undefined && !req.authToken?.admin) {
+    res.status(403).json({
+      error: 'maxGiB is an instance setting: a space administrator may change this space\'s settings but not '
+        + 'its share of the host\'s storage. Ask an instance administrator to change the quota.',
+    });
+    return;
+  }
 
   const decision = planSpaceMetaUpdate({ spaceId: id, space, body: req.body, ifMatch: req.get('If-Match') });
   if (!decision.ok) {
@@ -294,7 +312,7 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminMfaScoped('id'), async (
 // Unlike PATCH (which merges types), this completely overwrites `meta.typeSchemas`
 // with the supplied value.  Before applying, the previous schema is written to a
 // timestamped JSON backup file inside the space so it can be recovered or re-imported.
-spacesRouter.put('/:id/schema', globalRateLimit, requireAdminMfaScoped('id'), async (req, res) => {
+spacesRouter.put('/:id/schema', globalRateLimit, requireAdminOrSpaceAdminMfaScoped('id'), async (req, res) => {
   const id = req.params['id'] as string;
   const cfg = getConfig();
   const space = cfg.spaces.find(s => s.id === id);
@@ -475,7 +493,7 @@ spacesRouter.get('/:id/meta/typeSchemas/:knowledgeType/:typeName', globalRateLim
 });
 
 // PUT /api/spaces/:id/meta/typeSchemas/:knowledgeType/:typeName — upsert a single type definition
-spacesRouter.put('/:id/meta/typeSchemas/:knowledgeType/:typeName', globalRateLimit, requireAdminMfaScoped('id'), (req, res) => {
+spacesRouter.put('/:id/meta/typeSchemas/:knowledgeType/:typeName', globalRateLimit, requireAdminOrSpaceAdminMfaScoped('id'), (req, res) => {
   const { id, knowledgeType, typeName } = req.params as { id: string; knowledgeType: string; typeName: string };
 
   if (!VALID_KNOWLEDGE_TYPES.has(knowledgeType)) {
@@ -554,7 +572,7 @@ spacesRouter.put('/:id/meta/typeSchemas/:knowledgeType/:typeName', globalRateLim
 });
 
 // DELETE /api/spaces/:id/meta/typeSchemas/:knowledgeType/:typeName — remove a single type definition
-spacesRouter.delete('/:id/meta/typeSchemas/:knowledgeType/:typeName', globalRateLimit, requireAdminMfaScoped('id'), (req, res) => {
+spacesRouter.delete('/:id/meta/typeSchemas/:knowledgeType/:typeName', globalRateLimit, requireAdminOrSpaceAdminMfaScoped('id'), (req, res) => {
   const { id, knowledgeType, typeName } = req.params as { id: string; knowledgeType: string; typeName: string };
 
   if (!VALID_KNOWLEDGE_TYPES.has(knowledgeType)) {
@@ -615,7 +633,7 @@ spacesRouter.delete('/:id/meta/typeSchemas/:knowledgeType/:typeName', globalRate
 });
 
 // POST /api/spaces/:id/validate-schema — dry-run validation of existing data
-spacesRouter.post('/:id/validate-schema', globalRateLimit, requireAdminMfaScoped('id'), async (req, res) => {
+spacesRouter.post('/:id/validate-schema', globalRateLimit, requireAdminOrSpaceAdminMfaScoped('id'), async (req, res) => {
   const id = req.params['id'] as string;
   const cfg = getConfig();
   const space = cfg.spaces.find(s => s.id === id);

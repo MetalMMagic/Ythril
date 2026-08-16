@@ -170,6 +170,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instance-administrator rights, the create-spaces flag, an all-spaces floor, or any rights on a space they do
   not themselves hold. The second factor is unchanged: if MFA is on, it is on for them too.
 
+- **And that space's own settings, not only its tokens.** The same four-area `admin` rung now opens the
+  space's name, its schema and single types, its schema dry-run, and a rebuild of its own search indexes. The
+  admission is checked against the space in the **URL** — administering Research grants nothing in Finance —
+  which is a stricter question than the token routes ask, and it has to be: a token route's body names its own
+  subject and is filtered afterwards, while a space route's subject is the id being edited, so admitting on
+  "administers something" would have handed over every other space with nothing left to catch it.
+  **`maxGiB` stays with the instance** and answers `403` naming who can change it: it is that space's share of
+  the host's disk rather than a setting of the space. Creating, reordering and **deleting** spaces stay
+  instance-only too — delete is reachable through the same `:id` as everything widened here, and destroying a
+  space is not one of its settings.
+
+  **Both doors, same commit.** `update_space` and `update_space_schema` are the MCP counterparts of those two
+  routes and would otherwise have kept refusing the space administrator that REST now admits — the exact
+  shape of defect the parity rule exists to stop, and it was nearly missed because "no MCP tool mutates space
+  settings" was plausible and wrong. Tools now carry a `spaceAdmin` flag distinct from `admin`, checked at two
+  widths: `tools/list` admits anyone administering *a* space, because no space has been named at listing time,
+  and `tools/call` requires administering *the* space in the call. The stale `if (!isAdmin)` inside each
+  handler is gone — it read the legacy boolean and would have refused, one layer down, exactly the caller the
+  dispatcher had just let in. `create_space`, `wipe_space` and `reindex` stay instance-admin.
+
 ### Breaking
 
 - **A space request body with a key we do not recognise is now refused instead of silently ignored.** Four of

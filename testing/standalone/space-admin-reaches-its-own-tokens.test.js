@@ -130,14 +130,20 @@ describe('the guard is applied where a space can be named, and nowhere else', ()
   it('every OTHER admin route still uses the instance-only guard', async () => {
     // The half that must not drift. `enforceAdmin` is one function behind spaces, networks, instance settings
     // and the database page; widening it there would hand a space administrator the instance.
+    //
+    // `spaces.ts` joined `tokens.ts` on the allowlist when the owner's second clause landed — a space
+    // administrator gets that space's own SETTINGS as well as its tokens. Two names in a list is exactly how
+    // this assertion would rot into a formality, so `space-admin-reaches-its-own-space-settings.test.js` pins
+    // WHICH routes in `spaces.ts` may be widened and requires delete/create/reorder to stay shut.
+    const ALLOWED = ['server/src/api/tokens.ts', 'server/src/api/spaces.ts'];
     const { execSync } = await import('node:child_process');
     const { readFileSync } = await import('node:fs');
     const files = execSync('git ls-files "server/src/api/*.ts"', { encoding: 'utf8' })
-      .split('\n').map(s => s.trim()).filter(Boolean).filter(f => !f.endsWith('tokens.ts'));
+      .split('\n').map(s => s.trim()).filter(Boolean).filter(f => !ALLOWED.includes(f));
     // The floor: an empty offender list over an empty enumeration is green and means nothing.
     assert.ok(files.length > 10, `only walked ${files.length} api modules — the enumeration is broken`);
     const widened = files.filter(f => /requireAdminOrSpaceAdmin/.test(readFileSync(f, 'utf8')));
     assert.deepEqual(widened, [],
-      `these are not token routes and must stay instance-admin only: ${widened.join(', ')}`);
+      `neither tokens nor space settings — these must stay instance-admin only: ${widened.join(', ')}`);
   });
 });

@@ -328,7 +328,31 @@ export const update_chronoTool: ToolHandler = {
 
 export const list_chronoTool: ToolHandler = {
   name: 'list_chrono',
-  description: 'List chronological entries, optionally filtered by status, type, tags, date range, or a text search. Omit space to list across all accessible spaces.',
+  description: 'List chrono entries — the time-anchored records: events, deadlines, plans, predictions and '
+    + 'milestones. Every filter is optional and they AND together; no filters at all returns the most recent '
+    + '20.\n\n'
+    + '`after` AND `before` FILTER WHEN THE ENTRY WAS WRITTEN, NOT WHEN IT HAPPENS. This is the one that '
+    + 'catches people. An entry has `startsAt`/`endsAt` — the time it is ABOUT — and a `createdAt`, the time '
+    + 'someone recorded it. These two parameters read `createdAt`. To ask "what is scheduled next quarter" you '
+    + 'want `query` with a predicate on `startsAt`; `after`/`before` here answer "what did we write down last '
+    + 'week", which is a different question and usually not the one being asked.\n\n'
+    + 'NOTHING RECOMPUTES `status` FROM THE CLOCK. An entry stays `upcoming` after its date has passed until '
+    + 'something sets it otherwise, so `status: "upcoming"` means "nobody has updated this", not "still in the '
+    + 'future", and `status: "overdue"` only finds entries somebody marked overdue. Filter on the dates if you '
+    + 'want the truth about time.\n\n'
+    + 'OMIT `space` TO SEARCH EVERY SPACE THE TOKEN REACHES. That is unusual — most tools require one — and it '
+    + 'is what makes this the tool for "when did we ever say we would do this". Results carry their space.\n\n'
+    + 'PARAMETERS:\n'
+    + '- `status` — `upcoming`, `active`, `completed`, `overdue`, `cancelled`. See the warning above.\n'
+    + '- `type` — `event`, `deadline`, `plan`, `prediction`, `milestone`, or any custom type the space schema '
+    + 'defines.\n'
+    + '- `tags` — entries carrying ALL of these. `tagsAny` — entries carrying ANY. Send both and both apply.\n'
+    + '- `after` / `before` — ISO 8601, against `createdAt`. See the warning above.\n'
+    + '- `search` — case-insensitive SUBSTRING match on title and description. Not meaning-ranked and not '
+    + 'tokenised: it will not find a synonym, and it WILL match inside a longer word. Use `recall` for meaning.\n'
+    + '- `limit` — 1 to 100, default 20. `skip` — for paging; combine with a stable `limit`.\n\n'
+    + 'RESPONSE: the matching entries, newest first, each with its id, title, type, status, dates and space. '
+    + 'An empty list means nothing matched, which is not an error.',
   inputSchema: (s: ToolSchemas) => ({
           type: 'object',
           properties: {

@@ -9,6 +9,7 @@ import { isStrictLinkage, resolveMemberSpaces, resolveWriteTarget, findFirstAcro
 import { memberSpacesWithin } from '../../spaces/proxy-scoped.js';
 import { getAllowedChronoTypes, resolveMetaRefs, validateChrono } from '../../spaces/schema-validation.js';
 import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
+import { validateDeleteFields } from '../../brain/delete-fields.js';
 
 export const create_chronoTool: ToolHandler = {
   name: 'create_chrono',
@@ -172,10 +173,11 @@ export const update_chronoTool: ToolHandler = {
     + 'so patching one key keeps the others. `tags`, `entityIds` and `memoryIds` REPLACE — send the FULL list '
     + 'you want the entry to end up with, because sending one id drops the rest. (`update_entity` and '
     + '`update_edge` merge tags instead; `update_memory` replaces them, like this tool.)\n\n'
-    + 'THERE IS NO `deleteFields` ON THIS TOOL. That is a real limitation rather than an omission from this '
-    + 'text: because `properties` merges and nothing here unsets, a property once written to a chrono entry '
-    + 'CANNOT be removed through this tool. Overwrite it with an empty string if a stale key is a problem, or '
-    + 'delete and recreate the entry. The other three record types do offer `deleteFields`.\n\n'
+    + 'REMOVING SOMETHING IS `deleteFields`, NEVER AN OMISSION. An absent field means "leave it alone", so '
+    + 'there is no value you can send that clears one — send its dot path in `deleteFields` instead, which is '
+    + 'applied AFTER the merge above and is permanent. A path that cannot be honoured is REFUSED by name '
+    + 'rather than ignored: the required fields (`title`, `startsAt`, `status`) and the server-owned ones are '
+    + 'named back to you, so a delete that does nothing is not something this tool can do quietly.\n\n'
     + 'A RE-EMBED IS ALWAYS QUEUED after a successful write, whether or not you changed anything embeddable. '
     + 'The worker reads the record as STORED, so it cannot embed a stale version — deciding here would mean '
     + 'deciding from this function\'s own read, which is what made the older inline embedding wrong.\n\n'
@@ -190,7 +192,10 @@ export const update_chronoTool: ToolHandler = {
     + '- `confidence` — 0 to 1, for entries that are predictions rather than records.\n'
     + '- `tags` / `entityIds` / `memoryIds` — each REPLACES the stored list.\n'
     + '- `description` — replaced when sent.\n'
-    + '- `properties` — MERGED key by key. String, number or boolean values only.\n'
+    + '- `properties` — MERGED key by key. String, number or boolean values only. Use `deleteFields` with '
+    + '`properties.<key>` to remove one.\n'
+    + '- `deleteFields` — dot-notation paths to remove, permanently and with no undo. Applied after the merge. '
+    + 'The only way to unset anything.\n'
     + '- `recurrence` — the repeat rule, replaced wholesale when sent. It describes the entry; it does not '
     + 'generate further entries.\n'
     + '- `excludeFromVectorSearch` — removes the vector, so `recall` can no longer RANK this entry by meaning. '
@@ -236,6 +241,15 @@ export const update_chronoTool: ToolHandler = {
               additionalProperties: false,
             },
             excludeFromVectorSearch: EXCLUDE_FROM_VECTOR_SEARCH_SCHEMA,
+            deleteFields: {
+              type: 'array', items: { type: 'string' },
+              description: 'Dot-notation paths to REMOVE from the entry, applied after the merge above — the '
+                + 'only way to unset anything, since an absent field means "leave alone" and `properties` '
+                + 'merge. E.g. `["properties.oldKey", "description"]`. Permanent, with no undo. The required '
+                + 'fields (`title`, `startsAt`, `status`) and the server-owned ones (`id`, `type`, `spaceId`, '
+                + '`createdAt`, `updatedAt`) are REFUSED by name rather than ignored, so a path that cannot be '
+                + 'honoured tells you instead of silently doing nothing.',
+            },
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
             ttlDays: TTL_DAYS_SCHEMA,
           },
@@ -297,8 +311,17 @@ export const update_chronoTool: ToolHandler = {
     // The three sibling update tools refuse a call that names no field; this one accepted it and answered
     // "updated (seq N)" for a write that changed nothing but the seq. Same asymmetry as the REST handler
     // this mirrors, and the same fix — an agent cannot tell a dropped argument from an applied one otherwise.
-    if (Object.keys(updates).length === 0 && ttlDaysFromArgs(a) === undefined) {
-      throw new Error('At least one of title, type, startsAt, endsAt, status, confidence, tags, entityIds, memoryIds, description, properties, recurrence, excludeFromVectorSearch, or ttlDays must be provided');
+    // X-4: `deleteFields`, validated with the same helper and the same refusals as the REST route and the
+    // three sibling tools. Chrono was the one record type without it, and since its `properties` merge, a key
+    // written once could not be removed by any call at all.
+    const dfResult = validateDeleteFields(a['deleteFields']);
+    if (!dfResult.ok) throw new Error(dfResult.error);
+    const dfPaths: string[] | undefined = Array.isArray(a['deleteFields']) && (a['deleteFields'] as string[]).length > 0
+      ? a['deleteFields'] as string[]
+      : undefined;
+
+    if (Object.keys(updates).length === 0 && ttlDaysFromArgs(a) === undefined && !dfPaths) {
+      throw new Error('At least one of title, type, startsAt, endsAt, status, confidence, tags, entityIds, memoryIds, description, properties, recurrence, excludeFromVectorSearch, deleteFields, or ttlDays must be provided');
     }
 
     // Validate the entry AS IT WILL BE, against the meta of the member space it actually lives in. The
@@ -320,7 +343,7 @@ export const update_chronoTool: ToolHandler = {
       ));
     }
 
-    const entry = await updateChrono(wt.target, id, updates as Parameters<typeof updateChrono>[2], ctx.actor, ttlDaysFromArgs(a));
+    const entry = await updateChrono(wt.target, id, updates as Parameters<typeof updateChrono>[2], dfPaths, ctx.actor, ttlDaysFromArgs(a));
     if (!entry) throw new Error(`Chrono entry '${id}' not found`);
     return { content: [{ type: 'text' as const, text: `Chrono entry '${entry.title}' updated (seq ${entry.seq}).` }] };
   },

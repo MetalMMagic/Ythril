@@ -17,6 +17,7 @@ import { stampExpiryOnCreate, applyExpiryToUpdate } from './ttl.js';
 import { stampSkewOnCreate } from './stamp-skew.js';
 import { getSpaceMeta } from '../spaces/schema-validation.js';
 import { mergeTags, mergeProperties, mergePropertiesOrKeep } from './merge-fields.js';
+import { applyDeleteFields } from './delete-fields.js';
 import { enqueueEmbedJob, retireEmbedJob } from './embed-queue.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { ChronoEntry, ChronoType, ChronoStatus, TombstoneDoc } from '../config/types.js';
@@ -231,6 +232,7 @@ export async function updateChrono(
   spaceId: string,
   id: string,
   updates: Partial<Pick<ChronoEntry, 'title' | 'description' | 'type' | 'startsAt' | 'endsAt' | 'status' | 'confidence' | 'tags' | 'entityIds' | 'memoryIds' | 'properties' | 'recurrence' | 'excludeFromVectorSearch'>>,
+  deleteFieldsPaths?: string[],
   actor?: WebhookActor,
   ttlDays?: number | null,
   ifMatchSeq?: number,
@@ -251,6 +253,50 @@ export async function updateChrono(
   // Removing a key is `deleteFields`' job on the surfaces that offer it, never an absence here.
   const mergedUpdateProps = mergePropertiesOrKeep(existing.properties, updates.properties);
   if (updates.properties !== undefined) $set['properties'] = mergedUpdateProps;
+
+  /**
+   * `deleteFields`, applied AFTER the merge — the same shape and the same order as `updateMemory`.
+   *
+   * Chrono was the one record type without it (X-4). Combined with merging `properties`, that meant a key
+   * written once could never be removed: an absence never means "delete" here, deliberately, and there was
+   * no path that unset. So the entry is not "chrono should have a parameter the others have" — it is that
+   * chrono had no expression for removal at all.
+   *
+   * The merged view is built from `updates ?? existing` so a path can address a field this call is also
+   * setting, and the result is reflected back into `$set`/`$unset`: a whole field that disappeared becomes
+   * an `$unset`, and a field that merely lost a sub-key is re-`$set` to its pruned value.
+   */
+  if (deleteFieldsPaths && deleteFieldsPaths.length > 0) {
+    const merged: Record<string, unknown> = {
+      title: updates.title ?? existing.title,
+      description: updates.description !== undefined ? updates.description : existing.description,
+      tags: updates.tags ?? existing.tags,
+      entityIds: updates.entityIds ?? existing.entityIds,
+      memoryIds: updates.memoryIds ?? existing.memoryIds,
+      properties: mergedUpdateProps ?? {},
+      recurrence: updates.recurrence !== undefined ? updates.recurrence : existing.recurrence,
+      endsAt: updates.endsAt !== undefined ? updates.endsAt : existing.endsAt,
+      confidence: updates.confidence !== undefined ? updates.confidence : existing.confidence,
+      excludeFromVectorSearch: updates.excludeFromVectorSearch !== undefined
+        ? updates.excludeFromVectorSearch : existing.excludeFromVectorSearch,
+    };
+    applyDeleteFields(merged, deleteFieldsPaths);
+
+    // EVERY optional field, not a convenient subset. A field the writer forgets is accepted at the edge and
+    // then does nothing, which is the silent no-op this feature exists to remove — chrono's whole problem was
+    // that a property could not be removed and nothing said so. The REQUIRED fields (`title`, `startsAt`,
+    // `status`) are refused by `validateDeleteFields` instead, so between the two lists every path a caller
+    // can send is either performed or reported.
+    for (const field of ['description', 'tags', 'entityIds', 'memoryIds', 'properties', 'recurrence',
+      'endsAt', 'confidence', 'excludeFromVectorSearch']) {
+      if (!(field in merged)) {
+        $unset[field] = '';
+        delete $set[field];
+      } else if (deleteFieldsPaths.some(p => p === field || p.startsWith(field + '.'))) {
+        $set[field] = merged[field];
+      }
+    }
+  }
 
   // There is no longer a "did an embedding-relevant field change?" branch here. It existed to decide whether
   // to pay for an inline embed; the re-embed is now ENQUEUED unconditionally after the write, and

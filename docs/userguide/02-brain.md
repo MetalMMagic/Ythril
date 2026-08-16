@@ -105,6 +105,12 @@ Chrono stores time-anchored entries: events, deadlines, plans, predictions, and 
 
 **Creating an entry:** Click **+ Add entry**. Required fields are **title**, **type**, and **starts at** (date and time). You can also add a description, tags, status, linked **entities**, linked **memories**, and **properties** — the memory field is a searchable picker (type to find a memory by its fact and click to link it; linked memories show as chips), and the properties editor lets you fill in any fields the chrono type's schema defines (switching the type reseeds its property fields). The same pickers and properties editor are available when editing an entry in its detail drawer.
 
+> **Clearing a property on a chrono entry works from 3.1.** Properties are *merged* when you save — the ones
+> you do not touch are kept — so before 3.1 an API caller had no way to remove one at all and a stale key
+> stayed for ever. Removing a property in the editor now removes it. The entry's **title**, **type** and
+> **starts at** cannot be cleared, because an entry without them could not be shown; change them instead, or
+> delete the entry.
+
 **Searching:** The top search bar is **Semantic** (ranks entries by meaning). Plain-text matching (title / description) is the **freetext box under the Title column**.
 
 **Filtering:** The filter bar above the table lets you narrow by tag text and status. Filters apply immediately.

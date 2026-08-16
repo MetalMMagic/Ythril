@@ -10,6 +10,15 @@
 
 const SYSTEM_FIELDS = new Set([
   'id', '_id', 'name', 'type', 'spaceId', 'createdAt', 'updatedAt',
+  // Chrono's required fields, added with `deleteFields` support for chrono (X-4). They are here rather than
+  // simply omitted from the writer's unset list because the two behave differently where it matters: a path
+  // the writer ignores is accepted and silently does nothing, while a path listed here is REFUSED with a
+  // message naming it. "Nothing happened and nobody said so" is the failure this whole file exists to avoid.
+  //
+  // Harmless on the other three record types: the check is against the TOP-LEVEL segment only, so
+  // `properties.title` is still deletable everywhere, and no entity, edge or memory has a bare `title` or
+  // `startsAt` to remove.
+  'title', 'startsAt', 'status',
 ]);
 
 /** Dangerous prototype keys that must never be traversed or deleted. */

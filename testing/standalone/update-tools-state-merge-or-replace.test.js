@@ -105,26 +105,32 @@ describe('every update tool states which it does', () => {
     }
   });
 
-  it('update_chrono admits it cannot unset anything at all', () => {
-    // The finding this file exists for. Merging properties plus no `deleteFields` means a key written once is
-    // permanent, and nothing anywhere said so.
-    assert.match(TOOLS.update_chrono, /NO `deleteFields` ON THIS TOOL/,
-      'the limitation must be stated where a caller looks for the parameter');
-    assert.match(TOOLS.update_chrono, /CANNOT be removed/, 'and its consequence spelled out');
+  it('update_chrono says removal is deleteFields, never an omission', () => {
+    // This assertion originally required the OPPOSITE — that the description admit chrono could not unset
+    // anything. That was true, and filing it is what became X-4; the parameter has now shipped, so the
+    // assertion is INVERTED rather than deleted. The rule it protects never changed: whatever the tool does
+    // about removal, the description has to say it, because an absent field means "leave alone" and a caller
+    // cannot infer the rest.
+    assert.match(TOOLS.update_chrono, /REMOVING SOMETHING IS `deleteFields`, NEVER AN OMISSION/,
+      'the removal path must be named where a caller looks for it');
+    assert.doesNotMatch(TOOLS.update_chrono, /CANNOT be removed|NO `deleteFields` ON THIS TOOL/,
+      'the limitation paragraph must go with the limitation');
   });
 
-  it('and that claim is still true — chrono really has no deleteFields', () => {
-    // Pinned against the schema, so the day it gains one this description fails instead of misinforming.
-    // From `inputSchema:` onward, NOT the whole tool — the description above deliberately contains the word
-    // `deleteFields` in the paragraph explaining its absence, and reading the tool whole made this assertion
-    // fire on the very sentence it is there to protect.
+  it('and chrono really has deleteFields now, on BOTH doors', () => {
+    // Read from `inputSchema:` onward, not the whole tool: the description deliberately contains the word
+    // `deleteFields` in prose, so a whole-tool scan would pass on the sentence rather than the parameter.
     const chronoTool = stripComments(src('server/src/mcp/tools/chrono.ts'));
     const at = chronoTool.indexOf("name: 'update_chrono'");
     const schemaAt = chronoTool.indexOf('inputSchema:', at);
     assert.ok(schemaAt > at, 'update_chrono has no inputSchema — the scanner is wrong, not the code');
     const end = chronoTool.indexOf('\nexport const ', at);
-    assert.doesNotMatch(chronoTool.slice(schemaAt, end === -1 ? undefined : end), /deleteFields/,
-      'update_chrono gained deleteFields — delete the paragraph saying it has none');
+    assert.match(chronoTool.slice(schemaAt, end === -1 ? undefined : end), /deleteFields: \{/,
+      'declared in the input schema');
+    // The parity half: same parameter on the REST route, same commit. A capability on one door only is the
+    // single most expensive defect this codebase produces.
+    assert.match(stripComments(src('server/src/api/brain/chrono.ts')), /validateDeleteFields\(/,
+      'and validated on the REST route with the same helper');
   });
 });
 

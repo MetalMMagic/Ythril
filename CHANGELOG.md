@@ -266,6 +266,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A chrono entry's fields can be removed. Until now none of them could.** `deleteFields` — the dot-notation
+  removal that entities, edges and memories have always had — now works on chrono entries too, on **both**
+  the REST route and the `update_chrono` tool. It was the one record type without it, and because its
+  `properties` merge and an omitted field means *leave alone*, there was no request of any shape that could
+  unset something: a key written once was permanent. Paths are applied **after** the merge, so a single call
+  can add one property and drop another. Chrono's **required** fields — `title`, `startsAt`, `status` — are
+  refused **by name** rather than accepted and ignored, alongside the server-owned ones; a path that cannot
+  be honoured tells you, because "nothing happened and nobody said so" is the failure this feature exists to
+  remove. A *property* of the same name (`properties.title`) is an ordinary user key and stays deletable.
+
+- **The mojibake check now detects the corruption structurally instead of matching known signatures.** It
+  looked for `â€`, then `â”`/`â•` after a tree with thousands of mis-decoded box-drawing dividers passed it,
+  and it was *still* reporting clean while one merged file carried `Ã—` — two characters, starting with a
+  letter none of the three patterns named. Each addition fixed the instance and not the class. It now asks
+  whether a run of non-ASCII, encoded back to the codepage the damage comes from, decodes as valid UTF-8 into
+  something **shorter** — which is true of mis-decoded text and of nothing else, so no new shape can hide
+  from it. Failures also name what the text should have been, instead of leaving the repair to guesswork.
+  One residual `×` was repaired.
+
 - **A space administrator can now manage that space's tokens.** Until now "administers this space" was only
   sayable through the pre-3.0 pair — an `admin` token plus a list of spaces — and the rights matrix could not
   express it: giving someone `admin` on every area of a space granted them those areas and nothing about

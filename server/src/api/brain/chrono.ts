@@ -21,7 +21,9 @@ import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, ttlDaysFromBod
 import { classifyUpdateViolations } from '../../brain/write-validation.js';
 import { resolveEntityIdsByName } from '../../brain/entities.js';
 import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
-import { parseRecordSuppression } from '../../brain/suppress-embeddings.js';
+import {
+  parseRecordSuppression, RECORD_SUPPRESS_FIELD, LEGACY_RECORD_SUPPRESS_FIELD,
+} from '../../brain/suppress-embeddings.js';
 
 export const chronoRouter = Router();
 
@@ -213,9 +215,15 @@ chronoRouter.patch('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceA
   // so a client could not tell a no-op from an applied change — which is exactly how the missing flag
   // above stayed invisible. Unknown keys are still dropped rather than named back (documented in the
   // integration guide); what is no longer possible is dropping ALL of them and calling it success.
+  // Both spellings of the record tier, from the constants rather than as two literals. This list decides
+  // whether the caller sent anything AT ALL, and it is a separate question from whether the value parses —
+  // so naming only the new spelling here made a legacy-only PATCH answer `At least one field must be
+  // provided` while `parseRecordSuppression` was perfectly willing to read it. Accepted by one half and
+  // refused by the other is worse than not accepting it, and CI caught exactly that.
   const PATCHABLE_FIELDS = [
     'title', 'type', 'startsAt', 'endsAt', 'status', 'confidence', 'tags', 'entityIds', 'memoryIds',
-    'description', 'properties', 'recurrence', 'suppressEmbeddings', 'ttlDays', 'deleteFields',
+    'description', 'properties', 'recurrence', 'ttlDays', 'deleteFields',
+    RECORD_SUPPRESS_FIELD, LEGACY_RECORD_SUPPRESS_FIELD,
   ];
   const body = req.body != null && typeof req.body === 'object' ? req.body as Record<string, unknown> : {};
   if (!PATCHABLE_FIELDS.some(f => f in body)) {

@@ -127,6 +127,22 @@ describe('the search shape that missed one', () => {
       'these read a deleted field — ask `isInstanceAdmin` / the rights matrix instead:\n  ' + offenders.join('\n  '));
   });
 
+  it('nor probes for them with `in`, which answers "unrestricted" once they are gone', () => {
+    // The fourth instance of this shape, and the first I caused rather than found. `GET /api/spaces` asked
+    // `'spaces' in req.authToken` — true while the field existed, false for every PAT the moment it was
+    // deleted — so the listing silently stopped filtering and showed a scoped token every space on the
+    // instance.
+    //
+    // `in` is invisible to a property-access sweep, exactly as bracket notation was. Same lesson, third
+    // spelling: search for the QUESTION, not for one way of writing it.
+    const files = execSync('git ls-files "server/src/**/*.ts"', { encoding: 'utf8' })
+      .split('\n').map(s => s.trim()).filter(Boolean);
+    const probes = files.filter(f =>
+      /['"](?:spaces|admin|readOnly)['"]\s+in\s+/.test(stripComments(readFileSync(f, 'utf8'))));
+    assert.deepEqual(probes, [],
+      'these probe for a deleted field and read its absence as "no restriction":\n  ' + probes.join('\n  '));
+  });
+
   it('and the detector really matches the bracket form that got through', () => {
     // Mutation-proof for the pattern itself: a gate whose regex misses the case it was written for is worse
     // than none, because it reports clean.

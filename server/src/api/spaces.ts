@@ -7,6 +7,7 @@ import {
   requireAdminOrSpaceAdminMfaScoped, isInstanceAdmin,
 } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
+import { editorScopeFor } from '../auth/editor-scope.js';
 import { getConfig, saveConfig, getSecrets, getDataRoot, getSchemaLibrary, getDocumentProcessingConfig, getMediaEmbeddingConfig, getStorageConfig } from '../config/loader.js';
 import { capDocExtractionMode } from '../files/converters/extraction-level.js';
 import { slugify, SPACE_PURPOSE_MAX, needsReindex } from '../spaces/_shared.js';
@@ -131,10 +132,18 @@ spacesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
   const dataRoot = getDataRoot();
   const GiB = 1024 ** 3;
 
-  // Respect token space-scope restrictions: if the token is scoped to specific
-  // spaces, only return those spaces. Full-access tokens (no `spaces` field)
-  // receive the full list.
-  const tokenSpaces = req.authToken && 'spaces' in req.authToken ? req.authToken.spaces : undefined;
+  /**
+   * Respect token space-scope: a scoped token sees only the spaces it reaches. The MATRIX decides.
+   *
+   * This asked `'spaces' in req.authToken`, which stopped being true for every PAT the moment the field was
+   * deleted — so the guard silently became "unrestricted" and the listing showed every space on the instance
+   * to a token scoped to one. That is the fourth instance of one shape this release, and the first I caused
+   * rather than found: a legacy read that answers "no restriction" once the thing it reads is gone.
+   *
+   * `editorScopeFor` is the resolution every other scope decision uses — matrix first, the allowlist only
+   * for a record carrying no matrix, and `undefined` for genuinely unrestricted.
+   */
+  const tokenSpaces = editorScopeFor(req.authToken);
   const visibleSpaces = tokenSpaces
     ? cfg.spaces.filter(s => tokenSpaces.includes(s.id))
     : cfg.spaces;

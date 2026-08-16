@@ -71,6 +71,24 @@ describe('no source file carries mis-decoded UTF-8', () => {
       + offenders.join('\n  ') + '\nRepair with node, not PowerShell.');
   });
 
+  it('the SHIPPED DOCS are clean — a customer reads these', () => {
+    // Added 2026-08-16: the gate covered only `.ts`, so the integration guide and the user guide — the two
+    // things read by people who are not us — were never checked at all. They are clean today; this keeps
+    // them that way, and it is the cheapest possible check on the most visible surface.
+    //
+    // `CHANGELOG.md` is deliberately NOT in scope. It carries one legitimate occurrence: the entry
+    // announcing the mojibake repair quotes the corruption it fixed, which is the correct way to write that
+    // entry and would make this assertion permanently red. Scoping to `docs/` rather than exempting a file
+    // by name keeps the rule "what we publish is clean" instead of "everything except the file that annoys
+    // the gate".
+    const docs = tracked('"docs/**/*.md" "docs/*.md"');
+    assert.ok(docs.length > 20, `only enumerated ${docs.length} doc files — the walk is broken`);
+    const offenders = docs.filter(f => MOJIBAKE.test(readFileSync(f, 'utf8')));
+    assert.deepEqual(offenders, [],
+      'these ship to customers and were written by a tool that decoded UTF-8 as ANSI:\n  '
+      + offenders.join('\n  ') + '\nRepair with node, not PowerShell.');
+  });
+
   it('MCP tool descriptions especially — an agent reads these', () => {
     // Narrowed on purpose as well as covered above: a corrupted comment is ugly, and a corrupted tool
     // description is a reference an agent constructs arguments from.

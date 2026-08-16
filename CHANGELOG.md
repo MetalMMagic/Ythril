@@ -252,6 +252,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a quality signal where recall keeps answering while comparing new queries against vectors made by a
   different model, so results degrade quietly instead of erroring.
 
+- **`update_file_meta` now warns that it replaces `properties` where the brain tools merge it.** On entities,
+  edges, memories and chrono entries you can patch one property key and the others survive; on a file record
+  you cannot — sending one key leaves the record holding only that key, and there is no per-field delete to
+  soften it. The parameter text always said "replaces", so nobody was misinformed; what was missing is that
+  this is the odd one out among five otherwise identical-looking tools, which is what makes it cost data. The
+  description now leads with the difference and says to read the record first. Making it merge like the other
+  four is filed separately, because it is a behaviour change to a write path.
+
+- **The mojibake check now covers the shipped documentation, which it never did.** It scanned TypeScript
+  only, so the integration guide and the user guide — the two things read by people outside the project —
+  were never checked. They are clean; this keeps them that way.
+
 ### Added
 
 - **A space administrator can now manage that space's tokens.** Until now "administers this space" was only

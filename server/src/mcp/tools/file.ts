@@ -410,10 +410,30 @@ export const retry_embeddingTool: ToolHandler = {
 export const update_file_metaTool: ToolHandler = {
   name: 'update_file_meta',
   description: 'Change a file record\'s description, tags, properties or links WITHOUT resending the file. '
-    + '`write_file` can set those fields but only together with new content, so correcting a tag used to mean '
-    + 're-uploading the bytes. Only the fields you pass are touched; omit one to leave it alone. Under strict '
-    + 'linkage every id in `entityIds`/`memoryIds`/`chronoIds` must resolve, or the call is refused rather than '
-    + 'stored. Use `list_dir` or a `query` over the `files` collection to find the path.',
+    + '`write_file` can set those fields, but only together with new content, so correcting one tag used to '
+    + 'mean re-uploading the bytes. Only the fields you pass are touched; omit one to leave it alone.\n\n'
+    + 'EVERY FIELD REPLACES, INCLUDING `properties` — AND THAT IS NOT WHAT THE BRAIN TOOLS DO. On entities, '
+    + 'edges, memories and chrono entries `properties` MERGES: you patch one key and the others survive. Here '
+    + 'it does not. Sending `properties: {"source":"scan"}` on a file that had three other properties leaves '
+    + 'it with ONE. `tags` and the three id lists replace the same way, and there is no `deleteFields` on this '
+    + 'tool, so the only way to change one key is to send the whole object back. READ THE RECORD FIRST, merge '
+    + 'your change into what you read, and send the result.\n\n'
+    + 'UNDER STRICT LINKAGE EVERY ID MUST RESOLVE. `entityIds`, `memoryIds` and `chronoIds` are each checked '
+    + 'against records that actually exist in the member space holding the file, and the call is refused '
+    + 'rather than storing a dangling link. On a space without strict linkage they are stored as given.\n\n'
+    + 'THE FILE CONTENT IS NOT RE-READ. This edits the record ABOUT the file, never the bytes: no '
+    + 're-extraction, no media analysis, no new thumbnail. The record is re-embedded so the new description '
+    + 'and tags are searchable, which is the only reason a metadata edit costs anything at all.\n\n'
+    + 'PARAMETERS:\n'
+    + '- `path` — the file path relative to the space root, exactly as `list_dir` reports it. Required.\n'
+    + '- `description` — replaces the description. This is what `recall` ranks a file on, alongside its '
+    + 'extracted text.\n'
+    + '- `tags` — REPLACES the tag list. Send the full list you want.\n'
+    + '- `properties` — REPLACES the whole object. See above; this is the one that costs people data.\n'
+    + '- `entityIds` / `memoryIds` / `chronoIds` — REPLACE those link lists. Sending one id drops the rest.\n'
+    + '- `targetSpace` — required when `space` is a proxy: the member space holding the file.\n\n'
+    + 'RESPONSE: confirmation naming the path and which fields were changed. A path that does not exist is an '
+    + 'error, so a successful reply means a record really was updated.',
   mutating: true,
   spaceRequired: true,
   inputSchema: (s: ToolSchemas) => ({

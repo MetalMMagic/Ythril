@@ -686,19 +686,24 @@ What you *can* control:
 | lever | where | what it drops |
 |---|---|---|
 | `projection` | `POST /api/brain/spaces/:spaceId/query` | any field you do not name. The only field-selection lever on either door |
-| `includeContent: false` | recall | file-passage **bodies**, keeping path, heading, chunk index, tags and properties |
+| `includeContent: false` | recall, find-similar | file-passage **bodies**, keeping path, heading, chunk index, tags and properties |
+| `includeDiagnostics: false` *(the default)* | recall, find-similar | `matchedText`, `embeddingModel`, `seq` and the per-stage scores — **recursively**, so a `traverse` answer's `_graph` follows it at every depth |
 
 A projection is worth reaching for rather than skipping: a bare query over a dozen records with full
 descriptions and properties is the cheapest way to overrun a token budget, and naming the four fields you
 actually branch on turns that into a page you can read.
 
-**REST returns more than MCP, deliberately, and only on recall.** Three fields are dropped from the MCP
-response and kept here: `matchedText` (the pre-embedding source string — for a file chunk it is
-`headingText + ' ' + content`, so the passage a second time), `embeddingModel` (identical for every record in
-a space) and `seq` (the sync counter). The reasoning is that every field an MCP result carries is multiplied
-by `topK` and paid for in a calling model's context, which is not a constraint a REST integrator has. If it
-is a constraint for yours, the list routes have **no** field selection today — say so and it becomes a
-parity question rather than a preference.
+**REST and MCP return the same recall content.** Until 3.1.0 they did not: REST sent `matchedText`,
+`embeddingModel`, `seq` and the per-stage scores unconditionally while MCP sent none of them, and neither
+door said so. All six are now off by default on both, and `includeDiagnostics: true` restores them on both.
+
+What still differs is the **shape**, deliberately, because each is natural to its transport: a REST result is
+flat — record fields beside `score` — while an MCP result nests them under `record`. The *field set* a caller
+can read is identical, at the result level and at every depth of `_graph`, and a gate compares the two.
+
+The list routes (`GET /api/brain/spaces/:id/memories` and friends) still have **no** field selection. If that
+is a constraint for your integration, say so — it is the one remaining asymmetry here rather than a
+preference somebody chose.
 
 ### Retiring a record from semantic search
 

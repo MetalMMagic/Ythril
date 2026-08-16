@@ -107,11 +107,14 @@ What you CAN control, and where:
   locations, so you can find WHICH document holds something and then read only
   the part you decided you need. Passage bodies are by far the largest thing a
   result carries.
-- recall over MCP is ALREADY slimmer than over REST, with no flag needed. Four
-  things REST returns are dropped here: matchedText (the pre-embedding source
-  string -- for a file chunk, the passage a second time), embeddingModel
-  (identical for every record in a space), seq (a sync counter that is not an
-  input to any tool), and the per-stage lexical/fused/rerank scores.
+- recall -> includeDiagnostics, and you almost never want it. Off by default on
+  BOTH doors since 3.1.0, it adds back the six fields a result carries for the
+  system: matchedText (the pre-embedding source string -- for a file chunk, the
+  passage a second time), embeddingModel (identical for every record in a
+  space), seq (a sync counter that is not an input to any tool), and the
+  per-stage lexical/fused/rerank scores. It is RECURSIVE: a traverse answer's
+  _graph nodes and edges follow it at every depth. Turn it on to work out why
+  something ranked where it did, then turn it off.
 - The other read tools return a formatted summary line per record rather than a
   document. list_chrono and find_entities_by_name cost you an id, a name and a
   type whatever the record holds, so there is nothing to trim.

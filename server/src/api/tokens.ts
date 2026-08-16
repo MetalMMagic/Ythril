@@ -11,8 +11,33 @@ import { refusalsOutsideEditorScope, editorScopeFor } from '../auth/editor-scope
 import { capRights, describeExcess } from '../auth/mint-cap.js';
 import { refuseSelfFloorRaise } from '../auth/floor-guard.js';
 import { migrateToken } from '../auth/rights-migration.js';
+import { canWriteAnywhere } from '../auth/write-anywhere.js';
+import type { TokenRights } from '../config/rights-shape.js';
 
 export const tokensRouter = Router();
+
+/**
+ * `readOnly`, DERIVED for the response — the field is no longer stored (D-8d).
+ *
+ * ## Why the response keeps a field the record has lost
+ *
+ * D-8d's goal is that nothing STORES the legacy flag and nothing DECIDES on it. Removing it from the API
+ * response is a separate, breaking change to a published contract, and bundling the two would have broken
+ * every client reading `token.readOnly` in a release whose point was internal cleanup. The integration suite
+ * said so directly: a schema-library token is asserted to come back `readOnly: true`.
+ *
+ * So the split is deliberate — gone from the record, still answered on the wire — and the same shape the
+ * `space.description` alias used while that field was on its way out.
+ *
+ * ## Derived is also MORE correct than the flag was
+ *
+ * A token is read-only exactly when its matrix grants no write rung anywhere. That is true for a token
+ * nobody ever set the boolean on but which holds only `read` — a case the stored flag could not express, and
+ * answered `false` for.
+ */
+function withReadOnlyAlias<T extends { rights?: unknown }>(t: T): T & { readOnly: boolean } {
+  return { ...t, readOnly: !canWriteAnywhere(t.rights as TokenRights | undefined) };
+}
 
 // GET /api/auth/me — returns the current token's metadata (used by the Angular SPA to verify a PAT)
 tokensRouter.get('/me', globalRateLimit, requireAuth, (req, res) => {
@@ -155,7 +180,7 @@ tokensRouter.get('/', requireAdminOrSpaceAdmin, (req, res) => {
   // Reading `spaces` directly here meant a token minted with a matrix and no allowlist — every token minted
   // since 2.6 — answered `undefined` and was treated as an unrestricted instance administrator.
   const callerSpaces = editorScopeFor(req.authToken);
-  const all = listTokens();
+  const all = listTokens().map(withReadOnlyAlias);
   const visible = callerSpaces
     ? all.filter(t => t.schemaLibrary || (t.spaces?.every(s => callerSpaces.includes(s)) ?? false))
     : all;
@@ -237,7 +262,7 @@ tokensRouter.post('/', authRateLimit, requireAdminOrSpaceAdminMfa, async (req, r
   const { record, plaintext } = await createToken({ name, expiresAt: expiresAt ?? null, spaces: effectiveSpaces, admin, readOnly: effectiveReadOnly, peerInstanceId, schemaLibrary, mfa, rights: rights as never });
   // Return plaintext only on creation — never retrievable again
   const { hash: _h, ...safeRecord } = record;
-  res.status(201).json({ token: safeRecord, plaintext });
+  res.status(201).json({ token: withReadOnlyAlias(safeRecord), plaintext });
 });
 
 /**
@@ -455,7 +480,7 @@ tokensRouter.patch('/:id', requireAdminOrSpaceAdminMfa, (req, res) => {
   }
 
   const updated = listTokens().find(t => t.id === id);
-  res.json({ token: updated });
+  res.json({ token: updated ? withReadOnlyAlias(updated) : updated });
 });
 
 // POST /api/tokens/:id/regenerate — rotate a token's secret — admin + MFA

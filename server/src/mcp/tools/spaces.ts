@@ -2,6 +2,8 @@ import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.
 import { getConfig } from '../../config/loader.js';
 import { col } from '../../db/mongo.js';
 import { resolveMemberSpaces } from '../../spaces/proxy.js';
+import { canWriteAnywhere } from '../../auth/write-anywhere.js';
+import type { TokenRights } from '../../config/rights-shape.js';
 import { memberSpacesWithin } from '../../spaces/proxy-scoped.js';
 import { WIPE_COLLECTION_TYPES, type WipeCollectionType, wipeSpace } from '../../spaces/lifecycle.js';
 import { updateSpace, spacePurpose } from '../../spaces/spaces.js';
@@ -717,7 +719,10 @@ export const list_tokensTool: ToolHandler = {
     const lines = tokens.map(t => {
       const bits = [
         t.admin ? 'instance-admin' : null,
-        t.readOnly ? 'read-only' : null,
+        // Derived from the MATRIX, not from the deleted `readOnly` flag (D-8d). "Read-only" is now a
+        // property of what the rights say — no write rung anywhere — rather than a boolean somebody set,
+        // which also makes it correct for a token that was never given the flag but holds only `read`.
+        canWriteAnywhere(t.rights as TokenRights | undefined) ? null : 'read-only',
         t.expiresAt ? `expires ${t.expiresAt}` : 'no expiry',
         t.rights ? 'rights matrix' : 'legacy scope',
       ].filter(Boolean).join(', ');

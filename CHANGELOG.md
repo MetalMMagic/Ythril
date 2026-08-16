@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **`readOnly` is no longer stored on a token — the first of the three pre-3.0 fields to go.** Nothing had
+  decided on it since 3.0: every write check reads the rights matrix, and the copy threaded from the token
+  record through the MCP server into every tool's call context turned out to be read by **no tool at all** —
+  four layers of plumbing carrying a value nobody consulted. Keeping it meant two spellings of one fact, with
+  the older one free to drift from the newer.
+
+  **Creating a read-only token is unchanged.** Send `readOnly: true` and you get `read` in every area of
+  every space it reaches, exactly as before; the result is now expressed only in the matrix. **Tokens created
+  earlier keep their scope** — the load-time migration still reads the stored flag to derive their rights.
+
+  **The token API still returns `readOnly`, so no client breaks.** It is derived from the matrix now rather
+  than read from the record: a token is read-only precisely when its rights grant no write rung anywhere.
+  That is also right for a token nobody ever set the boolean on but which holds only `read` — a case the
+  stored flag could not express and answered `false` for. Dropping the field from a published response is a
+  separate, breaking change and is not part of this one.
+
+  `admin` and `spaces` follow separately: deleting a field is all-or-nothing, so they are measured and
+  scheduled on their own rather than half-done together.
+
 - **The legacy `/setup` HTML form, so the app's own first-run page is finally the one you see.** The
   server-rendered form had been mounted at `/setup` since before the single-page app existed, and a server
   route wins over an app route — so the app's setup page had never actually served a first run, on any

@@ -56,7 +56,11 @@ describe('the tokens guide says which key is the secret', () => {
     // The guide could be right about a response that no longer exists. Checked against the route so the
     // two cannot drift apart in either direction.
     const src = readFileSync(join(ROOT, 'server/src/api/tokens.ts'), 'utf8');
-    assert.match(src, /res\.status\(201\)\.json\(\{ token: safeRecord, plaintext \}\)/,
+    // The two KEYS, not the exact expression that fills them. This pinned
+    // `{ token: safeRecord, plaintext }` verbatim and fired when `safeRecord` gained a wrapper that changed
+    // no key at all — a false positive on a gate whose whole subject is the response SHAPE. `token:` and a
+    // bare `plaintext` shorthand are what the guide promises and what a client destructures.
+    assert.match(src, /res\.status\(201\)\.json\(\{ token: [^,]+, plaintext \}\)/,
       'the create route no longer answers `{ token, plaintext }` — update the guide and this gate together');
   });
 });

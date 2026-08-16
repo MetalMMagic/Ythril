@@ -21,6 +21,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Reading and writing files now say what a call costs and what an empty answer means.** Reading returns the
+  whole file with no windowing, and a document is the largest thing stored — so the reference now points at
+  the cheaper route it never mentioned: search with passage bodies switched off to find *which* file and
+  *which* passage, then read only if the rest is needed. It also separates the three things that all look
+  like a blank document: a file still being extracted, a file whose type yields no text, and one that really
+  is empty — the first of those is a wait, not a fact. Writing now says plainly that it **replaces** the whole
+  file: there is no append and no patch, and writing over an existing path is silent. It also explains that a
+  file is stored as chunks embedded separately, which is why a search returns a passage rather than a
+  document, and that structuring text with headings is what makes a hit locatable — and that indexing is
+  asynchronous here too, so a search moments later may not see it.
+
 - **Storing a relationship now says that the two endpoints and the label ARE its identity.** There is no id
   anywhere in the call, so repeating the same from/to/label pair updates the existing relationship rather
   than adding a second one — and nothing in the arguments hints at that. Direction is part of the meaning

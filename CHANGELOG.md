@@ -345,6 +345,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking
 
+- **Wiping a space that belongs to a network now opens a VOTE instead of emptying it immediately.** Emptying
+  a space the network shares is a governed act, like deleting one: a round opens in every network holding the
+  space, this instance votes yes, and the wipe happens on **every member** when a round passes. A single veto
+  stops it there.
+
+  **A space in no network is completely unaffected** — it wipes immediately and finally, exactly as before.
+
+  **What changes for a caller on a networked space:** `POST /api/admin/spaces/:spaceId/wipe` answers `202`
+  with `{ "status": "vote_pending", "rounds": [...] }` rather than `200` with `deleted` counts, and the
+  `wipe_space` tool says the same. That is the success case — retrying it opens a second round, and reading
+  the absent counts as a failure is the mistake to avoid.
+
+  **Why voting rather than propagating.** A wipe writes no tombstones and deletes the existing ones, and
+  tombstones are the only thing that tells a peer a record is gone. So a local wipe on a shared space was
+  quietly **undone by the next sync**: the peers offered everything back to an instance that had no record of
+  any deletion. Voting does not fix that — it removes it, because the peers are wiping too. The round also
+  carries which collections it covers, so a wipe approved for `files` cannot conclude by emptying the
+  knowledge graph.
+
 - **The media half of the embedding queue is named, on both doors. No alias — update both paths.** The
   namespace always had two halves: `/embedding-queue/records` for brain records, and the **bare**
   `/embedding-queue` for media. Only one of them said which it was, so *"no qualifier means files"* was true

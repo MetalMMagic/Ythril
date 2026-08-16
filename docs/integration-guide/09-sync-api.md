@@ -20,7 +20,7 @@ POST /api/notify
 }
 ```
 
-Events: `vote_pending`, `member_departed`, `member_removed`, `space_deletion_pending`, `sync_available`, `ping`.
+Events: `vote_pending`, `member_departed`, `member_removed`, `space_deletion_pending`, `space_wipe_pending`, `sync_available`, `ping`.
 
 **Response** `204`.
 

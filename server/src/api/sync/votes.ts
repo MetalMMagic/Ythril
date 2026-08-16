@@ -8,6 +8,7 @@ import { syncRateLimit } from '../../rate-limit/middleware.js';
 import { getConfig, loadConfig, saveConfig } from '../../config/loader.js';
 import { requireAuth, denyReadOnly } from '../../auth/middleware.js';
 import { log } from '../../util/log.js';
+import { applyWipeRoundIfPassed } from '../../spaces/apply-wipe-round.js';
 import { acceptVoteCast } from '../../util/signing.js';
 import { concludeRoundIfReady, sendMemberRemovedNotify } from '../../sync/governance.js';
 
@@ -95,6 +96,10 @@ syncVotesRouter.post('/networks/:networkId/votes/:roundId', syncRateLimit, requi
         }).catch(err => log.error(`space_deletion import: ${err}`));
       }
     }
+
+    // X-5: same shared side-effect as the local-vote path. A peer's yes can be the one that carries the
+    // round, so this instance must wipe on THIS path too — that is the half a per-site copy tends to miss.
+    applyWipeRoundIfPassed(round, 'peer vote');
 
     // If a remove round just passed, notify the ejected member
     if (round.concluded && round.passed && round.type === 'remove') {

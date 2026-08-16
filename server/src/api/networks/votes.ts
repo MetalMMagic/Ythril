@@ -12,6 +12,7 @@ import { getConfig, saveConfig } from '../../config/loader.js';
 import { concludeRoundIfReady, sendMemberRemovedNotify } from '../../sync/governance.js';
 import { makeSignedOwnCast } from '../../util/signing.js';
 import { log } from '../../util/log.js';
+import { applyWipeRoundIfPassed } from '../../spaces/apply-wipe-round.js';
 
 export const votesRouter = Router();
 
@@ -74,6 +75,10 @@ votesRouter.post('/:id/votes/:roundId', globalRateLimit, requireAdmin, (req, res
         }).catch(err => log.error(`space_deletion import: ${err}`));
       }
     }
+
+    // X-5: a concluded space_wipe empties the space here. One shared function, called from all three
+    // conclusion sites, rather than a third copy of the side-effect.
+    applyWipeRoundIfPassed(round, 'local vote');
 
     // If remove round concluded and passed, notify the ejected member
     if (round.concluded && round.passed && round.type === 'remove') {

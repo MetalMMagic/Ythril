@@ -24,6 +24,7 @@ import { recordFileTombstoneAck, ackedPositionFrom } from './file-tombstone-ack.
 import { recordSyncResult, type SyncCounts } from './history.js';
 import { buildFileManifest } from '../files/manifest.js';
 import { log } from '../util/log.js';
+import { applyConcludedSpaceRounds } from '../spaces/apply-wipe-round.js';
 import { bumpSeq, isSeqImplausible } from '../util/seq.js';
 import { peerSafeFetch, isPeerUrlAllowed, PEER_TRANSFER_TIMEOUT_MS } from './peer-fetch.js';
 import { concludeRoundIfReady, sendMemberRemovedNotify } from './governance.js';
@@ -788,17 +789,9 @@ async function propagateVotesWithPeer(
           }
         }
       }
-      // Apply space_deletion side-effects for rounds that just concluded
-      for (const round of freshNet.pendingRounds) {
-        if (round.concluded && round.type === 'space_deletion') {
-          const vetoCount = round.votes.filter(v => v.vote === 'veto').length;
-          if (vetoCount === 0 && round.spaceId) {
-            import('../spaces/lifecycle.js').then(({ removeSpace }) => {
-              removeSpace(round.spaceId!).catch(e => log.error(`space_deletion vote gossip: ${e}`));
-            }).catch(e => log.error(`space_deletion import: ${e}`));
-          }
-        }
-      }
+      // Space-scoped side-effects for rounds that just concluded — deletion and wipe. The gossip pass
+      // concludes rounds nobody here voted on, so this is where a decision made elsewhere lands.
+      applyConcludedSpaceRounds(freshNet.pendingRounds, 'gossip');
       saveConfig(fresh);
     }
   } catch (err) {

@@ -159,8 +159,9 @@ export const bulk_writeTool: ToolHandler = {
                     description: 'Stored status (default `upcoming`). A value outside this list is DISCARDED '
                       + 'SILENTLY — the entry is still written, with the default, and nothing appears in '
                       + '`errors`. `create_chrono` refuses the same value, because the per-item schemas here '
-                      + 'are for discovery only (`skipSchemaValidation`). Do not set `overdue`: it is derived '
-                      + 'on read from the due moment, so leaving an entry `upcoming` is what makes it overdue.',
+                      + 'are for discovery only (`skipSchemaValidation`). You do not need `overdue`: it is '
+                      + 'derived on read from the due moment, so leaving an entry `upcoming` is what makes it '
+                      + 'overdue, and a stored one never reverts when the dates move.',
                   },
                   confidence:  { type: 'number', description: 'Confidence 0 to 1, for entries that are predictions. A non-number is dropped silently and does not appear in `errors`; unlike `create_chrono`, the 0–1 bound is not enforced on this door.' },
                   description: { type: 'string', description: 'Optional longer description of the entry.' },

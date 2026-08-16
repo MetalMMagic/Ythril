@@ -38,9 +38,11 @@ memory. See [Retry Safety](04-brain-api.md#retry-safety).
 - `status` — `upcoming` (default), `active`, `completed`, `overdue`, `cancelled`. You never need to set
   `overdue` yourself: it is **derived on read** — an entry whose due moment (`endsAt`, or `startsAt` if
   it has none) has passed and that is not `completed`/`cancelled` is returned as `overdue`.
-  **Do not store `overdue` by hand.** It is accepted, but a stored `overdue` is then missed by the
-  `status=overdue` list filter, which looks for the derivable ones (stored `upcoming`/`active`, past due).
-  And the derivation applies to the chrono read paths only: `POST /query` reads documents as stored, so the
+  **Storing `overdue` is accepted and `status=overdue` finds it** — that filter returns both kinds, the
+  derivable ones and the ones somebody marked. It is still not worth setting: a stored `overdue` never
+  reverts, so an entry marked by hand stays overdue after you move its dates forward, where a derived one
+  corrects itself.
+  The derivation applies to the chrono read paths only: `POST /query` reads documents as stored, so the
   same entry is `upcoming` there and `overdue` in `GET /chrono`.
 - `confidence` — `0`–`1` (optional, useful for predictions)
 - `entityIds` — array of UUID v4 entity IDs (not names); returns `400` if any value is not a valid UUID and `strictLinkage` is enabled

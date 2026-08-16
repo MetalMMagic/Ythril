@@ -30,10 +30,11 @@ export const create_chronoTool: ToolHandler = {
             endsAt: { type: 'string', description: 'Optional ISO 8601 end date/time.' },
             status: {
               type: 'string', enum: ['upcoming', 'active', 'completed', 'overdue', 'cancelled'], default: 'upcoming',
-              description: 'Stored status (default `upcoming`). Do NOT set `overdue` — it is derived on read '
-                + 'from the due moment, so an entry left `upcoming` becomes overdue on its own, and one '
-                + 'stored as `overdue` by hand is then invisible to `list_chrono`\'s `status: "overdue"` '
-                + 'filter, which looks for the derivable ones.',
+              description: 'Stored status (default `upcoming`). You do not need `overdue` — it is derived on '
+                + 'read from the due moment, so an entry left `upcoming` becomes overdue on its own and is '
+                + 'returned as such. Storing it is accepted and findable, but it is a value that never '
+                + 'reverts: an entry marked `overdue` by hand stays overdue after you move its dates '
+                + 'forward, where a derived one would correct itself.',
             },
             confidence: unitScoreSchema('Confidence level 0–1 (for predictions).'),
             tags: { type: 'array', items: { type: 'string' }, description: 'Categorisation tags.' },
@@ -375,19 +376,19 @@ export const list_chronoTool: ToolHandler = {
     + 'someone recorded it. These two parameters read `createdAt`. To ask "what is scheduled next quarter" you '
     + 'want `query` with a predicate on `startsAt`; `after`/`before` here answer "what did we write down last '
     + 'week", which is a different question and usually not the one being asked.\n\n'
-    + '`overdue` IS DERIVED FROM THE CLOCK, AND IS NEVER STORED. An entry whose due moment (`endsAt`, or '
-    + '`startsAt` when it has none) has passed and that is still `upcoming`/`active` is RETURNED as `overdue`, '
-    + 'and the filter is translated to match: `status: "overdue"` finds exactly those, and '
-    + '`status: "upcoming"` EXCLUDES them rather than including them. So both answer the truth about time, and '
-    + 'you do not need a date predicate to ask "what is late".\n\n'
+    + '`overdue` IS NORMALLY DERIVED FROM THE CLOCK. An entry whose due moment (`endsAt`, or `startsAt` when '
+    + 'it has none) has passed and that is still `upcoming`/`active` is RETURNED as `overdue`, and the filter '
+    + 'is translated to match: `status: "overdue"` finds those, and `status: "upcoming"` EXCLUDES them rather '
+    + 'than including them. So both answer the truth about time, and you do not need a date predicate to ask '
+    + '"what is late".\n\n'
+    + '`status: "overdue"` ALSO RETURNS AN ENTRY SOMEBODY STORED AS `overdue`. Nothing writes that value on '
+    + 'its own, but every write door accepts it, so both kinds come back and neither is hidden. You still do '
+    + 'not need to set it: leaving an entry `upcoming` past its date is what makes it overdue, and a stored '
+    + '`overdue` never reverts when the entry is rescheduled.\n\n'
     + 'THE STORED VALUE IS STILL WHAT SYNC AND `query` SEE. `query` reads documents as stored, so a filter of '
     + '`status: "overdue"` there matches almost nothing while this tool returns plenty — the same records, two '
     + 'answers, because only this path derives. Use this tool for status, and `query` for `startsAt`/`endsAt` '
     + 'predicates.\n\n'
-    + 'One edge, named because it is a defect rather than a design: an entry a caller EXPLICITLY stored as '
-    + '`overdue` is not matched by `status: "overdue"` here, because the translated filter looks for stored '
-    + '`upcoming`/`active`. Nothing writes `overdue` on its own, so this only bites a caller who set it by '
-    + 'hand.\n\n'
     + 'OMIT `space` TO SEARCH EVERY SPACE THE TOKEN REACHES. That is unusual — most tools require one — and it '
     + 'is what makes this the tool for "when did we ever say we would do this". Results carry their space.\n\n'
     + 'PARAMETERS:\n'
@@ -408,10 +409,11 @@ export const list_chronoTool: ToolHandler = {
             space: s.optionalSpace,
             status: {
               type: 'string', enum: ['upcoming', 'active', 'completed', 'overdue', 'cancelled'],
-              description: 'Filter by status, CLOCK-AWARE for the first three. `overdue` returns entries '
-                + 'stored `upcoming`/`active` whose due moment has passed; `upcoming` and `active` EXCLUDE '
-                + 'those same entries. `completed` and `cancelled` are plain matches on the stored value. '
-                + 'The same filter against `query` is not translated and answers differently.',
+              description: 'Filter by status, CLOCK-AWARE for the first three. `overdue` returns BOTH kinds — '
+                + 'entries stored `upcoming`/`active` whose due moment has passed, AND entries somebody '
+                + 'stored as `overdue` — while `upcoming` and `active` EXCLUDE the ones that are now late. '
+                + '`completed` and `cancelled` are plain matches on the stored value. The same filter '
+                + 'against `query` is not translated and answers differently.',
             },
             type: { type: 'string', description: 'Filter by type (e.g. event, deadline, plan, prediction, milestone, or a custom type).' },
             tags: { type: 'array', items: { type: 'string' }, description: 'Return entries containing ALL of these tags (AND semantics).' },

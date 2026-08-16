@@ -5,6 +5,8 @@
  */
 import { Router } from 'express';
 import { requireSpaceAuth, denyReadOnly } from '../../auth/middleware.js';
+import { spacesWhereTokenMay } from '../../auth/reachable-spaces.js';
+import type { TokenRights } from '../../config/rights-shape.js';
 import { summariseActivity } from '../../metrics/space-activity-store.js';
 import { globalRateLimit } from '../../rate-limit/middleware.js';
 import { parseSortParam, toMongoSort, SORTABLE_FIELDS } from '../../brain/list-sort.js';
@@ -628,10 +630,22 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
   // Determine cross-space search scope
   let crossSpaceIds: string[] | undefined;
   if (crossSpace) {
-    const tokenSpaces = req.authToken?.spaces;
-    crossSpaceIds = cfg.spaces
-      .filter(s => !tokenSpaces || tokenSpaces.includes(s.id))
-      .map(s => s.id);
+    // The MATRIX decides the cross-space set, with the legacy allowlist only as a fallback.
+    //
+    // This read the allowlist alone, and `spaces` is `undefined` on every token minted since the matrix —
+    // the rights editor writes `rights.perSpace` and nothing writes that array. So `!tokenSpaces` was true
+    // for a modern token and the filter kept EVERY space: a cross-space recall from a token scoped to one
+    // space searched the whole instance. Same shape as the sync-scope hole, one route over, and the same
+    // fix — `spacesWhereTokenMay` makes the absent/empty distinction explicitly instead of by truthiness.
+    //
+    // `knowledge: read` because that is what a recall is. A token holding files-only in a space has no
+    // business having its records ranked here.
+    crossSpaceIds = spacesWhereTokenMay(
+      (req.authToken as { rights?: TokenRights } | undefined)?.rights,
+      req.authToken?.spaces,
+      'knowledge',
+      'read',
+    );
   }
 
   try {

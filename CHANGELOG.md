@@ -345,6 +345,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Two more scope checks were reading the pre-3.0 allowlist, and so answered "unrestricted" for every token
+  minted since the rights matrix.** Same cause as the sync-route entry below: `spaces` is `undefined` on a
+  modern token, so any check shaped `if (token.spaces)` or `!tokenSpaces` silently means *no restriction*.
+
+  **A cross-space `recall` searched the whole instance.** With `space` omitted, the set of spaces to search
+  was filtered by the allowlist, which matched nothing to filter — so a token scoped to one space ranked
+  records from every space on the instance. It now builds that set from the matrix, at `knowledge: read`, so
+  a token holding files-only in a space does not have that space's records ranked either.
+
+  **Signing-key rotation accepted a space-restricted administrator.** The route means to require an
+  unrestricted admin token and tested the allowlist for truthiness; a matrix-scoped administrator passed. The
+  instance signing key is the credential every peer pins, and continuity proofs are signed with it. It now
+  asks the matrix whether the token is genuinely unrestricted.
+
+  Both use helpers that already existed and already made the distinction the hand-written checks lost: an
+  **absent** allowlist is every space, an **empty** one is none, and reading empty as absent turns the
+  narrowest token into the widest.
+
 - **The sync read routes enforced space scope only for tokens that still carried the pre-3.0 allowlist —
   which no token minted today does.** The check that confined a caller to its own spaces was written
   `if (tokenSpaces && ...)`, and `tokenSpaces` was the deprecated `spaces` array. The rights editor writes the

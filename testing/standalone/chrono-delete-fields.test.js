@@ -84,7 +84,7 @@ describe('the writer handles EVERY optional field', () => {
     assert.ok(at > 0, 'the deleteFields block was not found — the scanner is wrong, not the code');
     const block = SRC.slice(at, SRC.indexOf('\n  //', at + 10));
     for (const f of ['description', 'tags', 'entityIds', 'memoryIds', 'properties', 'recurrence',
-      'endsAt', 'confidence', 'excludeFromVectorSearch']) {
+      'endsAt', 'confidence', 'suppressEmbeddings']) {
       assert.match(block, new RegExp(`'${f}'`), `${f} is optional and settable but cannot be deleted`);
     }
   });

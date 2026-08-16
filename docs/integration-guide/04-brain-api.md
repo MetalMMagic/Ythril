@@ -660,7 +660,7 @@ Notes:
 - **The check is part of the write**, not a read before it. There is no window between the two in which
   another writer can land.
 - **The removed `POST .../chrono/:id` used to refuse the header with a `400`** rather than ignore it, for the same
-  reason it refuses `excludeFromVectorSearch` — see the table above. Use `PATCH`.
+  reason it refuses `suppressEmbeddings` — see the table above. Use `PATCH`.
 - **MCP has no equivalent**, and this is a property of the transport rather than an oversight: MCP tools
   take arguments, not headers, so there is nothing for an `If-Match` to travel in. Agents that need a
   conditional write should use the REST route.
@@ -675,13 +675,23 @@ The same header, in the same spellings, is honoured on space-meta writes against
 
 ### Retiring a record from semantic search
 
-`excludeFromVectorSearch` is a boolean on **all four** record types (`memories`, `entities`, `edges`,
+`suppressEmbeddings` is a boolean on **all four** record types (`memories`, `entities`, `edges`,
 `chrono`), settable on the `PATCH` route and on the matching MCP `update_*` tool:
 
 ```http
 PATCH /api/brain/spaces/:spaceId/chrono/:id
-{ "excludeFromVectorSearch": true }
+{ "suppressEmbeddings": true }
 ```
+
+> **Renamed in 3.1.0.** This field was `excludeFromVectorSearch` up to and including 3.0.1. The old spelling
+> is still ACCEPTED on both doors, so existing callers keep working, and it is still written to the stored
+> record so that a peer on an older build in the same network keeps honouring it. Nothing offers it: send
+> `suppressEmbeddings`. If a request carries both, `suppressEmbeddings` wins. The alias is scheduled for
+> removal in 4.0.
+>
+> The name changed because the old one described the wrong thing. "Excluded from vector search" reads as
+> *removed from search*, which would include traversal — and it never did (see the table below). The two
+> tiers underneath were already called `suppressEmbeddings`, so there is now one name to look for.
 
 It **may be the only field in the request** — retiring a record is a complete edit, not a modifier on some
 other change.
@@ -692,7 +702,7 @@ directions, so the flag is enforced once in the store rather than remembered at 
 
 The consequence is worth stating plainly, because it is the reason to choose this over a filter of your own:
 
-| reader | sees an excluded record? |
+| reader | sees a suppressed record? |
 |---|---|
 | `recall`'s ranked results, `find_similar`, duplicate/contradiction scans | **no**, and there is no parameter that asks for it back |
 | `GET`/`PATCH` by id, `query`, `list`, exports | **yes**, unchanged and complete |
@@ -700,7 +710,7 @@ The consequence is worth stating plainly, because it is the reason to choose thi
 | **`recall(traverse: n)` — the graph expansion** | **yes** |
 
 That last row is the one people ask about, so it is spelled out rather than folded into "traverse". Recall's
-own expansion walks **edges** out of a match: it never consults a vector, so an excluded record is reached
+own expansion walks **edges** out of a match: it never consults a vector, so a suppressed record is reached
 exactly as it always was and appears in `_graph` like any other neighbour.
 
 **A record retired from ranking is therefore still findable through its relationships.** It stops competing on
@@ -712,24 +722,25 @@ semantic search at retired records today by applying a filter you control, the f
 behaviour — it removes the vector the search ranks on, and the result is a quietly shorter answer with no
 error. Nothing in the record's own data is lost.
 
-#### One switch, three tiers, three names
+#### One switch, three tiers, one name
 
-`excludeFromVectorSearch` is the **top tier of the same mechanism** the space and its type schemas call
-`suppressEmbeddings`. They resolve `record > schema > space` — the same order `ttlDays` uses — and
-`brain/suppress-embeddings.ts` is the one place that resolves them:
+`suppressEmbeddings` on a record is the **top tier of one mechanism**, and the space and its type schemas
+carry the same setting under the same name. They resolve `record > schema > space` — the same order `ttlDays`
+uses — and `brain/suppress-embeddings.ts` is the one place that resolves them:
 
 | tier | where it lives | name |
 |---|---|---|
-| record | the record itself, via `PATCH` or an MCP `update_*` tool | `excludeFromVectorSearch` |
+| record | the record itself, via `PATCH` or an MCP `update_*` tool | `suppressEmbeddings` |
 | type | `typeSchemas.<kind>.<type>` on the space meta | `suppressEmbeddings` |
 | space | space meta (the Danger Zone in the UI) | `suppressEmbeddings` |
 
-Nothing in the record-level name suggests the other two exist, so **a record with no vector and no
-`excludeFromVectorSearch` is not a bug** — read `GET /api/spaces/:id/meta` before treating it as one. Files
-have no type and therefore skip the middle tier entirely: a file is governed by the record flag or the space
-setting.
+Until 3.1.0 the record tier was spelled differently, so nothing in its name suggested the other two existed.
+One name is the fix, and the consequence still holds: **a record with no vector and no `suppressEmbeddings`
+of its own is not a bug** — read `GET /api/spaces/:id/meta` before treating it as one, because a tier below
+is answering. Files have no type and therefore skip the middle tier entirely: a file is governed by the
+record flag or the space setting.
 
-> **`excludeFromVectorSearch: false` means *not stated*, not *do embed*.** It falls through to the tiers
+> **`suppressEmbeddings: false` means *not stated*, not *do embed*.** It falls through to the tiers
 > below instead of overriding them, so sending `false` **cannot** re-embed a record whose type or space
 > suppresses embedding — the write succeeds, and nothing changes. On a record no other tier suppresses,
 > `false` does restore the vector. To un-suppress a whole type or space, clear its `suppressEmbeddings` and

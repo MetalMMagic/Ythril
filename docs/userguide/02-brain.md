@@ -185,6 +185,24 @@ under the heading it sits beneath with its text.
 Because several rows collapse into one, the header states both counts: *"1 result from 6 matching passages"*.
 So a **topK** of 10 can legitimately show fewer than ten rows — the passage count tells you nothing was lost.
 
+**A record can be deliberately kept out of semantic search, and then no search option brings it back.** The
+setting is called **`suppressEmbeddings`** and it exists at three levels, all under that one name: on a single
+record, on a record *type* (**Settings → Spaces → Schema**, where it reads *"Suppress for this type"*), and on
+the whole space (**Settings → Spaces → Danger Zone**). The most specific one wins — record, then type, then
+space. It is meant for records that are **state rather than prose**: a row whose text never changes while its
+numbers are updated constantly, which would otherwise be re-embedded on every write for no gain.
+
+What it does is remove the record's embedding, not hide the record. So a suppressed record is still returned by
+**Advanced Query**, still opens from its tab, still exports, and is still reached by **Graph hops** from a match
+next to it — it simply stops competing on meaning. If a record you know exists never appears in a search, check
+these three levels before treating it as a fault.
+
+> Turning suppression off does not go back and embed what was written while it was on. Use the space's
+> **Reindex** control on the Overview tab, or re-save an individual record.
+>
+> The per-record setting is API-only today — there is no checkbox for it in the UI. It was called
+> `excludeFromVectorSearch` before version 3.1.0.
+
 #### Advanced Query
 
 Runs a structured MongoDB-style query against one collection. Select a collection (`memories`, `entities`, `edges`, `chrono`, or `files`), optionally set a **limit** and **max time (ms)**, enter a filter as JSON, and click **Run**. Results appear below.

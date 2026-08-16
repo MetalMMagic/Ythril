@@ -66,7 +66,7 @@ PATCH /api/brain/spaces/:spaceId/chrono/:id
 > the brain API; it performed no property validation and wrote no audit snapshot. `PATCH` takes the same
 > body and does both.
 
-**Body**: partial object with any updatable fields (`title`, `type`, `status`, `startsAt`, `endsAt`, `confidence`, `tags`, `entityIds`, `memoryIds`, `description`, `properties`, `recurrence`, `excludeFromVectorSearch`, `ttlDays`), plus `deleteFields`.
+**Body**: partial object with any updatable fields (`title`, `type`, `status`, `startsAt`, `endsAt`, `confidence`, `tags`, `entityIds`, `memoryIds`, `description`, `properties`, `recurrence`, `suppressEmbeddings`, `ttlDays`), plus `deleteFields`.
 
 > **`deleteFields` arrived in 3.1, and it is the only way to remove anything.** `properties` MERGE — patching
 > one key keeps the others — and an omitted field means *leave it alone*, so before 3.1 there was no request

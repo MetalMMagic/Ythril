@@ -1,5 +1,5 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
-import { UUID_V4_RE, TTL_DAYS_SCHEMA, EXCLUDE_FROM_VECTOR_SEARCH_SCHEMA, ttlDaysFromArgs, recurrenceSchema, unitScoreSchema, uuidSchema } from './shared.js';
+import { UUID_V4_RE, TTL_DAYS_SCHEMA, SUPPRESS_EMBEDDINGS_SCHEMA, ttlDaysFromArgs, recurrenceSchema, unitScoreSchema, uuidSchema } from './shared.js';
 import { ChronoFilter, createChrono, deleteChrono, getChronoById, listChrono, updateChrono, parseRecurrence } from '../../brain/chrono.js';
 // The API layer's write gate, imported rather than reimplemented — see the note in memory.ts.
 import { assertUpdateAllowed, classifyUpdateViolations, locateForUpdate } from '../../brain/write-validation.js';
@@ -10,6 +10,7 @@ import { memberSpacesWithin } from '../../spaces/proxy-scoped.js';
 import { getAllowedChronoTypes, resolveMetaRefs, validateChrono } from '../../spaces/schema-validation.js';
 import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
 import { validateDeleteFields } from '../../brain/delete-fields.js';
+import { parseRecordSuppression } from '../../brain/suppress-embeddings.js';
 
 export const create_chronoTool: ToolHandler = {
   name: 'create_chrono',
@@ -235,7 +236,7 @@ export const update_chronoTool: ToolHandler = {
     + 'The only way to unset anything.\n'
     + '- `recurrence` — the repeat rule, replaced wholesale when sent. It describes the entry; it does not '
     + 'generate further entries.\n'
-    + '- `excludeFromVectorSearch` — removes the vector, so `recall` can no longer RANK this entry by meaning. '
+    + '- `suppressEmbeddings` — removes the vector, so `recall` can no longer RANK this entry by meaning. '
     + '`list_chrono`, `query`, `get` and recall\'s `traverse` expansion all still reach it — excluding an entry '
     + 'never hides it from the graph or from a time-ordered listing.\n'
     + '- `ttlDays` — this entry\'s own expiry, the MOST specific of three tiers: it beats the type\'s retention '
@@ -314,7 +315,7 @@ export const update_chronoTool: ToolHandler = {
               additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] },
             },
             recurrence: recurrenceSchema('The repeat rule, replaced wholesale when sent,'),
-            excludeFromVectorSearch: EXCLUDE_FROM_VECTOR_SEARCH_SCHEMA,
+            suppressEmbeddings: SUPPRESS_EMBEDDINGS_SCHEMA,
             deleteFields: {
               type: 'array', items: { type: 'string' },
               description: 'Dot-notation paths to REMOVE from the entry, applied after the merge above — the '
@@ -338,7 +339,9 @@ export const update_chronoTool: ToolHandler = {
     if (!wt.ok) throw new Error(wt.error);
 
     const updates: Record<string, unknown> = {};
-    if (typeof a['excludeFromVectorSearch'] === 'boolean') updates['excludeFromVectorSearch'] = a['excludeFromVectorSearch'];
+    const sup = parseRecordSuppression(a);
+    if (!sup.ok) throw new Error(sup.error);
+    if (sup.value !== undefined) updates['suppressEmbeddings'] = sup.value;
     if (typeof a['title'] === 'string') updates['title'] = a['title'];
     if (typeof a['type'] === 'string') {
       // Same allowlist check `create_chrono` runs, and the same one the REST PATCH already runs.
@@ -395,7 +398,7 @@ export const update_chronoTool: ToolHandler = {
       : undefined;
 
     if (Object.keys(updates).length === 0 && ttlDaysFromArgs(a) === undefined && !dfPaths) {
-      throw new Error('At least one of title, type, startsAt, endsAt, status, confidence, tags, entityIds, memoryIds, description, properties, recurrence, excludeFromVectorSearch, deleteFields, or ttlDays must be provided');
+      throw new Error('At least one of title, type, startsAt, endsAt, status, confidence, tags, entityIds, memoryIds, description, properties, recurrence, suppressEmbeddings, deleteFields, or ttlDays must be provided');
     }
 
     // Validate the entry AS IT WILL BE, against the meta of the member space it actually lives in. The
@@ -528,7 +531,7 @@ export const delete_chronoTool: ToolHandler = {
     + 'rubbish. Set `status: "completed"` or `"cancelled"` with `update_chrono` and the entry stops being '
     + 'derived-overdue while staying as the record that it happened. Deleting is for '
     + 'entries that should never have existed. If you only want it out of meaning-ranking, set '
-    + '`excludeFromVectorSearch` — it stays listable by `list_chrono` and reachable by traversal.\n\n'
+    + '`suppressEmbeddings` — it stays listable by `list_chrono` and reachable by traversal.\n\n'
     + 'THE ENTITIES AND MEMORIES IT LINKS ARE NOT TOUCHED. `entityIds` and `memoryIds` are references; '
     + 'deleting the entry drops the references and leaves every referenced record in place.\n\n'
     + 'IT IS NEVER REFUSED FOR BEING REFERENCED. Strict linkage guards ENTITY deletion only.\n\n'

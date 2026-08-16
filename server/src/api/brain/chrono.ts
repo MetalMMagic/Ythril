@@ -21,6 +21,7 @@ import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, ttlDaysFromBod
 import { classifyUpdateViolations } from '../../brain/write-validation.js';
 import { resolveEntityIdsByName } from '../../brain/entities.js';
 import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
+import { parseRecordSuppression } from '../../brain/suppress-embeddings.js';
 
 export const chronoRouter = Router();
 
@@ -203,14 +204,9 @@ chronoRouter.patch('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceA
   // handles both directions), while this handler destructured a fixed list that never contained it. So a
   // patch carrying only this flag was not refused — it answered 200 with an unchanged record, which is the
   // worse half of the same defect: the other three at least said "At least one field must be provided".
-  let excludeFromVectorSearch: boolean | undefined;
-  if (req.body?.excludeFromVectorSearch !== undefined) {
-    if (typeof req.body.excludeFromVectorSearch !== 'boolean') {
-      res.status(400).json({ error: '`excludeFromVectorSearch` must be a boolean' });
-      return;
-    }
-    excludeFromVectorSearch = req.body.excludeFromVectorSearch;
-  }
+  const sup = parseRecordSuppression(req.body);
+  if (!sup.ok) { res.status(400).json({ error: sup.error }); return; }
+  const suppressEmbeddings = sup.value;
 
   // Nothing this handler recognises is an ERROR, not a 200 with an unchanged record. The three sibling
   // PATCH handlers have always answered `At least one field must be provided`; chrono answered success,
@@ -219,7 +215,7 @@ chronoRouter.patch('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceA
   // integration guide); what is no longer possible is dropping ALL of them and calling it success.
   const PATCHABLE_FIELDS = [
     'title', 'type', 'startsAt', 'endsAt', 'status', 'confidence', 'tags', 'entityIds', 'memoryIds',
-    'description', 'properties', 'recurrence', 'excludeFromVectorSearch', 'ttlDays', 'deleteFields',
+    'description', 'properties', 'recurrence', 'suppressEmbeddings', 'ttlDays', 'deleteFields',
   ];
   const body = req.body != null && typeof req.body === 'object' ? req.body as Record<string, unknown> : {};
   if (!PATCHABLE_FIELDS.some(f => f in body)) {
@@ -274,7 +270,7 @@ chronoRouter.patch('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceA
   const updated = await findFirstAcrossMembers(wt.target, mid => updateChrono(mid, id, {
     title, type, startsAt, endsAt, status, confidence,
     tags, entityIds, memoryIds, description, properties: safeProps, recurrence: safeRecurrence,
-    excludeFromVectorSearch,
+    suppressEmbeddings,
   }, dfPaths, webhookToken(req), ttlDaysFromBody(req.body), ifMatch.seq));
   if (updated) {
     req.auditSnapshots = { before: prior ?? {}, after: updated };

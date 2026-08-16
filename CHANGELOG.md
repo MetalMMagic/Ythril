@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`excludeFromVectorSearch` is now `suppressEmbeddings`, which is what the two tiers below it were already
+  called.** One switch had two names: the per-record flag said `excludeFromVectorSearch` while a type schema
+  and the space both said `suppressEmbeddings`, and `record > schema > space` resolved between them. Nothing
+  in the record-level name hinted the other two existed, so a record with no vector and no flag of its own
+  read as a bug. Worse, the old name described the wrong thing — *"excluded from vector search"* reads as
+  *removed from search*, which would include traversal, and it never did. It is the absence of a vector, so
+  `query`, `list`, `get`, the `traverse` tool and recall's own `traverse` expansion all still reach the
+  record in full.
+
+  **Existing callers keep working.** `excludeFromVectorSearch` is still accepted on the REST `PATCH` routes
+  and the MCP `update_*` tools for all four record types; if a request carries both, `suppressEmbeddings`
+  wins. It is no longer offered anywhere — not in a tool schema, not in the integration guide — because a
+  description is what a caller constructs arguments from, and naming both would rebuild the problem. The
+  alias is listed for removal in 4.0.
+
+  **A mixed-version network stays correct in both directions.** These collections replicate by whole-document
+  replace rather than field merge, so a write stores both spellings: a peer on an older build keeps finding
+  the key it knows, and this build prefers the new key and falls back to the old one. Without that, an older
+  peer rewriting a record would drop a flag it does not understand and re-embed a record its owner had asked
+  to keep unembedded.
+
+  Along the way the record tier stopped being four separate implementations — two readers spelling the rule
+  out inline, and two Mongo filters — and both API doors stopped disagreeing about a bad value: MCP accepted
+  a non-boolean by silently dropping it while REST answered `400`. Both now refuse it with the same message.
+
 ### Fixed
 
 - **`excludeFromVectorSearch: false` was documented as "do embed" and does not mean that.** It is the top of

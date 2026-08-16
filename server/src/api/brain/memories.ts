@@ -24,6 +24,7 @@ import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, buildMemoryFil
 import { classifyUpdateViolations } from '../../brain/write-validation.js';
 import { resolveEntityIdsByName } from '../../brain/entities.js';
 import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
+import { parseRecordSuppression } from '../../brain/suppress-embeddings.js';
 
 export const memoriesRouter = Router();
 
@@ -241,7 +242,7 @@ memoriesRouter.patch('/spaces/:spaceId/memories/:id', globalRateLimit, requireSp
   if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
   const ttlDaysProvided = !!req.body && typeof req.body === 'object' && 'ttlDays' in req.body;
   const dfPaths: string[] | undefined = Array.isArray(deleteFields) && deleteFields.length > 0 ? deleteFields : undefined;
-  const updates: { fact?: string; type?: string; tags?: string[]; entityIds?: string[]; description?: string; properties?: Record<string, string | number | boolean>; excludeFromVectorSearch?: boolean } = {};
+  const updates: { fact?: string; type?: string; tags?: string[]; entityIds?: string[]; description?: string; properties?: Record<string, string | number | boolean>; suppressEmbeddings?: boolean } = {};
   // `type` was accepted on CREATE and silently DROPPED here: this handler never destructured it, so a caller PATCHing
   // a memory's type got 200 and no change. `updateMemory` has always accepted it and writes `$set.type`, so the field
   // was plumbed the whole way down and lost at the door. An empty string CLEARS it, which is how the UI unsets a type —
@@ -277,13 +278,9 @@ memoriesRouter.patch('/spaces/:spaceId/memories/:id', globalRateLimit, requireSp
   // A boolean, and the ONLY field a caller may send on its own — retiring a record from vector search is a
   // complete edit in itself. It was wired into the update functions and into no PATCH handler, so it
   // shipped unreachable over REST; a caller sending it alone was told they had sent no fields at all.
-  if (req.body?.excludeFromVectorSearch !== undefined) {
-    if (typeof req.body.excludeFromVectorSearch !== 'boolean') {
-      res.status(400).json({ error: '`excludeFromVectorSearch` must be a boolean' });
-      return;
-    }
-    updates.excludeFromVectorSearch = req.body.excludeFromVectorSearch;
-  }
+  const sup = parseRecordSuppression(req.body);
+  if (!sup.ok) { res.status(400).json({ error: sup.error }); return; }
+  if (sup.value !== undefined) updates.suppressEmbeddings = sup.value;
   if (Object.keys(updates).length === 0 && !dfPaths && !ttlDaysProvided) { res.status(400).json({ error: 'At least one field must be provided' }); return; }
   const memberIds = resolveMemberSpaces(wt.target);
   for (const mid of memberIds) {

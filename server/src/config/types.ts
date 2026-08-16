@@ -1306,7 +1306,8 @@ export interface AuthorRef {
 
 export interface MemoryDoc extends StampSkewable {
   /**
-   * Keep this record stored, but stop it being found by vector search.
+   * Keep this record stored, but stop it being EMBEDDED — the top tier of the switch a type schema and the
+   * space also carry under this same name, resolving `record > schema > space`.
    *
    * Implemented by having NO embedding rather than by a query filter: a vectorless record cannot be
    * returned by $vectorSearch at all, at zero query cost, and it also drops out of the lexical channel
@@ -1314,7 +1315,20 @@ export interface MemoryDoc extends StampSkewable {
    * not work — `ne` is not natively pushable (`brain/filter.ts:74`), so it would force every recall onto
    * an exhaustive scan, and the positive form would need a backfill of a synced collection.
    *
-   * Absent means included, so no existing record changes. Clearing the flag re-queues an embedding.
+   * Because it is the absence of a vector rather than a filter, everything that does not RANK still reaches
+   * the record in full: `query`, `list`, `get`, the `traverse` tool, and recall's own `traverse` expansion.
+   *
+   * Absent means included, so no existing record changes. Clearing the flag re-queues an embedding. `false`
+   * is "not stated" and falls through to the tiers below rather than overriding them.
+   */
+  suppressEmbeddings?: boolean;
+  /**
+   * The pre-3.1.0 spelling of {@link suppressEmbeddings}, still read and still written beside it.
+   *
+   * Never offered on either API door. It stays on the document because these collections replicate by
+   * whole-document replace, so a peer on an older build must keep finding the key it knows — see
+   * `brain/suppress-embeddings.ts` for why dropping it would un-suppress records across a mixed-version
+   * network. `_DEPRECATIONS.md` carries its removal.
    */
   excludeFromVectorSearch?: boolean;
   _id: string;
@@ -1348,7 +1362,8 @@ export interface MemoryDoc extends StampSkewable {
 
 export interface EntityDoc extends StampSkewable {
   /**
-   * Keep this record stored, but stop it being found by vector search.
+   * Keep this record stored, but stop it being EMBEDDED — the top tier of the switch a type schema and the
+   * space also carry under this same name, resolving `record > schema > space`.
    *
    * Implemented by having NO embedding rather than by a query filter: a vectorless record cannot be
    * returned by $vectorSearch at all, at zero query cost, and it also drops out of the lexical channel
@@ -1356,7 +1371,20 @@ export interface EntityDoc extends StampSkewable {
    * not work — `ne` is not natively pushable (`brain/filter.ts:74`), so it would force every recall onto
    * an exhaustive scan, and the positive form would need a backfill of a synced collection.
    *
-   * Absent means included, so no existing record changes. Clearing the flag re-queues an embedding.
+   * Because it is the absence of a vector rather than a filter, everything that does not RANK still reaches
+   * the record in full: `query`, `list`, `get`, the `traverse` tool, and recall's own `traverse` expansion.
+   *
+   * Absent means included, so no existing record changes. Clearing the flag re-queues an embedding. `false`
+   * is "not stated" and falls through to the tiers below rather than overriding them.
+   */
+  suppressEmbeddings?: boolean;
+  /**
+   * The pre-3.1.0 spelling of {@link suppressEmbeddings}, still read and still written beside it.
+   *
+   * Never offered on either API door. It stays on the document because these collections replicate by
+   * whole-document replace, so a peer on an older build must keep finding the key it knows — see
+   * `brain/suppress-embeddings.ts` for why dropping it would un-suppress records across a mixed-version
+   * network. `_DEPRECATIONS.md` carries its removal.
    */
   excludeFromVectorSearch?: boolean;
   _id: string;
@@ -1380,7 +1408,8 @@ export interface EntityDoc extends StampSkewable {
 
 export interface EdgeDoc extends StampSkewable {
   /**
-   * Keep this record stored, but stop it being found by vector search.
+   * Keep this record stored, but stop it being EMBEDDED — the top tier of the switch a type schema and the
+   * space also carry under this same name, resolving `record > schema > space`.
    *
    * Implemented by having NO embedding rather than by a query filter: a vectorless record cannot be
    * returned by $vectorSearch at all, at zero query cost, and it also drops out of the lexical channel
@@ -1388,7 +1417,20 @@ export interface EdgeDoc extends StampSkewable {
    * not work — `ne` is not natively pushable (`brain/filter.ts:74`), so it would force every recall onto
    * an exhaustive scan, and the positive form would need a backfill of a synced collection.
    *
-   * Absent means included, so no existing record changes. Clearing the flag re-queues an embedding.
+   * Because it is the absence of a vector rather than a filter, everything that does not RANK still reaches
+   * the record in full: `query`, `list`, `get`, the `traverse` tool, and recall's own `traverse` expansion.
+   *
+   * Absent means included, so no existing record changes. Clearing the flag re-queues an embedding. `false`
+   * is "not stated" and falls through to the tiers below rather than overriding them.
+   */
+  suppressEmbeddings?: boolean;
+  /**
+   * The pre-3.1.0 spelling of {@link suppressEmbeddings}, still read and still written beside it.
+   *
+   * Never offered on either API door. It stays on the document because these collections replicate by
+   * whole-document replace, so a peer on an older build must keep finding the key it knows — see
+   * `brain/suppress-embeddings.ts` for why dropping it would un-suppress records across a mixed-version
+   * network. `_DEPRECATIONS.md` carries its removal.
    */
   excludeFromVectorSearch?: boolean;
   _id: string;
@@ -1418,7 +1460,8 @@ export type ChronoStatus = 'upcoming' | 'active' | 'completed' | 'overdue' | 'ca
 
 export interface ChronoEntry extends StampSkewable {
   /**
-   * Keep this record stored, but stop it being found by vector search.
+   * Keep this record stored, but stop it being EMBEDDED — the top tier of the switch a type schema and the
+   * space also carry under this same name, resolving `record > schema > space`.
    *
    * Implemented by having NO embedding rather than by a query filter: a vectorless record cannot be
    * returned by $vectorSearch at all, at zero query cost, and it also drops out of the lexical channel
@@ -1426,7 +1469,20 @@ export interface ChronoEntry extends StampSkewable {
    * not work — `ne` is not natively pushable (`brain/filter.ts:74`), so it would force every recall onto
    * an exhaustive scan, and the positive form would need a backfill of a synced collection.
    *
-   * Absent means included, so no existing record changes. Clearing the flag re-queues an embedding.
+   * Because it is the absence of a vector rather than a filter, everything that does not RANK still reaches
+   * the record in full: `query`, `list`, `get`, the `traverse` tool, and recall's own `traverse` expansion.
+   *
+   * Absent means included, so no existing record changes. Clearing the flag re-queues an embedding. `false`
+   * is "not stated" and falls through to the tiers below rather than overriding them.
+   */
+  suppressEmbeddings?: boolean;
+  /**
+   * The pre-3.1.0 spelling of {@link suppressEmbeddings}, still read and still written beside it.
+   *
+   * Never offered on either API door. It stays on the document because these collections replicate by
+   * whole-document replace, so a peer on an older build must keep finding the key it knows — see
+   * `brain/suppress-embeddings.ts` for why dropping it would un-suppress records across a mixed-version
+   * network. `_DEPRECATIONS.md` carries its removal.
    */
   excludeFromVectorSearch?: boolean;
   _id: string;

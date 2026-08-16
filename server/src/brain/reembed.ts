@@ -58,7 +58,9 @@
 import { col, asFilter } from '../db/mongo.js';
 import { COLLECTION, } from './embed-record.js';
 import { enqueueEmbedJob } from './embed-queue.js';
-import { embeddingSuppressed, schemaKeyFor } from './suppress-embeddings.js';
+import {
+  embeddingSuppressed, schemaKeyFor, recordSuppression, recordNotSuppressedFilter,
+} from './suppress-embeddings.js';
 import { TYPE_FIELD } from './ttl.js';
 import { getSpaceMeta } from '../spaces/schema-validation.js';
 import type { KnowledgeType } from '../config/types-knowledge.js';
@@ -96,9 +98,10 @@ export interface SuppressMeta {
  *
  * Exported for testing because this is the part with the reasoning in it. Each tier separately:
  *
- *  - **record**: `excludeFromVectorSearch: true` is a plain field, so `$ne: true` excludes it. It must be
+ *  - **record**: `suppressEmbeddings: true` is a plain field, so `$ne: true` excludes it. It must be
  *    `$ne` rather than `{ $exists: false }` — the flag can legitimately be present and `false`, and a record
- *    that explicitly opts IN must not be excluded.
+ *    that explicitly opts IN must not be excluded. `recordNotSuppressedFilter` covers the pre-3.1.0 spelling
+ *    too, because a sweep that read only the new key would re-embed every record suppressed before the rename.
  *  - **schema**: the suppressed type NAMES are enumerable from `meta.typeSchemas`, so they become a `$nin` on
  *    the type field. Edges key on `label` while everything else keys on `type`, which `TYPE_FIELD` already
  *    encodes — reading `type` for an edge would find no schema, look like it worked, and silently exclude
@@ -135,10 +138,10 @@ export function suppressionExclusion(
     // meta — so `'all'` is claimed only when neither escape hatch exists for this kind.
     if (releasedTypes.length === 0) return 'all';
     // Some types are explicitly released: only those, minus any record opting out.
-    return { query: { ...(field ? { [field]: { $in: releasedTypes } } : {}), excludeFromVectorSearch: { $ne: true } } };
+    return { query: { ...(field ? { [field]: { $in: releasedTypes } } : {}), ...recordNotSuppressedFilter() } };
   }
 
-  const query: Record<string, unknown> = { excludeFromVectorSearch: { $ne: true } };
+  const query: Record<string, unknown> = { ...recordNotSuppressedFilter() };
   if (field && suppressedTypes.length > 0) query[field] = { $nin: suppressedTypes };
   return { query };
 }
@@ -158,7 +161,7 @@ function stillSuppressed(spaceId: string, kind: BrainEmbedRecordType, doc: Recor
   const knowledgeType: KnowledgeType | undefined = kind === 'file' ? undefined : kind;
   const schemaKey = knowledgeType === undefined ? undefined : schemaKeyFor(knowledgeType, doc);
   return embeddingSuppressed({
-    record: doc['excludeFromVectorSearch'] === true ? true : undefined,
+    record: recordSuppression(doc),
     schema: knowledgeType === undefined || schemaKey === undefined
       ? undefined
       : meta?.typeSchemas?.[knowledgeType]?.[schemaKey],

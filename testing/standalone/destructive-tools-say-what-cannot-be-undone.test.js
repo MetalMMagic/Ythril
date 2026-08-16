@@ -17,7 +17,7 @@
  * ## And the gentler thing they probably meant
  *
  * A caller reaching for `delete_entity` often wants the record to stop cluttering recall, not to be gone.
- * That is `excludeFromVectorSearch`, which keeps it readable and traversable — and a schema that does not
+ * That is `suppressEmbeddings`, which keeps it readable and traversable — and a schema that does not
  * name the alternative is one where the destructive option is the only one anybody finds.
  *
  * A refusal under `strictLinkage` is the same shape: it is usually CORRECT, and reads as an obstacle unless
@@ -71,9 +71,9 @@ describe('merge_entities: the 409 is the question, not a failure', () => {
 });
 
 describe('delete_entity: the alternative, and why a refusal is right', () => {
-  it('names excludeFromVectorSearch as the gentler thing', () => {
+  it('names suppressEmbeddings as the gentler thing', () => {
     // The commonest actual intent — stop it cluttering recall — is not a delete at all.
-    assert.match(DELETE, /excludeFromVectorSearch/,
+    assert.match(DELETE, /suppressEmbeddings/,
       'a schema that does not name the alternative makes the destructive option the only discoverable one');
     assert.match(DELETE, /readable and traversable/, 'say what the alternative preserves');
   });

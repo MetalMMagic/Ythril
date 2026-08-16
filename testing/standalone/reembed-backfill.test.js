@@ -64,7 +64,11 @@ describe('it does not fight the suppression setting', () => {
   });
 
   it('passes the record flag as undefined when absent, never false', () => {
-    assert.match(CODE, /record:\s*doc\['excludeFromVectorSearch'\]\s*===\s*true\s*\?\s*true\s*:\s*undefined/);
+    // The rule moved into `recordSuppression`, which is exercised directly in
+    // `one-switch-three-tiers-is-documented.test.js`. What matters HERE is that the backfill asks it
+    // rather than keeping a second copy — that copy is how a sweep starts disagreeing with the write path
+    // about what a stored `false` means, and about whether the pre-3.1.0 spelling still counts.
+    assert.match(CODE, /record:\s*recordSuppression\(doc\)/);
   });
 });
 
@@ -167,8 +171,10 @@ describe('suppression is expressible as a query, which is what makes the sweep t
   it('excludes the record tier with $ne, not $exists', async () => {
     const { suppressionExclusion } = await import('../../server/dist/brain/reembed.js');
     const { query } = suppressionExclusion(undefined, 'memory');
-    assert.deepEqual(query['excludeFromVectorSearch'], { $ne: true },
+    assert.deepEqual(query['suppressEmbeddings'], { $ne: true },
       '$exists:false would also exclude a record that carries the flag as FALSE — an explicit opt-in');
+    assert.deepEqual(query['excludeFromVectorSearch'], { $ne: true },
+      'and the pre-3.1.0 spelling, or the sweep re-embeds every record suppressed before the rename');
   });
 
   it('excludes suppressed TYPE NAMES, on the right field per kind', async () => {
@@ -212,7 +218,7 @@ describe('suppression is expressible as a query, which is what makes the sweep t
     const { suppressionExclusion } = await import('../../server/dist/brain/reembed.js');
     const meta = { typeSchemas: { memory: { task: { suppressEmbeddings: true } } } };
     const { query } = suppressionExclusion(meta, 'file');
-    assert.deepEqual(Object.keys(query), ['excludeFromVectorSearch'],
+    assert.deepEqual(Object.keys(query).sort(), ['excludeFromVectorSearch', 'suppressEmbeddings'],
       'indexing typeSchemas with "file" would miss every time and silently exclude nothing');
   });
 

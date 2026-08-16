@@ -35,8 +35,10 @@ describe('the suppression decision reaches the embed path', () => {
 
   it('passes the record flag as undefined when it is absent, never false', () => {
     // `false` at the top tier WINS, so an absent flag read as `false` would force embedding and make both lower
-    // tiers dead code — the schema and space settings would exist and do nothing.
-    assert.match(CODE, /record:\s*doc\['excludeFromVectorSearch'\]\s*===\s*true\s*\?\s*true\s*:\s*undefined/);
+    // tiers dead code — the schema and space settings would exist and do nothing. The mapping itself is
+    // `recordSuppression`'s, exercised in `one-switch-three-tiers-is-documented.test.js`; what this asserts is
+    // that the embed path defers to it instead of spelling the rule out a second time.
+    assert.match(CODE, /record:\s*recordSuppression\(doc\)/);
   });
 
   it('consults all three tiers', () => {

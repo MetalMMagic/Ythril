@@ -16,7 +16,7 @@
  *
  * ## Why it was renamed, and why the detectors changed shape
  *
- * The `excludeFromVectorSearch` arm of the predecessor gate PASSED on the very defect it was written for,
+ * The `suppressEmbeddings` arm of the predecessor gate (then spelled `excludeFromVectorSearch`) PASSED on the very defect it was written for,
  * twice over, and both failures are worth keeping in view because they are the two ways a green means
  * nothing:
  *
@@ -26,7 +26,7 @@
  *     scope. Three of three consistent, green, fourth type unreachable. An integrator found it by reading
  *     the source. Detect the HANDLER (`.patch(`), and assert the considered set is all four BEFORE
  *     comparing within it.
- *  2. **Presence anywhere in the file read as reachability.** `/excludeFromVectorSearch/.test(src)` stays
+ *  2. **Presence anywhere in the file read as reachability.** `/<the field name>/.test(src)` stays
  *     true when the field is deleted from the writer call, because the same file still validates it and
  *     names it in an error message. Removing the forward — the exact reported defect — survived that
  *     detector. So each type now names the pattern that CONSTITUTES forwarding, and every detector is
@@ -53,15 +53,15 @@ const ROOT = process.cwd();
 const ROUTES = {
   memory: {
     file: 'server/src/api/brain/memories.ts',
-    forward: () => /updates\.excludeFromVectorSearch = req\.body\.excludeFromVectorSearch/,
+    forward: () => /if \(sup\.value !== undefined\) updates\.suppressEmbeddings = sup\.value;/,
   },
   entity: {
     file: 'server/src/api/brain/entities.ts',
-    forward: () => /updates\.excludeFromVectorSearch = req\.body\.excludeFromVectorSearch/,
+    forward: () => /if \(sup\.value !== undefined\) updates\.suppressEmbeddings = sup\.value;/,
   },
   edge: {
     file: 'server/src/api/brain/edges.ts',
-    forward: () => /updates\.excludeFromVectorSearch = req\.body\.excludeFromVectorSearch/,
+    forward: () => /if \(sup\.value !== undefined\) updates\.suppressEmbeddings = sup\.value;/,
   },
   chrono: {
     file: 'server/src/api/brain/chrono.ts',
@@ -72,7 +72,7 @@ const ROUTES = {
     //
     // `dfPaths` is written out rather than skipped with a wildcard. Pinning the shape is the whole point —
     // a change to it should be reviewed, and `[^)]*` would trade that away to save one edit.
-    forward: () => /excludeFromVectorSearch,\s*\}, dfPaths, webhookToken\(req\)/,
+    forward: () => /suppressEmbeddings,\s*\}, dfPaths, webhookToken\(req\)/,
   },
 };
 
@@ -128,7 +128,7 @@ describe('waitForEmbedding is reachable on every brain create route', () => {
   });
 });
 
-describe('excludeFromVectorSearch is reachable on every surface that can set it', () => {
+describe('suppressEmbeddings is reachable on every surface that can set it', () => {
   it('the PATCH detector keys on the handler, not on a message the fix introduces', () => {
     // Build the regex fresh per use — a shared /g literal advances lastIndex between calls and fakes a miss.
     const patch = () => /\.patch\(/;
@@ -145,22 +145,20 @@ describe('excludeFromVectorSearch is reachable on every surface that can set it'
     // an error message contains the string with or without the forward. Every detector must reject the
     // mention-only shape, and must still match its own route — a detector that matches nothing measures
     // nothing, and this is the check that would have failed loudly instead of silently.
+    //
+    // Rewritten for 3.1.0's rename. The mention-only sample is the CURRENT shape with the forward taken out,
+    // not the pre-rename one: a sample no detector could match either way would prove nothing about them.
     const mentionOnly = `
-      if (req.body?.excludeFromVectorSearch !== undefined) {
-        if (typeof req.body.excludeFromVectorSearch !== 'boolean') {
-          res.status(400).json({ error: '\`excludeFromVectorSearch\` must be a boolean' });
-          return;
-        }
-        excludeFromVectorSearch = req.body.excludeFromVectorSearch;
-      }
-      const PATCHABLE_FIELDS = ['description', 'excludeFromVectorSearch', 'ttlDays'];
+      const sup = parseRecordSuppression(req.body);
+      if (!sup.ok) { res.status(400).json({ error: sup.error }); return; }
+      const PATCHABLE_FIELDS = ['description', 'suppressEmbeddings', 'ttlDays'];
       const updated = await updateChrono(mid, id, {
         title, description,
-      }, webhookToken(req), ttlDaysFromBody(req.body));
+      }, dfPaths, webhookToken(req), ttlDaysFromBody(req.body));
     `;
     for (const [type, { forward }] of Object.entries(ROUTES)) {
       assert.equal(forward().test(mentionOnly), false,
-        `the ${type} forward detector matches a handler that only validates the flag and never passes it`);
+        `the ${type} forward detector matches a handler that only parses the flag and never passes it`);
       assert.ok(forward().test(routeCode(type)),
         `the ${type} forward detector does not match its own route — the handler changed shape, so this `
         + 'detector is measuring nothing. Update it deliberately.');
@@ -186,22 +184,29 @@ describe('excludeFromVectorSearch is reachable on every surface that can set it'
     const yes = Object.entries(has).filter(([, v]) => v).map(([k]) => k);
     const no = Object.entries(has).filter(([, v]) => !v).map(([k]) => k);
     assert.ok(yes.length === 0 || no.length === 0,
-      `excludeFromVectorSearch is forwarded to the writer over REST for [${yes.join(', ')}] but not `
+      `suppressEmbeddings is forwarded to the writer over REST for [${yes.join(', ')}] but not `
       + `[${no.join(', ')}]. A flag wired into the update function and not into the handler ships `
       + 'UNREACHABLE on the surface most integrators use, and these handlers DESTRUCTURE rather than '
       + 'allowlist, so sending it is a 200 that changes nothing.');
     assert.equal(Object.keys(has).length, 4, 'all four types must be in scope — see the test above');
   });
 
-  it('each forwarding handler validates it as a boolean first', () => {
-    // Same reason as waitForEmbedding: a value taken from a body and handed to a writer unchecked is how the
-    // string "false" becomes a truthy exclusion that unsets a vector nobody meant to unset.
-    const offenders = Object.entries(ROUTES)
-      .filter(([type, { forward }]) => forward().test(routeCode(type)))
-      .filter(([type]) => !/`excludeFromVectorSearch` must be a boolean/.test(routeCode(type)))
-      .map(([type]) => type);
+  it('every handler on BOTH doors reads it through the one shared parser', () => {
+    // This replaced a per-file check for the literal refusal text, which stopped being evidence once the
+    // refusal moved into `parseRecordSuppression`. The stronger question is the one this repo keeps getting
+    // wrong: one rule, two implementations, the weaker winning silently. MCP's own copy WAS the weaker one —
+    // `typeof a[...] === 'boolean'` accepted a non-boolean by dropping it, while REST answered 400 for the
+    // same value. Eight handlers, one parser, or the two doors can disagree again.
+    const offenders = [];
+    for (const [type, { file }] of Object.entries(ROUTES)) {
+      if (!/parseRecordSuppression\(req\.body\)/.test(code(file))) offenders.push(`REST ${type}`);
+    }
+    for (const [type, file] of Object.entries(MCP_TOOLS)) {
+      if (!/parseRecordSuppression\(a\)/.test(code(file))) offenders.push(`MCP ${type}`);
+    }
     assert.deepEqual(offenders, [],
-      'these routes forward excludeFromVectorSearch but never check it is a boolean');
+      'these handlers do not go through parseRecordSuppression, so they carry their own copy of the '
+      + 'record-tier rule — including which spellings are accepted and what a non-boolean does.');
   });
 
   it('all four MCP update tools accept it, or none do', () => {
@@ -215,13 +220,13 @@ describe('excludeFromVectorSearch is reachable on every surface that can set it'
       assert.match(src, /name: 'update_/, `${file} no longer defines an update tool — fix this gate's map`);
       // Both halves: the input schema must ADVERTISE it (or additionalProperties:false rejects the call)
       // and the handler must READ it out of the args.
-      has[type] = /excludeFromVectorSearch: EXCLUDE_FROM_VECTOR_SEARCH_SCHEMA/.test(src)
-        && /a\['excludeFromVectorSearch'\] === 'boolean'/.test(src);
+      has[type] = /suppressEmbeddings: SUPPRESS_EMBEDDINGS_SCHEMA/.test(src)
+        && /parseRecordSuppression\(a\)/.test(src);
     }
     const yes = Object.entries(has).filter(([, v]) => v).map(([k]) => k);
     const no = Object.entries(has).filter(([, v]) => !v).map(([k]) => k);
     assert.ok(yes.length === 0 || no.length === 0,
-      `excludeFromVectorSearch is settable over MCP for [${yes.join(', ')}] but not [${no.join(', ')}]. `
+      `suppressEmbeddings is settable over MCP for [${yes.join(', ')}] but not [${no.join(', ')}]. `
       + 'A tool whose schema advertises the field but whose handler drops it, or the reverse, counts as not '
       + 'settable — both halves are checked.');
   });
@@ -230,10 +235,27 @@ describe('excludeFromVectorSearch is reachable on every surface that can set it'
     // Two internally-consistent halves that disagree is the shape this whole gate keeps catching. Compare
     // ACROSS the surfaces, or a future sweep of one door passes twice and fixes half the problem.
     const rest = Object.entries(ROUTES).some(([type, { forward }]) => forward().test(routeCode(type)));
-    const mcp = Object.values(MCP_TOOLS).some(f => /a\['excludeFromVectorSearch'\] === 'boolean'/.test(code(f)));
+    const mcp = Object.values(MCP_TOOLS).some(f => /parseRecordSuppression\(a\)/.test(code(f)));
     assert.equal(rest, mcp,
-      `excludeFromVectorSearch is reachable over ${rest ? 'REST but not MCP' : 'MCP but not REST'}. `
+      `suppressEmbeddings is reachable over ${rest ? 'REST but not MCP' : 'MCP but not REST'}. `
       + 'One rule, two surfaces: gate on consistency, not on presence.');
+  });
+
+  it('neither door ADVERTISES the pre-3.1.0 spelling, though both still accept it', () => {
+    // The rename's whole point is that a reader finds ONE name. `parseRecordSuppression` takes the old
+    // spelling as an input alias so existing callers do not break and so the stored key stays reachable, but
+    // an MCP schema description is what an agent constructs arguments from — naming both there would rebuild
+    // the defect this change exists to end, and a JSON-schema PROPERTY under the old name would make it
+    // permanent. The alias lives in exactly one file, which is what makes it removable in 4.0.
+    for (const [type, file] of Object.entries(MCP_TOOLS)) {
+      assert.doesNotMatch(code(file), /excludeFromVectorSearch/,
+        `the ${type} MCP tool still names excludeFromVectorSearch. The alias belongs in `
+        + 'parseRecordSuppression alone — see _DEPRECATIONS.md for when it goes.');
+    }
+    for (const [type, { file }] of Object.entries(ROUTES)) {
+      assert.doesNotMatch(code(file), /excludeFromVectorSearch/,
+        `the ${type} REST route still names excludeFromVectorSearch rather than deferring to the parser`);
+    }
   });
 
   it('the legacy chrono POST-as-update form is GONE, so there is no deprecated door to drop it on', () => {
@@ -246,7 +268,7 @@ describe('excludeFromVectorSearch is reachable on every surface that can set it'
     // the consequence is written down.
     const src = code(ROUTES.chrono.file);
     assert.ok(!/chronoRouter\.post\('\/spaces\/:spaceId\/chrono\/:id'/.test(src),
-      'the legacy POST-as-update route is back; it must refuse excludeFromVectorSearch, or be removed again');
+      'the legacy POST-as-update route is back; it must refuse suppressEmbeddings, or be removed again');
     assert.ok(!/not supported on the legacy POST-as-update form/.test(src),
       'a refusal message for a route that no longer exists is dead text that reads like a live rule');
   });

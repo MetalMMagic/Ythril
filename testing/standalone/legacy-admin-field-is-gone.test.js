@@ -86,6 +86,62 @@ describe('the field is gone from the record and the plumbing', () => {
   });
 });
 
+describe('the search shape that missed one', () => {
+  /**
+   * `isNonPeerSyncWrite` read `authToken['admin']` — BRACKET notation. Every audit I ran used the dotted
+   * form (`record.admin`, `.admin`), which does not match it, so the sweep reported clean while the sync
+   * WRITE guard kept reading a field that was being deleted.
+   *
+   * The consequence was not subtle: with the field gone, every admin token became a non-peer there and the
+   * whole sync write surface refused it. CI reported it as fifty-one failures in brain CRUD, because the
+   * integration suite seeds records through that endpoint — nowhere near the change, and nothing in the
+   * message pointing at it.
+   *
+   * So this asserts on the SHAPE rather than on the instance: no property access of the legacy fields in
+   * either spelling, outside the places that legitimately own them.
+   */
+  const OWNERS = [
+    'server/src/auth/instance-admin.ts',   // the predicate's own fallback
+    'server/src/auth/oidc.ts',             // OidcTokenRecord, built from a claim mapping
+    'server/src/auth/rights-migration.ts', // LegacyToken, the migration input
+    'server/src/auth/tokens.ts',           // feeds migrateToken at mint time
+  ];
+
+  it('nothing outside the owners reads the legacy fields, in EITHER spelling', () => {
+    const files = execSync('git ls-files "server/src/**/*.ts"', { encoding: 'utf8' })
+      .split('\n').map(s => s.trim()).filter(Boolean).filter(f => !OWNERS.includes(f));
+    assert.ok(files.length > 100, `only walked ${files.length} modules — the enumeration is broken`);
+
+    // Both spellings, and `readOnly` too — it was deleted one PR earlier and deserves the same guard.
+    // `?.` is two characters, and the first draft of this pattern allowed only a bare `?` before the
+    // bracket — so it did not match `authToken?.['admin']`, the exact access it exists to catch. Its own
+    // mutation check is what said so.
+    // The accessor is REQUIRED, and that took two goes. Making it optional matched the bare words `t admin`
+    // inside ordinary prose — "the last admin token" — and flagged two files that read nothing. A pattern
+    // that cries wolf gets loosened until it catches nothing, which is how the original miss happened.
+    const BAD = /\b(?:authToken|record|token|target|t)\s*\??\.\s*(?:admin|readOnly)\b|\b(?:authToken|record|token|target|t)\s*\??\.?\s*\[\s*['"](?:admin|readOnly)['"]\s*\]/;
+    const offenders = files.filter(f => BAD.test(stripComments(readFileSync(f, 'utf8'))));
+    assert.deepEqual(offenders, [],
+      'these read a deleted field — ask `isInstanceAdmin` / the rights matrix instead:\n  ' + offenders.join('\n  '));
+  });
+
+  it('and the detector really matches the bracket form that got through', () => {
+    // Mutation-proof for the pattern itself: a gate whose regex misses the case it was written for is worse
+    // than none, because it reports clean.
+    // `?.` is two characters, and the first draft of this pattern allowed only a bare `?` before the
+    // bracket — so it did not match `authToken?.['admin']`, the exact access it exists to catch. Its own
+    // mutation check is what said so.
+    // The accessor is REQUIRED, and that took two goes. Making it optional matched the bare words `t admin`
+    // inside ordinary prose — "the last admin token" — and flagged two files that read nothing. A pattern
+    // that cries wolf gets loosened until it catches nothing, which is how the original miss happened.
+    const BAD = /\b(?:authToken|record|token|target|t)\s*\??\.\s*(?:admin|readOnly)\b|\b(?:authToken|record|token|target|t)\s*\??\.?\s*\[\s*['"](?:admin|readOnly)['"]\s*\]/;
+    assert.ok(BAD.test("if (authToken?.['admin'] === true) return false;"), 'the shape that escaped');
+    assert.ok(BAD.test('if (record.admin) return true;'), 'and the dotted one');
+    assert.ok(!BAD.test('rights.instanceAdmin === true'), 'but not the matrix field');
+    assert.ok(!BAD.test("mapping.admin ? evaluateClaimRule(payload, mapping.admin) : false"), 'nor a claim rule');
+  });
+});
+
 describe('what still answers the question', () => {
   it('one predicate, reading the matrix', () => {
     assert.equal(isInstanceAdmin({ rights: { instanceAdmin: true, createSpaces: false, floor: null, perSpace: {} } }), true);

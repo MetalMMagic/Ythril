@@ -185,7 +185,10 @@ export const update_entityTool: ToolHandler = {
 
 export const merge_entitiesTool: ToolHandler = {
   name: 'merge_entities',
-  description: 'Merge two entities into one. The survivor keeps its identity; the absorbed entity is deleted after relinking all references. Call with an empty or partial resolution map to get a conflict plan (409), or with a fully resolved map to execute. Numeric properties support fn:<avg|min|max|sum>, boolean properties support fn:<and|or|xor>, strings require "survivor", "absorbed", or "custom" with customValue.',
+  description: 'Merge two entities into one. IRREVERSIBLE: the survivor keeps its identity and id, every reference to the absorbed entity is relinked to it, and the absorbed record is then DELETED. There is no unmerge.\n\n'
+    + 'TWO-PHASE BY DESIGN, and the 409 is the feature rather than an error. Call it with an empty or partial `resolution` and you get a CONFLICT PLAN back with status 409: every property where the two disagree, with both values. Call it again with a fully resolved map and it executes. A 409 on the first call is the expected path — treat it as the question being asked, not as a failure to retry.\n\n'
+    + 'RESOLVE EVERY CONFLICT OR NOTHING HAPPENS. A partial map returns the plan again rather than merging what it can, because a half-merge would leave two records that are neither separate nor one.\n\n'
+    + 'Per type: numeric properties accept `fn:avg|min|max|sum`, booleans accept `fn:and|or|xor`, and strings take "survivor", "absorbed", or "custom" with `customValue` — there is no function that can combine two strings sensibly, so you have to choose. Properties that do NOT conflict are carried over without appearing in the plan.',
   mutating: true,
   spaceRequired: true,
   inputSchema: (s: ToolSchemas) => ({
@@ -350,7 +353,9 @@ export const find_entities_by_nameTool: ToolHandler = {
  */
 export const delete_entityTool: ToolHandler = {
   name: 'delete_entity',
-  description: 'Delete an entity by ID. Refused when strictLinkage is on and other records still reference it. Creates a tombstone for sync propagation.',
+  description: 'Delete an entity by id. IRREVERSIBLE, and it is a DELETE rather than a retire — if you want the record to stop appearing in semantic search while staying readable and traversable, set `excludeFromVectorSearch` on it instead.\n\n'
+    + 'A REFUSAL HERE IS USUALLY CORRECT. With `strictLinkage` on, an entity still referenced by edges, memories, chrono entries or files is refused, and the answer names what points at it. That is the signal that deleting it would orphan something — resolve those first, or `merge_entities` into the record that should have held them.\n\n'
+    + 'It writes a TOMBSTONE, so the deletion propagates to peer instances on the next sync. A space that syncs will not quietly resurrect the record from a peer, and the tombstone is why.',
   mutating: true,
   spaceRequired: true,
   inputSchema: (s: ToolSchemas) => ({

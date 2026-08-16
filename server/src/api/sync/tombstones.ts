@@ -62,7 +62,7 @@ syncTombstonesRouter.get('/tombstones', syncRateLimit, requireAuth, async (req, 
 });
 
 
-/** POST /api/sync/tombstones â€” apply tombstones received from a peer */
+/** POST /api/sync/tombstones — apply tombstones received from a peer */
 syncTombstonesRouter.post('/tombstones', syncRateLimit, requireAuth, denyReadOnly, async (req, res) => {
   try {
     const { spaceId, networkId } = req.query as Record<string, string>;
@@ -156,7 +156,7 @@ syncTombstonesRouter.post('/file-tombstones', syncRateLimit, requireAuth, denyRe
       const ts = raw as Partial<FileTombstoneDoc>;
       if (!ts._id || !ts.path || typeof ts.path !== 'string') continue;
 
-      // Path-traversal guard â€” must stay within the space's files directory.
+      // Path-traversal guard — must stay within the space's files directory.
       const rel = toSafeRelPath(ts.path);
       const abs = path.join(spaceFiles, rel);
       if (!abs.startsWith(spaceFiles + path.sep) && abs !== spaceFiles) continue;

@@ -181,7 +181,7 @@ export function sendMemberRemovedNotify(
   const secrets = getSecrets();
   const peerToken = secrets.peerTokens[subjectInstanceId];
   if (!peerToken) {
-    log.warn(`member_removed: no outbound token for ${subjectInstanceId} â€” cannot notify`);
+    log.warn(`member_removed: no outbound token for ${subjectInstanceId} — cannot notify`);
     return;
   }
   peerSafeFetch(`${subjectUrl}/api/notify`, {

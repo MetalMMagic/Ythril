@@ -51,7 +51,7 @@ syncManifestRouter.get('/manifest', syncRateLimit, requireAuth, async (req, res)
  * files in the space (identified by their relative path + sha256 hash).
  *
  * This endpoint is consumed by the sync engine when a network has
- * `merkle: true` â€” after data sync the engine compares roots across peers and
+ * `merkle: true` — after data sync the engine compares roots across peers and
  * emits a MERKLE_DIVERGENCE warning if they disagree.
  *
  * Response: { spaceId, networkId, root, leafCount, computedAt }

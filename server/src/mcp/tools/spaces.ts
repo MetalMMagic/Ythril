@@ -9,7 +9,10 @@ import { SPACE_PURPOSE_MAX, needsReindex } from '../../spaces/_shared.js';
 
 export const list_spacesTool: ToolHandler = {
   name: 'list_spaces',
-  description: 'List all accessible spaces with their IDs, labels, purposes, and entry counts (memories, entities, edges, chrono). Use counts to decide which spaces are populated and worth querying.',
+  description: 'List every space this token can reach, with ids, labels, purposes and entry counts. CALL THIS FIRST in an unfamiliar instance: every other tool takes a space id, and the ids are not guessable from the labels.\n\n'
+    + 'READ THE `purpose`. It is the space owner telling you what belongs there and how to behave in it — conventions, what to write, what not to. A space with a purpose has one because somebody needed you to follow it.\n\n'
+    + 'The counts are what make this a planning tool rather than a directory: an empty space is not worth a recall, and a space with 40 000 records needs a filter rather than a broad query. A PROXY space reports its members\' totals combined and is marked as a proxy — writes to one need `targetSpace`.\n\n'
+    + 'Accessibility is per TOKEN. A space absent here is not a space that does not exist; it is one this token holds no rung in.',
   inputSchema: (_s: ToolSchemas) => ({ type: 'object', properties: {}, required: [], additionalProperties: false }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
     const { accessibleSpaces , accessibleSpaceIds } = ctx;
@@ -53,7 +56,9 @@ export const list_spacesTool: ToolHandler = {
 
 export const get_statsTool: ToolHandler = {
   name: 'get_stats',
-  description: 'Return counts of memories, entities, edges, and chrono entries for the current space.',
+  description: 'Return counts of memories, entities, edges, chrono entries and files for one space — the cheapest call there is, and the right way to check whether a space holds anything before spending a recall on it.\n\n'
+    + 'These are TOTALS, not search coverage. A record retired from semantic ranking is counted here and cannot be reached by `recall`, and a record written seconds ago is counted before its embedding exists. So a count that exceeds what a search returns is normal and is not evidence of a broken index — `list_embed_jobs` is what answers "is anything still queued or failed".\n\n'
+    + 'On a PROXY space the numbers are the members\' totals combined, so a per-member breakdown means asking each member by id.',
   spaceRequired: true,
   inputSchema: (s: ToolSchemas) => ({
           type: 'object',

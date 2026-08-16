@@ -21,6 +21,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Listing spaces and reading their counts now orient an assistant that has just connected.** Listing spaces
+  is the first call anything makes in an unfamiliar instance — every other tool needs a space id, and the ids
+  are not guessable from the labels — and the reference never said so. It also now says that a space's stated
+  **purpose** is the owner telling the assistant what belongs there and how to behave in it, rather than one
+  more descriptive string: a purpose exists because somebody needed it followed. The counts are framed as a
+  planning aid, since an empty space is not worth searching and a very large one needs a filter rather than a
+  broad question. Record counts now say what they do **not** mean: they are totals, and they include records
+  retired from search and records whose indexing has not finished, so a count larger than a search result is
+  normal rather than a sign of a broken index — with the tool that answers the indexing question named. Both
+  also now say that a space grouping other spaces reports their totals combined, so four spaces are not
+  mistaken for one large one.
+
 - **Punctuation mangled into `â€"` is repaired across the server sources.** Seven files carried text that had
   been read as one character encoding and written back as another, turning every dash and curly quote into
   three garbled characters. Six were long-standing; one was introduced earlier in this same release and

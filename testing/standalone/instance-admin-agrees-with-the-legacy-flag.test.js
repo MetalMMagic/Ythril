@@ -96,12 +96,28 @@ describe('where they CAN diverge, and what stops it', () => {
   });
 });
 
-describe('the guard has not moved yet — this PR changes nothing', () => {
-  it('enforceAdmin still reads the legacy boolean', () => {
-    // Asserted so the sequencing is explicit. When the guard does move, THIS assertion is the one that
-    // fails, which is the moment to re-read everything above rather than to renumber it.
+describe('the guard has moved onto the matrix, and this evidence is why it could', () => {
+  /**
+   * This block asserted the OPPOSITE for exactly one release: that `enforceAdmin` still read
+   * `record.admin`, so the sequencing was explicit and the switch could not be slipped in unnoticed.
+   *
+   * It fired the moment the guard moved — which was its whole purpose, and the instruction it carried was
+   * *"re-read everything above rather than renumber it"*. Re-read: the agreement assertions above are
+   * unchanged and still pass, so the switch rests on the same evidence it was designed to rest on.
+   *
+   * What this file keeps proving is the AGREEMENT. The behaviour of the moved guard belongs to
+   * `enforce-admin-reads-the-matrix.test.js`, and duplicating it here would give two files one subject.
+   */
+  it('enforceAdmin no longer reads the legacy boolean directly', () => {
     const mw = stripComments(readFileSync('server/src/auth/middleware.ts', 'utf8'));
-    assert.match(mw, /function enforceAdmin\([\s\S]{0,200}?if \(!record\.admin\)/,
-      'the switch to rights.instanceAdmin is the NEXT step, deliberately not this one');
+    assert.doesNotMatch(mw, /function enforceAdmin\([\s\S]{0,200}?if \(!record\.admin\)/,
+      'the switch has happened; the agreement above is what made it safe');
+  });
+
+  it('and the agreement remains the thing that justifies it', () => {
+    // The guard now asks one predicate. If that predicate ever stops agreeing with the migration, the tests
+    // above fail — which is the tie between this file and the switch, and the reason it is not deleted.
+    const mw = stripComments(readFileSync('server/src/auth/middleware.ts', 'utf8'));
+    assert.match(mw, /export function isInstanceAdmin/, 'one predicate, whose agreement this file pins');
   });
 });

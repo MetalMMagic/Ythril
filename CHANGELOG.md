@@ -40,17 +40,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **`wipe_space` now warns that it does not reach sync peers, which is the most consequential thing about
-  it.** Every per-record delete writes a tombstone, because a tombstone is the only thing that tells a peer a
-  record is gone. Wiping does the opposite: it deletes the data and then deletes the **tombstones** too,
-  writing none. On a space that belongs to a sync network that leaves an empty space with no record of any
-  deletion, facing a peer that still offers everything it holds — so the next round puts much of it back. The
-  old description said the space and its configuration are preserved and nothing about sync, which reads as
-  though the data is gone for good. It now says the wipe is local, and names the three ways to actually empty
-  a networked space. It also says that omitting `types` wipes **all five** collections rather than none, that
-  the duplicate and contradiction queues are cleared along with the records they point at, and that wiping an
-  already-empty space succeeds with zeroes rather than erroring. Whether wiping *should* propagate is a real
-  question with three defensible answers, so it is filed rather than decided.
+- **`wipe_space` now describes what it actually does to a space, beyond removing the records.** Omitting
+  `types` wipes **all five** collections rather than none — an absent filter is not a safe default. The
+  duplicate and contradiction queues are cleared along with the records they point at, because a finding is a
+  claim about two records and once those are gone it is not stale but *unopenable*. Wiping an already-empty
+  space succeeds with zeroes rather than erroring. And on a networked space it now opens a vote — see
+  **Breaking** below, which is the behaviour this description originally only warned about.
+
+- **Every instance-admin check now reads the rights matrix.** `enforceAdmin` — the one function behind every
+  admin route — gated on the deprecated `admin` boolean, and six other places asked the same question their
+  own way: the space-admin guard, the scoped guard, the peer-relay check, the trusted-relay check, the
+  `maxGiB` carve-out, and the last-admin lockout guard. Seven copies of one authorization question, where a
+  copy that drifts means a token reaching a route it never could, with no error to show for it. They all ask
+  one predicate now, which reads `rights.instanceAdmin` and falls back to the old flag only for a record
+  carrying no matrix — an OIDC session, which is built per request and legitimately has none. **No token's
+  access changes**: the two were proven to answer identically across every storable token shape before the
+  switch was made, in its own change, and the mint route refuses `admin` as an input so a divergent pair
+  cannot be created.
 
 - **`bulk_write` now says where it loses data quietly.** Anything past **500 entries per collection is
   discarded before validation** — it appears in neither the inserted counts nor the error list, so a 600-item

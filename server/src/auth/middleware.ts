@@ -216,9 +216,34 @@ async function resolveAuthOrFail(
   return { record, bearer };
 }
 
-/** Enforce `admin: true`; writes 403 and returns false when the token is not admin. */
+/**
+ * Is this token an instance administrator? The MATRIX decides, with the legacy flag as the fallback.
+ *
+ * One function, because this question is asked by `enforceAdmin`, by `enforceAdminOrSpaceAdmin`, and by the
+ * scoped guard — three call sites that read `record.admin` directly until now. Three copies of one
+ * authorization predicate is how this repo produces its most expensive defects, and here the failure mode is
+ * the worst available: a token reaching a route it never could, silently.
+ *
+ * `rights` absent means the record never passed the config backfill — an OIDC session, built per request from
+ * the identity — so the legacy flag answers for it. Every PAT carries a matrix: `createToken` always writes
+ * one and a boot migration backfills the rest.
+ *
+ * **The two provably agree**, which is why this switch is safe to make at all:
+ * `instance-admin-agrees-with-the-legacy-flag.test.js` exercises `migrateToken` over all nine storable legacy
+ * shapes, and the mint route refuses `admin` as an input so a divergent pair cannot be created. That evidence
+ * landed in its own PR first, deliberately — see `auth/space-reach.ts` for why this feature does it that way.
+ */
+export function isInstanceAdmin(
+  record: Pick<TokenRecord, 'admin'> | OidcTokenRecord | { admin?: boolean },
+): boolean {
+  const rights = (record as { rights?: TokenRights | null }).rights;
+  if (rights) return rights.instanceAdmin === true;
+  return (record as { admin?: boolean }).admin === true;
+}
+
+/** Enforce instance-admin; writes 403 and returns false when the token is not one. */
 function enforceAdmin(res: Response, record: Omit<TokenRecord, 'hash'> | OidcTokenRecord): boolean {
-  if (!record.admin) {
+  if (!isInstanceAdmin(record)) {
     res.status(403).json({ error: 'Admin token required' });
     return false;
   }
@@ -249,7 +274,7 @@ function enforceAdminOrSpaceAdmin(
   res: Response,
   record: Omit<TokenRecord, 'hash'> | OidcTokenRecord,
 ): boolean {
-  if (record.admin) return true;
+  if (isInstanceAdmin(record)) return true;
   // Narrowed rather than cast wholesale: `rights` is the only field this decision reads, and naming it here
   // is what stops the predicate quietly growing a second input later.
   const withRights = record as { rights?: TokenRights | null };
@@ -635,7 +660,7 @@ export function requireAdminOrSpaceAdminMfaScoped(paramName: string) {
     const { record, bearer } = auth;
     const spaceId = req.params[paramName] as string | undefined;
 
-    if (!record.admin) {
+    if (!isInstanceAdmin(record)) {
       // Narrowed to the one field the decision reads, for the same reason `enforceAdminOrSpaceAdmin` does it.
       const withRights = record as { rights?: TokenRights | null };
       if (!spaceId || !isSpaceAdminFor(withRights.rights, spaceId)) {

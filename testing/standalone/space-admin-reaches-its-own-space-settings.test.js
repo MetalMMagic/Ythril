@@ -194,7 +194,10 @@ describe('the MCP door widens with the REST one', () => {
 describe('maxGiB stays with the instance', () => {
   it('PATCH /:id refuses it from a token that is not an instance admin', () => {
     const stripped = stripComments(SPACES);
-    assert.match(stripped, /maxGiB !== undefined && !req\.authToken\?\.admin/,
+    // The predicate moved from the legacy `req.authToken?.admin` to `isInstanceAdmin` when every
+    // instance-admin check was unified. The rule is identical — this field needs the INSTANCE bit — so the
+    // assertion follows the spelling rather than being loosened to "some check exists".
+    assert.match(stripped, /maxGiB !== undefined && !\(req\.authToken && isInstanceAdmin\(req\.authToken\)\)/,
       'a space administrator must not set its share of the host disk');
     assert.match(stripped, /res\.status\(403\)/, 'and the refusal is a 403, not a silent drop');
   });

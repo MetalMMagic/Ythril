@@ -18,13 +18,16 @@
  * blind spot. So the walker descends into `properties` AND into `items`, and the test below proves it reaches
  * both rather than assuming it.
  *
- * ## What this does NOT gate yet, said plainly rather than left implied
+ * ## The floor, and why it arrived second
  *
- * Only PRESENCE. `move_file.src` says "Source path." in 12 characters, which passes here and does not meet
- * the standard X-2 records — every parameter gets its own sentence, and the sentence says the TRAP. 55
- * parameters are still that thin. A length floor is not added here because encoding "10 characters is fine"
- * as a passing threshold blesses exactly what needs fixing; the sweep is the work, and the floor lands with
- * it.
+ * The first version of this gate checked PRESENCE only, and said so: `move_file.src` read "Source path." in
+ * 12 characters, which meets a presence check and not the standard X-2 records. 52 parameters were that
+ * thin. A floor was deliberately NOT added then — a threshold of 10 characters, set to accommodate the worst
+ * case, blesses exactly what needs fixing, and an exemption list naming the 52 would have read as a plan.
+ *
+ * The sweep is done, so the floor is here with no exemptions: **40 characters**, which is roughly one
+ * sentence. It is not a quality measure and cannot be — a 40-character sentence can still say nothing. What
+ * it does is make the cheap failure impossible, so review can spend itself on whether the sentence is TRUE.
  *
  * Run: node --test testing/standalone/tool-parameters-are-all-described.test.js
  * (requires a prior `npm run build` in server/)
@@ -86,6 +89,18 @@ describe('every parameter is described', () => {
       .map(([tool, path]) => `${tool}: ${path}`);
     assert.deepEqual(missing, [],
       'a caller reads the schema while constructing arguments — these say nothing:\n  ' + missing.join('\n  '));
+  });
+
+  it('and none is under forty characters — about one sentence', () => {
+    // NO EXEMPTION LIST, on purpose. `REST_ONLY_CAPABILITIES` is empty for the same reason: a row there
+    // reads as a plan and behaves as a permanent carve-out. If a parameter genuinely cannot be described in
+    // a sentence, that is a finding about the parameter.
+    const FLOOR = 40;
+    const thin = allParams()
+      .filter(([, , v]) => typeof v?.description === 'string' && v.description.trim().length < FLOOR)
+      .map(([tool, path, v]) => `${tool}: ${path} (${v.description.trim().length}) "${v.description.trim()}"`);
+    assert.deepEqual(thin, [],
+      `under ${FLOOR} characters is a type restated, not a description — say the TRAP:\n  ` + thin.join('\n  '));
   });
 
   it('and none merely restates its own name', () => {

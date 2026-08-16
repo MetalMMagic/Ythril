@@ -41,11 +41,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Every thin MCP parameter description now says the trap rather than the type.** 52 of them were under forty
-  characters — `"Source path."`, `"Entity name."`, `"Collection to query."` — which passes a
+- **Every MCP parameter description now says the trap rather than the type, and a gate holds the line.** 62
+  were under forty characters — `"Source path."`, `"Entity name."`, `"Collection to query."` — which passes a
   has-a-description check and tells a caller nothing they could not read off the key. `help()` names the tool
   schema as the authoritative reference, so a parameter described that way is a capability nobody can use
   properly.
+
+  Also corrected: `update_chrono` promised that **"`endsAt` before `startsAt` is refused"**, and nothing
+  anywhere performs that check. Such an entry is stored as sent — and because `endsAt` becomes the due
+  moment, it reads back as `overdue` immediately. Both the tool and the gate now say so, and the gate asserts
+  the *absence* of the check rather than the wording, so it flips the day somebody adds the validation.
 
   What the new text adds is what the source says and the name does not: `upsert_entity.name` deduplicates
   nothing, so omitting `id` inserts a second entity of the same name; `update_edge.label` is part of the

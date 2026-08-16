@@ -73,8 +73,16 @@ describe('each says what its write does to what is already there', () => {
     assert.match(UPSERT_ENTITY, /find_entities_by_name/, 'point at the tool that answers it');
   });
 
-  it('remember: always an insert, and duplicates compete with each other', () => {
-    assert.match(REMEMBER, /Always an INSERT/, 'there is no id to update');
+  it('remember: an insert WITHOUT an id, convergence with one, and duplicates compete', () => {
+    // This assertion used to require the bare phrase `Always an INSERT`, and its own failure message said
+    // "there is no id to update" — repeating the claim it was pinning. Both were wrong: `remember` takes an
+    // optional `id`, and a supplied one that already names a record CONVERGES rather than duplicating,
+    // which is the retry-safety contract. A gate written from a description does not catch a wrong
+    // description; it cements it. `remember-describes-its-idempotent-path.test.js` holds the prose to the
+    // code, and this one now asserts the RULE rather than a sentence.
+    assert.match(REMEMBER, /insert/i, 'the no-id case still inserts');
+    assert.match(REMEMBER, /converge/i, 'and an id that names a record converges instead of duplicating');
+    assert.doesNotMatch(REMEMBER, /there is no id to update/i, 'the claim that was false');
     assert.match(REMEMBER, /compete for the same result slots/,
       'the cost of a duplicate is not storage, it is recall quality');
   });

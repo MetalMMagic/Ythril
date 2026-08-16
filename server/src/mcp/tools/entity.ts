@@ -274,9 +274,20 @@ export const merge_entitiesTool: ToolHandler = {
               items: {
                 type: 'object',
                 properties: {
-                  key: { type: 'string', description: 'Property key to resolve.' },
+                  key: {
+                    type: 'string',
+                    description: 'The property name, exactly as the 409 conflict plan reported it. Only '
+                      + 'CONFLICTING properties appear there and only those need resolving — ones the two '
+                      + 'records agree on, or that only one of them has, are carried over without being '
+                      + 'listed and must not be sent here.',
+                  },
                   resolution: { type: 'string', pattern: '^(survivor|absorbed|custom|fn:(avg|min|max|sum|and|or|xor))$', description: 'One of: "survivor", "absorbed", "custom" (requires customValue), or "fn:<name>" where <name> is a numeric merge (avg, min, max, sum) or boolean merge (and, or, xor).' },
-                  customValue: { description: 'Required when resolution is "custom".' },
+                  customValue: {
+                    description: 'The value to store, required when `resolution` is "custom" and ignored '
+                      + 'otherwise. This is the escape hatch for strings: no function can combine two of '
+                      + 'them sensibly, so a string conflict is "survivor", "absorbed", or a value you '
+                      + 'write yourself.',
+                  },
                 },
                 required: ['key', 'resolution'],
                 additionalProperties: false,

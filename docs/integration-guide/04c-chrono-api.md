@@ -44,6 +44,10 @@ memory. See [Retry Safety](04-brain-api.md#retry-safety).
   corrects itself.
   The derivation applies to the chrono read paths only: `POST /query` reads documents as stored, so the
   same entry is `upcoming` there and `overdue` in `GET /chrono`.
+- `endsAt` — optional ISO 8601. When present it **replaces `startsAt` as the due moment**, so an entry that
+  began last month and ends next year is not overdue. **Nothing validates the order**: an `endsAt` earlier
+  than `startsAt` is stored as sent, and the entry then reads as `overdue` immediately. Check it yourself if
+  that matters.
 - `confidence` — `0`–`1` (optional, useful for predictions)
 - `entityIds` — array of UUID v4 entity IDs (not names); returns `400` if any value is not a valid UUID and `strictLinkage` is enabled
 - `memoryIds` — array of UUID v4 memory IDs (not names); returns `400` if any value is not a valid UUID and `strictLinkage` is enabled

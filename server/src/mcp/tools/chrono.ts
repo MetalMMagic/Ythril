@@ -24,10 +24,27 @@ export const create_chronoTool: ToolHandler = {
           properties: {
             space: s.requiredSpace,
             id: uuidSchema('UUID v4 of an EXISTING record to update. It is not a way to choose an id: identity is server-generated, so an id that names nothing is ignored rather than adopted. To carry your own reference, use `name` or `description`.'),
-            title: { type: 'string', minLength: 1, description: 'Entry title.' },
+            title: {
+              type: 'string', minLength: 1,
+              description: 'What happened, or is meant to. Required, and it is EMBEDDED — so this is what a '
+                + '`recall` ranks the entry on, and a title like "meeting" is one nothing will ever find. '
+                + 'Nothing deduplicates by it: creating the same title twice stores two entries.',
+            },
             type: { type: 'string', minLength: 1, description: 'Entry type. Rejected unless it is one of the space\'s allowed chrono types: the defaults are event, deadline, plan, prediction, milestone, or the custom set declared in the space\'s typeSchemas.chrono.' },
-            startsAt: { type: 'string', minLength: 1, description: 'ISO 8601 start date/time.' },
-            endsAt: { type: 'string', description: 'Optional ISO 8601 end date/time.' },
+            startsAt: {
+              type: 'string', minLength: 1,
+              description: 'ISO 8601 date/time the entry is ABOUT — not when you recorded it, which is '
+                + '`createdAt` and is what `list_chrono`\'s `after`/`before` filter on. Required. With no '
+                + '`endsAt` this is also the DUE MOMENT, so a past `startsAt` on an `upcoming` entry makes it '
+                + 'read back as `overdue` straight away.',
+            },
+            endsAt: {
+              type: 'string',
+              description: 'Optional ISO 8601 end. When present it REPLACES `startsAt` as the due moment, so '
+                + 'an entry that started last month and ends next year is not overdue. NOTHING VALIDATES THE '
+                + 'ORDER — an `endsAt` before `startsAt` is stored as sent, and the entry then reads as '
+                + '`overdue` immediately.',
+            },
             status: {
               type: 'string', enum: ['upcoming', 'active', 'completed', 'overdue', 'cancelled'], default: 'upcoming',
               description: 'Stored status (default `upcoming`). You do not need `overdue` — it is derived on '
@@ -36,11 +53,30 @@ export const create_chronoTool: ToolHandler = {
                 + 'reverts: an entry marked `overdue` by hand stays overdue after you move its dates '
                 + 'forward, where a derived one would correct itself.',
             },
-            confidence: unitScoreSchema('Confidence level 0–1 (for predictions).'),
-            tags: { type: 'array', items: { type: 'string' }, description: 'Categorisation tags.' },
-            entityIds: { type: 'array', items: { type: 'string' }, description: 'Related entity IDs.' },
-            memoryIds: { type: 'array', items: { type: 'string' }, description: 'Related memory IDs.' },
-            description: { type: 'string', description: 'Optional longer description.' },
+            confidence: unitScoreSchema('How sure you are, 0 to 1, for entries that are predictions rather '
+              + 'than records. Nothing derives it, nothing ranks on it and nothing requires it — it is stored '
+              + 'and returned, and `query` can sort and filter on it.'),
+            tags: {
+              type: 'array', items: { type: 'string' },
+              description: 'Categorisation tags. EMBEDDED along with the title, so a tag affects meaning '
+                + 'ranking as well as being an exact filter for `list_chrono` and `query`.',
+            },
+            entityIds: {
+              type: 'array', items: { type: 'string' },
+              description: 'Entity IDs this entry is about. THIS IS WHAT MAKES IT REACHABLE from the graph: '
+                + '`traverse` follows these (with `includeChrono`, on by default), and they are NOT edges, so '
+                + 'an entry left unlinked is findable only by search or by date. Pass ids, not names.',
+            },
+            memoryIds: {
+              type: 'array', items: { type: 'string' },
+              description: 'Memory IDs this entry relates to. References rather than edges, like '
+                + '`entityIds`; deleting a memory leaves the id here and nothing reports it.',
+            },
+            description: {
+              type: 'string',
+              description: 'Optional longer prose. Embedded with the title, so it widens what a `recall` can '
+                + 'match this entry on — worth filling in when the title has to stay short.',
+            },
             properties: {
               type: 'object',
               description: 'Optional structured key-value metadata for this entry.',
@@ -183,7 +219,9 @@ export const update_chronoTool: ToolHandler = {
     + '- `title` — replaced when sent.\n'
     + '- `type` — `event`, `deadline`, `plan`, `prediction`, `milestone`, or any custom type the space schema '
     + 'defines. Re-validated against the allowlist.\n'
-    + '- `startsAt` / `endsAt` — ISO 8601. `endsAt` before `startsAt` is refused.\n'
+    + '- `startsAt` / `endsAt` — ISO 8601. NOTHING VALIDATES THE ORDER: an `endsAt` before `startsAt` is '
+    + 'stored as sent, and because `endsAt` becomes the due moment the entry then reads as `overdue` at '
+    + 'once. Check it yourself if it matters.\n'
     + '- `status` — `upcoming`, `active`, `completed`, `overdue`, `cancelled`. You never need to set '
     + '`overdue`: it is DERIVED on read, so an entry stored `upcoming` whose due moment has passed already '
     + 'reads back as `overdue` from `list_chrono`, `recall` and a single-entry get. What you set here is the '
@@ -212,11 +250,30 @@ export const update_chronoTool: ToolHandler = {
           type: 'object',
           properties: {
             space: s.requiredSpace,
-            id: { type: 'string', minLength: 1, description: 'Chrono entry ID.' },
-            title: { type: 'string', description: 'New title.' },
+            id: {
+              type: 'string', minLength: 1,
+              description: 'The entry\'s `_id`, as `list_chrono`, `recall` and `query` report it. '
+                + 'Required, and an id that names nothing is an ERROR rather than a silent no-op.',
+            },
+            title: {
+              type: 'string',
+              description: 'Replaces the stored title. It is embedded, so changing it changes what a `recall` '
+                + 'matches this entry on. It is also a REQUIRED field, which is why `deleteFields: ["title"]` '
+                + 'is refused by name rather than accepted and ignored.',
+            },
             type: { type: 'string', description: 'Entry type (e.g. event, deadline, plan, prediction, milestone, or a custom type defined in the space schema).' },
-            startsAt: { type: 'string', description: 'New ISO 8601 start date/time.' },
-            endsAt: { type: 'string', description: 'New ISO 8601 end date/time.' },
+            startsAt: {
+              type: 'string',
+              description: 'Replaces the stored ISO 8601 start. With no `endsAt` it is the DUE MOMENT, so '
+                + 'moving it forward is what un-overdues an entry that has gone late — the status is derived '
+                + 'from this, not stored.',
+            },
+            endsAt: {
+              type: 'string',
+              description: 'Replaces the stored ISO 8601 end, and takes over from `startsAt` as the due '
+                + 'moment. NOTHING VALIDATES THE ORDER — an `endsAt` before `startsAt` is stored as sent and '
+                + 'makes the entry read as `overdue` at once. Clearing it needs `deleteFields: ["endsAt"]`.',
+            },
             status: {
               type: 'string', enum: ['upcoming', 'active', 'completed', 'overdue', 'cancelled'],
               description: 'The new STORED status. You never need to set `overdue`: it is DERIVED on read '
@@ -492,7 +549,13 @@ export const delete_chronoTool: ToolHandler = {
     type: 'object',
     properties: {
       space: s.requiredSpace,
-      id: { type: 'string', minLength: 1, description: 'Chrono entry ID to delete.' },
+      id: {
+        type: 'string', minLength: 1,
+        description: 'The entry\'s `_id`. An id that does not exist is an ERROR, not a silent success. '
+          + 'The entities and memories it links are NOT touched — those are references, and deleting the '
+          + 'entry only drops them. A tombstone is written, so re-creating it with the same id does not '
+          + 'undo this.',
+      },
       targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
     },
     required: ['space', 'id'],

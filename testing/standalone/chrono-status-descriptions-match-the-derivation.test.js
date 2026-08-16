@@ -176,6 +176,32 @@ describe('no tool repeats the claim that was false', () => {
     assert.deepEqual(offenders, [], 'these still describe CH-1 as open:\n  ' + offenders.join('\n  '));
   });
 
+  it('nor that an out-of-order endsAt is refused, because nothing checks it', () => {
+    // `update_chrono` said "`endsAt` before `startsAt` is refused". Nothing anywhere implements that: the
+    // REST route validates `startsAt`'s presence and type, `validateChrono` never looks at either field,
+    // and no test pinned a refusal. So a caller relying on it stored an entry whose `endsAt` precedes its
+    // `startsAt` — which then reads as `overdue` at once, because `endsAt` becomes the due moment.
+    //
+    // Third false claim found in this one area, and the pattern in all three is the same: a confident
+    // sentence about a check that does not exist.
+    const offenders = [];
+    for (const t of ALL_TOOLS) {
+      const text = (t.description ?? '') + JSON.stringify(t.inputSchema(STUB));
+      if (/endsAt[^.]{0,40}(is )?refused/i.test(text)) offenders.push(t.name);
+    }
+    assert.deepEqual(offenders, [],
+      'these promise an ordering check the code does not perform:\n  ' + offenders.join('\n  '));
+
+    // And the code really does not perform one — asserted rather than assumed, so this gate flips the day
+    // somebody adds the validation instead of quietly forbidding the truthful sentence for ever.
+    const routes = stripComments(readFileSync('server/src/api/brain/chrono.ts', 'utf8'));
+    const validation = stripComments(readFileSync('server/src/spaces/schema-validation.ts', 'utf8'));
+    for (const [name, src] of [['the REST route', routes], ['schema validation', validation]]) {
+      assert.doesNotMatch(src, /endsAt[\s\S]{0,60}?[<>]=?[\s\S]{0,20}?startsAt/,
+        `${name} now compares the two — the descriptions may say it is refused, and should`);
+    }
+  });
+
   it('and `list_chrono` says the filter returns BOTH kinds', () => {
     const t = ALL_TOOLS.find(x => x.name === 'list_chrono');
     const text = (t.description ?? '') + JSON.stringify(t.inputSchema(STUB));

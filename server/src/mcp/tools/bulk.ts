@@ -59,9 +59,24 @@ export const bulk_writeTool: ToolHandler = {
                 additionalProperties: false,
                 properties: {
                   fact:        { type: 'string', minLength: 1, maxLength: 50000, description: 'The fact or memory to store (1–50 000 characters).' },
-                  tags:        { type: 'array', items: { type: 'string' }, description: 'Categorisation tags.' },
-                  entityIds:   { type: 'array', items: { type: 'string' }, description: 'Related entity IDs.' },
-                  description: { type: 'string', description: 'Optional prose context.' },
+                  tags:        {
+                    type: 'array', items: { type: 'string' },
+                    description: 'Categorisation tags. Every memory item is an INSERT, so there is nothing '
+                      + 'to merge with. They are embedded along with the fact, so a tag affects ranking as '
+                      + 'well as being an exact filter.',
+                  },
+                  entityIds:   {
+                    type: 'array', items: { type: 'string' },
+                    description: 'Entity IDs to link this memory to. NEVER checked for existence on this '
+                      + 'door — `remember` refuses an id that does not resolve, and here a well-formed UUID '
+                      + 'pointing at nothing is stored as a dangling link. That is deliberate: a batch may '
+                      + 'reference an entity created LATER in the same payload.',
+                  },
+                  description: {
+                    type: 'string',
+                    description: 'Optional prose context or rationale. Embedded with the fact, so it widens '
+                      + 'what a `recall` can match this memory on.',
+                  },
                   type:        { type: 'string', description: 'Optional memory type — selects the per-type schema used to validate `properties`.' },
                   properties:  {
                     type: 'object',
@@ -113,9 +128,23 @@ export const bulk_writeTool: ToolHandler = {
                 type: 'object',
                 additionalProperties: false,
                 properties: {
-                  from:        { type: 'string', description: 'Source entity ID.' },
-                  to:          { type: 'string', description: 'Target entity ID.' },
-                  label:       { type: 'string', description: 'Relationship label.' },
+                  from:        {
+                    type: 'string',
+                    description: 'The entity the relationship starts at, as a UUID v4. Part of the identity '
+                      + '(from + to + label), so the same triplet twice UPDATES rather than duplicating. '
+                      + 'Checked for shape only under strict linkage, and never for existence.',
+                  },
+                  to:          {
+                    type: 'string',
+                    description: 'The entity the relationship points at, as a UUID v4. Direction matters: '
+                      + 'reversing `from` and `to` is a different edge, not the same one.',
+                  },
+                  label:       {
+                    type: 'string',
+                    description: 'What the relationship IS, e.g. "works_at" or "knows". Required, part of '
+                      + 'the identity alongside `from` and `to`, and embedded — so it is what a `recall` '
+                      + 'ranks this edge on.',
+                  },
                   type:        { type: 'string', description: 'Optional edge type (e.g. "causal", "attribution"). Free text; nothing validates it against a list.' },
                   weight:      {
                     type: 'number',
@@ -152,8 +181,18 @@ export const bulk_writeTool: ToolHandler = {
                 properties: {
                   title:       { type: 'string', description: 'Entry title. Required — an item without one is rejected by index in `errors`.' },
                   type:        { type: 'string', description: 'Entry type (e.g. event, deadline, plan, prediction, milestone, or a custom type defined in the space schema). Checked against the space\'s allowlist, and a type outside it rejects THIS item by index.' },
-                  startsAt:    { type: 'string', description: 'ISO 8601 start date/time. Required.' },
-                  endsAt:      { type: 'string', description: 'Optional ISO 8601 end date/time.' },
+                  startsAt:    {
+                    type: 'string',
+                    description: 'ISO 8601 date/time the entry is ABOUT, not when it was recorded. Required. '
+                      + 'With no `endsAt` it is also the due moment, so a past value on an `upcoming` entry '
+                      + 'makes it read back as `overdue` at once.',
+                  },
+                  endsAt:      {
+                    type: 'string',
+                    description: 'Optional ISO 8601 end. When present it REPLACES `startsAt` as the due '
+                      + 'moment. Nothing validates the order — an `endsAt` before `startsAt` is stored as '
+                      + 'sent and the entry then reads as `overdue` immediately.',
+                  },
                   status:      {
                     type: 'string', enum: ['upcoming', 'active', 'completed', 'overdue', 'cancelled'],
                     description: 'Stored status (default `upcoming`). A value outside this list is DISCARDED '

@@ -56,7 +56,24 @@ PATCH /api/brain/spaces/:spaceId/chrono/:id
 > the brain API; it performed no property validation and wrote no audit snapshot. `PATCH` takes the same
 > body and does both.
 
-**Body**: partial object with any updatable fields (`title`, `type`, `status`, `startsAt`, `endsAt`, `confidence`, `tags`, `entityIds`, `memoryIds`, `description`).
+**Body**: partial object with any updatable fields (`title`, `type`, `status`, `startsAt`, `endsAt`, `confidence`, `tags`, `entityIds`, `memoryIds`, `description`, `properties`, `recurrence`, `excludeFromVectorSearch`, `ttlDays`), plus `deleteFields`.
+
+> **`deleteFields` arrived in 3.1, and it is the only way to remove anything.** `properties` MERGE — patching
+> one key keeps the others — and an omitted field means *leave it alone*, so before 3.1 there was no request
+> that could unset a chrono field at all: a key written once was permanent. Send dot-notation paths, applied
+> **after** the merge:
+>
+> ```json
+> { "properties": { "venue": "Hall B" }, "deleteFields": ["properties.oldKey", "description"] }
+> ```
+>
+> Chrono's **required** fields — `title`, `startsAt`, `status` — are refused by name, alongside the
+> server-owned `id` / `type` / `spaceId` / `createdAt` / `updatedAt`. A path that cannot be honoured answers
+> `400` naming it rather than being accepted and doing nothing. A *property* of the same name
+> (`properties.title`) is an ordinary user key and stays deletable.
+>
+> Same parameter, same refusals, on the `update_chrono` MCP tool. See
+> [Partial Update with deleteFields](04-brain-api.md#partial-update-with-deletefields) for the shared rules.
 
 **Response** `200` — the updated `ChronoEntry`.
 

@@ -15,6 +15,7 @@ import { memberSpacesForRequest } from '../../spaces/proxy-scoped.js';
 import { parseSortParam, SORTABLE_FIELDS, toMongoSort } from '../../brain/list-sort.js';
 import { resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { validateChrono, getAllowedChronoTypes } from '../../spaces/schema-validation.js';
+import { validateDeleteFields } from '../../brain/delete-fields.js';
 import type { ChronoStatus } from '../../config/types.js';
 import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, ttlDaysFromBody, ttlDaysError, dupeCheckOptsFromBody, ifMatchFromRequest, preconditionFailedBody } from './_shared.js';
 import { classifyUpdateViolations } from '../../brain/write-validation.js';
@@ -218,13 +219,26 @@ chronoRouter.patch('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceA
   // integration guide); what is no longer possible is dropping ALL of them and calling it success.
   const PATCHABLE_FIELDS = [
     'title', 'type', 'startsAt', 'endsAt', 'status', 'confidence', 'tags', 'entityIds', 'memoryIds',
-    'description', 'properties', 'recurrence', 'excludeFromVectorSearch', 'ttlDays',
+    'description', 'properties', 'recurrence', 'excludeFromVectorSearch', 'ttlDays', 'deleteFields',
   ];
   const body = req.body != null && typeof req.body === 'object' ? req.body as Record<string, unknown> : {};
   if (!PATCHABLE_FIELDS.some(f => f in body)) {
     res.status(400).json({ error: 'At least one field must be provided' });
     return;
   }
+
+  // X-4: chrono was the one record type with no `deleteFields`, and its `properties` merge, so a key written
+  // once could never be removed by any request. Validated here exactly as the three sibling routes do it —
+  // same helper, same refusals, same 400 — because a fourth spelling of one rule is the defect this repo
+  // produces most.
+  const dfResult = validateDeleteFields(body['deleteFields']);
+  if (!dfResult.ok) {
+    res.status(400).json({ error: dfResult.error });
+    return;
+  }
+  const dfPaths: string[] | undefined = Array.isArray(body['deleteFields']) && body['deleteFields'].length > 0
+    ? body['deleteFields'] as string[]
+    : undefined;
 
   // Snapshot for the audit change list — see the note in memories.ts. Read before the write, since
   // `updateChrono` returns only the new document.
@@ -261,7 +275,7 @@ chronoRouter.patch('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceA
     title, type, startsAt, endsAt, status, confidence,
     tags, entityIds, memoryIds, description, properties: safeProps, recurrence: safeRecurrence,
     excludeFromVectorSearch,
-  }, webhookToken(req), ttlDaysFromBody(req.body), ifMatch.seq));
+  }, dfPaths, webhookToken(req), ttlDaysFromBody(req.body), ifMatch.seq));
   if (updated) {
     req.auditSnapshots = { before: prior ?? {}, after: updated };
     res.json(updated);

@@ -22,7 +22,7 @@ tokensRouter.get('/me', globalRateLimit, requireAuth, (req, res) => {
 /**
  * GET /api/tokens/rights-catalog — what each area and rung actually GRANTS.
  *
- * The rights grid is four areas Ã— four rungs of bare words, and nothing told an operator what any cell does.
+ * The rights grid is four areas × four rungs of bare words, and nothing told an operator what any cell does.
  * The answer already exists and is authoritative: `ROUTE_RIGHTS` is the table the server ENFORCES against, so
  * it is the only description of a right that cannot be wrong. A list typed into the client would be a second
  * copy of a security control, and the copy that drifts is the one people read.

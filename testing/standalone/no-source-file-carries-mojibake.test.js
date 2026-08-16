@@ -20,11 +20,19 @@
  * A rule against the idiom was not enough, and the second occurrence is what makes this a gate. Edit files
  * with a UTF-8-native tool; if a scripted rewrite is genuinely needed, do it in node.
  *
- * ## The `Â ` case is deliberately excluded
+ * ## Detection is structural, after three misses from naming signatures
  *
- * A stray `Â ` is the same corruption applied to a non-breaking space, but non-breaking spaces occur
- * legitimately in some content and a false positive here would be tuned away rather than fixed. `â€` cannot
- * occur in any language this repo is written in, so it is the signature worth gating on.
+ * This gate matched `â€`. Then `â”`/`â•` were added, after it passed a tree holding thousands of mis-decoded
+ * box-drawing dividers across ten files. Then it was found still reporting clean while `api/tokens.ts`
+ * carried `Ã—` — two characters, starting `Ã`, invisible to all three.
+ *
+ * Each addition was a correct fix to the instance and no fix at all to the class: a pattern that enumerates
+ * the corruptions somebody has already tripped over is permanently one shape behind. `_mojibake.mjs` asks the
+ * structural question instead — does this run, encoded back to cp1252, decode as valid UTF-8 into something
+ * SHORTER — which is true of mis-decoded text and of nothing else.
+ *
+ * The old exclusion of a lone `Â ` is no longer a special case: a single non-breaking space does not shorten
+ * under the round-trip, so it is not flagged, and there is nothing to tune.
  *
  * Run: node --test testing/standalone/no-source-file-carries-mojibake.test.js
  */
@@ -32,27 +40,21 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
+import { findMojibake, mojibakeOf } from './_mojibake.mjs';
 
 /**
- * The unambiguous signatures.
+ * Detection is STRUCTURAL now, not a list of signatures — see `_mojibake.mjs` for why and how.
  *
- * `â€` is the first two chars of any mis-decoded U+20xx punctuation — em-dashes and smart quotes, which is
- * what prose corruption looks like.
+ * The short version: this gate used to match `â€`, then `â”` and `â•` were added after a tree holding
+ * thousands of them passed, and it still reported clean while `api/tokens.ts` carried `Ã—` — the
+ * double-encoding of `×`, two characters long and starting with `Ã`. Three misses from one cause: a pattern
+ * that names the instances somebody already tripped over is always one shape behind.
  *
- * **`â”` and `â•` were added on 2026-08-16, after this gate passed a tree holding thousands of them.** Ten
- * files carried mis-decoded BOX-DRAWING characters (U+25xx) — every `── section ──` divider in the sync
- * routers and the graph component. They start `â”`/`â•`, never `â€`, so the original pattern could not see
- * them: it was written for the corruption that had bitten me, and box-drawing is the same corruption applied
- * to comment furniture rather than to prose.
- *
- * `api/tokens.ts` is the proof that this was a gap and not a new event. Its 49 `â€` sequences were repaired
- * when this gate was written; its 48 `â”` sequences sat there untouched, in a file everyone believed clean.
- *
- * Each of these is `â` followed by a character that cannot follow it in any language this repo is written
- * in, so none needs the tuning that kept `Â ` out — a lone `Â ` is a mis-decoded non-breaking space and
- * those occur legitimately.
+ * `findMojibake` asks instead whether a run of non-ASCII, encoded back to cp1252, is valid UTF-8 that decodes
+ * SHORTER. Only mis-decoded text does that, and the shortening requirement is what makes it safe to run over
+ * every file rather than tuned per false positive.
  */
-const MOJIBAKE = /â€|â”|â•|Ã¢â‚¬/;
+const MOJIBAKE = { test: (src) => findMojibake(src).length > 0 };
 
 const tracked = (globs) => execSync(`git ls-files ${globs}`, { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
   .split('\n').map(s => s.trim()).filter(Boolean);
@@ -103,12 +105,34 @@ describe('no source file carries mis-decoded UTF-8', () => {
     assert.ok(!MOJIBAKE.test('capability documentation — every route'), 'and must not match the correct text');
   });
 
-  it('and detects the BOX-DRAWING corruption it used to walk straight past', () => {
-    // The regression assertion. These exact strings were in the tree, in ten files, while this gate was
-    // green — a divider comment corrupted the same way an em-dash is, in a range the pattern did not cover.
-    assert.ok(MOJIBAKE.test('// â”€â”€ Memories â”€â”€'), 'U+2500 dividers: `─` mis-decoded');
-    assert.ok(MOJIBAKE.test('// â•â•â• Section â•â•â•'), 'U+2550 dividers: `═` mis-decoded');
-    assert.ok(!MOJIBAKE.test('// ── Memories ──'), 'and the correct dividers must stay clean');
-    assert.ok(!MOJIBAKE.test('// ═══ Section ═══'), 'both of them');
+  it('detects every shape that has actually bitten, generated rather than typed', () => {
+    // Fixtures are BUILT from the correct character, because typing them is unreliable: `═` mis-decodes to
+    // `â•` plus U+0090, an invisible control character, and a hand-written version silently omitted it —
+    // producing an assertion that tested a string which cannot occur, and failing a detector that was right.
+    //
+    // Each of these was a separate miss for the old signature list:
+    //   `—`  the original case             `─` `═`  box drawing, added after ten files passed the gate
+    //   `×`  TWO characters, starts `Ã`, and sat in merged source while this gate was green
+    for (const ch of ['—', '─', '═', '×', '…', '→', '’', '“']) {
+      assert.ok(MOJIBAKE.test(`a ${mojibakeOf(ch)} b`), `${ch} mis-decoded must be detected`);
+      assert.ok(!MOJIBAKE.test(`a ${ch} b`), `${ch} itself must stay clean`);
+    }
+  });
+
+  it('names what the text SHOULD be, so a failure is actionable', () => {
+    // A gate that only says "there is mojibake here" leaves the repair to guesswork — and guessing put a
+    // U+2010 where a U+2014 belonged. The detector already computes the answer; reporting it costs nothing.
+    for (const ch of ['×', '—', '═']) {
+      const [hit] = findMojibake(`a ${mojibakeOf(ch)} b`);
+      assert.equal(hit.shouldBe, ch, 'the repair is derived, not guessed');
+    }
+  });
+
+  it('does not fire on ordinary accented text', () => {
+    // The false-positive floor. These are real words, and a detector that flags them would be tuned away
+    // rather than fixed — which is how the signature list started.
+    for (const s of ['naïve café', 'Müller GmbH', 'attaché', 'ÅÄÖ', 'σ = 0.5', '→ next', '±3']) {
+      assert.ok(!MOJIBAKE.test(s), `${s} is correct text and must not be flagged`);
+    }
   });
 });

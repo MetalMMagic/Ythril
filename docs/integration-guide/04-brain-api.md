@@ -714,13 +714,25 @@ error. Nothing in the record's own data is lost.
 
 ### Partial Update with deleteFields
 
-All `PATCH` update endpoints — entities, edges, and memories — accept an optional `deleteFields` array of dot-notation paths. This allows callers to remove specific fields from a document in the same atomic operation as normal property/tag updates.
+**All four** `PATCH` update endpoints — entities, edges, memories and chrono entries — accept an optional `deleteFields` array of dot-notation paths. This allows callers to remove specific fields from a document in the same atomic operation as normal property/tag updates.
 
 ```http
 PATCH /api/brain/spaces/:spaceId/entities/:id
 PATCH /api/brain/spaces/:spaceId/edges/:id
 PATCH /api/brain/spaces/:spaceId/memories/:id
+PATCH /api/brain/spaces/:spaceId/chrono/:id
 ```
+
+> **Chrono gained this in 3.1, and until then nothing could be removed from a chrono entry at all.** Its
+> `properties` merge and an absent field means "leave alone", so with no `deleteFields` there was no request
+> that unset anything — a key written once was permanent. Entries created before 3.1 are unaffected; the
+> paths simply work now.
+>
+> Chrono's **required** fields — `title`, `startsAt`, `status` — are refused by name, alongside the
+> server-owned `id` / `type` / `spaceId` / `createdAt` / `updatedAt`. A path that cannot be honoured answers
+> `400` naming it rather than being accepted and doing nothing, so a delete that silently misses is not a
+> state this API can reach. A *property* of the same name (`properties.title`) is an ordinary user key and
+> stays deletable.
 
 **Example — delete a property key while adding a new one:**
 

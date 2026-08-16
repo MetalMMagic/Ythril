@@ -65,7 +65,14 @@ const ROUTES = {
   },
   chrono: {
     file: 'server/src/api/brain/chrono.ts',
-    forward: () => /excludeFromVectorSearch,\s*\}, webhookToken\(req\)/,
+    // Updated 2026-08-16 when chrono gained `deleteFields` (X-4) and the writer call became
+    // `}, dfPaths, webhookToken(req), …`. The guard below caught the drift and refused to keep measuring,
+    // which is exactly its job: a regex that silently stopped matching would have left this assertion green
+    // for a flag nobody was forwarding.
+    //
+    // `dfPaths` is written out rather than skipped with a wildcard. Pinning the shape is the whole point —
+    // a change to it should be reviewed, and `[^)]*` would trade that away to save one edit.
+    forward: () => /excludeFromVectorSearch,\s*\}, dfPaths, webhookToken\(req\)/,
   },
 };
 

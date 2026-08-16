@@ -578,7 +578,30 @@ export const reindexTool: ToolHandler = {
 
 export const wipe_spaceTool: ToolHandler = {
   name: 'wipe_space',
-  description: 'Wipe data from the specified space. By default wipes all collections (memories, entities, edges, chrono, files). Pass `types` to wipe only specific collections. The space itself and its configuration are preserved. Requires an admin token. Idempotent — wiping an empty space returns zero counts.',
+  description: 'Empty a space of its DATA while keeping the space itself — its id, label, purpose, schema, '
+    + 'rights and network membership all survive. Requires instance-admin rights. IRREVERSIBLE: there is no '
+    + 'undo, no trash, and no confirmation step, so the call that arrives is the call that runs.\n\n'
+    + 'IT IS A LOCAL WIPE, AND ON A NETWORKED SPACE THAT IS PROBABLY NOT WHAT YOU WANT. Unlike every '
+    + '`delete_*` tool, this writes NO tombstones — it deletes the existing ones as well. Tombstones are the '
+    + 'only thing that tells a peer a record is gone; without them a peer\'s manifest still offers everything '
+    + 'it holds and this instance, now empty and with no record of any deletion, has no reason to refuse it. '
+    + 'So on a space that belongs to a sync network, expect the next round to put much of it back. Wipe every '
+    + 'peer, or leave the network first, or use the per-record `delete_*` tools — those do tombstone.\n\n'
+    + 'On a space in no network there is nothing to bring it back and the wipe is simply final.\n\n'
+    + 'IT IS IDEMPOTENT. Wiping an empty space succeeds and returns zeroes rather than erroring, so a retry '
+    + 'after a dropped connection is safe.\n\n'
+    + 'WHAT ELSE GOES WITH IT: the review queues are cleared for whatever you wiped — duplicate and '
+    + 'contradiction findings are claims ABOUT two records, so once those records are gone the finding is not '
+    + 'merely stale, it is unopenable. Wiping `files` also deletes the space\'s file directory on disk and '
+    + 'recreates it empty.\n\n'
+    + 'PARAMETERS:\n'
+    + '- `types` — a subset of `memories`, `entities`, `edges`, `chrono`, `files`. OMIT IT TO WIPE ALL FIVE; '
+    + 'an omitted `types` is not a safe default. A partial wipe clears only the tombstones and review findings '
+    + 'belonging to the types you named.\n'
+    + '- `space` — the space to empty. On a proxy this is the proxy\'s own id and there is no `targetSpace` '
+    + 'here, so do not reach for this tool to empty one member.\n\n'
+    + 'RESPONSE: a per-collection count of what was deleted. Zeroes mean the space was already empty, not '
+    + 'that anything refused.',
   mutating: true,
   admin: true,
   spaceRequired: true,

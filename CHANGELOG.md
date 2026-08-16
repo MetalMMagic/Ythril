@@ -21,6 +21,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`wipe_space` now warns that it does not reach sync peers, which is the most consequential thing about
+  it.** Every per-record delete writes a tombstone, because a tombstone is the only thing that tells a peer a
+  record is gone. Wiping does the opposite: it deletes the data and then deletes the **tombstones** too,
+  writing none. On a space that belongs to a sync network that leaves an empty space with no record of any
+  deletion, facing a peer that still offers everything it holds — so the next round puts much of it back. The
+  old description said the space and its configuration are preserved and nothing about sync, which reads as
+  though the data is gone for good. It now says the wipe is local, and names the three ways to actually empty
+  a networked space. It also says that omitting `types` wipes **all five** collections rather than none, that
+  the duplicate and contradiction queues are cleared along with the records they point at, and that wiping an
+  already-empty space succeeds with zeroes rather than erroring. Whether wiping *should* propagate is a real
+  question with three defensible answers, so it is filed rather than decided.
+
 - **The four delete tools now say what they do *not* delete, and which of them can refuse.** Three of them
   read *"Delete an X by ID. Creates a tombstone for sync propagation"* and nothing else, which left a caller
   to discover the interesting parts by doing it. Deleting an **entity** is refused while something still

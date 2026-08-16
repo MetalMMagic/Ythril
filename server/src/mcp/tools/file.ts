@@ -156,7 +156,26 @@ export const list_dirTool: ToolHandler = {
 
 export const delete_fileTool: ToolHandler = {
   name: 'delete_file',
-  description: 'Delete a file from the space file store.',
+  description: 'Delete one file from the space file store, and everything the instance derived from it. '
+    + 'IRREVERSIBLE — there is no undelete and no trash.\n\n'
+    + 'IT IS A CASCADE, not just an unlink. The blob goes, a sync tombstone is written, the metadata record is '
+    + 'removed (or flagged deleted when the instance keeps them for audit), any queued media or text job is '
+    + 'CANCELLED so it cannot outlive the file and retry for ever, conversion artifacts such as extracted text '
+    + 'and thumbnails are removed, the space\'s usage figure is invalidated, and a `file.deleted` webhook '
+    + 'fires. Deleting the blob by other means leaves all of that behind.\n\n'
+    + 'IT IS IDEMPOTENT, AND THAT DIFFERS FROM THE BRAIN DELETES. Deleting a path that is not there succeeds '
+    + 'quietly; `delete_memory`, `delete_edge`, `delete_entity` and `delete_chrono` all ERROR on an id that '
+    + 'does not exist. So a success here does not prove a file was there — check `list_dir` first if that '
+    + 'distinction matters to you. The tradeoff is deliberate: a retried delete after a dropped connection '
+    + 'must not report failure for having worked the first time.\n\n'
+    + 'THE TOMBSTONE IS WHY RE-UPLOADING TO THE SAME PATH DOES NOT UNDO THIS cleanly on a synced space — the '
+    + 'tombstone propagates and outranks the old copy on peers. Upload the file again by all means; just do '
+    + 'not expect the deletion to be forgotten.\n\n'
+    + 'PARAMETERS:\n'
+    + '- `path` — the file path relative to the space root, as `list_dir` reports it. One FILE: this is not '
+    + 'the tool for removing a directory tree.\n'
+    + '- `targetSpace` — required when `space` is a proxy: the member space holding the file.\n\n'
+    + 'RESPONSE: one line naming the path that was deleted.',
   mutating: true,
   spaceRequired: true,
   inputSchema: (s: ToolSchemas) => ({
@@ -184,7 +203,19 @@ export const delete_fileTool: ToolHandler = {
 
 export const create_dirTool: ToolHandler = {
   name: 'create_dir',
-  description: 'Create a directory (and any required parents) in the space file store.',
+  description: 'Create a directory in the space file store, including any parent directories that do not yet '
+    + 'exist — the equivalent of `mkdir -p`, so `a/b/c` in one call is fine. Creating a directory that is '
+    + 'already there SUCCEEDS rather than erroring, so this is safe to call without checking first.\n\n'
+    + 'YOU RARELY NEED THIS BEFORE A WRITE. `write_file` and `move_file` both create the parent directories of '
+    + 'their destination on their own, so calling this first is a no-op step in most flows. It is for the case '
+    + 'where the EMPTY directory is the point: laying out a structure a human or another agent will fill.\n\n'
+    + 'A DIRECTORY IS NOT A SYNCED OBJECT. Only files sync between peers, so an empty directory created here '
+    + 'exists on this instance alone and will not appear on a peer until something is written into it. It also '
+    + 'carries no metadata: there is nothing to tag or describe until it holds a file.\n\n'
+    + 'PARAMETERS:\n'
+    + '- `path` — the directory path relative to the space root. Missing parents are created.\n'
+    + '- `targetSpace` — required when `space` is a proxy: the member space to create it in.\n\n'
+    + 'RESPONSE: one line confirming the path.',
   mutating: true,
   spaceRequired: true,
   inputSchema: (s: ToolSchemas) => ({
@@ -210,7 +241,32 @@ export const create_dirTool: ToolHandler = {
 
 export const move_fileTool: ToolHandler = {
   name: 'move_file',
-  description: 'Move or rename a file or directory within the space file store.',
+  description: 'Move or rename a file OR a directory within the space file store. One tool for both: renaming '
+    + 'is moving to a new name in the same place.\n\n'
+    + 'A DIRECTORY MOVE CARRIES EVERY CHILD\'S METADATA WITH IT. Tags, descriptions and custom meta are keyed '
+    + 'by path, so moving `a/` to `b/` re-roots the record of every file underneath. This tool used to rename '
+    + 'only the single record it was given, which orphaned every child record on a directory move — the '
+    + 'metadata still existed, at a path with no file.\n\n'
+    + 'THE OLD PATHS ARE TOMBSTONED, and that is not bookkeeping. Sync has no rename detection: it sees a '
+    + 'file gone from one path and present at another, so without a tombstone the peer\'s manifest pushes the '
+    + 'ORIGINAL back and you end up with both. For a directory move every child path is tombstoned, not just '
+    + 'the directory.\n\n'
+    + 'NOTHING CHECKS THE DESTINATION FIRST. There is no "already exists" refusal here — the move is a '
+    + 'filesystem rename, and a rename onto an existing file replaces it. Read `list_dir` first if that would '
+    + 'lose something. Missing parent directories of `dst` ARE created for you.\n\n'
+    + 'THE FILE IS NOT RE-READ. Moving does not re-extract text, re-run media analysis or re-embed: the '
+    + 'content did not change, only where it lives. A file that failed extraction at the old path is still '
+    + 'failed at the new one — use `retry_embedding` for that, which is a different question from where the '
+    + 'file sits.\n\n'
+    + 'PARAMETERS:\n'
+    + '- `src` — the existing path, relative to the space root, exactly as `list_dir` reports it. A file or a '
+    + 'directory.\n'
+    + '- `dst` — where it should end up, relative to the space root. Its parent directories are created if '
+    + 'missing.\n'
+    + '- `targetSpace` — required when `space` is a proxy: the member space holding the file. This tool moves '
+    + 'WITHIN one space; it cannot move a file between spaces, and naming a different member does not do that '
+    + '— read it and write it instead.\n\n'
+    + 'RESPONSE: one line confirming the move.',
   mutating: true,
   spaceRequired: true,
   inputSchema: (s: ToolSchemas) => ({

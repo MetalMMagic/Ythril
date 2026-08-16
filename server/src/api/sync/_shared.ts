@@ -9,6 +9,8 @@ import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
 import { col, asFilter, asDoc } from '../../db/mongo.js';
 import { getConfig } from '../../config/loader.js';
+import { reachesSpace } from '../../auth/space-reach.js';
+import type { TokenRights } from '../../config/rights-shape.js';
 import { log } from '../../util/log.js';
 import { isSeqImplausible, MAX_INGEST_SEQ } from '../../util/seq.js';
 import { isStrictLinkage } from '../../spaces/proxy.js';
@@ -283,6 +285,39 @@ export function peerMemberNetworks(peerInstanceId: string) {
 }
 
 /**
+ * Does this token's own scope reach `spaceId`? The matrix first, the legacy allowlist only as a fallback.
+ *
+ * ## This closes a hole, it does not tidy one
+ *
+ * `spaceAllowed` used to take the legacy `spaces` array as a separate parameter and open with
+ * `if (tokenSpaces && !tokenSpaces.includes(spaceId)) return false`. Read that guard against a token minted
+ * today: the rights editor writes `rights.perSpace` and NOTHING writes `spaces` — the owner's ruling was
+ * *"only matrix from now on"*, `createToken` stores `spaces: opts.spaces` verbatim, and the mint route's own
+ * refusal map tells a caller to use `rights.perSpace` instead. So `tokenSpaces` is `undefined` on a modern
+ * token, the `&&` short-circuits, and the token-level check never runs.
+ *
+ * What is downstream of it is not a second line of defence. With no `networkId` in the query the function
+ * ends at *"does this space exist?"* — so every `/api/sync/*` GET, all behind plain `requireAuth`, answered
+ * for ANY space to ANY token whose reach lives only in the matrix. Writes were never exposed
+ * (`isNonPeerSyncWrite` admits only peers and instance admins), so this was a read gap, and it is the exact
+ * defect class this repo produces most: one rule, two implementations, and the weaker one silently reachable.
+ *
+ * ## Why the legacy fallback stays for now
+ *
+ * A token whose record predates the matrix and has not been through the load-time backfill still expresses
+ * its scope in `spaces`. Dropping that branch here would REFUSE those tokens rather than widen them, which is
+ * the safe direction but still an outage. It goes with the field itself in D-8d; until then the order matters
+ * and is asserted: matrix if there is one, allowlist if there is not, and an absent scope of either kind means
+ * unrestricted exactly as it always did.
+ */
+export function tokenReachesSpace(authToken: Record<string, unknown> | undefined, spaceId: string): boolean {
+  const rights = authToken?.['rights'] as TokenRights | undefined;
+  if (rights) return reachesSpace(rights, spaceId);
+  const legacy = authToken?.['spaces'] as string[] | undefined;
+  return !legacy || legacy.includes(spaceId);
+}
+
+/**
  * Returns true if the caller may touch `spaceId` (optionally within `networkId`).
  *
  * Checks, in order:
@@ -300,12 +335,11 @@ export function peerMemberNetworks(peerInstanceId: string) {
 export function spaceAllowed(
   spaceId: string,
   networkId: string | undefined,
-  tokenSpaces: string[] | undefined,
   authToken?: Record<string, unknown>,
 ): boolean {
   const cfg = getConfig();
-  // Enforce token-level space scope before any network check
-  if (tokenSpaces && !tokenSpaces.includes(spaceId)) return false;
+  // Enforce token-level space scope before any network check.
+  if (!tokenReachesSpace(authToken, spaceId)) return false;
 
   const peerId = callerPeerId(authToken);
   if (peerId) {

@@ -35,6 +35,31 @@ import { stripComments } from './_strip-comments.mjs';
 
 const src = (p) => stripComments(readFileSync(p, 'utf8'));
 
+/**
+ * The whole `TokenRecord` interface, bounded by its own braces.
+ *
+ * Two earlier shapes both failed, in different ways, and neither failure was visible in a diff:
+ *
+ * 1. **An anchor INSIDE the thing being removed.** `spaces?: string[]` anchored this scan until `spaces` was
+ *    itself deleted, which broke two gates at once.
+ * 2. **A fixed CHARACTER window** — `slice(at, at + 400)`. A count bounds distance, and this working copy is
+ *    CRLF while CI checks out LF, so the same number covers a different number of LINES on each. A sibling
+ *    gate passed here and failed in CI for exactly that reason, with nothing in the diff to show why.
+ *
+ * The interface's own braces are neither. They also make the check STRONGER than the forward-only window it
+ * replaces: a field re-added above the old anchor is caught too.
+ */
+function tokenRecordBlock() {
+  const types = src('server/src/config/types.ts');
+  const at = types.indexOf('export interface TokenRecord {');
+  assert.ok(at > 0, 'the TokenRecord interface was not found — the scanner is wrong, not the code');
+  const end = types.indexOf('\n}', at);
+  assert.ok(end > at, 'the interface has no closing brace at column 0 — the bound is wrong');
+  const block = types.slice(at, end);
+  assert.match(block, /\bid: string;/, 'and this really is TokenRecord, not an empty slice');
+  return block;
+}
+
 let isInstanceAdmin, migrateToken;
 before(async () => {
   ({ isInstanceAdmin } = await import('../../server/dist/auth/middleware.js'));
@@ -43,12 +68,7 @@ before(async () => {
 
 describe('the field is gone from the record and the plumbing', () => {
   it('TokenRecord no longer declares it', () => {
-    const types = src('server/src/config/types.ts');
-    // Anchored on `peerInstanceId`: `spaces?: string[]` was the previous anchor and has since been deleted
-    // too, which broke both of these gates at once — an anchor inside the thing being removed cannot last.
-    const at = types.indexOf('peerInstanceId?: string');
-    assert.ok(at > 0, 'the TokenRecord block was not found — the scanner is wrong, not the code');
-    assert.doesNotMatch(types.slice(at, at + 400), /\n\s+admin: boolean;/, 'the stored field must be gone');
+    assert.doesNotMatch(tokenRecordBlock(), /\n\s+admin: boolean;/, 'the stored field must be gone');
   });
 
   it('nothing writes it onto a record — on either minting path', () => {

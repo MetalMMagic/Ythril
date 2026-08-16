@@ -96,6 +96,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A gate exercises `deriveChronoStatus` and holds the sentences to what it returns, rather than checking the
   spelling of the old paragraph.
 
+- **Four source-reading gates could pass on one machine and fail on another, for a reason invisible in the
+  diff.** Each bounded the source it examined by a character count — `slice(anchor, anchor + 400)`. A count
+  bounds *distance*, and a Windows working copy stores CRLF where CI checks out LF, so the same number spans a
+  different number of lines on each. One of them examined a statement locally and its neighbour in CI. Where
+  the assertion was a negative one, the failure mode is the dangerous direction: a window that quietly shrinks
+  makes a gate pass by looking at less.
+
+  All four are bounded by structure now — an interface's own braces, a route handler's closing `});`, a
+  statement's own semicolon — and a sweep of all 409 gates confirms none of the class is left. Two of them got
+  stronger in the process: bounded by the whole `TokenRecord` interface rather than forward from a member, they
+  now catch a deleted field re-added *above* the old anchor, which the character window could never see.
+
 ### Changed
 
 - **Every MCP tool parameter now carries a description — including the nested ones.** 26 had none at all, so

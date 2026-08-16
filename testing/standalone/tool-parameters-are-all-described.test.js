@@ -118,14 +118,25 @@ describe('the claims those descriptions make are still true', () => {
   it('an unknown bulk chrono status is dropped, not reported', () => {
     // Source-read because exercising it needs Mongo. Comments stripped: the line above the normalisation
     // explains it, so a raw read matches its own explanation. This repo has a rule about that.
+    //
+    // Bounded by the STATEMENT — from `const status` to its own semicolon — and NOT by a character count.
+    // It was `slice(at, at + 200)`, which passed here and failed in CI: this checkout is CRLF and CI's is
+    // LF, so 200 characters covers a different number of LINES in each. The window reached the NEXT
+    // statement's `errors.push` only on the machine with the shorter line endings. A count bounds distance;
+    // what the assertion is about is one statement, and nothing in the diff shows the difference.
     const src = stripComments(readFileSync('server/src/brain/bulk.ts', 'utf8'));
-    const at = src.indexOf('CHRONO_STATUSES.has');
-    assert.ok(at > 0, 'the status normalisation was not found — the scanner is wrong, not the code');
-    const window = src.slice(at, at + 200);
-    assert.match(window, /:\s*undefined/,
+    const start = src.indexOf('const status = ');
+    assert.ok(start > 0, 'the status normalisation was not found — the scanner is wrong, not the code');
+    const stmt = src.slice(start, src.indexOf(';', start) + 1);
+    assert.match(stmt, /CHRONO_STATUSES\.has/, 'and this is the statement that normalises it');
+    assert.match(stmt, /:\s*undefined/,
       'an unrecognised status must fall back rather than throw — the description says so');
-    assert.doesNotMatch(window, /errors\.push/,
+    assert.doesNotMatch(stmt, /errors\.push/,
       'and it must NOT be reported; if it starts being reported, `chrono[].status` stops being a silent drop');
+    // The next statement DOES report, which is the contrast the description draws — and proves this window
+    // really stops where it says it does rather than swallowing the neighbour.
+    assert.match(src.slice(start, start + stmt.length + 200), /errors\.push/,
+      'the ttlDays check right after it is reported; if it were not, the slice is not bounded where it claims');
   });
 
   it('nothing expands a recurrence rule into further entries', () => {

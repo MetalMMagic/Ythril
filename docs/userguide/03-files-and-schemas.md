@@ -62,6 +62,12 @@ against the space's own overrides.
 
 **Sorting:** click the **Name**, **Status**, **Size** or **Modified** header to sort the current folder. Clicking cycles ascending → descending → back to the folder's own order. **Folders always stay at the top** — a file explorer where directories interleave with files by size or date is hard to navigate. Sorting applies to the folder you are looking at, which is the whole set the view holds.
 
+> **Editing a file's custom properties got safer in 3.1.** Saving used to replace the whole set, so an API
+> caller that changed one property silently lost the others — the four Brain record types had been fixed
+> years earlier and files had been missed. Properties are now **merged**: the ones you do not touch are kept.
+> Removing one still removes it. Tags and the entity / memory / chrono links are unchanged — those are
+> replaced by whatever you save, so save the full list you want.
+
 ### Detail pane (preview + description ⇄ file meta)
 
 Clicking a file opens a **docked detail pane** to the right of the list (the list runs full width until then, and reclaims it when you close the pane). The pane has two faces, switched with the segmented toggle in its header:

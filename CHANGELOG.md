@@ -252,13 +252,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a quality signal where recall keeps answering while comparing new queries against vectors made by a
   different model, so results degrade quietly instead of erroring.
 
-- **`update_file_meta` now warns that it replaces `properties` where the brain tools merge it.** On entities,
-  edges, memories and chrono entries you can patch one property key and the others survive; on a file record
-  you cannot — sending one key leaves the record holding only that key, and there is no per-field delete to
-  soften it. The parameter text always said "replaces", so nobody was misinformed; what was missing is that
-  this is the odd one out among five otherwise identical-looking tools, which is what makes it cost data. The
-  description now leads with the difference and says to read the record first. Making it merge like the other
-  four is filed separately, because it is a behaviour change to a write path.
+- **Editing a file's `properties` no longer destroys the ones you did not send.** It replaced the whole
+  object, so patching a single key left the record holding only that key — the same defect that had already
+  been found and fixed on entities, edges, memories and chrono entries, in a sweep that never reached the
+  file path. Five surfaces taking the same-looking arguments, one behaving differently and no error either
+  way. **They now merge**, on the REST route and the `update_file_meta` tool.
+
+  **`deleteFields` arrives with it**, because merging alone would have removed the only way to clear a file
+  property — resending the whole object was it. So removal is now expressed the same way as on the other four:
+  dot-notation paths, applied after the merge, permanent, with server-owned fields refused by name rather
+  than accepted and ignored.
+
+  **A caller that resends the whole object is unaffected**; until now that was the only thing that worked. A
+  caller that patches a single key keeps what it did not name. **The lists still replace** — `tags`,
+  `entityIds`, `memoryIds` and `chronoIds` are overwritten by what you send, on every record type.
 
 - **The mojibake check now covers the shipped documentation, which it never did.** It scanned TypeScript
   only, so the integration guide and the user guide — the two things read by people outside the project —

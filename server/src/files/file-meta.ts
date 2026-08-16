@@ -19,6 +19,8 @@ import { authorRef } from '../config/author.js';
 import { col, asFilter, asDoc, asUpdate } from '../db/mongo.js';
 import { expiryForCreate } from '../brain/ttl.js';
 import { enqueueEmbedJob } from '../brain/embed-queue.js';
+import { mergePropertiesOrKeep } from '../brain/merge-fields.js';
+import { applyDeleteFields } from '../brain/delete-fields.js';
 import { getConfig } from '../config/loader.js';
 import type { FileMetaDoc, AuthorRef, EntityDoc } from '../config/types.js';
 
@@ -187,6 +189,8 @@ export async function updateFileMeta(
     /** A converted document's own opening prose. Kept whatever the description says, and embedded. */
     excerpt?: string;
   },
+  /** Dot-notation paths to remove, applied AFTER the merge — the only way to unset. See the block below. */
+  deleteFieldsPaths?: string[],
 ): Promise<FileMetaDoc | null> {
   const normalised = toDocId(filePath);
   const existing = await col<FileMetaDoc>(`${spaceId}_files`).findOne(asFilter<FileMetaDoc>({ _id: normalised })) as FileMetaDoc | null;
@@ -211,7 +215,21 @@ export async function updateFileMeta(
   if (opts.entityIds !== undefined) $set['entityIds'] = opts.entityIds;
   if (opts.chronoIds !== undefined) $set['chronoIds'] = opts.chronoIds;
   if (opts.memoryIds !== undefined) $set['memoryIds'] = opts.memoryIds;
-  if (opts.properties !== undefined) $set['properties'] = opts.properties;
+
+  /**
+   * `properties` MERGES, as it does on all four brain record types (X-6).
+   *
+   * It replaced until now, and `brain/memory.ts` records what that costs, because the same defect was found
+   * and fixed there first: *"An agent patching one key silently destroyed every other property on the record,
+   * with no error anywhere."* The sweep that reached memory, chrono, entity and edge did not reach this file,
+   * so five tools that take the same-looking arguments had one that behaved differently.
+   *
+   * Removing a key is `deleteFields`' job below — an absence never means "delete", here or anywhere else.
+   *
+   * **Callers who send the whole object are unaffected**, which until now was the only thing that worked.
+   */
+  const mergedProps = mergePropertiesOrKeep(existing.properties, opts.properties);
+  if (opts.properties !== undefined) $set['properties'] = mergedProps;
 
   // A description written WITHOUT declaring a source is a person's own words — the API and the UI edit
   // it that way — so the old provenance has to go with it. Leaving a stale `generated` behind would have
@@ -219,6 +237,39 @@ export async function updateFileMeta(
   // to stop being ambiguous.
   const $unset: Record<string, ''> = {};
   if (opts.description !== undefined && opts.descriptionSource === undefined) $unset['descriptionSource'] = '';
+
+  /**
+   * `deleteFields`, applied AFTER the merge — the same shape and order as the four brain writers.
+   *
+   * It arrives WITH the merge above and not after it, because the merge alone would have removed the only
+   * way a file property could be cleared. Shipping them apart would have traded one silent data loss for a
+   * stale key nobody can delete.
+   *
+   * Every optional field is in the reflect list. A field accepted at the edge and missing here is accepted
+   * and then does nothing, which is the failure `validateDeleteFields` exists to prevent at the other end.
+   */
+  if (deleteFieldsPaths && deleteFieldsPaths.length > 0) {
+    const merged: Record<string, unknown> = {
+      description: opts.description !== undefined ? opts.description : existing.description,
+      excerpt: opts.excerpt !== undefined ? opts.excerpt : existing.excerpt,
+      tags: opts.tags ?? existing.tags,
+      entityIds: opts.entityIds ?? existing.entityIds,
+      chronoIds: opts.chronoIds ?? existing.chronoIds,
+      memoryIds: opts.memoryIds ?? existing.memoryIds,
+      properties: mergedProps ?? {},
+    };
+    applyDeleteFields(merged, deleteFieldsPaths);
+
+    for (const field of ['description', 'excerpt', 'tags', 'entityIds', 'chronoIds', 'memoryIds',
+      'properties']) {
+      if (!(field in merged)) {
+        $unset[field] = '';
+        delete $set[field];
+      } else if (deleteFieldsPaths.some(p => p === field || p.startsWith(field + '.'))) {
+        $set[field] = merged[field];
+      }
+    }
+  }
 
   await col<FileMetaDoc>(`${spaceId}_files`).updateOne(
     asFilter<FileMetaDoc>({ _id: normalised }),

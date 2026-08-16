@@ -211,11 +211,40 @@ export function applySpaceRenameToConfig(cfg: Config, space: SpaceConfig, oldId:
     }
   }
 
-  // Update token scopes
+  /**
+   * Update token scopes — the rights MATRIX as well as the legacy allowlist.
+   *
+   * ## The defect this closes
+   *
+   * Only `tok.spaces` was re-keyed here. Nothing anywhere touched `rights.perSpace`, so renaming a space
+   * silently stripped every matrix-scoped token's access to it: the row stayed under the OLD id, which now
+   * names nothing, and the token simply stopped reaching a space it had rights in.
+   *
+   * That is every token minted since 2.9 — the rights editor writes `perSpace` and nothing writes the
+   * allowlist. So the half that was maintained was the half nobody has, and the failure is silent on both
+   * sides: no error at rename time, and later a 403 that looks like the rights were never granted.
+   *
+   * One rule — a token's scope follows a rename — with two implementations, and the live one missing. That
+   * is the defect class this codebase names as the one it produces most, and it was hiding inside the
+   * mechanism for renaming.
+   *
+   * ## Why the collision check
+   *
+   * `perSpace` is keyed by space id, so re-keying is a move within an object rather than an index swap. A
+   * row already at `newId` would be overwritten by one that used to be somewhere else — quietly widening or
+   * narrowing that token. It cannot happen through the rename route (which refuses a `newId` that exists),
+   * but this function is also reached on resume after a crash, so the guard is cheap and the alternative is
+   * unreviewable.
+   */
   for (const tok of cfg.tokens) {
     if (tok.spaces) {
       const idx = tok.spaces.indexOf(oldId);
       if (idx !== -1) tok.spaces[idx] = newId;
+    }
+    const perSpace = tok.rights?.perSpace;
+    if (perSpace && perSpace[oldId] !== undefined && perSpace[newId] === undefined) {
+      perSpace[newId] = perSpace[oldId]!;
+      delete perSpace[oldId];
     }
   }
 

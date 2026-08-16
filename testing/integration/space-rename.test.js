@@ -267,6 +267,46 @@ describe('Space rename', () => {
     assert.ok(tok, 'Token should still exist');
     assert.ok(tok.spaces?.includes(newId), `Token spaces should include '${newId}'`);
     assert.ok(!tok.spaces?.includes(oldId), `Token spaces should NOT include '${oldId}'`);
+
+    // The RIGHTS MATRIX, which is the half that actually governs access — and the half this test used to
+    // miss. It asserted only on `spaces`, the pre-3.0 allowlist, which the rename did maintain. So it
+    // stayed green while every matrix-scoped token silently lost the renamed space: the `perSpace` row
+    // stayed under an id that no longer named anything.
+    //
+    // Every token minted today carries a matrix, including this one — `createToken` derives it from the
+    // `spaces` sent above — so the case this test covered was the case nobody has.
+    assert.ok(tok.rights?.perSpace, 'a token minted today carries a rights matrix');
+    assert.ok(tok.rights.perSpace[newId],
+      `Token rights should hold a row for '${newId}', got: ${JSON.stringify(Object.keys(tok.rights.perSpace))}`);
+    assert.equal(tok.rights.perSpace[oldId], undefined,
+      `Token rights must not keep a row under the dead id '${oldId}'`);
+  });
+
+  it('and the renamed space is still REACHABLE with that token', async () => {
+    // The assertion that cannot pass on a technicality: read with the scoped token itself. Checking the
+    // stored shape proves the re-key ran; this proves it produced access — which is what was missing, as a
+    // 403 that read as though the rights had never been granted.
+    const oldId = `reach-rename-${RUN_ID}`;
+    const newId = `reach-renamed-${RUN_ID}`;
+    await post(INSTANCES.a, tokenA, '/api/spaces', { id: oldId, label: 'Reach Rename' });
+
+    const tokenR = await post(INSTANCES.a, tokenA, '/api/tokens', {
+      name: `Reach token ${RUN_ID}`, spaces: [oldId],
+    });
+    assert.equal(tokenR.status, 201, JSON.stringify(tokenR.body));
+    const scoped = tokenR.body.plaintext;
+
+    const before = await get(INSTANCES.a, scoped, `/api/brain/spaces/${oldId}/entities`);
+    assert.equal(before.status, 200,
+      `scoped token should reach its space before the rename: ${JSON.stringify(before.body)}`);
+
+    const renameR = await patch(INSTANCES.a, tokenA, `/api/spaces/${oldId}/rename`, { newId });
+    assert.equal(renameR.status, 200, JSON.stringify(renameR.body));
+    createdSpaceIds.push(newId);
+
+    const after = await get(INSTANCES.a, scoped, `/api/brain/spaces/${newId}/entities`);
+    assert.equal(after.status, 200,
+      `scoped token must still reach the space after it is renamed: ${JSON.stringify(after.body)}`);
   });
 
   it('Rename built-in general space is rejected', async () => {

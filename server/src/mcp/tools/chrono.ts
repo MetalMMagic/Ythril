@@ -1,5 +1,5 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
-import { UUID_V4_RE, TTL_DAYS_SCHEMA, EXCLUDE_FROM_VECTOR_SEARCH_SCHEMA, ttlDaysFromArgs, unitScoreSchema, uuidSchema } from './shared.js';
+import { UUID_V4_RE, TTL_DAYS_SCHEMA, EXCLUDE_FROM_VECTOR_SEARCH_SCHEMA, ttlDaysFromArgs, recurrenceSchema, unitScoreSchema, uuidSchema } from './shared.js';
 import { ChronoFilter, createChrono, deleteChrono, getChronoById, listChrono, updateChrono, parseRecurrence } from '../../brain/chrono.js';
 // The API layer's write gate, imported rather than reimplemented — see the note in memory.ts.
 import { assertUpdateAllowed, classifyUpdateViolations, locateForUpdate } from '../../brain/write-validation.js';
@@ -28,7 +28,13 @@ export const create_chronoTool: ToolHandler = {
             type: { type: 'string', minLength: 1, description: 'Entry type. Rejected unless it is one of the space\'s allowed chrono types: the defaults are event, deadline, plan, prediction, milestone, or the custom set declared in the space\'s typeSchemas.chrono.' },
             startsAt: { type: 'string', minLength: 1, description: 'ISO 8601 start date/time.' },
             endsAt: { type: 'string', description: 'Optional ISO 8601 end date/time.' },
-            status: { type: 'string', enum: ['upcoming', 'active', 'completed', 'overdue', 'cancelled'], default: 'upcoming', description: 'Status (default: upcoming).' },
+            status: {
+              type: 'string', enum: ['upcoming', 'active', 'completed', 'overdue', 'cancelled'], default: 'upcoming',
+              description: 'Stored status (default `upcoming`). Do NOT set `overdue` — it is derived on read '
+                + 'from the due moment, so an entry left `upcoming` becomes overdue on its own, and one '
+                + 'stored as `overdue` by hand is then invisible to `list_chrono`\'s `status: "overdue"` '
+                + 'filter, which looks for the derivable ones.',
+            },
             confidence: unitScoreSchema('Confidence level 0–1 (for predictions).'),
             tags: { type: 'array', items: { type: 'string' }, description: 'Categorisation tags.' },
             entityIds: { type: 'array', items: { type: 'string' }, description: 'Related entity IDs.' },
@@ -39,17 +45,7 @@ export const create_chronoTool: ToolHandler = {
               description: 'Optional structured key-value metadata for this entry.',
               additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] },
             },
-            recurrence: {
-              type: 'object',
-              description: 'Optional recurrence rule, e.g. { freq: "weekly", interval: 1, until: "2027-01-01T00:00:00Z" }.',
-              properties: {
-                freq: { type: 'string', enum: ['daily', 'weekly', 'monthly', 'yearly'] },
-                interval: { type: 'integer', minimum: 1, default: 1, description: 'Repeat every N periods (positive integer, default 1).' },
-                until: { type: 'string', description: 'Optional ISO 8601 end date.' },
-              },
-              required: ['freq'],
-              additionalProperties: false,
-            },
+            recurrence: recurrenceSchema('Optional recurrence rule,'),
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
             checkDuplicates: { type: 'boolean', default: true, description: 'Run a semantic near-duplicate check before storing (default true). When a highly similar entry already exists, the response flags it (id + summary + score) so you can update it instead of logging the same event twice. The entry is still stored regardless. Set false to skip.' },
             checkContradictions: { type: 'boolean', default: false, description: 'Also flag existing entries that CONTRADICT this one — a near-neighbour claiming a different status, or setting the same single-valued property to a different value. Deterministic only (no model call). The entry is still stored regardless.' },
@@ -187,8 +183,10 @@ export const update_chronoTool: ToolHandler = {
     + '- `type` — `event`, `deadline`, `plan`, `prediction`, `milestone`, or any custom type the space schema '
     + 'defines. Re-validated against the allowlist.\n'
     + '- `startsAt` / `endsAt` — ISO 8601. `endsAt` before `startsAt` is refused.\n'
-    + '- `status` — `upcoming`, `active`, `completed`, `overdue`, `cancelled`. Nothing recomputes this from '
-    + 'the clock, so an entry stays `upcoming` after its date passes until something sets it.\n'
+    + '- `status` — `upcoming`, `active`, `completed`, `overdue`, `cancelled`. You never need to set '
+    + '`overdue`: it is DERIVED on read, so an entry stored `upcoming` whose due moment has passed already '
+    + 'reads back as `overdue` from `list_chrono`, `recall` and a single-entry get. What you set here is the '
+    + 'STORED value, which is what `query` and sync see.\n'
     + '- `confidence` — 0 to 1, for entries that are predictions rather than records.\n'
     + '- `tags` / `entityIds` / `memoryIds` — each REPLACES the stored list.\n'
     + '- `description` — replaced when sent.\n'
@@ -218,28 +216,46 @@ export const update_chronoTool: ToolHandler = {
             type: { type: 'string', description: 'Entry type (e.g. event, deadline, plan, prediction, milestone, or a custom type defined in the space schema).' },
             startsAt: { type: 'string', description: 'New ISO 8601 start date/time.' },
             endsAt: { type: 'string', description: 'New ISO 8601 end date/time.' },
-            status: { type: 'string', enum: ['upcoming', 'active', 'completed', 'overdue', 'cancelled'] },
-            confidence: unitScoreSchema('Confidence level 0–1.'),
-            tags: { type: 'array', items: { type: 'string' } },
-            entityIds: { type: 'array', items: { type: 'string' } },
-            memoryIds: { type: 'array', items: { type: 'string' } },
-            description: { type: 'string' },
+            status: {
+              type: 'string', enum: ['upcoming', 'active', 'completed', 'overdue', 'cancelled'],
+              description: 'The new STORED status. You never need to set `overdue`: it is DERIVED on read '
+                + 'from the due moment, so an entry left `upcoming` past its date already reads back as '
+                + '`overdue` everywhere except `query` and sync, which see the stored value. Setting '
+                + '`completed` or `cancelled` is what stops an entry being derived-overdue.',
+            },
+            confidence: unitScoreSchema('Confidence level 0 to 1, for entries that are predictions rather '
+              + 'than records. Replaced when sent; nothing derives it, and nothing refuses a prediction that '
+              + 'omits it.'),
+            tags: {
+              type: 'array', items: { type: 'string' },
+              description: 'REPLACES the stored tag list — send the FULL list you want the entry to end up '
+                + 'with, because sending one tag drops the rest. `update_entity` and `update_edge` MERGE tags '
+                + 'instead; this tool and `update_memory` replace, and the split is not guessable from the '
+                + 'field name.',
+            },
+            entityIds: {
+              type: 'array', items: { type: 'string' },
+              description: 'REPLACES the stored entity links — send the FULL list, because sending one id '
+                + 'drops the rest. These are what let `traverse` reach the entry from the entity it concerns; '
+                + 'they are NOT edges, so an entry left with an empty list is reachable only by search or by '
+                + 'date.',
+            },
+            memoryIds: {
+              type: 'array', items: { type: 'string' },
+              description: 'REPLACES the stored memory links — send the FULL list, because sending one id '
+                + 'drops the rest.',
+            },
+            description: {
+              type: 'string',
+              description: 'New prose description. Replaced when sent; an omitted field is left alone, so '
+                + 'there is no value that clears it — use `deleteFields: ["description"]`.',
+            },
             properties: {
               type: 'object',
               description: 'Key-value properties to merge into the stored map — keys you do not name are kept.',
               additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] },
             },
-            recurrence: {
-              type: 'object',
-              description: 'Recurrence rule, e.g. { freq: "weekly", interval: 1, until: "2027-01-01T00:00:00Z" }.',
-              properties: {
-                freq: { type: 'string', enum: ['daily', 'weekly', 'monthly', 'yearly'] },
-                interval: { type: 'integer', minimum: 1, default: 1, description: 'Repeat every N periods (positive integer, default 1).' },
-                until: { type: 'string', description: 'Optional ISO 8601 end date.' },
-              },
-              required: ['freq'],
-              additionalProperties: false,
-            },
+            recurrence: recurrenceSchema('The repeat rule, replaced wholesale when sent,'),
             excludeFromVectorSearch: EXCLUDE_FROM_VECTOR_SEARCH_SCHEMA,
             deleteFields: {
               type: 'array', items: { type: 'string' },
@@ -359,14 +375,24 @@ export const list_chronoTool: ToolHandler = {
     + 'someone recorded it. These two parameters read `createdAt`. To ask "what is scheduled next quarter" you '
     + 'want `query` with a predicate on `startsAt`; `after`/`before` here answer "what did we write down last '
     + 'week", which is a different question and usually not the one being asked.\n\n'
-    + 'NOTHING RECOMPUTES `status` FROM THE CLOCK. An entry stays `upcoming` after its date has passed until '
-    + 'something sets it otherwise, so `status: "upcoming"` means "nobody has updated this", not "still in the '
-    + 'future", and `status: "overdue"` only finds entries somebody marked overdue. Filter on the dates if you '
-    + 'want the truth about time.\n\n'
+    + '`overdue` IS DERIVED FROM THE CLOCK, AND IS NEVER STORED. An entry whose due moment (`endsAt`, or '
+    + '`startsAt` when it has none) has passed and that is still `upcoming`/`active` is RETURNED as `overdue`, '
+    + 'and the filter is translated to match: `status: "overdue"` finds exactly those, and '
+    + '`status: "upcoming"` EXCLUDES them rather than including them. So both answer the truth about time, and '
+    + 'you do not need a date predicate to ask "what is late".\n\n'
+    + 'THE STORED VALUE IS STILL WHAT SYNC AND `query` SEE. `query` reads documents as stored, so a filter of '
+    + '`status: "overdue"` there matches almost nothing while this tool returns plenty — the same records, two '
+    + 'answers, because only this path derives. Use this tool for status, and `query` for `startsAt`/`endsAt` '
+    + 'predicates.\n\n'
+    + 'One edge, named because it is a defect rather than a design: an entry a caller EXPLICITLY stored as '
+    + '`overdue` is not matched by `status: "overdue"` here, because the translated filter looks for stored '
+    + '`upcoming`/`active`. Nothing writes `overdue` on its own, so this only bites a caller who set it by '
+    + 'hand.\n\n'
     + 'OMIT `space` TO SEARCH EVERY SPACE THE TOKEN REACHES. That is unusual — most tools require one — and it '
     + 'is what makes this the tool for "when did we ever say we would do this". Results carry their space.\n\n'
     + 'PARAMETERS:\n'
-    + '- `status` — `upcoming`, `active`, `completed`, `overdue`, `cancelled`. See the warning above.\n'
+    + '- `status` — `upcoming`, `active`, `completed`, `overdue`, `cancelled`. Clock-aware for the first '
+    + 'three; see above.\n'
     + '- `type` — `event`, `deadline`, `plan`, `prediction`, `milestone`, or any custom type the space schema '
     + 'defines.\n'
     + '- `tags` — entries carrying ALL of these. `tagsAny` — entries carrying ANY. Send both and both apply.\n'
@@ -380,7 +406,13 @@ export const list_chronoTool: ToolHandler = {
           type: 'object',
           properties: {
             space: s.optionalSpace,
-            status: { type: 'string', enum: ['upcoming', 'active', 'completed', 'overdue', 'cancelled'], description: 'Filter by status.' },
+            status: {
+              type: 'string', enum: ['upcoming', 'active', 'completed', 'overdue', 'cancelled'],
+              description: 'Filter by status, CLOCK-AWARE for the first three. `overdue` returns entries '
+                + 'stored `upcoming`/`active` whose due moment has passed; `upcoming` and `active` EXCLUDE '
+                + 'those same entries. `completed` and `cancelled` are plain matches on the stored value. '
+                + 'The same filter against `query` is not translated and answers differently.',
+            },
             type: { type: 'string', description: 'Filter by type (e.g. event, deadline, plan, prediction, milestone, or a custom type).' },
             tags: { type: 'array', items: { type: 'string' }, description: 'Return entries containing ALL of these tags (AND semantics).' },
             tagsAny: { type: 'array', items: { type: 'string' }, description: 'Return entries containing ANY of these tags (OR semantics).' },
@@ -432,9 +464,10 @@ export const list_chronoTool: ToolHandler = {
 export const delete_chronoTool: ToolHandler = {
   name: 'delete_chrono',
   description: 'Delete one chrono entry by its ID. IRREVERSIBLE — there is no undelete and no trash.\n\n'
-    + 'A PAST OR CANCELLED ENTRY IS USUALLY NOT A DELETE. Nothing recomputes `status` from the clock, so an '
-    + 'entry that has happened simply keeps whatever status it was given; set `status: "completed"` or '
-    + '`"cancelled"` with `update_chrono` and the entry stays as the record that it happened. Deleting is for '
+    + 'A PAST OR CANCELLED ENTRY IS USUALLY NOT A DELETE. An entry whose moment has passed reads back as '
+    + '`overdue` — derived from the clock — which is the system telling you it is unresolved, not that it is '
+    + 'rubbish. Set `status: "completed"` or `"cancelled"` with `update_chrono` and the entry stops being '
+    + 'derived-overdue while staying as the record that it happened. Deleting is for '
     + 'entries that should never have existed. If you only want it out of meaning-ranking, set '
     + '`excludeFromVectorSearch` — it stays listable by `list_chrono` and reachable by traversal.\n\n'
     + 'THE ENTITIES AND MEMORIES IT LINKS ARE NOT TOUCHED. `entityIds` and `memoryIds` are references; '

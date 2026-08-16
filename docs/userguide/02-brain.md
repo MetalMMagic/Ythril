@@ -115,6 +115,11 @@ Chrono stores time-anchored entries: events, deadlines, plans, predictions, and 
 
 **Filtering:** The filter bar above the table lets you narrow by tag text and status. Filters apply immediately.
 
+> **"Overdue" is worked out from the clock, not stored.** An entry you left as *upcoming* whose date has
+> passed shows as **overdue** on its own — nobody has to mark it. That also means filtering by *upcoming* or
+> *active* leaves those entries out, because they are counted as overdue now. Set an entry to *completed* or
+> *cancelled* to stop it being counted that way.
+
 **Editing:** Click the **⊙ view-details** button on any row to open the editable drawer, as on the other record
 tabs. Title, type, dates, status, tags, description and properties can all be changed there.
 

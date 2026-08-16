@@ -50,17 +50,22 @@ describe('the export is gated like a backup, not like a list', () => {
   });
 
   it('requires the second factor', () => {
-    const reg = ROUTE.slice(ROUteAt(), ROUteAt() + 200);
-    assert.match(reg, /requireAdminMfa/,
+    // `handler()` — this file's own bound, from the registration to its closing `});`. It was
+    // `slice(at, at + 200)`, and a CHARACTER count is the wrong axis: this working copy is CRLF and CI
+    // checks out LF, so the same number spans a different number of LINES on each. A sibling gate passed
+    // locally and failed in CI on precisely that. The helper was already here and already correct.
+    assert.match(handler(ROUTE, '/export'), /requireAdminMfa/,
       'the export must require MFA: paging through the log and taking a copy of the whole record are different acts, '
       + 'and the second belongs behind the same gate as a database backup');
-    function ROUteAt() { return ROUTE.indexOf("auditRouter.get('/export'"); }
   });
 
   it('the paged route is NOT gated behind MFA — this must stay usable for ordinary review', () => {
     // Stated so the previous assertion cannot be "satisfied" by putting MFA on everything, which would make the
     // audit page unusable and push operators towards turning MFA off.
-    const reg = ROUTE.slice(ROUTE.indexOf("auditRouter.get('/',"), ROUTE.indexOf("auditRouter.get('/',") + 120);
+    // Same bound as above, and here the axis matters twice over: this is a `doesNotMatch`, so a window that
+    // quietly grows makes the gate FAIL on the next route's prose, and one that quietly shrinks makes it
+    // pass by looking at less. Bounding at the handler's own `});` stops before either.
+    const reg = handler(ROUTE, '/');
     assert.match(reg, /requireAdmin\b/, 'the paged route should stay admin-gated');
     assert.doesNotMatch(reg, /requireAdminMfa/, 'reading a page of the log should not demand a TOTP code every time');
   });

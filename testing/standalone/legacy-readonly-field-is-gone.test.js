@@ -41,12 +41,16 @@ before(async () => {
 
 describe('the field is gone from the record and from the plumbing', () => {
   it('TokenRecord no longer declares it', () => {
+    // Bounded by the interface's own braces. It was `slice(anchor, anchor + 400)`, and both halves of that
+    // were wrong: the anchor sat inside a field that later got deleted, and a CHARACTER count covers a
+    // different number of LINES in a CRLF working copy than in CI's LF checkout. A sibling gate passed here
+    // and failed in CI on exactly that difference. See the same helper in
+    // `legacy-admin-field-is-gone.test.js`.
     const types = src('server/src/config/types.ts');
-    // Anchored on `peerInstanceId`: `spaces?: string[]` was the previous anchor and has since been deleted
-    // too, which broke both of these gates at once — an anchor inside the thing being removed cannot last.
-    const at = types.indexOf('peerInstanceId?: string');
-    assert.ok(at > 0, 'the TokenRecord block was not found — the scanner is wrong, not the code');
-    const block = types.slice(at, at + 400);
+    const at = types.indexOf('export interface TokenRecord {');
+    assert.ok(at > 0, 'the TokenRecord interface was not found — the scanner is wrong, not the code');
+    const block = types.slice(at, types.indexOf('\n}', at));
+    assert.match(block, /\bid: string;/, 'and this really is TokenRecord, not an empty slice');
     assert.doesNotMatch(block, /readOnly\?: boolean;/, 'the stored field must be gone');
   });
 

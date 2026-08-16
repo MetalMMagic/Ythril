@@ -712,6 +712,30 @@ semantic search at retired records today by applying a filter you control, the f
 behaviour — it removes the vector the search ranks on, and the result is a quietly shorter answer with no
 error. Nothing in the record's own data is lost.
 
+#### One switch, three tiers, three names
+
+`excludeFromVectorSearch` is the **top tier of the same mechanism** the space and its type schemas call
+`suppressEmbeddings`. They resolve `record > schema > space` — the same order `ttlDays` uses — and
+`brain/suppress-embeddings.ts` is the one place that resolves them:
+
+| tier | where it lives | name |
+|---|---|---|
+| record | the record itself, via `PATCH` or an MCP `update_*` tool | `excludeFromVectorSearch` |
+| type | `typeSchemas.<kind>.<type>` on the space meta | `suppressEmbeddings` |
+| space | space meta (the Danger Zone in the UI) | `suppressEmbeddings` |
+
+Nothing in the record-level name suggests the other two exist, so **a record with no vector and no
+`excludeFromVectorSearch` is not a bug** — read `GET /api/spaces/:id/meta` before treating it as one. Files
+have no type and therefore skip the middle tier entirely: a file is governed by the record flag or the space
+setting.
+
+> **`excludeFromVectorSearch: false` means *not stated*, not *do embed*.** It falls through to the tiers
+> below instead of overriding them, so sending `false` **cannot** re-embed a record whose type or space
+> suppresses embedding — the write succeeds, and nothing changes. On a record no other tier suppresses,
+> `false` does restore the vector. To un-suppress a whole type or space, clear its `suppressEmbeddings` and
+> then run [`POST /api/spaces/:id/reembed`](06-spaces-api.md#re-embed-backfill), because nothing backfills on
+> its own.
+
 ### Partial Update with deleteFields
 
 **All five** `PATCH` update endpoints — entities, edges, memories, chrono entries and file metadata — accept an optional `deleteFields` array of dot-notation paths. This allows callers to remove specific fields from a document in the same atomic operation as normal property/tag updates.

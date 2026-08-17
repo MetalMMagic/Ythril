@@ -171,6 +171,7 @@ search you can run without writing a request by hand:
 - **maxTimeMS** — a time limit for this one search. It can only make the search stricter than the instance's own budget, never looser. When the limit is reached you get a **partial** answer rather than an error or a hang: whatever finished is returned, and the result says it was cut short.
 - **Include fresh writes** — also scan the newest records directly, so something written seconds ago is findable before the index has caught up. It costs an extra scan per record type, so turn it on when you are looking for something you just wrote.
 - **Include content** — on by default. Turn it off to get passage *locations* without their text: useful when you want to find which document holds something and read only that part, since passage bodies are the largest thing a result carries.
+- **Include diagnostic fields** — off by default, and off is right for ordinary searching. Turn it on to see *why* a result ranked where it did: the exact text that was embedded, the embedding model, the sync counter, and the score from each ranking stage separately. It follows graph hops too, at every depth, so a search with **Graph hops** set shows the same detail on the connected records. The embedding vector itself is never returned and there is no option that asks for it.
 
 **Results that exist in the graph carry a graph button.** An entity result opens the Graph tab focused on that
 entity; an edge result opens it on the entity the relationship starts from — the same jump the Entities and Edges

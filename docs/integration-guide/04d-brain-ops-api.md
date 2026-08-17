@@ -608,9 +608,9 @@ keys:
 | Route | Accepted fields |
 |---|---|
 | `POST /query` | `collection`, `filter`, `projection`, `limit`, `skip`, `sort`, `dir`, `maxTimeMS` |
-| `POST /recall` | `query`, `topK`, `types`, `minScore`, `filter`, `traverse`, `tags`, `minPerType`, `maxPerType`, `maxTimeMS`, `includeFreshWrites`, `includeContent`, `includeDiagnostics` |
+| `POST /recall` | `query`, `topK`, `types`, `minScore`, `filter`, `traverse`, `tags`, `minPerType`, `maxPerType`, `maxTimeMS`, `includeFreshWrites`, `includeContent`, `includeDiagnostics`, `projection` |
 | `POST /traverse` | `startId`, `direction`, `edgeLabels`, `maxDepth`, `limit`, `includeChrono`, `includeMemories`, `includeFiles`, `includeEdges` |
-| `POST /find-similar` | `entryId`, `entryType`, `topK`, `minScore`, `targetTypes`, `traverse`, `includeContent`, `includeDiagnostics`, `crossSpace` *(deprecated, still accepted)* |
+| `POST /find-similar` | `entryId`, `entryType`, `topK`, `minScore`, `targetTypes`, `traverse`, `includeContent`, `includeDiagnostics`, `projection`, `crossSpace` *(deprecated, still accepted)* |
 
 ```json
 {

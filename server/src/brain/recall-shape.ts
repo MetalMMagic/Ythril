@@ -98,6 +98,21 @@ export function withoutDiagnostics<T extends object>(results: T[], include: bool
   });
 }
 
+/**
+ * The keys a flat REST recall result carries as ENVELOPE rather than as record content.
+ *
+ * A projection names record fields. On MCP that distinction is structural — the record sits under `record`
+ * and `score` sits beside it — but REST returns one flat object, so without this a caller projecting
+ * `{name: 1}` would lose the score their search was for and the `spaceId` that says where the record lives.
+ *
+ * So the envelope survives every projection on the REST door, which is what makes the two doors carry the
+ * same content under the same parameter. `_graph` survives too and is projected INSIDE, per node and per edge.
+ */
+export const RECALL_ENVELOPE_KEYS: readonly string[] = [
+  'score', 'spaceId', 'type', '_graph',
+  ...RECALL_RANKING_DIAGNOSTICS,
+];
+
 /** Roughly a 2k-token window at ~4 chars/token, which every current reranker comfortably accepts. */
 export const RERANK_TEXT_MAX_CHARS = 8_000;
 

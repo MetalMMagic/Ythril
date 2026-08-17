@@ -700,7 +700,7 @@ What you *can* control:
 
 | lever | where | what it drops |
 |---|---|---|
-| `projection` | `POST /api/brain/spaces/:spaceId/query` | any field you do not name. The only field-selection lever on either door |
+| `projection` | `POST /query`, **and recall / find-similar** | any field you do not name. On recall it applies recursively, so a `traverse` answer's `_graph` is projected at every depth |
 | `includeContent: false` | recall, find-similar | file-passage **bodies**, keeping path, heading, chunk index, tags and properties |
 | `includeDiagnostics: false` *(the default)* | recall, find-similar | `matchedText`, `embeddingModel`, `seq` and the per-stage scores — **recursively**, so a `traverse` answer's `_graph` follows it at every depth |
 
@@ -716,7 +716,7 @@ What still differs is the **shape**, deliberately, because each is natural to it
 flat — record fields beside `score` — while an MCP result nests them under `record`. The *field set* a caller
 can read is identical, at the result level and at every depth of `_graph`, and a gate compares the two.
 
-The list routes (`GET /api/brain/spaces/:id/memories` and friends) still have **no** field selection. If that
+The list routes (`GET /api/brain/spaces/:id/memories` and friends) still have **no** field selection — they are now the only read that does not. If that
 is a constraint for your integration, say so — it is the one remaining asymmetry here rather than a
 preference somebody chose.
 

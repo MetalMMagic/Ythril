@@ -40,6 +40,7 @@
 import type { EdgeDoc, EntityDoc } from '../config/types.js';
 import { type SeedTraverseNeighbor } from './edges.js';
 import { RECALL_DIAGNOSTIC_FIELDS, NEVER_RETURNED_FIELDS } from './recall-shape.js';
+import { applyProjection, type NormalisedProjection } from './projection.js';
 
 /**
  * The ONE shape a traversed node takes, on both doors.
@@ -121,16 +122,29 @@ export function mapGraphNodes<T>(
    * `shapeNode` ever sees.
    */
   includeDiagnostics = false,
+  /**
+   * The caller's projection, applied to every `node` AND every `edge` at every depth.
+   *
+   * It has to reach here for the same reason `includeDiagnostics` did: a projection that trimmed the top-level
+   * results while a traverse answer kept returning whole documents would be a lever that silently stops
+   * working exactly where the response is largest. `edge` is the WHOLE edge document once per hop, so on a
+   * traversing call it is usually the bulk of what a projection is being asked to remove.
+   */
+  projection?: NormalisedProjection,
 ): { edge: EdgeDoc; node: T; paths: string[][]; pathsTruncated?: boolean; _graph?: unknown[] }[] | undefined {
   if (!nodes) return undefined;
   return nodes.map(n => {
-    const children = mapGraphNodes(n._graph, shapeNode, includeDiagnostics);
+    const children = mapGraphNodes(n._graph, shapeNode, includeDiagnostics, projection);
+    const edge = stripDiag(n.edge, includeDiagnostics) as EdgeDoc;
     return {
-      edge: stripDiag(n.edge, includeDiagnostics) as EdgeDoc,
+      edge: (projection ? applyProjection(edge, projection) : edge) as EdgeDoc,
       // The node goes through the caller's shaping FIRST and is stripped after, so this holds whether the
       // door passes the document through (REST) or maps it to its own record shape (MCP). Stripping an
       // allowlisted record is a no-op, which is the correct outcome rather than a wasted branch.
-      node: stripDiag(shapeNode(n.node) as unknown as object, includeDiagnostics) as T,
+      node: (() => {
+        const shaped = stripDiag(shapeNode(n.node) as unknown as object, includeDiagnostics);
+        return (projection ? applyProjection(shaped, projection) : shaped) as T;
+      })(),
       paths: n.paths,
       ...(n.pathsTruncated ? { pathsTruncated: true } : {}),
       ...(children ? { _graph: children } : {}),

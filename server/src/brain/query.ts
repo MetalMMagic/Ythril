@@ -7,6 +7,7 @@
  */
 import { col } from '../db/mongo.js';
 import { hasReDoSRisk, MAX_PATTERN_LENGTH } from '../util/redos.js';
+import { normaliseProjection, toMongoProjection } from './projection.js';
 
 // Allowed top-level query operators for the structured query tool
 const ALLOWED_OPERATORS = new Set([
@@ -105,7 +106,7 @@ export const RECALL_BODY_FIELDS: ReadonlySet<string> = new Set([
   // That is the standing hazard of making a body strict: the allowed set has to be the keys the handler READS, and a
   // handler that reads its body in two places will be described by whichever place you looked at. Grep for `req.body`
   // across the whole handler, not for the destructure.
-  'includeFreshWrites', 'includeContent', 'includeDiagnostics',
+  'includeFreshWrites', 'includeContent', 'includeDiagnostics', 'projection',
 
 ]);
 
@@ -114,7 +115,7 @@ export const FIND_SIMILAR_BODY_FIELDS: ReadonlySet<string> = new Set([
   // `traverse` and `includeContent` were on the MCP tool's schema and read by its handler while this route read
   // neither. Found by the gate that compares every declared surface against these sets, not by a report — the
   // strict body turned a silently-ignored parameter into a 400, which is how it surfaced at all.
-  'traverse', 'includeContent', 'includeDiagnostics',
+  'traverse', 'includeContent', 'includeDiagnostics', 'projection',
 ]);
 
 /**
@@ -285,22 +286,12 @@ export async function countBrain(
 export function mergeEmbeddingExclusion(
   projection?: Record<string, unknown>,
 ): Record<string, 0 | 1> {
-  if (!projection || Object.keys(projection).length === 0) {
-    return { embedding: 0 };
-  }
-  // Inclusion vs exclusion is decided by the non-_id fields.
-  const isInclusion = Object.entries(projection)
-    .some(([k, v]) => k !== '_id' && (v === 1 || v === true));
-
-  const out: Record<string, 0 | 1> = {};
-  if (isInclusion) {
-    for (const [k, v] of Object.entries(projection)) {
-      if (k === 'embedding') continue; // never allow the vector to be included
-      out[k] = (v === 1 || v === true) ? 1 : 0;
-    }
-  } else {
-    for (const k of Object.keys(projection)) out[k] = 0;
-    out['embedding'] = 0;
-  }
-  return out;
+  // The reading of the caller's intent moved to `brain/projection.ts` when `recall` gained a projection of
+  // its own, so that both doors decide inclusion-versus-exclusion, `_id`'s special case and dotted paths the
+  // same way. This function keeps its name and its contract — a Mongo projection with the vector excluded —
+  // because it has callers, and because the Mongo form is genuinely this file's business.
+  //
+  // The rule that is not negotiable and is now enforced in one place: an explicit `embedding: 1` is stripped
+  // rather than honoured, so the vector cannot be projected back in from either door.
+  return toMongoProjection(normaliseProjection(projection));
 }

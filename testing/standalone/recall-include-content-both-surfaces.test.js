@@ -93,7 +93,7 @@ describe('recall exposes includeContent on both surfaces', () => {
       // owner's ruling — the `_graph` subtree follows it at every depth — and the only way a traverse branch
       // can honour that is by nesting through `mapGraphNodes`, which takes the flag. Attaching
       // `graph.bySeed` raw is how REST used to return the whole edge document, vector included.
-      assert.match(window, /mapGraphNodes\([^;]*safeIncludeDiagnostics\)/,
+      assert.match(window, /mapGraphNodes\([^;]*safeIncludeDiagnostics(, safeProjection)?\)/,
         'a traverse response must nest through mapGraphNodes and pass the diagnostics flag down');
     }
   });

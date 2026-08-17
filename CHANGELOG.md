@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`recall` and `find-similar` take a `projection`, on both doors.** Asked for by breituai-platform with a
+  measurement rather than an estimate: a board sweep wanting fifteen names, a `from`, a `kind` and a `status`
+  returned **100,547 characters** where the data was about 1.5 KB, and their client refused the response and
+  spilled it to disk. `includeContent: false` reads like the answer and is not — it is scoped to file chunks,
+  so on an entity search it changes nothing, and that gap between what the parameter sounds like and what it
+  covers cost them a call to find out.
+
+  It is `query`'s grammar, dotted paths included, so `{"name": 1, "properties.status": 1}` works. **It applies
+  recursively**: a `traverse` answer's `_graph` nodes AND edges are projected at every depth, which is where a
+  large answer's size actually comes from — the edge is the whole document, once per hop.
+
+  Two rules it cannot break. The embedding **vector can never be projected back in**; an explicit
+  `embedding: 1` is dropped rather than honoured, because a projection was the one parameter that could have
+  falsified "the vector is never returned by anything". And on REST the ranking envelope — `score`,
+  `spaceId`, `type`, `_graph` — survives every projection, so `{name: 1}` cannot cost you the score the search
+  existed to produce. On MCP that needs no rule: the envelope already sits outside `record`.
+
+  The reading of a caller's projection moved into `brain/projection.ts` and `query` now derives its Mongo
+  projection from it, so the two appliers cannot disagree about inclusion-versus-exclusion, `_id`'s special
+  case, or which fields are unprojectable. `mergeEmbeddingExclusion` keeps its name, its contract and its
+  exact output.
+
+
 ### Fixed
 
 - **Publishing a tag pushed the images and never announced them, so six releases were invisible.**

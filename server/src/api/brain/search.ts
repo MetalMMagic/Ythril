@@ -35,8 +35,11 @@ import type { MemoryDoc, EntityDoc, EdgeDoc, ChronoEntry, FileMetaDoc } from '..
 import { reindexInProgress } from '../../metrics/registry.js';
 import { UUID_V4_RE } from './_shared.js';
 import { buildErModel } from '../../brain/er-model.js';
-import { rankOf, mergeRecallResults, withoutDiagnostics } from '../../brain/recall-shape.js';
+import {
+  rankOf, mergeRecallResults, withoutDiagnostics, RECALL_ENVELOPE_KEYS,
+} from '../../brain/recall-shape.js';
 import { mapGraphNodes, graphNodeRecord } from '../../brain/recall-graph.js';
+import { applyProjection, normaliseProjection, type NormalisedProjection } from '../../brain/projection.js';
 
 export const searchRouter = Router();
 
@@ -151,6 +154,34 @@ searchRouter.get('/spaces/:spaceId/activity', globalRateLimit, requireSpaceAuth,
  * Copies rather than mutating, because `seeds` is also handed to the traverse builder and to the audit
  * outcome — deleting a field in place would change what those saw.
  */
+/**
+ * Apply a caller's projection to flat recall results, keeping the envelope.
+ *
+ * `RECALL_ENVELOPE_KEYS` is why this is not just `applyProjection`: a REST result flattens the record and the
+ * ranking envelope into one object, so projecting `{name: 1}` without this would drop the `score` the search
+ * was for. On MCP the same parameter reaches only `record`, which is the same rule expressed against a shape
+ * that already separates them.
+ */
+function projectResults(results: RecallResult[], norm: NormalisedProjection | undefined): unknown[] {
+  if (!norm) return results;
+  return results.map(r => {
+    const src = r as unknown as Record<string, unknown>;
+    const out = applyProjection(src, norm);
+    for (const k of RECALL_ENVELOPE_KEYS) if (k in src) out[k] = src[k];
+    return out;
+  });
+}
+
+/** Read and validate `projection` from a recall-shaped body. Shared by both routes so they cannot diverge. */
+function projectionFromBody(body: unknown): { ok: true; norm: NormalisedProjection | undefined } | { ok: false; error: string } {
+  const raw = (body as { projection?: unknown } | null | undefined)?.projection;
+  if (raw === undefined || raw === null) return { ok: true, norm: undefined };
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    return { ok: false, error: '`projection` must be a plain object mapping field paths to 1 or 0' };
+  }
+  return { ok: true, norm: normaliseProjection(raw as Record<string, unknown>) };
+}
+
 function stripContentIfAsked(results: RecallResult[], includeContent: boolean): RecallResult[] {
   if (includeContent) return results;
   return results.map(r => {
@@ -483,6 +514,12 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
     }
     const safeIncludeDiagnostics = includeDiagRaw === true;
 
+    // `projection`, the same grammar `/query` takes and the same reading of it — see `brain/projection.ts`.
+    // breituai-platform measured the cost of its absence: 100,547 characters for ~1.5 KB of wanted data.
+    const projParse = projectionFromBody(req.body);
+    if (!projParse.ok) { res.status(400).json({ error: projParse.error }); return; }
+    const safeProjection = projParse.norm;
+
     const degraded: string[] = [];
     const all = (await Promise.all(
       memberIds.map(mid => recall(mid, query.trim(), safeTopK, safeTags, safeTypes, safeMinPerType, safeMinScore, safeFilter, { maxPerType: safeMaxPerType, maxTimeMS: safeMaxTimeMS, degraded, includeFreshWrites: safeIncludeFresh })),
@@ -523,7 +560,9 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
       // A large answer spills even with NO traversal: `topK: 100` is 100 records, and this branch used to
       // return all of them because the spill lived in the graph branch alone. That was the bug the E2E caught —
       // the rule is about the size of the result set, not about whether a graph is attached.
-      const plain = withoutDiagnostics(stripContentIfAsked(seeds, safeIncludeContent), safeIncludeDiagnostics);
+      const plain = projectResults(
+        withoutDiagnostics(stripContentIfAsked(seeds, safeIncludeContent), safeIncludeDiagnostics),
+        safeProjection);
       const plainSpill = await spillResultSet({
         memberSpaceId: seeds[0]?.spaceId ?? spaceId,
         results: plain,
@@ -559,11 +598,13 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
     // whole edge document — vector included, until the projection added beside this change — reach a REST
     // caller while MCP's copy of the same tree went through a shaping function. One nesting implementation
     // is the point of that function; this door had been going round it.
-    const results = withoutDiagnostics(stripContentIfAsked(seeds, safeIncludeContent), safeIncludeDiagnostics)
+    const withGraph = withoutDiagnostics(stripContentIfAsked(seeds, safeIncludeContent), safeIncludeDiagnostics)
       .map(s => {
-        const nested = mapGraphNodes(graph.bySeed.get(s._id), graphNodeRecord, safeIncludeDiagnostics);
+        const nested = mapGraphNodes(
+          graph.bySeed.get(s._id), graphNodeRecord, safeIncludeDiagnostics, safeProjection);
         return nested ? { ...s, _graph: nested } : s;
       });
+    const results = projectResults(withGraph as RecallResult[], safeProjection);
     // `graphNodes` reports what `count` used to conflate: how much graph came back. Two numbers, each meaning
     // one thing, rather than one number meaning whichever the reader assumes.
     // The WHOLE result set spills, not the graph alone: `topK: 100, traverse: 2` is a large answer even when
@@ -650,6 +691,12 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
   }
   const safeIncludeDiagnostics = similarDiagRaw === true;
 
+  // Same parameter, same parser. find-similar returns recall RESULTS, so a projection that reached one route
+  // and not the other would be the asymmetry this whole area has spent two releases removing.
+  const simProjParse = projectionFromBody(body);
+  if (!simProjParse.ok) { res.status(400).json({ error: simProjParse.error }); return; }
+  const safeProjection = simProjParse.norm;
+
 
   if (!entryId || !UUID_V4_RE.test(entryId)) {
     res.status(400).json({ error: 'entryId must be a valid UUID v4' });
@@ -692,8 +739,8 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
       crossSpaceIds,
     );
     if (safeTraverse === 0) {
-      const plainItems = withoutDiagnostics(
-        stripContentIfAsked(result.results, safeIncludeContent), safeIncludeDiagnostics);
+      const plainItems = projectResults(withoutDiagnostics(
+        stripContentIfAsked(result.results, safeIncludeContent), safeIncludeDiagnostics), safeProjection);
       const plainItemSpill = await spillResultSet({
         memberSpaceId: result.results[0]?.spaceId ?? spaceId,
         results: plainItems,
@@ -719,12 +766,14 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
       safeTraverse,
       Math.max(0, totalCap - result.results.length),
     );
-    const items = withoutDiagnostics(
+    const itemsWithGraph = withoutDiagnostics(
       stripContentIfAsked(result.results, safeIncludeContent), safeIncludeDiagnostics)
       .map(r => {
-        const nested = mapGraphNodes(graph.bySeed.get(r._id), graphNodeRecord, safeIncludeDiagnostics);
+        const nested = mapGraphNodes(
+          graph.bySeed.get(r._id), graphNodeRecord, safeIncludeDiagnostics, safeProjection);
         return nested ? { ...r, _graph: nested } : r;
       });
+    const items = projectResults(itemsWithGraph as RecallResult[], safeProjection);
     const itemSpill = await spillResultSet({
       memberSpaceId: result.results[0]?.spaceId ?? spaceId,
       results: items,

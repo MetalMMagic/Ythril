@@ -11,6 +11,7 @@ import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.
 import { UUID_V4_RE, formatRecallSummary, toRecallRecord, uuidSchema, unitScoreSchema, QUERY_FILTER_OPERATORS, RECALL_FILTER_KEY_PATTERN } from './shared.js';
 import { MAX_RECALL_TRAVERSE } from '../../brain/edges.js';
 import { mapGraphNodes, graphNodeRecord } from '../../brain/recall-graph.js';
+import { applyProjection, normaliseProjection } from '../../brain/projection.js';
 import { buildGraphWithSpill, spillResultSet, SPILL_INLINE_RESULTS } from '../../brain/graph-spill.js';
 import { type FilterExpression } from '../../brain/filter.js';
 import { resolveRecallFilter, type RawMongoFilter } from '../../brain/recall-filter.js';
@@ -105,6 +106,10 @@ export const recallTool: ToolHandler = {
               default: false,
               description: 'Add back the fields a result carries for the SYSTEM rather than for you (default false, and false is what you want almost always). On the record: `matchedText` — the exact pre-embedding source string, which for a file chunk is the heading plus the passage, so the passage a SECOND time; `embeddingModel`, identical for every record in a space; and `seq`, a sync counter that is not an input to any tool. Beside `score`: the per-stage `lexicalScore`, `fusedScore` and `rerankScore`, each present only if that stage ran. Turn it on to answer WHY something ranked where it did — which text was embedded, which stage promoted it — then turn it off, because every one of these is multiplied by `topK` and paid for in your context. REST takes the same parameter with the same default; before 3.1.0 REST sent all six unconditionally and this door sent none, which is the asymmetry it closes.',
             },
+            projection: {
+              type: 'object',
+              description: 'Fields to include (1) or exclude (0), the same grammar `query` takes and applied to each result\'s `record` — dotted paths work, so `{"name": 1, "properties.status": 1}` is valid. REACH FOR THIS RATHER THAN SKIPPING IT: it is the difference between an answer you can read inline and one that overruns your context. Measured by an integrator before this existed — a search for fifteen names, a `from`, a `kind` and a `status` returned 100,547 characters where the wanted data was about 1.5 KB, and their client refused the response outright. IT APPLIES RECURSIVELY: a `traverse` answer\'s `_graph` nodes and edges are projected at every depth, which is where a large answer actually comes from. Inclusion and exclusion cannot be mixed (the non-`_id` fields decide which you meant), `_id` survives an inclusion projection unless you send `_id: 0`, and the embedding VECTOR can never be projected back in — an explicit `embedding: 1` is dropped rather than honoured. The ranking envelope (`score`, `spaceId`, `type`) sits outside `record` here and is never projected away, so you cannot lose the score you searched for.',
+            },
             traverse: {
               type: 'number',
               minimum: 0,
@@ -147,6 +152,7 @@ export const recallTool: ToolHandler = {
     const minScore = typeof a['minScore'] === 'number' ? a['minScore'] : undefined;
     const includeContent = a['includeContent'] !== false;
     const includeDiagnostics = a['includeDiagnostics'] === true;
+    const recallProjection = normaliseProjection(a['projection'] as Record<string, unknown> | undefined);
 
     // The ceiling to minPerType's floor. Validated here as well as in the schema, because
     // `additionalProperties: { minimum: 1 }` cannot express "not below minPerType for the same type" — and
@@ -242,7 +248,7 @@ export const recallTool: ToolHandler = {
           RECALL_RANKING_DIAGNOSTICS, includeDiagnostics),
         spaceId: r.spaceId,
         type: r.type,
-        record: toRecallRecord(r, { includeContent, includeDiagnostics }),
+        record: applyProjection(toRecallRecord(r, { includeContent, includeDiagnostics }), recallProjection),
       }));
       const plainSpill = await spillResultSet({
         memberSpaceId: seeds[0]?.spaceId ?? traverseSpaces[0] ?? callSpace,
@@ -274,12 +280,13 @@ export const recallTool: ToolHandler = {
       Math.max(0, totalCap - seeds.length),
     );
     const results = seeds.map(r => {
-      const nested = mapGraphNodes(graph.bySeed.get(r._id), graphNodeRecord, includeDiagnostics);
+      const nested = mapGraphNodes(graph.bySeed.get(r._id), graphNodeRecord, includeDiagnostics, recallProjection);
       return {
         score: r.score,
         ...diagnosticFields(r as unknown as Record<string, unknown>,
           RECALL_RANKING_DIAGNOSTICS, includeDiagnostics),
-        spaceId: r.spaceId, type: r.type, record: toRecallRecord(r, { includeContent, includeDiagnostics }),
+        spaceId: r.spaceId, type: r.type,
+        record: applyProjection(toRecallRecord(r, { includeContent, includeDiagnostics }), recallProjection),
         ...(nested ? { _graph: nested } : {}),
       };
     });
@@ -338,6 +345,10 @@ export const find_similarTool: ToolHandler = {
               default: false,
               description: 'Add back the fields a result carries for the SYSTEM rather than for you (default false, and false is what you want almost always). On the record: `matchedText` — the exact pre-embedding source string, which for a file chunk is the heading plus the passage, so the passage a SECOND time; `embeddingModel`, identical for every record in a space; and `seq`, a sync counter that is not an input to any tool. Beside `score`: the per-stage `lexicalScore`, `fusedScore` and `rerankScore`, each present only if that stage ran. Turn it on to answer WHY something ranked where it did — which text was embedded, which stage promoted it — then turn it off, because every one of these is multiplied by `topK` and paid for in your context. REST takes the same parameter with the same default; before 3.1.0 REST sent all six unconditionally and this door sent none, which is the asymmetry it closes.',
             },
+            projection: {
+              type: 'object',
+              description: 'Fields to include (1) or exclude (0), the same grammar `query` takes and applied to each result\'s `record` — dotted paths work, so `{"name": 1, "properties.status": 1}` is valid. REACH FOR THIS RATHER THAN SKIPPING IT: it is the difference between an answer you can read inline and one that overruns your context. Measured by an integrator before this existed — a search for fifteen names, a `from`, a `kind` and a `status` returned 100,547 characters where the wanted data was about 1.5 KB, and their client refused the response outright. IT APPLIES RECURSIVELY: a `traverse` answer\'s `_graph` nodes and edges are projected at every depth, which is where a large answer actually comes from. Inclusion and exclusion cannot be mixed (the non-`_id` fields decide which you meant), `_id` survives an inclusion projection unless you send `_id: 0`, and the embedding VECTOR can never be projected back in — an explicit `embedding: 1` is dropped rather than honoured. The ranking envelope (`score`, `spaceId`, `type`) sits outside `record` here and is never projected away, so you cannot lose the score you searched for.',
+            },
             topK: { type: 'number', minimum: 1, maximum: 100, default: 10, description: 'Max results to return (clamped to 1–100). Default 10.' },
             minScore: unitScoreSchema('Minimum cosine similarity (0.0–1.0). Results below it are excluded. Unlike on `recall`, this IS the relevance gate — cosine distance is the only ranking here, so raising it narrows the answer honestly rather than cutting candidates a reranker would have rescued. For deduplication, start high: near-duplicates sit well above 0.9 and everything below that is a topic match rather than a repeat.'),
             traverse: {
@@ -394,6 +405,7 @@ export const find_similarTool: ToolHandler = {
 
     const includeContent = a['includeContent'] !== false;
     const includeDiagnostics = a['includeDiagnostics'] === true;
+    const recallProjection = normaliseProjection(a['projection'] as Record<string, unknown> | undefined);
 
     if (traverse === 0) {
       // JSON here too, since 3.1.0. Owner ruled it — *"json at every depth of course"* — after the docs audit
@@ -415,7 +427,7 @@ export const find_similarTool: ToolHandler = {
           RECALL_RANKING_DIAGNOSTICS, includeDiagnostics),
         spaceId: r.spaceId,
         type: r.type,
-        record: toRecallRecord(r, { includeContent, includeDiagnostics }),
+        record: applyProjection(toRecallRecord(r, { includeContent, includeDiagnostics }), recallProjection),
       }));
       const plainSpill = await spillResultSet({
         memberSpaceId: result.results[0]?.spaceId ?? usedBase,
@@ -443,12 +455,13 @@ export const find_similarTool: ToolHandler = {
       Math.max(0, totalCap - result.results.length),
     );
     const results = result.results.map(r => {
-      const nested = mapGraphNodes(graph.bySeed.get(r._id), graphNodeRecord, includeDiagnostics);
+      const nested = mapGraphNodes(graph.bySeed.get(r._id), graphNodeRecord, includeDiagnostics, recallProjection);
       return {
         score: r.score,
         ...diagnosticFields(r as unknown as Record<string, unknown>,
           RECALL_RANKING_DIAGNOSTICS, includeDiagnostics),
-        spaceId: r.spaceId, type: r.type, record: toRecallRecord(r, { includeContent, includeDiagnostics }),
+        spaceId: r.spaceId, type: r.type,
+        record: applyProjection(toRecallRecord(r, { includeContent, includeDiagnostics }), recallProjection),
         ...(nested ? { _graph: nested } : {}),
       };
     });

@@ -194,13 +194,20 @@ describe('both doors name the one tier name', () => {
 
   it('the rename is written down where an upgrader looks', () => {
     // A renamed request field that appears in no changelog is a caller debugging a 200 that did nothing.
-    // Bounded by the two headings, not by an offset: `\n## ` lands on a different character on this CRLF
-    // working copy than in CI's LF checkout, and a window that starts in the wrong place passes by reading
-    // less. `[\s\S]` rather than `.` so the section's own blank lines are inside it.
+    // Bounded by headings, not by an offset: `\n## ` lands on a different character on this CRLF working
+    // copy than in CI's LF checkout, and a window that starts in the wrong place passes by reading less.
+    // `[\s\S]` rather than `.` so the sections' own blank lines are inside the window.
+    //
+    // The window is `[Unreleased]` PLUS the newest released section, and that is the fix for this gate's
+    // first version rather than a convenience. It pinned `[Unreleased]` alone, so cutting 3.1.0 — which
+    // moved the entry into a dated heading, exactly as a release is supposed to — turned it red against a
+    // CHANGELOG that had become MORE correct. The rule is that an upgrader searching the old spelling finds
+    // it in the current notes; which heading it sits under is the release process's business, not this
+    // gate's.
     const ch = readFileSync('CHANGELOG.md', 'utf8');
-    const m = /^## \[Unreleased\]$([\s\S]*?)^## /m.exec(ch);
-    assert.ok(m, 'no [Unreleased] section followed by a released one — this gate is measuring nothing');
-    const unreleased = m[1];
+    const m = /^## \[Unreleased\]$([\s\S]*?)^## \[[^\]]+\][^\n]*$([\s\S]*?)^## \[/m.exec(ch);
+    assert.ok(m, 'expected [Unreleased] then at least two released sections — this gate measures nothing now');
+    const unreleased = m[1] + m[2];
     assert.match(unreleased, /excludeFromVectorSearch/,
       'the [Unreleased] section must name the OLD spelling — that is the word an upgrader searches for');
     assert.match(unreleased, /suppressEmbeddings/, 'and the new one');

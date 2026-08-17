@@ -405,6 +405,21 @@ GET /api/brain/spaces/:spaceId/memories/:id
 
 **Response** `200`: Full `MemoryDoc` (same shape as write response).
 
+> **What a stored record carries beyond the fields you wrote.** A `GET` by id and the list routes below
+> return the document as stored, minus the embedding vector — which, as everywhere else, is never returned
+> and cannot be requested. Three of the remaining fields are the system's rather than yours:
+>
+> | field | what it is |
+> |---|---|
+> | `seq` | The sync counter, and the value to send as `If-Match` on a conditional write. Useful, not internal |
+> | `matchedText` | The exact text this record's vector was built from. Derived from the fields above it, and for a file chunk it is the heading plus the passage — so the passage a SECOND time |
+> | `embeddingModel` | Which model produced the vector. Identical for every record in a space |
+>
+> **These are NOT stripped here, unlike on `recall`**, where `includeDiagnostics` withholds all three by
+> default. The list routes have no field selection at all today — that asymmetry is real and is written down
+> rather than left for you to discover. If it costs your integration, say so; the structured
+> [`POST /query`](04d-brain-ops-api.md#structured-query-read-only) route accepts a `projection` and is the way to bound a read meanwhile.
+
 ---
 
 ### List Memories

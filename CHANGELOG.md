@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Publishing a tag pushed the images and never announced them, so six releases were invisible.**
+  `publish.yml` triggers on `v*`, builds, and pushes to both registries — correctly, every time. It did not
+  create a **GitHub Release**, and nothing else did, so `v2.6.0`, `v2.7.0`, `v2.8.0`, `v2.8.1`, `v3.0.0` and
+  `v3.0.1` shipped as images with no entry on the Releases page. It showed **2.5.1 as Latest for five
+  weeks**, which for anyone watching the repository read as a project that had stopped.
+
+  Nothing noticed because nothing was watching for an ABSENCE: every check asked whether something that
+  happened was correct, none asked whether it had happened at all.
+
+  The workflow now creates the Release as its LAST step — after the image is pushed and after the licence
+  checks pass against the published artefact, because announcing a build that then fails its own NOTICE
+  verification is worse than announcing nothing. The notes are the CHANGELOG section for the tag, through
+  the same extraction the release gate uses to check that section is dated and non-empty; a tag pushed
+  without closing `[Unreleased]` now fails there instead of publishing a release that describes nothing.
+
+  `--latest` is computed from whether the tag really is the highest rather than left to `gh`'s default, so
+  backfilling an older release cannot announce a superseded version as newest. A re-run updates the notes
+  instead of erroring after the images have already gone out.
+
+
 ## [3.1.0] — 2026-08-17
 
 ### Breaking

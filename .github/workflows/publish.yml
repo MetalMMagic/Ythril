@@ -10,7 +10,11 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 permissions:
-  contents: read
+  # `contents: write` so the run can create the GitHub Release. It was `read`, which is why the
+  # announcement half never existed: images went to both registries on every `v*` tag while
+  # `v2.6.0` through `v3.0.1` got no Release at all, and the page showed 2.5.1 as Latest for
+  # five weeks.
+  contents: write
   packages: write
 
 jobs:
@@ -168,3 +172,39 @@ jobs:
               exit 1
             fi
           done
+
+      # The half a PERSON reads. The images above are the half a machine consumes, and until 3.1.0 only that
+      # half had a mechanism — six tags shipped with no Release and nothing noticed, because nothing was
+      # watching for an absence.
+      #
+      # LAST, deliberately: after the image is pushed and after the licence checks have passed against the
+      # published artefact. A Release is an announcement, and announcing a build that then fails its own
+      # NOTICE verification is worse than announcing nothing.
+      #
+      # The notes come from the CHANGELOG section for this tag, through the same extraction `release-gate.mjs`
+      # uses to check it is dated and non-empty. `release-notes.mjs` exits non-zero when the section is
+      # missing or thin, so a tag pushed without closing `[Unreleased]` fails here instead of publishing a
+      # release that describes nothing.
+      - name: Create the GitHub Release from the CHANGELOG
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          node scripts/release-notes.mjs "$VERSION" release-notes.md
+
+          # `--latest` is a DECISION, not a default. `gh` marks a new release latest unless told otherwise,
+          # which is right for a forward release and wrong for a backfilled older one — that would announce an
+          # superseded version as newest. So it is claimed only when this tag really is the highest.
+          HIGHEST="$(git tag --list 'v*' --sort=-v:refname | head -n1)"
+          if [ "$GITHUB_REF_NAME" = "$HIGHEST" ]; then LATEST=true; else LATEST=false; fi
+          echo "tag=$GITHUB_REF_NAME highest=$HIGHEST latest=$LATEST"
+
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "Release already exists — updating its notes rather than failing the publish."
+            gh release edit "$GITHUB_REF_NAME" --notes-file release-notes.md --latest="$LATEST"
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --title "Ythril $VERSION" \
+              --notes-file release-notes.md \
+              --latest="$LATEST"
+          fi

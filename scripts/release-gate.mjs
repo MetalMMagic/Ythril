@@ -35,6 +35,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { changelogSection, sectionContentLines, headingFor } from './changelog-section.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const R = '\x1b[0m';
@@ -89,9 +90,13 @@ function checkChangelog(version) {
   const eolSplit = read('CHANGELOG.md').split(/\r?\n/);
   const text = eolSplit.join('\n');
 
-  // (a) a dated section for THIS version
-  const heading = new RegExp(`^## \\[${version.replace(/\./g, '\\.')}\\]\\s+[—-]\\s+(\\d{4}-\\d{2}-\\d{2})`, 'm');
-  const m = heading.exec(text);
+  // (a) a dated section for THIS version.
+  //
+  // The locating is `changelog-section.mjs`'s, shared with `release-notes.mjs`, which turns the same section
+  // into a GitHub Release body. Two copies of "where does this version's section start and stop" would let
+  // this gate keep passing on a correct CHANGELOG while the workflow published a truncated one — and nobody
+  // compares a release body against anything.
+  const m = headingFor(version).exec(text);
   if (!m) {
     fail('changelog', `no dated section for ${version}. Expected a line like "## [${version}] — YYYY-MM-DD". `
       + 'The version was bumped without closing [Unreleased] into it, so every change in this release is filed '
@@ -101,10 +106,8 @@ function checkChangelog(version) {
 
   // (b) that section has real content — a version can be tagged with an empty one, and an empty release section
   //     is worse than none: it asserts that nothing changed.
-  const start = m.index;
-  const nextHeading = text.slice(start + 1).search(/^## \[/m);
-  const body = nextHeading < 0 ? text.slice(start) : text.slice(start, start + 1 + nextHeading);
-  const contentLines = body.split('\n').slice(1).filter(l => l.trim() && !/^#{1,3} /.test(l.trim()));
+  const body = changelogSection(text, version);
+  const contentLines = sectionContentLines(body);
   if (contentLines.length < 3) {
     fail('changelog', `the ${version} section has ${contentLines.length} content line(s). An empty release section `
       + 'claims nothing changed, which is a stronger and falser statement than saying nothing at all.');

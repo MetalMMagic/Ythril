@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The media worker discarded a paid model result and a terminal status, both without a word.** Two writes
+  in `files/media/worker.ts` were `.catch(() => {})` with no log, no counter and no comment saying why.
+
+  The first follows `describeDocument()` — a model call with its own timeout — and is the only place its
+  description, excerpt and source land. A failed write meant the call was made and paid for, the result was
+  gone, and the job went on to report success: a file with no description and nothing anywhere saying why,
+  indistinguishable from a document there was nothing to describe.
+
+  The second writes `embeddingStatus: 'skipped'` when a conversion fails permanently, and
+  `mediaJobsFailedTotal` is incremented either way. A failed write left the METRIC saying "permanently
+  failed" while the RECORD said `processing` for ever — a dashboard and a file page disagreeing, with the
+  dashboard right.
+
+  Both now log at warn, naming what was lost rather than that something failed. **Neither throws**, and that
+  is deliberate: failing the job would retry a document whose analysis already succeeded and re-pay for the
+  model. The fix is visibility, not severity.
+
+  Found by a reliability sweep for the shape this release cycle produced four times — an operation that
+  fails and reports success. That sweep finds 118 swallowed `catch` sites in `server/src` and the great
+  majority are correct; narrowing to swallows on a WRITE, minus those whose own comment states a reason,
+  left these two.
+
+
+### Fixed
+
 - **`includeContent` read as a general size lever and is file-chunks-only, and now says so.** Its own
   description made the right general argument — every field a result carries is multiplied by `topK` — while
   the parameter touches nothing but file-passage bodies, so on a search returning entities, memories, edges

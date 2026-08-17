@@ -500,10 +500,20 @@ async function processJob(
           derivedDescription = described.text;
           derivedSource = described.source;
           derivedExcerpt = described.excerpt;
+          // `describeDocument` above is a MODEL CALL with its own timeout, and this write is the only place
+          // its output lands. Swallowing the failure silently meant the call was made and paid for, the
+          // description was gone, and the job went on to report success — a file with no description and
+          // nothing anywhere saying why, indistinguishable from "there was nothing to describe".
+          //
+          // Still not a throw: failing the job would retry a document whose analysis already succeeded and
+          // re-pay for the model. What was missing is that the loss be VISIBLE.
           await col<FileMetaDoc>(`${spaceId}_files`).updateOne(
             asFilter<FileMetaDoc>({ _id: fileId }),
             { $set: metaUpdate },
-          ).catch(() => {});
+          ).catch((err: unknown) => {
+            log.warn(`Media worker: ${spaceId}/${fileId} described but the metadata write failed — the `
+              + `description, excerpt and source from this run are lost and will not be recomputed: ${err}`);
+          });
 
           // Embedding outcome drives the job result (B3): a total failure throws so
           // the existing failJob → backoff → retry path handles a transient embedder
@@ -569,10 +579,20 @@ async function processJob(
     // burning the retry budget re-reading a file the pipeline refuses to convert.
     const permanent = err instanceof ConversionUnavailableError && err.reason === 'too_large';
     if (permanent) {
+      // This write is what stops the file looking like work in progress. `mediaJobsFailedTotal` below is
+      // incremented either way, so swallowing a failure here left the METRIC saying "permanently failed"
+      // while the RECORD said `processing` for ever — a dashboard and a file page disagreeing, with the
+      // dashboard right and nothing to reconcile them.
+      //
+      // Logged rather than thrown for the same reason as the describe write: the job is already failing
+      // permanently, and rethrowing would replace an honest terminal state with a retry loop.
       await col<FileMetaDoc>(`${spaceId}_files`).updateOne(
         asFilter<FileMetaDoc>({ _id: fileId }),
         { $set: { embeddingStatus: 'skipped' } },
-      ).catch(() => {});
+      ).catch((err: unknown) => {
+        log.warn(`Media worker: ${spaceId}/${fileId} failed permanently but its status could not be written `
+          + `— the record will read 'processing' while the failure counter has already moved: ${err}`);
+      });
     }
     if (permanent || attempts >= maxAttempts) {
       mediaJobsFailedTotal.labels({ space: spaceId, media_type: mediaType }).inc();

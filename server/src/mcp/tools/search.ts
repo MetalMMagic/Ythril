@@ -310,9 +310,14 @@ export const find_similarTool: ToolHandler = {
     + 'Two consequences of using the stored vector, and both are silent if you do not know them:\n'
     + '• A source entry retired from semantic ranking has NO vector, so there is nothing to be similar to and the answer is empty — not an error, and not evidence that nothing resembles it.\n'
     + '• A record written seconds ago may not be indexed yet. There is no `includeFreshWrites` here as there is on `recall`, because the source entry\'s own embedding has to exist before this can start.\n\n'
-    + 'THE RESPONSE SHAPE DEPENDS ON `traverse`, and this is the thing to know before parsing anything. At `traverse: 0` — the default — the answer is TEXT: a `Source:` line naming the entry you asked about, then one numbered line per match carrying its type, score and summary, with the space id included when the search ran across spaces. Above 0 the answer is JSON, and a different thing entirely: `source` (the entry you asked about), `results` (each with `score`, `spaceId`, `type`, `record` and its `_graph`), `count`, `traverseDepth` echoed back, and `graphNodes` — a COUNT of what the walk reached, not its content. `recall` returns JSON at every depth; this tool does not, so a client that parses one answer will not parse the other.\n\n'
-    + 'THE SPILL APPLIES HERE TOO, and it is the same cliff `recall` carries: the JSON answer is capped by SIZE rather than by count, so a large `topK` comes back short with `truncated: true` and `complete` holding {path, download, expiresAt} for the full set, valid one day. `graphTruncated` and `graphComplete` do the same for an oversized neighbourhood. Read `truncated` before you trust the length. On the text path there is no spill because there is nothing large to spill.\n\n'
-    + '`includeContent` and `includeDiagnostics` act on the JSON path only. At `traverse: 0` the answer is a summary line that carries neither passage bodies nor system fields, so they have nothing to act on there — they are accepted rather than refused because the same call with a traverse is the one they were meant for.\n\n'
+    + 'THE RESPONSE, and it is the same JSON at every depth — matching `recall`, which is the point:\n'
+    + '• `source` — the entry you asked about, as {type, id, summary}. This tool has one and `recall` does not.\n'
+    + '• `results` — the matches, each {score, spaceId, type, record}, the SAME per-result shape `recall` returns. With `traverse > 0` each carries its own `_graph`.\n'
+    + '• `count` — how many matches, and `traverseDepth` — the depth echoed back, present at every depth including 0.\n'
+    + '• `graphNodes` — a COUNT of what a traversal reached, not its content, and only when one ran.\n'
+    + '• `truncated` + `complete` — THE ONE THAT BITES, exactly as on `recall`. The answer is capped by SIZE, not by count, so a large `topK` comes back short with `complete` holding {path, download, expiresAt} for the full set, valid one day. Read `truncated` before you trust the length.\n'
+    + '• `graphTruncated` + `graphComplete` — the same arrangement for an oversized neighbourhood.\n\n'
+    + 'IT ANSWERED PLAIN TEXT AT `traverse: 0` UNTIL 3.1.0, and JSON only above it. If you built against that, this is the break: parse JSON at every depth now. Two things arrive with it — the default depth gains the size cap it never had, and `includeContent`/`includeDiagnostics` start doing something there, having been accepted and unobservable on a summary line.\n\n'
     + 'Provide `space` to scope to one space, or omit it to search every space the token can reach. `score` is raw cosine similarity — the same number `recall` reports, but here it is the ONLY ranking, so `minScore` is a genuine relevance gate rather than the vector-side gate it is on `recall`.\n\n'
     + 'With `traverse: 0` the answer is a plain-text summary; above 0 it is JSON, because a graph does not summarise.',
   spaceRequired: false,
@@ -387,26 +392,48 @@ export const find_similarTool: ToolHandler = {
     }
     if (!result || !usedBase) throw new NotFoundError(`Entry '${entryId}' not found in any accessible space (type: ${entryType}).`);
 
-    const crossSpaceMode = !callSpace || crossSpace;
-
-    if (traverse === 0) {
-      const lines: string[] = [];
-      lines.push(`Source: [${result.source.type}] ${formatRecallSummary(result.source)} (ID: ${result.source._id})`);
-      if (result.results.length === 0) {
-        lines.push('No similar entries found.');
-      } else {
-        for (let i = 0; i < result.results.length; i++) {
-          const r = result.results[i]!;
-          const spaceLabel = crossSpaceMode ? ` [${r.spaceId}]` : '';
-          lines.push(`[${i + 1}]${spaceLabel} [${r.type}] (score: ${r.score?.toFixed(3) ?? 'n/a'}) ${formatRecallSummary(r)}`);
-        }
-      }
-      return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
-    }
-
-    // Graph-augmented: expand the similar seeds along edges (mirrors recall's traverse), JSON output.
     const includeContent = a['includeContent'] !== false;
     const includeDiagnostics = a['includeDiagnostics'] === true;
+
+    if (traverse === 0) {
+      // JSON here too, since 3.1.0. Owner ruled it — *"json at every depth of course"* — after the docs audit
+      // found that this tool answered TEXT at the default depth and JSON above it, while `recall` on the same
+      // door is JSON throughout. A client that parsed one answer from this tool could not parse the other,
+      // and nothing said so.
+      //
+      // Two things the text path could not have, and now does:
+      //  - **a size cap.** The JSON answer spills past a size threshold and says `truncated`; the text answer
+      //    was bounded by nothing but `topK`, so a large call returned everything inline.
+      //  - **`includeContent` and `includeDiagnostics` that DO something.** A summary line carried neither
+      //    passage bodies nor system fields, so both flags were accepted here and unobservable.
+      //
+      // The shape is `recall`'s plain branch plus `source`, which is this tool's own — you asked about a
+      // specific entry and the answer names it back.
+      const plain = result.results.map(r => ({
+        score: r.score,
+        ...diagnosticFields(r as unknown as Record<string, unknown>,
+          RECALL_RANKING_DIAGNOSTICS, includeDiagnostics),
+        spaceId: r.spaceId,
+        type: r.type,
+        record: toRecallRecord(r, { includeContent, includeDiagnostics }),
+      }));
+      const plainSpill = await spillResultSet({
+        memberSpaceId: result.results[0]?.spaceId ?? usedBase,
+        results: plain,
+        graphNodes: 0,
+        request: { entryId, entryType, topK, traverse: 0 },
+      });
+      const output = {
+        source: { type: result.source.type, id: result.source._id, summary: formatRecallSummary(result.source) },
+        results: plainSpill ? plain.slice(0, SPILL_INLINE_RESULTS) : plain,
+        count: plain.length,
+        traverseDepth: 0,
+        ...(plainSpill ? { truncated: true, complete: plainSpill } : {}),
+      };
+      return { content: [{ type: 'text' as const, text: JSON.stringify(output) }] };
+    }
+
+    // Graph-augmented: expand the similar seeds along edges (mirrors recall's traverse).
     const traverseSpaces = searchIds ?? [usedBase];
     const totalCap = topK * (traverse + 1) * 4;
     const { graph, spill } = await buildGraphWithSpill(

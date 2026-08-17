@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking
 
+- **`find_similar` over MCP now returns JSON at every depth.** It answered plain TEXT at `traverse: 0` — a
+  `Source:` line and one numbered summary per match — and JSON only above it, while `recall` on the same
+  door has always been JSON throughout. A client that parsed one answer from this tool could not parse the
+  other, and nothing said so. Owner ruled it after the 3.1.0 docs audit surfaced it: *"json at every depth
+  of course"*, with the same per-result shape `recall` uses.
+
+  Two things arrive with the change, and neither was reachable before:
+
+  - **The default depth gains the size cap it never had.** The JSON answer spills past a size threshold and
+    sets `truncated` with a download for the full set; the text answer was bounded by nothing but `topK`, so
+    a large call returned everything inline. That is the second time a "plainest large call" went uncapped.
+  - **`includeContent` and `includeDiagnostics` start doing something there.** A summary line carried
+    neither passage bodies nor system fields, so both flags were accepted at `traverse: 0` and unobservable.
+
 - **`recall` and `find-similar` over REST no longer return six system fields by default.** `matchedText`,
   `embeddingModel`, `seq` and the per-stage `lexicalScore`/`fusedScore`/`rerankScore` were returned
   unconditionally on REST and never on MCP, and neither door said so. Pass `includeDiagnostics: true` to get

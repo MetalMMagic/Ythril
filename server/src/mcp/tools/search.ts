@@ -99,7 +99,17 @@ export const recallTool: ToolHandler = {
             includeContent: {
               type: 'boolean',
               default: true,
-              description: 'Whether to return each file chunk’s `content` — the passage body (default true). Set false to get locations and metadata only: path, heading, chunk index, tags, properties. Use it for a two-phase flow — recall to find WHERE something is, then read only the chunk you decided you need. Every field a result carries is multiplied by topK and paid for in tokens, and passage bodies are by far the largest of them.',
+              description: 'Whether to return each file chunk’s `content` — the passage body (default true). '
+                + 'Set false to get locations and metadata only: path, heading, chunk index, tags, properties. '
+                + 'Use it for a two-phase flow — recall to find WHERE something is, then read only the chunk '
+                + 'you decided you need.\n\n'
+                + 'WHAT IT DOES NOT COVER, because the general argument below invites the wrong conclusion: '
+                + 'this is FILE CHUNKS ONLY. On a search returning entities, memories, edges or chrono '
+                + 'entries it changes nothing at all — their bodies are `description` and `properties`, and '
+                + 'this flag does not touch them. An integrator lost a call finding that out. The lever for '
+                + 'those is `projection`, which names fields on any type.\n\n'
+                + 'The general argument is still true and is why both exist: every field a result carries is '
+                + 'multiplied by topK and paid for in tokens, and passage bodies are by far the largest.',
             },
             includeDiagnostics: {
               type: 'boolean',
@@ -334,7 +344,7 @@ export const find_similarTool: ToolHandler = {
             space: s.optionalSpace,
             entryId: uuidSchema('UUID v4 of the source entry — the record everything else is compared AGAINST. It is never itself in the results.'),
             entryType: { type: 'string', enum: ['memory', 'entity', 'edge', 'chrono', 'file'], description: 'Knowledge type of the SOURCE entry, which is how the id is resolved — a wrong type is a not-found rather than a wrong answer. It does not constrain what comes back: use `targetTypes` for that, and note a memory can legitimately be most similar to an entity.' },
-            includeContent: { type: 'boolean', default: true, description: 'Whether to return each file chunk’s `content` (default true). Same meaning as on `recall`: false returns locations and metadata only.' },
+            includeContent: { type: 'boolean', default: true, description: 'Whether to return each file chunk’s `content` (default true). Same meaning as on `recall`, including the limit: it is FILE CHUNKS ONLY and does nothing on a search returning entities, memories, edges or chrono entries. Use `projection` to trim those.' },
             targetTypes: {
               type: 'array',
               items: { type: 'string', enum: ['memory', 'entity', 'edge', 'chrono', 'file'] },

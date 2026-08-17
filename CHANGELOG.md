@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`includeContent` read as a general size lever and is file-chunks-only, and now says so.** Its own
+  description made the right general argument — every field a result carries is multiplied by `topK` — while
+  the parameter touches nothing but file-passage bodies, so on a search returning entities, memories, edges
+  or chrono entries it changes nothing at all. breituai-platform: *"that gap between what the parameter
+  sounds like and what it covers cost us a call to find out."*
+
+  Both tools and the REST reference now state the limit and point at `projection`, which is the lever that
+  names fields on any type. Fixing the description was promised on the board when the projection was
+  accepted; this is that promise rather than a tidy-up.
+
+
 ### Added
 
 - **`recall` and `find-similar` take a `projection`, on both doors.** Asked for by breituai-platform with a

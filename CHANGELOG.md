@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking
+
+- **The 25-record spill cliff is replaced by a byte budget, and every returned record is whole.** Owner-commissioned;
+  specified by breituai-platform on request. Past 25 records a recall used to collapse to **three** inline
+  results plus a download of the WHOLE set — including the three already sent. Their measurement: a real
+  overflow dump of 209,339 bytes, ~51 records, so a caller got 3 records plus ~52k tokens of file where 25
+  whole records would have been ~100 KB. **The collapse did not reduce the caller's cost, it roughly doubled
+  it** — or the remainder was abandoned, which is the usual outcome.
+
+  `maxBytes` (default 100 000) now bounds the response; `maxTokens` is a convenience converted at
+  `charsPerToken` (default **3.5**, not the customary 4.0, which under-counts and is worst on graph-heavy
+  answers). If both are sent the smaller wins. **Bytes are the only limit** — no record count and no node
+  count, because bytes already price a dense subtree higher than a sparse one.
+
+  `results` is a **PREFIX** of the ranked matches and every record in it is WHOLE: full body, full
+  properties, complete `_graph`, byte-identical to that record from an unbudgeted call. Truncation is atomic
+  at the match, so no answer has a gap in the middle and none carries a record with half its graph.
+
+  `returned`, `count`, `truncated`, `budgetBytes` and `bytesReturned` are on **every** response whether it
+  bit or not — the old shape's instinct was right, that silent truncation is worse than small, and this keeps
+  it while removing the collapse. When truncation happens, `remainder` carries **only what did not fit**
+  rather than the whole set again.
+
+  All eight result paths go through one `budgetedEnvelope` — recall and find-similar, plain and traversing,
+  on both doors. The previous cap reached four of the eight until an E2E caught it.
+
+
 ### Fixed
 
 - **The media worker discarded a paid model result and a terminal status, both without a word.** Two writes

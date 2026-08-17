@@ -12,6 +12,7 @@ import { UUID_V4_RE, formatRecallSummary, toRecallRecord, uuidSchema, unitScoreS
 import { MAX_RECALL_TRAVERSE } from '../../brain/edges.js';
 import { mapGraphNodes, graphNodeRecord } from '../../brain/recall-graph.js';
 import { applyProjection, normaliseProjection } from '../../brain/projection.js';
+import { resolveBudget, budgetedEnvelope, type BudgetRequest } from '../../brain/result-budget.js';
 import { buildGraphWithSpill, spillResultSet, SPILL_INLINE_RESULTS } from '../../brain/graph-spill.js';
 import { type FilterExpression } from '../../brain/filter.js';
 import { resolveRecallFilter, type RawMongoFilter } from '../../brain/recall-filter.js';
@@ -65,7 +66,8 @@ export const recallTool: ToolHandler = {
     + '• WHAT THIS DOOR DOES NOT SEND YOU, so you do not go looking for a flag to switch it off: the embedding VECTOR (never returned by anything here, and no parameter can ask for it), `matchedText` (the pre-embedding source string — for a file chunk it is the passage a SECOND time), `embeddingModel` (identical for every record in a space), `seq` (a sync counter that is not an input to any tool), and the per-stage `lexicalScore`/`fusedScore`/`rerankScore`. All six are withheld on REST too, with the same default, since 3.1.0 — `includeDiagnostics: true` restores them on either door and applies recursively, so a `traverse` answer\'s `_graph` follows it at every depth. Leave it off: each of these is multiplied by `topK` and paid for in your context, and you want them only to answer WHY something ranked where it did. The other size lever is `includeContent: false`, which drops file-passage bodies and keeps their locations.\n'
     + '• `count` — the number of MATCHES. Traversed nodes are NOT counted in it.\n'
     + '• `graphNodes` — an integer COUNT of what a traversal reached, not the content. The content is nested per-result under `_graph`, and a result with no edges simply has no `_graph` at all: reading `results[0]` and concluding the feature is absent is the mistake to avoid.\n'
-    + '• `truncated` + `complete` — THE ONE THAT BITES. The inline answer is capped by SIZE, not by count, and it is a cliff rather than a slope: around 25 results answer in full and 30 can come back as three. When it spills, `truncated: true` is set and `complete` carries {matches, records, inline, path, download, expiresAt} — the full set written to the space as JSON, with an authenticated download valid one day. A caller that asks for topK 80 and reads only `results` is silently working from a handful of records. Read `truncated` before you trust the length.\n'
+    + '• THE SIZE ANSWER, and it is a slope now rather than a cliff. `returned`, `count`, `truncated`, `budgetBytes` and `bytesReturned` are on EVERY response, so you never have to interpret an absence. `results` is a PREFIX of the ranked matches that fits `maxBytes`, and every record in it is WHOLE — full body, full properties, its complete `_graph`, byte-identical to that record from an unbudgeted call. When `truncated` is true, `remainder` points at the matches that did NOT fit, written to the space as JSON with an authenticated download valid one day.\n'
+    + '  Until 3.2.0 this was a record CAP that collapsed a large answer to three inline records plus a download of the whole set — including the three you already had. That roughly doubled what a caller had to read, so most abandoned the remainder. If you have logic keyed on `complete` or on a hard 25, it is `remainder` and a byte budget now.\n'
     + '• `graphTruncated` + `graphComplete` — the same arrangement for an oversized neighbourhood, so a short graph is never silent either.',
   inputSchema: (s: ToolSchemas) => ({
           type: 'object',
@@ -120,6 +122,21 @@ export const recallTool: ToolHandler = {
               type: 'object',
               description: 'Fields to include (1) or exclude (0), the same grammar `query` takes and applied to each result\'s `record` — dotted paths work, so `{"name": 1, "properties.status": 1}` is valid. REACH FOR THIS RATHER THAN SKIPPING IT: it is the difference between an answer you can read inline and one that overruns your context. Measured by an integrator before this existed — a search for fifteen names, a `from`, a `kind` and a `status` returned 100,547 characters where the wanted data was about 1.5 KB, and their client refused the response outright. IT APPLIES RECURSIVELY: a `traverse` answer\'s `_graph` nodes and edges are projected at every depth, which is where a large answer actually comes from. Inclusion and exclusion cannot be mixed (the non-`_id` fields decide which you meant), `_id` survives an inclusion projection unless you send `_id: 0`, and the embedding VECTOR can never be projected back in — an explicit `embedding: 1` is dropped rather than honoured. The ranking envelope (`score`, `spaceId`, `type`) sits outside `record` here and is never projected away, so you cannot lose the score you searched for.',
             },
+            maxBytes: {
+              type: 'integer',
+              minimum: 1000,
+              description: 'Ceiling on the serialised response body, in bytes (operator default 100000). THE ANSWER IS A PREFIX OF THE RANKED RESULTS AND EVERY RECORD IN IT IS WHOLE — full body, full properties, and for a traversing call its complete `_graph` subtree, byte-identical to that record from an unbudgeted call. Truncation is atomic at the match: the first match whose subtree would not fit is omitted and so is everything after it, so no answer has a gap in the middle and none carries a record with half its graph. It replaced a record cap that collapsed a large answer to three inline records plus a whole-set download — which roughly DOUBLED what a caller had to read. `returned`, `count`, `truncated`, `budgetBytes` and `bytesReturned` are on EVERY response whether it bit or not, so absence never has to be interpreted.',
+            },
+            maxTokens: {
+              type: 'integer',
+              minimum: 1,
+              description: 'A convenience onto `maxBytes`, converted with `charsPerToken` (default 3.5). If you send both, the SMALLER resulting byte figure applies — stating two ceilings means you meant both. It is an approximation and cannot be anything else, because the server does not know your tokeniser: the realistic span across these payloads is 3.0–3.9 chars/token, and 3.5 was chosen because the customary 4.0 UNDER-counts tokens and is worst exactly on graph-heavy responses. Undershooting costs one more page; overshooting costs a blown context, and those are not symmetric.',
+            },
+            charsPerToken: {
+              type: 'number',
+              exclusiveMinimum: 0,
+              description: 'Override the chars-per-token ratio used to convert `maxTokens` into bytes (default 3.5). Only meaningful alongside `maxTokens`. Lower it if your tokeniser is denser than this payload shape assumes; there is no reason to raise it above ~4.',
+            },
             traverse: {
               type: 'number',
               minimum: 0,
@@ -163,6 +180,8 @@ export const recallTool: ToolHandler = {
     const includeContent = a['includeContent'] !== false;
     const includeDiagnostics = a['includeDiagnostics'] === true;
     const recallProjection = normaliseProjection(a['projection'] as Record<string, unknown> | undefined);
+    const budget = resolveBudget(a as BudgetRequest);
+    if (!budget.ok) throw new Error(budget.error);
 
     // The ceiling to minPerType's floor. Validated here as well as in the schema, because
     // `additionalProperties: { minimum: 1 }` cannot express "not below minPerType for the same type" — and
@@ -260,16 +279,19 @@ export const recallTool: ToolHandler = {
         type: r.type,
         record: applyProjection(toRecallRecord(r, { includeContent, includeDiagnostics }), recallProjection),
       }));
-      const plainSpill = await spillResultSet({
-        memberSpaceId: seeds[0]?.spaceId ?? traverseSpaces[0] ?? callSpace,
+      const plainBudgeted = await budgetedEnvelope({
         results: plain,
-        graphNodes: 0,
-        request: { query, topK, traverse: 0, types: types ?? null },
+        budgetBytes: budget.bytes,
+        spillRemainder: remainder => spillResultSet({
+          memberSpaceId: seeds[0]?.spaceId ?? traverseSpaces[0] ?? callSpace,
+          results: remainder,
+          graphNodes: 0,
+          request: { query, topK, traverse: 0, types: types ?? null },
+        }),
       });
       const output = {
-        results: plainSpill ? plain.slice(0, SPILL_INLINE_RESULTS) : plain,
-        count: plain.length,
-        ...(plainSpill ? { truncated: true, complete: plainSpill } : {}),
+        results: plainBudgeted.results,
+        ...plainBudgeted.fields,
         // Only when something degraded — an always-present field that is almost always empty is one an agent
         // learns to skip, and this is the field that matters on the call where the answer came back thin.
         ...(degraded.length > 0 ? { degraded } : {}),
@@ -302,18 +324,21 @@ export const recallTool: ToolHandler = {
     });
     // Same rule as REST, and it matters more here: a tool result is a model's context window, so returning a
     // hundred matches with their graphs is the difference between an answer and an overflow.
-    const resultSpill = await spillResultSet({
-      memberSpaceId: seeds[0]?.spaceId ?? traverseSpaces[0]!,
+    const budgeted = await budgetedEnvelope({
       results,
-      graphNodes: graph.nodes,
-      request: { query, topK, traverse, types: types ?? null },
+      budgetBytes: budget.bytes,
+      spillRemainder: remainder => spillResultSet({
+        memberSpaceId: seeds[0]?.spaceId ?? traverseSpaces[0]!,
+        results: remainder,
+        graphNodes: graph.nodes,
+        request: { query, topK, traverse, types: types ?? null },
+      }),
     });
     const output = {
-      results: resultSpill ? results.slice(0, SPILL_INLINE_RESULTS) : results,
-      count: results.length,
+      results: budgeted.results,
+      ...budgeted.fields,
       traverseDepth: traverse,
       graphNodes: graph.nodes,
-      ...(resultSpill ? { truncated: true, complete: resultSpill } : {}),
       ...(spill ? { graphTruncated: true, graphComplete: spill } : {}),
       ...(degraded.length > 0 ? { degraded } : {}),
     };
@@ -358,6 +383,21 @@ export const find_similarTool: ToolHandler = {
             projection: {
               type: 'object',
               description: 'Fields to include (1) or exclude (0), the same grammar `query` takes and applied to each result\'s `record` — dotted paths work, so `{"name": 1, "properties.status": 1}` is valid. REACH FOR THIS RATHER THAN SKIPPING IT: it is the difference between an answer you can read inline and one that overruns your context. Measured by an integrator before this existed — a search for fifteen names, a `from`, a `kind` and a `status` returned 100,547 characters where the wanted data was about 1.5 KB, and their client refused the response outright. IT APPLIES RECURSIVELY: a `traverse` answer\'s `_graph` nodes and edges are projected at every depth, which is where a large answer actually comes from. Inclusion and exclusion cannot be mixed (the non-`_id` fields decide which you meant), `_id` survives an inclusion projection unless you send `_id: 0`, and the embedding VECTOR can never be projected back in — an explicit `embedding: 1` is dropped rather than honoured. The ranking envelope (`score`, `spaceId`, `type`) sits outside `record` here and is never projected away, so you cannot lose the score you searched for.',
+            },
+            maxBytes: {
+              type: 'integer',
+              minimum: 1000,
+              description: 'Ceiling on the serialised response body, in bytes (operator default 100000). THE ANSWER IS A PREFIX OF THE RANKED RESULTS AND EVERY RECORD IN IT IS WHOLE — full body, full properties, and for a traversing call its complete `_graph` subtree, byte-identical to that record from an unbudgeted call. Truncation is atomic at the match: the first match whose subtree would not fit is omitted and so is everything after it, so no answer has a gap in the middle and none carries a record with half its graph. It replaced a record cap that collapsed a large answer to three inline records plus a whole-set download — which roughly DOUBLED what a caller had to read. `returned`, `count`, `truncated`, `budgetBytes` and `bytesReturned` are on EVERY response whether it bit or not, so absence never has to be interpreted.',
+            },
+            maxTokens: {
+              type: 'integer',
+              minimum: 1,
+              description: 'A convenience onto `maxBytes`, converted with `charsPerToken` (default 3.5). If you send both, the SMALLER resulting byte figure applies — stating two ceilings means you meant both. It is an approximation and cannot be anything else, because the server does not know your tokeniser: the realistic span across these payloads is 3.0–3.9 chars/token, and 3.5 was chosen because the customary 4.0 UNDER-counts tokens and is worst exactly on graph-heavy responses. Undershooting costs one more page; overshooting costs a blown context, and those are not symmetric.',
+            },
+            charsPerToken: {
+              type: 'number',
+              exclusiveMinimum: 0,
+              description: 'Override the chars-per-token ratio used to convert `maxTokens` into bytes (default 3.5). Only meaningful alongside `maxTokens`. Lower it if your tokeniser is denser than this payload shape assumes; there is no reason to raise it above ~4.',
             },
             topK: { type: 'number', minimum: 1, maximum: 100, default: 10, description: 'Max results to return (clamped to 1–100). Default 10.' },
             minScore: unitScoreSchema('Minimum cosine similarity (0.0–1.0). Results below it are excluded. Unlike on `recall`, this IS the relevance gate — cosine distance is the only ranking here, so raising it narrows the answer honestly rather than cutting candidates a reranker would have rescued. For deduplication, start high: near-duplicates sit well above 0.9 and everything below that is a topic match rather than a repeat.'),
@@ -416,6 +456,8 @@ export const find_similarTool: ToolHandler = {
     const includeContent = a['includeContent'] !== false;
     const includeDiagnostics = a['includeDiagnostics'] === true;
     const recallProjection = normaliseProjection(a['projection'] as Record<string, unknown> | undefined);
+    const budget = resolveBudget(a as BudgetRequest);
+    if (!budget.ok) throw new Error(budget.error);
 
     if (traverse === 0) {
       // JSON here too, since 3.1.0. Owner ruled it — *"json at every depth of course"* — after the docs audit
@@ -439,18 +481,21 @@ export const find_similarTool: ToolHandler = {
         type: r.type,
         record: applyProjection(toRecallRecord(r, { includeContent, includeDiagnostics }), recallProjection),
       }));
-      const plainSpill = await spillResultSet({
-        memberSpaceId: result.results[0]?.spaceId ?? usedBase,
+      const plainBudgeted = await budgetedEnvelope({
         results: plain,
-        graphNodes: 0,
-        request: { entryId, entryType, topK, traverse: 0 },
+        budgetBytes: budget.bytes,
+        spillRemainder: remainder => spillResultSet({
+          memberSpaceId: result.results[0]?.spaceId ?? usedBase,
+          results: remainder,
+          graphNodes: 0,
+          request: { entryId, entryType, topK, traverse: 0 },
+        }),
       });
       const output = {
         source: { type: result.source.type, id: result.source._id, summary: formatRecallSummary(result.source) },
-        results: plainSpill ? plain.slice(0, SPILL_INLINE_RESULTS) : plain,
-        count: plain.length,
+        results: plainBudgeted.results,
+        ...plainBudgeted.fields,
         traverseDepth: 0,
-        ...(plainSpill ? { truncated: true, complete: plainSpill } : {}),
       };
       return { content: [{ type: 'text' as const, text: JSON.stringify(output) }] };
     }
@@ -475,19 +520,22 @@ export const find_similarTool: ToolHandler = {
         ...(nested ? { _graph: nested } : {}),
       };
     });
-    const itemSpill = await spillResultSet({
-      memberSpaceId: result.results[0]?.spaceId ?? usedBase,
+    const itemsBudgeted = await budgetedEnvelope({
       results,
-      graphNodes: graph.nodes,
-      request: { entryId, entryType, topK, traverse },
+      budgetBytes: budget.bytes,
+      spillRemainder: remainder => spillResultSet({
+        memberSpaceId: result.results[0]?.spaceId ?? usedBase,
+        results: remainder,
+        graphNodes: graph.nodes,
+        request: { entryId, entryType, topK, traverse },
+      }),
     });
     const output = {
       source: { type: result.source.type, id: result.source._id, summary: formatRecallSummary(result.source) },
-      results: itemSpill ? results.slice(0, SPILL_INLINE_RESULTS) : results,
-      count: results.length,
+      results: itemsBudgeted.results,
+      ...itemsBudgeted.fields,
       traverseDepth: traverse,
       graphNodes: graph.nodes,
-      ...(itemSpill ? { truncated: true, complete: itemSpill } : {}),
       ...(spill ? { graphTruncated: true, graphComplete: spill } : {}),
     };
     return { content: [{ type: 'text' as const, text: JSON.stringify(output) }] };

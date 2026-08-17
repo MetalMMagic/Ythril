@@ -99,16 +99,43 @@ describe('the whole result set spills, with a TTL', () => {
     // why this counts sites rather than trusting that a new branch remembered.
     assert.equal((rest.match(/spillResultSet\(\{/g) ?? []).length, 4, 'REST recall + find-similar, both branches');
     assert.equal((mcp.match(/spillResultSet\(\{/g) ?? []).length, 4, 'MCP recall + find_similar, both branches each');
+    // This used to assert `slice(0, SPILL_INLINE_RESULTS)` — the three-record sample. X-17 replaced that cap
+    // with a byte budget, so the rule it was protecting has changed shape rather than gone: the response
+    // must still be BOUNDED, and the spill must still receive what the caller did not get. The pinned detail
+    // was the old mechanism; the rule is that neither door hands back an unbounded set.
     for (const [name, src] of [['REST', rest], ['MCP', mcp]]) {
-      assert.ok((src.match(/slice\(0, SPILL_INLINE_RESULTS\)/g) ?? []).length >= 2,
-        `${name} must return the sample rather than the whole set when it spilled`);
+      assert.ok((src.match(/budgetedEnvelope\(\{/g) ?? []).length >= 4,
+        `${name} must bound every result path through the shared budget rather than returning what it has`);
+      assert.doesNotMatch(src, /slice\(0, SPILL_INLINE_RESULTS\)/,
+        `${name} still collapses to the fixed sample — that cap is what X-17 removed, and reintroducing it `
+        + 'would restore the shape that doubled a caller\'s cost');
+    }
+  });
+
+  it('the spill receives ONLY what did not fit', () => {
+    // The old dump re-sent the whole result set, including the records already returned inline — which is
+    // most of why the previous shape cost more than it saved. `budgetedEnvelope` hands its `spillRemainder`
+    // callback the remainder alone, so a spilled file is the continuation rather than a duplicate.
+    const restSrc = read('server/src/api/brain/search.ts');
+    const mcpSrc = read('server/src/mcp/tools/search.ts');
+    for (const [name, src] of [['REST', restSrc], ['MCP', mcpSrc]]) {
+      const callbacks = (src.match(/spillRemainder: remainder => spillResultSet\(\{/g) ?? []).length;
+      const remainders = (src.match(/results: remainder,/g) ?? []).length;
+      assert.equal(callbacks, 4, `${name}: expected four spill callbacks, found ${callbacks}`);
+      assert.equal(remainders, 4,
+        `${name} spills something other than the remainder on ${callbacks - remainders} path(s) — a dump that `
+        + 'repeats what was already sent is the defect this replaced');
     }
   });
 
   it('`count` still reports the real total, not the sample', () => {
     // The sample is three; a caller who read `count: 3` would conclude the space holds three matching records.
-    const rest = read('server/src/api/brain/search.ts');
-    assert.match(rest, /count: results\.length,/, 'count must be the full set');
-    assert.match(rest, /count: items\.length,/);
+    // `count` moved into `budgetFields`, which is the point: one definition instead of four sites each
+    // spelling it out and one of them eventually spelling it wrong. The rule is unchanged — it is the TOTAL
+    // number of matches, never the number returned — and `returned` is the new field for the other question.
+    const budget = read('server/src/brain/result-budget.ts');
+    assert.match(budget, /count: totalMatches,/, 'count must be the full set, not the returned prefix');
+    assert.match(budget, /returned: outcome\.returned\.length,/,
+      'and `returned` must report the prefix, so the two questions have two fields');
   });
 });

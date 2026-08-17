@@ -18,8 +18,9 @@ import { getConfig } from '../../config/loader.js';
 import { checkQuota } from '../../quota/quota.js';
 import { resolveWriteTarget, findFirstAcrossMembers, isStrictLinkage } from '../../spaces/proxy.js';
 import { resolveMetaRefs, validateMemory } from '../../spaces/schema-validation.js';
-import { TTL_DAYS_SCHEMA, EXCLUDE_FROM_VECTOR_SEARCH_SCHEMA, ttlDaysFromArgs, unitScoreSchema, uuidSchema } from './shared.js';
+import { TTL_DAYS_SCHEMA, SUPPRESS_EMBEDDINGS_SCHEMA, LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA, ttlDaysFromArgs, unitScoreSchema, uuidSchema } from './shared.js';
 import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
+import { parseRecordSuppression } from '../../brain/suppress-embeddings.js';
 
 export const rememberTool: ToolHandler = {
   name: 'remember',
@@ -187,7 +188,7 @@ export const update_memoryTool: ToolHandler = {
     + '- `properties` — MERGED key by key. String, number or boolean values only.\n'
     + '- `deleteFields` — dot-notation paths to remove, permanently and with no undo. System fields are '
     + 'refused. This is the ONLY way to unset a property; applied AFTER the merge above.\n'
-    + '- `excludeFromVectorSearch` — see its own description. In short: it removes the vector, so `recall` can '
+    + '- `suppressEmbeddings` — see its own description. In short: it removes the vector, so `recall` can '
     + 'no longer RANK this memory by meaning, but `query`, `list`, `get` and recall\'s `traverse` expansion all '
     + 'still reach it. Excluding a record does not hide it from the graph.\n'
     + '- `ttlDays` — this record\'s own expiry, the MOST specific of three tiers: it beats the type\'s '
@@ -234,7 +235,8 @@ export const update_memoryTool: ToolHandler = {
               description: 'Key-value properties to merge into the stored map (e.g. {"source": "manual"}) — keys you do not name are kept. Use deleteFields to remove one. Values must be string, number, or boolean.',
               additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] },
             },
-            excludeFromVectorSearch: EXCLUDE_FROM_VECTOR_SEARCH_SCHEMA,
+            suppressEmbeddings: SUPPRESS_EMBEDDINGS_SCHEMA,
+            excludeFromVectorSearch: LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA,
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
             deleteFields: { type: 'array', items: { type: 'string' }, description: 'Dot-notation paths to delete from the memory (e.g. ["properties.oldKey", "description"]). System fields (id, name, type, spaceId, createdAt, updatedAt) cannot be deleted. Deletions are permanent.' },
             ttlDays: TTL_DAYS_SCHEMA,
@@ -255,8 +257,10 @@ export const update_memoryTool: ToolHandler = {
     if (!dfResult.ok) throw new Error(dfResult.error);
     const dfPaths: string[] | undefined = Array.isArray(a['deleteFields']) && (a['deleteFields'] as string[]).length > 0 ? a['deleteFields'] as string[] : undefined;
 
-    const updates: { fact?: string; tags?: string[]; entityIds?: string[]; description?: string; properties?: Record<string, string | number | boolean>; excludeFromVectorSearch?: boolean } = {};
-    if (typeof a['excludeFromVectorSearch'] === 'boolean') updates.excludeFromVectorSearch = a['excludeFromVectorSearch'];
+    const updates: { fact?: string; tags?: string[]; entityIds?: string[]; description?: string; properties?: Record<string, string | number | boolean>; suppressEmbeddings?: boolean } = {};
+    const sup = parseRecordSuppression(a);
+    if (!sup.ok) throw new Error(sup.error);
+    if (sup.value !== undefined) updates.suppressEmbeddings = sup.value;
     if (typeof a['fact'] === 'string') {
       if (!a['fact'].trim()) throw new Error('fact must not be empty');
       updates.fact = a['fact'] as string;
@@ -277,7 +281,7 @@ export const update_memoryTool: ToolHandler = {
     }
 
     const ttlDays = ttlDaysFromArgs(a);
-    if (Object.keys(updates).length === 0 && !dfPaths && ttlDays === undefined) throw new Error('At least one of fact, tags, entityIds, description, properties, excludeFromVectorSearch, deleteFields, or ttlDays must be provided');
+    if (Object.keys(updates).length === 0 && !dfPaths && ttlDays === undefined) throw new Error('At least one of fact, tags, entityIds, description, properties, suppressEmbeddings, deleteFields, or ttlDays must be provided');
 
     // Validate the memory AS IT WILL BE, against the meta of the member space it actually lives in.
     // This path had no schema validation at all, so an agent could write through MCP a value the same
@@ -307,7 +311,7 @@ export const delete_memoryTool: ToolHandler = {
   name: 'delete_memory',
   description: 'Delete one memory by its ID. IRREVERSIBLE — there is no undelete and no trash.\n\n'
     + 'IF YOU WANT IT OUT OF SEARCH RATHER THAN GONE, this is the wrong tool. Set '
-    + '`excludeFromVectorSearch` with `update_memory` instead: the record stays readable, listable and '
+    + '`suppressEmbeddings` with `update_memory` instead: the record stays readable, listable and '
     + 'traversable, and only stops being ranked by meaning. Deleting is for records that should not exist.\n\n'
     + 'IT IS NEVER REFUSED FOR BEING REFERENCED, and that differs from `delete_entity`. A chrono entry '
     + 'listing this memory in `memoryIds` keeps the id after the memory is gone, and nothing reports it — '

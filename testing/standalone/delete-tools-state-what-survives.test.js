@@ -14,7 +14,7 @@
  *
  * ## The other three things a delete has to say
  *
- * - **Retire vs delete.** `excludeFromVectorSearch` is what "stop it appearing in search" actually means;
+ * - **Retire vs delete.** `suppressEmbeddings` is what "stop it appearing in search" actually means;
  *   deleting is a much larger change and there is no undo. A caller who wanted the first and used the second
  *   cannot get the record back.
  * - **The tombstone is why re-creating with the same id does not undo it.** The deletion propagates, and the
@@ -54,7 +54,7 @@ describe('every delete says it cannot be undone, and what to use instead', () =>
 
     it(`${name} points at the retire alternative`, () => {
       // The mistake this pre-empts: wanting a record out of search results and reaching for delete.
-      assert.match(d, /excludeFromVectorSearch/,
+      assert.match(d, /suppressEmbeddings/,
         'a caller who wanted "stop showing this" must be told the non-destructive option exists');
     });
 

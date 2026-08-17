@@ -21,45 +21,78 @@ export const TTL_DAYS_SCHEMA = {
 } as const;
 
 /**
- * JSON-schema fragment for `excludeFromVectorSearch`, shared by all four MCP update tools.
+ * JSON-schema fragment for `suppressEmbeddings`, shared by all four MCP update tools.
  *
  * One copy because the four types had already diverged on it once: the flag was wired into all four update
  * FUNCTIONS and then reached the REST handlers for three types and the MCP handlers for none, so the same
  * capability existed, was documented, and could not be used from the surface an agent actually holds.
  *
- * The semantics are stated in the description rather than left to the field name, because "excluded from
- * vector search" reads like a query-time filter and is not one: the vector is REMOVED. Recall cannot reach
- * the record even deliberately; structured reads still return it in full.
+ * The semantics are stated in the description rather than left to the field name, because the effect —
+ * the vector is REMOVED — is not what any short name conveys on its own: recall cannot reach the record
+ * even deliberately, while structured reads still return it in full.
  *
- * ## "traverse" was ambiguous, and the ambiguity cost a question
+ * ## The field was called `excludeFromVectorSearch` until 3.1.0, and the name cost a question
  *
- * The description used to list `traverse` among the things that still reach an excluded record, which is
- * true of BOTH traversals and reads as neither. Owner, 2026-08-15: *"excludefromvector does also exclude
- * from recalls traversal? ambigous and i want entries to be findable via traversal even if they are not
- * embedded themselves."*
+ * Owner, 2026-08-15: *"excludefromvector does also exclude from recalls traversal? ambigous and i want
+ * entries to be findable via traversal even if they are not embedded themselves."*
  *
  * The answer is no, and the reason is structural rather than a policy anyone chose: recall's `traverse`
  * expansion walks EDGES out of a match, so it never consults a vector, and `recall-graph.ts` filters on
- * nothing but the edge. So both the `traverse` tool and `recall(traverse: n)` reach an excluded record.
- * Saying which two is what the sentence was missing — a reader had to already know there were two.
+ * nothing but the edge. So both the `traverse` tool and `recall(traverse: n)` reach a suppressed record —
+ * saying which two is what the sentence was missing, since a reader had to already know there were two.
+ *
+ * That is also why the field now shares the name the type schema and the space already used: one switch at
+ * three tiers, and a reader who finds one has a reason to look for the others. The old spelling is still
+ * ACCEPTED as an input alias — see `parseRecordSuppression` — and is deliberately not named here, because a
+ * schema description is what a caller constructs arguments from and naming both would re-create the defect.
  */
-export const EXCLUDE_FROM_VECTOR_SEARCH_SCHEMA = {
+export const SUPPRESS_EMBEDDINGS_SCHEMA = {
   type: 'boolean',
   description:
     'Retire this record from semantic RANKING. Implemented as the ABSENCE of a vector, NOT a query-time '
-    + 'filter: an excluded record cannot be RANKED by recall even deliberately, because there is no vector '
+    + 'filter: a suppressed record cannot be RANKED by recall even deliberately, because there is no vector '
     + 'to rank. Everything that does not rank still reaches it in full — query, list, get, the `traverse` '
     + 'tool, AND recall\'s own `traverse` expansion, which walks edges out of a match and never consults a '
-    + 'vector. So a record excluded here is still findable through its relationships; it just stops '
+    + 'vector. So a record suppressed here is still findable through its relationships; it just stops '
     + 'competing on meaning. May be the only field you send — retiring a record is a complete edit.\n\n'
-    + 'THIS IS THE TOP OF THREE TIERS OF ONE SWITCH, and the other two are called something else. A type '
-    + 'schema carries `suppressEmbeddings`, and so does the space; they resolve `record > schema > space`, '
-    + 'the same order `ttlDays` uses. Same mechanism, three names, so finding one gives you no reason to '
-    + 'look for the others — check `get_space_meta` when a record is unembedded and this flag is not why.\n\n'
+    + 'THIS IS THE TOP OF THREE TIERS OF ONE SWITCH, ALL THREE SPELLED THE SAME. A type schema carries '
+    + '`suppressEmbeddings`, and so does the space; they resolve `record > schema > space`, the same order '
+    + '`ttlDays` uses. So when a record is unembedded and this field is not why, check `get_space_meta` — '
+    + 'the tier below is answering.\n\n'
     + '`false` MEANS "NOT STATED", NOT "DO EMBED". It falls through to the tiers below rather than '
     + 'overriding them, so setting it false CANNOT re-embed a record whose type or space suppresses '
     + 'embedding — the suppression there still wins, and the write succeeds while nothing changes. On a '
     + 'record that no other tier suppresses, false does restore the vector.',
+} as const;
+
+/**
+ * The pre-3.1.0 spelling of `suppressEmbeddings`, declared so the DISPATCHER lets it through.
+ *
+ * ## Why it has to be here, and why that is not a second name
+ *
+ * MCP input schemas are `additionalProperties: false` and the dispatcher validates against them, so a
+ * property that is not declared is refused before any handler runs. `parseRecordSuppression` accepts the old
+ * spelling on both doors — but on MCP the call never reached it, and the tool answered *"unexpected property
+ * 'excludeFromVectorSearch'"* while REST answered `200`. CI caught it. That is the forbidden shape written
+ * out in `CLAUDE.md`: a `400` on one door and acceptance on the other, so the behaviour depends on which
+ * client the caller happened to pick.
+ *
+ * The alternative was to refuse it on both doors. It is worse while the key is still STORED and still
+ * synced — the API would deny a name the database depends on — and it breaks every 3.0 caller for no gain
+ * the rename does not already deliver.
+ *
+ * So the property exists and says one thing: use the other name. It carries no semantics of its own, which
+ * is what keeps this one name rather than two — `SUPPRESS_EMBEDDINGS_SCHEMA` is where the behaviour is
+ * described, and a gate asserts this description does nothing but redirect. Both go in 4.0 together with the
+ * stored key; `_DEPRECATIONS.md` row 1.8 has the list.
+ */
+export const LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA = {
+  type: 'boolean',
+  deprecated: true,
+  description:
+    'DEPRECATED — renamed to `suppressEmbeddings` in 3.1.0. Send that instead; it is the same switch and '
+    + 'its description is the one to read. Still accepted here, and on the REST route, so a caller written '
+    + 'against 3.0 keeps working; if you send both, `suppressEmbeddings` wins. Scheduled for removal in 4.0.',
 } as const;
 
 /**

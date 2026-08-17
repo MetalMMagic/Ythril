@@ -22,6 +22,7 @@ import { enqueueEmbedJob, retireEmbedJob } from './embed-queue.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { ChronoEntry, ChronoType, ChronoStatus, TombstoneDoc } from '../config/types.js';
 import { writeFilterFor, writeOutcome } from './write-precondition.js';
+import { mirrorLegacySuppression } from './suppress-embeddings.js';
 
 // Re-exported so existing importers (and the C5 tests) keep reaching it here; it lives in its own leaf
 // module only to keep chrono.ts ↔ recall.ts from importing each other. See chrono-status.ts.
@@ -231,7 +232,7 @@ export async function createChrono(
 export async function updateChrono(
   spaceId: string,
   id: string,
-  updates: Partial<Pick<ChronoEntry, 'title' | 'description' | 'type' | 'startsAt' | 'endsAt' | 'status' | 'confidence' | 'tags' | 'entityIds' | 'memoryIds' | 'properties' | 'recurrence' | 'excludeFromVectorSearch'>>,
+  updates: Partial<Pick<ChronoEntry, 'title' | 'description' | 'type' | 'startsAt' | 'endsAt' | 'status' | 'confidence' | 'tags' | 'entityIds' | 'memoryIds' | 'properties' | 'recurrence' | 'suppressEmbeddings'>>,
   deleteFieldsPaths?: string[],
   actor?: WebhookActor,
   ttlDays?: number | null,
@@ -277,8 +278,11 @@ export async function updateChrono(
       recurrence: updates.recurrence !== undefined ? updates.recurrence : existing.recurrence,
       endsAt: updates.endsAt !== undefined ? updates.endsAt : existing.endsAt,
       confidence: updates.confidence !== undefined ? updates.confidence : existing.confidence,
-      excludeFromVectorSearch: updates.excludeFromVectorSearch !== undefined
-        ? updates.excludeFromVectorSearch : existing.excludeFromVectorSearch,
+      // The STORED value of either spelling, not the resolved tier: `false` is a real stored value here and
+      // `recordSuppression` deliberately reports it as "not stated", which would turn a delete into a no-op.
+      suppressEmbeddings: updates.suppressEmbeddings !== undefined
+        ? updates.suppressEmbeddings
+        : (existing.suppressEmbeddings ?? existing.excludeFromVectorSearch),
     };
     applyDeleteFields(merged, deleteFieldsPaths);
 
@@ -288,7 +292,7 @@ export async function updateChrono(
     // `status`) are refused by `validateDeleteFields` instead, so between the two lists every path a caller
     // can send is either performed or reported.
     for (const field of ['description', 'tags', 'entityIds', 'memoryIds', 'properties', 'recurrence',
-      'endsAt', 'confidence', 'excludeFromVectorSearch']) {
+      'endsAt', 'confidence', 'suppressEmbeddings']) {
       if (!(field in merged)) {
         $unset[field] = '';
         delete $set[field];
@@ -305,6 +309,7 @@ export async function updateChrono(
 
   applyExpiryToUpdate(spaceId, ttlDays, existing._expireAt != null, $set, $unset,
     { collection: 'chrono', existing: existing as unknown as Record<string, unknown> }); // F10
+  mirrorLegacySuppression($set, $unset); // X-1b: keep the pre-3.1.0 key in step for older peers
   const updateOp: Record<string, unknown> = { $set };
   if (Object.keys($unset).length > 0) updateOp['$unset'] = $unset;
   // Lost-update detection, identical to `updateMemory` and for the same reason: `returnDocument: "before"`

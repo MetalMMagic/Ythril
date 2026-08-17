@@ -23,6 +23,7 @@ import { UUID_V4_RE, webhookToken, getSpaceMeta, ttlDaysFromBody, ttlDaysError, 
 import { classifyEntityUpsert, classifyUpdateViolations } from '../../brain/write-validation.js';
 import { tagContains, textContains, propertiesValueContains } from '../../brain/tag-filter.js';
 import { mergePropertiesOrKeep, mergeTagsOrKeep } from '../../brain/merge-fields.js';
+import { parseRecordSuppression } from '../../brain/suppress-embeddings.js';
 
 export const entitiesRouter = Router();
 
@@ -259,7 +260,7 @@ entitiesRouter.patch('/spaces/:spaceId/entities/:id', globalRateLimit, requireSp
   if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
   const ttlDaysProvided = !!req.body && typeof req.body === 'object' && 'ttlDays' in req.body;
   const dfPaths: string[] | undefined = Array.isArray(deleteFields) && deleteFields.length > 0 ? deleteFields : undefined;
-  const updates: { name?: string; type?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; excludeFromVectorSearch?: boolean } = {};
+  const updates: { name?: string; type?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; suppressEmbeddings?: boolean } = {};
   if (name !== undefined) {
     if (typeof name !== 'string' || !name.trim()) { res.status(400).json({ error: '`name` must be a non-empty string' }); return; }
     updates.name = name.trim();
@@ -283,13 +284,9 @@ entitiesRouter.patch('/spaces/:spaceId/entities/:id', globalRateLimit, requireSp
   // A boolean, and the ONLY field a caller may send on its own — retiring a record from vector search is a
   // complete edit in itself. It was wired into the update functions and into no PATCH handler, so it
   // shipped unreachable over REST; a caller sending it alone was told they had sent no fields at all.
-  if (req.body?.excludeFromVectorSearch !== undefined) {
-    if (typeof req.body.excludeFromVectorSearch !== 'boolean') {
-      res.status(400).json({ error: '`excludeFromVectorSearch` must be a boolean' });
-      return;
-    }
-    updates.excludeFromVectorSearch = req.body.excludeFromVectorSearch;
-  }
+  const sup = parseRecordSuppression(req.body);
+  if (!sup.ok) { res.status(400).json({ error: sup.error }); return; }
+  if (sup.value !== undefined) updates.suppressEmbeddings = sup.value;
   if (Object.keys(updates).length === 0 && !dfPaths && !ttlDaysProvided) { res.status(400).json({ error: 'At least one field must be provided' }); return; }
   const memberIds = resolveMemberSpaces(wt.target);
   for (const mid of memberIds) {

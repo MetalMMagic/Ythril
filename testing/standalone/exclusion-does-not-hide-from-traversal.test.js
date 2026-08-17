@@ -7,7 +7,7 @@
  * Owner, 2026-08-15: *"excludefromvector does also exclude from recalls traversal? ambigous and i want
  * entries to be findable via traversal even if they are not embedded themselves."*
  *
- * The answer is no, and it is structural rather than a policy anyone chose: `excludeFromVectorSearch` is
+ * The answer is no, and it is structural rather than a policy anyone chose: `suppressEmbeddings` is
  * implemented as the ABSENCE of a vector (`brain/embed-record.ts`), not as a query-time filter. Recall's
  * `traverse` expansion walks EDGES out of a match, so it never consults a vector, and `recall-graph.ts`
  * filters on nothing but the edge.
@@ -39,17 +39,18 @@ const strip = (src) => src.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\
 
 describe('the exclusion is a missing vector, never a read-time filter', () => {
   it('the graph walk does not consult the flag', () => {
-    // If this ever grew a filter on `excludeFromVectorSearch`, an excluded record would silently vanish from
+    // If this ever grew a filter on the record tier, a suppressed record would silently vanish from
     // `_graph` — the exact behaviour the owner asked us NOT to have, and invisible from any single result.
     const src = strip(read('server/src/brain/recall-graph.ts'));
-    assert.doesNotMatch(src, /excludeFromVectorSearch/,
-      'traversal must reach an excluded record; it walks edges and must not read the flag');
+    assert.doesNotMatch(src, /suppressEmbeddings|excludeFromVectorSearch|recordSuppression/,
+      'traversal must reach a suppressed record; it walks edges and must not read the flag under EITHER '
+      + 'spelling, nor through the shared reader');
   });
 
   it('only the embed path reads it, which is what makes it a missing vector', () => {
     // One writer, no readers. The flag has meaning exactly once — when deciding whether to store a vector.
     const embed = strip(read('server/src/brain/embed-record.ts'));
-    assert.match(embed, /excludeFromVectorSearch/, 'the embed path is where the flag is honoured');
+    assert.match(embed, /recordSuppression\(doc\)/, 'the embed path is where the flag is honoured');
     assert.match(embed, /\$unset/, 'setting it must REMOVE the vector, not mark the record');
   });
 });

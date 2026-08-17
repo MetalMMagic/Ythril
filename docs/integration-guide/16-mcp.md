@@ -189,7 +189,7 @@ row survives its own tool being built, so the list cannot keep advertising a gap
 | `help` | Self-documenting system guide — the knowledge model, how to choose between `query` / `recall` / filtered recall, schema authoring, and the tools available to the calling token. Read-only, no `space` needed; scoped to the token so it never lists tools the token can't call. **Pass `query` to get only the matching sections** instead of the whole guide — a tool name returns just that tool's line, not the whole list. Matching is plain keyword (**all** words must appear) and **never semantic**, deliberately: `help` is the tool that must work when the embedder does not. A query matching nothing returns the **section index** rather than an empty answer, and `structuredContent.sections` always lists the ids and titles so a caller can see what there is to ask for |
 | `list_spaces` | List accessible space IDs with purposes and entry counts (memories, entities, edges, chrono). `purpose` is the space-level directive; `description` is returned alongside as its deprecated alias, always the same text |
 | `remember` | Store a memory with optional tags and entity links |
-| `update_memory` | Update an existing memory's fact, tags, entity links, or delete specific fields via `deleteFields`; `excludeFromVectorSearch` retires it from semantic search |
+| `update_memory` | Update an existing memory's fact, tags, entity links, or delete specific fields via `deleteFields`; `suppressEmbeddings` retires it from semantic search |
 | `delete_memory` | Delete a memory by ID |
 | `recall` | Semantic search across all knowledge types (memories, entities, edges, chrono entries, files). Searches the specified `space`; omit `space` to search across all accessible spaces |
 | `query` | Structured MongoDB filter query (read-only) — supports `memories`, `entities`, `edges`, `chrono`, and `files` collections |
@@ -198,16 +198,16 @@ row survives its own tool being built, so the list cannot keep advertising a gap
 | `get_space_meta` | Return the full space schema definition, purpose, usage notes, stats, and `needsReindex` — the field to poll after `reindex`, which returns as soon as the job starts |
 | `er_model` | The space's entity-relationship model: which entity types actually exist, which edge labels connect which types, and the counts — inferred from the stored records as well as the declared schema. `get_space_meta` says what MAY exist; this says what DOES. Same output as [`GET /er-model`](04b-graph-api.md) |
 | `upsert_entity` | Create or update a named entity (with optional properties) |
-| `update_entity` | Update an existing entity by ID (name, type, description, tags, properties, `excludeFromVectorSearch`); supports `deleteFields` for field removal |
+| `update_entity` | Update an existing entity by ID (name, type, description, tags, properties, `suppressEmbeddings`); supports `deleteFields` for field removal |
 | `delete_entity` | Delete an entity by ID. Refused when the space has `strictLinkage` and another record still references it — the same rule the REST route enforces. Face labels are unlabelled rather than blocking |
 | `merge_entities` | Merge two entities — relink all references and resolve per-property conflicts |
 | `find_entities_by_name` | Find all entities with an exact name match (returns list regardless of type) |
 | `upsert_edge` | Create or update a directed relationship |
-| `update_edge` | Update an existing edge by ID (label, type, weight, description, tags, properties, `excludeFromVectorSearch`); supports `deleteFields` for field removal |
+| `update_edge` | Update an existing edge by ID (label, type, weight, description, tags, properties, `suppressEmbeddings`); supports `deleteFields` for field removal |
 | `delete_edge` | Delete an edge by ID |
 | `traverse` | BFS graph traversal — follow edges from a starting entity up to `maxDepth` hops. Chrono entries referencing a reached node come back too, marked `kind: "chrono"` (`includeChrono: false` for entity-only); `includeMemories: true` reaches memories the same way (opt-in — they are numerous and count against `limit`); `includeFiles: true` reaches files, returning **file meta only** — path, description, tags, never passage text, and one node per file rather than per chunk; `includeEdges: false` drops the edge list from the answer without changing the walk |
 | `create_chrono` | Create a chrono entry (the five built-in types, or the space's own declared chrono types, which replace them) |
-| `update_chrono` | Update an existing chrono entry, including `excludeFromVectorSearch`. Requires at least one field beyond `id` |
+| `update_chrono` | Update an existing chrono entry, including `suppressEmbeddings`. Requires at least one field beyond `id` |
 | `delete_chrono` | Delete a chrono entry by ID |
 | `list_chrono` | List chrono entries, optionally filtered by status, type, tags, date range, or text search |
 | `bulk_write` | Batch-upsert memories, entities, edges, and/or chrono entries in a single call (schema-validated) |

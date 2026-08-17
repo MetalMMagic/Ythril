@@ -27,6 +27,7 @@ import type { MemoryDoc, EntityDoc, TombstoneDoc } from '../config/types.js';
 import { SimilarMatch, DupeCheckOpts, checkDuplicates } from './recall.js';
 import { PROPERTIES_SCAN_MAX_MS } from './tag-filter.js';
 import { writeFilterFor, writeOutcome } from './write-precondition.js';
+import { mirrorLegacySuppression } from './suppress-embeddings.js';
 
 /** Resolve entity IDs to their names from the database. */
 async function resolveEntityNames(spaceId: string, entityIds: string[]): Promise<string[]> {
@@ -212,7 +213,7 @@ export async function remember(
 export async function updateMemory(
   spaceId: string,
   memoryId: string,
-  updates: { fact?: string; tags?: string[]; entityIds?: string[]; description?: string; properties?: Record<string, string | number | boolean>; type?: string; excludeFromVectorSearch?: boolean },
+  updates: { fact?: string; tags?: string[]; entityIds?: string[]; description?: string; properties?: Record<string, string | number | boolean>; type?: string; suppressEmbeddings?: boolean },
   deleteFieldsPaths?: string[],
   actor?: WebhookActor,
   ttlDays?: number | null,
@@ -245,7 +246,7 @@ export async function updateMemory(
   // Toggling exclusion always ends in an embed job, and the job handles BOTH directions — it unsets the
   // vector when the flag is on and computes one when it is off. So this path never needs to know which
   // way the toggle went.
-  if (updates.excludeFromVectorSearch !== undefined) $set['excludeFromVectorSearch'] = updates.excludeFromVectorSearch;
+  if (updates.suppressEmbeddings !== undefined) $set['suppressEmbeddings'] = updates.suppressEmbeddings;
 
   // Apply deleteFields after merge
   if (deleteFieldsPaths && deleteFieldsPaths.length > 0) {
@@ -278,6 +279,7 @@ export async function updateMemory(
 
   applyExpiryToUpdate(spaceId, ttlDays, existing._expireAt != null, $set, $unset,
     { collection: 'memory', existing: existing as unknown as Record<string, unknown> }); // F10
+  mirrorLegacySuppression($set, $unset); // X-1b: keep the pre-3.1.0 key in step for older peers
   const updateOp: Record<string, unknown> = { $set };
   if (Object.keys($unset).length > 0) updateOp['$unset'] = $unset;
   // findOneAndUpdate, not updateOne, so the PRE-image comes back in the same round trip.

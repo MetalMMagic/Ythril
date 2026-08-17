@@ -223,7 +223,7 @@ describe('brain embedding queue drains (real MongoDB, real embed() over a stub e
     });
   }
 
-  it('excludeFromVectorSearch: the job UNSETS the vector instead of computing one', async () => {
+  it('suppressEmbeddings: the job UNSETS the vector instead of computing one', async () => {
     // The flag is implemented AS the absence of a vector, not as a query filter. A filter was the obvious
     // design and does not work: `ne` is not natively pushable (`brain/filter.ts:74`), so it would force
     // every recall onto an exhaustive scan, and the positive form would need a backfill of a synced
@@ -234,15 +234,19 @@ describe('brain embedding queue drains (real MongoDB, real embed() over a stub e
     assert.ok(Array.isArray((await coll.findOne({ _id: doc._id })).embedding),
       'precondition: it starts searchable');
 
-    await memory.updateMemory(SPACE, doc._id, { excludeFromVectorSearch: true });
+    await memory.updateMemory(SPACE, doc._id, { suppressEmbeddings: true });
     assert.equal(await jobs().countDocuments({}), 1, 'the toggle queued a job');
     assert.equal(await worker.runOneEmbedJob(), true);
 
     const after = await coll.findOne({ _id: doc._id });
     assert.equal(after.embedding, undefined, 'the stale vector is UNSET, not left behind');
     assert.equal(after.embeddingModel, undefined);
-    assert.equal(after.excludeFromVectorSearch, true, 'and the record itself is still there');
-    assert.ok(after.fact, 'excluded is not deleted — an operator must still be able to find it by listing');
+    assert.equal(after.suppressEmbeddings, true, 'and the record itself is still there');
+    assert.equal(after.excludeFromVectorSearch, true,
+      'the pre-3.1.0 key is written alongside — these collections replicate by whole-document replace, so a '
+      + 'peer on an older build must keep finding the key it knows or it re-embeds a record somebody '
+      + 'deliberately suppressed');
+    assert.ok(after.fact, 'suppressed is not deleted — an operator must still be able to find it by listing');
   });
 
   it('clearing the flag gives the vector back', async () => {
@@ -251,19 +255,26 @@ describe('brain embedding queue drains (real MongoDB, real embed() over a stub e
     const doc = await memory.remember(SPACE, 'temporarily retired', [], []);
     const coll = mongo.col(`${SPACE}_memories`);
 
-    await memory.updateMemory(SPACE, doc._id, { excludeFromVectorSearch: true });
+    await memory.updateMemory(SPACE, doc._id, { suppressEmbeddings: true });
     await worker.runOneEmbedJob();
     assert.equal((await coll.findOne({ _id: doc._id })).embedding, undefined);
 
-    await memory.updateMemory(SPACE, doc._id, { excludeFromVectorSearch: false });
+    await memory.updateMemory(SPACE, doc._id, { suppressEmbeddings: false });
     assert.equal(await worker.runOneEmbedJob(), true);
-    assert.ok(Array.isArray((await coll.findOne({ _id: doc._id })).embedding),
+    const back = await coll.findOne({ _id: doc._id });
+    assert.ok(Array.isArray(back.embedding),
       'clearing the flag re-embeds — the job handles both directions, so no caller has to know which');
+    assert.equal(back.excludeFromVectorSearch, false,
+      'and the legacy key follows the clear as well as the set: left at `true` it would be read by the '
+      + 'fallback and keep the record suppressed after somebody asked for it not to be');
   });
 
-  it('an excluded record is never given a vector in the first place', async () => {
-    // Not only "unset later": a record created already-excluded must not be embedded at all, or every
-    // creator would burn a model call to produce a vector the next job deletes.
+  it('a record suppressed under the PRE-3.1.0 key alone is still never embedded', async () => {
+    // Two properties in one, and the second is the migration. Not only "unset later": a record created
+    // already-suppressed must not be embedded at all, or every creator would burn a model call to produce a
+    // vector the next job deletes. And this writes the LEGACY spelling straight into Mongo, which is exactly
+    // the shape of every record suppressed before the rename and of anything an older peer syncs to us —
+    // reading only the new key would re-embed all of them, silently and at cost.
     const doc = await memory.remember(SPACE, 'born retired', [], []);
     await mongo.col(`${SPACE}_memories`).updateOne({ _id: doc._id },
       { $set: { excludeFromVectorSearch: true } });

@@ -810,7 +810,7 @@ describe('Brain -- chrono CRUD (/api/brain/spaces/:spaceId/chrono)', () => {
   // The source-level gate proves the field is FORWARDED. These prove it LANDS — the previous version of
   // this feature was consistent in the source of three route files and unreachable on the fourth, and the
   // report that found it came from reading code, not from a response. Assert on the stored record.
-  it('PATCH chrono with ONLY excludeFromVectorSearch returns 200 and persists it', async () => {
+  it('PATCH chrono with ONLY the legacy excludeFromVectorSearch returns 200 and persists it', async () => {
     const r = await patch(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`, {
       excludeFromVectorSearch: true,
     });
@@ -823,7 +823,7 @@ describe('Brain -- chrono CRUD (/api/brain/spaces/:spaceId/chrono)', () => {
     assert.equal(back.body.excludeFromVectorSearch, true, 'the STORED record must carry the flag');
   });
 
-  it('PATCH chrono clears excludeFromVectorSearch again', async () => {
+  it('PATCH chrono clears the legacy excludeFromVectorSearch again', async () => {
     const r = await patch(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`, {
       excludeFromVectorSearch: false,
     });
@@ -832,9 +832,43 @@ describe('Brain -- chrono CRUD (/api/brain/spaces/:spaceId/chrono)', () => {
     assert.equal(back.body.excludeFromVectorSearch, false, 'false must be stored, not treated as absent');
   });
 
-  it('PATCH chrono rejects a non-boolean excludeFromVectorSearch', async () => {
+  it('PATCH chrono rejects a non-boolean under the legacy spelling too', async () => {
     const r = await patch(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`, {
       excludeFromVectorSearch: 'true',
+    });
+    assert.equal(r.status, 400, JSON.stringify(r.body));
+  });
+
+  it('PATCH chrono with ONLY suppressEmbeddings returns 200 and persists BOTH spellings', async () => {
+    // The 3.1.0 name. It must work exactly as the alias above does, and the write must carry the legacy key
+    // as well: these collections replicate by whole-document replace, so a peer on an older build that
+    // rewrites this record would otherwise drop a flag it does not understand and re-embed a record the
+    // owner asked to keep unembedded.
+    const r = await patch(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`, {
+      suppressEmbeddings: true,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const back = await get(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`);
+    assert.equal(back.body.suppressEmbeddings, true, 'the STORED record must carry the new name');
+    assert.equal(back.body.excludeFromVectorSearch, true,
+      'and the pre-3.1.0 name, or an older peer un-suppresses it on the next sync');
+  });
+
+  it('PATCH chrono: the new spelling wins when a body carries both', async () => {
+    // A caller migrating one field at a time can send both in one request. Preferring the legacy key would
+    // make the change they just made invisible.
+    const r = await patch(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`, {
+      suppressEmbeddings: false, excludeFromVectorSearch: true,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const back = await get(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`);
+    assert.equal(back.body.suppressEmbeddings, false, 'the new spelling decides');
+    assert.equal(back.body.excludeFromVectorSearch, false, 'and the legacy key follows it, not the body');
+  });
+
+  it('PATCH chrono rejects a non-boolean suppressEmbeddings', async () => {
+    const r = await patch(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`, {
+      suppressEmbeddings: 'true',
     });
     assert.equal(r.status, 400, JSON.stringify(r.body));
   });

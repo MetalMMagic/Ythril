@@ -1,5 +1,5 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
-import { UUID_V4_RE, TTL_DAYS_SCHEMA, EXCLUDE_FROM_VECTOR_SEARCH_SCHEMA, ttlDaysFromArgs, uuidSchema, unitScoreSchema } from './shared.js';
+import { UUID_V4_RE, TTL_DAYS_SCHEMA, SUPPRESS_EMBEDDINGS_SCHEMA, LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA, ttlDaysFromArgs, uuidSchema, unitScoreSchema } from './shared.js';
 import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } from '../../brain/delete-fields.js';
 import { deleteEntity, findEntitiesByName, findEntityBacklinks, getEntityById, updateEntityById, upsertEntity } from '../../brain/entities.js';
 // The shared write gate, imported rather than reimplemented — see the note in memory.ts.
@@ -9,6 +9,7 @@ import { getConfig } from '../../config/loader.js';
 import { isProxySpace, isStrictLinkage, resolveMemberSpaces, resolveWriteTarget, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { resolveMetaRefs, validateEntity } from '../../spaces/schema-validation.js';
 import { mergePropertiesOrKeep, mergeTagsOrKeep } from '../../brain/merge-fields.js';
+import { parseRecordSuppression } from '../../brain/suppress-embeddings.js';
 
 export const upsert_entityTool: ToolHandler = {
   name: 'upsert_entity',
@@ -140,7 +141,7 @@ export const update_entityTool: ToolHandler = {
     + '- `deleteFields` — dot-notation paths to remove, permanently and with no undo. The system fields (`id`, '
     + '`name`, `type`, `spaceId`, `createdAt`, `updatedAt`) are refused. This is the ONLY way to unset '
     + 'anything.\n'
-    + '- `excludeFromVectorSearch` — see its own description. In short: it removes the vector, so `recall` can '
+    + '- `suppressEmbeddings` — see its own description. In short: it removes the vector, so `recall` can '
     + 'no longer RANK this record by meaning, but `query`, `list`, `get` and recall\'s own `traverse` expansion '
     + 'all still reach it. An excluded entity linked to an embedded one still appears in that neighbour\'s '
     + '`_graph`.\n'
@@ -192,7 +193,8 @@ export const update_entityTool: ToolHandler = {
               description: 'Key-value properties to merge with existing (e.g. {"wheels": 4}). Values must be string, number, or boolean.',
               additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] },
             },
-            excludeFromVectorSearch: EXCLUDE_FROM_VECTOR_SEARCH_SCHEMA,
+            suppressEmbeddings: SUPPRESS_EMBEDDINGS_SCHEMA,
+            excludeFromVectorSearch: LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA,
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
             deleteFields: { type: 'array', items: { type: 'string' }, description: 'Dot-notation paths to delete from the entity (e.g. ["properties.oldKey", "description"]). System fields (id, name, type, spaceId, createdAt, updatedAt) cannot be deleted. Deletions are permanent.' },
             ttlDays: TTL_DAYS_SCHEMA,
@@ -210,8 +212,10 @@ export const update_entityTool: ToolHandler = {
     const dfResult = validateDeleteFields(a['deleteFields']);
     if (!dfResult.ok) throw new Error(dfResult.error);
     const dfPaths: string[] | undefined = Array.isArray(a['deleteFields']) && (a['deleteFields'] as string[]).length > 0 ? a['deleteFields'] as string[] : undefined;
-    const updates: { name?: string; type?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; excludeFromVectorSearch?: boolean } = {};
-    if (typeof a['excludeFromVectorSearch'] === 'boolean') updates.excludeFromVectorSearch = a['excludeFromVectorSearch'];
+    const updates: { name?: string; type?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; suppressEmbeddings?: boolean } = {};
+    const sup = parseRecordSuppression(a);
+    if (!sup.ok) throw new Error(sup.error);
+    if (sup.value !== undefined) updates.suppressEmbeddings = sup.value;
     if (typeof a['name'] === 'string') updates.name = a['name'].trim();
     if (typeof a['type'] === 'string') updates.type = (a['type'] as string).trim();
     if (typeof a['description'] === 'string') updates.description = a['description'] as string;
@@ -220,7 +224,7 @@ export const update_entityTool: ToolHandler = {
       updates.properties = a['properties'] as Record<string, string | number | boolean>;
     }
     const ttlDays = ttlDaysFromArgs(a);
-    if (Object.keys(updates).length === 0 && !dfPaths && ttlDays === undefined) throw new Error('At least one of name, type, description, tags, properties, excludeFromVectorSearch, deleteFields, or ttlDays must be provided');
+    if (Object.keys(updates).length === 0 && !dfPaths && ttlDays === undefined) throw new Error('At least one of name, type, description, tags, properties, suppressEmbeddings, deleteFields, or ttlDays must be provided');
 
     // Validate the entity AS IT WILL BE, against the meta of the member space it actually lives in. This
     // path had no schema validation at all, so `type` could be moved outside the allowlist that
@@ -458,7 +462,7 @@ export const find_entities_by_nameTool: ToolHandler = {
  */
 export const delete_entityTool: ToolHandler = {
   name: 'delete_entity',
-  description: 'Delete an entity by id. IRREVERSIBLE, and it is a DELETE rather than a retire — if you want the record to stop appearing in semantic search while staying readable and traversable, set `excludeFromVectorSearch` on it instead.\n\n'
+  description: 'Delete an entity by id. IRREVERSIBLE, and it is a DELETE rather than a retire — if you want the record to stop appearing in semantic search while staying readable and traversable, set `suppressEmbeddings` on it instead.\n\n'
     + 'A REFUSAL HERE IS USUALLY CORRECT. With `strictLinkage` on, an entity still referenced by edges, memories, chrono entries or files is refused, and the answer names what points at it. That is the signal that deleting it would orphan something — resolve those first, or `merge_entities` into the record that should have held them.\n\n'
     + 'It writes a TOMBSTONE, so the deletion propagates to peer instances on the next sync. A space that syncs will not quietly resurrect the record from a peer, and the tombstone is why.',
   mutating: true,

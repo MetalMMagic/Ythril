@@ -21,6 +21,7 @@ import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import { log } from '../util/log.js';
 import type { EntityDoc, EdgeDoc, MemoryDoc, ChronoEntry, TombstoneDoc, FileMetaDoc } from '../config/types.js';
 import { PROPERTIES_SCAN_MAX_MS, textContains } from './tag-filter.js';
+import { mirrorLegacySuppression } from './suppress-embeddings.js';
 
 /** A backlink entry describing an item that references a given entity. */
 export interface BacklinkEntry {
@@ -266,7 +267,7 @@ export async function getEntityById(spaceId: string, id: string): Promise<Entity
 export async function updateEntityById(
   spaceId: string,
   id: string,
-  updates: { name?: string; type?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; excludeFromVectorSearch?: boolean },
+  updates: { name?: string; type?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; suppressEmbeddings?: boolean },
   deleteFieldsPaths?: string[],
   actor?: WebhookActor,
   ttlDays?: number | null,
@@ -314,7 +315,7 @@ export async function updateEntityById(
     }
   }
 
-  if (updates.excludeFromVectorSearch !== undefined) $set['excludeFromVectorSearch'] = updates.excludeFromVectorSearch;
+  if (updates.suppressEmbeddings !== undefined) $set['suppressEmbeddings'] = updates.suppressEmbeddings;
   if (updates.name !== undefined) $set['name'] = newName;
   if (updates.type !== undefined) $set['type'] = newType;
   // `setUnlessDeleted` rather than a guard on `$unset['x']`: that value is the empty string, so the old test was
@@ -328,6 +329,7 @@ export async function updateEntityById(
 
   applyExpiryToUpdate(spaceId, ttlDays, existing._expireAt != null, $set, $unset,
     { collection: 'entity', existing: existing as unknown as Record<string, unknown> }); // F10
+  mirrorLegacySuppression($set, $unset); // X-1b: keep the pre-3.1.0 key in step for older peers
   const updateOp: Record<string, unknown> = { $set };
   if (Object.keys($unset).length > 0) updateOp['$unset'] = $unset;
   // Lost-update detection, identical to `updateMemory` and for the same reason: `returnDocument: "before"`

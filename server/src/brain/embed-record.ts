@@ -19,7 +19,7 @@ import { col, asFilter } from '../db/mongo.js';
 import { embed } from './embedding.js';
 import { memoryEmbedText, entityEmbedText, edgeEmbedText, chronoEmbedText, fileEmbedText } from './embed-text.js';
 import { resolveEdgeEntityNames } from './edges.js';
-import { embeddingSuppressed, schemaKeyFor } from './suppress-embeddings.js';
+import { embeddingSuppressed, schemaKeyFor, recordSuppression } from './suppress-embeddings.js';
 import { getSpaceMeta } from '../spaces/schema-validation.js';
 import type { KnowledgeType } from '../config/types-knowledge.js';
 import { getEmbeddingConfig } from '../config/loader.js';
@@ -134,17 +134,18 @@ export async function embedStoredRecord(
   const doc = await col(collName).findOne(asFilter({ _id: recordId })) as Record<string, unknown> | null;
   if (!doc) return 'gone';
 
-  // `excludeFromVectorSearch` is implemented AS the absence of a vector — there is no query-time filter to
+  // `suppressEmbeddings` is implemented AS the absence of a vector — there is no query-time filter to
   // honour, so this is the single place the flag has any effect. Every writer of a vector reaches this
   // function, which is why one check covers the four creators and sync ingest alike.
   //
   // The stale vector is UNSET rather than left behind. Leaving it would keep the record findable by the
   // exact mechanism the flag exists to switch off, which is the whole bug.
   //
-  // The per-record flag is the TOP tier of three. A type schema may suppress the whole type, and the space may
-  // suppress everything; `embeddingSuppressed` resolves record > schema > space, the same order `retention`
-  // uses. Two tiered settings that resolved differently is the kind of thing nobody discovers until it is
-  // wrong, and "wrong" here means recall silently stops covering something.
+  // The per-record flag is the TOP tier of three, and all three are now spelled `suppressEmbeddings`. A type
+  // schema may suppress the whole type, and the space may suppress everything; `embeddingSuppressed` resolves
+  // record > schema > space, the same order `retention` uses. Two tiered settings that resolved differently is
+  // the kind of thing nobody discovers until it is wrong, and "wrong" here means recall silently stops
+  // covering something.
   //
   // Absent at a tier means NOT STATED and falls through — it is not `false`. Reading it as `false` would make
   // the space-wide switch do nothing for any type that had a schema at all, which is every type worth
@@ -156,7 +157,7 @@ export async function embedStoredRecord(
   const knowledgeType: KnowledgeType | undefined = recordType === 'file' ? undefined : recordType;
   const schemaKey = knowledgeType === undefined ? undefined : schemaKeyFor(knowledgeType, doc);
   if (embeddingSuppressed({
-    record: doc['excludeFromVectorSearch'] === true ? true : undefined,
+    record: recordSuppression(doc),
     schema: knowledgeType === undefined || schemaKey === undefined
       ? undefined
       : meta?.typeSchemas?.[knowledgeType]?.[schemaKey],
@@ -172,7 +173,7 @@ export async function embedStoredRecord(
   const text = await buildEmbedText(spaceId, recordType, doc);
 
   // Every successful update enqueues an embed job, unconditionally and for good reasons — the enqueue is also
-  // how the `excludeFromVectorSearch` toggle takes effect, and how a stale inline embed was eliminated. But most
+  // how the `suppressEmbeddings` toggle takes effect, and how a stale inline embed was eliminated. But most
   // updates change something the vector does not depend on: a tag, a property, a link, a status. Those paid for a
   // model call that could only reproduce the vector already stored.
   //

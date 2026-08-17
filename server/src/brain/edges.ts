@@ -20,6 +20,7 @@ import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { EdgeDoc, EntityDoc, TombstoneDoc, ChronoEntry, MemoryDoc, FileMetaDoc } from '../config/types.js';
 import { tagContains, textContains, propertiesValueContains, PROPERTIES_SCAN_MAX_MS } from './tag-filter.js';
 import { writeFilterFor, writeOutcome } from './write-precondition.js';
+import { mirrorLegacySuppression } from './suppress-embeddings.js';
 
 export interface TraverseNode {
   _id: string;
@@ -267,7 +268,7 @@ export async function getEdgeById(spaceId: string, id: string): Promise<EdgeDoc 
 export async function updateEdgeById(
   spaceId: string,
   id: string,
-  updates: { label?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; weight?: number; type?: string; excludeFromVectorSearch?: boolean },
+  updates: { label?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; weight?: number; type?: string; suppressEmbeddings?: boolean },
   deleteFieldsPaths?: string[],
   actor?: WebhookActor,
   ttlDays?: number | null,
@@ -282,7 +283,7 @@ export async function updateEdgeById(
   const $set: Record<string, unknown> = { updatedAt: now, seq };
   const $unset: Record<string, unknown> = {};
 
-  if (updates.excludeFromVectorSearch !== undefined) $set['excludeFromVectorSearch'] = updates.excludeFromVectorSearch;
+  if (updates.suppressEmbeddings !== undefined) $set['suppressEmbeddings'] = updates.suppressEmbeddings;
   const newLabel = updates.label ?? existing.label;
   let newDesc = updates.description !== undefined ? updates.description : existing.description;
   let newTags = mergeTagsOrKeep(existing.tags, updates.tags);
@@ -342,6 +343,7 @@ export async function updateEdgeById(
 
   applyExpiryToUpdate(spaceId, ttlDays, existing._expireAt != null, $set, $unset,
     { collection: 'edge', existing: existing as unknown as Record<string, unknown> }); // F10
+  mirrorLegacySuppression($set, $unset); // X-1b: keep the pre-3.1.0 key in step for older peers
   const updateOp: Record<string, unknown> = { $set };
   if (Object.keys($unset).length > 0) updateOp['$unset'] = $unset;
   // Lost-update detection, identical to `updateMemory` and for the same reason: `returnDocument: "before"`

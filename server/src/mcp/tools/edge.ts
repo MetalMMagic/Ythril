@@ -1,5 +1,5 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
-import { UUID_V4_RE, TTL_DAYS_SCHEMA, EXCLUDE_FROM_VECTOR_SEARCH_SCHEMA, ttlDaysFromArgs, unitScoreSchema } from './shared.js';
+import { UUID_V4_RE, TTL_DAYS_SCHEMA, SUPPRESS_EMBEDDINGS_SCHEMA, LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA, ttlDaysFromArgs, unitScoreSchema } from './shared.js';
 import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } from '../../brain/delete-fields.js';
 import { deleteEdge, getEdgeById, traverseGraph, updateEdgeById, upsertEdge } from '../../brain/edges.js';
 // The shared write gate, imported rather than reimplemented — see the note in memory.ts.
@@ -10,6 +10,7 @@ import { memberSpacesWithin } from '../../spaces/proxy-scoped.js';
 import { assertRefsResolve } from '../../brain/entity-refs.js';
 import { resolveMetaRefs, validateEdge } from '../../spaces/schema-validation.js';
 import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
+import { parseRecordSuppression } from '../../brain/suppress-embeddings.js';
 
 export const upsert_edgeTool: ToolHandler = {
   name: 'upsert_edge',
@@ -122,7 +123,7 @@ export const update_edgeTool: ToolHandler = {
     + 'it tagged `["a","b"]`. Note that `update_memory` REPLACES tags instead — one word of difference between '
     + 'tools that otherwise take the same arguments. To remove a tag or a property here, use `deleteFields` '
     + 'with its dot path; there is no way to shrink either by sending a smaller value.\n\n'
-    + 'EDGES ARE SEARCHABLE RECORDS, which is why `excludeFromVectorSearch` exists on this tool at all: an edge '
+    + 'EDGES ARE SEARCHABLE RECORDS, which is why `suppressEmbeddings` exists on this tool at all: an edge '
     + 'carries a label and a description, they get embedded, and they compete with knowledge records for a '
     + 'recall `topK`. Excluding a busy structural edge is how you stop it crowding out the records it '
     + 'connects.\n\n'
@@ -136,7 +137,7 @@ export const update_edgeTool: ToolHandler = {
     + '- `properties` — MERGED key by key. String, number or boolean values only.\n'
     + '- `deleteFields` — dot-notation paths to remove, permanently and with no undo. System fields are '
     + 'refused. This is the ONLY way to unset anything, and it runs AFTER the merge above.\n'
-    + '- `excludeFromVectorSearch` — see its own description. It removes the vector, so `recall` can no longer '
+    + '- `suppressEmbeddings` — see its own description. It removes the vector, so `recall` can no longer '
     + 'RANK this edge by meaning. It does NOT remove the edge from the graph: `traverse` still walks it, and a '
     + 'recall on either endpoint still expands through it into `_graph`. Excluding an edge hides it from '
     + 'ranking, never from traversal.\n'
@@ -189,7 +190,8 @@ export const update_edgeTool: ToolHandler = {
               description: 'Key-value properties to merge with existing. Values must be string, number, or boolean.',
               additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] },
             },
-            excludeFromVectorSearch: EXCLUDE_FROM_VECTOR_SEARCH_SCHEMA,
+            suppressEmbeddings: SUPPRESS_EMBEDDINGS_SCHEMA,
+            excludeFromVectorSearch: LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA,
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
             deleteFields: { type: 'array', items: { type: 'string' }, description: 'Dot-notation paths to delete from the edge (e.g. ["properties.oldKey", "description"]). System fields (id, name, type, spaceId, createdAt, updatedAt) cannot be deleted. Deletions are permanent.' },
             ttlDays: TTL_DAYS_SCHEMA,
@@ -207,8 +209,10 @@ export const update_edgeTool: ToolHandler = {
     const dfResult = validateDeleteFields(a['deleteFields']);
     if (!dfResult.ok) throw new Error(dfResult.error);
     const dfPaths: string[] | undefined = Array.isArray(a['deleteFields']) && (a['deleteFields'] as string[]).length > 0 ? a['deleteFields'] as string[] : undefined;
-    const updates: { label?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; weight?: number; type?: string; excludeFromVectorSearch?: boolean } = {};
-    if (typeof a['excludeFromVectorSearch'] === 'boolean') updates.excludeFromVectorSearch = a['excludeFromVectorSearch'];
+    const updates: { label?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; weight?: number; type?: string; suppressEmbeddings?: boolean } = {};
+    const sup = parseRecordSuppression(a);
+    if (!sup.ok) throw new Error(sup.error);
+    if (sup.value !== undefined) updates.suppressEmbeddings = sup.value;
     if (typeof a['label'] === 'string') updates.label = (a['label'] as string).trim();
     if (typeof a['description'] === 'string') updates.description = a['description'] as string;
     if (Array.isArray(a['tags'])) updates.tags = a['tags'] as string[];
@@ -218,7 +222,7 @@ export const update_edgeTool: ToolHandler = {
     if (typeof a['weight'] === 'number') updates.weight = a['weight'] as number;
     if (typeof a['type'] === 'string') updates.type = (a['type'] as string).trim();
     const ttlDays = ttlDaysFromArgs(a);
-    if (Object.keys(updates).length === 0 && !dfPaths && ttlDays === undefined) throw new Error('At least one of label, description, tags, properties, weight, type, excludeFromVectorSearch, deleteFields, or ttlDays must be provided');
+    if (Object.keys(updates).length === 0 && !dfPaths && ttlDays === undefined) throw new Error('At least one of label, description, tags, properties, weight, type, suppressEmbeddings, deleteFields, or ttlDays must be provided');
 
     // Validate the edge AS IT WILL BE, against the meta of the member space it actually lives in. This
     // path had no schema validation at all, so `label` could be moved outside the allowlist that
@@ -330,7 +334,7 @@ export const delete_edgeTool: ToolHandler = {
     + 'IT IS ALSO HOW YOU REPOINT AN EDGE. `update_edge` deliberately has no `from`/`to` — an edge whose end '
     + 'changed is a different relationship — so the sequence is delete this one, then `upsert_edge` the new '
     + 'one.\n\n'
-    + 'IF YOU WANT IT OUT OF SEARCH RATHER THAN GONE, set `excludeFromVectorSearch` with `update_edge` '
+    + 'IF YOU WANT IT OUT OF SEARCH RATHER THAN GONE, set `suppressEmbeddings` with `update_edge` '
     + 'instead. Edges are searchable records and compete with knowledge for a recall `topK`; excluding one '
     + 'stops it being ranked while `traverse` still walks it and recall still expands through it. Deleting it '
     + 'removes it from the graph as well, which is a much larger change than "it was crowding my results".\n\n'

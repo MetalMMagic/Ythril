@@ -163,6 +163,11 @@ import { BrainStore } from './brain-store.service';
                         <span>{{ 'brain.query.includeContent' | transloco }}</span>
                         <span style="color:var(--text-muted);font-size:11px;" [attr.title]="'brain.query.includeContent.tooltip' | transloco"><ph-icon name="info" [size]="11" style="display:inline-flex;vertical-align:middle;"/></span>
                       </label>
+                      <label style="display:flex; align-items:center; gap:6px; align-self:flex-end; cursor:pointer;">
+                        <input type="checkbox" [(ngModel)]="recallForm.includeDiagnostics" name="recallIncludeDiagnostics" />
+                        <span>{{ 'brain.query.includeDiagnostics' | transloco }}</span>
+                        <span style="color:var(--text-muted);font-size:11px;" [attr.title]="'brain.query.includeDiagnostics.tooltip' | transloco"><ph-icon name="info" [size]="11" style="display:inline-flex;vertical-align:middle;"/></span>
+                      </label>
                     </div>
 
                     <!-- Type restriction + per-type minimums -->
@@ -415,7 +420,7 @@ export class QueryTabComponent {
 
   recallForm = {
     query: '', topK: 10, minScore: 0, filter: '', tags: '', type: '',
-    maxPerType: 0, includeFreshWrites: false, includeContent: true,
+    maxPerType: 0, includeFreshWrites: false, includeContent: true, includeDiagnostics: false,
     // Both 0 = "don't send it". `traverse: 0` is also the server default (no expansion), and `maxTimeMS: 0`
     // is not a legal deadline, so neither zero can be mistaken for a value the operator chose.
     traverse: 0, maxTimeMS: 0,
@@ -560,6 +565,10 @@ export class QueryTabComponent {
       ...(this.recallForm.maxPerType > 0 ? { maxPerType: this.recallForm.maxPerType } : {}),
       ...(this.recallForm.includeFreshWrites ? { includeFreshWrites: true } : {}),
       ...(this.recallForm.includeContent ? {} : { includeContent: false }),
+      // Same rule as above and the same reason: the server default is false, so only an operator who
+      // switched it ON sends it. Sending `false` explicitly would put a parameter in every request that
+      // means exactly what its absence means.
+      ...(this.recallForm.includeDiagnostics ? { includeDiagnostics: true } : {}),
       ...(this.recallForm.traverse > 0 ? { traverse: this.recallForm.traverse } : {}),
       ...(this.recallForm.maxTimeMS > 0 ? { maxTimeMS: this.recallForm.maxTimeMS } : {}),
     }).subscribe({

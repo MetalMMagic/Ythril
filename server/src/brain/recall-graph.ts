@@ -39,6 +39,38 @@
  */
 import type { EdgeDoc, EntityDoc } from '../config/types.js';
 import { type SeedTraverseNeighbor } from './edges.js';
+import { RECALL_DIAGNOSTIC_FIELDS, NEVER_RETURNED_FIELDS } from './recall-shape.js';
+
+/**
+ * The ONE shape a traversed node takes, on both doors.
+ *
+ * Owner, 2026-08-16: *"both deliver exact same content but in a standard way for their transport"*. The
+ * envelope stays each transport's own — REST returns a flat result, MCP nests the record under `record` —
+ * but the CONTENT does not get to differ, and `_graph[].node` was where it did: MCP mapped the entity
+ * through an allowlist while REST attached the Mongo document, so a REST caller saw `_expireAt` and every
+ * other stored field and an MCP caller did not.
+ *
+ * This lived in `mcp/tools/shared.ts` as `entityDocToRecord` and had exactly two callers, both of them graph
+ * nesting. Moving it here is what makes "one shape" true rather than promised — REST cannot nest a node
+ * without it now, because `mapGraphNodes` is the only nesting implementation and this is what it is given.
+ *
+ * All three record diagnostics are emitted; `stripDiag` removes them unless the caller asked for them. That
+ * ordering matters: leaving `matchedText` out of the allowlist would mean `includeDiagnostics: true` gave a
+ * REST caller a field the MCP caller could never get, which is the same divergence one layer down.
+ */
+export function graphNodeRecord(e: EntityDoc): Record<string, unknown> {
+  const rec: Record<string, unknown> = { _id: e._id, spaceId: e.spaceId, name: e.name, type: e.type };
+  if (e.createdAt !== undefined) rec['createdAt'] = e.createdAt;
+  if (e.updatedAt !== undefined) rec['updatedAt'] = e.updatedAt;
+  if (e.tags !== undefined) rec['tags'] = e.tags;
+  if (e.description !== undefined) rec['description'] = e.description;
+  if (e.properties !== undefined) rec['properties'] = e.properties;
+  if (e.seq !== undefined) rec['seq'] = e.seq;
+  if (e.embeddingModel !== undefined) rec['embeddingModel'] = e.embeddingModel;
+  const mt = (e as unknown as { matchedText?: unknown }).matchedText;
+  if (mt !== undefined) rec['matchedText'] = mt;
+  return rec;
+}
 
 /** One traversed node, nested under whatever reached it. */
 export interface GraphNode {
@@ -75,18 +107,45 @@ export interface RecallGraph {
 export function mapGraphNodes<T>(
   nodes: GraphNode[] | undefined,
   shapeNode: (doc: EntityDoc) => T,
+  /**
+   * Carry the system-facing fields into the tree, or drop them (default: drop).
+   *
+   * Owner, 2026-08-16: *"on traverse stuff make sure the subentries in _graph also respect this"* — and it
+   * is the branch where it matters most. `edge` is the WHOLE edge document, once per hop, and an edge is a
+   * searchable record with a `matchedText` of its own; a depth-2 traversal off ten seeds can carry more
+   * diagnostic text than the matches it was expanding. Honouring the flag on the results and not on their
+   * neighbourhood would have left the largest half of the saving unmade.
+   *
+   * It is applied HERE rather than in each door's `shapeNode` for the reason this function exists at all:
+   * one nesting implementation, so neither surface can forget. It also reaches the `edge`, which no
+   * `shapeNode` ever sees.
+   */
+  includeDiagnostics = false,
 ): { edge: EdgeDoc; node: T; paths: string[][]; pathsTruncated?: boolean; _graph?: unknown[] }[] | undefined {
   if (!nodes) return undefined;
   return nodes.map(n => {
-    const children = mapGraphNodes(n._graph, shapeNode);
+    const children = mapGraphNodes(n._graph, shapeNode, includeDiagnostics);
     return {
-      edge: n.edge,
-      node: shapeNode(n.node),
+      edge: stripDiag(n.edge, includeDiagnostics) as EdgeDoc,
+      // The node goes through the caller's shaping FIRST and is stripped after, so this holds whether the
+      // door passes the document through (REST) or maps it to its own record shape (MCP). Stripping an
+      // allowlisted record is a no-op, which is the correct outcome rather than a wasted branch.
+      node: stripDiag(shapeNode(n.node) as unknown as object, includeDiagnostics) as T,
       paths: n.paths,
       ...(n.pathsTruncated ? { pathsTruncated: true } : {}),
       ...(children ? { _graph: children } : {}),
     };
   });
+}
+
+/** One record, diagnostics removed unless asked for. Copies — the tree is also handed to the spill writer. */
+function stripDiag<T extends object>(doc: T, include: boolean): T {
+  // `NEVER_RETURNED_FIELDS` is dropped on BOTH branches — `includeDiagnostics` restores diagnostics,
+  // never the vector, and an early return here would have made it an opt-in to a 768-float array.
+  const out = { ...doc } as Record<string, unknown>;
+  const drop = include ? NEVER_RETURNED_FIELDS : [...RECALL_DIAGNOSTIC_FIELDS, ...NEVER_RETURNED_FIELDS];
+  for (const k of drop) delete out[k];
+  return out as T;
 }
 
 /**

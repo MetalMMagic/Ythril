@@ -25,6 +25,79 @@
  */
 import type { RecallResult, RecallKnowledgeType } from './recall.js';
 
+/**
+ * The fields a recall result carries for the SYSTEM rather than for the caller.
+ *
+ * ## Why one list, and why it lives here
+ *
+ * REST returned all six and MCP returned none, and neither said so — MCP's tool description in fact listed
+ * two of them among the fields a result "carries", which is how a caller ends up budgeting for a response
+ * roughly twice its real size and hunting for the parameter that switches it off. Owner, 2026-08-16:
+ * *"we did want to sync mcp and rest ... in general those fields should not be returned"*.
+ *
+ * So they are withheld by default on BOTH doors and `includeDiagnostics` restores them on both. One list,
+ * because the alternative is an allowlist on one door and a denylist on the other agreeing by promise —
+ * which is precisely the shape that let them drift for a release.
+ *
+ * ## Why the split into two groups
+ *
+ * They are diagnostics for one reason and belong in two PLACES. `matchedText`, `embeddingModel` and `seq`
+ * are fields OF THE RECORD; the three scores describe how this result RANKED and sit beside `score`. REST
+ * returns one flat object so the distinction is invisible there, but MCP nests the record inside the result
+ * — putting `lexicalScore` in `record` would say it is a property of the memory, which it is not.
+ */
+export const RECALL_RECORD_DIAGNOSTICS = ['matchedText', 'embeddingModel', 'seq'] as const;
+
+/** The per-stage ranking scores: why this result placed where it did. Beside `score`, never inside `record`. */
+export const RECALL_RANKING_DIAGNOSTICS = ['lexicalScore', 'fusedScore', 'rerankScore'] as const;
+
+/** Both groups, for the flat REST shape and for anything asserting on the whole set. */
+export const RECALL_DIAGNOSTIC_FIELDS: readonly string[] =
+  [...RECALL_RECORD_DIAGNOSTICS, ...RECALL_RANKING_DIAGNOSTICS];
+
+/**
+ * Stripped always, restorable by nothing — deliberately NOT part of `RECALL_DIAGNOSTIC_FIELDS`.
+ *
+ * "The vector is never returned" is stated on both doors and in the guides, and it was very nearly false:
+ * the graph traversal fetched edge documents with no projection at all, so `_graph[].edge.embedding` was a
+ * float array per hop. That query now projects it out, and this is the second line of defence — a claim that
+ * absolute should not rest on one projection being remembered at every fetch site.
+ */
+export const NEVER_RETURNED_FIELDS: readonly string[] = ['embedding'];
+
+/**
+ * The named fields that are actually present, or `{}` when the caller did not ask for them.
+ *
+ * Spread into a result. `undefined` values are omitted rather than emitted as explicit nulls, matching how
+ * every other optional field on a recall result behaves — a key that is always present and usually null is
+ * a key readers learn to skip.
+ */
+export function diagnosticFields(
+  src: Record<string, unknown>,
+  keys: readonly string[],
+  include: boolean,
+): Record<string, unknown> {
+  if (!include) return {};
+  const out: Record<string, unknown> = {};
+  for (const k of keys) if (src[k] !== undefined) out[k] = src[k];
+  return out;
+}
+
+/**
+ * Recall results with the diagnostic fields removed unless the caller asked for them — the REST shape.
+ *
+ * Copies rather than mutating, for the same reason `stripContentIfAsked` does: the same array is handed to
+ * the traverse builder and to the audit outcome, and deleting a field in place would change what those saw.
+ */
+export function withoutDiagnostics<T extends object>(results: T[], include: boolean): T[] {
+  if (include) return results;
+  return results.map(r => {
+    const out = { ...r } as Record<string, unknown>;
+    for (const k of [...RECALL_DIAGNOSTIC_FIELDS, ...NEVER_RETURNED_FIELDS]) delete out[k];
+    return out as T;
+  });
+}
+
 /** Roughly a 2k-token window at ~4 chars/token, which every current reranker comfortably accepts. */
 export const RERANK_TEXT_MAX_CHARS = 8_000;
 

@@ -92,6 +92,15 @@ export class BrainApi {
        */
       includeContent?: boolean;
       /**
+       * Add back the fields a result carries for the SYSTEM: `matchedText`, `embeddingModel`, `seq` and the
+       * per-stage scores. Recursive — a `traverse` answer's `_graph` follows it at every depth.
+       *
+       * Defaults to `false` server-side, on both doors. It exists for answering WHY something ranked where
+       * it did; leaving it off is right for every ordinary search, because each of these is returned once
+       * per result. The embedding vector is not among them and cannot be requested at all.
+       */
+      includeDiagnostics?: boolean;
+      /**
        * Graph expansion depth, 0–5. Each match is expanded along edges and what the walk reached comes back
        * NESTED under it, as `_graph: [{edge, node, paths}]` — see `flattenRecallItems`, which turns that tree
        * into the ordered rows this UI renders. The route has accepted this since recall existed; it was simply

@@ -1,4 +1,5 @@
 import type { RecallResult } from '../../brain/recall.js';
+import { diagnosticFields, RECALL_RECORD_DIAGNOSTICS } from '../../brain/recall-shape.js';
 
 /** Helpers shared by the MCP tool handlers (moved out of mcp/router.ts). */
 
@@ -242,9 +243,20 @@ export function formatRecallSummary(r: RecallResult): string {
  *
  * `includeContent: false` additionally drops the passage body itself — see the tool schema.
  */
-export function toRecallRecord(r: RecallResult, opts: { includeContent?: boolean } = {}): Record<string, unknown> {
+export function toRecallRecord(
+  r: RecallResult,
+  opts: { includeContent?: boolean; includeDiagnostics?: boolean } = {},
+): Record<string, unknown> {
   const includeContent = opts.includeContent !== false;
-  const common: Record<string, unknown> = { _id: r._id };
+  // The three RECORD-level diagnostics, off by default on both doors since 3.1.0 — see
+  // `RECALL_RECORD_DIAGNOSTICS` for why they are withheld and why the list is shared. The ranking scores are
+  // NOT added here: they describe how this result placed, not what the record is, so they sit beside `score`
+  // on the result rather than inside it.
+  const common: Record<string, unknown> = {
+    _id: r._id,
+    ...diagnosticFields(r as unknown as Record<string, unknown>,
+      RECALL_RECORD_DIAGNOSTICS, opts.includeDiagnostics === true),
+  };
   if (r.createdAt !== undefined) common['createdAt'] = r.createdAt;
   if (r.updatedAt !== undefined) common['updatedAt'] = r.updatedAt;
   if (r.tags !== undefined) common['tags'] = r.tags;
@@ -267,16 +279,5 @@ export function toRecallRecord(r: RecallResult, opts: { includeContent?: boolean
   }
 }
 
-export function entityDocToRecord(e: import('../../config/types.js').EntityDoc): Record<string, unknown> {
-  const rec: Record<string, unknown> = { _id: e._id, name: e.name, type: e.type };
-  if (e.createdAt !== undefined) rec['createdAt'] = e.createdAt;
-  if (e.updatedAt !== undefined) rec['updatedAt'] = e.updatedAt;
-  if (e.seq !== undefined) rec['seq'] = e.seq;
-  if (e.tags !== undefined) rec['tags'] = e.tags;
-  if (e.description !== undefined) rec['description'] = e.description;
-  if (e.properties !== undefined) rec['properties'] = e.properties;
-  if (e.embeddingModel !== undefined) rec['embeddingModel'] = e.embeddingModel;
-  return rec;
-}
 
 

@@ -673,6 +673,38 @@ Notes:
 The same header, in the same spellings, is honoured on space-meta writes against `meta.version` — see the
 [Spaces API](06-spaces-api.md).
 
+### What a read never sends, and what you can drop
+
+**The embedding vector is never returned — by any endpoint, on either door, and there is no parameter that
+asks for it.** `POST /query` merges a mandatory exclusion into whatever projection you send and strips an
+explicit `"embedding": 1` out of it, so the vector cannot be opted back in; the list routes project it out
+before the documents leave the database. If you have been hunting for a flag to switch it off, this is why
+you could not find one.
+
+What you *can* control:
+
+| lever | where | what it drops |
+|---|---|---|
+| `projection` | `POST /api/brain/spaces/:spaceId/query` | any field you do not name. The only field-selection lever on either door |
+| `includeContent: false` | recall, find-similar | file-passage **bodies**, keeping path, heading, chunk index, tags and properties |
+| `includeDiagnostics: false` *(the default)* | recall, find-similar | `matchedText`, `embeddingModel`, `seq` and the per-stage scores — **recursively**, so a `traverse` answer's `_graph` follows it at every depth |
+
+A projection is worth reaching for rather than skipping: a bare query over a dozen records with full
+descriptions and properties is the cheapest way to overrun a token budget, and naming the four fields you
+actually branch on turns that into a page you can read.
+
+**REST and MCP return the same recall content.** Until 3.1.0 they did not: REST sent `matchedText`,
+`embeddingModel`, `seq` and the per-stage scores unconditionally while MCP sent none of them, and neither
+door said so. All six are now off by default on both, and `includeDiagnostics: true` restores them on both.
+
+What still differs is the **shape**, deliberately, because each is natural to its transport: a REST result is
+flat — record fields beside `score` — while an MCP result nests them under `record`. The *field set* a caller
+can read is identical, at the result level and at every depth of `_graph`, and a gate compares the two.
+
+The list routes (`GET /api/brain/spaces/:id/memories` and friends) still have **no** field selection. If that
+is a constraint for your integration, say so — it is the one remaining asymmetry here rather than a
+preference somebody chose.
+
 ### Retiring a record from semantic search
 
 `suppressEmbeddings` is a boolean on **all four** record types (`memories`, `entities`, `edges`,

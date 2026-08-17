@@ -8,9 +8,9 @@
  */
 
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
-import { UUID_V4_RE, entityDocToRecord, formatRecallSummary, toRecallRecord, uuidSchema, unitScoreSchema, QUERY_FILTER_OPERATORS, RECALL_FILTER_KEY_PATTERN } from './shared.js';
+import { UUID_V4_RE, formatRecallSummary, toRecallRecord, uuidSchema, unitScoreSchema, QUERY_FILTER_OPERATORS, RECALL_FILTER_KEY_PATTERN } from './shared.js';
 import { MAX_RECALL_TRAVERSE } from '../../brain/edges.js';
-import { mapGraphNodes } from '../../brain/recall-graph.js';
+import { mapGraphNodes, graphNodeRecord } from '../../brain/recall-graph.js';
 import { buildGraphWithSpill, spillResultSet, SPILL_INLINE_RESULTS } from '../../brain/graph-spill.js';
 import { type FilterExpression } from '../../brain/filter.js';
 import { resolveRecallFilter, type RawMongoFilter } from '../../brain/recall-filter.js';
@@ -22,7 +22,9 @@ import { type RecallKnowledgeType, type RecallResult, findSimilar, recall, recal
 import { memberSpacesWithin } from '../../spaces/proxy-scoped.js';
 import { pageAcrossMembers } from '../../spaces/page-across-members.js';
 import { NotFoundError } from '../../util/errors.js';
-import { rankOf, mergeRecallResults } from '../../brain/recall-shape.js';
+import {
+  rankOf, mergeRecallResults, diagnosticFields, RECALL_RANKING_DIAGNOSTICS,
+} from '../../brain/recall-shape.js';
 
 /**
  * Space scope for find_similar — mirrors recall's omit-space idiom (F1 consistency).
@@ -58,7 +60,8 @@ export const recallTool: ToolHandler = {
   name: 'recall',
   description: 'Search all knowledge types (memories, entities, edges, chrono entries, files) by MEANING and by exact tokens: a semantic vector ranking is fused with a lexical (BM25) ranking, so identifiers such as article numbers or form ids rank even though their embeddings carry little meaning. A cross-encoder refines the top candidates when the operator has configured one. Searches the specified space if provided, otherwise across all accessible spaces.\n\n'
     + 'THE RESPONSE, because knowing the parameters is only half of it:\n'
-    + '• `results` — the ranked matches. Each carries `_id`, its name/fact/title, type, tags, properties, `spaceId`, timestamps, `seq`, `matchedText` and `score` (vector similarity). The per-stage `lexicalScore`/`fusedScore`/`rerankScore` are omitted HERE to keep responses small; the REST endpoint returns them for debugging.\n'
+    + '• `results` — the ranked matches. Each carries `_id`, its name/fact/title, type, tags, properties, `spaceId`, timestamps and `score` (vector similarity).\n'
+    + '• WHAT THIS DOOR DOES NOT SEND YOU, so you do not go looking for a flag to switch it off: the embedding VECTOR (never returned by anything here, and no parameter can ask for it), `matchedText` (the pre-embedding source string — for a file chunk it is the passage a SECOND time), `embeddingModel` (identical for every record in a space), `seq` (a sync counter that is not an input to any tool), and the per-stage `lexicalScore`/`fusedScore`/`rerankScore`. All six are withheld on REST too, with the same default, since 3.1.0 — `includeDiagnostics: true` restores them on either door and applies recursively, so a `traverse` answer\'s `_graph` follows it at every depth. Leave it off: each of these is multiplied by `topK` and paid for in your context, and you want them only to answer WHY something ranked where it did. The other size lever is `includeContent: false`, which drops file-passage bodies and keeps their locations.\n'
     + '• `count` — the number of MATCHES. Traversed nodes are NOT counted in it.\n'
     + '• `graphNodes` — an integer COUNT of what a traversal reached, not the content. The content is nested per-result under `_graph`, and a result with no edges simply has no `_graph` at all: reading `results[0]` and concluding the feature is absent is the mistake to avoid.\n'
     + '• `truncated` + `complete` — THE ONE THAT BITES. The inline answer is capped by SIZE, not by count, and it is a cliff rather than a slope: around 25 results answer in full and 30 can come back as three. When it spills, `truncated: true` is set and `complete` carries {matches, records, inline, path, download, expiresAt} — the full set written to the space as JSON, with an authenticated download valid one day. A caller that asks for topK 80 and reads only `results` is silently working from a handful of records. Read `truncated` before you trust the length.\n'
@@ -96,6 +99,11 @@ export const recallTool: ToolHandler = {
               type: 'boolean',
               default: true,
               description: 'Whether to return each file chunk’s `content` — the passage body (default true). Set false to get locations and metadata only: path, heading, chunk index, tags, properties. Use it for a two-phase flow — recall to find WHERE something is, then read only the chunk you decided you need. Every field a result carries is multiplied by topK and paid for in tokens, and passage bodies are by far the largest of them.',
+            },
+            includeDiagnostics: {
+              type: 'boolean',
+              default: false,
+              description: 'Add back the fields a result carries for the SYSTEM rather than for you (default false, and false is what you want almost always). On the record: `matchedText` — the exact pre-embedding source string, which for a file chunk is the heading plus the passage, so the passage a SECOND time; `embeddingModel`, identical for every record in a space; and `seq`, a sync counter that is not an input to any tool. Beside `score`: the per-stage `lexicalScore`, `fusedScore` and `rerankScore`, each present only if that stage ran. Turn it on to answer WHY something ranked where it did — which text was embedded, which stage promoted it — then turn it off, because every one of these is multiplied by `topK` and paid for in your context. REST takes the same parameter with the same default; before 3.1.0 REST sent all six unconditionally and this door sent none, which is the asymmetry it closes.',
             },
             traverse: {
               type: 'number',
@@ -138,6 +146,7 @@ export const recallTool: ToolHandler = {
       : undefined;
     const minScore = typeof a['minScore'] === 'number' ? a['minScore'] : undefined;
     const includeContent = a['includeContent'] !== false;
+    const includeDiagnostics = a['includeDiagnostics'] === true;
 
     // The ceiling to minPerType's floor. Validated here as well as in the schema, because
     // `additionalProperties: { minimum: 1 }` cannot express "not below minPerType for the same type" — and
@@ -229,9 +238,11 @@ export const recallTool: ToolHandler = {
       // alone, which meant the plainest large call was the one that returned everything.
       const plain = seeds.map(r => ({
         score: r.score,
+        ...diagnosticFields(r as unknown as Record<string, unknown>,
+          RECALL_RANKING_DIAGNOSTICS, includeDiagnostics),
         spaceId: r.spaceId,
         type: r.type,
-        record: toRecallRecord(r, { includeContent }),
+        record: toRecallRecord(r, { includeContent, includeDiagnostics }),
       }));
       const plainSpill = await spillResultSet({
         memberSpaceId: seeds[0]?.spaceId ?? traverseSpaces[0] ?? callSpace,
@@ -263,9 +274,12 @@ export const recallTool: ToolHandler = {
       Math.max(0, totalCap - seeds.length),
     );
     const results = seeds.map(r => {
-      const nested = mapGraphNodes(graph.bySeed.get(r._id), entityDocToRecord);
+      const nested = mapGraphNodes(graph.bySeed.get(r._id), graphNodeRecord, includeDiagnostics);
       return {
-        score: r.score, spaceId: r.spaceId, type: r.type, record: toRecallRecord(r, { includeContent }),
+        score: r.score,
+        ...diagnosticFields(r as unknown as Record<string, unknown>,
+          RECALL_RANKING_DIAGNOSTICS, includeDiagnostics),
+        spaceId: r.spaceId, type: r.type, record: toRecallRecord(r, { includeContent, includeDiagnostics }),
         ...(nested ? { _graph: nested } : {}),
       };
     });
@@ -296,6 +310,14 @@ export const find_similarTool: ToolHandler = {
     + 'Two consequences of using the stored vector, and both are silent if you do not know them:\n'
     + '• A source entry retired from semantic ranking has NO vector, so there is nothing to be similar to and the answer is empty — not an error, and not evidence that nothing resembles it.\n'
     + '• A record written seconds ago may not be indexed yet. There is no `includeFreshWrites` here as there is on `recall`, because the source entry\'s own embedding has to exist before this can start.\n\n'
+    + 'THE RESPONSE, and it is the same JSON at every depth — matching `recall`, which is the point:\n'
+    + '• `source` — the entry you asked about, as {type, id, summary}. This tool has one and `recall` does not.\n'
+    + '• `results` — the matches, each {score, spaceId, type, record}, the SAME per-result shape `recall` returns. With `traverse > 0` each carries its own `_graph`.\n'
+    + '• `count` — how many matches, and `traverseDepth` — the depth echoed back, present at every depth including 0.\n'
+    + '• `graphNodes` — a COUNT of what a traversal reached, not its content, and only when one ran.\n'
+    + '• `truncated` + `complete` — THE ONE THAT BITES, exactly as on `recall`. The answer is capped by SIZE, not by count, so a large `topK` comes back short with `complete` holding {path, download, expiresAt} for the full set, valid one day. Read `truncated` before you trust the length.\n'
+    + '• `graphTruncated` + `graphComplete` — the same arrangement for an oversized neighbourhood.\n\n'
+    + 'IT ANSWERED PLAIN TEXT AT `traverse: 0` UNTIL 3.1.0, and JSON only above it. If you built against that, this is the break: parse JSON at every depth now. Two things arrive with it — the default depth gains the size cap it never had, and `includeContent`/`includeDiagnostics` start doing something there, having been accepted and unobservable on a summary line.\n\n'
     + 'Provide `space` to scope to one space, or omit it to search every space the token can reach. `score` is raw cosine similarity — the same number `recall` reports, but here it is the ONLY ranking, so `minScore` is a genuine relevance gate rather than the vector-side gate it is on `recall`.\n\n'
     + 'With `traverse: 0` the answer is a plain-text summary; above 0 it is JSON, because a graph does not summarise.',
   spaceRequired: false,
@@ -310,6 +332,11 @@ export const find_similarTool: ToolHandler = {
               type: 'array',
               items: { type: 'string', enum: ['memory', 'entity', 'edge', 'chrono', 'file'] },
               description: 'Which knowledge types to search in. Omit to search all types.',
+            },
+            includeDiagnostics: {
+              type: 'boolean',
+              default: false,
+              description: 'Add back the fields a result carries for the SYSTEM rather than for you (default false, and false is what you want almost always). On the record: `matchedText` — the exact pre-embedding source string, which for a file chunk is the heading plus the passage, so the passage a SECOND time; `embeddingModel`, identical for every record in a space; and `seq`, a sync counter that is not an input to any tool. Beside `score`: the per-stage `lexicalScore`, `fusedScore` and `rerankScore`, each present only if that stage ran. Turn it on to answer WHY something ranked where it did — which text was embedded, which stage promoted it — then turn it off, because every one of these is multiplied by `topK` and paid for in your context. REST takes the same parameter with the same default; before 3.1.0 REST sent all six unconditionally and this door sent none, which is the asymmetry it closes.',
             },
             topK: { type: 'number', minimum: 1, maximum: 100, default: 10, description: 'Max results to return (clamped to 1–100). Default 10.' },
             minScore: unitScoreSchema('Minimum cosine similarity (0.0–1.0). Results below it are excluded. Unlike on `recall`, this IS the relevance gate — cosine distance is the only ranking here, so raising it narrows the answer honestly rather than cutting candidates a reranker would have rescued. For deduplication, start high: near-duplicates sit well above 0.9 and everything below that is a topic match rather than a repeat.'),
@@ -365,25 +392,48 @@ export const find_similarTool: ToolHandler = {
     }
     if (!result || !usedBase) throw new NotFoundError(`Entry '${entryId}' not found in any accessible space (type: ${entryType}).`);
 
-    const crossSpaceMode = !callSpace || crossSpace;
+    const includeContent = a['includeContent'] !== false;
+    const includeDiagnostics = a['includeDiagnostics'] === true;
 
     if (traverse === 0) {
-      const lines: string[] = [];
-      lines.push(`Source: [${result.source.type}] ${formatRecallSummary(result.source)} (ID: ${result.source._id})`);
-      if (result.results.length === 0) {
-        lines.push('No similar entries found.');
-      } else {
-        for (let i = 0; i < result.results.length; i++) {
-          const r = result.results[i]!;
-          const spaceLabel = crossSpaceMode ? ` [${r.spaceId}]` : '';
-          lines.push(`[${i + 1}]${spaceLabel} [${r.type}] (score: ${r.score?.toFixed(3) ?? 'n/a'}) ${formatRecallSummary(r)}`);
-        }
-      }
-      return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+      // JSON here too, since 3.1.0. Owner ruled it — *"json at every depth of course"* — after the docs audit
+      // found that this tool answered TEXT at the default depth and JSON above it, while `recall` on the same
+      // door is JSON throughout. A client that parsed one answer from this tool could not parse the other,
+      // and nothing said so.
+      //
+      // Two things the text path could not have, and now does:
+      //  - **a size cap.** The JSON answer spills past a size threshold and says `truncated`; the text answer
+      //    was bounded by nothing but `topK`, so a large call returned everything inline.
+      //  - **`includeContent` and `includeDiagnostics` that DO something.** A summary line carried neither
+      //    passage bodies nor system fields, so both flags were accepted here and unobservable.
+      //
+      // The shape is `recall`'s plain branch plus `source`, which is this tool's own — you asked about a
+      // specific entry and the answer names it back.
+      const plain = result.results.map(r => ({
+        score: r.score,
+        ...diagnosticFields(r as unknown as Record<string, unknown>,
+          RECALL_RANKING_DIAGNOSTICS, includeDiagnostics),
+        spaceId: r.spaceId,
+        type: r.type,
+        record: toRecallRecord(r, { includeContent, includeDiagnostics }),
+      }));
+      const plainSpill = await spillResultSet({
+        memberSpaceId: result.results[0]?.spaceId ?? usedBase,
+        results: plain,
+        graphNodes: 0,
+        request: { entryId, entryType, topK, traverse: 0 },
+      });
+      const output = {
+        source: { type: result.source.type, id: result.source._id, summary: formatRecallSummary(result.source) },
+        results: plainSpill ? plain.slice(0, SPILL_INLINE_RESULTS) : plain,
+        count: plain.length,
+        traverseDepth: 0,
+        ...(plainSpill ? { truncated: true, complete: plainSpill } : {}),
+      };
+      return { content: [{ type: 'text' as const, text: JSON.stringify(output) }] };
     }
 
-    // Graph-augmented: expand the similar seeds along edges (mirrors recall's traverse), JSON output.
-    const includeContent = a['includeContent'] !== false;
+    // Graph-augmented: expand the similar seeds along edges (mirrors recall's traverse).
     const traverseSpaces = searchIds ?? [usedBase];
     const totalCap = topK * (traverse + 1) * 4;
     const { graph, spill } = await buildGraphWithSpill(
@@ -393,9 +443,12 @@ export const find_similarTool: ToolHandler = {
       Math.max(0, totalCap - result.results.length),
     );
     const results = result.results.map(r => {
-      const nested = mapGraphNodes(graph.bySeed.get(r._id), entityDocToRecord);
+      const nested = mapGraphNodes(graph.bySeed.get(r._id), graphNodeRecord, includeDiagnostics);
       return {
-        score: r.score, spaceId: r.spaceId, type: r.type, record: toRecallRecord(r, { includeContent }),
+        score: r.score,
+        ...diagnosticFields(r as unknown as Record<string, unknown>,
+          RECALL_RANKING_DIAGNOSTICS, includeDiagnostics),
+        spaceId: r.spaceId, type: r.type, record: toRecallRecord(r, { includeContent, includeDiagnostics }),
         ...(nested ? { _graph: nested } : {}),
       };
     });
@@ -422,6 +475,10 @@ export const queryTool: ToolHandler = {
   name: 'query',
   description: 'Run a structured read-only query (MongoDB filter) against brain collections. This is the EXACT counterpart to `recall`: no embedding, no ranking, no score — a predicate, and every row that satisfies it. Reach for it when you know what you are looking for, and for `recall` when you know what it is about.\n\n'
     + 'It also reaches records `recall` cannot: a record retired from semantic ranking has no vector, and this reads the collection.\n\n'
+    + 'PAY FOR THE FIELDS YOU BRANCH ON, AND NOTHING ELSE: `projection` is the field-selection lever, and '
+    + 'this is the only tool that has one. The embedding vector is never returned by anything here and '
+    + 'cannot be asked for, so there is no flag to hunt for — what costs you is the record BODIES, and a '
+    + 'projection of the four fields you actually read turns a page of them into something small.\n\n'
     + 'THE RESPONSE:\n'
     + '• `results` — the matching documents, `embedding` always stripped. Ordered seq/updatedAt/createdAt descending unless you pass `sort`.\n'
     + '• `count` — how many rows are in THIS page. `total` — how many satisfy the filter overall. They differ whenever `limit` bit, and that difference is the only signal that there is more to page through.\n'

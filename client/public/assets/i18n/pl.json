@@ -447,6 +447,8 @@
   "brain.query.includeFreshWrites.tooltip": "Dodatkowo skanuje najnowsze rekordy bezpośrednio, gdy indeks wektorowy jeszcze ich nie objął. Wolniejsze i przydatne tylko zaraz po zapisie.",
   "brain.query.includeContent": "Uwzględnij treść fragmentu",
   "brain.query.includeContent.tooltip": "Czy trafienia w plikach zawierają pasujący fragment tekstu. Wyłączenie zwraca tylko lokalizacje i metadane — znacznie mniejsze odpowiedzi, ale bez pasującego tekstu.",
+  "brain.query.includeDiagnostics": "Uwzględnij pola diagnostyczne",
+  "brain.query.includeDiagnostics.tooltip": "Dodaje pola używane wewnętrznie: dokładny tekst poddany osadzeniu, model osadzania, licznik synchronizacji oraz wyniki poszczególnych etapów rankingu. Obejmuje także skoki po grafie, na każdej głębokości. Włącz, aby ustalić, dlaczego coś znalazło się na danej pozycji; poza tym zostaw wyłączone, bo każde pole wraca przy każdym wyniku. Sam wektor osadzenia nigdy nie jest zwracany.",
   "brain.query.showAdvanced": "Więcej opcji",
   "brain.query.hideAdvanced": "Mniej opcji",
   "brain.query.types": "Ogranicz do typów",

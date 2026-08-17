@@ -92,8 +92,13 @@ describe('the whole result set spills, with a TTL', () => {
     const mcp = read('server/src/mcp/tools/search.ts');
     // TWO branches each: with and without `traverse`. The first version wired only the graph branch, so the
     // plainest large call — `topK: 100`, no traversal — returned everything. The E2E caught it; this counts it.
+    //
+    // MCP went 3 → 4 in 3.1.0. `find_similar` answered plain TEXT at `traverse: 0`, so it had nothing to
+    // spill there and only its graph branch was wired; returning JSON at every depth gave the default depth
+    // a size cap it had never had. That is the second time a "plainest large call" went uncapped, which is
+    // why this counts sites rather than trusting that a new branch remembered.
     assert.equal((rest.match(/spillResultSet\(\{/g) ?? []).length, 4, 'REST recall + find-similar, both branches');
-    assert.equal((mcp.match(/spillResultSet\(\{/g) ?? []).length, 3, 'MCP recall both branches + find_similar');
+    assert.equal((mcp.match(/spillResultSet\(\{/g) ?? []).length, 4, 'MCP recall + find_similar, both branches each');
     for (const [name, src] of [['REST', rest], ['MCP', mcp]]) {
       assert.ok((src.match(/slice\(0, SPILL_INLINE_RESULTS\)/g) ?? []).length >= 2,
         `${name} must return the sample rather than the whole set when it spilled`);

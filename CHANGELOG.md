@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking
+
+- **`find_similar` over MCP now returns JSON at every depth.** It answered plain TEXT at `traverse: 0` — a
+  `Source:` line and one numbered summary per match — and JSON only above it, while `recall` on the same
+  door has always been JSON throughout. A client that parsed one answer from this tool could not parse the
+  other, and nothing said so. Owner ruled it after the 3.1.0 docs audit surfaced it: *"json at every depth
+  of course"*, with the same per-result shape `recall` uses.
+
+  Two things arrive with the change, and neither was reachable before:
+
+  - **The default depth gains the size cap it never had.** The JSON answer spills past a size threshold and
+    sets `truncated` with a download for the full set; the text answer was bounded by nothing but `topK`, so
+    a large call returned everything inline. That is the second time a "plainest large call" went uncapped.
+  - **`includeContent` and `includeDiagnostics` start doing something there.** A summary line carried
+    neither passage bodies nor system fields, so both flags were accepted at `traverse: 0` and unobservable.
+
+- **`recall` and `find-similar` over REST no longer return six system fields by default.** `matchedText`,
+  `embeddingModel`, `seq` and the per-stage `lexicalScore`/`fusedScore`/`rerankScore` were returned
+  unconditionally on REST and never on MCP, and neither door said so. Pass `includeDiagnostics: true` to get
+  them back — the same parameter, the same default, on both doors.
+
+  `matchedText` is the pre-embedding source string, which for a file chunk is the passage a SECOND time, so
+  the old default sent the largest field twice per result, `topK` times, to callers who had not asked.
+
+  **It applies recursively.** A `traverse` answer's `_graph` follows the flag at every depth, on the nodes
+  and on the edges — an edge is a searchable record with a `matchedText` of its own, and a depth-2 walk off
+  ten seeds could carry more diagnostic text than the matches it was expanding.
+
+- **`_graph[].node` is now the same field set on both doors.** MCP mapped the entity through an allowlist
+  while REST attached the stored document, so a REST caller received `_expireAt` and every other stored
+  field. Both now use one shaper. The envelope still differs by transport — REST returns a flat result, MCP
+  nests it under `record` — which is deliberate: the owner's rule is the same CONTENT in each transport's
+  natural shape, and a gate compares the flattened key sets of both doors at the result level and at every
+  depth of `_graph`.
+
 ### Changed
 
 - **`excludeFromVectorSearch` is now `suppressEmbeddings`, which is what the two tiers below it were already
@@ -35,6 +70,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a non-boolean by silently dropping it while REST answered `400`. Both now refuse it with the same message.
 
 ### Fixed
+
+- **A graph traversal returned raw embedding VECTORS.** The edge lookup inside `traverseFromSeeds` was the
+  one query in the codebase fetching documents with no projection, and the edge document is returned
+  verbatim as `_graph[].edge` — so every `recall(traverse: n)` and every `traverse` call shipped a float
+  array per hop, on both doors, while the documentation said the vector is never returned by anything.
+
+  The query now projects it out, and the result shaping strips it a second time on a path
+  `includeDiagnostics` cannot reach. Nothing consumed it, so this is pure subtraction.
+
+
+- **`recall`'s MCP description listed two fields it does not return, so callers budgeted for them and went
+  looking for the flag to switch them off.** It said each result carries `seq` and `matchedText`;
+  `toRecallRecord` is an allowlist and has never emitted either. `matchedText` is the pre-embedding source
+  string — for a file chunk, the passage a second time — so the sentence described a response roughly twice
+  the size of the real one. `docs/integration-guide/16-mcp.md` had it right, in a blockquote partway down
+  the page: two surfaces describing one behaviour, and the wrong one was the one read while constructing
+  arguments.
+
+  The description now lists what the door withholds and why, rather than only what it sends. **And the thing
+  nobody had written down anywhere: the embedding vector is never returned, by anything, on either door, and
+  there is no parameter that asks for it** — `query` strips an explicit `embedding: 1` out of a caller's own
+  projection, so it cannot be opted back in. An absent statement is indistinguishable from an undiscovered
+  feature, which is how this was raised.
+
+  `help()`'s retrieval section, the `query` tool description and the brain-API reference now all name the
+  two levers that do exist — `projection` on `query`, `includeContent: false` on `recall` — from where
+  somebody would look for them rather than only from inside the tool that carries them. The REST list routes
+  still have no field selection; that is now stated instead of being silent.
 
 - **`excludeFromVectorSearch: false` was documented as "do embed" and does not mean that.** It is the top of
   three tiers of one mechanism — a type schema and the space both carry `suppressEmbeddings`, resolving

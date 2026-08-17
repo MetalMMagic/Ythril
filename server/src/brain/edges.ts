@@ -797,7 +797,13 @@ export async function traverseFromSeeds(
 
   while (frontier.length > 0 && depth < maxDepth) {
     const edges = await col<EdgeDoc>(`${spaceId}_edges`)
+      // `embedding: 0`, matching the entity query below and every other read path in the codebase. An EDGE
+      // is a searchable record with a vector of its own, and this was the ONE query that fetched it whole:
+      // the edge document is returned verbatim as `_graph[].edge`, so a `recall(traverse: n)` shipped a full
+      // float array per hop, on both doors. Nothing consumes it — `nestNeighbours` only nests the document —
+      // so this is pure subtraction, and it makes "the vector is never returned" true rather than nearly so.
       .find(asFilter<EdgeDoc>({ $or: [{ from: { $in: frontier } }, { to: { $in: frontier } }] }))
+      .project({ embedding: 0 })
       .toArray() as EdgeDoc[];
 
     const newNeighborIds: string[] = [];

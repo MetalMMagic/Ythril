@@ -534,6 +534,16 @@ That exists because the operator-object form cannot express an OR at any length,
 }
 ```
 
+> **AND ON BOTH DOORS, which it was not until now.** REST accepted the raw grammar from the day it shipped;
+> the MCP `recall` tool's `inputSchema` still declared the operator-object form only, so the dispatcher —
+> which validates arguments *before* the handler runs — refused a raw filter that REST answered `200` for.
+> Measured on one instance, one space, the same instant, with a filter an integrator had reported:
+> `{type: 'message', 'properties.readBy': {$not: {$regex: 'ythril'}}}` → REST `200`, MCP
+> `/filter/type: must be object; /filter/properties.readBy: unexpected property '$not'`.
+>
+> Both doors now accept and refuse the same filters, including the refusals: an out-of-allowlist key and a
+> MIXED filter fail identically on each. `recall-filter-parity-both-doors.test.js` drives both and compares.
+
 Three rules apply to both grammars:
 
 - **A filter that MIXES them is a `400`** naming the offending keys, rather than one half quietly winning.

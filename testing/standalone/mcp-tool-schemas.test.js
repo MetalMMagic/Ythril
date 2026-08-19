@@ -81,13 +81,34 @@ describe('MCP tool schemas — high-value enrichments', () => {
     assert.equal(l.default, 20);
   });
 
-  it('recall.filter encodes the key allowlist via propertyNames, and traverse/minScore carry bounds', () => {
+  it('recall.filter carries NO structural constraint, and traverse/minScore still carry bounds', () => {
+    /*
+     * THIS ASSERTION IS INVERTED FROM WHAT IT WAS, deliberately. It used to require
+     * `filter.propertyNames.pattern` and check the key allowlist through it.
+     *
+     * That pattern refused `$or`/`$and`/`$not` as keys and required every value to be an operator object, so
+     * the MCP tool rejected the raw-MongoDB grammar that its own description promised and REST delivers.
+     * **The dispatcher validates arguments before the handler runs**, so it was a hard refusal the resolver
+     * never got to answer. Measured: `{type: 'message', 'properties.readBy': {$not: {$regex: 'ythril'}}}` →
+     * REST 200, MCP `/filter/type: must be object; /filter/properties.readBy: unexpected property '$not'`.
+     *
+     * The key allowlist is NOT gone — `resolveRecallFilter` enforces it recursively, in either grammar, and is
+     * now the only copy. `query`'s filter has always been declared this way for the same reason.
+     *
+     * So this now guards the fix rather than the defect: reinstating a structural constraint here would
+     * re-break parity, and this fails if anyone does. The behavioural half — which filters are accepted and
+     * which refused, on BOTH doors — is `recall-filter-parity-both-doors.test.js`.
+     */
     const recall = schemaOf('recall');
-    const pat = recall.properties.filter.propertyNames.pattern;
-    const re = new RegExp(pat);
-    assert.ok(re.test('properties.status'), 'properties.* keys allowed');
-    assert.ok(re.test('tags'), 'tags key allowed');
-    assert.ok(!re.test('evil'), 'arbitrary keys rejected by the pattern');
+    const filter = recall.properties.filter;
+    assert.equal(filter.type, 'object', 'filter is still an object');
+    assert.equal(filter.propertyNames, undefined,
+      'a propertyNames pattern refuses $or/$and/$not as keys — that is what broke parity');
+    assert.equal(filter.additionalProperties, undefined,
+      'an additionalProperties operator-object shape refuses raw Mongo values, including a bare string');
+    assert.match(filter.description, /RAW MONGODB is accepted/,
+      'and the description must keep saying so, since it is what a caller reads while building arguments');
+
     assert.equal(recall.properties.traverse.minimum, 0);
     assert.equal(recall.properties.traverse.maximum, 5);
     assert.equal(recall.properties.minScore.minimum, 0);

@@ -38,6 +38,12 @@ describe('MCP args enforcement — breaking rejections', () => {
     if (needle) assert.ok(err.toLowerCase().includes(needle), `${name}: "${err}" should mention ${needle}`);
   };
 
+  /** The counterpart, for a rule that deliberately moved OUT of this layer. */
+  const accepts = (name, args) => {
+    const err = v.validate(tool(name), args);
+    assert.equal(err, null, `${name}: expected the validator to ACCEPT ${JSON.stringify(args)}, got "${err}"`);
+  };
+
   it('rejects an unknown property (additionalProperties:false)', () => {
     rejects('recall', { query: 'x', bogus: 1 }, 'bogus');
   });
@@ -56,11 +62,30 @@ describe('MCP args enforcement — breaking rejections', () => {
   it('rejects a bad collection enum (query.collection)', () => {
     rejects('query', { space: 'general', collection: 'widgets', filter: {} });
   });
-  it('rejects a recall filter key outside the allowlist (propertyNames)', () => {
-    rejects('recall', { query: 'x', filter: { evil: { eq: 1 } } });
-  });
-  it('rejects a recall filter operator outside the allowed set', () => {
-    rejects('recall', { query: 'x', filter: { tags: { regex: 'x' } } });
+  it('does NOT reject a recall filter at the validator — the resolver owns that, in either grammar', () => {
+    /*
+     * Two tests were here: `rejects('recall', {filter: {evil: {eq: 1}}})` for an out-of-allowlist key, and
+     * `rejects('recall', {filter: {tags: {regex: 'x'}}})` for an operator outside the set. Both asserted the
+     * VALIDATOR refused, via a `propertyNames` pattern and an operator-object `additionalProperties`.
+     *
+     * **Those constraints made the tool refuse the raw-MongoDB grammar its own description promised and REST
+     * delivers**, because this validator runs BEFORE the handler. Measured on one instance, one instant:
+     * `{type: 'message', 'properties.readBy': {$not: {$regex: 'ythril'}}}` → REST 200, MCP
+     * `/filter/type: must be object; /filter/properties.readBy: unexpected property '$not'`.
+     *
+     * **The refusals themselves have not gone anywhere** — `resolveRecallFilter` enforces the key allowlist
+     * recursively (including inside `$or`) and refuses a MIXED filter, and it is now the only copy of that
+     * rule. `recall-filter-parity-both-doors.test.js` proves both doors accept and refuse the same nine
+     * filters against a live instance, which is the layer where this can actually be observed.
+     *
+     * This test is not a note that something was deleted: it FAILS if a structural constraint comes back,
+     * which is the only way to keep the two doors from diverging again.
+     */
+    accepts('recall', { query: 'x', filter: { $or: [{ type: 'message' }, { 'properties.status': 'open' }] } });
+    accepts('recall', { query: 'x', filter: { 'properties.readBy': { $not: { $regex: 'ythril' } } } });
+    accepts('recall', { query: 'x', filter: { type: 'message' } });
+    // The legacy grammar still passes the validator too — widening accepted more, never less.
+    accepts('recall', { query: 'x', filter: { 'properties.status': { eq: 'open' } } });
   });
   it('rejects a non-UUID entryId (pattern)', () => {
     rejects('find_similar', { entryId: 'not-a-uuid', entryType: 'entity' });

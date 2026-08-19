@@ -135,6 +135,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The MCP `recall` tool refused the raw-MongoDB filter its own description promised and REST delivers.**
+  Its `inputSchema` declared the operator-object grammar only — `propertyNames` restricted to the key
+  allowlist, and every value required to be an object of `eq`/`ne`/`in`/`exists`/`gt`/`gte`/`lt`/`lte` with
+  `additionalProperties: false`. **The dispatcher validates arguments before the handler runs**, so that was a
+  hard refusal the resolver never got to answer.
+
+  Measured on one instance, one space, the same instant, with breituai-platform's own filter from
+  2026-08-17 §10:
+
+  ```
+  filter { type: 'message', 'properties.readBy': { $not: { $regex: 'ythril' } } }
+    REST  POST /recall  ->  200, returns the record
+    MCP   recall        ->  isError: /filter/type: must be object;
+                                     /filter/properties.readBy: unexpected property '$not'
+  ```
+
+  **Two refusals in one filter, and both are the schema being narrower than the server**: a bare
+  `type: 'message'` is valid raw-Mongo equality, and `$not` is on the allowlist `query` takes. The 3.0.0
+  notice promised the raw grammar and the tool description repeated it, so a caller who read either was told
+  they had something the schema refused.
+
+  The schema is now `type: 'object'` plus its description, exactly as `query`'s filter has always been
+  declared, and `resolveRecallFilter` is the only gate — it already accepts either grammar, refuses a MIXED
+  one, and enforces the key allowlist RECURSIVELY so `$or` cannot smuggle a key past it. **Widening the
+  grammar did not widen the keys:** an out-of-allowlist key and a mixed filter are still refused, now
+  identically on both doors.
+
+  `RECALL_FILTER_KEY_PATTERN` is DELETED rather than left unreferenced. Its own comment admitted it *"mirrors
+  `ALLOWED_FILTER_KEY_PREFIXES` (brain/filter.ts)"* — one allowlist, two encodings, free to drift, and the
+  schema-side copy is the one that drifted narrow.
+
+  `recall-filter-parity-both-doors.test.js` sends nine filters to both doors and compares the verdicts,
+  asserting the expected verdict as well as the agreement — two doors agreeing on the WRONG answer would
+  satisfy an agreement-only test, and before this fix they agreed on refusing all four raw cases.
+
 - **`help`'s `structuredContent` was an index with no guide in it, so a client that reads that field found the
   discovery tool empty.** It now carries `guide`, byte-identical to `content[0].text`.
 

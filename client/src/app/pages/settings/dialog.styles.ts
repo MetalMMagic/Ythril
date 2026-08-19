@@ -46,4 +46,43 @@ export const DIALOG_STYLES = `
     justify-content: space-between;
     margin-bottom: 16px;
   }
+
+  /*
+   * THE SET-APART BLOCK, shared because two dialogs now need it and a copy would drift.
+   *
+   * It lived inline in token-rights-dialog alone. When the create dialog gained the same instance-level
+   * flags, its markup used these class names and rendered COMPLETELY UNSTYLED — the create dialog imports
+   * DIALOG_STYLES only, and Angular's per-component style encapsulation meant the other dialog's copy could
+   * not reach it. That is the same defect as the schema property editor's lost stylesheet (#915): markup that
+   * looks right in the diff and renders as unstyled text in the product.
+   *
+   * Only the CONTAINER and its heading move here. .danger-row/.danger-label/.danger-hint stay inline in
+   * the rights dialog, because rotate and revoke exist nowhere else — a create form has nothing to rotate.
+   *
+   * Visually separated, and last. A destructive control beside Save is a mis-click; the reader should have to
+   * travel to reach it. The border is the boundary, not decoration.
+   */
+  .danger-zone {
+    margin-top: 20px;
+    border: 1px solid var(--danger-border, var(--border));
+    border-radius: var(--radius-md);
+    padding: 12px 14px;
+  }
+  .danger-title {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--danger, var(--text-secondary));
+    margin-bottom: 10px;
+  }
+  /* The inline hint beside a flag: an icon and a sentence on one line, muted. */
+  .permission-help {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-muted);
+    margin: 0;
+  }
 `;

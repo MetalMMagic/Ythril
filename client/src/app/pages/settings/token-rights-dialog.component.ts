@@ -40,22 +40,10 @@ import type { Space, TokenRecord } from '../../core/api.types';
        squeezed cells and the space rows wrap — reported as "too narrow". The --dialog-max-width variable exists
        precisely so a host can say this; sizing was always the caller's decision. */
     :host { --dialog-max-width: min(1400px, 94vw); }
-    /* Visually separated, and last. A destructive control beside Save is a mis-click; the reader should have
-       to travel to reach it. The border is the boundary, not decoration. */
-    .danger-zone {
-      margin-top: 20px;
-      border: 1px solid var(--danger-border, var(--border));
-      border-radius: var(--radius-md);
-      padding: 12px 14px;
-    }
-    .danger-title {
-      font-size: 12px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: .04em;
-      color: var(--danger, var(--text-secondary));
-      margin-bottom: 10px;
-    }
+    /* .danger-zone, .danger-title and .permission-help moved to DIALOG_STYLES when the CREATE dialog
+       gained the same instance-level flags — its markup used these names and rendered unstyled, because
+       per-component encapsulation means this copy could not reach it. The rows below stay here: rotate and
+       revoke exist in this dialog only. */
     .danger-row {
       display: flex;
       align-items: center;

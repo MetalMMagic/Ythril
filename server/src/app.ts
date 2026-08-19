@@ -36,6 +36,7 @@ import { schemaLibraryRouter } from './api/schema-library.js';
 import { localAgentRouter } from './api/local-agent.js';
 import { dataRouter } from './api/data.js';
 import { mediaConfigRouter } from './api/media-config.js';
+import { embedConfigRouter } from './api/embed-config.js';
 import { modelVerifyRouter } from './api/model-verify.js';
 import { pipelineStatusRouter } from './api/pipeline-status.js';
 import { spaceActivityRouter } from './api/space-activity.js';
@@ -321,6 +322,9 @@ export function createApp() {
   // one should not have to know they live in different files.
   app.use('/api/admin/media-config', modelVerifyRouter);
   app.use('/api/admin/pipeline-status', pipelineStatusRouter);
+  // Who may frame and restyle this instance. Admin-only by the same reasoning as the media config: the write is
+  // security-relevant, and the public `GET /api/theme` is what an embedder reads to find out the answer.
+  app.use('/api/admin/embed-config', embedConfigRouter);
   // Cross-space usage comparison. One request for the whole table — per-space calls from the Spaces page
   // would be a front-end N+1, sixty-five requests to render sixty-five rows.
   app.use('/api/admin/space-activity', spaceActivityRouter);

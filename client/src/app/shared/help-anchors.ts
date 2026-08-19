@@ -29,6 +29,7 @@ export const HELP_ANCHORS: { prefix: string; target: HelpTarget }[] = [
   { prefix: '/settings/data', target: { doc: 'userguide', anchor: 'settings--data' } },
   { prefix: '/settings/audit-log', target: { doc: 'userguide', anchor: 'settings--audit-log' } },
   { prefix: '/settings/webhooks', target: { doc: 'userguide', anchor: 'settings--webhooks' } },
+  { prefix: '/settings/embedding', target: { doc: 'userguide', anchor: 'settings--embedding' } },
   // MFA has no page of its own — `<app-mfa/>` is embedded in Preferences, so that is the page whose Help
   // control should open the MFA section. The entry used to read `/settings/mfa`, which nothing routes to.
   { prefix: '/settings/preferences', target: { doc: 'userguide', anchor: 'multi-factor-authentication-mfa' } },

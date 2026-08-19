@@ -1942,5 +1942,14 @@
   "tokens.rights.plain.dataQuality.none": "Your agent cannot see duplicate or contradiction reviews.",
   "tokens.rights.plain.dataQuality.read": "Your agent can see flagged duplicates and contradictions, and resolve none.",
   "tokens.rights.plain.dataQuality.write": "Your agent can resolve, merge and dismiss what review flags.",
-  "tokens.rights.plain.dataQuality.admin": "Your agent can also start scans across the whole space."
+  "tokens.rights.plain.dataQuality.admin": "Your agent can also start scans across the whole space.",
+  "nav.embedding": "Embedding",
+  "embedding.origins.title": "Origins allowed to embed this instance",
+  "embedding.origins.subtitle": "A portal listed here may show Ythril inside its own page. Nothing is allowed by default.",
+  "embedding.origins.warning": "Listing an origin grants two things together: permission to display Ythril inside a frame, and permission to restyle it at runtime. Both can be used to impersonate this interface, so add only origins you operate or trust to the same degree.",
+  "embedding.origins.none": "No origin is listed. Ythril can only be framed by itself.",
+  "embedding.origins.add": "Add an origin",
+  "embedding.origins.entryLabel": "Allowed origin",
+  "embedding.origins.saved": "Saved — active immediately, no restart.",
+  "embedding.origins.hint": "One exact origin per line: scheme, host and port only, with no path. https is required except on localhost. Wildcards are never accepted. A change takes effect on the next request."
 }

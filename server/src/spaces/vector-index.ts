@@ -398,6 +398,18 @@ async function indexServes(
  */
 const ABSENT_IS_TERMINAL_AFTER = 15;
 
+/**
+ * Is this space still in the configuration?
+ *
+ * Reads the in-memory config, so it costs nothing per poll iteration. **A throw means "cannot tell", and that
+ * must read as `true`** — `getConfig()` throws before the first successful load, and a poll running during early
+ * boot must not conclude its space was deleted and abandon a build that is fine.
+ */
+function spaceStillExists(spaceId: string): boolean {
+  try { return getConfig().spaces.some(s => s.id === spaceId); }
+  catch { return true; }
+}
+
 /** Poll a single vector-search index for READY status, up to ~60 seconds.
  *  Returns true once READY, false if it never became READY in the window. */
 export async function pollVectorIndexReady(
@@ -414,6 +426,31 @@ export async function pollVectorIndexReady(
 
   for (let attempt = 0; attempt < attempts; attempt++) {
     await new Promise(r => setTimeout(r, 1000));
+    /*
+     * THE SPACE IS GONE — stop, rather than waiting out the window for indexes nobody will ever create.
+     *
+     * `finalizeSpaceIndexReady` already knows about this case and handles it at the WRITE: *"space was deleted
+     * while its indexes built"*. The polling that precedes the write did not, so a space deleted early in its
+     * own build kept up to six pollers alive, each issuing a `listSearchIndexes` every second, for the whole
+     * window — 600 s of it on the boot path, three spaces at a time.
+     *
+     * Measured in CI on 2026-08-19: twelve consecutive 60-second give-ups for two `gov-…` spaces, every one
+     * reporting `index not present (saw: none)`, which is what an empty catalogue looks like after the
+     * collections have been dropped.
+     *
+     * It is also the case the terminal-absence guard below deliberately does NOT cover: that one requires the
+     * backend to have listed OTHER indexes on this collection, so it can tell "not there" from "not asked yet".
+     * An empty listing stays ambiguous — unless the space itself is gone, which settles it outright.
+     *
+     * Safe against creation, checked rather than assumed: `createSpace` builds indexes BEFORE pushing the space
+     * into config, but passes `waitForVectorReady: false`, so it never reaches this poll. Every path that does
+     * poll — `initSpace` at boot, `initSpace('general')`, `finalizeSpaceIndexReady` — runs with the space
+     * already committed.
+     */
+    if (!spaceStillExists(spaceId)) {
+      log.debug(`Vector search index ${indexName}: space '${spaceId}' no longer exists — abandoning the poll`);
+      return false;
+    }
     try {
       // List ALL indexes and match by name, rather than `listSearchIndexes(indexName)`.
       //

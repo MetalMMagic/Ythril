@@ -48,6 +48,18 @@ services:
       SKIP_AUTH_RATE_LIMIT: "true"
       SKIP_GLOBAL_RATE_LIMIT: "true"
       SKIP_SYNC_RATE_LIMIT: "true"
+      # DEBUG on for A and B only — the two instances the pub/sub topology test uses.
+      #
+      # X-20 is a CI-ONLY failure: `Subscriber-local content survives publisher tombstone` times out on its
+      # 25 s wait, passes on a re-run of the same commit, and the container logs say nothing about why. The
+      # sync engine's push loop logs its cursor and batch count at debug, so instrumentation that is not
+      # enabled here cannot answer the one question the failure raises — did the cycle find nothing because
+      # there was nothing, or because the watermark was already past it.
+      #
+      # A and B rather than all four, deliberately: the lines are per collection per member per cycle on a 3 s
+      # timer, so switching on the whole stack would add thousands of lines to every CI run to answer a
+      # question about two of them.
+      DEBUG: "1"
       # Enable DB migration on instance A so db-migration.test.js can exercise it.
       # Instances B and C intentionally omit this flag — used by red-team tests to
       # verify the feature is disabled by default.
@@ -116,6 +128,18 @@ services:
       SKIP_AUTH_RATE_LIMIT: "true"
       SKIP_GLOBAL_RATE_LIMIT: "true"
       SKIP_SYNC_RATE_LIMIT: "true"
+      # DEBUG on for A and B only — the two instances the pub/sub topology test uses.
+      #
+      # X-20 is a CI-ONLY failure: `Subscriber-local content survives publisher tombstone` times out on its
+      # 25 s wait, passes on a re-run of the same commit, and the container logs say nothing about why. The
+      # sync engine's push loop logs its cursor and batch count at debug, so instrumentation that is not
+      # enabled here cannot answer the one question the failure raises — did the cycle find nothing because
+      # there was nothing, or because the watermark was already past it.
+      #
+      # A and B rather than all four, deliberately: the lines are per collection per member per cycle on a 3 s
+      # timer, so switching on the whole stack would add thousands of lines to every CI run to answer a
+      # question about two of them.
+      DEBUG: "1"
     depends_on:
       ythril-mongo-b:
         condition: service_healthy

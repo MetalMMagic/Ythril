@@ -463,6 +463,15 @@ export interface MediaEmbeddingConfig {
    */
   lockedByInfra?: string[];
   /**
+   * Entries of `YTHRIL_PINNED_FIELDS` that name no real field, so they pinned NOTHING.
+   *
+   * Surfaced rather than only logged, because the failure this whole mechanism exists to avoid is a control that
+   * looks fixed and is not — and an operator checking whether their pin took effect looks at the settings screen,
+   * not at the server log. Absent when there are none, so it is not a field that is empty on every healthy
+   * instance. Runtime only; never persisted to `config.json`.
+   */
+  pinnedUnknown?: string[];
+  /**
    * F11 — when true, the entire media/model configuration is **infra-managed**: it is set through
    * `config.json` / environment and the admin API refuses to mutate it (like `YTHRIL_MONGO_INFRA_MANAGED`
    * for the database). The Settings → Models page renders read-only. Also settable via the

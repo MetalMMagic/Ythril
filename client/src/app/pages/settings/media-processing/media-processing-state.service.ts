@@ -72,6 +72,13 @@ export class MediaProcessingStateService {
 
   form: MediaCfg = { vision: {}, stt: {}, documentProcessing: {} };
   lockedByInfra: string[] = [];
+  /**
+   * Entries of `YTHRIL_PINNED_FIELDS` that name nothing, so they pinned NOTHING.
+   *
+   * Rendered as a notice rather than kept for the log, because the failure that variable exists to prevent is a
+   * control that looks fixed and is not — and this screen is where an operator checks whether their pin worked.
+   */
+  pinnedUnknown: string[] = [];
   visionApiKeyInput = '';
   sttApiKeyInput = '';
   assistApiKeyInput = '';
@@ -292,6 +299,7 @@ export class MediaProcessingStateService {
     this.http.get<MediaCfg>('/api/admin/media-config').subscribe({
       next: cfg => {
         this.lockedByInfra = cfg.lockedByInfra ?? [];
+        this.pinnedUnknown = cfg.pinnedUnknown ?? [];
         const dp: DocProcCfg = { mode: 'auto', renderDpi: 150, maxPages: 50, pageTimeoutMs: 60000, concurrency: 2, ocrTimeoutMs: 120000, ...cfg.documentProcessing };
         // F11-b — the masked apiKey stays
         // only so the UI can show "key set" — it is never sent back (assistApiKeyInput carries changes).

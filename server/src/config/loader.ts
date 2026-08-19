@@ -1,6 +1,7 @@
 ﻿import fs from 'node:fs';
 import path from 'node:path';
 import { log } from '../util/log.js';
+import { pinnedFieldsFromEnv } from './pinned-fields.js';
 import type { Config, SecretsFile, SchemaLibraryEntry, SchemaCatalog } from './types.js';
 import { normalizeDocExtractionMode } from './types.js';
 import { resolveMasterSecret, isEnvelope, encryptEnvelope, decryptEnvelope } from './secretbox.js';
@@ -864,7 +865,7 @@ import type { MediaEmbeddingConfig, MediaProviderConfig, FaceRecognitionConfig, 
 import { migrateProviderApiKeysOnBoot } from './migrate-provider-keys.js';
 import { migrateMediaAliasesOnBoot } from './migrate-media-aliases.js';
 
-const MEDIA_EMBEDDING_DEFAULTS: Required<Omit<MediaEmbeddingConfig, 'vision' | 'stt' | 'nli' | 'rerank' | 'ollamaUrl' | 'visionModel' | 'whisperUrl' | 'whisperModel' | 'lockedByInfra' | 'infraManaged' | 'faceRecognition' | 'documentProcessing'>> = {
+const MEDIA_EMBEDDING_DEFAULTS: Required<Omit<MediaEmbeddingConfig, 'vision' | 'stt' | 'nli' | 'rerank' | 'ollamaUrl' | 'visionModel' | 'whisperUrl' | 'whisperModel' | 'lockedByInfra' | 'pinnedUnknown' | 'infraManaged' | 'faceRecognition' | 'documentProcessing'>> = {
   // Media embedding is always on (no master switch). Each class is gated by its `levels` entry, which
   // defaults to `auto` (no policy limit of its own). The bundled ollama + whisper services (K8s
   // manifests + the workstation docker-compose) back the default `vision`/`stt` endpoints, which resolve
@@ -966,6 +967,9 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
   const cfg = getConfig();
   const base = cfg.mediaEmbedding ?? {};
   const locked: string[] = [];
+  // Read once per call rather than at module load: the tests set and unset the variable between cases, and a
+  // module-scope snapshot would make the first test that touched it decide the answer for every later one.
+  const pinnedFields = pinnedFieldsFromEnv();
 
   function pick<T>(envKey: string, fieldName: string, configVal: T | undefined, defaultVal: T): T {
     const envRaw = process.env[envKey];
@@ -1117,7 +1121,14 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
     // render a real control. Reported here rather than left to the caller because the resolution is
     // env → config → default and only this module knows which tier won.
     faceRecognition: getFaceRecognitionConfig(),
-    lockedByInfra: [...locked, ...lockedFaceRecognitionFields()],
+    // `YTHRIL_PINNED_FIELDS` adds to the pins that each field's own env var already produces — that is the whole
+    // point of it. A field whose value is supplied by config.json (or by nothing at all, which is the case the
+    // request was about) becomes read-only without anyone having to put a value in the environment to achieve it.
+    //
+    // Deduplicated: a field pinned BOTH ways would otherwise appear twice, and the UI reads this list to decide
+    // what to grey out.
+    lockedByInfra: [...new Set([...locked, ...lockedFaceRecognitionFields(), ...pinnedFields.paths])],
+    ...(pinnedFields.unknown.length > 0 ? { pinnedUnknown: pinnedFields.unknown } : {}),
     // F11 — infra-managed lock (like YTHRIL_MONGO_INFRA_MANAGED): env OR config marks the whole media/model
     // config as managed by infrastructure, so the admin API refuses edits and the UI is read-only.
     infraManaged: process.env['YTHRIL_MEDIA_INFRA_MANAGED'] === 'true' || base.infraManaged === true,

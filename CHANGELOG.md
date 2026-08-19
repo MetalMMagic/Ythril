@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`YTHRIL_PINNED_FIELDS` — fix a field at whatever it resolves to, including NOTHING.** Owner ruled this on
+  2026-08-19 (was P-7); breituai-platform asked for it twice, and their framing is the requirement: *"once the URL
+  is infra-pinned to an in-cluster unauthenticated endpoint, an editable key field is a control with nothing behind
+  it. Empty is the CORRECT value, and we would like to pin the correct value."*
+
+  ```
+  YTHRIL_PINNED_FIELDS=rerank.apiKey,nli.apiKey,faceRecognition.externalModel
+  ```
+
+  Each listed path joins `lockedByInfra`, so `PATCH /api/admin/media-config` answers **403** for it and the Settings
+  control renders read-only — **without anyone having to put a value in the environment to achieve that**, which was
+  the only way to lock a field before and is the opposite of what was wanted.
+
+  **It has to be a separate list, and that was established by trying the obvious thing.** An empty env var
+  deliberately does not pin: `docker compose` passes `${VAR:-}` and leaves a variable defined-but-empty when the
+  operator set nothing, so reading "defined" as "pinned" locks every field on every Compose deployment. All twenty
+  pins were converted to presence checks before `face-recognition-env.test.js` failed with exactly that reasoning,
+  and it was reverted. A list no Compose default can produce has no such ambiguity, and `RERANK_API_KEY` keeps
+  meaning only *the key*.
+
+  **A path that names nothing is REPORTED, because a pin believed to be in force and not is worse than no pin.**
+  Unrecognised entries come back as `pinnedUnknown` on the config response, show as a notice at the top of
+  **Settings → Media Processing → Models**, and are warned at boot. Reporting only in the log would put the one
+  thing an operator needs where they are not looking. It does not refuse to boot: a renamed field in a values file
+  would take the instance down, and the pin-that-did-not-apply is visible either way — the same posture the storage
+  pins already take with a malformed number. One bad entry does not discard the good ones, since those are what the
+  operator was relying on.
+
+  **A path must be a field the admin API can WRITE**, which is the rule that keeps the vocabulary honest: you can
+  only pin what could otherwise be changed. So `faceRecognition.enabled`, `modelPath` and `reprocessSyncedImages`
+  are not pinnable even though an env var locks them — the API never accepts them, so they are already unreachable
+  and a pin would refuse nothing. The warn says "not pinnable" rather than "does not exist", because some of them
+  do exist and telling an operator otherwise sends them hunting a typo they did not make.
+
+  The vocabulary is a second copy of the patch schema's own shape — unavoidably, since deriving it at runtime would
+  import `api/media-config.ts` back into the loader and evaluate a zod bound as `undefined` on one leg of the cycle.
+  So it is **gated rather than trusted**: `pinnable-paths-match-the-writable-surface.test.js` compares it against
+  the patch schema AND against the loader's own `locked.push` calls, in both directions, and it caught three
+  overclaimed paths and twelve missing ones in the first draft of the list.
+
+  Ten mutations, ten caught — including a snapshot of the environment at module load, a case-insensitive match, and
+  both drift directions.
+
 ### Breaking
 
 - **The three per-stage scores are the ORDERING, and they were hidden behind a flag whose purpose is removing

@@ -29,6 +29,7 @@ import { PipelineStatusService } from './pipeline-status.service';
 import { ModelsTabComponent } from './models-tab.component';
 import { PipelinesTabComponent } from './pipelines-tab.component';
 import { ToolsTabComponent } from './tools-tab.component';
+import { PinnedUnknownNoticeComponent } from './pinned-unknown-notice.component';
 
 type Tab = 'models' | 'pipelines' | 'tools';
 
@@ -42,6 +43,7 @@ type Tab = 'models' | 'pipelines' | 'tools';
   imports: [
     FormsModule, TranslocoPipe, PhIconComponent,
     ModelsTabComponent, PipelinesTabComponent, ToolsTabComponent,
+    PinnedUnknownNoticeComponent,
   ],
   styles: [`
     :host { display: block; }
@@ -96,6 +98,14 @@ type Tab = 'models' | 'pipelines' | 'tools';
           </button>
         }
       </nav>
+
+      <!-- AN UNRECOGNISED PIN, on the PAGE rather than inside a tab.
+           YTHRIL_PINNED_FIELDS names fields across all three tabs, so a typo in it is not a Models-tab fact —
+           and putting it in one tab would hide it from an operator who happened to open another. Above the panel,
+           because a pin the operator believes is in force is exactly what they must not scroll past.
+           NOTE: no backticks in this template, including in comments. One ends the template string and the
+           error points at @Component, never here. -->
+      <app-pinned-unknown-notice [paths]="s.pinnedUnknown" />
 
       <!-- The whole panel delegates input/change so any field marks the form touched. One listener
            instead of an (ngModelChange) on every control — which is how a control gets added later

@@ -1567,6 +1567,8 @@
   "mediaProcessing.tab.pipelines": "Potoki",
   "mediaProcessing.tab.tools": "Narzędzia",
   "mediaProcessing.pill.env": "env",
+  "mediaProcessing.pinnedUnknown.title": "Nie rozpoznano {{count}} przypiętych nazw pól, więc NIE są zablokowane:",
+  "mediaProcessing.pinnedUnknown.body": "Pochodzą z YTHRIL_PINNED_FIELDS. Nazwa musi wskazywać pole, które ta strona potrafi zapisać — sprawdź pisownię. Pole, którego API i tak nie przyjmuje, jest już ustalone i nie wymaga przypięcia.",
   "mediaProcessing.pill.external": "Zewnętrzny",
   "mediaProcessing.card.infraPill": "Ustawione przez infrastrukturę · {{envVar}}",
   "mediaProcessing.card.infraTitle": "Ta wartość pochodzi ze środowiska i nie można jej tutaj zmienić.",

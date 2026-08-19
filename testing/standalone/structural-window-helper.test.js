@@ -35,6 +35,11 @@ import {
   yamlItemAt,
   bodyOf,
   statementUpTo,
+  enclosingBlockAround,
+  enclosingBlocksMatching,
+  lineBefore,
+  docCommentBefore,
+  markdownSectionAround,
 } from './_structural-window.mjs';
 
 describe('balancedFrom — the bound is the matching bracket', () => {
@@ -245,6 +250,133 @@ describe('yamlItemAt — a workflow step is bounded by the next step', () => {
   it('a blank line inside a step does not end it', () => {
     const spaced = wf.replace('        with:', '\n        with:');
     assert.ok(yamlItemAt(spaced, spaced.indexOf('actions/checkout@v4')).includes('fetch-depth'));
+  });
+});
+
+describe('enclosingBlockAround — the block you are in, plus the line that let you in', () => {
+  it('includes the CONDITION, not just the braces', () => {
+    // The question is "what guarded this?", and the guard is the condition. Bounding at the brace would answer a
+    // different question and answer it correctly, which is the worst kind of wrong.
+    const src = 'fn();\nif (failed.length === 0) {\n  log.info("readiness confirmed for all");\n}\nafter();';
+    const got = enclosingBlockAround(src, src.indexOf('readiness confirmed'));
+    assert.ok(got.includes('failed.length === 0'), 'the condition is outside the window');
+    assert.ok(!got.includes('after()'), 'the window ran past the block');
+    assert.ok(!got.includes('fn()'), 'the window ran back past the block');
+  });
+
+  it('finds a try/catch wrapping a call', () => {
+    const src = 'a();\ntry {\n  chmodSync(target, mode);\n} catch { /* best effort */ }\nb();';
+    const got = enclosingBlockAround(src, src.indexOf('chmodSync'));
+    assert.ok(/try\s*\{/.test(got), 'the try is outside the window');
+  });
+
+  it('a nested block does not become the answer', () => {
+    const src = 'if (outer) {\n  if (inner) { x(); }\n  target();\n}\n';
+    const got = enclosingBlockAround(src, src.indexOf('target()'));
+    assert.ok(got.includes('outer'), 'it picked a sibling block instead of the enclosing one');
+  });
+
+  it('grows with the block, which a count cannot', () => {
+    const pad = '  filler();\n'.repeat(200);
+    const src = `if (guardCondition) {\n${pad}  target();\n}\n`;
+    assert.ok(enclosingBlockAround(src, src.indexOf('target()')).includes('guardCondition'));
+  });
+});
+
+describe('enclosingBlocksMatching — containment, which is NOT proximity', () => {
+  const OPENER = /@if\s*\(/;
+
+  it('THE case a backwards window gets wrong: a guard that already CLOSED does not count', () => {
+    /*
+     * This is why the nine backwards windows were not swept blind. `src.slice(at - 600, at)` finds the text of a
+     * guard that opened and closed above the control and calls the control guarded. It is not — the guard contains
+     * nothing. A proximity measurement cannot answer a containment question, and here the false answer is "this
+     * form control is locked when the instance is managed" about one that is not.
+     */
+    const src = [
+      '@if (!(s.faceLocked("x") || s.managed)) {',
+      '  <input id="guarded" [(ngModel)]="a" />',
+      '}',
+      '<input id="exposed" [(ngModel)]="b" />',
+    ].join('\n');
+
+    const guarded = enclosingBlocksMatching(src, src.indexOf('id="guarded"'), OPENER);
+    assert.equal(guarded.length, 1, 'the control inside the guard was not seen as contained');
+    assert.match(guarded[0], /managed/);
+
+    const exposed = enclosingBlocksMatching(src, src.indexOf('id="exposed"'), OPENER);
+    assert.deepEqual(exposed, [], 'a guard that closed above the control was counted as containing it');
+  });
+
+  it('reports nesting outermost first', () => {
+    const src = '@if (a) {\n  @if (b) {\n    <input id="deep" />\n  }\n}';
+    const got = enclosingBlocksMatching(src, src.indexOf('id="deep"'), OPENER);
+    assert.equal(got.length, 2);
+    assert.match(got[0], /\(a\)/);
+    assert.match(got[1], /\(b\)/);
+  });
+
+  it('a condition containing its own parens is not truncated', () => {
+    // `[^)]*` stopped at the first `)`, so `s.faceLocked('…')` closed before `managed` was reached and the guard
+    // read as absent. The whole opening line is returned, so there is nothing to truncate.
+    const src = '@if (!(s.faceLocked("personEntityTypes") || s.managed)) {\n  <input id="x" />\n}';
+    const got = enclosingBlocksMatching(src, src.indexOf('id="x"'), OPENER);
+    assert.equal(got.length, 1);
+    assert.ok(got[0].includes('managed'), 'the condition was cut at an inner paren');
+  });
+});
+
+describe('lineBefore — for a marker whose rule is literally "immediately above"', () => {
+  it('returns the last non-empty line, skipping blanks', () => {
+    const doc = '**Response**\n\n```json\n{"tokens": []}\n```\n';
+    assert.equal(lineBefore(doc, doc.indexOf('```json')), '**Response**');
+  });
+
+  it('does not reach past it to an earlier marker', () => {
+    const doc = '**Response**\n\nSome prose.\n\n```json\n{}\n```\n';
+    assert.equal(lineBefore(doc, doc.indexOf('```json')), 'Some prose.');
+  });
+});
+
+describe('docCommentBefore — the comment block above a declaration', () => {
+  const src = '/** Machine-managed: not meant to be hand-edited. */\n  sync?: SyncConfig;\n';
+
+  it('returns the comment', () => {
+    const got = docCommentBefore(src, src.indexOf('sync?:'));
+    assert.ok(got.includes('hand-edited'));
+    assert.ok(got.startsWith('/*') && got.endsWith('*/'));
+  });
+
+  it('returns EMPTY when code separates the comment from the anchor', () => {
+    // An absent doc comment is an answer a gate asserts on. Throwing would make it look like a broken anchor.
+    const other = '/** About something else. */\nconst x = 1;\n  sync?: SyncConfig;\n';
+    assert.equal(docCommentBefore(other, other.indexOf('sync?:')), '');
+  });
+
+  it('returns EMPTY when there is no comment at all', () => {
+    assert.equal(docCommentBefore('  sync?: SyncConfig;\n', 2), '');
+  });
+
+  it('grows with the comment', () => {
+    const grown = src.replace('Machine-managed', 'Machine-managed. ' + 'More prose. '.repeat(200));
+    assert.ok(docCommentBefore(grown, grown.indexOf('sync?:')).includes('hand-edited'));
+  });
+});
+
+describe('markdownSectionAround — the section a MENTION belongs to', () => {
+  const notice = '## A\n\nLicence: MIT\n\nwhisper-small is bundled.\n\n## B\n\nNo licence here.\n';
+
+  it('reaches backwards to the section heading, which is where the licence is', () => {
+    // The half `markdownSectionFrom` cannot see: the model is mentioned after the licence line, so bounding
+    // forward from the mention finds nothing and reports an attributed model as unattributed.
+    const got = markdownSectionAround(notice, notice.indexOf('whisper-small'));
+    assert.ok(/Licen[cs]e:/.test(got), 'the licence above the mention is outside the window');
+    assert.ok(!got.includes('No licence here'), 'the window ran into the next section');
+  });
+
+  it('does not leak the PREVIOUS section in', () => {
+    const got = markdownSectionAround(notice, notice.indexOf('No licence here'));
+    assert.ok(!/Licen[cs]e: MIT/.test(got), 'a licence from another section would be read as this one\'s');
   });
 });
 

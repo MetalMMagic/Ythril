@@ -16,6 +16,7 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { bodyOf } from './_structural-window.mjs';
 
 let withJitter;
 before(async () => { ({ withJitter } = await import('../../server/dist/util/backoff.js')); });
@@ -61,7 +62,7 @@ describe('both retry queues use it', () => {
     assert.match(src, /withJitter\(/, 'media retries must be jittered');
     // Pin it to the scheduling function specifically — importing the helper and not using it here
     // would leave the herd intact.
-    const fn = src.slice(src.indexOf('function nextClaimableAfter'), src.indexOf('function nextClaimableAfter') + 400);
+    const fn = bodyOf(src, 'nextClaimableAfter');
     assert.match(fn, /withJitter\(delay\)/);
   });
 

@@ -28,6 +28,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { bodyOf } from './_structural-window.mjs';
 
 const SRC = 'server/src/brain/vector-score.ts';
 const RECALL_SRC = 'server/src/brain/recall.ts';
@@ -219,7 +220,7 @@ describe('the fresh-write scan cannot take the index half down with it', () => {
 describe('introduction is gated on evidence', () => {
   const strip = s => s.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
   const src = strip(readFileSync(RECALL_SRC, 'utf8'));
-  const fn = src.slice(src.indexOf('async function introduceLexicalOnly'), src.indexOf('async function introduceLexicalOnly') + 3000);
+  const fn = bodyOf(src, 'introduceLexicalOnly');
 
   it('the function exists and is reached from fusion', () => {
     assert.ok(fn.length > 100, 'introduceLexicalOnly should exist');

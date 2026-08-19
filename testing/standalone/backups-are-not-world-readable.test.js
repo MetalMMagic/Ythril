@@ -28,7 +28,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { bodyOf } from './_structural-window.mjs';
+import { bodyOf, enclosingBlockAround } from './_structural-window.mjs';
 
 const ROOT = process.cwd();
 const read = (p) => readFileSync(join(ROOT, p), 'utf8');
@@ -78,8 +78,9 @@ describe('one definition of "as tight as the state files"', () => {
     // Windows and plenty of network shares (SMB, some NFS exports) ignore POSIX modes. Hardening must never turn a
     // working upload or backup into a failed one — the mode is a tightening, not a precondition.
     for (const m of modes.matchAll(/chmod(?:Sync)?\([^)]*\)/g)) {
-      const at = modes.indexOf(m[0]);
-      const around = modes.slice(Math.max(0, at - 140), at + m[0].length + 40);
+      // The block the chmod is IN, including the line that opened it — which is where `try` lives. The version this
+      // replaces read 140 characters behind and 40 ahead, so a `try` one statement further up read as absent.
+      const around = enclosingBlockAround(modes, m.index, `the guard around ${m[0]}`);
       assert.match(around, /try\s*\{|catch/, `${m[0]} is not guarded`);
     }
   });

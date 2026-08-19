@@ -30,6 +30,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { enclosingBlockAround, bodyOfEndingWith, bodyOf } from './_structural-window.mjs';
 
 const ROOT = 'server/src';
 
@@ -73,21 +74,18 @@ describe('search-index listing is never name-filtered', () => {
 
   it('the poll matches by name and accepts queryable as ready', () => {
     const src = readFileSync(`${ROOT}/spaces/vector-index.ts`, 'utf8');
-    const at = src.indexOf('export async function pollVectorIndexReady');
-    assert.ok(at > 0);
-    // Bounded STRUCTURALLY — the whole function, to the next top-level export — rather than by `at + 3000`.
-    // A character window spans different lines on CRLF than on LF, and it silently shrinks whenever the
-    // function grows: adding the terminal-absence branch pushed the statement below past 3000 characters and
-    // this assertion started failing on code that was correct. A window that can look at less than it means
-    // to is a window that can pass on less than it means to.
-    const srcLines = src.split(/\r?\n/);
-    const start = srcLines.findIndex(l => l.includes('export async function pollVectorIndexReady'));
-    let end = srcLines.length;
-    for (let i = start + 1; i < srcLines.length; i++) {
-      if (/^export (async function|function|const) /.test(srcLines[i])) { end = i; break; }
-    }
-    const body = srcLines.slice(start, end).join('\n');
-    assert.ok(body.includes('gave up after'), 'the window must reach the end of the function');
+    /*
+     * Bounded STRUCTURALLY — the whole function, to the next top-level declaration — rather than by `at + 3000`.
+     * A character window spans different lines on CRLF than on LF, and it silently shrinks whenever the function
+     * grows: adding the terminal-absence branch pushed the statement below past 3000 characters and this assertion
+     * started failing on code that was correct.
+     *
+     * This is now the SHARED bound. The loop that used to sit here was one of three independent hand-rolls of it,
+     * written within hours of each other, which is what `_structural-window.mjs` was extracted for. `bodyOf` alone
+     * would do; `bodyOfEndingWith` also carries the "the window reached the end of its subject" assertion that used
+     * to be spelled out below, and having it inside the helper means every caller gets it.
+     */
+    const body = bodyOfEndingWith(src, 'pollVectorIndexReady', 'gave up after');
     assert.match(body, /all\.find\(i => i\.name === indexName\)/);
     // `queryable` is the property recall actually depends on; a mongot reporting it without a READY
     // status would otherwise poll forever.
@@ -135,7 +133,9 @@ describe('search-index listing is never name-filtered', () => {
     // is what recall depends on, and it is Verify's philosophy applied one layer down — send one real
     // request rather than infer from a status field.
     const src = readFileSync(`${ROOT}/spaces/vector-index.ts`, 'utf8');
-    const fn = src.slice(src.indexOf('async function indexServes'), src.indexOf('async function indexServes') + 900);
+    // `indexOf(…) + 900` is the same magic window with the anchor inlined, and the ratchet's pattern did not match
+    // it because the pattern required a bare identifier on both sides. Widened, and this is the bound it wanted.
+    const fn = bodyOf(src, 'indexServes');
     assert.match(fn, /\$vectorSearch/, 'the probe must be a real vector query');
     assert.match(fn, /index: indexName/, 'against the index being polled, by name');
     assert.match(fn, /limit: 1/, 'and cheap — this is a liveness question, not a search');
@@ -161,7 +161,9 @@ describe('search-index listing is never name-filtered', () => {
       .replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
     const at = src.indexOf('readiness confirmed for all');
     assert.ok(at > 0, 'the summary line should still exist for the all-good case');
-    const before = src.slice(Math.max(0, at - 400), at);
+    // The branch the summary sits in, INCLUDING the line that opened it — the condition is the whole subject here,
+    // and it lives outside the braces. A count backwards could start inside the block and miss it.
+    const before = enclosingBlockAround(src, at, 'the all-good summary branch');
     assert.match(before, /failed\.length === 0/,
       'the success wording must be conditional on nothing having failed');
     assert.match(src, /did not reach ready for \$\{failed\.length\}/,

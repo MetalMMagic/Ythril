@@ -35,6 +35,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { docCommentBefore } from './_structural-window.mjs';
 
 const CSS = readFileSync(join('client', 'src', 'styles.scss'), 'utf8');
 const DOC = readFileSync(join('docs', 'integration-guide', '15-about-and-embedding.md'), 'utf8');
@@ -52,7 +53,10 @@ describe('the semantic tokens exist and are grouped as such', () => {
   it('the block still explains the rule at the point of declaration', () => {
     // The comment is what stops the next person "tidying up" by pointing a pill at --accent again.
     const at = CSS.indexOf('--state-active:');
-    const around = CSS.slice(Math.max(0, at - 1400), at);
+    assert.ok(at > -1, 'the token is gone — re-anchor this gate');
+    // The comment block above the declaration, bounded by its own delimiters rather than by 1 400 characters of
+    // whatever happens to precede it — which on a stylesheet is other rules, and any of them may say "theme".
+    const around = docCommentBefore(CSS, at, 'the semantic-state note');
     assert.match(around, /theme/i, 'the declaration should carry the identity-vs-facts note');
     assert.match(around, /SEMANTIC STATE NEVER DOES|must not move|does not own facts/i,
       'the rule must be stated where the tokens are declared');

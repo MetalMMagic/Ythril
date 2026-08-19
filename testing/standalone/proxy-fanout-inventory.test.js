@@ -37,6 +37,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { enclosingBlocksMatching } from './_structural-window.mjs';
 
 /**
  * Read fan-outs, by file, with the count in that file.
@@ -214,8 +215,16 @@ function callSites() {
     // counted. A sweep that only matches calls is blind to exactly the indirection that makes a fan-out hard to
     // follow, which is the wrong way round.
     for (const m of src.matchAll(/(?<![.\w])resolveMemberSpaces(?!\s*\()/g)) {
-      const before = src.slice(Math.max(0, m.index - 200), m.index);
-      if (/import\s*\{[^}]*$/.test(before)) continue;   // the import statement itself is not a use
+      /*
+       * "Is this name inside an `import { … }` clause?" is a CONTAINMENT question, so it is answered by the brace
+       * stack rather than by reading backwards. 200 characters was a guess that fails on a long import list.
+       *
+       * `statementUpTo` was the wrong tool and said so loudly: it treats `{` as a statement boundary, which is right
+       * for a block and wrong for an import clause, so the window began after the brace and no longer contained the
+       * word `import`. Six files were then reported as by-reference fan-outs on the strength of their import line.
+       */
+      const enclosing = enclosingBlocksMatching(src, m.index, /^\s*import\s/);
+      if (enclosing.length) continue;   // the import statement itself is not a use
       out.push({ file: f, arg: 'BY-REFERENCE' });
     }
   }

@@ -43,6 +43,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
+import { balancedFrom } from './_structural-window.mjs';
 
 const ROOT = process.cwd();
 
@@ -75,8 +76,13 @@ function bareWaits(src) {
   const re = /await triggerSync\([^)]*\);(?:[^\n]*\n){0,6}?[^\n]*await waitFor\(/g;
   let n = 0, m;
   while ((m = re.exec(src)) !== null) {
-    const seg = src.slice(m.index + m[0].length, m.index + m[0].length + 800);
-    const args = /\}\s*(,[^;]*)?\);/.exec(seg)?.[1] ?? '';
+    /*
+     * The `waitFor(` CALL, bounded by the paren that closes it. At 800 characters a long predicate pushed the
+     * argument list out of the window, so `diagnose` read as absent and a correctly-written wait was counted as bare
+     * — and this gate's whole output is that count.
+     */
+    const call = balancedFrom(src, m.index + m[0].length - 1, 'the waitFor call');
+    const args = /\}\s*(,[\s\S]*)?\)$/.exec(call)?.[1] ?? '';
     if (!/diagnose/.test(args)) n++;
   }
   return n;

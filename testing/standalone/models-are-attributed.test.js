@@ -30,6 +30,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { markdownSectionAround } from './_structural-window.mjs';
 
 const ROOT = process.cwd();
 const read = (p) => readFileSync(join(ROOT, p), 'utf8');
@@ -116,7 +117,10 @@ describe('every model baked into an image is attributed', () => {
         const short = model.split('/')[1];
         const at = notice.indexOf(short);
         if (at < 0) { missing.push(`${model} (from ${f}) — no mention in NOTICE`); continue; }
-        const section = notice.slice(Math.max(0, at - 400), at + 900);
+        // The NOTICE section the mention BELONGS to, heading to heading. The licence line usually sits above the
+        // mention, so a forward-only bound misses it; 400 characters backwards could instead reach into the
+        // PREVIOUS entry and read somebody else's licence as this model's, which is the worse direction to be wrong.
+        const section = markdownSectionAround(notice, at, `the NOTICE entry for ${short}`);
         if (!/Licen[cs]e:/i.test(section)) missing.push(`${model} (from ${f}) — mentioned but no licence stated`);
       }
     }

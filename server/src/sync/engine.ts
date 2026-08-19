@@ -1028,6 +1028,19 @@ async function pushToPeer(
         .sort({ seq: 1 })
         .limit(PUSH_BATCH_SIZE)
         .toArray() as T[];
+      /*
+       * X-20 instrumentation. The stall this exists to name has one recorded symptom and it is this loop:
+       * `A's cycles ran every 3 s in 19 ms each` — the signature of a cycle that FOUND NOTHING, not of a slow
+       * sender. Nothing in the log could tell "found nothing because there is nothing" from "found nothing
+       * because the cursor is already past it", and those are a healthy cycle and a permanent data loss.
+       *
+       * So the cursor and the count are logged on every pass, empty ones included. Gated on `DEBUG`, so it is
+       * free unless somebody is looking — and it is the one line that would have made six failed reproduction
+       * attempts conclusive instead of inconclusive.
+       */
+      log.debug(`Push ${payloadKey} to ${member.label ?? member.instanceId} space '${spaceId}': `
+        + `${batch.length} doc(s) with seq > ${seqCursor}`
+        + (batch.length ? ` (through ${(batch[batch.length - 1] as MemoryDoc).seq})` : ''));
       if (batch.length === 0) break;
       const resp = await peerSafeFetch(batchEndpoint, {
         ...batchOpts(), method: 'POST',
@@ -1074,6 +1087,17 @@ async function pushToPeer(
     transfers: { memories: memP, entities: entP, edges: edgeP, chrono: chronoP, tombstones },
     warn: log.warn,
   });
+
+  /*
+   * The other half of the X-20 instrumentation: what the cycle DECIDED, beside what it found.
+   *
+   * A watermark that moves while every transfer reported zero documents is the shape that would explain the
+   * stall — the cursor advancing past a record nothing sent, after which every later cycle correctly finds
+   * nothing and the record is never offered again. That combination is invisible without both numbers in one
+   * line, which is why they are logged together rather than at four separate call sites.
+   */
+  log.debug(`Push cycle to ${member.label ?? member.instanceId} space '${spaceId}': watermark ${lastSeqPushed} -> `
+    + `${maxSeqPushed}, pushed ${pushedMemories}m/${pushedEntities}e/${pushedEdges}g/${pushedChrono}c`);
 
   // Persist the push high-water mark so next sync only sends new/changed docs
   if (maxSeqPushed > lastSeqPushed) {

@@ -361,6 +361,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A sync push cycle now says what it looked for and what it decided, at debug level.** Two lines: per collection,
+  the cursor it queried from and how many documents it found — empty passes included; and per cycle, the watermark
+  before and after beside the counts pushed. Both are `log.debug`, so they cost nothing unless `DEBUG` is set.
+  Added for X-20, a propagation stall whose only recorded symptom is that the sender's cycles ran every 3 s in 19 ms
+  each — the signature of a cycle finding NOTHING rather than of a slow sender. Nothing in the log could separate
+  "found nothing because there is nothing" from "found nothing because the watermark is already past it", and those
+  are a healthy cycle and a permanent data loss. `DEBUG` is enabled for the two test instances the pub/sub topology
+  test uses, because a failure that only happens in CI cannot be diagnosed by instrumentation that is off there.
 - **Gates may no longer bound their subject with a magic number.** `src.slice(at, at + 3000)` decides in advance
   how much of its subject a gate can see; grow the subject and the gate either fails on correct code or passes
   while checking less than it meant to. A character count also spans different LINES on CRLF than on LF, so a

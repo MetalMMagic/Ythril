@@ -197,7 +197,11 @@ export interface ModelStageStatus {
   state: HealthState; latencyMs?: number; detail?: string;
 }
 
-export interface CollectionIndexStatus { collection: string; indexName: string; status: string | null; }
+export interface CollectionIndexStatus {
+  collection: string; indexName: string; status: string | null;
+  /** An index the space's search does not depend on (the face gallery). Excluded from `live`. */
+  optional?: boolean;
+}
 
 export interface SpaceIndexStatus {
   id: string; label: string;

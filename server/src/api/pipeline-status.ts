@@ -88,6 +88,13 @@ export interface CollectionIndexStatus {
   indexName: string;
   /** MongoDB's own status string (READY / PENDING / …), or null when the index does not exist. */
   status: string | null;
+  /**
+   * True for an index the space's SEARCH does not depend on — today, the face gallery.
+   *
+   * Reported so an operator can still see it, and excluded from `live` so it cannot decide the space's
+   * health. See `deriveLiveIndexState`.
+   */
+  optional?: boolean;
 }
 
 export interface SpaceIndexStatus {
@@ -405,8 +412,20 @@ async function probeModelStages(): Promise<ModelStageStatus[]> {
  */
 export function deriveLiveIndexState(collections: CollectionIndexStatus[], listingFailed: boolean): SpaceIndexStatus['live'] {
   if (listingFailed) return 'unknown';
-  if (collections.some(c => c.status === null)) return 'missing';
-  return collections.every(c => c.status === 'READY') ? 'ready' : 'building';
+  /*
+   * OPTIONAL INDEXES DO NOT DECIDE THIS, and that is the third view of one failure.
+   *
+   * `missing` drives a red pill per space, sets the whole Tools tab to `down`, and — because `stored` is
+   * `ready` — trips `isDrifted`, which this file calls "the silent-loss signature". breituai-platform ran
+   * `FACE_RECOGNITION_ENABLED=true` fleet-wide with nothing able to write a face vector, so all three fired on
+   * fourteen working spaces at once, permanently.
+   *
+   * A space with every search index READY and no face gallery is a healthy space. Its optional index is still
+   * in `collections` with its own status, so nothing is hidden — it just does not get a vote.
+   */
+  const deciding = collections.filter(c => !c.optional);
+  if (deciding.some(c => c.status === null)) return 'missing';
+  return deciding.every(c => c.status === 'READY') ? 'ready' : 'building';
 }
 
 /**
@@ -436,11 +455,13 @@ async function indexStatus(): Promise<{ spaces: SpaceIndexStatus[]; unavailable?
     // be missing. Listing them would pin a permanent red dot on a space that is working correctly.
     .filter(s => !s.proxyFor)
     .map(async (space): Promise<SpaceIndexStatus> => {
-      const expected: Array<{ collection: string; indexName: string }> = VECTOR_INDEXED_COLLECTIONS.map(suffix => ({
-        collection: suffix, indexName: `${space.id}_${suffix}_embedding`,
-      }));
+      const expected: Array<{ collection: string; indexName: string; optional?: boolean }>
+        = VECTOR_INDEXED_COLLECTIONS.map(suffix => ({
+          collection: suffix, indexName: `${space.id}_${suffix}_embedding`,
+        }));
       if (faceInfraPin && faceRecognitionAllowed(space.id)) {
-        expected.push({ collection: 'files', indexName: `${space.id}_files_faceEmbedding` });
+        // `optional`, so its absence is reported without condemning the space — see `deriveLiveIndexState`.
+        expected.push({ collection: 'files', indexName: `${space.id}_files_faceEmbedding`, optional: true });
       }
 
       const collections: CollectionIndexStatus[] = [];

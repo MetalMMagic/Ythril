@@ -211,6 +211,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An unconfigured optional feature was reporting fourteen working spaces as broken, permanently.** Enabling
+  face recognition with nothing able to write a face vector — `FACE_RECOGNITION_ENABLED=true`, no
+  `faceRecognition.externalModel`, no model files placed under `DATA_ROOT` — made every space report a red
+  *"Index build failed"*, then `live: "missing"` on the admin health panel, the whole Tools tab `down`, and the
+  drift flag this codebase calls the silent-loss signature. On an instance whose search worked normally.
+
+  Reported by breituai-platform 2026-08-17T1540Z §8 as three red badges and eleven *"Preparing indexes…"* on one
+  screen. **The three and the eleven were one number:** `FINALIZE_CONCURRENCY` is 3, so those were the first
+  batch to run out a 600 s window while the other eleven waited for a worker. Their argument is the one that
+  matters — *"a red badge that is always red on a working system trains an operator to stop reading red
+  badges."* Present in their 3.0.1 logs from 2026-08-14, so not a 3.1.0 regression.
+
+  Three defects, one shape — an OPTIONAL index treated as required:
+
+  - **`waitForSpaceIndexesReady` gave the face gallery a vote on `indexStatus`**, and that field is what paints
+    the badge. Recall, traversal and hybrid text all work with the gallery absent, so it is polled and logged
+    now but excluded from the verdict. Its rejection is swallowed too — `false` is not the only way an optional
+    index can condemn a space.
+  - **`pollVectorIndexReady` had no terminal state for an index that does not exist.** Nothing in that loop
+    creates one, and `ensureVectorSearchIndex` has four paths that return without creating one — search
+    unavailable, `listSearchIndexes` throwing, `createSearchIndex` throwing, a refused width change. Absence
+    now ends the poll after 15 s **once the backend has listed other indexes on the same collection**, which is
+    what separates "not there" from "not asked yet". This is the same argument the `probe.permanent` branch
+    beside it already makes, and it was written for the same measured cost: 600 s per index, then working
+    spaces marked failed.
+  - **`deriveLiveIndexState` counted it too.** Expected indexes now carry `optional`, and the verdict reads the
+    flag rather than knowing any index by name — so a second optional index needs no change there.
+
+  `GET /api/admin/pipeline-status` therefore gains `optional: true` on the affected `collections[]` row. Nothing
+  is hidden: an optional index that did not come ready is still reported, with its own status and a log line
+  naming what to configure. It just no longer reports it as the space failing.
+
+  Eleven mutations, eleven caught, including all three pre-fix states.
+
 - **The create-token dialog could not grant the two instance-level rights, so an instance admin had to be
   created and then edited.** `draftRights` initialised `instanceAdmin` and `createSpaces` to `false` and no
   control could change them — while `CreateTokenBody` has accepted both throughout. The edit dialog grew these

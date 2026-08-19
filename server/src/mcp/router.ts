@@ -15,6 +15,7 @@ import { toolRightsRefusal, spaceAdminRefusal } from './tool-rights-guard.js';
 import { legacySpacesOf } from '../auth/legacy-spaces.js';
 import type { TokenRights } from '../config/rights-shape.js';
 import { memberSpacesWithin } from '../spaces/proxy-scoped.js';
+import { classifyReadFailure } from '../brain/store-failure.js';
 import { ALL_TOOLS, TOOLS_BY_NAME, type ToolSchemas } from './tools/index.js';
 import { SchemaViolationError } from '../brain/write-validation.js';
 import { makeArgsValidator } from './validate-args.js';
@@ -307,10 +308,28 @@ function createGlobalMcpServer(tokenSpaces?: string[], tokenId?: string, tokenLa
       // sites — which is how the `introduced` / `preExisting` split came to survive on the REST routes and
       // not on this one. The prose stays the whole answer for a client that reads only `content`.
       const structuredContent = err instanceof SchemaViolationError ? err.toStructured() : undefined;
+      /**
+       * A STORE failure says so here too, and carries the same `retryable` the REST doors put in their body.
+       *
+       * This door has no status code to correct — the transport answers 200 with `isError: true` — so the
+       * parity is in the CONTENT, which is the rule in `CLAUDE.md`: when the doors must differ, the difference
+       * is the transport's shape and never what a caller is told. Without this, an agent on MCP would have got
+       * the truncated `caused by ::` prose that told fourteen personas nothing, while a REST caller alongside
+       * it got a 503 and a reason.
+       *
+       * Attached in this catch for the same reason `SchemaViolationError` is: every tool funnels through here,
+       * so a tool added tomorrow inherits it rather than needing to remember.
+       */
+      const readFailure = classifyReadFailure(err);
+      const failureContent = readFailure.retryable
+        ? { retryable: true, storeSideFailure: true, error: readFailure.error,
+            ...(readFailure.code !== undefined ? { code: readFailure.code } : {}),
+            ...(readFailure.codeName ? { codeName: readFailure.codeName } : {}) }
+        : undefined;
       return {
-        content: [{ type: 'text' as const, text: `Error: ${message}` }],
+        content: [{ type: 'text' as const, text: `Error: ${readFailure.retryable ? readFailure.error : message}` }],
         isError: true,
-        ...(structuredContent ? { structuredContent } : {}),
+        ...(structuredContent ? { structuredContent } : failureContent ? { structuredContent: failureContent } : {}),
       };
     }
   });

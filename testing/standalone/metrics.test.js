@@ -117,6 +117,22 @@ describe('GET /metrics — Prometheus endpoint', () => {
   });
 
   it('includes ythril_auth_attempts_total counter', async () => {
+    /*
+     * MAKES ITS OWN AUTH ATTEMPT FIRST — this test was order-dependent across the whole suite, and it failed
+     * once on 2026-08-19 in a full `test:standalone` run, then passed in isolation and passed again on the
+     * next full run with identical code.
+     *
+     * The cause is `hasMetric`: it matches a line STARTING with the metric name, which in the Prometheus
+     * exposition format is a DATA SAMPLE — `# HELP …` and `# TYPE …` start with `#`. A prom-client counter
+     * with labels emits no sample until it is incremented at least once. So this asserted that *something
+     * earlier in the session* had already authenticated against instance A, which is true almost always and
+     * is not a thing this test was written to check.
+     *
+     * Its neighbour for `ythril_sync_cycles_total` already documents the same trap and solves it by accepting
+     * HELP/TYPE. Generating the sample is the stronger fix: it keeps this an assertion about the counter
+     * EXISTING and working, and removes the dependence entirely.
+     */
+    await fetch(`${INSTANCES.a}/api/about`, { headers: { Authorization: `Bearer ${token}` } });
     const { text } = await getMetrics();
     assert.ok(hasMetric(text, 'ythril_auth_attempts_total'), 'ythril_auth_attempts_total not found');
   });

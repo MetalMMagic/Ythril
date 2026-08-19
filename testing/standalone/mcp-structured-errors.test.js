@@ -66,8 +66,28 @@ describe('the refusal keeps its classification', () => {
     // report the split while this transport did not.
     const router = strip(readFileSync('server/src/mcp/router.ts', 'utf8'));
     assert.match(router, /err instanceof SchemaViolationError \? err\.toStructured\(\) : undefined/);
-    assert.match(router, /\.\.\.\(structuredContent \? \{ structuredContent \} : \{\}\)/,
-      'a non-schema error must not grow an empty structuredContent field');
+    /*
+     * THE RULE, not one spelling of it: a failure that classifies as nothing must not grow an empty
+     * `structuredContent`.
+     *
+     * This asserted the literal `...(structuredContent ? { structuredContent } : {})` until a SECOND
+     * classification joined it — a store-side read failure, which attaches `retryable`/`storeSideFailure` in
+     * the same place for the same reason. The rule survived that change; the pattern did not. A gate pinned to
+     * one spelling fails on a change that honours it, which teaches the next person to loosen the gate rather
+     * than to check the rule.
+     *
+     * What must hold: every `structuredContent` spread is guarded by a truthiness test, so an unclassified
+     * error carries no such key at all. Asserted by finding every spread of it and requiring each to be
+     * conditional.
+     */
+    const spreads = router.match(/\.\.\.\([^)]*structuredContent[^)]*\)/g) ?? [];
+    assert.ok(spreads.length >= 1, 'the router must still attach structuredContent in its own catch');
+    for (const spread of spreads) {
+      assert.match(spread, /\?/,
+        `an unconditional structuredContent spread gives every unclassified error an empty field: ${spread}`);
+    }
+    assert.doesNotMatch(router, /structuredContent: undefined/,
+      'an explicit undefined is a present key in some serialisers — guard the spread instead');
   });
 
   it('assertUpdateAllowed throws the typed error, so no update tool has to know', () => {

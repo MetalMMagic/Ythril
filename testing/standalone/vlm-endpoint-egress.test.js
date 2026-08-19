@@ -34,7 +34,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { bodyOf, statementUpTo } from './_structural-window.mjs';
+import { bodyOf, statementUpTo, enclosingBlockAround } from './_structural-window.mjs';
 
 const ENDPOINT_SRC = 'server/src/files/converters/vlm-endpoint.ts';
 const CLIENT_SRC = 'server/src/files/converters/vlm-client.ts';
@@ -156,7 +156,25 @@ describe('the status board and the extractor cannot disagree', () => {
 
   it('document stages no longer hardcode external: false', () => {
     // The exact defect: three stages asserting `false` on a URL the line above them classifies.
-    assert.doesNotMatch(status, /key: 'doc-(vlm|repair|verify)'[\s\S]{0,200}external: false/);
+    /*
+     * The stage's own object literal, bounded by the brace that closes it.
+     *
+     * TWO things were wrong here, and the second is worse. The 200-character gap is an ABSENCE assertion, so a stage
+     * that grew a field would have pushed `external: false` out of range and passed on the defect it names.
+     *
+     * And the pattern matched NOTHING — zero occurrences, in this version and in the one before it. The three stages
+     * are built in a `.map`, so the key is a TEMPLATE (`` key: `doc-${slot}` ``) and never the quoted literal the
+     * regex looked for. The check has been vacuous since it was written, which is the failure that reads exactly
+     * like a passing gate. Hence the floor assertion below: matching nothing must be an error, never a silence.
+     */
+    const stages = [...status.matchAll(/key: `doc-\$\{slot\}`|key: 'doc-(?:vlm|repair|verify)'/g)];
+    assert.ok(stages.length > 0,
+      'no document stage found in pipeline-status.ts — this check would pass by examining nothing');
+    const hardcoded = stages
+      .map(m => enclosingBlockAround(status, m.index, 'a document stage'))
+      .filter(stage => /external: false/.test(stage));
+    assert.deepEqual(hardcoded, [],
+      'a document stage asserts external: false on a URL the resolver classifies — the original defect');
   });
 
   it('they read the shared resolver instead', () => {

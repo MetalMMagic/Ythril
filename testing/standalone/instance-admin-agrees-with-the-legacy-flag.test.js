@@ -31,6 +31,7 @@ import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripComments } from './_strip-comments.mjs';
+import { bodyOf } from './_structural-window.mjs';
 
 let migrateToken;
 before(async () => {
@@ -110,7 +111,11 @@ describe('the guard has moved onto the matrix, and this evidence is why it could
    */
   it('enforceAdmin no longer reads the legacy boolean directly', () => {
     const mw = stripComments(readFileSync('server/src/auth/middleware.ts', 'utf8'));
-    assert.doesNotMatch(mw, /function enforceAdmin\([\s\S]{0,200}?if \(!record\.admin\)/,
+    /*
+     * The whole function, to the next top-level declaration. An ABSENCE assertion behind a 200-character cap passes
+     * the moment the function grows past it — so the check would have quietly stopped covering the thing it names.
+     */
+    assert.doesNotMatch(bodyOf(mw, 'enforceAdmin'), /if \(!record\.admin\)/,
       'the switch has happened; the agreement above is what made it safe');
   });
 

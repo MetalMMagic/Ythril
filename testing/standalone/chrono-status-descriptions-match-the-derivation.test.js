@@ -32,6 +32,7 @@ import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripComments } from './_strip-comments.mjs';
+import { statementAround } from './_structural-window.mjs';
 
 let deriveChronoStatus, ALL_TOOLS;
 before(async () => {
@@ -197,7 +198,26 @@ describe('no tool repeats the claim that was false', () => {
     const routes = stripComments(readFileSync('server/src/api/brain/chrono.ts', 'utf8'));
     const validation = stripComments(readFileSync('server/src/spaces/schema-validation.ts', 'utf8'));
     for (const [name, src] of [['the REST route', routes], ['schema validation', validation]]) {
-      assert.doesNotMatch(src, /endsAt[\s\S]{0,60}?[<>]=?[\s\S]{0,20}?startsAt/,
+      /*
+       * Per STATEMENT, with no cap at all.
+       *
+       * A comparison and both its operands live in one statement, so the statement is the bound. The `{0,60}` /
+       * `{0,20}` gaps this replaces were trying to say "close together" as a proxy for exactly that, and a
+       * formatted multi-line condition already exceeded them — so the absence they asserted would have been
+       * satisfied by a comparison written across three lines.
+       *
+       * Getting here found two real bugs in the helper, both of which only a caller could have surfaced. The
+       * enclosing BLOCK was tried first and over-reported — a whole route handler contains both names and some
+       * unrelated `<`. Narrowing to the statement then failed, because `statementFrom` demanded a terminator at
+       * relative depth exactly 0 and so refused every anchor mid-expression. And once that was fixed it failed
+       * again, on `'endsAt'` as a quoted FIELD NAME in a list: a walk that starts inside a string reads the string's
+       * own closing quote as an opening one. `statementAround` resolves the statement's start from the top of the
+       * file, where quote parity is known.
+       */
+      const compared = [...src.matchAll(/\bendsAt\b/g)]
+        .map(m => statementAround(src, m.index, name))
+        .filter(stmt => /\bstartsAt\b/.test(stmt) && /[<>]=?/.test(stmt));
+      assert.deepEqual(compared, [],
         `${name} now compares the two — the descriptions may say it is refused, and should`);
     }
   });

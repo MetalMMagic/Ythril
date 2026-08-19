@@ -30,6 +30,7 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { blockAfter, balancedFrom, statementFrom } from './_structural-window.mjs';
 
 let mod;
 before(async () => { mod = await import('../../server/dist/api/duplicates.js'); });
@@ -51,8 +52,26 @@ describe('the pair key joins the two candidate collections', () => {
     // 500 pairs × a round trip each would make this endpoint quietly slow, and the contradiction rows are
     // keyed by exactly this key — so an $in over the page is the whole cost.
     assert.match(src, /_id: \{ \$in: keys \}/, 'the join must be batched');
-    assert.equal(/for \(const p of pairs\)[\s\S]{0,200}await col\(/.test(src), false,
-      'no awaited query inside a per-pair loop');
+    /*
+     * EVERY such loop, and each bounded by its own body — which is not always a block.
+     *
+     * `indexOf` found the FIRST one, and that one is braceless: `for (const p of pairs) out.set(pairKey(p), {...})`.
+     * So `blockAfter` bounded the OBJECT LITERAL in its argument, checked that for `await col(`, found none, and
+     * passed — while the braced loop further down went unexamined. A vacuous check that reads as a real one.
+     */
+    const loops = [...src.matchAll(/for \(const p of pairs\)/g)];
+    assert.ok(loops.length > 0, 'no per-pair loop found — re-anchor this gate');
+    for (const m of loops) {
+      const header = balancedFrom(src, m.index, 'the loop header');
+      const afterHeader = m.index + src.slice(m.index).indexOf(header) + header.length;
+      // The next non-space character, found rather than sliced — `slice(afterHeader, afterHeader + 8)` is a magic
+      // window, and the ratchet in this same suite caught it the moment it was written.
+      const braced = src[afterHeader + src.slice(afterHeader).search(/\S/)] === '{';
+      const body = braced
+        ? blockAfter(src, afterHeader, 'the per-pair loop body')
+        : statementFrom(src, afterHeader, 'the per-pair loop body');
+      assert.doesNotMatch(body, /await col\(/, 'no awaited query inside a per-pair loop');
+    }
   });
 });
 

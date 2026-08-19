@@ -135,6 +135,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`help`'s `structuredContent` was an index with no guide in it, so a client that reads that field found the
+  discovery tool empty.** It now carries `guide`, byte-identical to `content[0].text`.
+
+  breituai-platform reported this on 2026-08-17 as *"the section index plus `matched` and no bodies, in both
+  modes"* and it was filed as `help()` returning no section bodies. **It never did that.** Measured on
+  2026-08-19 against the same unchanged code: `content[0].text` is **76,754 characters** with all six section
+  bodies, while `structuredContent` was **599**. Their own report identifies where they read — `matched`
+  exists nowhere in the prose.
+
+  **`query` had the identical defect and was fixed; `help` was overlooked, and the comment beside `query`'s
+  repair is why.** It claimed *"the only tool with that shape — every other structuredContent in this layer
+  carries its own payload"*, which was true of the eight it described and false of the ninth. A universal
+  claim in a comment stops the next person checking, so it is replaced by
+  `mcp-structured-content-carries-its-payload.test.js`, which sweeps every tool and refuses a
+  `structuredContent` assembled from metadata keys alone.
+
+  **This was the worst tool to get wrong.** A client that asks what exists, receives an index, and concludes
+  the guide is unreachable does not then hunt for the parameter that would have corrected it — two further
+  reported items were raised downstream of that belief. The tool description now names both fields, since it
+  is what a caller reads while constructing arguments and it did not say.
+
+  Nothing breaks: `content[0].text` was and remains complete, so a client reading the prose is unaffected.
 - **The media worker discarded a paid model result and a terminal status, both without a word.** Two writes
   in `files/media/worker.ts` were `.catch(() => {})` with no log, no counter and no comment saying why.
 

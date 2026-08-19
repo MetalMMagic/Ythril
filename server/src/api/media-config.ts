@@ -601,24 +601,41 @@ mediaConfigRouter.post('/test-connection', requireAdminMfa, async (req, res) => 
 /**
  * Which fields of a patch an env pin forbids.
  *
- * Most locks are top-level names (`visionProvider`, `maxFileSizeBytes`). Face recognition reports
- * its locks per FIELD (`faceRecognition.enabled`, …) because each has its own env var — so a scan of
- * top-level keys alone would let a patch naming the block sail straight past a pin the UI is already
- * rendering as read-only. Getting that wrong means `FACE_RECOGNITION_ENABLED=false` stops being a
- * guarantee, on the setting with the clearest privacy weight in the product.
+ * Locks come in two shapes: top-level names (`visionProvider`, `maxFileSizeBytes`) and namespaced ones
+ * (`rerank.apiKey`, `faceRecognition.enabled`). A patch names the second kind through a nested object, so
+ * scanning top-level keys alone lets it sail straight past a pin the UI is already rendering read-only.
  *
- * The nested case is handled explicitly rather than by walking every block: this is the only one
- * whose locks are namespaced today, and a generic flatten would silently start applying to blocks
- * that never opted in to being lockable.
+ * ## Why this walks every block instead of naming one
+ *
+ * It used to special-case `faceRecognition` and say, in this comment, that it *"is the only one whose locks are
+ * namespaced today"*. **That was false when it was written and it is why the rest went unenforced.** The loader
+ * pushes twenty-one namespaced paths — every `rerank.*`, `nli.*`, `vision.*`, `stt.*`, `embedding.*` and
+ * `documentProcessing.assistModel` — so five whole families of pin were being ignored:
+ *
+ *     PATCH {"rerank": {"apiKey": "…"}}   with RERANK_API_KEY pinned   →  200, and written to config.json
+ *
+ * The effective value did not change, because the env still wins at read time. What changed is that the API
+ * reported success for a write it can never honour and left `config.json` disagreeing with the running config —
+ * and `lockedByInfra` became a UI hint rather than the guarantee the 403 exists to be.
+ *
+ * The old comment's stated fear was that *"a generic flatten would silently start applying to blocks that never
+ * opted in to being lockable"*. It cannot: a path only blocks if it is IN `locked`, and `locked` is built from
+ * env vars that were actually set. A walk cannot invent a lock — it can only stop missing one.
+ *
+ * One level deep, deliberately. Every lock the loader produces is `block.field`, and a recursive walk would be
+ * inventing a shape nothing emits.
  *
  * Exported for unit testing.
  */
 export function blockedByInfra(patch: Record<string, unknown>, locked: Set<string>): string[] {
   const blocked = Object.keys(patch).filter(k => locked.has(k));
-  const face = patch['faceRecognition'];
-  if (face && typeof face === 'object') {
-    for (const field of Object.keys(face as Record<string, unknown>)) {
-      if (locked.has(`faceRecognition.${field}`)) blocked.push(`faceRecognition.${field}`);
+  for (const [block, value] of Object.entries(patch)) {
+    // Arrays excluded: `typeof [] === 'object'`, and an array's keys are indices, so `levels.0` would be
+    // compared against the lock set as though it were a field name.
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+    for (const field of Object.keys(value as Record<string, unknown>)) {
+      const path = `${block}.${field}`;
+      if (locked.has(path)) blocked.push(path);
     }
   }
   return blocked;

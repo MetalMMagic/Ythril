@@ -433,6 +433,8 @@ The face records themselves are kept, with their label cleared. That is delibera
 
 These are set in `config.json` under `mediaEmbedding.faceRecognition`, or pinned by your infrastructure through the matching environment variable (`FACE_RECOGNITION_ENABLED`, `_CONFIDENCE_THRESHOLD`, `_MIN_FACE_SIZE_FRACTION`, `_MODEL_PATH`, `_PERSON_ENTITY_TYPES`, `_REPROCESS_SYNCED_IMAGES`). An environment value wins over `config.json`, so `FACE_RECOGNITION_ENABLED=false` guarantees no faces are processed on that instance — including after restoring a backup taken where it was on. Neither is editable from the UI:
 
+> **Any field your infrastructure pins is refused by the API too, not just greyed out in the interface** — and from 3.2.0 that holds for every pinnable field rather than only the face-recognition ones. Before then, a pinned model or key elsewhere in Media Processing could be saved without complaint: the value that actually ran was still the pinned one, but the save reported success and left the stored settings disagreeing with the running ones. If you saw a setting that would not stay changed, that was this.
+
 | Setting | Default | What it does |
 |---|---|---|
 | `enabled` | `false` | Master switch — must be set to `true` to activate the feature |

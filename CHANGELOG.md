@@ -236,6 +236,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An infrastructure env pin was a UI hint rather than a guarantee, for five of the six field families it
+  covers.** `PATCH /api/admin/media-config` refuses a write to a pinned field with `403` — but the guard only
+  understood nested pins for `faceRecognition`, so a patch overwriting any other pinned `block.field` path
+  answered **200** and was written to `config.json`:
+
+  ```
+  PATCH {"rerank": {"apiKey": "…"}}   with RERANK_API_KEY pinned   →  200, stored
+  ```
+
+  Every `rerank.*`, `nli.*`, `vision.*`, `stt.*`, `embedding.*` and `documentProcessing.assistModel` pin — twenty-one
+  paths the loader emits — went unenforced. The effective value never changed, because the environment still wins
+  at read time; what changed is that the API reported success for a write it could never honour and left the stored
+  config disagreeing with the running one. An operator watching a setting refuse to stay changed was seeing this.
+
+  **The cause was a comment asserting a fact the code around it disproved.** It read *"this is the only one whose
+  locks are namespaced today"*, which was false when written, and it told every subsequent reader there was nothing
+  else to handle. Its stated fear — that a generic walk *"would silently start applying to blocks that never opted
+  in to being lockable"* — cannot happen: a path blocks only if it is IN `lockedByInfra`, which is built from env
+  vars that were actually set. A walk cannot invent a lock, only stop missing one.
+
+  Found while implementing the ruling on **P-7** (an explicit pin list), which pins `rerank.apiKey` and
+  `nli.apiKey` — so the feature would have been built on a guard that ignored exactly those paths.
+
+  The gate DERIVES the pin vocabulary by scraping `locked.push('…')` out of `config/loader.ts` rather than listing
+  paths, so a new pin family is covered the day it lands and starts failing until the guard handles it. It checks
+  the scrape found something before trusting it, and the over-blocking direction too — a guard that blocked every
+  nested field would make the admin UI unusable on any instance with one pin.
+
+  Six mutations, six caught, including the shipped defect, both wrong `typeof` guards, and over-blocking.
 - **A deleted space's index-readiness pollers kept running for the whole window.** `finalizeSpaceIndexReady`
   already knew about a space vanishing mid-build and handled it at the WRITE — *"space was deleted while its
   indexes built"* — but the polling before the write did not. So a space deleted during its own build kept up to

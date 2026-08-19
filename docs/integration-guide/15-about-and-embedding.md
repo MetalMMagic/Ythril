@@ -188,7 +188,26 @@ texture over text costs legibility and every layer is another composite.
 
 ### Enabling cross-origin embedding (opt-in)
 
-By default Ythril may only be framed and themed by its own origin. To embed it in a portal on a **different** origin, list that origin in `config.json`:
+By default Ythril may only be framed and themed by its own origin. There are two ways to list a **different** origin, and they enforce the same rule.
+
+#### From the admin UI — Settings → Embedding
+
+An instance admin can manage the list at **Settings → Embedding** without shell access. This is the route to point an operator at when the brain is theirs and the portal is yours: added 3.2.0, after breituai-platform reported that talking somebody through editing JSON on their own server means, in practice, that it does not happen.
+
+| | admin UI | `config.json` |
+|---|---|---|
+| who can | a token with `instanceAdmin`, plus MFA | anyone with shell access to the host |
+| an invalid entry | **refused, and named back to you** | dropped, with a warning in the log |
+| takes effect | next request | next request |
+| API | `GET`/`PATCH /api/admin/embed-config` | — |
+
+The difference in the middle row is the important one. A form has somebody waiting on an answer, so an origin it cannot accept comes back as a `400` naming it; a config file has nobody to tell, so a bad entry is skipped rather than failing the whole boot. Both call the same validator, so what is *accepted* never differs.
+
+`GET /api/admin/embed-config` also reports `invalid` — the stored entries the validator drops. If a portal will not frame and the list looks right, that field is where the answer is.
+
+#### From `config.json`
+
+Equivalent, and still the right choice for a provisioned or infra-managed deployment:
 
 ```json
 {
@@ -211,6 +230,10 @@ A listed origin is granted **both** rights together, because they are the same t
 - an invalid entry is dropped with a warning rather than coerced
 
 The resolved allowlist is logged at startup, and is served to the SPA on `/api/theme` as `allowedOrigins` so the client knows which senders to trust.
+
+**`GET /api/theme` is public, and that is contract rather than an accident.** It is how an embedder can ask *may I frame this instance* before trying — a refused cross-origin frame is undetectable from the embedding side, because the browser reports nothing, so without something the brain volunteers about itself the only safe default is a new tab for everybody. Depend on it; a change to its shape would go through a deprecation with a version's notice.
+
+**No restart is required, by either route.** `config.json` is watched and a foreign edit goes through the full reload path; the CSP `frame-ancestors` directive is rebuilt on every response; `/api/theme` resolves the list per request. An edit is live within about two seconds, and a UI save is live on the next request.
 
 ### Security
 

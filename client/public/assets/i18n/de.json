@@ -1942,5 +1942,14 @@
   "tokens.rights.plain.dataQuality.none": "Ihr Agent sieht keine Duplikat- oder Widerspruchsprüfungen.",
   "tokens.rights.plain.dataQuality.read": "Ihr Agent sieht gemeldete Duplikate und Widersprüche, kann sie aber nicht auflösen.",
   "tokens.rights.plain.dataQuality.write": "Ihr Agent kann auflösen, zusammenführen und verwerfen, was die Prüfung meldet.",
-  "tokens.rights.plain.dataQuality.admin": "Ihr Agent kann außerdem Prüfläufe für den ganzen Space starten."
+  "tokens.rights.plain.dataQuality.admin": "Ihr Agent kann außerdem Prüfläufe für den ganzen Space starten.",
+  "nav.embedding": "Einbettung",
+  "embedding.origins.title": "Herkünfte, die diese Instanz einbetten dürfen",
+  "embedding.origins.subtitle": "Ein hier eingetragenes Portal darf Ythril in seiner eigenen Seite anzeigen. Standardmäßig ist nichts erlaubt.",
+  "embedding.origins.warning": "Ein Eintrag gewährt zwei Dinge gleichzeitig: Ythril in einem Rahmen anzuzeigen und es zur Laufzeit neu zu gestalten. Beides lässt sich nutzen, um diese Oberfläche vorzutäuschen. Tragen Sie daher nur Herkünfte ein, die Sie selbst betreiben oder ebenso weit vertrauen.",
+  "embedding.origins.none": "Kein Eintrag vorhanden. Ythril kann nur von sich selbst eingerahmt werden.",
+  "embedding.origins.add": "Herkunft hinzufügen",
+  "embedding.origins.entryLabel": "Erlaubte Herkunft",
+  "embedding.origins.saved": "Gespeichert — sofort aktiv, kein Neustart nötig.",
+  "embedding.origins.hint": "Eine exakte Herkunft pro Zeile: nur Schema, Host und Port, ohne Pfad. https ist erforderlich, außer auf localhost. Platzhalter werden nie akzeptiert. Eine Änderung greift ab der nächsten Anfrage."
 }

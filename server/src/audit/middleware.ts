@@ -223,6 +223,10 @@ const ROUTE_RULES: RouteRule[] = [
   // target it exercises the acknowledged-egress path. Which admin triggered that, and when, is worth
   // having.
   { method: 'POST',   pattern: /^\/api\/admin\/media-config\/verify$/,              operation: 'config.media.verify' },
+  // Who may frame and restyle this instance. Worth auditing more than most config: an added origin gains a
+  // clickjacking primitive and a UI-spoofing one together, and the change is invisible from inside the product —
+  // nothing in the admin UI looks different afterwards, so the log is the only place it leaves a trace.
+  { method: 'PATCH',  pattern: /^\/api\/admin\/embed-config$/,                     operation: 'config.embed.update' },
   { method: 'POST',   pattern: /^\/api\/admin\/local-agent\/bootstrap$/,           operation: 'local_agent.bootstrap' },
   { method: 'POST',   pattern: /^\/api\/admin\/local-agent\/enable-networks\/execute$/, operation: 'local_agent.enable_networks' },
 

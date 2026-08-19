@@ -110,6 +110,12 @@ export const routes: Routes = [
               import('./pages/settings/webhooks.component').then(m => m.WebhooksComponent),
           },
           {
+            path: 'embedding',
+            title: 'nav.embedding',
+            loadComponent: () =>
+              import('./pages/settings/embedding.component').then(m => m.EmbeddingComponent),
+          },
+          {
             path: 'about',
             title: 'nav.about',
             loadComponent: () =>

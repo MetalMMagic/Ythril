@@ -211,6 +211,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Who may embed this instance is now editable in the admin UI — Settings → Embedding.** `embed.allowedOrigins` has
+  worked since embedding shipped and lived only in `config.json`, so granting a portal permission to frame a brain
+  meant shell access to the server. Asked for by breituai-platform on 2026-08-19T1046Z, and the reason is theirs:
+  *someone runs a brain, someone else wants to use it inside a portal, and the person who must act has to be talked
+  through editing a JSON file on a server* — which in practice means it does not happen and the brain stays in a
+  browser tab. `GET`/`PATCH /api/admin/embed-config`, admin plus MFA on the write, because listing an origin grants
+  framing **and** runtime restyling together and both are ways to impersonate this interface. The same validator as
+  the config-file path, with one deliberate difference: the file DROPS an invalid entry with a warning, and the form
+  **refuses** it and names it back — a form has somebody waiting on an answer, and accepting-then-discarding is how a
+  caller gets told a change worked when it did not. `GET` also reports `invalid`, the stored entries the validator
+  drops, which is the answer when a portal will not frame and the list looks right. No restart, by either route.
 - **The embedded client wears the host portal's decoration, when the host supplies it.** Owner ruled **A** on
   2026-08-19 (was P-11), on breituai-platform's ask of 2026-08-18T1806Z — which they framed as an ask and not a
   request: *"Nothing here is urgent, nothing is blocked on you, and 'not our aesthetic' is a complete answer that

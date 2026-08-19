@@ -480,3 +480,53 @@ These settings live in `config.json` under `mediaEmbedding.documentProcessing`:
 **Default behaviour (no configuration needed):** every uploaded PDF is OCR'd with full layout detection, embedded images are extracted and independently captioned, and tables are converted to structured HTML. For text-heavy documents without scanned content or images, `"fast"` is significantly quicker.
 
 ---
+
+## Settings — Embedding
+
+**Who may show Ythril inside their own page.** By default, nobody: Ythril can only be framed by itself, and a
+portal that tries gets nothing. Adding an origin here is how you say yes.
+
+The case this is for: somebody runs a portal and wants your brain to appear inside it as a panel rather than
+opening in a new browser tab. They cannot grant that themselves — only the brain's operator can, and until 3.2.0
+that meant editing `config.json` on the server.
+
+### Adding an origin
+
+Enter one exact origin per row — scheme, host and port, nothing else:
+
+```text
+https://portal.example.com
+https://intranet.example.com:8443
+```
+
+Then **Save**. The change is active on the next request; nothing needs restarting.
+
+What is refused, and why the form tells you rather than tidying up:
+
+| Entry | Result |
+|---|---|
+| `https://portal.example.com` | accepted |
+| `https://portal.example.com/app` | refused — an origin has no path |
+| `http://portal.example.com` | refused — `https` is required (except on `localhost`) |
+| `*` or `https://*.example.com` | refused — there is no "allow everything" mode, by design |
+
+A refused row is marked and named back to you. An entry that was silently dropped would look like a save that
+worked, and you would go looking at the portal for a fault that was here.
+
+If the list looks right and a portal still opens in a tab, the row to check is any one marked red on load: an
+invalid entry written directly into `config.json` is skipped by the server and shown as refused here.
+
+### What you are agreeing to
+
+**A listed origin gets two permissions together, and they cannot be separated:**
+
+1. it may display Ythril inside a frame on its own page; and
+2. it may restyle Ythril at runtime — colours, surfaces, the whole palette.
+
+They share one list deliberately: an origin you trust to render Ythril inside its own chrome is exactly the origin
+you trust to change how it looks. Both are also ways to impersonate this interface — a frame can be positioned
+under something else, and a restyle can make a real page look like a different one. So the practical rule is the
+same as for any credential: list only origins you operate, or trust to the degree you would trust yourself.
+
+Removing an origin takes effect immediately too. There is no per-user version of this list and no API that lets a
+non-admin token extend it; changing it requires an instance admin and a second factor.

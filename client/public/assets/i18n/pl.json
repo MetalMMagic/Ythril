@@ -1942,5 +1942,14 @@
   "tokens.rights.plain.dataQuality.none": "Twój agent nie widzi przeglądów duplikatów ani sprzeczności.",
   "tokens.rights.plain.dataQuality.read": "Twój agent widzi zgłoszone duplikaty i sprzeczności, ale ich nie rozstrzygnie.",
   "tokens.rights.plain.dataQuality.write": "Twój agent może rozstrzygać, scalać i odrzucać to, co zgłasza przegląd.",
-  "tokens.rights.plain.dataQuality.admin": "Twój agent może też uruchamiać skanowanie całej przestrzeni."
+  "tokens.rights.plain.dataQuality.admin": "Twój agent może też uruchamiać skanowanie całej przestrzeni.",
+  "nav.embedding": "Osadzanie",
+  "embedding.origins.title": "Źródła, które mogą osadzić tę instancję",
+  "embedding.origins.subtitle": "Portal wpisany na tę listę może pokazywać Ythril na własnej stronie. Domyślnie nie jest to dozwolone.",
+  "embedding.origins.warning": "Wpis nadaje dwa uprawnienia naraz: wyświetlanie Ythril w ramce oraz zmianę jego wyglądu w czasie działania. Oba można wykorzystać do podszycia się pod ten interfejs, więc dodawaj tylko źródła, którymi sam zarządzasz lub którym ufasz w tym samym stopniu.",
+  "embedding.origins.none": "Brak wpisów. Ythril może być osadzony tylko przez siebie samego.",
+  "embedding.origins.add": "Dodaj źródło",
+  "embedding.origins.entryLabel": "Dozwolone źródło",
+  "embedding.origins.saved": "Zapisano — działa od razu, bez restartu.",
+  "embedding.origins.hint": "Jedno dokładne źródło w wierszu: tylko schemat, host i port, bez ścieżki. https jest wymagane z wyjątkiem localhost. Symbole wieloznaczne nigdy nie są akceptowane. Zmiana działa od następnego żądania."
 }

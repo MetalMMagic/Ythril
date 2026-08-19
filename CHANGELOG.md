@@ -361,6 +361,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A sync batch-upsert now says what it did with each collection, at debug level.** The receiving half. `200` on a
+  batch means it was ACCEPTED, not that a record was stored, and this handler has four ways to accept one and keep
+  nothing: an existing tombstone at or above the record's seq, an already-current record, a fork chain at its cap,
+  and the same per collection. Every one was already counted and none was logged, so the decision was computed and
+  thrown away with the response. Now logged with the seq range, because a count cannot say which record it refers to
+  and the question is always about one id at one seq. Reproduced under CPU contention on 2026-08-20 — the sender
+  pushes a memory at seq 2, gets a `200`, advances its watermark, and the peer never serves that id, so the record
+  is marked sent and is never offered again. The sender's half was already answered by the push logging below: it is
+  not stalling.
 - **A sync push cycle now says what it looked for and what it decided, at debug level.** Two lines: per collection,
   the cursor it queried from and how many documents it found — empty passes included; and per cycle, the watermark
   before and after beside the counts pushed. Both are `log.debug`, so they cost nothing unless `DEBUG` is set.

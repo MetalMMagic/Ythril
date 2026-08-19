@@ -686,6 +686,31 @@ syncDocsRouter.post('/batch-upsert', syncRateLimit, requireAuth, denyReadOnly, a
       }
     }
 
+    /*
+     * X-20 instrumentation, the RECEIVER half — and it is the half that matters now.
+     *
+     * The sender's side is answered: with `DEBUG` on, its log shows it pushing the record and advancing its
+     * watermark, so it is not stalling. Reproduced under CPU contention 2026-08-20 (2 runs in 10): A pushes the
+     * memory at seq 2, gets a 200, moves its watermark to 2 — and B never serves that id, so the record is
+     * marked sent and will never be offered again.
+     *
+     * **A 200 says the batch was accepted, not that a record was stored**, and this handler has four ways to
+     * accept one and keep nothing: an existing tombstone at or above its seq (`tombstoned`), an already-current
+     * record (`skipped`), a fork chain at its cap (`forkDepthRefused`), and the same for the other three
+     * collections. Every one of those is COUNTED here and none of them was logged, so the decision existed and
+     * was thrown away with the response.
+     *
+     * The seq range is included because the counters alone cannot say WHICH records a number refers to, and the
+     * question is always about one specific id at one specific seq.
+     */
+    const range = (docs: { seq?: number }[]): string =>
+      docs.length === 0 ? '-' : `${Math.min(...docs.map(d => d.seq ?? 0))}..${Math.max(...docs.map(d => d.seq ?? 0))}`;
+    log.debug(`Batch-upsert accepted for space '${spaceId}': `
+      + `memories ${JSON.stringify(memStats)} seq ${range(memories)}; `
+      + `entities ${JSON.stringify(entStats)} seq ${range(entities)}; `
+      + `edges ${JSON.stringify(edgeStats)} seq ${range(edges)}; `
+      + `chrono ${JSON.stringify(chronoStats)} seq ${range(chrono)}`);
+
     res.status(200).json({ status: 'ok', memories: memStats, entities: entStats, edges: edgeStats, chrono: chronoStats });
 
     // Bump the local seq counter so future local writes always get a seq higher

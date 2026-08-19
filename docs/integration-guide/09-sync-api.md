@@ -176,6 +176,7 @@ error.
 **The `sinceSeq` you send is recorded.** The serving instance stores it as `lastSeqServed` for your peer identity and prunes tombstones that every member has pulled past — that is the only retention bound on the collection, because an age-based one would let a long-absent peer resurrect a deleted record. Two consequences for an integrator:
 
 - **Send your real watermark, and never a value higher than what you have applied.** Claiming a position you have not reached lets the other side drop tombstones you still need.
+  - **And a watermark shared across several transfers may only reach where ALL of them are complete.** A cycle that fetches tombstones plus four collections under one `sinceSeq` must limit its next `sinceSeq` to the lowest position among the transfers that stopped early — a non-`2xx`, or a page cap. Taking the maximum instead claims a position the stopped transfer never reached, and its unserved records then sit behind your watermark permanently while every later cycle looks successful. Our own engine had this defect until 3.2.0.
 - **A peer that never pulls tombstones blocks pruning for its spaces** — deliberately, since "has not pulled" and "has caught up" must not look alike.
 
 ### File Sync Artifacts

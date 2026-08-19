@@ -25,6 +25,8 @@ import { recordFileTombstoneAck, ackedPositionFrom } from './file-tombstone-ack.
 import { recordSyncResult, type SyncCounts } from './history.js';
 import { buildFileManifest } from '../files/manifest.js';
 import { log } from '../util/log.js';
+import { resolveWatermark, truncationWarn, type TransferOutcome } from './watermark.js';
+import { pullTombstones, pushTombstones } from './tombstone-transfer.js';
 import { applyConcludedSpaceRounds } from '../spaces/apply-wipe-round.js';
 import { bumpSeq, isSeqImplausible } from '../util/seq.js';
 import { peerSafeFetch, isPeerUrlAllowed, PEER_TRANSFER_TIMEOUT_MS } from './peer-fetch.js';
@@ -850,42 +852,37 @@ async function pullFromPeer(
   const memberState = freshNet?.members.find(m => m.instanceId === member.instanceId);
   const sinceSeq = memberState?.lastSeqReceived?.[spaceId] ?? 0;
 
-  // Pull tombstones first — so deletions apply before we potentially upsert deleted docs
-  try {
-    const tombsUrl = `${member.url}/api/sync/tombstones?spaceId=${encodeURIComponent(remoteSpaceId)}&networkId=${encodeURIComponent(networkId)}&sinceSeq=${sinceSeq}`;
-    const resp = await peerSafeFetch(tombsUrl, opts());
-    if (resp.ok) {
-      const data = await boundedJson<{ memories?: TombstoneDoc[]; entities?: TombstoneDoc[]; edges?: TombstoneDoc[]; chrono?: TombstoneDoc[] }>(resp, 'sync peer');
-      const all = [...(data.memories ?? []), ...(data.entities ?? []), ...(data.edges ?? []), ...(data.chrono ?? [])];
-      // The peer we pulled from is the authenticated source. Its own tombstones
-      // (issuer === member) are authorised; a tombstone it relays on behalf of a
-      // third author is refused here and applied instead when we sync directly
-      // with that author.
-      for (const t of all) { await applyRemoteTombstone(t, { peerInstanceId: member.instanceId }); }
-    }
-  } catch (err) {
-    log.warn(`pullFromPeer tombstones from ${member.label}: ${err}`);
-  }
+  // Tombstones first, so deletions apply before anything that would re-upsert a deleted doc. Both directions
+  // live in `sync/tombstone-transfer.ts`; its own doc block says why they belong together.
+  const tombstones = await pullTombstones({ member, spaceId, remoteSpaceId, networkId, sinceSeq, requestInit: opts });
 
   // Pull memories — use full=true to return complete docs in a single pass,
   // eliminating the N per-document secondary fetches that would be brutal over WAN.
   let highestSeq = sinceSeq;
   let overallMaxSeq = 0; // Track the highest seq seen across ALL items (used to bump local counter)
 
-  type PullResult = { count: number; highSeq: number; maxSeq: number };
+  type PullResult = { count: number; highSeq: number; maxSeq: number } & TransferOutcome;
   async function pullType<T extends MemoryDoc | EntityDoc | EdgeDoc | ChronoEntry>(
     urlSuffix: string,
   ): Promise<PullResult> {
     let count = 0, highSeq = sinceSeq, maxSeq = 0;
     let cur: string | null = null;
     let pg = 0;
+    // Complete THROUGH here. Pages arrive in ascending seq order, so the highest seq applied is also the
+    // position this transfer is complete up to — which is what a shared watermark needs when it stops early.
+    let deliveredThrough = sinceSeq;
+    let truncated = false;
     do {
       const params = new URLSearchParams({
         spaceId: remoteSpaceId, networkId, sinceSeq: String(sinceSeq), limit: '200', full: 'true',
         ...(cur ? { cursor: cur } : {}),
       });
       const resp = await peerSafeFetch(`${member.url}/api/sync/${urlSuffix}?${params}`, batchOpts());
-      if (!resp.ok) { log.warn(`Pull ${urlSuffix} from ${member.label} returned ${resp.status}`); break; }
+      if (!resp.ok) {
+        truncated = true;
+        log.warn(truncationWarn(`Pull ${urlSuffix} from`, member.label ?? '', spaceId, resp.status, deliveredThrough));
+        break;
+      }
       const { items, nextCursor } = await boundedJson<{
         items: (T | { _id: string; seq: number; deletedAt: string })[]; nextCursor: string | null;
       }>(resp, 'sync peer');
@@ -912,9 +909,20 @@ async function pullFromPeer(
         }
       }
       await batchUpsertBySeq<T>(`${spaceId}_${urlSuffix}`, pageDocs, spaceId);
+      // Only after the page is APPLIED. Recording it before the upsert would vouch for records that a throw
+      // between the two would have lost.
+      if (maxSeq > deliveredThrough) deliveredThrough = maxSeq;
       cur = nextCursor; pg++;
     } while (cur && pg < 50);
-    return { count, highSeq, maxSeq };
+    // The page cap is a truncation too, and it is the one that made "never advance on truncation" the wrong
+    // fix: this transfer genuinely has more to give, so it must keep the ceiling AND keep making progress.
+    // The page cap is a truncation too, and it is why "never advance on truncation" was the wrong fix: this
+    // transfer has more to give, so it must cap the watermark AND keep making progress.
+    if (cur) {
+      truncated = true;
+      log.warn(truncationWarn(`Pull ${urlSuffix} from`, member.label ?? '', spaceId, `${pg}-page cap`, deliveredThrough));
+    }
+    return { count, highSeq, maxSeq, deliveredThrough, truncated };
   }
 
   const memR = await pullType<MemoryDoc>('memories');
@@ -927,7 +935,21 @@ async function pullFromPeer(
   pulledEdges = edgeR.count;
   pulledChrono = chronoR.count;
 
-  highestSeq = Math.max(memR.highSeq, entR.highSeq, edgeR.highSeq, chronoR.highSeq);
+  /*
+   * ONE WATERMARK, FIVE TRANSFERS — so the max is only safe if all five finished.
+   *
+   * `Math.max` across the four types was the old rule, and it moved `lastSeqReceived` to a position a
+   * truncated type had not reached: its unserved records then sat behind the watermark for ever, while every
+   * later cycle reported success. `safeWatermark` lowers the ceiling to whatever the stopped transfers can
+   * actually vouch for. All five are passed, including the tombstones — an omitted transfer places no ceiling,
+   * which makes it exactly the one that gets skipped.
+   */
+  highestSeq = resolveWatermark({
+    direction: 'receive', peerLabel: member.label ?? member.instanceId, spaceId,
+    from: sinceSeq, candidate: Math.max(memR.highSeq, entR.highSeq, edgeR.highSeq, chronoR.highSeq),
+    transfers: { memories: memR, entities: entR, edges: edgeR, chrono: chronoR, tombstones },
+    warn: log.warn,
+  });
   overallMaxSeq = Math.max(memR.maxSeq, entR.maxSeq, edgeR.maxSeq, chronoR.maxSeq);
 
   // Bump the local seq counter so future local writes always get a seq higher
@@ -974,25 +996,8 @@ async function pushToPeer(
   const memberState = freshNet?.members.find(m => m.instanceId === member.instanceId);
   const lastSeqPushed = memberState?.lastSeqPushed?.[spaceId] ?? 0;
 
-  // Push tombstones — only those newer than the last push watermark
-  // Push tombstones — page through all tombstones since the last push watermark.
-  // A hard cap would silently drop deletions after long offline periods.
-  {
-    let tsCursor: number = lastSeqPushed;
-    const tsEndpoint = `${member.url}/api/sync/tombstones?spaceId=${encodeURIComponent(remoteSpaceId)}&networkId=${encodeURIComponent(networkId)}`;
-    while (true) {
-      const page = await listTombstones(spaceId, tsCursor, 500);
-      if (page.length === 0) break;
-      const resp = await peerSafeFetch(tsEndpoint, {
-        ...opts(),
-        method: 'POST',
-        body: JSON.stringify({ tombstones: page }),
-      });
-      if (!resp.ok) { log.warn(`Push tombstones to ${member.label}: ${resp.status}`); break; }
-      tsCursor = page[page.length - 1]!.seq;
-      if (page.length < 500) break;
-    }
-  }
+  // Tombstones first — paged, with no hard cap, since one would silently drop deletions after a long absence.
+  const tombstones = await pushTombstones({ member, spaceId, remoteSpaceId, networkId, lastSeqPushed, requestInit: opts });
 
   // Fetch only docs changed since the last push — read and send in PUSH_BATCH_SIZE
   // chunks directly from MongoDB without loading the whole result set into memory first.
@@ -1012,10 +1017,11 @@ async function pushToPeer(
   async function pushCollection<T extends MemoryDoc | EntityDoc | EdgeDoc | ChronoEntry>(
     collName: string,
     payloadKey: 'memories' | 'entities' | 'edges' | 'chrono',
-  ): Promise<{ pushed: number; maxSeq: number }> {
+  ): Promise<{ pushed: number; maxSeq: number } & TransferOutcome> {
     let pushed = 0;
     let localMaxSeq = lastSeqPushed;
     let seqCursor = lastSeqPushed;
+    let truncated = false;
     while (true) {
       const batch = await col<T>(collName)
         .find(asFilter<T>({ seq: { $gt: seqCursor }, ...ownedFilter }))
@@ -1028,7 +1034,8 @@ async function pushToPeer(
         body: JSON.stringify({ [payloadKey]: batch }),
       });
       if (!resp.ok) {
-        log.warn(`Batch push ${payloadKey} to ${member.label}: ${resp.status}`);
+        truncated = true;
+        log.warn(truncationWarn(`Batch push ${payloadKey} to`, member.label ?? '', spaceId, resp.status, seqCursor));
         break;
       }
       // A 200 does not mean every record landed: the peer can discard a memory whose fork chain is at its
@@ -1043,7 +1050,12 @@ async function pushToPeer(
       seqCursor = (batch[batch.length - 1] as MemoryDoc).seq;
       if (batch.length < PUSH_BATCH_SIZE) break;
     }
-    return { pushed, maxSeq: localMaxSeq };
+    // `deliveredThrough` is `seqCursor` — the last seq the peer ACCEPTED — and not `localMaxSeq`, which is
+    // author-guarded. The two answer different questions: `localMaxSeq` is how far our own records reached,
+    // `seqCursor` is how far this transfer got at all. Capping with the author-guarded number would let the
+    // watermark advance past a foreign doc that was never accepted, which on a pubsub or braintree network
+    // (where `ownedFilter` is empty and we relay everything) is a record only we were going to send.
+    return { pushed, maxSeq: localMaxSeq, deliveredThrough: seqCursor, truncated };
   }
 
   const memP = await pushCollection<MemoryDoc>(`${spaceId}_memories`, 'memories');
@@ -1055,7 +1067,13 @@ async function pushToPeer(
   pushedEntities = entP.pushed;
   pushedEdges = edgeP.pushed;
   pushedChrono = chronoP.pushed;
-  maxSeqPushed = Math.max(memP.maxSeq, entP.maxSeq, edgeP.maxSeq, chronoP.maxSeq);
+  // Same rule as the pull, same function — see `sync/watermark.ts` for why it is not two implementations.
+  maxSeqPushed = resolveWatermark({
+    direction: 'push', peerLabel: member.label ?? member.instanceId, spaceId,
+    from: lastSeqPushed, candidate: Math.max(memP.maxSeq, entP.maxSeq, edgeP.maxSeq, chronoP.maxSeq),
+    transfers: { memories: memP, entities: entP, edges: edgeP, chrono: chronoP, tombstones },
+    warn: log.warn,
+  });
 
   // Persist the push high-water mark so next sync only sends new/changed docs
   if (maxSeqPushed > lastSeqPushed) {

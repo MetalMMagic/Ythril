@@ -163,6 +163,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `remainder` also drops `inline`, which described the three-record sample that no longer exists. The number
   of records returned is `returned`, on every response.
 
+- **A truncated recall no longer writes a file nobody asked for — it tells you where to carry on instead.**
+  `recall` and `find-similar` gain **`skip`** and **`remainderDump`** on both doors, and a truncated response
+  gains **`nextSkip`**.
+
+  Two changes, and they are one change:
+
+  - **`skip`** — how many of the ranked matches to skip before filling the byte budget. A truncated response
+    carries `nextSkip`; send it back as `skip` and you get the next prefix, no match repeated and none missed.
+    Stated rather than derivable, because `skip + returned` is arithmetic a caller can get wrong on the second
+    page where `skip` was already non-zero. `count` stays the FULL match total on every page rather than
+    shrinking as you advance — the slice happens inside `budgetedEnvelope`, so no route can shorten its own
+    array and quietly redefine it.
+  - **`remainderDump`** — default **`false`**, and until now the dump was unconditional. Writing the remainder
+    to `_tmp/` is a **write on a read path**: it counts against space storage, and on breituai-platform's
+    instance those land in a store whose `storage_used_bytes` collector already takes ~22 s to walk, so a read
+    that overflowed made an operator's metrics slower. The common caller wants the next page, not an artifact.
+
+  **They ship together and must not be separated.** An opt-in dump with no stated continuation would leave a
+  truncated caller unable to reach the rest — the exact regression the byte budget shipped in its first cut and
+  had to fix. `nextSkip` is emitted unconditionally whenever `truncated`, with no flag of its own, and
+  `result-spill-suppresses-vectors.test.js` gates that dependency at the source because the failure mode is an
+  omission that looks complete on its own.
+
+  The paging clause is exercised rather than asserted-present: the E2E follows `nextSkip` to exhaustion under a
+  budget that bites and checks the union of pages against the seeded ids, because an off-by-one would satisfy
+  every presence assertion while dropping or duplicating a record on every page. `skip` and `remainderDump` are
+  validated by one shared `resolvePaging` on both doors — a `skip` that 400s on one and floors to zero on the
+  other is this codebase's most-produced defect, and `0` is valid so the check is not `posInt`.
+
+  **That E2E immediately found a defect older than `skip`, and it had to be fixed for `skip` to mean anything.**
+  A ranked recall had no deterministic order. Eleven ranking sorts were written by hand as
+  `(a, b) => rankOf(b) - rankOf(a)` with no tie-break, and `Array.prototype.sort` is stable — so two results on
+  the same score kept whatever order the DATABASE returned them in, and two identical recalls over an unchanged
+  corpus could come back permuted. The E2E's second page turned out to be entirely contained in its first.
+
+  Every one of the eleven now ends in a tie-break, `_id` ascending, through one shared `byRankThenId` — including
+  the member-space merge on **both doors**, which is the last sort before the response and the one a sweep scoped
+  to `brain/` would have missed. Three sorts keep ordering by RAW `score` rather than by `rankOf`, and that was
+  already correct: the pre-fusion sort establishes the vector ranking RRF consumes, the vector channel handed to
+  RRF must be the vector order by definition, and `find-similar` starts from a stored vector with no query text,
+  so there is no lexical or cross-encoder signal to prefer. `hybrid-retrieval.test.js` counts those three and was
+  right to; they gained the tie-break without changing which signal orders them.
+
+  `_id` rather than `seq` or `createdAt`: it is on every result type, unique by construction, and the only one of
+  the three that cannot tie in turn.
+
 ### Fixed
 
 - **The create-token dialog could not grant the two instance-level rights, so an instance admin had to be

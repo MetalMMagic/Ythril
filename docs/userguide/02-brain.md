@@ -170,13 +170,18 @@ search you can run without writing a request by hand:
   the search.
 - **When the answer itself does not fit** — a search result is also bounded by SIZE, not only by `topK`. Ask
   for a hundred matches with their surroundings and the answer can be larger than anything that should arrive
-  in one piece, so what fits comes back in full and the rest is written to the same kind of downloadable file,
-  valid for a day. Two things are guaranteed and they are the ones that matter: **every record you get is
-  whole** — never half a passage, never a record missing part of its graph — and the results you get are the
-  **top of the ranking**, in order, with nothing skipped in the middle. So a shortened answer is still the best
-  answers, and the file holds the tail rather than a copy of what you already have. The API calls the ceiling
-  `maxBytes`; through the search form you control the same thing by asking for fewer results or fewer graph
-  hops, and a search that comes back shortened is usually a sign the question was broader than intended.
+  in one piece, so what fits comes back in full and the answer says where to carry on from. Two things are
+  guaranteed and they are the ones that matter: **every record you get is whole** — never half a passage, never
+  a record missing part of its graph — and the results you get are the **top of the ranking**, in order, with
+  nothing skipped in the middle. So a shortened answer is still the best answers, and the next request picks up
+  exactly where this one stopped. The API calls the ceiling `maxBytes` and the continuation `skip`; through the
+  search form you control the same thing by asking for fewer results or fewer graph hops, and a search that
+  comes back shortened is usually a sign the question was broader than intended.
+  - **Getting the whole tail as one file is a request you make, not something that happens to you.** An API
+    caller can add `remainderDump` to have everything that did not fit written to a downloadable file in the
+    space, valid for a day. Until 3.2.0 that file was written on *every* shortened search whether anyone wanted
+    it or not, which quietly grew the space's storage and slowed the usage figures an operator reads. Now
+    nothing is written unless it was asked for.
 - **maxTimeMS** — a time limit for this one search. It can only make the search stricter than the instance's own budget, never looser. When the limit is reached you get a **partial** answer rather than an error or a hang: whatever finished is returned, and the result says it was cut short.
 - **Include fresh writes** — also scan the newest records directly, so something written seconds ago is findable before the index has caught up. It costs an extra scan per record type, so turn it on when you are looking for something you just wrote.
 - **Include content** — on by default. Turn it off to get passage *locations* without their text: useful when you want to find which document holds something and read only that part, since passage bodies are the largest thing a result carries.

@@ -103,6 +103,32 @@ export function resolveBudget(req: BudgetRequest, operatorDefault = DEFAULT_MAX_
   return { ok: true, bytes: Math.min(Math.max(chosen, MIN_MAX_BYTES), MAX_MAX_BYTES) };
 }
 
+/**
+ * `skip` and `remainderDump`, validated in ONE place for both doors.
+ *
+ * Kept beside `resolveBudget` rather than parsed per route for the reason `CLAUDE.md` names as this
+ * codebase's most-produced defect: two implementations of one rule, and the weaker one winning. A `skip`
+ * that 400s on one door and silently floors to zero on the other would make the behaviour depend on which
+ * client the caller picked.
+ */
+export type PagingResolution =
+  | { ok: true; skip: number; remainderDump: boolean }
+  | { ok: false; error: string };
+
+export function resolvePaging(req: { skip?: unknown; remainderDump?: unknown }): PagingResolution {
+  const { skip, remainderDump } = req;
+  // Zero IS valid, so `posInt` is the wrong test here — the first page is `skip: 0` and a caller looping on
+  // `nextSkip` has no reason to special-case its first call.
+  if (skip !== undefined
+      && !(typeof skip === 'number' && Number.isInteger(skip) && skip >= 0)) {
+    return { ok: false, error: '`skip` must be a non-negative integer number of matches to skip' };
+  }
+  if (remainderDump !== undefined && typeof remainderDump !== 'boolean') {
+    return { ok: false, error: '`remainderDump` must be a boolean' };
+  }
+  return { ok: true, skip: typeof skip === 'number' ? skip : 0, remainderDump: remainderDump === true };
+}
+
 export interface BudgetOutcome<T> {
   /** The prefix that fits. Every entry is WHOLE — never a partial record, never a partial subtree. */
   returned: T[];
@@ -170,6 +196,8 @@ export function budgetFields<T>(
   outcome: BudgetOutcome<T>,
   totalMatches: number,
   budgetBytes: number,
+  /** The offset this page started at, so `nextSkip` is absolute rather than relative to the page. */
+  skip = 0,
 ): Record<string, unknown> {
   return {
     returned: outcome.returned.length,
@@ -177,6 +205,19 @@ export function budgetFields<T>(
     truncated: outcome.truncated,
     budgetBytes,
     bytesReturned: outcome.bytesReturned,
+    /*
+     * WHERE TO CONTINUE FROM, present exactly when there is somewhere to continue to.
+     *
+     * This is what makes the dump safe to make optional. Clause 6b of the specification turns the remainder
+     * file into an opt-in, and 6a supplies `skip` — but the two must ship together, because an opt-in dump
+     * with no stated continuation would leave a truncated caller with no way to reach the rest. That is
+     * exactly the regression #969 shipped in its first cut and had to fix.
+     *
+     * Stated rather than derivable. `skip + returned` is arithmetic a caller could do, and a caller who has
+     * to do arithmetic to find the next page is a caller who can get it wrong — off by one, or forgetting
+     * that `skip` was already non-zero on this call. The server knows the answer; it says it.
+     */
+    ...(outcome.truncated ? { nextSkip: skip + outcome.returned.length } : {}),
   };
 }
 
@@ -197,10 +238,32 @@ export async function budgetedEnvelope<T, S>(opts: {
   results: readonly T[];
   budgetBytes: number;
   spillRemainder: (remainder: T[]) => Promise<S | null>;
+  /** Offset this page began at, so the reported continuation is absolute. */
+  skip?: number;
+  /**
+   * WRITE THE REMAINDER TO THE SPACE? Default NO — clause 6b, and the reason is that it is a WRITE ON A READ
+   * PATH.
+   *
+   * Every truncated recall used to write a file whether anyone wanted it or not. On breituai-platform's
+   * instance those land in a store whose `storage_used_bytes` collector already takes ~22 s to walk, so a
+   * read that overflows made an operator's metrics slower. And the common caller does not want the file at
+   * all — it wants the next page, which `skip` now gives.
+   *
+   * **This may only be optional BECAUSE `nextSkip` exists.** An opt-in dump without a stated continuation
+   * strands a truncated caller, which is precisely the regression #969 shipped in its first cut. The two
+   * clauses land together for that reason and must not be separated again.
+   */
+  remainderDump?: boolean;
 }): Promise<{ results: T[]; fields: Record<string, unknown> }> {
-  const outcome = applyBudget(opts.results, opts.budgetBytes);
-  const fields = budgetFields(outcome, opts.results.length, opts.budgetBytes);
-  if (outcome.truncated) {
+  // THE SLICE HAPPENS HERE, not at the eight call sites. A route that sliced its own array before calling
+  // this would hand over a shortened list, and `count` — documented as the total number of matches — would
+  // silently start reporting the total AFTER the skip. A caller paging through would watch `count` shrink
+  // page by page and have nothing left that states how big the answer actually is.
+  const skip = opts.skip ?? 0;
+  const page = skip > 0 ? opts.results.slice(skip) : opts.results;
+  const outcome = applyBudget(page, opts.budgetBytes);
+  const fields = budgetFields(outcome, opts.results.length, opts.budgetBytes, skip);
+  if (outcome.truncated && opts.remainderDump === true) {
     const spill = await opts.spillRemainder(outcome.remainder);
     if (spill) fields['remainder'] = spill;
   }

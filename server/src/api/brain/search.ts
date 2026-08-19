@@ -36,11 +36,11 @@ import { reindexInProgress } from '../../metrics/registry.js';
 import { UUID_V4_RE } from './_shared.js';
 import { buildErModel } from '../../brain/er-model.js';
 import {
-  rankOf, mergeRecallResults, withoutDiagnostics, RECALL_ENVELOPE_KEYS,
+  rankOf, byRankThenId, mergeRecallResults, withoutDiagnostics, RECALL_ENVELOPE_KEYS,
 } from '../../brain/recall-shape.js';
 import { mapGraphNodes, graphNodeRecord } from '../../brain/recall-graph.js';
 import { applyProjection, normaliseProjection, type NormalisedProjection } from '../../brain/projection.js';
-import { resolveBudget, budgetedEnvelope, type BudgetRequest } from '../../brain/result-budget.js';
+import { resolveBudget, resolvePaging, budgetedEnvelope, type BudgetRequest } from '../../brain/result-budget.js';
 import { sendReadFailure, statesRetryability } from './_read-failure.js';
 
 export const searchRouter = Router();
@@ -532,6 +532,11 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
     // plus a whole-set dump — a shape that roughly DOUBLED the caller's cost rather than reducing it.
     const budget = resolveBudget(req.body as BudgetRequest);
     if (!budget.ok) { res.status(400).json({ error: budget.error }); return; }
+    // `skip` (clause 6a) and `remainderDump` (6b), resolved together and by ONE function for both doors —
+    // a `skip` that 400s here and silently floors to zero on MCP would make the behaviour depend on which
+    // client the caller happened to pick, which is the parity defect `CLAUDE.md` calls the half that hides.
+    const paging = resolvePaging(req.body as { skip?: unknown; remainderDump?: unknown });
+    if (!paging.ok) { res.status(400).json({ error: paging.error }); return; }
 
     const degraded: string[] = [];
     const all = (await Promise.all(
@@ -542,7 +547,7 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
     // vector score here silently threw both away, so hybrid ranking and reranking were undone at the
     // last step on every REST recall — including a single-space one, which still passes through this
     // merge with one member.
-    all.sort((x, y) => rankOf(y) - rankOf(x));
+    all.sort(byRankThenId);
     // A proxy space fans out to N members, and each one honoured `maxPerType` for itself — so without this
     // second pass a ceiling of 2 across three members would return six. The ceiling describes the ANSWER,
     // so it is enforced where the answer is assembled, using the same function rather than a second cap
@@ -579,6 +584,8 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
       const plainBudgeted = await budgetedEnvelope({
         results: plain,
         budgetBytes: budget.bytes,
+        skip: paging.skip,
+        remainderDump: paging.remainderDump,
         spillRemainder: remainder => spillResultSet({
           memberSpaceId: seeds[0]?.spaceId ?? spaceId,
           results: remainder,
@@ -628,6 +635,8 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
     const budgeted = await budgetedEnvelope({
       results,
       budgetBytes: budget.bytes,
+      skip: paging.skip,
+      remainderDump: paging.remainderDump,
       spillRemainder: remainder => spillResultSet({
         memberSpaceId: seeds[0]?.spaceId ?? spaceId,
         results: remainder,
@@ -718,7 +727,9 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
   // Same budget, same resolver. find-similar returns recall RESULTS, so a cap that applied to one route and
   // not the other would be the asymmetry this area has spent three releases removing.
   const budget = resolveBudget(body as BudgetRequest);
+  const paging = resolvePaging(body as { skip?: unknown; remainderDump?: unknown });
   if (!budget.ok) { res.status(400).json({ error: budget.error }); return; }
+  if (!paging.ok) { res.status(400).json({ error: paging.error }); return; }
 
 
   if (!entryId || !UUID_V4_RE.test(entryId)) {
@@ -767,6 +778,8 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
       const plainItemsBudgeted = await budgetedEnvelope({
         results: plainItems,
         budgetBytes: budget.bytes,
+        skip: paging.skip,
+        remainderDump: paging.remainderDump,
         spillRemainder: remainder => spillResultSet({
           memberSpaceId: result.results[0]?.spaceId ?? spaceId,
           results: remainder,
@@ -803,6 +816,8 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
     const itemsBudgeted = await budgetedEnvelope({
       results: items,
       budgetBytes: budget.bytes,
+      skip: paging.skip,
+      remainderDump: paging.remainderDump,
       spillRemainder: remainder => spillResultSet({
         memberSpaceId: result.results[0]?.spaceId ?? spaceId,
         results: remainder,

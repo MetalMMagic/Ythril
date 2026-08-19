@@ -223,7 +223,7 @@ export function mergeRecallResults(
   // rather than the best N. Both were masked by every production caller sorting first — and `applyRerank`
   // and `applyLexicalFusion` mutate the scores AFTER that sort, so "the caller sorted" was not even reliably
   // true. A copy, because reordering an argument is a side effect a caller cannot see.
-  const ranked = [...allResults].sort((a, b) => rankOf(b) - rankOf(a));
+  const ranked = [...allResults].sort(byRankThenId);
 
   const fill: RecallResult[] = [];
   for (const r of ranked) {
@@ -241,7 +241,7 @@ export function mergeRecallResults(
   // Order by the cross-encoder when it answered, otherwise by vector similarity. `??` rather than a
   // separate branch so a partial rerank — a provider that scored some passages and not others — still
   // orders sensibly instead of collapsing the unscored ones to the bottom.
-  final.sort((a, b) => rankOf(b) - rankOf(a));
+  final.sort(byRankThenId);
   // minScore filters on `score`, never on `rerankScore`. The two are different scales, and a caller's
   // threshold was written against vector similarity; silently reinterpreting it against a cross-encoder's
   // logit would change which results a fixed threshold returns without anyone touching the threshold.
@@ -258,6 +258,41 @@ export function mergeRecallResults(
  * and the vector score saw one. `??` rather than branches so a partial signal — some records reranked,
  * some not — still orders sensibly instead of collapsing the unscored ones to the bottom.
  */
+/**
+ * The tie-break every ranking sort in recall ends with: `_id` ascending.
+ *
+ * ## Why a ranked answer needs one at all
+ *
+ * `Array.prototype.sort` is stable, so a comparator that returns 0 for two results leaves them in the order
+ * the INPUT happened to have — and that input is whatever the database returned. Two identical recalls over an
+ * unchanged corpus could therefore come back in different orders, and nothing anywhere said which.
+ *
+ * That was tolerable while an answer was always whole. It stopped being tolerable when `skip` arrived: a
+ * caller continues from `returned`, so a permutation between two pages repeats some matches and drops others,
+ * silently, with no way to detect it. Caught by the paging E2E on 28 near-identically-scored records — page
+ * two was entirely contained in page one.
+ *
+ * `_id` rather than `seq` or `createdAt`: it is present on every result type, it is unique by construction, and
+ * it is the only one of the three that cannot tie in turn.
+ */
+export function byIdAsc(a: { _id: string }, b: { _id: string }): number {
+  return a._id < b._id ? -1 : a._id > b._id ? 1 : 0;
+}
+
+/**
+ * THE ranking comparator — effective rank descending, then `_id`.
+ *
+ * One implementation rather than the eleven hand-written comparators this replaced — seven in `recall.ts`, two
+ * here, and one member-space merge on each door. Exactly the shape `CLAUDE.md` names as this codebase's
+ * most-produced defect: one rule, several copies, and the copy that forgets is the one that decides an answer.
+ *
+ * The two door-side merges are the ones a sweep would miss. They are the LAST sort before the response, and
+ * they live in `api/brain/search.ts` and `mcp/tools/search.ts` rather than anywhere named after ranking.
+ */
+export function byRankThenId(a: RecallResult, b: RecallResult): number {
+  return rankOf(b) - rankOf(a) || byIdAsc(a, b);
+}
+
 export function rankOf(r: RecallResult): number {
   return r.rerankScore ?? r.fusedScore ?? r.score ?? 0;
 }

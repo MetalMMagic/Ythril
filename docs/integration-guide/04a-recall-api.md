@@ -36,9 +36,11 @@ Available as both:
 | `includeContent` | — | `true` | Whether file-chunk results carry `content` — the passage body. `false` returns locations and metadata only (path, heading, chunk index, tags, properties). **File chunks ONLY** — it does nothing on a search returning entities, memories, edges or chrono entries; use `projection` to trim those. A non-boolean is a `400`, never coerced |
 | `includeDiagnostics` | — | `false` | Add back the fields a result carries for the SYSTEM rather than for you: `matchedText` (the exact pre-embedding source string — for a file chunk, the passage a SECOND time), `embeddingModel`, `seq`, and the per-stage `lexicalScore`/`fusedScore`/`rerankScore`. **Applies recursively**, so a `traverse` answer's `_graph` nodes and edges follow it at every depth. Off by default since 3.1.0 — before then this door sent all six unconditionally while MCP sent none. The embedding VECTOR is not among them and is never returned by anything. A non-boolean is a `400`, never coerced |
 | `projection` | — | none | Fields to include (1) or exclude (0), the same grammar `POST /query` takes, applied to each result's record. Dotted paths work: `{"name": 1, "properties.status": 1}`. **Applies recursively** — a `traverse` answer's `_graph` nodes and edges are projected at every depth, which is where a large answer's size actually comes from. Inclusion and exclusion cannot be mixed (the non-`_id` fields decide which you meant); `_id` survives an inclusion projection unless you send `_id: 0`; and the embedding VECTOR can never be projected back in — an explicit `embedding: 1` is dropped rather than honoured. The ranking envelope (`score`, `spaceId`, `type`, `_graph`) always survives, so a projection cannot lose the score you searched for |
-| `maxBytes` | — | `100000` | Ceiling on the serialised response body, in bytes. **The answer is a PREFIX of the ranked results and every record in it is WHOLE** — full body, full properties, complete `_graph`, byte-identical to that record from an unbudgeted call. Truncation is atomic at the match: the first match whose subtree would not fit is omitted and so is everything after it, so no answer has a gap and none carries a record with half its graph. `returned`, `count`, `truncated`, `budgetBytes` and `bytesReturned` are on EVERY response, so absence never has to be interpreted; `remainder` points at what did not fit |
+| `maxBytes` | — | `100000` | Ceiling on the serialised response body, in bytes. **The answer is a PREFIX of the ranked results and every record in it is WHOLE** — full body, full properties, complete `_graph`, byte-identical to that record from an unbudgeted call. Truncation is atomic at the match: the first match whose subtree would not fit is omitted and so is everything after it, so no answer has a gap and none carries a record with half its graph. `returned`, `count`, `truncated`, `budgetBytes` and `bytesReturned` are on EVERY response, so absence never has to be interpreted; a truncated one adds `nextSkip`, which you send back as `skip` |
 | `maxTokens` | — | none | A convenience onto `maxBytes`, converted with `charsPerToken`. If both are sent the **smaller** resulting byte figure applies. It is an approximation — the server does not know your tokeniser |
 | `charsPerToken` | — | `3.5` | Ratio used to convert `maxTokens` to bytes. 3.5 rather than the customary 4.0 because 4.0 UNDER-counts tokens and is worst on graph-heavy responses: undershooting costs one page, overshooting costs a blown context |
+| `skip` | — | `0` | How many of the ranked matches to skip before filling the byte budget. **This is how you read a truncated answer**: a response with `truncated: true` carries `nextSkip`, and sending it back gets you the next prefix — no match repeated, none missed. The ranking is recomputed per call, so it is a continuation over one ordered answer rather than a cursor over a snapshot |
+| `remainderDump` | — | `false` | Also write the matches that did not fit to the space as JSON and report it as `remainder`. Only meaningful when the answer truncates. Off by default because it is a write on a read path that counts against space storage — page with `skip` to reach the same records without one |
 
 **Response** `200`:
 
@@ -431,13 +433,11 @@ counting rows never double-counts a record, and no relationship is invisible.
 
 **Performance:** traversal issues roughly two batched (`$in`) MongoDB queries per hop, not one query per node. Even so, `traverse > 2` on a densely-connected graph can fan out quickly — pair it with `filter`, `tags`, or a low `topK` to keep the seed set (and therefore the traversal frontier) tight.
 
-#### A large answer comes back as a prefix and a link to the rest
+#### A large answer comes back as a prefix, and you page through the rest
 
-A recall cannot be paged — `topK` is the answer, not a window into it — so an answer that is too large to return
-has nowhere to go. The response is bounded by **`maxBytes`** (operator default 100 000; `maxTokens` is the same
-control expressed in tokens, and if you send both the smaller wins). What fits comes back as the **longest
-prefix of the ranked matches**, every record whole; what does not fit is written to the space's `_tmp/` as JSON
-and reachable through an authenticated download:
+The response is bounded by **`maxBytes`** (operator default 100 000; `maxTokens` is the same control expressed
+in tokens, and if you send both the smaller wins). What fits comes back as the **longest prefix of the ranked
+matches**, every record whole, and `nextSkip` says where to continue from:
 
 ```json
 {
@@ -448,6 +448,50 @@ and reachable through an authenticated download:
   "budgetBytes": 100000,
   "bytesReturned": 99612,
   "graphNodes": 240,
+  "nextSkip": 22
+}
+```
+
+- **The five accounting fields are on EVERY response**, whether the budget bit or not: `returned`, `count`,
+  `truncated`, `budgetBytes`, `bytesReturned`. A field that appeared only when it bit would be one whose
+  absence has to be interpreted, and the caller who most needs it is the one who does not know to look.
+- **`count` is the real total**, never what was sent, and it stays the total on every page rather than shrinking
+  as you advance. `returned` is what was sent, and it is `results.length` — read `returned` and you never have
+  to count.
+- **`nextSkip` appears exactly when `truncated` is true.** Send it back as `skip` and you get the next prefix.
+  It is stated rather than left as arithmetic on purpose: `skip + returned` is a sum a caller can get wrong,
+  especially the second time round when `skip` was already non-zero.
+- **Truncation is atomic at the match, and the answer is always a prefix.** The first match whose complete
+  `_graph` subtree would not fit is omitted and so is every match after it, even a later smaller one. No
+  answer has a hole in the middle and no record arrives with half its graph. **That is what makes `skip`
+  correct** — a budget that packed the gaps with smaller matches would produce pages no offset can continue.
+- **A single match larger than the whole budget is still returned, alone.** A budget must not become a wall.
+
+##### Paging with `skip`
+
+```json
+{ "query": "vault credential rotation", "topK": 100, "maxBytes": 40000, "skip": 22 }
+```
+
+Loop while `truncated`, feeding `nextSkip` back as `skip`; the page that comes back with `truncated: false`
+carries no `nextSkip` and is the last one. Skipping past the end returns zero results with `truncated: false`.
+
+**This is a continuation over one ranked answer, not a cursor over a snapshot.** Each call re-runs the search,
+so a write landing between two pages can shift what falls where — the same caveat `/query`'s `skip` carries. For
+a set that must be internally consistent, ask for the remainder as a file instead.
+
+**The ranking itself is deterministic, though**, which is what makes paging usable in the ordinary case: results
+on the same score are ordered by `_id` ascending, so an unchanged corpus always produces the same order. Before
+3.2.0 it did not — equally-scored matches came back in whatever order the database gave, so two identical recalls
+could be permuted.
+
+##### `remainderDump`: the whole remainder as one file (opt-in)
+
+Send **`remainderDump: true`** and the matches that did not fit are also written to the space's `_tmp/` as JSON,
+reachable through an authenticated download, and reported as `remainder`:
+
+```json
+{
   "remainder": {
     "matches": 78,
     "records": 264,
@@ -458,20 +502,16 @@ and reachable through an authenticated download:
 }
 ```
 
-- **The five accounting fields are on EVERY response**, whether the budget bit or not: `returned`, `count`,
-  `truncated`, `budgetBytes`, `bytesReturned`. A field that appeared only when it bit would be one whose
-  absence has to be interpreted, and the caller who most needs it is the one who does not know to look.
-- **`count` is the real total**, never what was sent. `returned` is what was sent, and it is
-  `results.length` — read `returned` and you never have to count.
+- **It defaults to off, and until 3.2.0 it was unconditional.** Writing a file is a write on a read path: it
+  counts against space storage and shows up in an operator's usage figures. The common caller wants the next
+  page, not an artifact, and now says so by omission.
 - **`remainder` holds ONLY what did not fit.** It is a continuation, not a copy: the records already in
-  `results` are not repeated in it. The previous shape dumped the whole set including the part already sent,
+  `results` are not repeated in it. The pre-3.2 shape dumped the whole set including the part already sent,
   which is most of why it cost a caller more than it saved.
 - **`remainder.matches` and `remainder.records` describe the FILE** — matches in it, and matches plus their
   traversed nodes. Both are counted from what was actually written, so neither can disagree with the download.
-- **Truncation is atomic at the match, and the answer is always a prefix.** The first match whose complete
-  `_graph` subtree would not fit is omitted and so is every match after it, even a later smaller one. No
-  answer has a hole in the middle and no record arrives with half its graph.
-- **A single match larger than the whole budget is still returned, alone.** A budget must not become a wall.
+- **`nextSkip` is still there when you ask for the file**, so wanting the artifact never costs you the ability
+  to page.
 - The file is **self-describing**: it repeats the request that produced it, the counts, and its own expiry.
 - **No embedding vectors are written**, at any depth — a result set serialised verbatim is the one place they
   would otherwise land in a file an operator opens.
@@ -682,9 +722,11 @@ Given an existing entry's `_id`, find other entries with high vector similarity.
 | `includeContent` | — | `true` | Whether file-chunk results carry their passage `content`. `false` returns locations and metadata only, exactly as on `recall` |
 | `includeDiagnostics` | — | `false` | Add back the fields a result carries for the SYSTEM rather than for you: `matchedText` (the exact pre-embedding source string — for a file chunk, the passage a SECOND time), `embeddingModel`, `seq`, and the per-stage `lexicalScore`/`fusedScore`/`rerankScore`. **Applies recursively**, so a `traverse` answer's `_graph` nodes and edges follow it at every depth. Off by default since 3.1.0 — before then this door sent all six unconditionally while MCP sent none. The embedding VECTOR is not among them and is never returned by anything. A non-boolean is a `400`, never coerced |
 | `projection` | — | none | Fields to include (1) or exclude (0), the same grammar `POST /query` takes, applied to each result's record. Dotted paths work: `{"name": 1, "properties.status": 1}`. **Applies recursively** — a `traverse` answer's `_graph` nodes and edges are projected at every depth, which is where a large answer's size actually comes from. Inclusion and exclusion cannot be mixed (the non-`_id` fields decide which you meant); `_id` survives an inclusion projection unless you send `_id: 0`; and the embedding VECTOR can never be projected back in — an explicit `embedding: 1` is dropped rather than honoured. The ranking envelope (`score`, `spaceId`, `type`, `_graph`) always survives, so a projection cannot lose the score you searched for |
-| `maxBytes` | — | `100000` | Ceiling on the serialised response body, in bytes. **The answer is a PREFIX of the ranked results and every record in it is WHOLE** — full body, full properties, complete `_graph`, byte-identical to that record from an unbudgeted call. Truncation is atomic at the match: the first match whose subtree would not fit is omitted and so is everything after it, so no answer has a gap and none carries a record with half its graph. `returned`, `count`, `truncated`, `budgetBytes` and `bytesReturned` are on EVERY response, so absence never has to be interpreted; `remainder` points at what did not fit |
+| `maxBytes` | — | `100000` | Ceiling on the serialised response body, in bytes. **The answer is a PREFIX of the ranked results and every record in it is WHOLE** — full body, full properties, complete `_graph`, byte-identical to that record from an unbudgeted call. Truncation is atomic at the match: the first match whose subtree would not fit is omitted and so is everything after it, so no answer has a gap and none carries a record with half its graph. `returned`, `count`, `truncated`, `budgetBytes` and `bytesReturned` are on EVERY response, so absence never has to be interpreted; a truncated one adds `nextSkip`, which you send back as `skip` |
 | `maxTokens` | — | none | A convenience onto `maxBytes`, converted with `charsPerToken`. If both are sent the **smaller** resulting byte figure applies. It is an approximation — the server does not know your tokeniser |
 | `charsPerToken` | — | `3.5` | Ratio used to convert `maxTokens` to bytes. 3.5 rather than the customary 4.0 because 4.0 UNDER-counts tokens and is worst on graph-heavy responses: undershooting costs one page, overshooting costs a blown context |
+| `skip` | — | `0` | How many of the ranked matches to skip before filling the byte budget. **This is how you read a truncated answer**: a response with `truncated: true` carries `nextSkip`, and sending it back gets you the next prefix — no match repeated, none missed. The ranking is recomputed per call, so it is a continuation over one ordered answer rather than a cursor over a snapshot |
+| `remainderDump` | — | `false` | Also write the matches that did not fit to the space as JSON and report it as `remainder`. Only meaningful when the answer truncates. Off by default because it is a write on a read path that counts against space storage — page with `skip` to reach the same records without one |
 | `crossSpace` | — | `false` | If `true`, search across all spaces the token can access |
 
 **Response** `200`:

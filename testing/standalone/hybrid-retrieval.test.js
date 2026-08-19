@@ -258,13 +258,19 @@ describe('every aggregation site orders by rankOf, not by raw score', () => {
   const sortsByRawScore = src =>
     (src.match(/\.sort\(\([^)]*\)\s*=>\s*\(?[a-z]\.score\s*\?\?\s*0\)?\s*-/g) ?? []).length;
 
-  it('the REST recall route merges member spaces with rankOf', () => {
-    assert.ok(/all\.sort\(\(x, y\) => rankOf\(y\) - rankOf\(x\)\)/.test(rest));
+  // The expression this used to spell out is now `byRankThenId`, the shared comparator — same rule, plus a
+  // deterministic tie-break. Rewritten rather than renumbered: asserting the old literal would now be
+  // asserting the absence of the tie-break, and this member merge is the LAST sort before the response, so a
+  // tie left to the database order here is what a paging caller sees as a repeated record.
+  it('the REST recall route merges member spaces by rank, not raw score', () => {
+    assert.ok(/all\.sort\(byRankThenId\)/.test(rest),
+      'the member merge must use the shared rank comparator');
     assert.equal(sortsByRawScore(rest), 0, 'no recall path in this file may sort by raw score');
   });
 
-  it('the MCP recall tool merges member spaces with rankOf', () => {
-    assert.ok(/all\.sort\(\(x, y\) => rankOf\(y\) - rankOf\(x\)\)/.test(mcp));
+  it('the MCP recall tool merges member spaces by rank, not raw score', () => {
+    assert.ok(/all\.sort\(byRankThenId\)/.test(mcp),
+      'the member merge must use the shared rank comparator');
     assert.equal(sortsByRawScore(mcp), 0, 'no recall path in this file may sort by raw score');
   });
 
@@ -274,6 +280,9 @@ describe('every aggregation site orders by rankOf, not by raw score', () => {
   });
 
   it('the raw-score sorts left in recall.ts are the ones that MUST be raw', () => {
+    // Each of the three now ends in `|| byIdAsc(a, b)`, which does not change WHICH signal orders them — it
+    // only makes a tie land the same way twice. The count below is unaffected: the pattern matches the head of
+    // the comparator.
     // Three survive on purpose, and none of them is an output ordering:
     //   1. the pre-fusion sort, which ESTABLISHES the vector ranking fusion consumes;
     //   2. the vector channel handed to RRF, which must be the vector order by definition;

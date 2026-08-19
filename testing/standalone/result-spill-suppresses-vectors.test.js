@@ -160,6 +160,58 @@ describe('the remainder is written out, with a TTL', () => {
     }
   });
 
+  it('every result path passes the paging through — all eight, on both doors', () => {
+    /*
+     * THE SAME SHAPE AS THE DEFECT THAT MADE THIS FILE, one clause later.
+     *
+     * The record cap was applied in four of eight result paths and missing from the others; an E2E found it,
+     * because every rule the source gate checked was true in the branch it looked at. `skip` and
+     * `remainderDump` are now the same kind of thing: eight sites, one rule, and a site that forgets them
+     * silently serves page one to a caller asking for page two and writes a file nobody wanted.
+     */
+    for (const [name, src] of [['REST', read('server/src/api/brain/search.ts')],
+                               ['MCP', read('server/src/mcp/tools/search.ts')]]) {
+      const envelopes = (src.match(/budgetedEnvelope\(\{/g) ?? []).length;
+      const skips = (src.match(/skip: paging\.skip,/g) ?? []).length;
+      const dumps = (src.match(/remainderDump: paging\.remainderDump,/g) ?? []).length;
+      assert.equal(skips, envelopes,
+        `${name}: ${envelopes} budgeted paths but ${skips} pass \`skip\` — a path that drops it re-serves the `
+        + 'first page to a caller who asked to continue');
+      assert.equal(dumps, envelopes,
+        `${name}: ${envelopes} budgeted paths but ${dumps} pass \`remainderDump\` — a path that drops it `
+        + 'writes a file on a read that did not ask for one');
+      // Validated in ONE place, not parsed per route: a `skip` that 400s on one door and floors to zero on
+      // the other is this codebase's most-produced defect, and both doors call the same resolver for that
+      // reason.
+      assert.match(src, /resolvePaging\(/, `${name} must resolve paging through the shared validator`);
+      assert.doesNotMatch(src, /Number\(\s*(req\.body|a)\[['"]skip['"]\]/,
+        `${name} parses \`skip\` itself — the second implementation is the one that ends up weaker`);
+    }
+  });
+
+  it('the continuation and the opt-in dump cannot be separated', () => {
+    /*
+     * The dump is only ALLOWED to be optional because there is another way to the remainder. That is one
+     * dependency between two clauses, and it lives in `budgetFields`: `nextSkip` is emitted exactly when
+     * `truncated`, unconditionally, with no flag of its own.
+     *
+     * Gated at the source because the failure is an omission. Making the dump opt-in is a one-line change and
+     * looks complete on its own; the response it produces is a caller told there is more with nothing to act
+     * on, which is the regression #969 shipped in its first cut and had to fix.
+     */
+    const budget = read('server/src/brain/result-budget.ts');
+    assert.match(budget, /\.\.\.\(outcome\.truncated \? \{ nextSkip: skip \+ outcome\.returned\.length \} : \{\}\)/,
+      'nextSkip must be emitted whenever the answer truncated, and be absolute rather than page-relative');
+    assert.match(budget, /if \(outcome\.truncated && opts\.remainderDump === true\)/,
+      'the dump must be gated on an explicit true — a truthy check would make any value opt in');
+    // `count` is the FULL total on a skipped page, which requires slicing inside the envelope rather than at
+    // the call sites. A route that shortened its own array would make `count` shrink page by page.
+    assert.match(budget, /const page = skip > 0 \? opts\.results\.slice\(skip\) : opts\.results;/,
+      'the skip must be applied inside the envelope, or `count` stops reporting the total');
+    assert.match(budget, /budgetFields\(outcome, opts\.results\.length, opts\.budgetBytes, skip\)/,
+      'and the total handed to budgetFields must be the pre-skip length');
+  });
+
   it('`count` still reports the real total, not the sample', () => {
     // The sample is three; a caller who read `count: 3` would conclude the space holds three matching records.
     // `count` moved into `budgetFields`, which is the point: one definition instead of four sites each

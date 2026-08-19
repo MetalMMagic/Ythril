@@ -584,16 +584,22 @@ On a **proxy space** the page is computed over the **merged** set of all member 
 the first `skip + limit` rows from each member, merges them into the documented order, and returns the window. A deep
 page therefore costs more on a proxy space than on a plain one, but it is the same page.
 
-#### A read result too large to return inline is bounded, and the rest is downloadable
+#### A read result too large to return inline is bounded, and you page through the rest
 
 `recall` and `find-similar` bound the response by **`maxBytes`** (operator default 100 000; `maxTokens` is the
 same ceiling in tokens, and the smaller of the two wins). What fits comes back as the longest **prefix** of the
-ranked matches, every record whole; what does not fit is written to the space's `_tmp/` as JSON and reported as
-`remainder: {matches, records, path, download, expiresAt}`.
+ranked matches, every record whole, and `nextSkip` says where to continue from — send it back as **`skip`** for
+the next prefix, with no match repeated and none missed.
 
 `returned`, `count`, `truncated`, `budgetBytes` and `bytesReturned` are on **every** response, whether the
-budget bit or not, so an absence never has to be interpreted. `remainder` carries **only** what did not fit —
-it is a continuation, not a copy. The file carries no embedding vectors and expires after one day.
+budget bit or not, so an absence never has to be interpreted; `nextSkip` is there exactly when `truncated` is.
+`count` stays the FULL total on a skipped page rather than shrinking as you advance.
+
+**`remainderDump: true`** additionally writes what did not fit to the space's `_tmp/` as JSON and reports it as
+`remainder: {matches, records, path, download, expiresAt}`. It is off by default because writing a file on a
+read path counts against space storage and most callers want the next page rather than an artifact. `remainder`
+carries **only** what did not fit — a continuation, not a copy. The file carries no embedding vectors and
+expires after one day.
 
 > **This replaced a 25-record cap that collapsed the answer to three inline matches plus a download of
 > everything**, including the three already sent. `read_file` takes no offset or limit, so that roughly doubled
@@ -617,9 +623,9 @@ keys:
 | Route | Accepted fields |
 |---|---|
 | `POST /query` | `collection`, `filter`, `projection`, `limit`, `skip`, `sort`, `dir`, `maxTimeMS` |
-| `POST /recall` | `query`, `topK`, `types`, `minScore`, `filter`, `traverse`, `tags`, `minPerType`, `maxPerType`, `maxTimeMS`, `includeFreshWrites`, `includeContent`, `includeDiagnostics`, `projection`, `maxBytes`, `maxTokens`, `charsPerToken` |
+| `POST /recall` | `query`, `topK`, `types`, `minScore`, `filter`, `traverse`, `tags`, `minPerType`, `maxPerType`, `maxTimeMS`, `includeFreshWrites`, `includeContent`, `includeDiagnostics`, `projection`, `maxBytes`, `maxTokens`, `charsPerToken`, `skip`, `remainderDump` |
 | `POST /traverse` | `startId`, `direction`, `edgeLabels`, `maxDepth`, `limit`, `includeChrono`, `includeMemories`, `includeFiles`, `includeEdges` |
-| `POST /find-similar` | `entryId`, `entryType`, `topK`, `minScore`, `targetTypes`, `traverse`, `includeContent`, `includeDiagnostics`, `projection`, `maxBytes`, `maxTokens`, `charsPerToken`, `crossSpace` *(deprecated, still accepted)* |
+| `POST /find-similar` | `entryId`, `entryType`, `topK`, `minScore`, `targetTypes`, `traverse`, `includeContent`, `includeDiagnostics`, `projection`, `maxBytes`, `maxTokens`, `charsPerToken`, `skip`, `remainderDump`, `crossSpace` *(deprecated, still accepted)* |
 
 ```json
 {

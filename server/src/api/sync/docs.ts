@@ -554,7 +554,9 @@ syncDocsRouter.post('/batch-upsert', syncRateLimit, requireAuth, denyReadOnly, a
     const chrono = plausible(chronoRaw, 'chrono');
 
     // ── Memories ─────────────────────────────────────────────────────────
-    const memStats = { inserted: 0, updated: 0, forked: 0, skipped: 0, tombstoned: 0 };
+    // `skipped` = the peer is already current (benign). `forkDepthRefused` = a record was DROPPED. They were
+    // one counter until 2026-08-19, which is why the lossy one had never been seen.
+    const memStats = { inserted: 0, updated: 0, forked: 0, skipped: 0, forkDepthRefused: 0, tombstoned: 0 };
     for (const incoming of memories) {
       const tomb = await col<TombstoneDoc>(`${spaceId}_tombstones`)
         .findOne(asFilter<TombstoneDoc>({ _id: incoming._id, type: 'memory' })) as TombstoneDoc | null;
@@ -578,7 +580,27 @@ syncDocsRouter.post('/batch-upsert', syncRateLimit, requireAuth, denyReadOnly, a
       } else if (incoming.seq === existing.seq && incoming.fact !== existing.fact) {
         // Cap fork chains to prevent unbounded growth
         const depth = await forkChainDepth(spaceId, incoming._id);
-        if (depth >= MAX_FORK_DEPTH) { memStats.skipped++; continue; }
+        if (depth >= MAX_FORK_DEPTH) {
+          /*
+           * A DROPPED RECORD, and it used to be counted as `skipped` alongside "I already have this".
+           *
+           * Those two outcomes could not be more different. The common `skipped` — `existing.seq >=
+           * incoming.seq` — means the peer is already current: nothing is lost and the sender is right to
+           * advance past it. THIS one means divergent content at the same seq that cannot fork any deeper,
+           * so the incoming version is discarded. Sharing one integer made the lossy case unobservable, and
+           * `sync/engine.ts` reads only `resp.ok` — so the sender advances its watermark past it and never
+           * sends it again.
+           *
+           * Counted apart and logged HERE because this is the side that knows why. It does not change
+           * delivery: holding the watermark back would re-push a record the peer will refuse identically
+           * every cycle. The fix is visibility, exactly as the media-worker swallow was.
+           */
+          memStats.forkDepthRefused++;
+          log.warn(`sync batch-upsert: DROPPED memory ${incoming._id} in '${spaceId}' — divergent content at `
+            + `seq ${incoming.seq} and the fork chain is already ${depth} deep (MAX_FORK_DEPTH=${MAX_FORK_DEPTH}). `
+            + 'The sender will not offer it again. Resolve the fork chain to accept it.');
+          continue;
+        }
 
         const forkSeq = await nextSeq(spaceId);
         const fork: MemoryDoc = {

@@ -135,6 +135,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A sync push could drop a record permanently and report it in the same number as "nothing to do".**
+  `POST /api/sync/batch-upsert` counted two outcomes in one `skipped` integer:
+
+  | outcome | meaning | lossy? |
+  |---|---|---|
+  | `existing.seq >= incoming.seq` | the receiver is already current | **no** — ordinary conflict resolution, and the common case by far |
+  | `depth >= MAX_FORK_DEPTH` (memories) | content diverged at an identical `seq` and the fork chain is at its cap, so the incoming version is discarded | **YES — the record is gone** |
+
+  And `sync/engine.ts` checked only `resp.ok`, never the body — so the pusher advanced `lastSeqPushed` past the
+  discarded record and **never offered it again**. A permanent loss, invisible from both sides: unlogged on the
+  receiver, unread on the sender.
+
+  `forkDepthRefused` is now its own counter, logged at **warn** by the receiver naming the record id and saying
+  it will not be retried, and read and logged by the pusher as well — both ends, because either log may be the
+  only one somebody has. A peer that omits the field reads as zero, and an unparseable body does not fail a push
+  the peer accepted.
+
+  **The watermark still advances, deliberately.** The receiver would refuse the identical record on every future
+  cycle, so holding it back would stall the space's sync rather than deliver anything. **The fix is visibility,
+  not delivery** — the same conclusion the media-worker swallow reached earlier in this cycle.
+
+  **Found while investigating an intermittent sync test, and NOT yet shown to cause it.** The first version of
+  this note called `skipped` a silent-loss path *by construction*; reading the conditions corrected that — most
+  skips are correct and must stay silent, or the one that matters drowns. A gate now pins that asymmetry: the
+  drop is logged, the already-current skip is not.
 - **The MCP `recall` tool refused the raw-MongoDB filter its own description promised and REST delivers.**
   Its `inputSchema` declared the operator-object grammar only — `propertyNames` restricted to the key
   allowlist, and every value required to be an object of `eq`/`ne`/`in`/`exists`/`gt`/`gte`/`lt`/`lte` with

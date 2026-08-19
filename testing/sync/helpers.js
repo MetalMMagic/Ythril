@@ -169,7 +169,13 @@ export async function waitFor(condition, timeout = 15_000, interval = 500, diagn
     }
     await new Promise(r => setTimeout(r, interval));
   }
-  const detail = typeof diagnose === 'function' ? diagnose() : diagnose;
+  // AWAITED, so a diagnostic may go and LOOK at something.
+  //
+  // It used to be called synchronously, which silently limited every caller to facts already in hand. The sync
+  // stall under investigation cannot be explained by any of those: the question is whether the sender still holds
+  // the record and where its watermark sits, and both take a request. A `diagnose` returning a promise used to
+  // interpolate as `[object Promise]`.
+  const detail = typeof diagnose === 'function' ? await diagnose() : diagnose;
   throw new Error(`waitFor timed out after ${timeout}ms${detail ? ` — ${detail}` : ''}`);
 }
 
@@ -318,15 +324,60 @@ export function makeTriggerProbe(baseUrl, token, networkId, label = baseUrl) {
  * @param what Human phrase completing "waiting for …". Appears in the timeout message; not optional, because
  *   the whole point is that the failure explains itself.
  */
-export async function syncUntil(baseUrl, token, networkId, condition, what, { timeoutMs = 25_000, interval = 500, retriggerMs = 3_000, label } = {}) {
+export async function syncUntil(baseUrl, token, networkId, condition, what, { timeoutMs = 25_000, interval = 500, retriggerMs = 3_000, label, onTimeout } = {}) {
   await triggerSync(baseUrl, token, networkId);
   const probe = makeTriggerProbe(baseUrl, token, networkId, label ?? baseUrl);
   const retrigger = setInterval(() => { void probe(); }, retriggerMs);
   try {
-    return await waitFor(condition, timeoutMs, interval, () => `waiting for ${what} — ${probe.diagnose()}`);
+    return await waitFor(condition, timeoutMs, interval, async () => {
+      // `onTimeout` may fail for its own reasons — a 404, a network blip — and a diagnostic that throws replaces
+      // the real timeout message with its own error, which is strictly worse than no diagnostic.
+      let extra = '';
+      if (typeof onTimeout === 'function') {
+        try { extra = (await onTimeout()) ?? ''; } catch (e) { extra = `diagnostic failed: ${e.message}`; }
+      }
+      return `waiting for ${what} — ${probe.diagnose()}${extra ? ` — ${extra}` : ''}`;
+    });
   } finally {
     clearInterval(retrigger);
   }
+}
+
+/**
+ * WHICH SIDE LOST THE RECORD: the sender never sent it, or the receiver never stored it.
+ *
+ * For a propagation timeout, those are the only two possibilities, and the whole reason the intermittent pub/sub
+ * stall has survived four rounds of investigation is that the timeout message cannot tell them apart. Six
+ * reproduction attempts — three isolated, one full-suite, and two against a cold stack — all passed at ~1.1 s
+ * against a 25 s budget, so the failure is not reachable locally and the next CI occurrence has to be the one
+ * that answers this.
+ *
+ * `GET /api/networks/:id` returns each member with its `lastSeqPushed` and `lastSeqReceived` (it strips only the
+ * token hash), so no server change is needed to read the watermark.
+ *
+ * Three outcomes, each excluding the others:
+ *
+ *  - **The sender does not have the record** — the write failed, and this was never a sync problem.
+ *  - **It has it and `lastSeqPushed` >= its `seq`** — the watermark passed a record that never arrived. The push
+ *    query is `seq > lastSeqPushed`, so this should be impossible; measuring it would disprove that reasoning,
+ *    which is why it is worth stating rather than assuming.
+ *  - **It has it and `lastSeqPushed` < its `seq`** — the sender should have sent it, so the record was lost on
+ *    the wire or discarded by the receiver.
+ */
+export async function whichSideLostIt(senderUrl, senderToken, networkId, spaceId, recordId, type = 'memories') {
+  const rec = await get(senderUrl, senderToken, `/api/brain/spaces/${spaceId}/${type}/${recordId}`);
+  if (rec.status !== 200) return `the SENDER does not have ${recordId} either (${rec.status}) — the write, not sync`;
+  const seq = rec.body?.seq;
+  const net = await get(senderUrl, senderToken, `/api/networks/${networkId}`);
+  if (net.status !== 200) return `sender holds ${recordId} at seq ${seq}; could not read the network (${net.status})`;
+  const marks = (net.body?.members ?? []).map(m =>
+    `${m.label ?? m.instanceId}: pushed=${m.lastSeqPushed?.[spaceId] ?? 'unset'} received=${m.lastSeqReceived?.[spaceId] ?? 'unset'}`);
+  const passed = (net.body?.members ?? []).some(m => (m.lastSeqPushed?.[spaceId] ?? -1) >= seq);
+  return `the SENDER HOLDS ${recordId} at seq ${seq}; watermarks [${marks.join(' | ')}] — `
+    + (passed
+      ? 'a watermark is AT OR PAST that seq, so it was marked sent and never will be again'
+      : 'no watermark reached that seq, so the sender should still be offering it: lost on the wire or discarded '
+        + 'by the receiver');
 }
 
 /** Create a memory on an instance's general space */

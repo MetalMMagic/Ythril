@@ -15,7 +15,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { dockerExec,
-  INSTANCES, post, postRetry429, get, del, delWithBody, triggerSync, syncUntil,
+  INSTANCES, post, postRetry429, get, del, delWithBody, triggerSync, syncUntil, whichSideLostIt,
 } from './helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -33,11 +33,33 @@ let networkId;
 let testSpaceId;
 let instanceIdA;
 
-/** Wait for a memory to reach (or leave) B, re-triggering A's sync while waiting. See `syncUntil`. */
+/**
+ * Wait for a memory to reach (or leave) B, re-triggering A's sync while waiting. See `syncUntil`.
+ *
+ * ## `onTimeout` is the point, and it is here because of X-20
+ *
+ * This test's first wait fails intermittently in CI and has survived four rounds of investigation, because
+ * `waitFor timed out after 25000ms — sync triggers to A all succeeded (8)` cannot distinguish the only two things
+ * it can be: A never sent the record, or B took it and did not store it.
+ *
+ * Six local reproduction attempts — three isolated, one inside the full sync suite, two against a freshly rebuilt
+ * cold stack — all PASSED at ~1.1 s against the 25 s budget. So the failure is not reachable here, and the next CI
+ * occurrence is the one that has to answer the question. `whichSideLostIt` makes it do that: it reads whether A
+ * still holds the record, at what `seq`, and where each member's watermarks sit.
+ *
+ * Only on the ARRIVAL wait. On the tombstone wait the record is expected to be gone, so "does the sender have it"
+ * has the opposite meaning and the diagnostic would mislead.
+ */
 const awaitOnB = (memId, expectStatus, what) =>
   syncUntil(INSTANCES.a, tokenA, networkId,
     async () => (await get(INSTANCES.b, tokenB, `/api/brain/spaces/${testSpaceId}/memories/${memId}`)).status === expectStatus,
-    `${what} (expected ${expectStatus} for ${memId} on B)`, { label: 'A' });
+    `${what} (expected ${expectStatus} for ${memId} on B)`,
+    {
+      label: 'A',
+      ...(expectStatus === 200
+        ? { onTimeout: () => whichSideLostIt(INSTANCES.a, tokenA, networkId, testSpaceId, memId) }
+        : {}),
+    });
 
 describe('Pub/Sub topology (A -> B subscriber)', () => {
   before(async () => {

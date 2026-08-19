@@ -642,6 +642,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`npm run todo:check` now holds the owner's DECISIONS page to open decisions only.** It had reached 312 lines
+  with SEVEN entries filed as open questions already decided — five of them shipped — because the file sat on the
+  checker's exemption list. That exemption's stated reason, *"indexed by outcome rather than queued"*, described a
+  version of the file that held outcomes; they moved to `_REFERENCE.md` and the exemption stayed. So one unchecked
+  page accumulated resolved history for weeks while every checked page stayed clean.
+
+  The damage is not the length. **One settled row makes every other row less believable**, so the reader has to
+  re-check all of them to find out which still count.
+
+  Two rules, in `scripts/parked-decisions-rules.mjs` so they are pure and fixture-testable — `todo/` is gitignored
+  and absent in CI, so a rule that only read those files could never be shown to fail, which is the same reasoning
+  that extracted `matchIndexReference`. A section heading may not announce a resolution, and no decision may be
+  both filed as open and recorded as decided. The second is the one that bites: a coverage check can only see that
+  something is mentioned, while drift needs the second copy compared.
+
+  **Both false positives are part of the rule, not omissions.** `## P-10 — six tags shipped with no GitHub`
+  `Release` is a real, open entry — "shipped" describes the tags, not the decision — and live entries say "fixed"
+  and "reverted" in their prose. The first version fired on that heading. A gate that trips on a live item's
+  wording teaches people to word entries around the gate instead of writing what they mean.
+
+  **A third rule was needed within the hour, because the first cleanup still missed one.** P-10 had been ruled by
+  the owner and said `CLOSED` in its own text, and it stayed on the page. Neither rule could see it: the heading
+  scan skips `P-N` titles and never reads bodies, and the cross-check needs a reference row nobody had written.
+  **The ruling was in the body — the one place nothing looked.** And the manual pass missed it for a worse reason:
+  each entry was verified by asking whether the code had shipped, and this ruling was *do nothing*, so the six
+  absent GitHub Releases were the IMPLEMENTED OUTCOME and read as evidence the question was open. **An absence
+  cannot tell "not done" from "deliberately not done"; only the ruling can.**
+
+  So `rulingsLeftOnThePage` matches SHOUTED markers — `RULED`, `CLOSED`, `OVERRIDDEN`, or "Owner ruled" —
+  case-sensitively, because that is how this repo writes a ruling and not how it writes prose. It attributes each
+  marker to the entry it sits under, reports an entry once however many markers it carries, and ignores the page
+  preamble, which legitimately says that decided items live elsewhere.
+
+  Eleven mutations across the three rules, eleven caught. A twelfth was dropped as an equivalent
+  mutant with the reason recorded rather than chased: on CRLF text `split('
+')` and `split(/?
+/)` yield arrays
+  of the same length, and the call reads `.length`.
+
 - **`excludeFromVectorSearch` is now `suppressEmbeddings`, which is what the two tiers below it were already
   called.** One switch had two names: the per-record flag said `excludeFromVectorSearch` while a type schema
   and the space both said `suppressEmbeddings`, and `record > schema > space` resolved between them. Nothing

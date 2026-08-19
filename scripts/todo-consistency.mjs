@@ -31,6 +31,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { matchIndexReference } from './todo-index-match.mjs';
+import { resolvedHeadings, decidedButStillFiled, rulingsLeftOnThePage } from './parked-decisions-rules.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const TODO = join(ROOT, 'todo');
@@ -58,7 +59,14 @@ const NOT_A_QUEUE = new Map([
   ['_AUDIT-LENSES.md', 'a catalogue of review methods, not a list of work'],
   ['_THE_LOOP.md', 'the process description itself'],
   ['_CRYPTO-INVENTORY.md', 'a fact sheet kept for reference; its subject is closed'],
-  ['_PARKED-DECISIONS.md', 'owner decisions, indexed by outcome rather than queued'],
+  // Exempt from the QUEUE rules — its items are decisions, not work, so they have no verify line and are not in
+  // the ordered index. It is NOT unchecked: rule 5 holds it to open-decisions-only.
+  //
+  // The old reason read "indexed by outcome rather than queued", which described a file that held outcomes. They
+  // moved to `_REFERENCE.md` and the exemption stayed, so this page accumulated resolved history for weeks while
+  // every checked page stayed clean — until the owner opened it and found seven settled items filed as open. An
+  // exemption's stated reason is load-bearing: it is what the next person checks before adding a rule.
+  ['_PARKED-DECISIONS.md', 'owner DECISIONS, not work — no verify line, not in the ordered index (see rule 5)'],
   ['_DEPRECATIONS.md', 'a removal checklist keyed to a future major, not the current queue'],
   ['_CLA-BOT-SETUP.md', 'setup instructions'],
   ['_NEXT-PR-PLAN.md', 'the working plan for the PR in flight; cleared on push'],
@@ -282,6 +290,50 @@ console.log(`\n${YELLOW}todo/ consistency${R}  ${DIM}(owner rules 2026-08-02 and
       console.log(`${GREEN}  ✓${R} ${PLAN} describes work that is still ahead`);
     }
   }
+}
+
+// ── rule 5: the DECISIONS page lists only what the owner still has to decide
+//
+// Owner, 2026-08-19, reading it: *"why are there so many items? remove everything thats already done. i only
+// want to see what i have todo — hence 'todo'"*. It was 312 lines, and SEVEN entries filed as open questions were
+// decided — five of them already shipped.
+//
+// The two rules live in `parked-decisions-rules.mjs`, pure and fixture-tested, for the same reason
+// `matchIndexReference` does: `todo/` is gitignored and absent in CI, so a rule that only reads those files
+// directly can never be shown to fail. See that file for what each one refuses and which false positives were
+// designed out of it.
+{
+  const PARKED = '_PARKED-DECISIONS.md';
+  const REF = '_REFERENCE.md';
+  let clean = true;
+  if (files.includes(PARKED)) {
+    const src = readFileSync(join(TODO, PARKED), 'utf8');
+
+    for (const { heading, line } of resolvedHeadings(src)) {
+      fail(`${PARKED}:${line} has a section announcing a resolution — "${heading.slice(0, 70)}". This page is what `
+        + 'the owner still has to DECIDE. Record the outcome in `_REFERENCE.md` under Decisions already made.');
+      clean = false;
+    }
+
+    for (const { id, marker, line } of rulingsLeftOnThePage(src)) {
+      fail(`${PARKED}:${line} — ${id} records its own ruling ("${marker}"), so it is not an open decision. Move `
+        + 'the outcome to `_REFERENCE.md`. A ruling of "do nothing" leaves no code to find, which is exactly how '
+        + 'this one survived a manual pass that checked whether anything had shipped.');
+      clean = false;
+    }
+
+    if (files.includes(REF)) {
+      const both = decidedButStillFiled(src, readFileSync(join(TODO, REF), 'utf8'));
+      for (const id of both) {
+        fail(`${PARKED} still carries ${id}, which ${REF} records as DECIDED. One of the two is wrong, and a `
+          + 'settled row on the decisions page makes every other row less believable.');
+        clean = false;
+      }
+    }
+  }
+  console.log(clean
+    ? `${GREEN}  ✓${R} the decisions page holds only what is still undecided`
+    : `${RED}  ✗${R} the decisions page carries settled items`);
 }
 
 // ── the exemption list must not rot

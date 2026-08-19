@@ -13,7 +13,7 @@ import { getEmbeddingConfig } from '../config/loader.js';
 import { needsReindex } from '../spaces/_shared.js';
 // The pure half — merge, rank and the text projections. Moved out to pay back part of this file's
 // god-file ratchet raise; see recall-shape.ts for why the type import back here is not a cycle.
-import { mergeRecallResults, rankOf, rerankTextOf, summariseRecall } from './recall-shape.js';
+import { mergeRecallResults, rankOf, byIdAsc, byRankThenId, rerankTextOf, summariseRecall } from './recall-shape.js';
 import { vectorFilterFieldsFor } from '../spaces/vector-index.js';
 import { FilterExpression, buildMongoFilter, toNativeVectorFilter } from './filter.js';
 import { isRawFilter, type RecallFilter } from './recall-filter.js';
@@ -369,7 +369,7 @@ export async function recall(
     }
   }
 
-  allResults.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  allResults.sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || byIdAsc(a, b));
 
   // Phase 2b: the LEXICAL channel, fused into the vector order by RRF.
   //
@@ -454,7 +454,7 @@ async function applyLexicalFusion(
   const perType = await Promise.all(
     activeTypes.map(t => lexicalSearch(spaceId, t, query, limit, match)),
   );
-  const lexical = perType.flat().sort((a, b) => b.lexicalScore - a.lexicalScore);
+  const lexical = perType.flat().sort((a, b) => b.lexicalScore - a.lexicalScore || byIdAsc(a, b));
   if (lexical.length === 0) return; // no text index, or nothing matched — vector order stands
 
   const inPool = new Map(pool.map(r => [r._id, r]));
@@ -478,7 +478,7 @@ async function applyLexicalFusion(
     }
   }
 
-  const vectorRanked = [...pool].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).map(r => r._id);
+  const vectorRanked = [...pool].sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || byIdAsc(a, b)).map(r => r._id);
   // Ranks are the LEXICAL ranks, not re-numbered after dropping out-of-pool ids: a document that placed
   // 5th lexically genuinely placed 5th, and compressing the ranks would overstate it.
   const lexicalRanked = lexical.map(h => h._id);
@@ -617,7 +617,7 @@ async function applyRerank(
   // Highest vector score first, so the absolute cap drops the least plausible candidates rather than an
   // arbitrary slice — the cap is a cost ceiling, not a sampling strategy.
   const ids = [...byId.keys()]
-    .sort((a, b) => (byId.get(b)![0].score ?? 0) - (byId.get(a)![0].score ?? 0))
+    .sort((a, b) => ((byId.get(b)![0].score ?? 0) - (byId.get(a)![0].score ?? 0)) || (a < b ? -1 : a > b ? 1 : 0))
     .slice(0, MAX_CANDIDATES);
   if (ids.length === 0) return;
 
@@ -768,7 +768,7 @@ export async function checkDuplicates(
       }
     }
 
-    return [...matches.values()].sort((a, b) => b.score - a.score);
+    return [...matches.values()].sort((a, b) => b.score - a.score || byIdAsc(a, b));
   } catch {
     return [];
   }
@@ -1093,7 +1093,7 @@ export async function recallGlobal(
   // Same key as the per-space merge. Rerank scores from separate `recall` calls ARE comparable — same
   // model, same query — so ordering across spaces by them is sound; ordering by vector score while the
   // per-space lists were ordered by the cross-encoder would undo the reranking at the last step.
-  for (const r of flat.sort((a, b) => rankOf(b) - rankOf(a))) {
+  for (const r of flat.sort(byRankThenId)) {
     if (!seen.has(r._id)) {
       seen.add(r._id);
       deduped.push(r);
@@ -1190,7 +1190,7 @@ export async function findSimilar(
   }
 
   // Sort by score descending, exclude self-match, deduplicate
-  allResults.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  allResults.sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || byIdAsc(a, b));
   const seen = new Set<string>();
   const filtered: RecallResult[] = [];
   for (const r of allResults) {

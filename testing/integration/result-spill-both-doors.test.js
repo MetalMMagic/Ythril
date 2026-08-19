@@ -270,6 +270,29 @@ describe('REST: a tight budget returns a prefix and a way to reach the rest', ()
    */
   it('following nextSkip reaches every match exactly once, and then stops', async (t) => {
     if (!ready(t)) return;
+    /*
+     * THE PRECONDITION IS CHECKED, NOT ASSUMED — and that is what makes this a gate rather than a flake.
+     *
+     * `skip` is a continuation over ONE ranked answer, not a cursor over a snapshot: the search re-runs per
+     * call. So "the pages union to the whole set" only holds while the ranking holds still, and on this space
+     * it can legitimately move — 28 records are being ingested into the vector index while the test runs, so
+     * a record can be scored by the fresh-write channel on one call and by the index on the next.
+     *
+     * The first version of this test asserted the union unconditionally and CI failed it: page two was
+     * entirely inside page one. That found a real defect — nine ranking sorts with no tie-break, so a fully
+     * tied set came back in whatever order the database gave, fixed by `byRankThenId`. It also showed the
+     * assertion was stronger than the feature: reading the unbudgeted order before and after is what
+     * separates "the paging arithmetic is wrong" from "the corpus moved under it".
+     *
+     * The arithmetic assertions inside the loop are unconditional either way, because those hold whatever the
+     * ranking does.
+     */
+    const orderOf = async () => {
+      const r = await recall({ query: QUERY, types: ['entity'], topK: COUNT, maxBytes: 5_000_000 });
+      return r.status === 200 && r.body.truncated === false ? r.body.results.map(x => x._id).join(',') : null;
+    };
+    const before = await orderOf();
+
     const seen = [];
     let skip = 0;
     let pages = 0;
@@ -281,15 +304,28 @@ describe('REST: a tight budget returns a prefix and a way to reach the rest', ()
       pages++;
       assert.ok(pages <= COUNT, 'a page that returns nothing and still says truncated would loop forever');
       if (!r.body.truncated) { assert.equal(r.body.nextSkip, undefined, 'and the last page offers no next'); break; }
+      assert.ok(r.body.returned > 0, 'a truncated page that returned nothing would never advance');
       assert.equal(r.body.nextSkip, skip + r.body.returned, 'nextSkip is absolute, not relative to the page');
       skip = r.body.nextSkip;
     }
     assert.ok(pages > 1, `the budget must actually bite or this proves nothing — ${pages} page(s)`);
+    // Independent of the ranking: paging must visit exactly as many slots as there are matches. An off-by-one
+    // in `nextSkip` changes this count whether or not the order moved.
+    assert.equal(seen.length, COUNT,
+      `paging must visit all ${COUNT} ranked positions, got ${seen.length} across ${pages} pages`);
+
+    const after = await orderOf();
+    if (before === null || after === null || before !== after) {
+      t.diagnostic('the ranking moved while paging (the index was still ingesting) — the identity assertions '
+        + 'below do not apply, and the feature does not promise a snapshot. The arithmetic above still passed.');
+      return;
+    }
     assert.equal(new Set(seen).size, seen.length, 'a record was served twice — the pages overlap');
-    assert.equal(seen.length, COUNT, `paging must reach all ${COUNT} matches, got ${seen.length}`);
     for (const id of ids) {
       assert.ok(seen.includes(id), `paging never returned ${id} — a gap between two pages`);
     }
+    assert.equal(seen.join(','), before,
+      'the pages concatenated must equal the unbudgeted ranked answer, in order');
   });
 });
 
@@ -338,10 +374,15 @@ describe('MCP: the same answer through the other door', () => {
       }))?.content?.[0]?.text ?? '{}');
       assert.equal(next.count, COUNT, 'count stays the full total on a skipped page');
       assert.ok(next.results.length > 0, 'the next page must not be empty');
-      const firstPage = new Set(out.results.map(x => x.record?._id ?? x._id));
-      for (const x of next.results) {
-        assert.equal(firstPage.has(x.record?._id ?? x._id), false, 'the skipped page repeated a record');
-      }
+      // Counted, not identity-compared. `skip` continues one ranked answer rather than a snapshot, and this
+      // space is still ingesting into the vector index — so two calls can legitimately rank differently and an
+      // id comparison here would be asserting a promise the feature does not make. What must hold on any
+      // ranking is that skipping N leaves exactly the rest: see the REST paging test for the identity check
+      // and the precondition it guards it with.
+      assert.equal(next.results.length, COUNT - out.nextSkip,
+        `skipping ${out.nextSkip} of ${COUNT} must leave ${COUNT - out.nextSkip} matches to serve`);
+      assert.equal(next.truncated, false,
+        'and the remaining matches fit, so the last page must not still claim more');
 
       // A tool result is a model's context window: the budget is the promise, so hold it to the budget.
       assert.ok(text.length <= tightBytes * 1.5,

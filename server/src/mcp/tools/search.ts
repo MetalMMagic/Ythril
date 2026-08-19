@@ -25,7 +25,7 @@ import { memberSpacesWithin } from '../../spaces/proxy-scoped.js';
 import { pageAcrossMembers } from '../../spaces/page-across-members.js';
 import { NotFoundError } from '../../util/errors.js';
 import {
-  rankOf, mergeRecallResults, rankingFields,
+  rankOf, byRankThenId, mergeRecallResults, rankingFields,
 } from '../../brain/recall-shape.js';
 
 /**
@@ -279,7 +279,7 @@ export const recallTool: ToolHandler = {
       const memberIds = memberSpacesWithin(callSpace, accessibleSpaceIds);
       const all = (await Promise.all(memberIds.map(mid => recall(mid, query, topK, tags, types, minPerType, minScore, filter, { maxPerType, maxTimeMS: recallMaxTimeMS, degraded, includeFreshWrites: a['includeFreshWrites'] === true })))).flat();
       // Same rule as everywhere else: rankOf, not `.score`. See the note on the REST recall route.
-      all.sort((x, y) => rankOf(y) - rankOf(x));
+      all.sort(byRankThenId);
       // And the ceiling is re-applied to the merged set for the same reason it is on the REST route: each
       // member honoured it alone, so N members would multiply it.
       seeds = maxPerType

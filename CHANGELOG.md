@@ -192,6 +192,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   validated by one shared `resolvePaging` on both doors — a `skip` that 400s on one and floors to zero on the
   other is this codebase's most-produced defect, and `0` is valid so the check is not `posInt`.
 
+  **That E2E immediately found a defect older than `skip`, and it had to be fixed for `skip` to mean anything.**
+  A ranked recall had no deterministic order. Eleven ranking sorts were written by hand as
+  `(a, b) => rankOf(b) - rankOf(a)` with no tie-break, and `Array.prototype.sort` is stable — so two results on
+  the same score kept whatever order the DATABASE returned them in, and two identical recalls over an unchanged
+  corpus could come back permuted. The E2E's second page turned out to be entirely contained in its first.
+
+  Every one of the eleven now ends in a tie-break, `_id` ascending, through one shared `byRankThenId` — including
+  the member-space merge on **both doors**, which is the last sort before the response and the one a sweep scoped
+  to `brain/` would have missed. Three sorts keep ordering by RAW `score` rather than by `rankOf`, and that was
+  already correct: the pre-fusion sort establishes the vector ranking RRF consumes, the vector channel handed to
+  RRF must be the vector order by definition, and `find-similar` starts from a stored vector with no query text,
+  so there is no lexical or cross-encoder signal to prefer. `hybrid-retrieval.test.js` counts those three and was
+  right to; they gained the tie-break without changing which signal orders them.
+
+  `_id` rather than `seq` or `createdAt`: it is on every result type, unique by construction, and the only one of
+  the three that cannot tie in turn.
+
 ### Fixed
 
 - **The create-token dialog could not grant the two instance-level rights, so an instance admin had to be

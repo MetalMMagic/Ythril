@@ -480,6 +480,11 @@ carries no `nextSkip` and is the last one. Skipping past the end returns zero re
 so a write landing between two pages can shift what falls where — the same caveat `/query`'s `skip` carries. For
 a set that must be internally consistent, ask for the remainder as a file instead.
 
+**The ranking itself is deterministic, though**, which is what makes paging usable in the ordinary case: results
+on the same score are ordered by `_id` ascending, so an unchanged corpus always produces the same order. Before
+3.2.0 it did not — equally-scored matches came back in whatever order the database gave, so two identical recalls
+could be permuted.
+
 ##### `remainderDump`: the whole remainder as one file (opt-in)
 
 Send **`remainderDump: true`** and the matches that did not fit are also written to the space's `_tmp/` as JSON,

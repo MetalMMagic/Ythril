@@ -36,7 +36,7 @@ import { reindexInProgress } from '../../metrics/registry.js';
 import { UUID_V4_RE } from './_shared.js';
 import { buildErModel } from '../../brain/er-model.js';
 import {
-  rankOf, mergeRecallResults, withoutDiagnostics, RECALL_ENVELOPE_KEYS,
+  rankOf, byRankThenId, mergeRecallResults, withoutDiagnostics, RECALL_ENVELOPE_KEYS,
 } from '../../brain/recall-shape.js';
 import { mapGraphNodes, graphNodeRecord } from '../../brain/recall-graph.js';
 import { applyProjection, normaliseProjection, type NormalisedProjection } from '../../brain/projection.js';
@@ -547,7 +547,7 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
     // vector score here silently threw both away, so hybrid ranking and reranking were undone at the
     // last step on every REST recall — including a single-space one, which still passes through this
     // merge with one member.
-    all.sort((x, y) => rankOf(y) - rankOf(x));
+    all.sort(byRankThenId);
     // A proxy space fans out to N members, and each one honoured `maxPerType` for itself — so without this
     // second pass a ceiling of 2 across three members would return six. The ceiling describes the ANSWER,
     // so it is enforced where the answer is assembled, using the same function rather than a second cap

@@ -209,6 +209,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `_id` rather than `seq` or `createdAt`: it is on every result type, unique by construction, and the only one of
   the three that cannot tie in turn.
 
+### Changed
+
+- **A propagation timeout in the sync tests now says WHICH SIDE lost the record.** `waitFor`'s diagnostic hook is
+  awaited, so it can go and look rather than being limited to facts already in hand, and the pub/sub arrival wait
+  supplies one that reads whether the sender still holds the record, at what `seq`, and where each member's
+  watermarks sit.
+
+  For a propagation timeout there are only two possibilities — the sender never sent it, or the receiver took it
+  and did not store it — and `waitFor timed out after 25000ms — sync triggers to A all succeeded (8)` cannot tell
+  them apart. That is why the intermittent pub/sub stall has survived four rounds of investigation.
+
+  **Added only after the reproduction avenue was exhausted**, which is the order that matters: six attempts —
+  three isolated, one inside the full sync suite, two against a freshly rebuilt cold stack — all passed at ~1.1 s
+  against the 25 s budget. Four candidate explanations had already been killed by reading source. So the next CI
+  occurrence has to be the one that answers it, and this makes it do that instead of restating the symptom.
+
+  It reads `GET /api/networks/:id`, which already returns each member's `lastSeqPushed` and `lastSeqReceived` — no
+  server change, and none should be introduced for a test diagnostic. A throwing diagnostic degrades to a note
+  rather than replacing the timeout it describes, and it never runs on a wait that succeeded.
+
+  Gated behaviourally against a stub server rather than by reading source: the first version of that gate asserted
+  only that the three outcome strings appear, and mutation testing walked through it — replacing a condition with
+  `if (false)` left every string in place and the gate green. A branch that is mentioned is not a branch that runs.
+  Eight mutations across both rounds, eight caught.
+
 ### Fixed
 
 - **A deleted space's index-readiness pollers kept running for the whole window.** `finalizeSpaceIndexReady`

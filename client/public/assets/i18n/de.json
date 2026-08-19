@@ -1567,6 +1567,8 @@
   "mediaProcessing.tab.pipelines": "Pipelines",
   "mediaProcessing.tab.tools": "Werkzeuge",
   "mediaProcessing.pill.env": "env",
+  "mediaProcessing.pinnedUnknown.title": "{{count}} angeheftete Feldname(n) wurden nicht erkannt und sind daher NICHT gesperrt:",
+  "mediaProcessing.pinnedUnknown.body": "Sie stammen aus YTHRIL_PINNED_FIELDS. Ein Name muss ein Feld sein, das diese Seite speichern kann — bitte die Schreibweise prüfen. Ein Feld, das die API ohnehin nicht annimmt, ist bereits fest und braucht keine Anheftung.",
   "mediaProcessing.pill.external": "Extern",
   "mediaProcessing.card.infraPill": "Von Infra gesetzt · {{envVar}}",
   "mediaProcessing.card.infraTitle": "Dieser Wert stammt aus der Umgebung und kann hier nicht geändert werden.",

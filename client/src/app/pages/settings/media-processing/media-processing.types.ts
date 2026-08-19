@@ -152,6 +152,14 @@ export interface MediaCfg {
   fallbackToExternal?: boolean;
   maxFileSizeBytes?: number;
   lockedByInfra?: string[];
+  /**
+   * Entries of `YTHRIL_PINNED_FIELDS` that name nothing, so they pinned NOTHING.
+   *
+   * Absent when there are none. Surfaced here because the failure that variable exists to prevent is a control
+   * that looks fixed and is not — and an operator checking whether their pin took effect looks at this screen,
+   * not at the server log.
+   */
+  pinnedUnknown?: string[];
   infraManaged?: boolean;
 }
 

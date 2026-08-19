@@ -434,6 +434,18 @@ The face records themselves are kept, with their label cleared. That is delibera
 These are set in `config.json` under `mediaEmbedding.faceRecognition`, or pinned by your infrastructure through the matching environment variable (`FACE_RECOGNITION_ENABLED`, `_CONFIDENCE_THRESHOLD`, `_MIN_FACE_SIZE_FRACTION`, `_MODEL_PATH`, `_PERSON_ENTITY_TYPES`, `_REPROCESS_SYNCED_IMAGES`). An environment value wins over `config.json`, so `FACE_RECOGNITION_ENABLED=false` guarantees no faces are processed on that instance — including after restoring a backup taken where it was on. Neither is editable from the UI:
 
 > **Any field your infrastructure pins is refused by the API too, not just greyed out in the interface** — and from 3.2.0 that holds for every pinnable field rather than only the face-recognition ones. Before then, a pinned model or key elsewhere in Media Processing could be saved without complaint: the value that actually ran was still the pinned one, but the save reported success and left the stored settings disagreeing with the running ones. If you saw a setting that would not stay changed, that was this.
+>
+> **And a field can now be fixed at NOTHING**, which was previously impossible. Setting a variable to empty does
+> not pin it — your orchestrator cannot tell "the operator left this blank" from "the operator wants it blank",
+> so treating an empty value as a lock would freeze every field on every deployment. Instead list the fields:
+> `YTHRIL_PINNED_FIELDS=rerank.apiKey,nli.apiKey`. Each one becomes read-only here and is refused by the API, at
+> whatever it currently resolves to. That is the answer for a key field pointing at an endpoint inside your
+> cluster that needs no key: empty is the correct value, and now it can be the fixed one.
+>
+> **If you misspell a name, the page tells you.** A notice at the top of **Settings → Media Processing → Models**
+> lists any entry that matched no field, because a pin you believe is in force and is not would be worse than no
+> pin at all. Names have to be fields this page can save; anything the API never accepts is already fixed and
+> needs no pin.
 
 | Setting | Default | What it does |
 |---|---|---|

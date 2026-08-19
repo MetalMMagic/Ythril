@@ -1567,6 +1567,8 @@
   "mediaProcessing.tab.pipelines": "Pipelines",
   "mediaProcessing.tab.tools": "Tools",
   "mediaProcessing.pill.env": "env",
+  "mediaProcessing.pinnedUnknown.title": "{{count}} pinned field name(s) were not recognised, so they are NOT locked:",
+  "mediaProcessing.pinnedUnknown.body": "These came from YTHRIL_PINNED_FIELDS. A name must be a field this page can save — check the spelling. A field the API never accepts is already fixed and needs no pin.",
   "mediaProcessing.pill.external": "External",
   "mediaProcessing.card.infraPill": "Set by infra · {{envVar}}",
   "mediaProcessing.card.infraTitle": "This value comes from the environment and cannot be changed here.",

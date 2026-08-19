@@ -211,6 +211,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A deleted space's index-readiness pollers kept running for the whole window.** `finalizeSpaceIndexReady`
+  already knew about a space vanishing mid-build and handled it at the WRITE — *"space was deleted while its
+  indexes built"* — but the polling before the write did not. So a space deleted during its own build kept up to
+  six pollers alive, each issuing a `listSearchIndexes` every second, until the window expired: 60 s off the boot
+  path and **600 s on it**, three spaces at a time.
+
+  Measured in CI on 2026-08-19: twelve consecutive 60-second give-ups for two `gov-…` spaces, every one reporting
+  `index not present (saw: none)` — which is what an empty catalogue looks like once the collections are gone.
+
+  This is also the case the terminal-absence guard added alongside it deliberately does NOT cover. That one
+  requires the backend to have listed OTHER indexes on the collection, so it can distinguish "not there" from
+  "not asked yet"; an empty listing stays ambiguous. A missing SPACE settles it outright.
+
+  Two details are load-bearing. An unreadable config reads as **"the space still exists"** — `getConfig()` throws
+  before the first successful load, and index builds run in that window, so the opposite default would have made
+  the fix abandon healthy builds during early boot and do it at `debug` level. And the check `return`s rather than
+  `continue`s, which would have turned a one-second poll into a spin.
+
+  The gate additionally pins the ORDERING this depends on: `createSpace` builds a space's indexes before pushing
+  it into config, which is only compatible with this check because that build passes `waitForVectorReady: false`
+  and therefore never polls. It sweeps every `initSpace` caller across both files that have one — a sweep scoped
+  to `spaces/lifecycle.ts` would have reported the set complete while missing `app.ts`.
+
+  Five mutations, five caught, including both wrong defaults and both reorderings.
 - **The search page showed a shortened answer as if it were the whole one.** The server has reported `truncated`
   since the result spill shipped and the client never read it — so a hundred-match search could render a handful
   of records with nothing anywhere on the page explaining why. Under the old record cap that was three records

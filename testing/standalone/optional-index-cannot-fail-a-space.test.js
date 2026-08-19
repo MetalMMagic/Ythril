@@ -37,6 +37,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripComments } from './_strip-comments.mjs';
+import { bodyOf } from './_structural-window.mjs';
 
 const { deriveLiveIndexState, isDrifted } = await import('../../server/dist/api/pipeline-status.js');
 
@@ -44,25 +45,16 @@ const FILE = 'server/src/spaces/vector-index.ts';
 const src = stripComments(readFileSync(FILE, 'utf8'));
 
 /**
- * The body of one exported function, by LINES rather than by a character count.
+ * The body of one exported function in THIS file's source.
  *
- * A fixed `slice(at, at + N)` window spans different lines on CRLF than on LF, so a gate that passed here
- * could look at less than it meant to in CI. Bounded by the next top-level `export ` instead, which is
- * structural and cannot drift with line endings.
+ * A one-argument wrapper so the calls below stay short. The loop that used to be here was one of three
+ * independent hand-rolls of the same bound, written within hours of each other — which is what
+ * `_structural-window.mjs` was extracted for, and this was the last of the three still standing.
  */
-function bodyOf(name) {
-  const lines = src.split(/\r?\n/);
-  const start = lines.findIndex(l => l.includes(`export async function ${name}(`));
-  assert.ok(start > -1, `${name} is gone from ${FILE} — re-anchor this gate`);
-  let end = lines.length;
-  for (let i = start + 1; i < lines.length; i++) {
-    if (/^export (async function|function|const) /.test(lines[i])) { end = i; break; }
-  }
-  return lines.slice(start, end).join('\n');
-}
+const bodyIn = (name) => bodyOf(src, name, `${name} in ${FILE}`);
 
 describe('the face gallery is polled but gets no vote on the space status', () => {
-  const body = bodyOf('waitForSpaceIndexesReady');
+  const body = bodyIn('waitForSpaceIndexesReady');
 
   it('the verdict is computed over the REQUIRED indexes alone', () => {
     // The regression is one `push` away. Pushing the face poll into the array that `every(Boolean)` runs over
@@ -109,7 +101,7 @@ describe('the face gallery is polled but gets no vote on the space status', () =
 });
 
 describe('an index that does not exist is a terminal state, not a slow one', () => {
-  const body = bodyOf('pollVectorIndexReady');
+  const body = bodyIn('pollVectorIndexReady');
 
   it('absence ends the poll instead of running out the window', () => {
     assert.match(body, /if \(absentFor >= ABSENT_IS_TERMINAL_AFTER\)/,
@@ -217,7 +209,9 @@ describe('the admin health panel does not call a healthy space missing', () => {
     const panel = stripComments(readFileSync('server/src/api/pipeline-status.ts', 'utf8'));
     assert.match(panel, /indexName: `\$\{space\.id\}_files_faceEmbedding`, optional: true/,
       'the face index must be marked optional at the point it is added to the expected set');
-    assert.doesNotMatch(panel, /deriveLiveIndexState[\s\S]{0,400}faceEmbedding/,
+    // The verdict function's own body. Bounded by a count, this absence check would pass on any version of the
+    // function longer than 400 characters — including one that had just gained the hardcoded name it forbids.
+    assert.doesNotMatch(bodyOf(panel, 'deriveLiveIndexState'), /faceEmbedding/,
       'the verdict function must not know any index BY NAME — it reads the flag, so a second optional index '
       + 'needs no change here');
   });

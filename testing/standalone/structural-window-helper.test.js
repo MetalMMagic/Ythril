@@ -35,6 +35,7 @@ import {
   yamlItemAt,
   bodyOf,
   statementUpTo,
+  statementAround,
   enclosingBlockAround,
   enclosingBlocksMatching,
   lineBefore,
@@ -108,6 +109,25 @@ describe('statementFrom — the bound is the terminator', () => {
     assert.ok(statementFrom(src, 0).includes('here'));
   });
 
+  it('works from the MIDDLE of an expression, where depth goes negative', () => {
+    /*
+     * The case that made this unusable. The walk starts at the anchor, so brackets opened BEFORE it close into
+     * negative depth: `endsAt` inside `{ endsAt: z.string() }` reaches its `;` at relative depth -2. Requiring
+     * exactly 0 reported "no statement terminator" on ordinary code, and a gate converted to use it failed.
+     */
+    const src = 'const S = z.object({ endsAt: z.string().optional() });\nconst after = 1;';
+    const got = statementFrom(src, src.indexOf('endsAt'));
+    assert.ok(got.endsWith(';'));
+    assert.ok(!got.includes('const after'), 'it ran past the end of the statement');
+  });
+
+  it('and from inside a nested block', () => {
+    const src = 'fn(() => {\n  if (a.endsAt < a.startsAt) throw new Error("no");\n});\n';
+    const got = statementFrom(src, src.indexOf('endsAt'));
+    assert.ok(got.includes('startsAt'), 'the rest of the comparison is outside the window');
+    assert.ok(got.endsWith(';'));
+  });
+
   it('a missing terminator is an error, not a short window', () => {
     assert.throws(() => statementFrom('const x = 1', 0), /no statement terminator/);
   });
@@ -156,6 +176,32 @@ describe('statementUpTo — the bound behind an anchor is where its statement st
     const base = 'const v = someVeryLongCondition\n  ? a()\n  : b();';
     const grown = base.replace('someVeryLongCondition', 'someVeryLongCondition /* ' + 'x'.repeat(800) + ' */');
     assert.ok(statementUpTo(grown, grown.lastIndexOf('b()')).includes('someVeryLongCondition'));
+  });
+});
+
+describe('statementAround — safe when the anchor is inside a string', () => {
+  it('THE case that broke the composed version: a quoted FIELD NAME', () => {
+    /*
+     * `statementUpTo(at) + statementFrom(at)` looks equivalent and is not. `statementFrom` starts walking AT the
+     * anchor, so when the anchor is inside `'endsAt'` it reads that string's own closing quote as an OPENING one,
+     * desynchronises quote parity for the rest of the file, and reports "no statement terminator" on ordinary code.
+     *
+     * This is not a contrived input: any gate matching an identifier that also appears as a quoted field name hits
+     * it, and one did — the chrono source lists `'startsAt', 'endsAt'` in an array of updatable fields.
+     */
+    const src = "const FIELDS = [\n  'title', 'startsAt', 'endsAt', 'status',\n];\nconst after = 1;";
+    const got = statementAround(src, src.indexOf("endsAt"));
+    assert.ok(got.includes('FIELDS'), 'it did not reach the start of the statement');
+    assert.ok(got.trimEnd().endsWith(';'), 'it did not reach the end of the statement');
+    assert.ok(!got.includes('const after'), 'it ran past the statement');
+  });
+
+  it('returns the whole statement from an anchor in the middle of real code', () => {
+    const src = 'const a = 1;\nif (rec.endsAt < rec.startsAt) throw new Error("out of order");\nnext();';
+    const got = statementAround(src, src.indexOf('endsAt'));
+    assert.ok(got.includes('startsAt'));
+    assert.ok(!got.includes('const a'), 'it ran back past the statement');
+    assert.ok(!got.includes('next()'), 'it ran forward past the statement');
   });
 });
 

@@ -29,6 +29,7 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { blockAfter } from './_structural-window.mjs';
 
 let classifyUpdateViolations;
 let describeUpdateViolations;
@@ -239,8 +240,17 @@ describe('every update path runs the gate', () => {
   it('no update path still gates validation behind deleteFields alone', () => {
     // The exact shape of the original hole: `if (dfPaths) { ...validate... }`. Validation must run
     // unconditionally and merely *apply* the deletions when they are present.
-    const offenders = PATHS.filter(p => /if \(dfPaths\) \{[\s\S]{0,600}?validate(Memory|Entity|Edge|Chrono)\(/
-      .test(strip(readFileSync(p, 'utf8'))));
+    /*
+     * The `if (dfPaths)` BLOCK, bounded by its closing brace. At 600 characters this reported no offenders for any
+     * branch longer than that — and the branch is where the validation call would sit, so the longer the hole, the
+     * more certainly this passed over it.
+     */
+    const offenders = PATHS.filter(p => {
+      const src = strip(readFileSync(p, 'utf8'));
+      const at = src.indexOf('if (dfPaths) {');
+      if (at === -1) return false;
+      return /validate(Memory|Entity|Edge|Chrono)\(/.test(blockAfter(src, at, `the dfPaths branch in ${p}`));
+    });
     assert.deepEqual(offenders, [],
       'validation must not be conditional on deleteFields — that was the original gap');
   });

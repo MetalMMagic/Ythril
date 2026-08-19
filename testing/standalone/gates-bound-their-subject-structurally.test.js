@@ -160,6 +160,72 @@ const GRANDFATHERED = new Map([
  * CSS behind a declaration; `config-key-docs-coverage` reads a doc comment above a key; `index-ready-poll` reads
  * what precedes a call. Those are three different structural bounds, not one conversion applied nine times.
  */
+/**
+ * A CAPPED GAP inside a regex: `/marker[\s\S]{0,400}?other/`. Files still allowed to carry one, with how many.
+ *
+ * **66 occurrences across 36 files, and the tracker recorded 30.** Measured here rather than trusted, and the number
+ * is in the gate so nobody has to re-measure it — a population counted once in a markdown file is a population that
+ * drifts.
+ *
+ * ## Why this is a THIRD list rather than a ban
+ *
+ * The syntax wears two meanings and only one is a defect:
+ *
+ *   - a WINDOW between two markers — the cap is a guess at how much of a subject fits, and it can only ever make
+ *     the check see less. This is the defect.
+ *   - an ADJACENCY claim — "these two words in one sentence", `[^.\n]{0,40}`; "the guard within three lines". The
+ *     number IS the rule, and converting it would replace a correct assertion with a vaguer one.
+ *
+ * Banning both without reading each is the blind sweep this whole gate exists to prevent. So the population is
+ * frozen, and the SIX whose assertion was NEGATIVE are converted first — that is the polarity where a short window
+ * finds nothing, the absence holds, and the gate passes on the thing it was written to catch.
+ *
+ * Two of those six turned out not to be cap problems at all. One bounded the wrong loop, because `indexOf` found a
+ * braceless one and the window landed on an object literal in its argument. The other matched ZERO occurrences in
+ * any version — the three stages it names are built in a `.map`, so their key is a template and never the quoted
+ * literal the regex looked for. Both had been reading as passing gates.
+ *
+ * **This list may only shrink.**
+ */
+const GRANDFATHERED_GAP = new Map([
+  ['testing/red-team-tests/ssrf-ipv6.test.js', 1],
+  ['testing/standalone/backups-are-not-world-readable.test.js', 1],
+  ['testing/standalone/brain-if-match.test.js', 2],
+  ['testing/standalone/brain-read-bodies-are-strict.test.js', 2],
+  ['testing/standalone/caller-supplied-ids-are-uuids.test.js', 1],
+  ['testing/standalone/chrono-retention.test.js', 1],
+  ['testing/standalone/chrono-status-descriptions-match-the-derivation.test.js', 9],
+  ['testing/standalone/collectors-are-timed.test.js', 1],
+  ['testing/standalone/contradiction-scanner.test.js', 1],
+  ['testing/standalone/document-description.test.js', 3],
+  ['testing/standalone/file-mutation-tools-state-their-cascade.test.js', 2],
+  ['testing/standalone/graph-spill-is-not-content.test.js', 1],
+  ['testing/standalone/infra-managed-locks-every-field.test.js', 3],
+  ['testing/standalone/mcp-tool-rights.test.js', 2],
+  ['testing/standalone/merge-relinks-every-entity-reference.test.js', 2],
+  ['testing/standalone/meta-precondition.test.js', 1],
+  ['testing/standalone/model-verify.test.js', 1],
+  ['testing/standalone/no-boot-migration-on-synced-data.test.js', 1],
+  ['testing/standalone/no-copyleft-in-the-shipped-tree.test.js', 2],
+  ['testing/standalone/no-polling-a-deleted-space.test.js', 2],
+  ['testing/standalone/notice-coverage.test.js', 1],
+  ['testing/standalone/oidc-carries-a-rights-matrix.test.js', 1],
+  ['testing/standalone/overview-pending-is-cleared.test.js', 1],
+  ['testing/standalone/recall-params-reach-the-ui.test.js', 2],
+  ['testing/standalone/reembed-backfill.test.js', 1],
+  ['testing/standalone/retention-reaches-every-collection.test.js', 3],
+  ['testing/standalone/rights-are-explained.test.js', 3],
+  ['testing/standalone/route-guard-coverage.test.js', 1],
+  ['testing/standalone/schema-derived-type-controls.test.js', 4],
+  ['testing/standalone/search-tool-schemas-document-their-response.test.js', 3],
+  ['testing/standalone/single-flight.test.js', 1],
+  ['testing/standalone/space-admin-reaches-its-own-space-settings.test.js', 1],
+  ['testing/standalone/space-op-recovery-guard.test.js', 1],
+  ['testing/standalone/stt-multipart-and-partial.test.js', 2],
+  ['testing/standalone/sync-waits-retrigger-and-diagnose.test.js', 1],
+  ['testing/standalone/vlm-endpoint-egress.test.js', 1],
+]);
+
 const GRANDFATHERED_BACK = new Map([
   /*
    * EMPTY. All nine are converted, and the list stays here rather than being deleted because an empty ratchet is the
@@ -191,8 +257,12 @@ const SELF = 'gates-bound-their-subject-structurally.test.js';
  */
 const FIXTURES = 'structural-window-helper.test.js';
 
+/** A capped gap inside a regex — `{0,400}` — whichever of the two things it means. */
+const CAPPED_GAP = /\{0,\d+\}/g;
+
 const found = new Map();
 const foundBack = new Map();
+const foundGap = new Map();
 for (const root of ROOTS) {
   for (const file of sources(root)) {
     // Split on the platform separator and rejoin with `/`, so the keys read the same on Windows and in CI. A
@@ -204,6 +274,15 @@ for (const root of ROOTS) {
     if (n > 0) found.set(key, n);
     const back = [...code.matchAll(MAGIC_WINDOW_BACK)].length;
     if (back > 0) foundBack.set(key, back);
+    /*
+     * Counted on the RAW source, not the comment-stripped copy. Every other count here is on `code`, and for this
+     * one that would be wrong in the expensive direction: a `{0,N}` written inside a comment — which is how this
+     * suite documents the lesson, and there are several — would be invisible, so a file could carry a real one and
+     * a comment about it and the numbers would not add up. Counting raw keeps the frozen number checkable by hand
+     * with a grep, which is what somebody converting one of these will actually do.
+     */
+    const gaps = [...readFileSync(file, 'utf8').matchAll(CAPPED_GAP)].length;
+    if (gaps > 0) foundGap.set(key, gaps);
   }
 }
 
@@ -290,6 +369,29 @@ describe('no NEW magic window', () => {
       'a gate reads a fixed number of characters BEHIND its anchor. That is the same defect as a forward window\n'
       + 'and a worse one: it starts inside its subject silently, and it is usually paired with `doesNotMatch`, so\n'
       + 'an absence gets asserted over less text than intended and passes. Bound it with `_structural-window.mjs`.\n'
+      + problems.join('\n'));
+  });
+
+  it('no NEW capped gap inside a regex, and that list only shrinks too', () => {
+    /*
+     * Frozen rather than banned, because the syntax means two different things and only one is a defect — see the
+     * note on `GRANDFATHERED_GAP`. What this refuses is a NEW one appearing anywhere, which is the part that does
+     * not need each site read first.
+     */
+    const problems = [];
+    for (const [file, n] of foundGap) {
+      const allowed = GRANDFATHERED_GAP.get(file) ?? 0;
+      if (n > allowed) problems.push(`${file}: ${n} capped gap(s), allowed ${allowed}`);
+    }
+    for (const [file, allowed] of GRANDFATHERED_GAP) {
+      const actual = foundGap.get(file) ?? 0;
+      if (actual < allowed) problems.push(`${file}: allowed ${allowed} gaps, now has ${actual} — lower it`);
+    }
+    assert.deepEqual(problems, [],
+      'a capped gap inside a regex — `/marker[\\s\\S]{0,400}?other/`. If the number is a GUESS at how much of a\n'
+      + 'subject fits, bound it with `_structural-window.mjs` instead; the cap can only make the check see less.\n'
+      + 'If the number IS the rule — two words in one sentence, a guard within three lines — say so in a comment\n'
+      + 'beside it and raise this file\'s entry deliberately.\n'
       + problems.join('\n'));
   });
 

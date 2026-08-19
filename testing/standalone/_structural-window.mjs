@@ -173,9 +173,17 @@ export function blockAfter(src, at, label = 'blockAfter') {
   return balancedFrom(src, brace, label);
 }
 
-/** From `at` to the `;` that ends the statement it begins, inclusive. */
+/**
+ * From `at` to the `;` that ends the statement it sits in, inclusive.
+ *
+ * `depth <= 0`, not `=== 0`, and that is what makes it usable from the MIDDLE of an expression. The walk starts at
+ * the anchor, so depth is relative to it and goes NEGATIVE as brackets opened before the anchor close:
+ * `endsAt` inside `{ endsAt: z.string() }` reaches its `;` at relative depth -2. Requiring exactly 0 refused every
+ * anchor that was not already at the start of a statement, which is most of them — it reported "no statement
+ * terminator" on a file full of them.
+ */
 export function statementFrom(src, at, label = 'statementFrom') {
-  const end = scanCode(src, at, (c, i, depth) => (depth === 0 && c === ';' ? i : undefined));
+  const end = scanCode(src, at, (c, i, depth) => (depth <= 0 && c === ';' ? i : undefined));
   assert.ok(end > at, `${label}: no statement terminator after index ${at} — re-anchor this gate`);
   return src.slice(at, end + 1);
 }
@@ -205,12 +213,36 @@ export function statementUpTo(src, at, label = 'statementUpTo') {
    * as unguarded. Only a boundary at the anchor's own nesting level ends its statement.
    */
   const { marks, depthAt } = boundariesBefore(src, at, label);
+  /*
+   * AT OR SHALLOWER than the anchor, not exactly equal. An anchor inside parentheses sits DEEPER than the statement
+   * that contains it — `endsAt` in `if (rec.endsAt < rec.startsAt)` is one level in from the `if` — so an exact-depth
+   * rule found no boundary at all and fell back to the top of the file, returning the first statement in the source
+   * instead of the one the anchor is in. That is a window that is too BIG, which fails loudly, but it made
+   * `statementAround` return the wrong statement entirely.
+   */
   const boundary = marks.filter(m =>
-    (m.c === ';' && m.depth === depthAt)
-    || (m.c === '{' && m.depth === depthAt - 1)    // the brace that opened the block we are in
-    || (m.c === '}' && m.depth === depthAt),       // a sibling block that closed before us
+    (m.c === ';' && m.depth <= depthAt)
+    || (m.c === '{' && m.depth <= depthAt - 1)     // the brace that opened the block we are in
+    || (m.c === '}' && m.depth <= depthAt),        // a sibling block that closed before us
   ).pop();
   return src.slice(boundary ? boundary.i + 1 : 0, at);
+}
+
+/**
+ * The WHOLE statement containing `at` — both halves, and safe when `at` is inside a string.
+ *
+ * Prefer this to `statementUpTo(...) + statementFrom(...)`. Those two compose incorrectly when the anchor sits
+ * inside a string literal, which is common the moment a gate matches an identifier that also appears as a quoted
+ * field name: `'endsAt'` in a list of field names. `statementFrom` starts walking AT the anchor, so it reads the
+ * string's own closing quote as an OPENING one, desynchronises quote parity, and reports "no statement terminator"
+ * on ordinary code.
+ *
+ * `statementUpTo` cannot make that mistake — it walks from the start of the file, so it knows what is a string. So
+ * the statement's START is resolved first, and the forward walk begins from there, where the text is real code.
+ */
+export function statementAround(src, at, label = 'statementAround') {
+  const start = at - statementUpTo(src, at, label).length;
+  return statementFrom(src, start, label);
 }
 
 /**

@@ -44,14 +44,22 @@ Set-Location client; npx ng serve --port 4260 --proxy-config <scratch>\proxy.con
 Flow and selectors that work (verified 2026-08-01 against the built bundle on :3260):
 - Served from the bundle, the **server itself** redirects `/` → `/setup` on a first run. There is no `/login`
   hop to click through, so wait for `/(setup|login)` and branch.
-- Setup is **label-only**: `#label` then `#submitBtn`. There are no `#pw`/`#pw2` fields and no
-  `.alert-success`.
+- Setup takes **three fields and the submit button has no id** (corrected 2026-08-19 against the built bundle
+  on :3260): `#label`, `#pw`, `#pw2`, then `button[type=submit]` (its text is "Complete setup"). This line said
+  *"label-only: `#label` then `#submitBtn`. There are no `#pw`/`#pw2` fields"* — the form gained a settings
+  password since, so `waitForSelector('#submitBtn')` burns its full 30 s and the run dies. Password must be 8+
+  chars and `#pw2` must match.
 - **Read the new token from the page TEXT, not from `input#token`** (corrected 2026-08-05, against the built
   bundle on :3260). After submit the page has **no inputs at all**, so `waitForSelector('input#token')` burns
   its full timeout and the run dies having already consumed the one-time token — the next attempt then lands
-  on `/login` with no way in. Match `/ythril_[A-Za-z0-9_-]+/` against `page.textContent('body')` after a short
-  wait, and **write it to a file immediately**. If you do lose it: stop the server, delete the scratch config,
-  drop the scratch DB, restart — that is the only way back to `/setup`.
+  on `/login` with no way in. Match `/ythril_[A-Za-z0-9_-]+/` against `page.textContent('body')`, and **write
+  it to a file immediately**.
+- **POLL for that token; do not sleep a fixed interval and read once** (2026-08-19). A single read after 4 s
+  caught the page still showing "Setting up…" and threw — while the server log already said `Setup complete`,
+  so the one-time token was gone and recovery meant a full reset. Loop `waitForTimeout(500)` up to ~20 s until
+  the regex matches. A poll cannot lose the token; a fixed wait can, and did.
+- If you do lose it: stop the server, delete the scratch config, drop the scratch DB, restart — that is the
+  only way back to `/setup`.
   Behind the dev proxy the older flow (`.code-block span`, "Continue to sign in") may still apply.
 - Login: `#token` + submit; bad token → "Invalid or expired token.".
 - **`/files` redirects to `/brain`.** The file manager is a Brain **tab** ("Files", with a count badge), not

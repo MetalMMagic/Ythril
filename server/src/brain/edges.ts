@@ -5,6 +5,7 @@ import { col, asFilter, asDoc, asUpdate, asBulk } from '../db/mongo.js';
 import { nextSeq, reserveSeqBlock } from '../util/seq.js';
 import { parseLimit, parseSkip } from '../util/pagination.js';
 import { toMongoSort, type SortSpec } from './list-sort.js';
+import { NEVER_RETURNED_PROJECTION, withoutVector } from './read-projection.js';
 import { textSearchOr, SEARCHABLE_FIELDS } from './text-search.js';
 import { embed } from './embedding.js';
 import { edgeEmbedText } from './embed-text.js';
@@ -80,11 +81,23 @@ export async function resolveEdgeEntityNames(spaceId: string, fromId: string, to
  * An edge has no user-supplied id: `(from, to, label)` IS the identity, and three separate places
  * re-derived that filter — the upsert itself, the bulk importer's inserted-vs-updated counter, and now
  * validation. One of them getting it wrong would silently validate against the wrong record.
+ *
+ * ## It is also projected, which fixes a leak on a path nobody would look at for one
+ *
+ * `upsertEdge` spreads this document into the edge it RETURNS, and the route sends that as its 201. So an
+ * ordinary edge update — no `waitForEmbedding`, no flag of any kind — answered with the stored float array,
+ * measured against the live stack 2026-08-19. It was the only vector leak reachable without asking for an
+ * inline embed.
+ *
+ * Nothing needs the old vector: the upsert either recomputes it or leaves the stored field untouched, and the
+ * other two callers (the bulk importer's counter and `write-validation`) read `properties`.
  */
 export async function findEdgeByTriplet(
   spaceId: string, from: string, to: string, label: string,
 ): Promise<EdgeDoc | null> {
-  return await col<EdgeDoc>(`${spaceId}_edges`).findOne(asFilter<EdgeDoc>({ spaceId, from, to, label })) as EdgeDoc | null;
+  return await col<EdgeDoc>(`${spaceId}_edges`)
+    .findOne(asFilter<EdgeDoc>({ spaceId, from, to, label }),
+      { projection: NEVER_RETURNED_PROJECTION }) as EdgeDoc | null;
 }
 
 export async function upsertEdge(
@@ -159,7 +172,7 @@ export async function upsertEdge(
     else if ('_expireAt' in $unset) delete (updatedEdge as { _expireAt?: unknown })._expireAt;
     if (!embeddingFields.embedding) await enqueueEmbedJob(spaceId, 'edge', updatedEdge._id);
     if (actor) emitWebhookEvent({ event: 'edge.created', spaceId, entry: { ...updatedEdge, embedding: undefined }, ...actor });
-    return updatedEdge;
+    return withoutVector(updatedEdge);
   }
 
   const doc: EdgeDoc = {
@@ -188,7 +201,7 @@ export async function upsertEdge(
   await collection.insertOne(asDoc<EdgeDoc>(doc));
   if (!embeddingFields.embedding) await enqueueEmbedJob(spaceId, 'edge', doc._id);
   if (actor) emitWebhookEvent({ event: 'edge.created', spaceId, entry: { ...doc, embedding: undefined }, ...actor });
-  return doc;
+  return withoutVector(doc);
 }
 
 /** List edges for a space, optionally filtering by from/to entity */
@@ -217,7 +230,7 @@ export async function listEdges(
   const search = textSearchOr(filter.search, SEARCHABLE_FIELDS.edges);
   if (search) Object.assign(q, search);
   return col<EdgeDoc>(`${spaceId}_edges`)
-    .find(asFilter<EdgeDoc>(q))
+    .find(asFilter<EdgeDoc>(q), { projection: NEVER_RETURNED_PROJECTION })
     .maxTimeMS(q['$expr'] ? PROPERTIES_SCAN_MAX_MS : 60_000)
     .sort(sort ? toMongoSort(sort) : { seq: -1, createdAt: -1, _id: -1 })
     .skip(parseSkip(skip))
@@ -261,7 +274,9 @@ export async function deleteEdge(spaceId: string, edgeId: string, actor?: Webhoo
 
 /** Find an edge by exact ID */
 export async function getEdgeById(spaceId: string, id: string): Promise<EdgeDoc | null> {
-  return col<EdgeDoc>(`${spaceId}_edges`).findOne(asFilter<EdgeDoc>({ _id: id, spaceId })) as Promise<EdgeDoc | null>;
+  return col<EdgeDoc>(`${spaceId}_edges`)
+    .findOne(asFilter<EdgeDoc>({ _id: id, spaceId }),
+      { projection: NEVER_RETURNED_PROJECTION }) as Promise<EdgeDoc | null>;
 }
 
 /** Update an existing edge by ID. Partial update — only supplied fields are changed. Re-embeds when any content field changes. */
@@ -275,7 +290,8 @@ export async function updateEdgeById(
   ifMatchSeq?: number,
 ): Promise<EdgeDoc | null> {
   const collection = col<EdgeDoc>(`${spaceId}_edges`);
-  const existing = await collection.findOne(asFilter<EdgeDoc>({ _id: id, spaceId })) as EdgeDoc | null;
+  const existing = await collection.findOne(asFilter<EdgeDoc>({ _id: id, spaceId }),
+    { projection: NEVER_RETURNED_PROJECTION }) as EdgeDoc | null;
   if (!existing) return null;
 
   const seq = await nextSeq(spaceId);
@@ -555,7 +571,8 @@ export async function traverseGraph(
       } else {
         q = { spaceId: mid, $or: [{ from: { $in: frontier } }, { to: { $in: frontier } }], ...labelFilter };
       }
-      const edges = await col<EdgeDoc>(`${mid}_edges`).find(asFilter<EdgeDoc>(q)).toArray() as EdgeDoc[];
+      const edges = await col<EdgeDoc>(`${mid}_edges`)
+        .find(asFilter<EdgeDoc>(q), { projection: NEVER_RETURNED_PROJECTION }).toArray() as EdgeDoc[];
       adjacentEdges.push(...edges);
     }
 
@@ -652,7 +669,8 @@ export async function traverseGraph(
     const entityMap = new Map<string, EntityDoc>();
     for (const mid of memberIds) {
       const entities = await col<EntityDoc>(`${mid}_entities`)
-        .find(asFilter<EntityDoc>({ _id: { $in: newNeighborIds }, spaceId: mid }))
+        .find(asFilter<EntityDoc>({ _id: { $in: newNeighborIds }, spaceId: mid }),
+          { projection: NEVER_RETURNED_PROJECTION })
         .toArray() as EntityDoc[];
       for (const e of entities) entityMap.set(e._id, e);
     }
@@ -797,13 +815,19 @@ export async function traverseFromSeeds(
 
   while (frontier.length > 0 && depth < maxDepth) {
     const edges = await col<EdgeDoc>(`${spaceId}_edges`)
-      // `embedding: 0`, matching the entity query below and every other read path in the codebase. An EDGE
-      // is a searchable record with a vector of its own, and this was the ONE query that fetched it whole:
-      // the edge document is returned verbatim as `_graph[].edge`, so a `recall(traverse: n)` shipped a full
-      // float array per hop, on both doors. Nothing consumes it — `nestNeighbours` only nests the document —
-      // so this is pure subtraction, and it makes "the vector is never returned" true rather than nearly so.
+      // An EDGE is a searchable record with a vector of its own, and this query fetched it whole: the edge
+      // document is returned verbatim as `_graph[].edge`, so a `recall(traverse: n)` shipped a full float
+      // array per hop, on both doors. Nothing consumes it — `nestNeighbours` only nests the document — so
+      // dropping it is pure subtraction.
+      //
+      // **This comment used to claim it was "matching the entity query below and every other read path in
+      // the codebase". That was false, and the claim is why nobody checked.** Five readers had no projection
+      // at all — the three list functions and the two entity lookups — and a caller measured 11.19 MB from
+      // `GET /entities?limit=500` where `/query` answered 0.145 MB. All of them now share
+      // `NEVER_RETURNED_PROJECTION`, so the sentence is true; do not restate universality here again, because
+      // the constant is what makes it true and a comment cannot.
       .find(asFilter<EdgeDoc>({ $or: [{ from: { $in: frontier } }, { to: { $in: frontier } }] }))
-      .project({ embedding: 0 })
+      .project(NEVER_RETURNED_PROJECTION)
       .toArray() as EdgeDoc[];
 
     const newNeighborIds: string[] = [];
@@ -850,7 +874,7 @@ export async function traverseFromSeeds(
     // a space rename hide data in the first place.
     const entities = await col<EntityDoc>(`${spaceId}_entities`)
       .find(asFilter<EntityDoc>({ _id: { $in: newNeighborIds } }))
-      .project({ embedding: 0 })
+      .project(NEVER_RETURNED_PROJECTION)
       .toArray() as EntityDoc[];
     const entityMap = new Map<string, EntityDoc>();
     for (const e of entities) entityMap.set(e._id, e);

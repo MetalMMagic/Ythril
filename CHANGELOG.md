@@ -9,6 +9,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking
 
+- **Every read stopped returning the embedding vector, and it had never stopped: the list routes sent it on
+  every record.** `GET /api/brain/spaces/:spaceId/entities?limit=500` answered **11.19 MB** for one space where
+  `POST /query` answered the same 100 records in **0.145 MB** — reported by aigents 2026-08-19 after it killed
+  their n8n with an out-of-memory failure, took its database down with it for a stretch, and blocked deploys.
+  They tried twelve parameter spellings looking for a switch; there was none, because the route accepted no
+  projection at all.
+
+  **The reason it went unnoticed for so long is that we published the opposite, absolutely, in four places.**
+  `/query`'s parameter description (*"always excluded and cannot be re-included"*), `recall`'s and
+  `update_memory`'s MCP descriptions (*"never returned by anything here"*), and the integration guide's own
+  *"the list routes project it out before the documents leave the database"*. An integrator who believed those
+  had no reason to look at a payload size — and none of them was true for a list route.
+
+  **Fifteen reads and twelve write returns, not the one reported.** Five list/lookup readers plus three
+  single-record getters had no projection; a shape-derived gate then found seven more, including three spelled
+  through a local variable that the gate's own first version was blind to. On the write side, an inline embed
+  put the freshly computed vector into the 201 — measured on entity, memory, chrono and edge creates with
+  `waitForEmbedding: true`, **and any create with `checkDuplicates`, which defaults to TRUE**, so it was
+  reachable with no flag at all. An ordinary edge or entity UPDATE leaked it with no flag either, from the
+  unprojected read of the existing record.
+
+  The rule now lives in one place (`brain/read-projection.ts`), is derived from `NEVER_RETURNED_FIELDS` so the
+  two cannot disagree, and is enforced by a gate that derives its own scope from the shape of the code rather
+  than from a list of known readers — because a list would pass the day somebody adds a sixteenth. Fourteen
+  places already stripped the vector when emitting a **webhook**: the rule was known, applied at every
+  webhook, and applied at zero returns.
+
+  Verified against a running instance: sixteen paths, every one clean, including `POST /traverse` and
+  `?includeDiagnostics=true` — no flag can ask for the vector back, which is what the four sentences promise.
+
+- **The brain list routes withhold `matchedText` and `embeddingModel` by default; `seq` still comes back.**
+  breituai-platform asked for this by name, taking up an offer in the 3.1.0 notes: *"matchedText is the passage
+  a second time, and a list route is the call most likely to be made in bulk."* `?includeDiagnostics=true`
+  restores both, the same parameter name `recall` uses.
+
+  **`seq` is deliberately NOT withheld here, unlike on recall** — it is the `If-Match` value, so dropping it
+  would remove the conditional-write path. The two doors therefore withhold sets that differ by one field, on
+  purpose. **This is a response-shape change** on `GET …/entities`, `…/memories`, `…/edges` and `…/chrono`.
+
+  MCP needs no matching parameter: its list tools return a formatted summary that never carried either field,
+  so there is nothing there to withhold or restore.
+
 - **The 25-record spill cliff is replaced by a byte budget, and every returned record is whole.** Owner-commissioned;
   specified by breituai-platform on request. Past 25 records a recall used to collapse to **three** inline
   results plus a download of the WHOLE set — including the three already sent. Their measurement: a real

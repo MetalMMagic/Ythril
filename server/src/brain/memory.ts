@@ -28,6 +28,7 @@ import { SimilarMatch, DupeCheckOpts, checkDuplicates } from './recall.js';
 import { PROPERTIES_SCAN_MAX_MS } from './tag-filter.js';
 import { writeFilterFor, writeOutcome } from './write-precondition.js';
 import { mirrorLegacySuppression } from './suppress-embeddings.js';
+import { NEVER_RETURNED_PROJECTION, withoutVector } from './read-projection.js';
 
 /** Resolve entity IDs to their names from the database. */
 async function resolveEntityNames(spaceId: string, entityIds: string[]): Promise<string[]> {
@@ -83,7 +84,8 @@ export async function remember(
 ): Promise<MemoryDoc & { similar?: SimilarMatch[]; contradicts?: ContradictionWarning[] }> {
   // When an id is supplied, look for the record it names first — the same shape as `upsertEntity`.
   const existing: MemoryDoc | null = id
-    ? (await col<MemoryDoc>(`${spaceId}_memories`).findOne(asFilter<MemoryDoc>({ _id: id })) as MemoryDoc | null)
+    ? (await col<MemoryDoc>(`${spaceId}_memories`).findOne(asFilter<MemoryDoc>({ _id: id }),
+      { projection: NEVER_RETURNED_PROJECTION }) as MemoryDoc | null)
     : null;
 
   const names = entityNames ?? await resolveEntityNames(spaceId, entityIds);
@@ -165,9 +167,9 @@ export async function remember(
     if (!embResult) await enqueueEmbedJob(spaceId, 'memory', converged._id);
     // `memory.updated`, not `created` — a subscriber must be able to tell a converged retry from a new record.
     if (actor) emitWebhookEvent({ event: 'memory.updated', spaceId, entry: { ...converged, embedding: undefined }, ...actor });
-    return (similar || contradicts)
+    return withoutVector((similar || contradicts)
       ? { ...converged, ...(similar ? { similar } : {}), ...(contradicts ? { contradicts } : {}) }
-      : converged;
+      : converged);
   }
 
   const doc: MemoryDoc = {
@@ -206,7 +208,7 @@ export async function remember(
   }
   if (actor) emitWebhookEvent({ event: 'memory.created', spaceId, entry: { ...doc, embedding: undefined }, ...actor });
   // Advisory only — the record is stored either way.
-  return (similar || contradicts) ? { ...doc, ...(similar ? { similar } : {}), ...(contradicts ? { contradicts } : {}) } : doc;
+  return withoutVector((similar || contradicts) ? { ...doc, ...(similar ? { similar } : {}), ...(contradicts ? { contradicts } : {}) } : doc);
 }
 
 /** Update an existing memory's fact, tags, entityIds, description, or properties. Re-embeds when content fields change. */
@@ -219,7 +221,9 @@ export async function updateMemory(
   ttlDays?: number | null,
   ifMatchSeq?: number,
 ): Promise<MemoryDoc | null> {
-  const existing = await col<MemoryDoc>(`${spaceId}_memories`).findOne(asFilter<MemoryDoc>({ _id: memoryId, spaceId })) as MemoryDoc | null;
+  const existing = await col<MemoryDoc>(`${spaceId}_memories`)
+    .findOne(asFilter<MemoryDoc>({ _id: memoryId, spaceId }),
+      { projection: NEVER_RETURNED_PROJECTION }) as MemoryDoc | null;
   if (!existing) return null;
 
   const seq = await nextSeq(spaceId);

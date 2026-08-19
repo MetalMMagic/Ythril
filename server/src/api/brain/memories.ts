@@ -25,6 +25,8 @@ import { classifyUpdateViolations } from '../../brain/write-validation.js';
 import { resolveEntityIdsByName } from '../../brain/entities.js';
 import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
 import { parseRecordSuppression } from '../../brain/suppress-embeddings.js';
+import { withoutListDiagnostics } from '../../brain/read-projection.js';
+import { listDiagnosticsAsked } from './_shared.js';
 
 export const memoriesRouter = Router();
 
@@ -203,7 +205,7 @@ memoriesRouter.get('/spaces/:spaceId/memories', globalRateLimit, requireSpaceAut
   for (const mid of members) total += await countBrain(mid, 'memories', await filterFor(mid));
 
   res.json({
-    memories: page.rows, limit, skip, total,
+    memories: withoutListDiagnostics(page.rows, listDiagnosticsAsked(req)), limit, skip, total,
     // Explicit rather than left to be derived from `total`: their third ask, and a caller that knows it received a
     // partial page does not need to work out whether it did.
     truncated: skip + page.rows.length < total,

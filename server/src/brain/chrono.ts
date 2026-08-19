@@ -6,6 +6,7 @@ import { nextSeq, reserveSeqBlock } from '../util/seq.js';
 import { tagContains, textContains, propertiesValueContains, PROPERTIES_SCAN_MAX_MS } from './tag-filter.js';
 import { parseLimit, parseSkip } from '../util/pagination.js';
 import { toMongoSort, type SortSpec } from './list-sort.js';
+import { NEVER_RETURNED_PROJECTION, withoutVector } from './read-projection.js';
 import { textSearchOr, SEARCHABLE_FIELDS } from './text-search.js';
 import { embed } from './embedding.js';
 import { chronoEmbedText } from './embed-text.js';
@@ -118,7 +119,8 @@ export async function createChrono(
   // `remember`.
   const existing: ChronoEntry | null = fields.id
     ? (await col<ChronoEntry>(`${spaceId}_chrono`).findOne(
-      asFilter<ChronoEntry>({ _id: fields.id, spaceId })) as ChronoEntry | null)
+      asFilter<ChronoEntry>({ _id: fields.id, spaceId }),
+      { projection: NEVER_RETURNED_PROJECTION }) as ChronoEntry | null)
     : null;
 
   const seq = await nextSeq(spaceId);
@@ -183,9 +185,9 @@ export async function createChrono(
     if ('_expireAt' in $unset) delete (converged as { _expireAt?: unknown })._expireAt;
     // `chrono.updated`, not `created` — a subscriber must be able to tell a converged retry from a new entry.
     if (actor) emitWebhookEvent({ event: 'chrono.updated', spaceId, entry: { ...converged, embedding: undefined }, ...actor });
-    return (similar || contradicts)
+    return withoutVector((similar || contradicts)
       ? { ...converged, ...(similar ? { similar } : {}), ...(contradicts ? { contradicts } : {}) }
-      : converged;
+      : converged);
   }
 
   const doc: ChronoEntry = {
@@ -226,7 +228,7 @@ export async function createChrono(
   if (!embeddingFields.embedding) await enqueueEmbedJob(spaceId, 'chrono', doc._id);
   if (actor) emitWebhookEvent({ event: 'chrono.created', spaceId, entry: { ...doc, embedding: undefined }, ...actor });
   // Advisory only — the entry is stored either way.
-  return (similar || contradicts) ? { ...doc, ...(similar ? { similar } : {}), ...(contradicts ? { contradicts } : {}) } : doc;
+  return withoutVector((similar || contradicts) ? { ...doc, ...(similar ? { similar } : {}), ...(contradicts ? { contradicts } : {}) } : doc);
 }
 
 export async function updateChrono(
@@ -238,7 +240,9 @@ export async function updateChrono(
   ttlDays?: number | null,
   ifMatchSeq?: number,
 ): Promise<ChronoEntry | null> {
-  const existing = await col<ChronoEntry>(`${spaceId}_chrono`).findOne(asFilter<ChronoEntry>({ _id: id, spaceId })) as ChronoEntry | null;
+  const existing = await col<ChronoEntry>(`${spaceId}_chrono`)
+    .findOne(asFilter<ChronoEntry>({ _id: id, spaceId }),
+      { projection: NEVER_RETURNED_PROJECTION }) as ChronoEntry | null;
   if (!existing) return null;
 
   const seq = await nextSeq(spaceId);
@@ -337,7 +341,7 @@ export async function updateChrono(
   // `embedStoredRecord` for why this replaced an inline embed built from a stale read.
   await enqueueEmbedJob(spaceId, 'chrono', updatedChrono._id);
   if (actor) emitWebhookEvent({ event: 'chrono.updated', spaceId, entry: { ...updatedChrono, embedding: undefined }, ...actor });
-  return updatedChrono;
+  return withoutVector(updatedChrono);
 }
 
 /** Return the entry with its derived status applied (a shallow copy only when the status changes). */
@@ -347,7 +351,9 @@ function withDerivedStatus(entry: ChronoEntry, now: Date = new Date()): ChronoEn
 }
 
 export async function getChronoById(spaceId: string, id: string): Promise<ChronoEntry | null> {
-  const entry = await col<ChronoEntry>(`${spaceId}_chrono`).findOne(asFilter<ChronoEntry>({ _id: id, spaceId })) as ChronoEntry | null;
+  const entry = await col<ChronoEntry>(`${spaceId}_chrono`)
+    .findOne(asFilter<ChronoEntry>({ _id: id, spaceId }),
+      { projection: NEVER_RETURNED_PROJECTION }) as ChronoEntry | null;
   return entry ? withDerivedStatus(entry) : null;
 }
 
@@ -485,7 +491,7 @@ export async function listChrono(
   const { query, comparesAgainstTheClock } = buildChronoQuery(spaceId, filter, now);
 
   const entries = await col<ChronoEntry>(`${spaceId}_chrono`)
-    .find(asFilter<ChronoEntry>(query))
+    .find(asFilter<ChronoEntry>(query), { projection: NEVER_RETURNED_PROJECTION })
     .maxTimeMS(comparesAgainstTheClock ? PROPERTIES_SCAN_MAX_MS : 60_000)
     .sort(sort ? toMongoSort(sort) : { createdAt: -1 })
     .skip(parseSkip(skip))

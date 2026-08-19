@@ -6,6 +6,7 @@ import { col, asFilter, asDoc, asUpdate, asBulk } from '../db/mongo.js';
 import { nextSeq, reserveSeqBlock } from '../util/seq.js';
 import { parseLimit, parseSkip } from '../util/pagination.js';
 import { toMongoSort, type SortSpec } from './list-sort.js';
+import { NEVER_RETURNED_PROJECTION, withoutVector } from './read-projection.js';
 import { embed } from './embedding.js';
 import { entityEmbedText } from './embed-text.js';
 import { getConfig } from '../config/loader.js';
@@ -109,7 +110,8 @@ export async function upsertEntity(
 
   // When an id is provided, attempt to find the existing record by primary key.
   const existing: EntityDoc | null = id
-    ? (await collection.findOne(asFilter<EntityDoc>({ _id: id, spaceId })) as EntityDoc | null)
+    ? (await collection.findOne(asFilter<EntityDoc>({ _id: id, spaceId }),
+      { projection: NEVER_RETURNED_PROJECTION }) as EntityDoc | null)
     : null;
 
   const seq = await nextSeq(spaceId);
@@ -157,7 +159,7 @@ export async function upsertEntity(
     // After the write, never before: a job for a record that failed to store would be a job for nothing.
     if (!embeddingFields.embedding) await enqueueEmbedJob(spaceId, 'entity', entity._id);
     if (actor) emitWebhookEvent({ event: 'entity.updated', spaceId, entry: { ...entity, embedding: undefined }, ...actor });
-    return { entity };
+    return { entity: withoutVector(entity) };
   }
 
   // Warn when inserting without an explicit id and duplicates already exist
@@ -223,7 +225,7 @@ export async function upsertEntity(
   }
   if (actor) emitWebhookEvent({ event: 'entity.created', spaceId, entry: { ...doc, embedding: undefined }, ...actor });
   // Advisory only — the entity is stored either way.
-  return { entity: doc, warning, similar, contradicts };
+  return { entity: withoutVector(doc), warning, similar, contradicts };
 }
 
 /**
@@ -233,7 +235,7 @@ export async function upsertEntity(
  */
 export async function findEntitiesByName(spaceId: string, name: string): Promise<EntityDoc[]> {
   return col<EntityDoc>(`${spaceId}_entities`)
-    .find(asFilter<EntityDoc>({ spaceId, name }))
+    .find(asFilter<EntityDoc>({ spaceId, name }), { projection: NEVER_RETURNED_PROJECTION })
     .toArray() as Promise<EntityDoc[]>;
 }
 
@@ -247,13 +249,16 @@ export async function findEntitiesByName(spaceId: string, name: string): Promise
 export async function findEntitiesByIds(spaceId: string, ids: readonly string[]): Promise<EntityDoc[]> {
   if (ids.length === 0) return [];
   return col<EntityDoc>(`${spaceId}_entities`)
-    .find(asFilter<EntityDoc>({ _id: { $in: [...new Set(ids)] }, spaceId }))
+    .find(asFilter<EntityDoc>({ _id: { $in: [...new Set(ids)] }, spaceId }),
+      { projection: NEVER_RETURNED_PROJECTION })
     .toArray() as Promise<EntityDoc[]>;
 }
 
 /** Find an entity by exact ID */
 export async function getEntityById(spaceId: string, id: string): Promise<EntityDoc | null> {
-  return col<EntityDoc>(`${spaceId}_entities`).findOne(asFilter<EntityDoc>({ _id: id, spaceId })) as Promise<EntityDoc | null>;
+  return col<EntityDoc>(`${spaceId}_entities`)
+    .findOne(asFilter<EntityDoc>({ _id: id, spaceId }),
+      { projection: NEVER_RETURNED_PROJECTION }) as Promise<EntityDoc | null>;
 }
 
 /**
@@ -274,7 +279,8 @@ export async function updateEntityById(
   ifMatchSeq?: number,
 ): Promise<EntityDoc | null> {
   const collection = col<EntityDoc>(`${spaceId}_entities`);
-  const existing = await collection.findOne(asFilter<EntityDoc>({ _id: id, spaceId })) as EntityDoc | null;
+  const existing = await collection.findOne(asFilter<EntityDoc>({ _id: id, spaceId }),
+    { projection: NEVER_RETURNED_PROJECTION }) as EntityDoc | null;
   if (!existing) return null;
 
   const seq = await nextSeq(spaceId);
@@ -389,7 +395,7 @@ export async function listEntities(
   sort?: SortSpec,
 ): Promise<EntityDoc[]> {
   const cursor = col<EntityDoc>(`${spaceId}_entities`)
-    .find(asFilter<EntityDoc>({ ...filter, spaceId }));
+    .find(asFilter<EntityDoc>({ ...filter, spaceId }), { projection: NEVER_RETURNED_PROJECTION });
   // A properties-value filter is a collection scan by nature ($expr cannot use an index), so it
   // carries its own deadline instead of running unbounded on a large space.
   cursor.maxTimeMS(filter['$expr'] ? PROPERTIES_SCAN_MAX_MS : 60_000);

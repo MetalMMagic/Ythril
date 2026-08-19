@@ -23,7 +23,7 @@ import { findSimilar, recall, type RecallKnowledgeType, type RecallResult } from
 import { type FilterExpression } from '../../brain/filter.js';
 import { resolveRecallFilter } from '../../brain/recall-filter.js';
 import { traverseGraph, MAX_RECALL_TRAVERSE, resolveEdgeEntityNames } from '../../brain/edges.js';
-import { buildGraphWithSpill, spillResultSet, SPILL_INLINE_RESULTS } from '../../brain/graph-spill.js';
+import { buildGraphWithSpill, spillResultSet } from '../../brain/graph-spill.js';
 import { embed } from '../../brain/embedding.js';
 import { getConfig } from '../../config/loader.js';
 import { col, asFilter } from '../../db/mongo.js';
@@ -40,6 +40,7 @@ import {
 } from '../../brain/recall-shape.js';
 import { mapGraphNodes, graphNodeRecord } from '../../brain/recall-graph.js';
 import { applyProjection, normaliseProjection, type NormalisedProjection } from '../../brain/projection.js';
+import { resolveBudget, budgetedEnvelope, type BudgetRequest } from '../../brain/result-budget.js';
 
 export const searchRouter = Router();
 
@@ -520,6 +521,11 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
     if (!projParse.ok) { res.status(400).json({ error: projParse.error }); return; }
     const safeProjection = projParse.norm;
 
+    // The byte budget (X-17), replacing the record cap that collapsed a large answer to three inline records
+    // plus a whole-set dump — a shape that roughly DOUBLED the caller's cost rather than reducing it.
+    const budget = resolveBudget(req.body as BudgetRequest);
+    if (!budget.ok) { res.status(400).json({ error: budget.error }); return; }
+
     const degraded: string[] = [];
     const all = (await Promise.all(
       memberIds.map(mid => recall(mid, query.trim(), safeTopK, safeTags, safeTypes, safeMinPerType, safeMinScore, safeFilter, { maxPerType: safeMaxPerType, maxTimeMS: safeMaxTimeMS, degraded, includeFreshWrites: safeIncludeFresh })),
@@ -563,16 +569,18 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
       const plain = projectResults(
         withoutDiagnostics(stripContentIfAsked(seeds, safeIncludeContent), safeIncludeDiagnostics),
         safeProjection);
-      const plainSpill = await spillResultSet({
-        memberSpaceId: seeds[0]?.spaceId ?? spaceId,
+      const plainBudgeted = await budgetedEnvelope({
         results: plain,
-        graphNodes: 0,
-        request: { query: query.trim(), topK: safeTopK, traverse: 0, types: safeTypes ?? null },
+        budgetBytes: budget.bytes,
+        spillRemainder: remainder => spillResultSet({
+          memberSpaceId: seeds[0]?.spaceId ?? spaceId,
+          results: remainder,
+          request: { query: query.trim(), topK: safeTopK, traverse: 0, types: safeTypes ?? null },
+        }),
       });
       res.json({
-        results: plainSpill ? plain.slice(0, SPILL_INLINE_RESULTS) : plain,
-        count: plain.length,
-        ...(plainSpill ? { truncated: true, complete: plainSpill } : {}),
+        results: plainBudgeted.results,
+        ...plainBudgeted.fields,
         ...(degraded.length > 0 ? { degraded } : {}),
       });
       return;
@@ -610,18 +618,20 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
     // The WHOLE result set spills, not the graph alone: `topK: 100, traverse: 2` is a large answer even when
     // every graph inside it is complete, and a caller cannot page a recall. Past the threshold the response
     // carries a SAMPLE — three matches — and the link to all of it. Embeddings are stripped from the file.
-    const resultSpill = await spillResultSet({
-      memberSpaceId: seeds[0]?.spaceId ?? spaceId,
+    const budgeted = await budgetedEnvelope({
       results,
-      graphNodes: graph.nodes,
-      request: { query: query.trim(), topK: safeTopK, traverse: safeTraverse, types: safeTypes ?? null },
+      budgetBytes: budget.bytes,
+      spillRemainder: remainder => spillResultSet({
+        memberSpaceId: seeds[0]?.spaceId ?? spaceId,
+        results: remainder,
+        request: { query: query.trim(), topK: safeTopK, traverse: safeTraverse, types: safeTypes ?? null },
+      }),
     });
     res.json({
-      results: resultSpill ? results.slice(0, SPILL_INLINE_RESULTS) : results,
-      count: results.length,
+      results: budgeted.results,
+      ...budgeted.fields,
       traverseDepth: safeTraverse,
       graphNodes: graph.nodes,
-      ...(resultSpill ? { truncated: true, complete: resultSpill } : {}),
       ...(spill ? { graphTruncated: true, graphComplete: spill } : {}),
       ...(degraded.length > 0 ? { degraded } : {}),
     });
@@ -697,6 +707,11 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
   if (!simProjParse.ok) { res.status(400).json({ error: simProjParse.error }); return; }
   const safeProjection = simProjParse.norm;
 
+  // Same budget, same resolver. find-similar returns recall RESULTS, so a cap that applied to one route and
+  // not the other would be the asymmetry this area has spent three releases removing.
+  const budget = resolveBudget(body as BudgetRequest);
+  if (!budget.ok) { res.status(400).json({ error: budget.error }); return; }
+
 
   if (!entryId || !UUID_V4_RE.test(entryId)) {
     res.status(400).json({ error: 'entryId must be a valid UUID v4' });
@@ -741,16 +756,19 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
     if (safeTraverse === 0) {
       const plainItems = projectResults(withoutDiagnostics(
         stripContentIfAsked(result.results, safeIncludeContent), safeIncludeDiagnostics), safeProjection);
-      const plainItemSpill = await spillResultSet({
-        memberSpaceId: result.results[0]?.spaceId ?? spaceId,
+      const plainItemsBudgeted = await budgetedEnvelope({
         results: plainItems,
-        graphNodes: 0,
-        request: { entryId, entryType, topK, traverse: 0 },
+        budgetBytes: budget.bytes,
+        spillRemainder: remainder => spillResultSet({
+          memberSpaceId: result.results[0]?.spaceId ?? spaceId,
+          results: remainder,
+          request: { entryId, entryType, topK, traverse: 0 },
+        }),
       });
       res.json({
         ...result,
-        results: plainItemSpill ? plainItems.slice(0, SPILL_INLINE_RESULTS) : plainItems,
-        ...(plainItemSpill ? { truncated: true, complete: plainItemSpill } : {}),
+        results: plainItemsBudgeted.results,
+        ...plainItemsBudgeted.fields,
       });
       return;
     }
@@ -774,18 +792,20 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
         return nested ? { ...r, _graph: nested } : r;
       });
     const items = projectResults(itemsWithGraph as RecallResult[], safeProjection);
-    const itemSpill = await spillResultSet({
-      memberSpaceId: result.results[0]?.spaceId ?? spaceId,
+    const itemsBudgeted = await budgetedEnvelope({
       results: items,
-      graphNodes: graph.nodes,
-      request: { entryId, entryType, topK, traverse: safeTraverse },
+      budgetBytes: budget.bytes,
+      spillRemainder: remainder => spillResultSet({
+        memberSpaceId: result.results[0]?.spaceId ?? spaceId,
+        results: remainder,
+        request: { entryId, entryType, topK, traverse: safeTraverse },
+      }),
     });
     res.json({
       source: result.source,
-      results: itemSpill ? items.slice(0, SPILL_INLINE_RESULTS) : items,
-      count: items.length,
+      results: itemsBudgeted.results,
+      ...itemsBudgeted.fields,
       traverseDepth: safeTraverse, graphNodes: graph.nodes,
-      ...(itemSpill ? { truncated: true, complete: itemSpill } : {}),
       ...(spill ? { graphTruncated: true, graphComplete: spill } : {}),
     });
   } catch (err: unknown) {

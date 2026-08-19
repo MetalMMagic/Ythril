@@ -168,41 +168,27 @@ async function writeSpill(
 }
 
 /**
- * How many matches come back inline once a result set spills.
+ * WHO DECIDES A RESULT SET IS TOO BIG — and it is no longer this file.
  *
- * Owner correction, 2026-08-13: the spill is for the WHOLE result set, not the graph alone. *"When someone
- * recalls with topK=100 and traverse=2 he gets a real big file to download but only 3 full results back in the
- * response."*
+ * `SPILL_INLINE_RESULTS = 3` and `SPILL_RECORD_THRESHOLD = 25` used to live here: past 25 records a response
+ * collapsed to three inline matches plus a download of the WHOLE set. X-17 replaced that with the byte budget
+ * in `result-budget.ts`, and both constants are gone rather than kept for reference, because a threshold left
+ * in the file that writes the spill is a second rule about size that can disagree with the first — this
+ * codebase's most-produced defect, and it did disagree: the guard `if (records <= 25) return null` was still
+ * here after the budget started deciding, so a response truncated at twenty records with five left over said
+ * `truncated: true` and carried NO link to the five. The caller was told there was more and given no way to
+ * reach it.
  *
- * Three, because the inline part stops being the answer and becomes a sample: enough to see the shape of what
- * came back and decide whether to fetch the file, few enough that nobody mistakes it for the result.
+ * So `spillResultSet` no longer asks whether to spill. It is called only when the budget has already cut
+ * something, and it always writes what it is handed.
  */
-export const SPILL_INLINE_RESULTS = 3;
-
-/**
- * The record count above which a whole result set is written out instead of returned.
- *
- * Counted in RECORDS — matches plus traversed nodes — because that is what the caller sized when they set `topK`
- * and `traverse`, and because bytes vary wildly with whether file passages are included.
- *
- * **25 is deliberately low, and a graph recall reaches it easily.** `topK: 10, traverse: 1` can produce ten
- * matches and sixty nodes, and that spills. That is the intended reading of the ruling — *"only 3 full results
- * back in the response"* — because the thing being protected is a model's context window, and a payload is
- * unwieldy long before it is enormous. A caller who wants everything inline asks a narrower question; a caller
- * who wants everything gets a link to all of it and keeps `count`.
- *
- * One constant, so raising the line is a one-line decision rather than an archaeology exercise.
- */
-export const SPILL_RECORD_THRESHOLD = 25;
 
 /** Where a spilled result set went. */
 export interface ResultSpill {
-  /** Matches in the file. */
+  /** Matches in the file — the ones that did not fit the budget, never the ones already returned inline. */
   matches: number;
-  /** Every record in the file, matches and traversed nodes together. */
+  /** Every record in the file, matches and their traversed nodes together. */
   records: number;
-  /** How many matches came back inline — the rest are only in the file. */
-  inline: number;
   path: string;
   download: string;
   expiresAt: string;
@@ -232,24 +218,47 @@ export function suppressEmbeddings<T>(value: T): T {
 }
 
 /**
- * Write a whole result set out when it is too big to return, and say where it went.
+ * Count the traversed nodes a payload actually carries, at every depth and on either door.
  *
- * Returns `null` when the set fits, in which case the caller returns it inline exactly as before — no file, no
- * flag, and the response is what it always was.
+ * **This replaces a `graphNodes` number the routes passed in, and the difference is the whole point.** That
+ * number was the node total for the WHOLE result set. Under the byte budget the file holds only the matches
+ * that did not fit, so the figure described a different set of records from the one being written — and
+ * `records` is what a caller sizes the download by. A twenty-node answer truncated at its last match would
+ * have advertised a file of twenty-odd records holding one.
+ *
+ * A count taken from the payload cannot disagree with the payload. It walks for `_graph` at any depth, which
+ * is also what makes it work on both doors without knowing either shape: REST puts `_graph` beside the
+ * record's own fields, MCP beside `record`, and a nested node carries its own `_graph` again.
+ */
+export function countGraphNodes(value: unknown): number {
+  if (Array.isArray(value)) return value.reduce<number>((n, v) => n + countGraphNodes(v), 0);
+  if (value === null || typeof value !== 'object') return 0;
+  let n = 0;
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (k === '_graph' && Array.isArray(v)) n += v.length;
+    n += countGraphNodes(v);
+  }
+  return n;
+}
+
+/**
+ * Write out the matches that did not fit the budget, and say where they went.
+ *
+ * **It does not decide anything.** The byte budget in `result-budget.ts` decides, and calls this only with a
+ * non-empty remainder — so there is no "it fits" branch here and no `null` return. See the note above the
+ * `ResultSpill` interface for the guard that used to be here and what it silently cost.
  *
  * `memberSpaceId` and not the addressed space: a proxy owns no file store. See `writeSpill`.
  */
 export async function spillResultSet(opts: {
   memberSpaceId: string;
-  /** The complete result set, matches with their `_graph` trees attached. */
+  /** The matches that did not fit, with their `_graph` trees attached. */
   results: unknown[];
-  /** Traversed nodes across the whole set, for the record count and the file's own header. */
-  graphNodes: number;
   /** What the caller asked for, echoed into the file so it is self-describing a day later. */
   request: Record<string, unknown>;
-}): Promise<ResultSpill | null> {
-  const records = opts.results.length + opts.graphNodes;
-  if (records <= SPILL_RECORD_THRESHOLD) return null;
+}): Promise<ResultSpill> {
+  const graphNodes = countGraphNodes(opts.results);
+  const records = opts.results.length + graphNodes;
 
   const path = `${SPILL_DIR}/results-${randomUUID()}.json`;
   const expiresAt = new Date(Date.now() + SPILL_TTL_DAYS * 86_400_000).toISOString();
@@ -258,7 +267,7 @@ export async function spillResultSet(opts: {
     generatedFor: opts.memberSpaceId,
     request: opts.request,
     matches: opts.results.length,
-    graphNodes: opts.graphNodes,
+    graphNodes,
     records,
     expiresAt,
     results: opts.results,
@@ -266,7 +275,9 @@ export async function spillResultSet(opts: {
 
   await writeFile(opts.memberSpaceId, path, body);
   await upsertFileMeta(opts.memberSpaceId, path, Buffer.byteLength(body, 'utf8'), {
-    description: `Complete recall result set (${records} records), expires ${expiresAt}`,
+    // "Remainder", not "complete": the file is the continuation of an answer, and the old wording would have
+    // an operator opening it expecting the records their caller already had.
+    description: `Recall result remainder (${records} records), expires ${expiresAt}`,
     tags: ['result-spill'],
     ttlDays: SPILL_TTL_DAYS,
   });
@@ -274,7 +285,6 @@ export async function spillResultSet(opts: {
   return {
     matches: opts.results.length,
     records,
-    inline: Math.min(SPILL_INLINE_RESULTS, opts.results.length),
     path,
     download: `/api/files/${encodeURIComponent(opts.memberSpaceId)}?path=${encodeURIComponent(path)}`,
     expiresAt,

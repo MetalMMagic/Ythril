@@ -36,6 +36,9 @@ Available as both:
 | `includeContent` | — | `true` | Whether file-chunk results carry `content` — the passage body. `false` returns locations and metadata only (path, heading, chunk index, tags, properties). **File chunks ONLY** — it does nothing on a search returning entities, memories, edges or chrono entries; use `projection` to trim those. A non-boolean is a `400`, never coerced |
 | `includeDiagnostics` | — | `false` | Add back the fields a result carries for the SYSTEM rather than for you: `matchedText` (the exact pre-embedding source string — for a file chunk, the passage a SECOND time), `embeddingModel`, `seq`, and the per-stage `lexicalScore`/`fusedScore`/`rerankScore`. **Applies recursively**, so a `traverse` answer's `_graph` nodes and edges follow it at every depth. Off by default since 3.1.0 — before then this door sent all six unconditionally while MCP sent none. The embedding VECTOR is not among them and is never returned by anything. A non-boolean is a `400`, never coerced |
 | `projection` | — | none | Fields to include (1) or exclude (0), the same grammar `POST /query` takes, applied to each result's record. Dotted paths work: `{"name": 1, "properties.status": 1}`. **Applies recursively** — a `traverse` answer's `_graph` nodes and edges are projected at every depth, which is where a large answer's size actually comes from. Inclusion and exclusion cannot be mixed (the non-`_id` fields decide which you meant); `_id` survives an inclusion projection unless you send `_id: 0`; and the embedding VECTOR can never be projected back in — an explicit `embedding: 1` is dropped rather than honoured. The ranking envelope (`score`, `spaceId`, `type`, `_graph`) always survives, so a projection cannot lose the score you searched for |
+| `maxBytes` | — | `100000` | Ceiling on the serialised response body, in bytes. **The answer is a PREFIX of the ranked results and every record in it is WHOLE** — full body, full properties, complete `_graph`, byte-identical to that record from an unbudgeted call. Truncation is atomic at the match: the first match whose subtree would not fit is omitted and so is everything after it, so no answer has a gap and none carries a record with half its graph. `returned`, `count`, `truncated`, `budgetBytes` and `bytesReturned` are on EVERY response, so absence never has to be interpreted; `remainder` points at what did not fit |
+| `maxTokens` | — | none | A convenience onto `maxBytes`, converted with `charsPerToken`. If both are sent the **smaller** resulting byte figure applies. It is an approximation — the server does not know your tokeniser |
+| `charsPerToken` | — | `3.5` | Ratio used to convert `maxTokens` to bytes. 3.5 rather than the customary 4.0 because 4.0 UNDER-counts tokens and is worst on graph-heavy responses: undershooting costs one page, overshooting costs a blown context |
 
 **Response** `200`:
 
@@ -409,22 +412,26 @@ counting rows never double-counts a record, and no relationship is invisible.
 
 **Performance:** traversal issues roughly two batched (`$in`) MongoDB queries per hop, not one query per node. Even so, `traverse > 2` on a densely-connected graph can fan out quickly — pair it with `filter`, `tags`, or a low `topK` to keep the seed set (and therefore the traversal frontier) tight.
 
-#### A large answer comes back as a sample and a download
+#### A large answer comes back as a prefix and a link to the rest
 
 A recall cannot be paged — `topK` is the answer, not a window into it — so an answer that is too large to return
-has nowhere to go. Past **25 records** (matches plus traversed nodes) the whole result set is written to the
-space's `_tmp/` as JSON and the response carries **three matches** as a sample plus the link to all of it:
+has nowhere to go. The response is bounded by **`maxBytes`** (operator default 100 000; `maxTokens` is the same
+control expressed in tokens, and if you send both the smaller wins). What fits comes back as the **longest
+prefix of the ranked matches**, every record whole; what does not fit is written to the space's `_tmp/` as JSON
+and reachable through an authenticated download:
 
 ```json
 {
-  "results": [ /* 3 matches, complete, each with its own `_graph` */ ],
+  "results": [ /* 22 matches, each complete, each with its own `_graph` */ ],
+  "returned": 22,
   "count": 100,
-  "graphNodes": 240,
   "truncated": true,
-  "complete": {
-    "matches": 100,
-    "records": 340,
-    "inline": 3,
+  "budgetBytes": 100000,
+  "bytesReturned": 99612,
+  "graphNodes": 240,
+  "remainder": {
+    "matches": 78,
+    "records": 264,
     "path": "_tmp/results-9f1c….json",
     "download": "/api/files/dev-apps?path=_tmp%2Fresults-9f1c….json",
     "expiresAt": "2026-08-14T20:11:00.000Z"
@@ -432,12 +439,30 @@ space's `_tmp/` as JSON and the response carries **three matches** as a sample p
 }
 ```
 
-- **`count` is the real total**, never the sample. A caller reading `count: 3` would conclude the space holds three
-  matching records.
+- **The five accounting fields are on EVERY response**, whether the budget bit or not: `returned`, `count`,
+  `truncated`, `budgetBytes`, `bytesReturned`. A field that appeared only when it bit would be one whose
+  absence has to be interpreted, and the caller who most needs it is the one who does not know to look.
+- **`count` is the real total**, never what was sent. `returned` is what was sent, and it is
+  `results.length` — read `returned` and you never have to count.
+- **`remainder` holds ONLY what did not fit.** It is a continuation, not a copy: the records already in
+  `results` are not repeated in it. The previous shape dumped the whole set including the part already sent,
+  which is most of why it cost a caller more than it saved.
+- **`remainder.matches` and `remainder.records` describe the FILE** — matches in it, and matches plus their
+  traversed nodes. Both are counted from what was actually written, so neither can disagree with the download.
+- **Truncation is atomic at the match, and the answer is always a prefix.** The first match whose complete
+  `_graph` subtree would not fit is omitted and so is every match after it, even a later smaller one. No
+  answer has a hole in the middle and no record arrives with half its graph.
+- **A single match larger than the whole budget is still returned, alone.** A budget must not become a wall.
 - The file is **self-describing**: it repeats the request that produced it, the counts, and its own expiry.
 - **No embedding vectors are written**, at any depth — a result set serialised verbatim is the one place they
   would otherwise land in a file an operator opens.
 - Same authenticated download and same **one-day** expiry as the graph spill below.
+
+> **This replaced a record cap, and the reason is worth one line.** Past 25 records the answer used to collapse
+> to **three** inline matches plus a download of everything. That did not reduce what a caller had to read — it
+> roughly doubled it, because `read_file` takes no offset or limit, so the file had to be read whole and it
+> contained the three records already sent. A budget with a prefix and a remainder gives the caller the same
+> ceiling without the duplication.
 
 #### Recall without passage bodies (`includeContent`)
 
@@ -628,6 +653,9 @@ Given an existing entry's `_id`, find other entries with high vector similarity.
 | `includeContent` | — | `true` | Whether file-chunk results carry their passage `content`. `false` returns locations and metadata only, exactly as on `recall` |
 | `includeDiagnostics` | — | `false` | Add back the fields a result carries for the SYSTEM rather than for you: `matchedText` (the exact pre-embedding source string — for a file chunk, the passage a SECOND time), `embeddingModel`, `seq`, and the per-stage `lexicalScore`/`fusedScore`/`rerankScore`. **Applies recursively**, so a `traverse` answer's `_graph` nodes and edges follow it at every depth. Off by default since 3.1.0 — before then this door sent all six unconditionally while MCP sent none. The embedding VECTOR is not among them and is never returned by anything. A non-boolean is a `400`, never coerced |
 | `projection` | — | none | Fields to include (1) or exclude (0), the same grammar `POST /query` takes, applied to each result's record. Dotted paths work: `{"name": 1, "properties.status": 1}`. **Applies recursively** — a `traverse` answer's `_graph` nodes and edges are projected at every depth, which is where a large answer's size actually comes from. Inclusion and exclusion cannot be mixed (the non-`_id` fields decide which you meant); `_id` survives an inclusion projection unless you send `_id: 0`; and the embedding VECTOR can never be projected back in — an explicit `embedding: 1` is dropped rather than honoured. The ranking envelope (`score`, `spaceId`, `type`, `_graph`) always survives, so a projection cannot lose the score you searched for |
+| `maxBytes` | — | `100000` | Ceiling on the serialised response body, in bytes. **The answer is a PREFIX of the ranked results and every record in it is WHOLE** — full body, full properties, complete `_graph`, byte-identical to that record from an unbudgeted call. Truncation is atomic at the match: the first match whose subtree would not fit is omitted and so is everything after it, so no answer has a gap and none carries a record with half its graph. `returned`, `count`, `truncated`, `budgetBytes` and `bytesReturned` are on EVERY response, so absence never has to be interpreted; `remainder` points at what did not fit |
+| `maxTokens` | — | none | A convenience onto `maxBytes`, converted with `charsPerToken`. If both are sent the **smaller** resulting byte figure applies. It is an approximation — the server does not know your tokeniser |
+| `charsPerToken` | — | `3.5` | Ratio used to convert `maxTokens` to bytes. 3.5 rather than the customary 4.0 because 4.0 UNDER-counts tokens and is worst on graph-heavy responses: undershooting costs one page, overshooting costs a blown context |
 | `crossSpace` | — | `false` | If `true`, search across all spaces the token can access |
 
 **Response** `200`:

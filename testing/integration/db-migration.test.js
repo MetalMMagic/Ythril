@@ -49,9 +49,52 @@ async function adminDel(path_) {
   return del(BASE, adminToken, path_);
 }
 
-/** Ensure maintenance mode is off — used in cleanup hooks */
+/**
+ * Ensure maintenance mode is off — and PROVE it, because this is global state.
+ *
+ * ## What the swallowed version cost
+ *
+ * This was `await adminPost(...).catch(() => {})`. The catch is the defect: maintenance mode makes the instance
+ * answer **503 to everything**, so a cleanup that fails and says nothing does not lose one test — it poisons
+ * every suite that runs after it in the same job. Measured 2026-08-20 while instrumenting X-20: one failed
+ * cleanup under CPU contention, and then 60 consecutive `pubsub-topology` runs failed at `Create space on A`
+ * with `503 System is in maintenance mode`. Sixty runs of a measurement, against a stack that could not answer.
+ *
+ * A swallow is right where the cost of being wrong is a missing log line. It is wrong here, where the cost is
+ * every later suite reporting a catastrophic regression that is really a cleanup that did not run.
+ *
+ * ## So: retry, verify, and throw
+ *
+ * Retried because the failure mode observed was a request that did not get through under load, which is exactly
+ * what a retry fixes. Verified with a GET rather than trusting the POST's own status, because "I asked" and "it
+ * is off" are different claims and only the second one matters to the next suite. And it THROWS if it cannot,
+ * so the suite that broke the instance is the suite that reports it.
+ */
 async function ensureMaintenanceOff() {
-  await adminPost('/api/admin/data/maintenance', { active: false }).catch(() => {});
+  let last = '';
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    try {
+      /*
+       * The STATUS is checked, not just the absence of a throw. `reqJson` resolves for every response — it
+       * returns `{status, body}` and never rejects on a 4xx/5xx — so a `try/catch` around it catches a dropped
+       * connection and nothing else. A version that only caught exceptions would treat a 503 as success, which
+       * is the same silence this function is being fixed for, one layer in.
+       */
+      const set = await adminPost('/api/admin/data/maintenance', { active: false });
+      const check = await adminGet('/api/admin/data/maintenance');
+      if (check.status === 200 && check.body?.active === false) return;
+      last = `POST ${set.status}, GET ${check.status} active=${JSON.stringify(check.body?.active)}`;
+    } catch (err) {
+      last = err instanceof Error ? err.message : String(err);
+    }
+    // The instance may be saturated rather than broken; give it a moment before asking again.
+    await new Promise(r => setTimeout(r, 250 * attempt));
+  }
+  throw new Error(
+    `Could not turn maintenance mode off after 4 attempts (${last}). Refusing to exit quietly: this instance `
+    + 'answers 503 to everything while maintenance is on, so leaving it set makes every later suite in this job '
+    + 'fail for a reason that has nothing to do with what it tests.',
+  );
 }
 
 // ── Data Config ───────────────────────────────────────────────────────────────

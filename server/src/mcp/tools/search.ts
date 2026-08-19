@@ -8,7 +8,7 @@
  */
 
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
-import { UUID_V4_RE, formatRecallSummary, toRecallRecord, uuidSchema, unitScoreSchema, QUERY_FILTER_OPERATORS, RECALL_FILTER_KEY_PATTERN } from './shared.js';
+import { UUID_V4_RE, formatRecallSummary, toRecallRecord, uuidSchema, unitScoreSchema, QUERY_FILTER_OPERATORS } from './shared.js';
 import { MAX_RECALL_TRAVERSE } from '../../brain/edges.js';
 import { mapGraphNodes, graphNodeRecord } from '../../brain/recall-graph.js';
 import { applyProjection, normaliseProjection } from '../../brain/projection.js';
@@ -146,21 +146,34 @@ export const recallTool: ToolHandler = {
             filter: {
               type: 'object',
               description: 'Optional property filter, in EITHER of two grammars. RAW MONGODB is accepted — the same operators `query` takes (`$or`, `$and`, `$not`, `$nor`, `$in`, `$regex`, `$elemMatch`, comparisons) nested to depth 8 — and so is the older one-operator-object-per-key form (`{"properties.status": {"eq": "x"}}`), which is ANDed across keys. A filter MIXING both is refused rather than resolved. Keys are allowlisted either way, including inside `$or`. A raw filter takes the exhaustive path (it cannot become a native index pre-filter), which is slower and returns the same records. **`topK` is filled from records that SATISFY the filter** — it is never applied to an already-truncated shortlist, so a filtered recall cannot silently miss a matching record. Two mechanisms deliver that: `tags`, `type`, `name`, `status`, `label` and schema-DECLARED `properties.<key>` with eq/in/gt/gte/lt/lte are pushed into the vector index as a native pre-filter, restricting the search to the matching subset; an undeclared `properties.*`, or `exists`/`ne`, falls back to scoring the whole space exhaustively and filtering after — slower, same results, still nothing dropped by `topK`. Declare a heavily-filtered property in the space schema to keep it on the fast path. Keys must use dot-notation and start with "properties.", "tags", "type", "name", "status", or "label" (any other key is rejected). Each value is an operator object with one or more of: eq, ne, in (array), exists (boolean), gt, gte, lt, lte. Example: { "properties.status": { "eq": "accepted" }, "properties.count": { "gt": 10 } }. Records not matching ALL filter conditions are excluded.',
-              propertyNames: { pattern: RECALL_FILTER_KEY_PATTERN },
-              additionalProperties: {
-                type: 'object',
-                additionalProperties: false,
-                properties: {
-                  eq: { description: 'Exact equality.' },
-                  ne: { description: 'Not equal.' },
-                  in: { type: 'array', description: 'Value is in array (any-of for tags).' },
-                  exists: { type: 'boolean', description: 'Property is present.' },
-                  gt: { type: 'number', description: 'Greater than.' },
-                  gte: { type: 'number', description: 'Greater than or equal.' },
-                  lt: { type: 'number', description: 'Less than.' },
-                  lte: { type: 'number', description: 'Less than or equal.' },
-                },
-              },
+              /*
+               * NO STRUCTURAL CONSTRAINT HERE, and that is the fix rather than an omission.
+               *
+               * This declared `propertyNames: { pattern: RECALL_FILTER_KEY_PATTERN }` plus an
+               * `additionalProperties` requiring every value to be an operator object of
+               * eq/ne/in/exists/gt/gte/lt/lte with `additionalProperties: false`. So the schema accepted the
+               * LEGACY grammar and nothing else — while the description two lines above promised raw MongoDB,
+               * and REST delivers it.
+               *
+               * Measured on one instance, one space, the same instant, with breituai-platform's own filter
+               * `{type: 'message', 'properties.readBy': {$not: {$regex: 'ythril'}}}`:
+               *
+               *     REST  POST /recall  ->  200, returns the record
+               *     MCP   recall        ->  isError: /filter/type: must be object;
+               *                                      /filter/properties.readBy: unexpected property '$not'
+               *
+               * TWO refusals in one filter, and both are the schema being narrower than the server: a bare
+               * `type: 'message'` is valid raw-Mongo equality, and `$not` is on the allowlist `query` takes.
+               *
+               * **The dispatcher validates arguments BEFORE the handler runs**, so a schema stricter than the
+               * resolver is not a hint — it is a hard refusal the resolver never gets to answer. That is why
+               * relaxing the schema is the whole fix: `resolveRecallFilter` already accepts either grammar,
+               * refuses a MIXED one, and enforces the key allowlist RECURSIVELY so `$or` cannot smuggle a key
+               * past it. Its errors are better than the schema's, because it knows which grammar you meant.
+               *
+               * `query`'s own filter is declared exactly this way — `type: 'object'` and a description — for
+               * exactly this reason. Two tools, one grammar, and this was the copy that constrained it.
+               */
             },
           },
           required: ['query'],

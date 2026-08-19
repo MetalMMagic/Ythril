@@ -191,12 +191,18 @@ export const QUERY_FILTER_OPERATORS = [
   '$exists', '$type', '$regex', '$options', '$all', '$elemMatch', '$size', '$mod',
 ] as const;
 
-/**
- * `propertyNames` pattern for the recall filter's keys — mirrors `ALLOWED_FILTER_KEY_PREFIXES`
- * (brain/filter.ts): `properties.<path>`, or exactly `tags`/`type`/`name`/`status`/`label` (optionally
- * dot-suffixed). Encodes the injection-prevention allowlist so agents see which keys are legal.
+/*
+ * `RECALL_FILTER_KEY_PATTERN` WAS HERE AND IS DELETED, not merely left unreferenced.
+ *
+ * It was a `propertyNames` pattern for the recall filter's keys, and its own comment carried the admission:
+ * *"mirrors `ALLOWED_FILTER_KEY_PREFIXES` (brain/filter.ts)"*. One allowlist, two encodings, free to disagree
+ * — and they did. The pattern also refused `$or`/`$and`/`$not` as keys, so a schema written to document the
+ * legal keys ended up rejecting the raw-Mongo grammar the same tool's description promises and REST delivers.
+ *
+ * The resolver (`brain/recall-filter.ts`) enforces the allowlist RECURSIVELY, in either grammar, and is now
+ * the only copy. Do not reintroduce a schema-side mirror: the dispatcher validates arguments before the
+ * handler runs, so a mirror that drifts narrow becomes a refusal the resolver never gets to answer.
  */
-export const RECALL_FILTER_KEY_PATTERN = '^(properties\\..+|(tags|type|name|status|label)(\\..+)?)$';
 
 /** Format a RecallResult as a single human-readable summary line. */
 export function formatRecallSummary(r: RecallResult): string {

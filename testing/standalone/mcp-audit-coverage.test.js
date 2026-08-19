@@ -29,6 +29,7 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { balancedFrom } from './_structural-window.mjs';
 
 let MCP_TOOL_OPERATIONS, mcpAuditOperation, isMcpReadOperation;
 let ALL_TOOLS;
@@ -111,6 +112,11 @@ describe('MCP audit coverage', () => {
     const src = readFileSync(ROUTER, 'utf8');
     const at = src.indexOf('recordToolCall(name, callSpace');
     assert.ok(at > 0);
-    assert.ok(!/status: 200/.test(src.slice(at, at + 200)), 'status must not be hardcoded to 200');
+    /*
+     * The call expression, bounded by its own closing paren. This is the shape where a magic window is at its most
+     * dangerous: the assertion is that something is ABSENT, so a window falling short passes by looking at less.
+     */
+    const call = balancedFrom(src, at, 'the recordToolCall call');
+    assert.ok(!/status: 200/.test(call), 'status must not be hardcoded to 200');
   });
 });

@@ -17,6 +17,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { balancedFrom } from './_structural-window.mjs';
 
 const ROOT = 'server/src';
 
@@ -70,9 +71,11 @@ describe('console output cannot bypass the redactor', () => {
     // endpoint) and because a future refactor is most likely to "simplify" them back.
     const src = readFileSync(`${ROOT}/index.ts`, 'utf8');
     for (const handler of ['unhandledRejection', 'uncaughtException']) {
-      const at = src.indexOf(handler);
+      // The whole registration, bounded by the paren that closes it. At 400 characters this covered both handlers
+      // as they are written today, so `uncaughtException` was being checked twice and its own body never bounded.
+      const at = src.indexOf(`process.on('${handler}'`);
       assert.ok(at > 0, `${handler} handler should exist`);
-      const block = src.slice(at, at + 400);
+      const block = balancedFrom(src, at, `the ${handler} handler`);
       assert.ok(block.includes('redactSecrets('), `${handler} must redact before writing to the console`);
     }
   });

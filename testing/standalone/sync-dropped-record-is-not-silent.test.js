@@ -31,6 +31,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripComments } from './_strip-comments.mjs';
+import { enclosingBlockFrom, balancedFrom, blockAfter } from './_structural-window.mjs';
 
 const receiver = stripComments(readFileSync('server/src/api/sync/docs.ts', 'utf8'));
 const sender = stripComments(readFileSync('server/src/sync/engine.ts', 'utf8'));
@@ -58,7 +59,8 @@ describe('the receiver separates a drop from an already-current skip', () => {
   it('logs the drop, naming the record and saying it will not be retried', () => {
     const at = receiver.indexOf('forkDepthRefused++');
     assert.ok(at > -1, 'anchor missing — re-point this gate');
-    const block = receiver.slice(at, at + 700);
+    // The rest of the branch the counter sits in, bounded by the brace that closes it.
+    const block = enclosingBlockFrom(receiver, at, 'the fork-depth refusal branch');
     assert.match(block, /log\.warn\(/, 'the side that knows WHY must say so');
     assert.match(block, /DROPPED/, 'and say what happened in a word an operator can grep for');
     assert.match(block, /\$\{incoming\._id\}/, 'naming the record — a count alone cannot be investigated');
@@ -121,7 +123,14 @@ describe('the sender reads the body instead of trusting the status', () => {
     // the space. This asserts the advance is unconditional on the refusal, so nobody "fixes" it into a stall.
     const at = sender.indexOf('maxSeqPushed > lastSeqPushed');
     assert.ok(at > -1, 'anchor missing — re-point this gate');
-    const block = sender.slice(Math.max(0, at - 400), at + 400);
+    /*
+     * The condition AND the branch, each bounded by its own closing bracket. The version this replaces read 400
+     * characters either side, which is the worst combination in this file: the assertion is that something is
+     * ABSENT, so a window that falls short passes by looking at less — and the backwards half is written
+     * `at - 400`, a form the magic-window ratchet's pattern does not match.
+     */
+    const block = balancedFrom(sender, sender.lastIndexOf('if (', at), 'the watermark-advance condition')
+      + blockAfter(sender, at, 'the watermark-advance branch');
     assert.doesNotMatch(block, /forkDepthRefused/,
       'the watermark must not be made conditional on a refusal — that trades a visible drop for a dead space');
   });

@@ -29,6 +29,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripComments } from './_strip-comments.mjs';
+import { bodyOf } from './_structural-window.mjs';
 
 const { DERIVED_RUNGS, SPACE_AREAS, RUNGS } = await import('../../server/dist/config/rights-shape.js');
 const { isSpaceAdminFor } = await import('../../server/dist/auth/editor-scope.js');
@@ -89,9 +90,7 @@ describe('the published definition IS the enforced predicate', () => {
      * above would keep passing because they are built from the published value.
      */
     const src = stripComments(readFileSync('server/src/config/rights-shape.ts', 'utf8'));
-    const at = src.indexOf('DERIVED_RUNGS');
-    assert.ok(at > -1, 'anchor missing — re-point this gate');
-    const block = src.slice(at, at + 900);
+    const block = bodyOf(src, 'DERIVED_RUNGS');
     assert.match(block, /SPACE_AREAS\.map/,
       'requires must be built from SPACE_AREAS, or it is a second copy of the predicate free to disagree');
     assert.doesNotMatch(block, /knowledge:\s*'admin'/,

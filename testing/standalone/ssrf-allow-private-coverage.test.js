@@ -26,6 +26,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { bodyOf } from './_structural-window.mjs';
 
 const ROOT = 'server/src';
 /** The guard's own module defines the parameter — it is not a caller. */
@@ -106,9 +107,7 @@ describe('ssrfSafeFetch callers decide allowPrivate deliberately', () => {
     // the one call site where a future "simplification" back to a two-argument call breaks a documented
     // deployment shape rather than merely loosening a convention.
     const src = readFileSync(`${ROOT}/api/media-config.ts`, 'utf8');
-    const at = src.indexOf('export async function probeModelEndpoint');
-    assert.ok(at > 0, 'probeModelEndpoint should exist');
-    const body = src.slice(at, at + 2000);
+    const body = bodyOf(src, 'probeModelEndpoint');
     // Per SLOT, not instance-wide. The probe has to resolve the same permission the inference client will,
     // and those two now differ per endpoint: an operator who kept one slot strict must see that slot's
     // probe refuse, and an operator who widened another must see that one go through.

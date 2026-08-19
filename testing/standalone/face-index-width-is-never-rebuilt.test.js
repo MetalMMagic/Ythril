@@ -27,6 +27,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { balancedFrom, blockAfter } from './_structural-window.mjs';
 
 const ROOT = process.cwd();
 const SRC = 'server/src/spaces/vector-index.ts';
@@ -69,9 +70,14 @@ describe('the face index refuses a width change', () => {
     // Filter-field changes must still apply — refusing those would freeze the index against legitimate
     // edits and quietly break filtered recall for the space.
     const i = code.indexOf('opts.refuseWidthChange');
-    const stmt = code.slice(Math.max(0, i - 120), i + 40);
+    assert.ok(i > -1, 'the refusal guard is gone — re-anchor this gate');
+    /*
+     * The CONDITION, bounded by the paren that closes it — not 120 characters BEFORE the anchor, which is the same
+     * magic window pointing backwards and is missed by the ratchet's pattern because it is written `i - 120`.
+     */
+    const stmt = balancedFrom(code, code.lastIndexOf('if (', i), 'the width-refusal condition');
     assert.match(stmt, /!\s*dimsMatch/, 'the refusal must be conditioned on the WIDTH differing');
-    assert.match(code.slice(i, i + 1400), /filtersMatch/,
+    assert.match(blockAfter(code, i, 'the width-refusal branch'), /filtersMatch/,
       'a refused width change must still let a filter-field change through, at the existing width');
   });
 

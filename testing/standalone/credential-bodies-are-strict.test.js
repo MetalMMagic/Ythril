@@ -29,6 +29,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { statementFrom } from './_structural-window.mjs';
 
 const ROOT = process.cwd();
 const SRC = 'server/src/api/tokens.ts';
@@ -43,14 +44,12 @@ function bodySchemas() {
   const re = /const\s+(\w*Body)\s*=\s*z\.object\(\{/g;
   let m;
   while ((m = re.exec(code)) !== null) {
-    // Walk to the matching close of the z.object( call, then read what follows it.
-    let i = re.lastIndex - 1, depth = 1;
-    while (i < code.length && depth > 0) {
-      i++;
-      if (code[i] === '{') depth++;
-      else if (code[i] === '}') depth--;
-    }
-    out.push({ name: m[1], tail: code.slice(i, i + 40) });
+    /*
+     * The whole declaration, to its terminating `;`. Two things were wrong with the version this replaces: the
+     * brace walker counted a `{` or `}` inside a string as nesting, and the 40-character tail meant a comment
+     * between the object and its `.strict()` reported the schema LOOSE. Both are the shared helper's job now.
+     */
+    out.push({ name: m[1], tail: statementFrom(code, m.index, `the ${m[1]} body schema`) });
   }
   return out;
 }
@@ -64,7 +63,19 @@ describe('token route bodies reject unknown keys', () => {
   });
 
   it('every body schema is .strict()', () => {
-    const loose = bodySchemas().filter(s => !/\)\s*\.strict\(\)/.test(s.tail)).map(s => s.name);
+    /*
+     * Anchored to the END of the declaration, which matters more than it looks.
+     *
+     * `.strict()` ANYWHERE in the statement is satisfied by a nested one — and both bodies here nest a
+     * `rights: z.object({…}).strict().optional()`. Mutation testing removed the OUTER `.strict()` from
+     * `CreateTokenBody` and this stayed green, matching the inner one instead: the schema that mints credentials
+     * would have gone back to dropping unknown keys silently with the gate reporting fine.
+     *
+     * The predecessor read 40 characters past the object's closing brace, which happened to exclude the nested
+     * call. That is not a property anyone had chosen — it is why the position is now stated rather than inherited.
+     */
+    const STRICT_AT_END = /\}\)\s*\.strict\(\)\s*;?\s*$/;
+    const loose = bodySchemas().filter(s => !STRICT_AT_END.test(s.tail)).map(s => s.name);
     assert.deepEqual(
       loose,
       [],

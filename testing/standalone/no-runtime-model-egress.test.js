@@ -42,6 +42,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { markdownSectionFrom } from './_structural-window.mjs';
 
 const ROOT = process.cwd();
 const read = (p) => readFileSync(join(ROOT, p), 'utf8');
@@ -138,7 +139,9 @@ describe('the claim and its enforcement are documented together', () => {
     const readme = read('README.md');
     const at = readme.indexOf('Works fully offline');
     assert.ok(at > 0, 'the offline claim is gone from the README');
-    assert.match(readme.slice(at, at + 400), /HF_HUB_OFFLINE/,
+    // Prose, bounded by where the next subject starts. A character count on markdown is the worst case of all,
+    // because prose gets re-flowed for readability by people who are not thinking about a test.
+    assert.match(markdownSectionFrom(readme, at), /HF_HUB_OFFLINE/,
       'the claim must say what enforces it, or it is back to being an assertion');
   });
 

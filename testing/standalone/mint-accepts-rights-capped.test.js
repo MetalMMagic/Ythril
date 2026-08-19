@@ -21,6 +21,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { statementFrom } from './_structural-window.mjs';
 
 const ROOT = process.cwd();
 const SRC = 'server/src/api/tokens.ts';
@@ -37,8 +38,20 @@ describe('minting with a rights matrix', () => {
   it('the rights object is itself strict', () => {
     // The same defect the body had: an unknown key inside `rights` would be dropped, and a mis-spelled area
     // would mint a token with less than asked for while reporting success.
-    const i = code.indexOf('rights: z.object(');
-    assert.match(code.slice(i, i + 600), /\}\)\.strict\(\)/, 'the nested rights object drops unknown keys');
+    /*
+     * EVERY one of them, not the first. There are two — the create body and the update body — and `indexOf` checked
+     * only the create route. Found by mutation: loosening the create schema left this green, because the update
+     * schema further down still matched. A route that accepts `rights` and silently drops a mis-spelled area is
+     * exactly the defect this file is about, so checking one of the two routes was checking the wrong half as
+     * often as the right one.
+     */
+    const nested = [...code.matchAll(/rights: z\.object\(/g)];
+    assert.ok(nested.length >= 2,
+      `expected the create and update bodies to both declare a nested rights object, found ${nested.length}`);
+    for (const m of nested) {
+      assert.match(statementFrom(code, m.index, 'the nested rights schema'), /\}\)\.strict\(\)/,
+        'a nested rights object accepts unknown keys, so a mis-spelled area mints less than was asked for');
+    }
   });
 
   it('refuses `rights` together with the legacy fields', () => {

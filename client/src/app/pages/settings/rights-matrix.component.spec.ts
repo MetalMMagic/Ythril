@@ -3,7 +3,7 @@ import { signal } from '@angular/core';
 import { RightsMatrixComponent } from './rights-matrix.component';
 import { RightsCatalogService, impliedFrom, type RightsCatalog } from './rights-catalog.service';
 import { getTranslocoModule } from '../../testing/transloco-testing';
-import type { Rung, TokenRights } from './rights-glyph.component';
+import { RIGHT_AREAS, type Rung, type TokenRights } from './rights-glyph.component';
 
 const rights = (over: Partial<TokenRights> = {}): TokenRights =>
   ({ instanceAdmin: false, createSpaces: false, floor: null, perSpace: {}, ...over });
@@ -256,13 +256,28 @@ describe('RightsMatrixComponent — what a right grants', () => {
   });
 
   it('every column header carries the plain-language description as a tooltip', () => {
+    /*
+     * REWRITTEN BY HAND when the Space Admin column landed, not renumbered from 4 to 5.
+     *
+     * The subject is "every column header explains itself", and that must hold for five columns as it did for
+     * four. What changed is that the fifth is NOT an area, so its key cannot be `tokens.rights.area.*.desc` — a
+     * space administrator is a derived rung across all four areas. Asserting the shape per column keeps the
+     * original claim and adds the distinction, where bumping the number would have quietly allowed a fifth
+     * header with no tooltip at all.
+     *
+     * This assertion is why the column was reverted once before. It needed twenty minutes of reading; the
+     * feature waited five releases.
+     */
     const el = render(rights()).nativeElement as HTMLElement;
     const buttons = [...el.querySelectorAll('thead .area-info')];
-    expect(buttons.length).toBe(4);
-    for (const b of buttons) {
-      // The non-technical half needs no click — it is on the header itself.
-      expect(b.getAttribute('title')).toMatch(/^tokens\.rights\.area\.\w+\.desc$/);
-    }
+    expect(buttons.length).toBe(RIGHT_AREAS.length + 1);
+    const titles = buttons.map(b => b.getAttribute('title'));
+    // The four areas, each with its own key.
+    expect(titles.filter(t => /^tokens\.rights\.area\.\w+\.desc$/.test(t ?? ''))).toHaveLength(RIGHT_AREAS.length);
+    // And the derived one, which is a different key because it is a different kind of thing.
+    expect(titles).toContain('tokens.rights.spaceAdmin.desc');
+    // No header may be silent, whichever kind it is.
+    for (const t of titles) expect(t, 'a column header has no tooltip').toBeTruthy();
   });
 
   it('no panel is open until asked, and it opens for the area clicked', () => {
@@ -335,5 +350,146 @@ describe('RightsMatrixComponent — the grid survives its explanation failing', 
     fixture.detectChanges();
     expect(el.querySelector('.explain tbody')).toBeNull();
     expect(el.querySelector('.explain .miss')!.textContent).toContain('tokens.rights.endpointsUnavailable');
+  });
+});
+
+/**
+ * The Space Admin column.
+ *
+ * ## Why it exists, and why it took five releases
+ *
+ * A space administrator is a token holding **admin on all four areas of that space**. The server has enforced that
+ * since #937 and publishes it as a derived rung on `GET /api/tokens/rights-shape`. The matrix showed four
+ * independent rungs and nothing said that all four at `admin` IS administering the space — so the commonest grant
+ * meant setting four cells and hoping none was missed.
+ *
+ * Owner, five times: *"i miss space admin"*. It had been built once and **reverted** because a header-count
+ * assertion in this file broke. That assertion needed rewriting by hand, which is the twenty-minute job done above.
+ * Reverting working UI over a test count is the wrong trade, and these tests are what make the trade unnecessary
+ * next time: they pin the behaviour that matters rather than the number of elements on a row.
+ */
+describe('RightsMatrixComponent — the Space Admin column', () => {
+  let fixture: ComponentFixture<RightsMatrixComponent>;
+  let emitted: TokenRights[];
+
+  const render = (r: TokenRights, spaces = ['qa', 'research']) => {
+    fixture = TestBed.createComponent(RightsMatrixComponent);
+    fixture.componentRef.setInput('rights', r);
+    fixture.componentRef.setInput('spaces', spaces);
+    emitted = [];
+    fixture.componentInstance.changed.subscribe(v => emitted.push(v));
+    fixture.detectChanges();
+    return fixture.nativeElement as HTMLElement;
+  };
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [RightsMatrixComponent, getTranslocoModule()],
+      providers: [{ provide: RightsCatalogService, useValue: stubCatalog() }],
+    }).compileComponents();
+  });
+
+  const ALL_ADMIN = { knowledge: 'admin', files: 'admin', schema: 'admin', dataQuality: 'admin' } as const;
+  const toggleIn = (el: HTMLElement, row: number) =>
+    el.querySelectorAll('tbody tr')[row]!.querySelector('app-space-admin-toggle')!;
+
+  it('there is one toggle per row, INCLUDING the floor row, and a visible header', () => {
+    // The floor is "every space, including ones created later" — the case where a uniform grant is most often
+    // what somebody means, so leaving it out would miss the commonest use.
+    const el = render(rights());
+    expect(el.querySelectorAll('app-space-admin-toggle').length).toBe(3);
+    expect(toggleIn(el, 0)).toBeTruthy();
+
+    /*
+     * And the header must be REACHABLE, not merely present. jsdom does no layout, so this cannot assert what a
+     * person sees — but it can refuse the one way an element is present and unseen without any styling: `hidden`.
+     * Mutation testing found this gap by adding that attribute and watching the count assertion still pass.
+     */
+    const header = el.querySelector('thead th.admincol') as HTMLElement | null;
+    expect(header, 'the Space Admin header is missing').toBeTruthy();
+    expect(header!.hasAttribute('hidden')).toBe(false);
+    expect(header!.textContent).toContain('tokens.rights.spaceAdmin');
+  });
+
+  it('reads as ON only when all four areas are at admin', () => {
+    const on = (el: HTMLElement, row: number) =>
+      [...toggleIn(el, row).querySelectorAll('button')][1]!.className.includes('on');
+
+    expect(on(render(rights({ perSpace: { qa: ALL_ADMIN } })), 1)).toBe(true);
+    // Three of four is not a space administrator, and showing it as one would overstate access on the screen
+    // somebody audits access from.
+    expect(on(render(rights({
+      perSpace: { qa: { knowledge: 'admin', files: 'admin', schema: 'admin', dataQuality: 'write' } },
+    })), 1)).toBe(false);
+    expect(on(render(rights()), 1)).toBe(false);
+  });
+
+  it('reads as ON when the FLOOR is what put every area at admin', () => {
+    /*
+     * The cell values are shown raised by the floor, and this column must agree with the four cells beside it. A
+     * row administered through the floor is administered — that is what the server enforces — so a column reading
+     * the STORED row would contradict the cells it sits next to.
+     */
+    const el = render(rights({ floor: { ...ALL_ADMIN } }));
+    expect([...toggleIn(el, 1).querySelectorAll('button')][1]!.className.includes('on')).toBe(true);
+  });
+
+  it('granting writes all four areas in ONE emit', () => {
+    /*
+     * Not four `setCell` calls. The parent persists on change, so four emits would let it observe three
+     * inconsistent intermediate rows — a token that briefly means something nobody asked for.
+     */
+    const el = render(rights());
+    [...toggleIn(el, 1).querySelectorAll('button')][1]!.click();
+    expect(emitted.length).toBe(1);
+    expect(emitted[0]!.perSpace['qa']).toEqual({ ...ALL_ADMIN });
+  });
+
+  it('withdrawing clears all four, also in one emit', () => {
+    const el = render(rights({ perSpace: { qa: ALL_ADMIN } }));
+    [...toggleIn(el, 1).querySelectorAll('button')][0]!.click();
+    expect(emitted.length).toBe(1);
+    expect(emitted[0]!.perSpace['qa'])
+      .toEqual({ knowledge: 'none', files: 'none', schema: 'none', dataQuality: 'none' });
+  });
+
+  it('granting on the floor row writes the FLOOR, not a space', () => {
+    const el = render(rights());
+    [...toggleIn(el, 0).querySelectorAll('button')][1]!.click();
+    expect(emitted[0]!.floor).toEqual({ ...ALL_ADMIN });
+    expect(Object.keys(emitted[0]!.perSpace)).toEqual([]);
+  });
+
+  it('leaves other spaces alone', () => {
+    const el = render(rights({ perSpace: { research: { knowledge: 'write', files: 'none', schema: 'none', dataQuality: 'none' } } }));
+    [...toggleIn(el, 1).querySelectorAll('button')][1]!.click();
+    expect(emitted[0]!.perSpace['research']!['knowledge']).toBe('write');
+  });
+
+  it('THE FOUR AREAS ARE STILL INDEPENDENTLY SETTABLE — the model this is only a shortcut for', () => {
+    /*
+     * The reason the earlier attempt's specs "needed reading rather than renumbering". This column must not become
+     * the way rights are expressed: anything other than all-or-nothing is said with the four pickers, and if this
+     * shortcut ever replaced them the matrix would have lost the per-area model it exists to provide.
+     */
+    const el = render(rights());
+    const row = el.querySelectorAll('tbody tr')[1]!;
+    expect(row.querySelectorAll('app-rung-picker').length).toBe(RIGHT_AREAS.length);
+    // Setting one area alone still emits exactly that.
+    row.querySelectorAll('app-rung-picker')[2]!.querySelectorAll('button')[1]!.click();
+    expect(emitted[0]!.perSpace['qa']).toEqual(
+      { knowledge: 'none', files: 'none', schema: 'read', dataQuality: 'none' });
+  });
+
+  it('is disabled in a read-only view, like every other control in the grid', () => {
+    fixture = TestBed.createComponent(RightsMatrixComponent);
+    fixture.componentRef.setInput('rights', rights());
+    fixture.componentRef.setInput('spaces', ['qa']);
+    fixture.componentRef.setInput('readonlyView', true);
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    for (const b of el.querySelectorAll('app-space-admin-toggle button')) {
+      expect((b as HTMLButtonElement).disabled).toBe(true);
+    }
   });
 });

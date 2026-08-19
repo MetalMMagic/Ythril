@@ -9,6 +9,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The rights matrix has a `Space admin` column.** Owner-reported five times across five releases, most recently
+  as a screenshot with the column drawn in: *"i miss space admin"*.
+
+  A space administrator is a token holding admin on **all four areas** of that space. The server has enforced that
+  since #937 and has published it as a derived rung on `GET /api/tokens/rights-shape` ever since — `requires`
+  computed from `SPACE_AREAS` rather than restated, with its grants and its containment rules in prose. **Nothing
+  in the client ever read it.** So the matrix showed four independent rungs and said nothing about the commonest
+  grant, which meant setting four cells and hoping none was missed.
+
+  Press **A** on a row and all four areas go to admin in ONE emit; press **–** and they clear. It is also a
+  read-out: a row already at admin on all four reads as **A**, including when the floor put it there — the column
+  is computed from what the cells DISPLAY, because one that disagreed with the four cells beside it would be worse
+  than no column. Two positions and not four, because it is not a rung: `read` and `write` describe one area, and
+  the four cells remain the way to say anything in between.
+
+  **Why this took five releases, stated plainly: it was built once, it worked, and it was reverted** — because
+  assertions in `rights-matrix.component.spec.ts` counted elements per row and broke. Those assertions were about
+  the per-area model, which is the thing that must not be weakened, so they needed rewriting by hand rather than
+  renumbering. That is a twenty-minute job. Reverting working UI to avoid it was the wrong trade.
+
+  Exactly one assertion needed the rewrite this time, and it is rewritten with its subject intact: *every column
+  header explains itself* now holds for five columns, requires the four area keys AND the derived one, and refuses
+  a silent header — where bumping a 4 to a 5 would have allowed a fifth column with no tooltip at all. The new
+  specs pin behaviour instead of element counts, so the same revert cannot be justified again: one emit not four,
+  the floor row writing the floor, all-four-and-not-any, and **the four areas still independently settable**.
+
+  The explain panel gets the server's own words for the new column — `grants` and `excludes` straight from
+  `derivedRungs`, never a sentence written in the client, because those are red-teamed containment rules and a
+  second copy of one is how they drift.
+
+  Four mutations, four caught. A fifth was dropped as an equivalent mutant with the reason recorded: `cellOf`
+  already folds in the floor and an implication can never lift a cell to admin, so it agrees with `cellShown` for
+  this question today — `cellShown` stays because the column's contract is to track what the cells display.
+
+  Six keys across `en`/`de`/`pl`.
+
 - **`YTHRIL_PINNED_FIELDS` — fix a field at whatever it resolves to, including NOTHING.** Owner ruled this on
   2026-08-19 (was P-7); breituai-platform asked for it twice, and their framing is the requirement: *"once the URL
   is infra-pinned to an in-cluster unauthenticated endpoint, an editable key field is a control with nothing behind

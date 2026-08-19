@@ -116,16 +116,27 @@ describe('the rights grid explains itself', () => {
   });
 
   it('the grid renders the area labels through i18n, not raw', () => {
-    // Scoped to the HEADER, not to the file. Asserting the key appears anywhere in the source passed happily
-    // while the header printed the raw identifier, because the same key is also used by the explanation panel
-    // below — the assertion was satisfied by a different element than the one it was about.
+    /*
+     * Scoped to the HEADER, not to the file. Asserting the key appears anywhere in the source passed happily
+     * while the header printed the raw identifier, because the same key is also used by the explanation panel
+     * below — the assertion was satisfied by a different element than the one it was about.
+     *
+     * The window is bounded by the CLOSING TAG and nothing else. It used to be `[\s\S]{0,1400}?`, and adding the
+     * Space Admin column took the head to 1,770 characters — so the regex stopped matching and the assertion
+     * failed on correct code. A character cap silently decides how much of its subject a gate can see, and it is
+     * the third time this session that one has cost a false failure. There is no reason for a cap here: the
+     * closing tag is the bound.
+     */
     const src = read(MATRIX);
-    const thead = /<thead>([\s\S]{0,1400}?)<\/thead>/.exec(src);
+    const thead = /<thead>([\s\S]*?)<\/thead>/.exec(src);
     assert.ok(thead, 'could not find the table head');
     const head = thead[1];
 
     assert.match(head, /'tokens\.rights\.area\.' \+ a \| transloco/,
       'the column header must resolve a translation key');
+    // The derived column is not an area, so it has its own key — and it must be a key, not a literal either.
+    assert.match(head, /'tokens\.rights\.spaceAdmin' \| transloco/,
+      'the Space Admin header must resolve a translation key too');
     // The original defect: `<th>{{ a }}</th>` printed the code identifier. Matched as a bare interpolation
     // anywhere in the head, since the exact tag layout is not the thing that matters.
     assert.ok(!/\{\{\s*a\s*\}\}/.test(head),

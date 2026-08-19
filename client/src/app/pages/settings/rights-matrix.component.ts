@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, input, output, signal } from '@angular/core';
 import { TranslocoPipe } from '@jsverse/transloco';
 import { RungPickerComponent } from './rung-picker.component';
+import { SpaceAdminToggleComponent } from './space-admin-toggle.component';
 import { RIGHT_AREAS, type Rung, type TokenRights, type WireRungs } from './rights-glyph.component';
 import { RightsCatalogService } from './rights-catalog.service';
 
@@ -28,7 +29,7 @@ const EMPTY = (): WireRungs => ({ knowledge: 'none', files: 'none', schema: 'non
   selector: 'app-rights-matrix',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RungPickerComponent, TranslocoPipe],
+  imports: [RungPickerComponent, SpaceAdminToggleComponent, TranslocoPipe],
   styles: [`
     :host { display: block; overflow-x: auto; }
     table { border-collapse: collapse; width: 100%; font-size: 13px; }
@@ -84,6 +85,19 @@ const EMPTY = (): WireRungs => ({ knowledge: 'none', files: 'none', schema: 'non
                       (click)="toggleExplain(a)">?</button>
             </th>
           }
+          <!-- SPACE ADMIN, and it is a column rather than a hidden shortcut because that is what was asked for.
+               It is DERIVED: a space administrator is a token holding admin on all four areas of that space, and
+               the server has enforced it since #937. The matrix showed four independent rungs and nothing said
+               that all four at admin IS administering the space, so the commonest grant meant setting four cells
+               and hoping none was missed. -->
+          <th class="admincol">
+            {{ 'tokens.rights.spaceAdmin' | transloco }}
+            <button class="area-info" type="button"
+                    [attr.title]="'tokens.rights.spaceAdmin.desc' | transloco"
+                    [attr.aria-label]="'tokens.rights.explain' | transloco"
+                    [attr.aria-expanded]="explaining() === 'spaceAdmin'"
+                    (click)="toggleExplain('spaceAdmin')">?</button>
+          </th>
         </tr>
       </thead>
       <tbody>
@@ -96,6 +110,10 @@ const EMPTY = (): WireRungs => ({ knowledge: 'none', files: 'none', schema: 'non
                                [readonlyView]="readonlyView()" (changed)="setFloor(a, $event)"/>
             </td>
           }
+          <td class="admincol">
+            <app-space-admin-toggle [on]="floorIsAdmin()" [readonlyView]="readonlyView()"
+                                    (changed)="setFloorAdmin($event)"/>
+          </td>
         </tr>
         @for (s of spaces(); track s) {
           <tr>
@@ -107,6 +125,10 @@ const EMPTY = (): WireRungs => ({ knowledge: 'none', files: 'none', schema: 'non
                                  [readonlyView]="readonlyView()" (changed)="setCell(s, a, $event)"/>
               </td>
             }
+            <td class="admincol">
+              <app-space-admin-toggle [on]="isSpaceAdmin(s)" [readonlyView]="readonlyView()"
+                                      (changed)="setSpaceAdmin(s, $event)"/>
+            </td>
           </tr>
         }
       </tbody>
@@ -118,6 +140,20 @@ const EMPTY = (): WireRungs => ({ knowledge: 'none', files: 'none', schema: 'non
          error points at @Component, never at the line that caused it. -->
     @if (explaining(); as a) {
       <div class="explain">
+        <!-- SPACE ADMIN IS NOT AN AREA, so it gets the server's own words rather than an area key that does not
+             exist. grants and excludes come from the rights-shape endpoint, where requires is computed from
+             SPACE_AREAS — so this is the description that cannot drift. A sentence written here would be a second
+             copy of a containment rule that has already been red-teamed. -->
+        @if (a === 'spaceAdmin') {
+          <h4>{{ 'tokens.rights.spaceAdmin' | transloco }}</h4>
+          <p>{{ 'tokens.rights.spaceAdmin.desc' | transloco }}</p>
+          @if (catalog.derived('spaceAdmin'); as d) {
+            <ul class="rungs">
+              <li>{{ 'tokens.rights.spaceAdmin.grants' | transloco }} {{ d.grants }}</li>
+              <li>{{ 'tokens.rights.spaceAdmin.excludes' | transloco }} {{ d.excludes }}</li>
+            </ul>
+          }
+        } @else {
         <h4>{{ 'tokens.rights.area.' + a | transloco }}</h4>
         <p>{{ 'tokens.rights.area.' + a + '.desc' | transloco }}</p>
 
@@ -151,6 +187,7 @@ const EMPTY = (): WireRungs => ({ knowledge: 'none', files: 'none', schema: 'non
         } @else if (catalog.failed()) {
           <!-- The grid must not depend on its own explanation loading. -->
           <p class="miss">{{ 'tokens.rights.endpointsUnavailable' | transloco }}</p>
+        }
         }
       </div>
     }
@@ -248,6 +285,43 @@ export class RightsMatrixComponent implements OnInit {
     const r = this.rights();
     const row = { ...(r.perSpace[space] ?? EMPTY()), [area]: rung };
     this.changed.emit({ ...r, perSpace: { ...r.perSpace, [space]: row } });
+  }
+
+  /**
+   * Is this space administered — every area at its top rung?
+   *
+   * Reads the SHOWN value, not the stored one, so a row whose areas are all at admin because the floor put them
+   * there reads as administered. That is what the server enforces, and a column that disagreed with the four
+   * cells beside it would be worse than no column.
+   */
+  isSpaceAdmin = (space: string): boolean => this.areas.every(a => this.cellShown(space, a) === 'admin');
+
+  /** The same question for the floor row — every space, including ones created later. */
+  floorIsAdmin = (): boolean => this.areas.every(a => this.floorShown(a) === 'admin');
+
+  /**
+   * Grant or withdraw space admin, writing the row WHOLESALE.
+   *
+   * Not a loop over `setCell`: that would emit four times and let a listener observe three inconsistent
+   * intermediate states — a row that is briefly admin on knowledge and none on schema is a token that briefly
+   * means something nobody asked for, and the parent form persists on change.
+   *
+   * Withdrawing sets every area to `none` rather than restoring what was there before. There is nothing to
+   * restore to: the control expresses one state across four cells, so its off position is the empty row. The four
+   * pickers remain the way to express anything in between, which is the model this column is a shortcut for and
+   * must not replace.
+   */
+  setSpaceAdmin(space: string, on: boolean): void {
+    const r = this.rights();
+    const row = Object.fromEntries(this.areas.map(a => [a, on ? 'admin' : 'none'])) as unknown as WireRungs;
+    this.changed.emit({ ...r, perSpace: { ...r.perSpace, [space]: row } });
+  }
+
+  /** Same, for the floor. One emit, whole object. */
+  setFloorAdmin(on: boolean): void {
+    const r = this.rights();
+    const floor = Object.fromEntries(this.areas.map(a => [a, on ? 'admin' : 'none'])) as unknown as WireRungs;
+    this.changed.emit({ ...r, floor });
   }
 }
 

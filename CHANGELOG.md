@@ -135,6 +135,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The brain-ops guide still described the 25-record spill cliff that the byte budget replaced.** It told a
+  caller the answer collapses to *three matches* past 25 records and documented a `complete: {matches, records,
+  inline, path, download, expiresAt}` block — a shape that no longer exists. Rewritten to the budget: a whole-
+  record prefix bounded by `maxBytes`, the five always-present accounting fields, and `remainder` carrying only
+  what did not fit.
+
+  **Found by a targeted staleness sweep rather than by a gate, and that is the point.** `release:gate` passes
+  on this page — it checks that documented things exist and existing things are documented, and every noun in
+  that paragraph existed. A sentence that is about a real feature and describes it WRONGLY is invisible to a
+  coverage check, which is why the docs lens greps for the vocabulary a change made obsolete instead.
 - **A sync push could drop a record permanently and report it in the same number as "nothing to do".**
   `POST /api/sync/batch-upsert` counted two outcomes in one `skipped` integer:
 

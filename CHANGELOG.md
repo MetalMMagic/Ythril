@@ -7,122 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-- **The embedded client wears the host portal's decoration, when the host supplies it.** Owner ruled **A** on
-  2026-08-19 (was P-11), on breituai-platform's ask of 2026-08-18T1806Z — which they framed as an ask and not a
-  request: *"Nothing here is urgent, nothing is blocked on you, and 'not our aesthetic' is a complete answer that
-  we will not raise again."*
-
-  Their portal already declares eleven decoration custom properties on `:root`, under their own names and mapped
-  onto nothing of ours — raw material, not a restyle. **Their absence is the signal**: no `--tr-hot` means render
-  flat. So this needed no negotiation, no dependency and no `postMessage`; the values were already in our document.
-
-  They cannot do it from their side, and not for want of trying: a parent stylesheet does not cross an iframe
-  boundary, and our document paints its own background over anything behind the frame. They raised their own layer
-  in FRONT of the frame, saw traces over the content someone was reading, reverted it, and left a note telling the
-  next person not to retry it.
-
-  **Three surfaces, which is the number the decision rested on.** They asked whether a card surface is defined in
-  one place or forty and said forty would mean no; it is `.card`, `.modal` and the shared `.dialog` constant, all
-  global, none per-view. Four declarations on each: a translucent fill so their backdrop shows through, ONE lit
-  hairline along the top, a hairline outline in their mid ink, and one soft cast shadow.
-
-  It is the PLAINER of the two treatments they built, and keeping it restrained is their own measurement: three
-  background layers plus scanlines plus a four-shadow stack read as both slower AND less clear, because texture
-  over text costs legibility and every layer is another composite. Two things they are explicitly NOT asking for
-  are not built — a pointer-following light (their owner rejected the idea, twice implemented) and framing
-  permission over `postMessage` (`embed.allowedOrigins` is empty and that is their decision, unmade).
-
-  **An undecorated instance is not merely equivalent to before — it has none of these declarations at all.** CSS
-  has no portable way to ask whether a custom property is set: `var(--tr-hot, fallback)` can substitute a value
-  but cannot switch a rule off, and style container queries are not broadly available. So presence is resolved
-  once at startup and published as a class, and everything else is ordinary CSS under `:root.ythril-decorated`.
-  Nothing extra to compute, nothing extra to composite, and the spec asserts the flat path FIRST.
-
-  Resolved before `bootstrapApplication`, so the first paint is already correct rather than flashing flat for a
-  frame. A declared-but-empty ink reads as undecorated — the same trap the env pins have, and an empty value would
-  otherwise turn every fallback into a colour of nothing.
-
-- **The rights matrix has a `Space admin` column.** Owner-reported five times across five releases, most recently
-  as a screenshot with the column drawn in: *"i miss space admin"*.
-
-  A space administrator is a token holding admin on **all four areas** of that space. The server has enforced that
-  since #937 and has published it as a derived rung on `GET /api/tokens/rights-shape` ever since — `requires`
-  computed from `SPACE_AREAS` rather than restated, with its grants and its containment rules in prose. **Nothing
-  in the client ever read it.** So the matrix showed four independent rungs and said nothing about the commonest
-  grant, which meant setting four cells and hoping none was missed.
-
-  Press **A** on a row and all four areas go to admin in ONE emit; press **–** and they clear. It is also a
-  read-out: a row already at admin on all four reads as **A**, including when the floor put it there — the column
-  is computed from what the cells DISPLAY, because one that disagreed with the four cells beside it would be worse
-  than no column. Two positions and not four, because it is not a rung: `read` and `write` describe one area, and
-  the four cells remain the way to say anything in between.
-
-  **Why this took five releases, stated plainly: it was built once, it worked, and it was reverted** — because
-  assertions in `rights-matrix.component.spec.ts` counted elements per row and broke. Those assertions were about
-  the per-area model, which is the thing that must not be weakened, so they needed rewriting by hand rather than
-  renumbering. That is a twenty-minute job. Reverting working UI to avoid it was the wrong trade.
-
-  Exactly one assertion needed the rewrite this time, and it is rewritten with its subject intact: *every column
-  header explains itself* now holds for five columns, requires the four area keys AND the derived one, and refuses
-  a silent header — where bumping a 4 to a 5 would have allowed a fifth column with no tooltip at all. The new
-  specs pin behaviour instead of element counts, so the same revert cannot be justified again: one emit not four,
-  the floor row writing the floor, all-four-and-not-any, and **the four areas still independently settable**.
-
-  The explain panel gets the server's own words for the new column — `grants` and `excludes` straight from
-  `derivedRungs`, never a sentence written in the client, because those are red-teamed containment rules and a
-  second copy of one is how they drift.
-
-  Four mutations, four caught. A fifth was dropped as an equivalent mutant with the reason recorded: `cellOf`
-  already folds in the floor and an implication can never lift a cell to admin, so it agrees with `cellShown` for
-  this question today — `cellShown` stays because the column's contract is to track what the cells display.
-
-  Six keys across `en`/`de`/`pl`.
-
-- **`YTHRIL_PINNED_FIELDS` — fix a field at whatever it resolves to, including NOTHING.** Owner ruled this on
-  2026-08-19 (was P-7); breituai-platform asked for it twice, and their framing is the requirement: *"once the URL
-  is infra-pinned to an in-cluster unauthenticated endpoint, an editable key field is a control with nothing behind
-  it. Empty is the CORRECT value, and we would like to pin the correct value."*
-
-  ```
-  YTHRIL_PINNED_FIELDS=rerank.apiKey,nli.apiKey,faceRecognition.externalModel
-  ```
-
-  Each listed path joins `lockedByInfra`, so `PATCH /api/admin/media-config` answers **403** for it and the Settings
-  control renders read-only — **without anyone having to put a value in the environment to achieve that**, which was
-  the only way to lock a field before and is the opposite of what was wanted.
-
-  **It has to be a separate list, and that was established by trying the obvious thing.** An empty env var
-  deliberately does not pin: `docker compose` passes `${VAR:-}` and leaves a variable defined-but-empty when the
-  operator set nothing, so reading "defined" as "pinned" locks every field on every Compose deployment. All twenty
-  pins were converted to presence checks before `face-recognition-env.test.js` failed with exactly that reasoning,
-  and it was reverted. A list no Compose default can produce has no such ambiguity, and `RERANK_API_KEY` keeps
-  meaning only *the key*.
-
-  **A path that names nothing is REPORTED, because a pin believed to be in force and not is worse than no pin.**
-  Unrecognised entries come back as `pinnedUnknown` on the config response, show as a notice at the top of
-  **Settings → Media Processing → Models**, and are warned at boot. Reporting only in the log would put the one
-  thing an operator needs where they are not looking. It does not refuse to boot: a renamed field in a values file
-  would take the instance down, and the pin-that-did-not-apply is visible either way — the same posture the storage
-  pins already take with a malformed number. One bad entry does not discard the good ones, since those are what the
-  operator was relying on.
-
-  **A path must be a field the admin API can WRITE**, which is the rule that keeps the vocabulary honest: you can
-  only pin what could otherwise be changed. So `faceRecognition.enabled`, `modelPath` and `reprocessSyncedImages`
-  are not pinnable even though an env var locks them — the API never accepts them, so they are already unreachable
-  and a pin would refuse nothing. The warn says "not pinnable" rather than "does not exist", because some of them
-  do exist and telling an operator otherwise sends them hunting a typo they did not make.
-
-  The vocabulary is a second copy of the patch schema's own shape — unavoidably, since deriving it at runtime would
-  import `api/media-config.ts` back into the loader and evaluate a zod bound as `undefined` on one leg of the cycle.
-  So it is **gated rather than trusted**: `pinnable-paths-match-the-writable-surface.test.js` compares it against
-  the patch schema AND against the loader's own `locked.push` calls, in both directions, and it caught three
-  overclaimed paths and twelve missing ones in the first draft of the list.
-
-  Ten mutations, ten caught — including a snapshot of the environment at module load, a case-insensitive match, and
-  both drift directions.
-
 ### Breaking
 
 - **The three per-stage scores are the ORDERING, and they were hidden behind a flag whose purpose is removing
@@ -324,6 +208,145 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   `_id` rather than `seq` or `createdAt`: it is on every result type, unique by construction, and the only one of
   the three that cannot tie in turn.
+
+### Added
+
+- **The embedded client wears the host portal's decoration, when the host supplies it.** Owner ruled **A** on
+  2026-08-19 (was P-11), on breituai-platform's ask of 2026-08-18T1806Z — which they framed as an ask and not a
+  request: *"Nothing here is urgent, nothing is blocked on you, and 'not our aesthetic' is a complete answer that
+  we will not raise again."*
+
+  Their portal already declares eleven decoration custom properties on `:root`, under their own names and mapped
+  onto nothing of ours — raw material, not a restyle. **Their absence is the signal**: no `--tr-hot` means render
+  flat. So this needed no negotiation, no dependency and no `postMessage`; the values were already in our document.
+
+  They cannot do it from their side, and not for want of trying: a parent stylesheet does not cross an iframe
+  boundary, and our document paints its own background over anything behind the frame. They raised their own layer
+  in FRONT of the frame, saw traces over the content someone was reading, reverted it, and left a note telling the
+  next person not to retry it.
+
+  **Three surfaces, which is the number the decision rested on.** They asked whether a card surface is defined in
+  one place or forty and said forty would mean no; it is `.card`, `.modal` and the shared `.dialog` constant, all
+  global, none per-view. Four declarations on each: a translucent fill so their backdrop shows through, ONE lit
+  hairline along the top, a hairline outline in their mid ink, and one soft cast shadow.
+
+  It is the PLAINER of the two treatments they built, and keeping it restrained is their own measurement: three
+  background layers plus scanlines plus a four-shadow stack read as both slower AND less clear, because texture
+  over text costs legibility and every layer is another composite. Two things they are explicitly NOT asking for
+  are not built — a pointer-following light (their owner rejected the idea, twice implemented) and framing
+  permission over `postMessage` (`embed.allowedOrigins` is empty and that is their decision, unmade).
+
+  **An undecorated instance is not merely equivalent to before — it has none of these declarations at all.** CSS
+  has no portable way to ask whether a custom property is set: `var(--tr-hot, fallback)` can substitute a value
+  but cannot switch a rule off, and style container queries are not broadly available. So presence is resolved
+  once at startup and published as a class, and everything else is ordinary CSS under `:root.ythril-decorated`.
+  Nothing extra to compute, nothing extra to composite, and the spec asserts the flat path FIRST.
+
+  Resolved before `bootstrapApplication`, so the first paint is already correct rather than flashing flat for a
+  frame. A declared-but-empty ink reads as undecorated — the same trap the env pins have, and an empty value would
+  otherwise turn every fallback into a colour of nothing.
+
+- **The rights matrix has a `Space admin` column.** Owner-reported five times across five releases, most recently
+  as a screenshot with the column drawn in: *"i miss space admin"*.
+
+  A space administrator is a token holding admin on **all four areas** of that space. The server has enforced that
+  since #937 and has published it as a derived rung on `GET /api/tokens/rights-shape` ever since — `requires`
+  computed from `SPACE_AREAS` rather than restated, with its grants and its containment rules in prose. **Nothing
+  in the client ever read it.** So the matrix showed four independent rungs and said nothing about the commonest
+  grant, which meant setting four cells and hoping none was missed.
+
+  Press **A** on a row and all four areas go to admin in ONE emit; press **–** and they clear. It is also a
+  read-out: a row already at admin on all four reads as **A**, including when the floor put it there — the column
+  is computed from what the cells DISPLAY, because one that disagreed with the four cells beside it would be worse
+  than no column. Two positions and not four, because it is not a rung: `read` and `write` describe one area, and
+  the four cells remain the way to say anything in between.
+
+  **Why this took five releases, stated plainly: it was built once, it worked, and it was reverted** — because
+  assertions in `rights-matrix.component.spec.ts` counted elements per row and broke. Those assertions were about
+  the per-area model, which is the thing that must not be weakened, so they needed rewriting by hand rather than
+  renumbering. That is a twenty-minute job. Reverting working UI to avoid it was the wrong trade.
+
+  Exactly one assertion needed the rewrite this time, and it is rewritten with its subject intact: *every column
+  header explains itself* now holds for five columns, requires the four area keys AND the derived one, and refuses
+  a silent header — where bumping a 4 to a 5 would have allowed a fifth column with no tooltip at all. The new
+  specs pin behaviour instead of element counts, so the same revert cannot be justified again: one emit not four,
+  the floor row writing the floor, all-four-and-not-any, and **the four areas still independently settable**.
+
+  The explain panel gets the server's own words for the new column — `grants` and `excludes` straight from
+  `derivedRungs`, never a sentence written in the client, because those are red-teamed containment rules and a
+  second copy of one is how they drift.
+
+  Four mutations, four caught. A fifth was dropped as an equivalent mutant with the reason recorded: `cellOf`
+  already folds in the floor and an implication can never lift a cell to admin, so it agrees with `cellShown` for
+  this question today — `cellShown` stays because the column's contract is to track what the cells display.
+
+  Six keys across `en`/`de`/`pl`.
+
+- **`YTHRIL_PINNED_FIELDS` — fix a field at whatever it resolves to, including NOTHING.** Owner ruled this on
+  2026-08-19 (was P-7); breituai-platform asked for it twice, and their framing is the requirement: *"once the URL
+  is infra-pinned to an in-cluster unauthenticated endpoint, an editable key field is a control with nothing behind
+  it. Empty is the CORRECT value, and we would like to pin the correct value."*
+
+  ```
+  YTHRIL_PINNED_FIELDS=rerank.apiKey,nli.apiKey,faceRecognition.externalModel
+  ```
+
+  Each listed path joins `lockedByInfra`, so `PATCH /api/admin/media-config` answers **403** for it and the Settings
+  control renders read-only — **without anyone having to put a value in the environment to achieve that**, which was
+  the only way to lock a field before and is the opposite of what was wanted.
+
+  **It has to be a separate list, and that was established by trying the obvious thing.** An empty env var
+  deliberately does not pin: `docker compose` passes `${VAR:-}` and leaves a variable defined-but-empty when the
+  operator set nothing, so reading "defined" as "pinned" locks every field on every Compose deployment. All twenty
+  pins were converted to presence checks before `face-recognition-env.test.js` failed with exactly that reasoning,
+  and it was reverted. A list no Compose default can produce has no such ambiguity, and `RERANK_API_KEY` keeps
+  meaning only *the key*.
+
+  **A path that names nothing is REPORTED, because a pin believed to be in force and not is worse than no pin.**
+  Unrecognised entries come back as `pinnedUnknown` on the config response, show as a notice at the top of
+  **Settings → Media Processing → Models**, and are warned at boot. Reporting only in the log would put the one
+  thing an operator needs where they are not looking. It does not refuse to boot: a renamed field in a values file
+  would take the instance down, and the pin-that-did-not-apply is visible either way — the same posture the storage
+  pins already take with a malformed number. One bad entry does not discard the good ones, since those are what the
+  operator was relying on.
+
+  **A path must be a field the admin API can WRITE**, which is the rule that keeps the vocabulary honest: you can
+  only pin what could otherwise be changed. So `faceRecognition.enabled`, `modelPath` and `reprocessSyncedImages`
+  are not pinnable even though an env var locks them — the API never accepts them, so they are already unreachable
+  and a pin would refuse nothing. The warn says "not pinnable" rather than "does not exist", because some of them
+  do exist and telling an operator otherwise sends them hunting a typo they did not make.
+
+  The vocabulary is a second copy of the patch schema's own shape — unavoidably, since deriving it at runtime would
+  import `api/media-config.ts` back into the loader and evaluate a zod bound as `undefined` on one leg of the cycle.
+  So it is **gated rather than trusted**: `pinnable-paths-match-the-writable-surface.test.js` compares it against
+  the patch schema AND against the loader's own `locked.push` calls, in both directions, and it caught three
+  overclaimed paths and twelve missing ones in the first draft of the list.
+
+  Ten mutations, ten caught — including a snapshot of the environment at module load, a case-insensitive match, and
+  both drift directions.
+
+
+- **`recall` and `find-similar` take a `projection`, on both doors.** Asked for by breituai-platform with a
+  measurement rather than an estimate: a board sweep wanting fifteen names, a `from`, a `kind` and a `status`
+  returned **100,547 characters** where the data was about 1.5 KB, and their client refused the response and
+  spilled it to disk. `includeContent: false` reads like the answer and is not — it is scoped to file chunks,
+  so on an entity search it changes nothing, and that gap between what the parameter sounds like and what it
+  covers cost them a call to find out.
+
+  It is `query`'s grammar, dotted paths included, so `{"name": 1, "properties.status": 1}` works. **It applies
+  recursively**: a `traverse` answer's `_graph` nodes AND edges are projected at every depth, which is where a
+  large answer's size actually comes from — the edge is the whole document, once per hop.
+
+  Two rules it cannot break. The embedding **vector can never be projected back in**; an explicit
+  `embedding: 1` is dropped rather than honoured, because a projection was the one parameter that could have
+  falsified "the vector is never returned by anything". And on REST the ranking envelope — `score`,
+  `spaceId`, `type`, `_graph` — survives every projection, so `{name: 1}` cannot cost you the score the search
+  existed to produce. On MCP that needs no rule: the envelope already sits outside `record`.
+
+  The reading of a caller's projection moved into `brain/projection.ts` and `query` now derives its Mongo
+  projection from it, so the two appliers cannot disagree about inclusion-versus-exclusion, `_id`'s special
+  case, or which fields are unprojectable. `mergeEmbeddingExclusion` keeps its name, its contract and its
+  exact output.
 
 ### Changed
 
@@ -688,7 +711,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   left these two.
 
 
-### Fixed
 
 - **`includeContent` read as a general size lever and is file-chunks-only, and now says so.** Its own
   description made the right general argument — every field a result carries is multiplied by `topK` — while
@@ -701,32 +723,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   accepted; this is that promise rather than a tidy-up.
 
 
-### Added
-
-- **`recall` and `find-similar` take a `projection`, on both doors.** Asked for by breituai-platform with a
-  measurement rather than an estimate: a board sweep wanting fifteen names, a `from`, a `kind` and a `status`
-  returned **100,547 characters** where the data was about 1.5 KB, and their client refused the response and
-  spilled it to disk. `includeContent: false` reads like the answer and is not — it is scoped to file chunks,
-  so on an entity search it changes nothing, and that gap between what the parameter sounds like and what it
-  covers cost them a call to find out.
-
-  It is `query`'s grammar, dotted paths included, so `{"name": 1, "properties.status": 1}` works. **It applies
-  recursively**: a `traverse` answer's `_graph` nodes AND edges are projected at every depth, which is where a
-  large answer's size actually comes from — the edge is the whole document, once per hop.
-
-  Two rules it cannot break. The embedding **vector can never be projected back in**; an explicit
-  `embedding: 1` is dropped rather than honoured, because a projection was the one parameter that could have
-  falsified "the vector is never returned by anything". And on REST the ranking envelope — `score`,
-  `spaceId`, `type`, `_graph` — survives every projection, so `{name: 1}` cannot cost you the score the search
-  existed to produce. On MCP that needs no rule: the envelope already sits outside `record`.
-
-  The reading of a caller's projection moved into `brain/projection.ts` and `query` now derives its Mongo
-  projection from it, so the two appliers cannot disagree about inclusion-versus-exclusion, `_id`'s special
-  case, or which fields are unprojectable. `mergeEmbeddingExclusion` keeps its name, its contract and its
-  exact output.
-
-
-### Fixed
 
 - **Publishing a tag pushed the images and never announced them, so six releases were invisible.**
   `publish.yml` triggers on `v*`, builds, and pushes to both registries — correctly, every time. It did not
@@ -746,7 +742,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--latest` is computed from whether the tag really is the highest rather than left to `gh`'s default, so
   backfilling an older release cannot announce a superseded version as newest. A re-run updates the notes
   instead of erroring after the images have already gone out.
-
 
 ## [3.1.0] — 2026-08-17
 

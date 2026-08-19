@@ -112,6 +112,17 @@ export class BrainApi {
        * than an error — whichever collections finished are returned, flagged as degraded.
        */
       maxTimeMS?: number;
+      /**
+       * Ceiling on the serialised response body, in bytes (operator default 100 000).
+       *
+       * The answer is the longest PREFIX of the ranked matches that fits, and every record in it is WHOLE.
+       * Past the ceiling the response says `truncated` and carries `nextSkip`.
+       *
+       * `maxTokens` is deliberately NOT declared here. It is a convenience onto this same ceiling — the server
+       * applies whichever of the two is smaller — so offering both in a UI would let an operator set two limits
+       * and then have to work out which one won.
+       */
+      maxBytes?: number;
     },
   ): Observable<RecallResponse> {
     return this.http.post<RecallResponse>(`/api/brain/spaces/${spaceId}/recall`, body);

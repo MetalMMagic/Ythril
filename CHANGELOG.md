@@ -211,6 +211,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The search page showed a shortened answer as if it were the whole one.** The server has reported `truncated`
+  since the result spill shipped and the client never read it — so a hundred-match search could render a handful
+  of records with nothing anywhere on the page explaining why. Under the old record cap that was three records
+  out of a hundred. Not a regression from the byte budget: the client had never read these fields, and typing
+  them in that commit is what made the gap visible.
+
+  A notice now appears **above** the results — ordering is the point, not a detail: below the list it would only
+  be found by someone who had already read to the end and drawn the wrong conclusion. It says how many of how
+  many came back and states both guarantees, because "shortened" on its own reads as "unreliable": every record
+  is complete, and they are the top of the ranking with nothing skipped in the middle.
+
+  **`Max response size` joins Show advanced**, which is `maxBytes`. That panel's stated principle is that
+  everything the API accepts is reachable from it, and this was the one parameter deciding whether an answer was
+  complete that could only be set by hand-writing a request. **One control, not two:** `maxTokens` is a
+  convenience onto the same ceiling and the server applies whichever is smaller, so offering both would let an
+  operator set two limits and then have to work out which one won.
+
+  `budgetBytes` and `bytesReturned` are deliberately NOT surfaced. They are for a caller tuning a request
+  programmatically; in an interface they are numbers nobody can act on, and showing them would make the notice
+  read as diagnostics instead of as what happened and what to do.
+
+  Six keys across `en`/`de`/`pl` — the reason this was not folded into the byte-budget PR, since a key added to
+  `en` alone fails the client suite on the missing pair. The gate additionally checks that no locale shipped the
+  English string by copying it, which passes a coverage check and reaches a reader in the wrong language.
+
+  Four mutations, four caught — and a fifth surfaced a hole in the gate itself: the assertion that a new search
+  clears the notice read from `runRecall` to the end of the file, so it also covered `clearRecall`'s reset and
+  passed with the first one deleted. Both windows are now bounded at the next method.
 - **A sync watermark could advance past a record the peer never received, and then nothing ever sent it again.**
   `lastSeqPushed` and `lastSeqReceived` are one number per member per space, and each cycle runs **five**
   independent transfers under it — tombstones plus memories, entities, edges and chrono. Any one can stop early:

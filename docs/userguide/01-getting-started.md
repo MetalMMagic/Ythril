@@ -48,6 +48,8 @@ There is no global space selector in the sidebar. Space switching happens per pa
 
 **Embedded mode:** loading the app with `?embedded=1` on the URL hides the topbar (logo and **Sign out**) so Ythril can sit cleanly inside a host portal's own chrome. Navigation is unaffected — it lives in the sidebar. Trusted host origins that may iframe Ythril and push theme tokens are listed in `embed.allowedOrigins` in the config; empty or absent means same-origin only.
 
+Since 3.2.0 a host page can also go one step further and have Ythril's cards, dialogs and modals pick up its own decoration — translucent surfaces with a lit top edge, so the app looks like part of the page rather than a panel cut into it. It is opt-in from the host's side and invisible otherwise: an instance that is not embedded in such a page renders exactly as before. See [Theme API](../integration-guide/15-about-and-embedding.md#decoration-inks-making-our-surfaces-sit-in-your-page-320).
+
 ---
 
 ## Spaces — what they are

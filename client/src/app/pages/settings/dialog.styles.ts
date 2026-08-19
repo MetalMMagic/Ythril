@@ -40,6 +40,26 @@ export const DIALOG_STYLES = `
     max-height: 90vh;
     overflow-y: auto;
   }
+  /* The third card surface, decorated on the same terms as .card and .modal in styles.scss — see the comment
+     there for the whole argument.
+
+     It has to be repeated here rather than covered by that rule, and that is the point of this file existing:
+     these styles live in component style arrays, so Angular's emulated encapsulation scopes .dialog to the
+     components that import THIS constant. A rule in the global sheet would never match it. Writing it here is
+     what makes "three places, all global, none per-view" true of the decoration too.
+
+     --bg-primary, not --bg-surface: a dialog's own base differs from a card's, and mixing the wrong one would
+     make a decorated dialog a different shade from a decorated card.
+
+     NOTE: no backticks anywhere in this file, including comments. It is one template literal, so a backtick ends
+     the string and the error surfaces as "Failed to resolve styles at position 0", never here. */
+  :root.ythril-decorated .dialog {
+    background: color-mix(in srgb, var(--bg-primary) 74%, transparent);
+    border-color: var(--tr-mid, var(--border));
+    box-shadow:
+      inset 0 1px 0 var(--tr-hot, transparent),
+      0 10px 30px rgb(0 0 0 / 28%);
+  }
   .dialog-header {
     display: flex;
     align-items: center;

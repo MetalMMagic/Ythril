@@ -327,6 +327,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Gates may no longer bound their subject with a magic number.** `src.slice(at, at + 3000)` decides in advance
+  how much of its subject a gate can see; grow the subject and the gate either fails on correct code or passes
+  while checking less than it meant to. A character count also spans different LINES on CRLF than on LF, so a
+  window that fits locally can fall short in CI.
+
+  Three failed in one session, and the cost is not hypothetical:
+
+  - `index-ready-poll.test.js` at `at + 3000` — a new branch pushed its subject out;
+  - `rights-are-explained.test.js` capped a `<thead>` at 1 400 characters — a fifth column took it to 1 770;
+  - `rights-matrix.component.spec.ts` asserted a header count `toBe(4)`.
+
+  **The third is why the Space Admin column was reverted five releases earlier.** It had been built, it worked, and
+  it was thrown away because a count broke — which reads as *"the feature broke the tests"* rather than as *"the
+  test was written wrong"*. The owner had asked five times.
+
+  `testing/standalone/_structural-window.mjs` now holds the three shapes that bound correctly — `bodyOf` (to the
+  next top-level declaration), `between` (to the closing marker, with no cap, because the marker IS the bound), and
+  `bodyOfEndingWith`, which additionally proves the window reached the end of its subject. Three files had
+  hand-rolled the same body-finding loop within hours of each other, which is this codebase's most-produced defect
+  arriving in the test suite instead of the product.
+
+  **A ratchet, not a sweep.** 26 magic windows remain across 19 files, grandfathered in a list that only shrinks —
+  the same shape `no-new-god-files` uses. Rewriting them blind is how a gate quietly starts checking less than it
+  did, because only someone reading a window knows what its real bound is. Four converted here: the three in
+  `result-spill-suppresses-vectors.test.js` and one in `startup-index-wait.test.js`, all four subjects I had just
+  read. One of them was a `doesNotMatch`, where a short window is at its most dangerous — a `return null` past the
+  old 1 800-character cap would have gone unseen, and that is the exact rule whose absence once shipped a truncated
+  answer with nowhere to go.
+
+  Two things are deliberately NOT banned, both because reading them showed they are a different thing wearing the
+  same syntax: `slice(0, N)` truncating a value inside a failure MESSAGE (79 of those, and a 400-line JSON blob in
+  an assertion message helps nobody), and `[\s\S]{0,N}` used as an ADJACENCY bound inside a pattern — *"these two
+  must be near each other"* is a deliberate claim, not a guessed extent. A first draft banned the second and found
+  30 sites; 30 unread sites is exactly the blind sweep this exists to prevent, so they are recorded as an unassessed
+  population rather than a number someone can wave through.
+
+  Six cases, six correct — including a broken pattern reporting "none left", the ratchet slipping upward, and both
+  legitimate shapes staying green.
+
 - **A propagation timeout in the sync tests now says WHICH SIDE lost the record.** `waitFor`'s diagnostic hook is
   awaited, so it can go and look rather than being limited to facts already in hand, and the pub/sub arrival wait
   supplies one that reads whether the sender still holds the record, at what `seq`, and where each member's

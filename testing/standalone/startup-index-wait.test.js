@@ -27,6 +27,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { bodyOf } from './_structural-window.mjs';
 
 const LIFECYCLE = readFileSync('server/src/spaces/lifecycle.ts', 'utf8');
 const VECTOR = readFileSync('server/src/spaces/vector-index.ts', 'utf8');
@@ -87,9 +88,11 @@ describe('startup does not block on index readiness', () => {
 
   it('the background pass cannot take the process down', () => {
     // It is fire-and-forget; an unhandled rejection in a status-label task must not kill a healthy server.
-    const at = LIFECYCLE.indexOf('async function confirmSpaceIndexesInBackground');
-    assert.ok(at > 0);
-    const fn = LIFECYCLE.slice(at, at + 1200);
+    //
+    // Bounded by the next top-level declaration rather than by `at + 1200`. The function has grown twice since
+    // that number was chosen, and a window that falls short of its subject can only ever check less than it
+    // means to — see `_structural-window.mjs` for the three gates that failed on exactly this in one session.
+    const fn = bodyOf(LIFECYCLE, 'confirmSpaceIndexesInBackground', 'the background pass');
     assert.match(fn, /try \{[\s\S]*?\} catch \(err\) \{/, 'each space must be individually guarded');
   });
 });

@@ -63,10 +63,41 @@ describe('create-token dialog: instance-level rights', () => {
   });
 });
 
+describe('the dialog is wide enough for the matrix it contains', () => {
+  it('widens itself, or two of the four areas are unreachable', () => {
+    /*
+     * FOUND BY SCREENSHOT, and findable no other way.
+     *
+     * At the shared 600px default this dialog rendered with DATA QUALITY off-screen and SCHEMA's rungs
+     * clipped mid-cell — so a token could not be minted with a rung in either. Every DOM assertion passed
+     * throughout: five headers present, eight rung pickers present, clientWidth 598 and scrollWidth EQUAL to
+     * it, so nothing overflowed and nothing scrolled. The table was squeezed, not clipped in any way a
+     * measurement notices.
+     *
+     * Verified after the fix at 1500px viewport: clientWidth 1398, and all four area headers inside the
+     * viewport bounds.
+     */
+    expect(component).toMatch(/--dialog-max-width:\s*min\(1400px, 94vw\)/);
+  });
+
+  it('uses the SAME width as the rights dialog, not a second answer to one question', () => {
+    const width = /--dialog-max-width:\s*(min\([^)]*\))/;
+    const mine = component.match(width);
+    const theirs = editor.match(width);
+    expect(mine).not.toBeNull();
+    expect(theirs).not.toBeNull();
+    expect(mine[1]).toBe(theirs[1]);
+  });
+});
+
 describe('the shared styles reach this component', () => {
   it('imports the stylesheet that defines the classes it uses', () => {
     expect(component).toContain("import { DIALOG_STYLES } from './dialog.styles'");
-    expect(component).toMatch(/styles: \[DIALOG_STYLES\]/);
+    // The RULE, not one spelling: DIALOG_STYLES must be in the styles array. This asserted the literal
+    // `styles: [DIALOG_STYLES]` and broke the moment the array gained a second entry for the dialog width —
+    // a change that honours the rule completely. A gate pinned to one spelling fails on a correct change and
+    // teaches the next person to loosen it.
+    expect(component).toMatch(/styles: \[\s*DIALOG_STYLES/);
   });
 
   for (const cls of ['danger-zone', 'danger-title', 'permission-help']) {

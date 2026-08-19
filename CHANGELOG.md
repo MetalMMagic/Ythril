@@ -145,6 +145,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Placed **outside** the spaces check, deliberately. That branch renders nothing when the instance has no
   spaces yet, and a fresh instance with no spaces is exactly when `createSpaces` is the right thing to grant.
 
+- **And a THIRD defect, found only by screenshotting the dialog: two of the four rights areas were off-screen.**
+  The create dialog rendered at the shared 600px default, so **DATA QUALITY was not visible at all and SCHEMA's
+  rungs were clipped mid-cell** — a token could not be minted with a rung in either. The rights dialog sets
+  `--dialog-max-width: min(1400px, 94vw)` for exactly this, with a comment recording that 600px was *"reported
+  as too narrow"*; the create dialog never did.
+
+  **It was invisible to every measurement.** All five column headers were in the DOM, all eight rung pickers
+  were present and countable, `clientWidth` was 598 and `scrollWidth` was EQUAL to it — so nothing overflowed
+  and nothing scrolled. The table was squeezed, not clipped in any way an assertion notices. Verified after the
+  fix at a 1500px viewport: `clientWidth` 1398, and all four area headers inside the viewport bounds.
+
 - **And a rendering defect found while doing it: `.permission-help` in that dialog had never been styled.**
   It was defined in `tokens.styles.ts`, which only `tokens.component.ts` imports, and Angular scopes component
   styles — so the create dialog's own use of the class had no CSS behind it. **`tokens.component.spec.ts`

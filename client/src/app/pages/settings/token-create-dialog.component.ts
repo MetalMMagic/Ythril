@@ -47,7 +47,23 @@ import type { Space, TokenRecord } from '../../core/api.types';
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, ModalDirective, RightsMatrixComponent],
-  styles: [DIALOG_STYLES],
+  styles: [DIALOG_STYLES, `
+    /*
+     * WIDEN FOR THE MATRIX — the edit dialog does this and this one did not, so two of the four areas were
+     * unreachable when MINTING a token.
+     *
+     * Found by screenshotting the dialog, and it could not have been found any other way: all five columns
+     * are in the DOM and countable (5 headers, 8 rung pickers), and Data quality was simply not on screen
+     * while Schema's rungs were clipped mid-cell. Measured at the shared 600px default: clientWidth 598,
+     * maxWidth 600px, and scrollWidth EQUAL to clientWidth — so nothing scrolled and nothing overflowed in a
+     * way any assertion would notice. The table was squeezed, not scrollable.
+     *
+     * The same value as the rights dialog, which carries the reason: at 600px the matrix renders as a column
+     * of squeezed cells and the space rows wrap, reported as 'too narrow'. Same table, same need, same
+     * number — a different one here would be a second answer to one question.
+     */
+    :host { --dialog-max-width: min(1400px, 94vw); }
+  `],
   template: `
       <div class="dialog-backdrop">
         <div class="dialog" [appModal]="'tokens.create.title' | transloco" (dismiss)="close.emit()" (click)="$event.stopPropagation()">

@@ -35,12 +35,12 @@ import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 
 let mapGraphNodes, graphNodeRecord, toRecallRecord, withoutDiagnostics;
-let RECALL_DIAGNOSTIC_FIELDS, RECALL_RANKING_DIAGNOSTICS, diagnosticFields;
+let RECALL_RECORD_DIAGNOSTICS, RECALL_RANKING_DIAGNOSTICS, rankingFields;
 before(async () => {
   ({ mapGraphNodes, graphNodeRecord } = await import('../../server/dist/brain/recall-graph.js'));
   ({ toRecallRecord } = await import('../../server/dist/mcp/tools/shared.js'));
   ({
-    withoutDiagnostics, RECALL_DIAGNOSTIC_FIELDS, RECALL_RANKING_DIAGNOSTICS, diagnosticFields,
+    withoutDiagnostics, RECALL_RECORD_DIAGNOSTICS, RECALL_RANKING_DIAGNOSTICS, rankingFields,
   } = await import('../../server/dist/brain/recall-shape.js'));
 });
 
@@ -86,7 +86,9 @@ const restResult = (diag) => {
 /** The MCP result: envelope plus `record`, same graph. */
 const mcpResult = (diag) => ({
   score: seed().score,
-  ...diagnosticFields(seed(), RECALL_RANKING_DIAGNOSTICS, diag),
+  // Unconditional, mirroring the product: the ranking scores left the `includeDiagnostics` bundle
+  // because they are the ORDERING, not payload. `rankingFields` has no flag to pass.
+  ...rankingFields(seed()),
   spaceId: seed().spaceId,
   type: seed().type,
   record: toRecallRecord(seed(), { includeDiagnostics: diag }),
@@ -133,11 +135,33 @@ for (const diag of [false, true]) {
 }
 
 describe('the default withholds the system fields, everywhere', () => {
-  it('no diagnostic survives at the result level on either door', () => {
+  it('no RECORD diagnostic survives at the result level on either door', () => {
+    /*
+     * THIS SPLIT IN TWO, deliberately. It used to iterate all six bundled fields and require every one absent.
+     *
+     * The three RANKING scores left that bundle: `score` is not the number that ordered a result once a
+     * reranker runs (`rerankScore > fusedScore > score`), so withholding them meant a caller could threshold on
+     * a number that did not order the answer while being unable to see the one that did. They are now
+     * unconditional on both doors — so requiring their absence would now be requiring the defect.
+     *
+     * What still must be withheld is the three RECORD fields, and that half is unchanged.
+     */
     for (const [door, r] of [['REST', restResult(false)], ['MCP', mcpResult(false)]]) {
       const keys = flatKeys(r);
-      for (const f of RECALL_DIAGNOSTIC_FIELDS) {
+      for (const f of RECALL_RECORD_DIAGNOSTICS) {
         assert.equal(keys.has(f), false, `${door} still returns \`${f}\` by default`);
+      }
+    }
+  });
+
+  it('and every RANKING score that ran DOES survive, on both doors, unasked', () => {
+    // The other half of the split, and the reason for it. A caller must be able to see the number that ordered
+    // the result without setting a flag whose purpose is removing cost — three floats are not a cost.
+    for (const [door, r] of [['REST', restResult(false)], ['MCP', mcpResult(false)]]) {
+      const keys = flatKeys(r);
+      for (const f of RECALL_RANKING_DIAGNOSTICS) {
+        assert.equal(keys.has(f), true,
+          `${door} withholds \`${f}\` by default — that is the ordering, and it is not a diagnostic`);
       }
     }
   });
@@ -148,9 +172,16 @@ describe('the default withholds the system fields, everywhere', () => {
     // leave the larger half of the saving unmade on a traversing call.
     const check = (nodes, door) => {
       for (const n of nodes ?? []) {
-        for (const f of RECALL_DIAGNOSTIC_FIELDS) {
+        for (const f of RECALL_RECORD_DIAGNOSTICS) {
           assert.equal(f in n.node, false, `${door}: _graph node still carries \`${f}\``);
           assert.equal(f in n.edge, false, `${door}: _graph edge still carries \`${f}\``);
+        }
+        // A ranking score has no meaning on a traversed node and must not appear even though the scores are
+        // now unconditional at the RESULT level. A node was never ranked — it is here because the graph
+        // relates it to something that was — so a score on one would be a number with nothing behind it.
+        for (const f of RECALL_RANKING_DIAGNOSTICS) {
+          assert.equal(f in n.node, false, `${door}: _graph node carries \`${f}\`, but it was never ranked`);
+          assert.equal(f in n.edge, false, `${door}: _graph edge carries \`${f}\`, but it was never ranked`);
         }
         check(n._graph, door);
       }

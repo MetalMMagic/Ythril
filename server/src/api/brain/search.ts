@@ -502,8 +502,13 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
     }
     const safeIncludeContent = includeContentRaw !== false;
 
-    // `includeDiagnostics` (default FALSE) restores the six fields a recall result carries for the system
-    // rather than for the caller: `matchedText`, `embeddingModel`, `seq`, and the three per-stage scores.
+    // `includeDiagnostics` (default FALSE) restores the three RECORD fields a recall result carries for the
+    // system rather than for the caller: `matchedText`, `embeddingModel` and `seq`.
+    //
+    // IT NO LONGER GOVERNS THE PER-STAGE SCORES. `lexicalScore`/`fusedScore`/`rerankScore` are unconditional
+    // on both doors: precedence in a fused recall is `rerankScore > fusedScore > score`, so gating them meant
+    // the number that DECIDED a result's position was the one a caller could not read — while `minScore`
+    // filters on `score` alone. Three floats are not a cost and do not belong behind a cost flag.
     //
     // This door used to return all six unconditionally while MCP returned none, and neither said so. Owner
     // ruled 2026-08-16 that the two surfaces match and that the fields are off by default on both — so this

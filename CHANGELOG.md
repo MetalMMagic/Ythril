@@ -9,6 +9,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking
 
+- **A failure of the store answered `400`, telling every caller the fault was theirs. It is now `503` and says
+  `retryable`.** Two parties reported the same defect from opposite sides within thirty hours, and the second
+  report is what priced it.
+
+  breituai-platform 2026-08-17T1912Z, from the operator's side: after any restart mongot re-initialises
+  hundreds of indexes, and for HOURS a recall can fail with `Executor error during aggregate command on
+  namespace: … :: caused by ::` — nothing after `caused by ::`. The location, and not the reason.
+
+  aigents 2026-08-18T2145Z, from the caller's side: the same error on **6 of 36 calls (17%)**, rate-sensitive.
+  Every recall node in their fleet carries `onError: continueRegularOutput`, because a persona should not die
+  when a context read fails. **A 4xx is not retried and not reported**, so the persona ran with no context and
+  produced something plausible and uninformed — one call in six, silently, across fourteen personas.
+
+  **That is what the wrong status cost: not a confusing message, but unmarked wrong output at scale**, because
+  `4xx` means *do not try again, the fault is yours* and every HTTP client is built to believe it.
+
+  `POST …/recall`, `POST …/find-similar` and `POST …/query` now answer a store-side failure with **`503`,
+  `Retry-After`, and `retryable: true`** — and every failure body from those routes carries `retryable`,
+  true or false, so a client branches on a boolean instead of matching our prose. The store's `code` and
+  `codeName` come through when it supplied them. A message that ended at `caused by ::` is completed rather
+  than passed on: with the driver's cause where there is one, and otherwise with **"the store reported no
+  cause"**, which answers the question breituai-platform opened with and could not answer from outside.
+
+  **An ALLOWLIST, and everything unrecognised still answers `400` with an unchanged message.** The unsafe
+  direction here is calling a caller's mistake retryable, so a failure becomes a `503` only when something
+  positively identifies it as the store's: a network/topology error name, a `MongoServerError` with a
+  shutdown/stepdown/deadline code, or MongoDB's own executor-error phrasing. Bad filters, bad parameters and
+  unknown operators are untouched — they are refused before Mongo is reached, which is why the classifier
+  rarely sees one.
+
+  **MCP carries the identical classification** as `structuredContent` with `retryable` and
+  `storeSideFailure`, attached in the dispatcher's single catch so a tool added tomorrow inherits it. That
+  door answers `200` with `isError: true` and has no status to correct, so the parity is in the content —
+  which is the rule: when the doors differ, the difference is the transport's envelope, never what a caller
+  is told.
+
+  **It does NOT retry internally**, which was one of the options offered. On 2026-08-19 the cause turned out
+  to be a **dead mongot process** under a degraded RAID array — a retry loop would have turned that into slow
+  successes and hidden a process death from the only two parties who could see it. Say what happened, say it
+  can be retried, let the caller decide.
+
 - **Every read stopped returning the embedding vector, and it had never stopped: the list routes sent it on
   every record.** `GET /api/brain/spaces/:spaceId/entities?limit=500` answered **11.19 MB** for one space where
   `POST /query` answered the same 100 records in **0.145 MB** — reported by aigents 2026-08-19 after it killed

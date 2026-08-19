@@ -182,6 +182,14 @@ search you can run without writing a request by hand:
 - **Include content** — on by default. Turn it off to get passage *locations* without their text: useful when you want to find which document holds something and read only that part, since passage bodies are the largest thing a result carries.
 - **Include diagnostic fields** — off by default, and off is right for ordinary searching. Turn it on to see *why* a result ranked where it did: the exact text that was embedded, the embedding model, the sync counter, and the score from each ranking stage separately. It follows graph hops too, at every depth, so a search with **Graph hops** set shows the same detail on the connected records. The embedding vector itself is never returned and there is no option that asks for it.
 
+**If a search fails, read whether it says it can be retried.** Some failures are the question — a filter the
+system cannot parse, a value out of range — and those will fail the same way however many times you try. But a
+search can also fail because the part of the database that does meaning-matching was momentarily unavailable:
+most often for a while after the server restarts, while it rebuilds its search indexes. **That kind of failure
+is not your search and is not your data, and the message now says so in as many words.** Try it again; it
+clears on its own, in seconds after a blip and in longer after a big rebuild. Nothing is lost while it lasts,
+and word-matching searches and the structured Query tab keep working throughout, because they do not use the
+same index.
 **Results that exist in the graph carry a graph button.** An entity result opens the Graph tab focused on that
 entity; an edge result opens it on the entity the relationship starts from — the same jump the Entities and Edges
 tabs offer. Memories, chrono entries and file passages have no node in the graph, so they show no button rather

@@ -41,6 +41,7 @@ import {
 import { mapGraphNodes, graphNodeRecord } from '../../brain/recall-graph.js';
 import { applyProjection, normaliseProjection, type NormalisedProjection } from '../../brain/projection.js';
 import { resolveBudget, budgetedEnvelope, type BudgetRequest } from '../../brain/result-budget.js';
+import { sendReadFailure, statesRetryability } from './_read-failure.js';
 
 export const searchRouter = Router();
 
@@ -263,7 +264,7 @@ searchRouter.post('/spaces/:spaceId/traverse', globalRateLimit, requireSpaceAuth
 // So both halves are here: the body is strict, and `skip` is real. MCP's `query` tool already declared
 // `additionalProperties: false` and so already refused unknown keys — REST was the weaker of the two surfaces for the
 // same rule, which is this repo's most repeated defect class.
-searchRouter.post('/spaces/:spaceId/query', globalRateLimit, requireSpaceAuth, async (req, res) => {
+searchRouter.post('/spaces/:spaceId/query', globalRateLimit, requireSpaceAuth, statesRetryability, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
   const cfg = getConfig();
   if (!cfg.spaces.some(s => s.id === spaceId)) {
@@ -339,14 +340,15 @@ searchRouter.post('/spaces/:spaceId/query', globalRateLimit, requireSpaceAuth, a
       ...(sortParse.sort ? { sort: sortParse.sort.field, dir: sortParse.sort.dir === 1 ? 'asc' : 'desc' } : {}),
     });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    res.status(400).json({ error: msg });
+    // A store failure is not a client error. See `brain/store-failure.ts` — this used to answer 400 for every
+    // throw, which told fourteen personas not to retry a condition that cleared in seconds.
+    sendReadFailure(res, err);
   }
 });
 
 
 // POST /api/brain/spaces/:spaceId/recall — semantic vector search by natural language query
-searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, async (req, res) => {
+searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, statesRetryability, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
   const cfg = getConfig();
   if (!cfg.spaces.some(s => s.id === spaceId)) {
@@ -636,8 +638,9 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
       ...(degraded.length > 0 ? { degraded } : {}),
     });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    res.status(400).json({ error: msg });
+    // A store failure is not a client error. See `brain/store-failure.ts` — this used to answer 400 for every
+    // throw, which told fourteen personas not to retry a condition that cleared in seconds.
+    sendReadFailure(res, err);
   }
 });
 
@@ -645,7 +648,7 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
 // POST /api/brain/spaces/:spaceId/find-similar — vector similarity search by existing entry ID
 const VALID_ENTRY_TYPES = new Set(['memory', 'entity', 'edge', 'chrono', 'file']);
 
-searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpaceAuth, async (req, res) => {
+searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpaceAuth, statesRetryability, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
   const cfg = getConfig();
   if (!cfg.spaces.some(s => s.id === spaceId)) {
@@ -812,8 +815,7 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
     if (err instanceof NotFoundError) {
       res.status(404).json({ error: err.message });
     } else {
-      const msg = err instanceof Error ? err.message : String(err);
-      res.status(400).json({ error: msg });
+      sendReadFailure(res, err);
     }
   }
 });

@@ -80,17 +80,51 @@ Extended errors may include:
 { "error": "Storage limit exceeded", "storageExceeded": true }
 ```
 
+### A failure of the STORE is a 503, and says so in a field
+
+**The brain read routes — `POST …/recall`, `POST …/find-similar` and `POST …/query` — distinguish a failure
+of your request from a failure underneath us.** Every failure body from those three carries `retryable`,
+true or false, whether or not it bit:
+
+```json
+{ "error": "Executor error during aggregate command on namespace: … :: caused by :: the store reported no
+           cause (this is a store-side failure, not a problem with your request — it can be retried)",
+  "retryable": true, "code": 8, "codeName": "InternalError" }
+```
+
+A `503` also carries `Retry-After`. `code` and `codeName` are the store's own, present when it supplied them,
+and they are an operator's fastest route to the real condition.
+
+> **Why this exists, because the cost was not the confusing message.** Until this release those routes
+> answered **400 for every failure**, including a vector-search stage that had simply stopped answering. A
+> `4xx` means *the fault is yours, do not retry* — so a client built correctly around that (`onError:
+> continue`, no retry, no alert) ran on with no context and produced plausible, uninformed output. An
+> integrator measured it at **one call in six across fourteen agents, silently.** The status was the whole
+> defect; the message being truncated was the half an operator saw.
+
+**Read `retryable` rather than matching the prose**, and treat a `503` from these routes as transient: the
+conditions behind it (a search index re-initialising after a restart, a replica set stepping down, a search
+process that died) clear on their own, in seconds for a blip and in hours for a large reindex.
+
+**We do not retry internally, deliberately.** A transparent retry would turn a dead search process into slow
+successes and hide it from the operator who can fix it. You get told, and you decide.
+
+**On MCP the same classification arrives as `structuredContent` with `retryable: true` and
+`storeSideFailure: true`**, because that transport answers `200` with `isError: true` and has no status code
+to correct. The information is identical; only the envelope differs.
+
 ### Common Status Codes
 
 | Code | Meaning |
 |---|---|
-| 400 | Bad request / validation failure |
+| 400 | Bad request / validation failure — **your request, and retrying it unchanged will fail identically** |
 | 401 | Missing or invalid token |
 | 403 | Token lacks access to this resource |
 | 404 | Resource not found |
 | 409 | Conflict (duplicate ID) |
 | 413 | Payload too large (Express body limit: 10 MB for JSON) |
 | 429 | Rate limited — check `Retry-After` header |
+| 503 | **The store could not answer. Not your request — retry it.** See below |
 | 507 | Storage quota hard limit exceeded |
 
 ---

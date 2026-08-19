@@ -32,7 +32,27 @@ On connect, the server sends global instructions listing all available space IDs
 > record being maintained. Until 3.1 both kinds blocked, which meant tightening a schema made every record that no
 > longer fitted uneditable until an unrelated field was repaired in the same request.
 >
-> `preExisting` is still in every response, so a client that wants to insist on full compliance can refuse on it
+> **A STORE failure is machine-readable too, and it is the one to branch on hardest.** When a read fails
+> because the store could not answer — a search index re-initialising after a restart, a replica set stepping
+> down, a search process that died — the result carries:
+>
+> ```json
+> { "retryable": true, "storeSideFailure": true,
+>   "error": "Executor error during aggregate command … :: caused by :: the store reported no cause (this is a
+>            store-side failure, not a problem with your request — it can be retried)",
+>   "code": 8, "codeName": "InternalError" }
+> ```
+>
+> **Retry it.** The REST doors answer these with `503` and `Retry-After`; this transport answers `200` with
+> `isError: true` and has no status to correct, so the classification lives in `structuredContent` instead —
+> the same information in the envelope this transport has.
+>
+> Why it matters more than a clearer message: until this release these failed as an ordinary tool error with a
+> message that ended mid-sentence at `caused by ::`. An agent fleet built correctly around "continue on
+> error" therefore ran with no context and produced plausible, uninformed output — measured by an integrator
+> at **one call in six across fourteen agents, silently.** If you carry an `onError: continue` policy, this
+> field is what lets you retry or report instead.
+>> `preExisting` is still in every response, so a client that wants to insist on full compliance can refuse on it
 > itself. `content` carries the same information as a sentence, so a client that reads only text loses nothing.
 >
 > **`query` puts its rows in BOTH places.** `content[0].text` is the JSON array it has always been, and

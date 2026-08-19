@@ -106,7 +106,7 @@ of a ranked list is noise rather than completeness.
 
 `recall` with `traverse: 1`. Depth 2 is occasionally right; depth 3+ on a dense graph is almost never what someone
 meant — the node budget is `topK × (traverse + 1) × 4`, and the response itself is bounded by **`maxBytes`**
-(default 100 000), so a deep traversal comes back as the matches that fit plus a `remainder` file holding the
+(default 100 000), so a deep traversal comes back as the matches that fit plus a `nextSkip` to page through the
 rest. `truncated: true` on a call you expected to be small is a signal you asked a bigger question than you
 wanted: lower `traverse` or narrow the seeds rather than raising the budget.
 

@@ -437,9 +437,9 @@ export interface RecallResponse {
    * ## The four fields below are on EVERY recall response, and this file used to declare none of them
    *
    * The byte budget bounds a response by size: what fits comes back as the longest PREFIX of the ranked
-   * matches, every record whole, and what does not fit is written to the space with `remainder` pointing at
-   * it. That is server behaviour the client has always received and never typed, so a component had no way to
-   * know an answer was cut — the previous shape returned three records and nothing here said why.
+   * matches, every record whole, and `nextSkip` says where to continue from. That is server behaviour the
+   * client has always received and never typed, so a component had no way to know an answer was cut — the
+   * previous shape returned three records and nothing here said why.
    *
    * **Typed here without a consumer, deliberately.** Nothing in the client reads them yet and the search UI
    * still shows a truncated answer as if it were the whole one. That is a real gap and it is tracked as its
@@ -455,7 +455,15 @@ export interface RecallResponse {
   /** Serialised size of `results`, in bytes. */
   bytesReturned?: number;
   /**
-   * Where the matches that did NOT fit were written. Present only when `truncated` is true.
+   * Where to continue from. Present exactly when `truncated` is true — send it back as `skip`.
+   *
+   * Stated rather than derivable. `skip + returned` is arithmetic a caller can get wrong, particularly on the
+   * second page where `skip` was already non-zero.
+   */
+  nextSkip?: number;
+  /**
+   * Where the matches that did NOT fit were written — present only when the request asked for it with
+   * `remainderDump: true` AND the answer truncated.
    *
    * A continuation, not a copy: the records in `results` are not repeated in the file. `matches` and `records`
    * describe the file — matches in it, and matches plus their traversed nodes.

@@ -12,7 +12,7 @@ import { UUID_V4_RE, formatRecallSummary, toRecallRecord, uuidSchema, unitScoreS
 import { MAX_RECALL_TRAVERSE } from '../../brain/edges.js';
 import { mapGraphNodes, graphNodeRecord } from '../../brain/recall-graph.js';
 import { applyProjection, normaliseProjection } from '../../brain/projection.js';
-import { resolveBudget, budgetedEnvelope, type BudgetRequest } from '../../brain/result-budget.js';
+import { resolveBudget, resolvePaging, budgetedEnvelope, type BudgetRequest } from '../../brain/result-budget.js';
 import { buildGraphWithSpill, spillResultSet } from '../../brain/graph-spill.js';
 import { type FilterExpression } from '../../brain/filter.js';
 import { resolveRecallFilter, type RawMongoFilter } from '../../brain/recall-filter.js';
@@ -66,7 +66,7 @@ export const recallTool: ToolHandler = {
     + '• WHAT THIS DOOR DOES NOT SEND YOU, so you do not go looking for a flag to switch it off: the embedding VECTOR (never returned by anything here, and no parameter can ask for it), `matchedText` (the pre-embedding source string — for a file chunk it is the passage a SECOND time), `embeddingModel` (identical for every record in a space), and `seq` (a sync counter that is not an input to any tool). Withheld on REST too, with the same default, since 3.1.0 — `includeDiagnostics: true` restores them on either door and applies recursively, so a `traverse` answer\'s `_graph` follows it at every depth. Leave it off: each of these is multiplied by `topK` and paid for in your context, and you want them only to answer WHY something ranked where it did. The other size lever is `includeContent: false`, which drops file-passage bodies and keeps their locations.\n'
     + '• `count` — the number of MATCHES. Traversed nodes are NOT counted in it.\n'
     + '• `graphNodes` — an integer COUNT of what a traversal reached, not the content. The content is nested per-result under `_graph`, and a result with no edges simply has no `_graph` at all: reading `results[0]` and concluding the feature is absent is the mistake to avoid.\n'
-    + '• THE SIZE ANSWER, and it is a slope now rather than a cliff. `returned`, `count`, `truncated`, `budgetBytes` and `bytesReturned` are on EVERY response, so you never have to interpret an absence. `results` is a PREFIX of the ranked matches that fits `maxBytes`, and every record in it is WHOLE — full body, full properties, its complete `_graph`, byte-identical to that record from an unbudgeted call. When `truncated` is true, `remainder` points at the matches that did NOT fit, written to the space as JSON with an authenticated download valid one day.\n'
+    + '• THE SIZE ANSWER, and it is a slope now rather than a cliff. `returned`, `count`, `truncated`, `budgetBytes` and `bytesReturned` are on EVERY response, so you never have to interpret an absence. `results` is a PREFIX of the ranked matches that fits `maxBytes`, and every record in it is WHOLE — full body, full properties, its complete `_graph`, byte-identical to that record from an unbudgeted call. When `truncated` is true, `nextSkip` says where to continue from — send it back as `skip` for the next prefix. The matches that did not fit are also written to the space as a JSON file (authenticated download, valid one day) and reported as `remainder`, but ONLY if you ask with `remainderDump: true`.\n'
     + '  Until 3.2.0 this was a record CAP that collapsed a large answer to three inline records plus a download of the whole set — including the three you already had. That roughly doubled what a caller had to read, so most abandoned the remainder. If you have logic keyed on `complete` or on a hard 25, it is `remainder` and a byte budget now.\n'
     + '• `graphTruncated` + `graphComplete` — the same arrangement for an oversized neighbourhood, so a short graph is never silent either.',
   inputSchema: (s: ToolSchemas) => ({
@@ -125,7 +125,7 @@ export const recallTool: ToolHandler = {
             maxBytes: {
               type: 'integer',
               minimum: 1000,
-              description: 'Ceiling on the serialised response body, in bytes (operator default 100000). THE ANSWER IS A PREFIX OF THE RANKED RESULTS AND EVERY RECORD IN IT IS WHOLE — full body, full properties, and for a traversing call its complete `_graph` subtree, byte-identical to that record from an unbudgeted call. Truncation is atomic at the match: the first match whose subtree would not fit is omitted and so is everything after it, so no answer has a gap in the middle and none carries a record with half its graph. It replaced a record cap that collapsed a large answer to three inline records plus a whole-set download — which roughly DOUBLED what a caller had to read. `returned`, `count`, `truncated`, `budgetBytes` and `bytesReturned` are on EVERY response whether it bit or not, so absence never has to be interpreted.',
+              description: 'Ceiling on the serialised response body, in bytes (operator default 100000). THE ANSWER IS A PREFIX OF THE RANKED RESULTS AND EVERY RECORD IN IT IS WHOLE — full body, full properties, and for a traversing call its complete `_graph` subtree, byte-identical to that record from an unbudgeted call. Truncation is atomic at the match: the first match whose subtree would not fit is omitted and so is everything after it, so no answer has a gap in the middle and none carries a record with half its graph. It replaced a record cap that collapsed a large answer to three inline records plus a whole-set download — which roughly DOUBLED what a caller had to read. `returned`, `count`, `truncated`, `budgetBytes` and `bytesReturned` are on EVERY response whether it bit or not, so absence never has to be interpreted; a truncated one adds `nextSkip`, which you send back as `skip` to read the rest.',
             },
             maxTokens: {
               type: 'integer',
@@ -136,6 +136,15 @@ export const recallTool: ToolHandler = {
               type: 'number',
               exclusiveMinimum: 0,
               description: 'Override the chars-per-token ratio used to convert `maxTokens` into bytes (default 3.5). Only meaningful alongside `maxTokens`. Lower it if your tokeniser is denser than this payload shape assumes; there is no reason to raise it above ~4.',
+            },
+            skip: {
+              type: 'integer',
+              minimum: 0,
+              description: 'How many of the ranked matches to skip before filling the byte budget (default 0). THIS IS HOW YOU READ A TRUNCATED ANSWER: a response with `truncated: true` also carries `nextSkip`, and sending that back gets you the next prefix — no match repeated, none missed. The ranking is recomputed per call, so this is a continuation over one ordered answer rather than a cursor over a snapshot; a write between two pages can shift what lands where. Skipping past the end returns zero results with `truncated: false`, which is how a loop knows it is done.',
+            },
+            remainderDump: {
+              type: 'boolean',
+              description: 'Also WRITE the matches that did not fit to the space as a JSON file, and report it as `remainder` (default false). Only meaningful when the answer truncates. Leave it off unless you actually want the whole set as one artifact — the file is a write on a read path, it counts against space storage, and paging with `skip`/`nextSkip` reaches the same records without creating one. It used to happen unconditionally on every truncated call, which meant a caller that only wanted the next page paid for a download it never opened.',
             },
             traverse: {
               type: 'number',
@@ -195,6 +204,8 @@ export const recallTool: ToolHandler = {
     const recallProjection = normaliseProjection(a['projection'] as Record<string, unknown> | undefined);
     const budget = resolveBudget(a as BudgetRequest);
     if (!budget.ok) throw new Error(budget.error);
+    const paging = resolvePaging(a as { skip?: unknown; remainderDump?: unknown });
+    if (!paging.ok) throw new Error(paging.error);
 
     // The ceiling to minPerType's floor. Validated here as well as in the schema, because
     // `additionalProperties: { minimum: 1 }` cannot express "not below minPerType for the same type" — and
@@ -294,6 +305,8 @@ export const recallTool: ToolHandler = {
       const plainBudgeted = await budgetedEnvelope({
         results: plain,
         budgetBytes: budget.bytes,
+        skip: paging.skip,
+        remainderDump: paging.remainderDump,
         spillRemainder: remainder => spillResultSet({
           memberSpaceId: seeds[0]?.spaceId ?? traverseSpaces[0] ?? callSpace,
           results: remainder,
@@ -337,6 +350,8 @@ export const recallTool: ToolHandler = {
     const budgeted = await budgetedEnvelope({
       results,
       budgetBytes: budget.bytes,
+      skip: paging.skip,
+      remainderDump: paging.remainderDump,
       spillRemainder: remainder => spillResultSet({
         memberSpaceId: seeds[0]?.spaceId ?? traverseSpaces[0]!,
         results: remainder,
@@ -396,7 +411,7 @@ export const find_similarTool: ToolHandler = {
             maxBytes: {
               type: 'integer',
               minimum: 1000,
-              description: 'Ceiling on the serialised response body, in bytes (operator default 100000). THE ANSWER IS A PREFIX OF THE RANKED RESULTS AND EVERY RECORD IN IT IS WHOLE — full body, full properties, and for a traversing call its complete `_graph` subtree, byte-identical to that record from an unbudgeted call. Truncation is atomic at the match: the first match whose subtree would not fit is omitted and so is everything after it, so no answer has a gap in the middle and none carries a record with half its graph. It replaced a record cap that collapsed a large answer to three inline records plus a whole-set download — which roughly DOUBLED what a caller had to read. `returned`, `count`, `truncated`, `budgetBytes` and `bytesReturned` are on EVERY response whether it bit or not, so absence never has to be interpreted.',
+              description: 'Ceiling on the serialised response body, in bytes (operator default 100000). THE ANSWER IS A PREFIX OF THE RANKED RESULTS AND EVERY RECORD IN IT IS WHOLE — full body, full properties, and for a traversing call its complete `_graph` subtree, byte-identical to that record from an unbudgeted call. Truncation is atomic at the match: the first match whose subtree would not fit is omitted and so is everything after it, so no answer has a gap in the middle and none carries a record with half its graph. It replaced a record cap that collapsed a large answer to three inline records plus a whole-set download — which roughly DOUBLED what a caller had to read. `returned`, `count`, `truncated`, `budgetBytes` and `bytesReturned` are on EVERY response whether it bit or not, so absence never has to be interpreted; a truncated one adds `nextSkip`, which you send back as `skip` to read the rest.',
             },
             maxTokens: {
               type: 'integer',
@@ -407,6 +422,15 @@ export const find_similarTool: ToolHandler = {
               type: 'number',
               exclusiveMinimum: 0,
               description: 'Override the chars-per-token ratio used to convert `maxTokens` into bytes (default 3.5). Only meaningful alongside `maxTokens`. Lower it if your tokeniser is denser than this payload shape assumes; there is no reason to raise it above ~4.',
+            },
+            skip: {
+              type: 'integer',
+              minimum: 0,
+              description: 'How many of the ranked matches to skip before filling the byte budget (default 0). THIS IS HOW YOU READ A TRUNCATED ANSWER: a response with `truncated: true` also carries `nextSkip`, and sending that back gets you the next prefix — no match repeated, none missed. The ranking is recomputed per call, so this is a continuation over one ordered answer rather than a cursor over a snapshot; a write between two pages can shift what lands where. Skipping past the end returns zero results with `truncated: false`, which is how a loop knows it is done.',
+            },
+            remainderDump: {
+              type: 'boolean',
+              description: 'Also WRITE the matches that did not fit to the space as a JSON file, and report it as `remainder` (default false). Only meaningful when the answer truncates. Leave it off unless you actually want the whole set as one artifact — the file is a write on a read path, it counts against space storage, and paging with `skip`/`nextSkip` reaches the same records without creating one. It used to happen unconditionally on every truncated call, which meant a caller that only wanted the next page paid for a download it never opened.',
             },
             topK: { type: 'number', minimum: 1, maximum: 100, default: 10, description: 'Max results to return (clamped to 1–100). Default 10.' },
             minScore: unitScoreSchema('Minimum cosine similarity (0.0–1.0). Results below it are excluded. Unlike on `recall`, this IS the relevance gate — cosine distance is the only ranking here, so raising it narrows the answer honestly rather than cutting candidates a reranker would have rescued. For deduplication, start high: near-duplicates sit well above 0.9 and everything below that is a topic match rather than a repeat.'),
@@ -467,6 +491,8 @@ export const find_similarTool: ToolHandler = {
     const recallProjection = normaliseProjection(a['projection'] as Record<string, unknown> | undefined);
     const budget = resolveBudget(a as BudgetRequest);
     if (!budget.ok) throw new Error(budget.error);
+    const paging = resolvePaging(a as { skip?: unknown; remainderDump?: unknown });
+    if (!paging.ok) throw new Error(paging.error);
 
     if (traverse === 0) {
       // JSON here too, since 3.1.0. Owner ruled it — *"json at every depth of course"* — after the docs audit
@@ -492,6 +518,8 @@ export const find_similarTool: ToolHandler = {
       const plainBudgeted = await budgetedEnvelope({
         results: plain,
         budgetBytes: budget.bytes,
+        skip: paging.skip,
+        remainderDump: paging.remainderDump,
         spillRemainder: remainder => spillResultSet({
           memberSpaceId: result.results[0]?.spaceId ?? usedBase,
           results: remainder,
@@ -529,6 +557,8 @@ export const find_similarTool: ToolHandler = {
     const itemsBudgeted = await budgetedEnvelope({
       results,
       budgetBytes: budget.bytes,
+      skip: paging.skip,
+      remainderDump: paging.remainderDump,
       spillRemainder: remainder => spillResultSet({
         memberSpaceId: result.results[0]?.spaceId ?? usedBase,
         results: remainder,

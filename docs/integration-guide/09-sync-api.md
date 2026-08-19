@@ -142,7 +142,31 @@ POST /api/sync/batch-upsert?spaceId=general&networkId=net-uuid
 }
 ```
 
-Each array is capped at 500 items. Response includes per-type counters.
+Each array is capped at 500 items. Response includes per-type counters:
+
+```json
+{ "status": "ok",
+  "memories": { "inserted": 3, "updated": 1, "forked": 0, "skipped": 12, "forkDepthRefused": 0, "tombstoned": 0 },
+  "entities": { "upserted": 5, "skipped": 2, "tombstoned": 0 },
+  "edges":    { "upserted": 0, "skipped": 0, "tombstoned": 0 },
+  "chrono":   { "upserted": 0, "skipped": 0, "tombstoned": 0 } }
+```
+
+**`skipped` is benign and `forkDepthRefused` is not — read the second one.** They were one counter until now,
+which is the whole reason this paragraph exists.
+
+| counter | what happened | did the record land? |
+|---|---|---|
+| `skipped` | the receiver already holds that record at the same `seq` or newer | **nothing was lost** — this is ordinary conflict resolution and is by far the common case |
+| `forkDepthRefused` | memories only: content diverged at an identical `seq` and the record's fork chain is already at its cap, so the incoming version was **discarded** | **no — the record is gone** |
+
+**A `200` therefore does not mean every record was applied.** If you push, read `forkDepthRefused`: a non-zero
+value means those records did not land, and our own sync engine will **not** offer them again — it advances its
+watermark regardless, because the receiver would refuse the identical record on every future cycle and holding
+the watermark back would stall the space instead. Both ends log it; the receiver's log names the record ids.
+
+A peer on an older build omits `forkDepthRefused` entirely, so treat a missing field as zero rather than as an
+error.
 
 ### Tombstones
 

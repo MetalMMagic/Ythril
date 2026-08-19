@@ -17,6 +17,7 @@
 
 import { getConfig, saveConfig, saveConfigSoon, getSecrets, getFaceRecognitionConfig } from '../config/loader.js';
 import { boundedJson } from '../util/bounded-read.js';
+import { reportPushRefusals } from './push-refusals.js';
 import { toSafeRelPath } from '../util/paths.js';
 import { col, asFilter, asDoc, asBulk } from '../db/mongo.js';
 import { applyRemoteTombstone, listTombstones } from '../brain/tombstones.js';
@@ -1030,6 +1031,10 @@ async function pushToPeer(
         log.warn(`Batch push ${payloadKey} to ${member.label}: ${resp.status}`);
         break;
       }
+      // A 200 does not mean every record landed: the peer can discard a memory whose fork chain is at its
+      // cap and still answer 200. `sync/push-refusals.ts` says what that costs and why the watermark still
+      // advances anyway.
+      await reportPushRefusals(resp, payloadKey, member.label ?? member.instanceId, spaceId);
       pushed += batch.length;
       for (const doc of batch) {
         const d = doc as MemoryDoc;

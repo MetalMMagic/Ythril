@@ -20,6 +20,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripComments } from './_strip-comments.mjs';
+import { bodyOf } from './_structural-window.mjs';
 
 const {
   suppressEmbeddings, countGraphNodes, SPILL_TTL_DAYS,
@@ -55,9 +56,7 @@ describe('vectors never reach the file', () => {
 
   it('is applied at the write, not left to the caller', () => {
     const src = read('server/src/brain/graph-spill.ts');
-    const at = src.indexOf('export async function spillResultSet');
-    assert.ok(at > -1, 'spillResultSet is gone — re-anchor this gate');
-    const body = src.slice(at, at + 1600);
+    const body = bodyOf(src, 'spillResultSet', 'the vector strip');
     assert.match(body, /JSON\.stringify\(suppressEmbeddings\(\{/,
       'the strip must wrap the whole payload at serialisation, not a field somebody remembered');
   });
@@ -90,8 +89,13 @@ describe('the remainder is written out, with a TTL', () => {
     const src = read('server/src/brain/graph-spill.ts');
     assert.doesNotMatch(src, /SPILL_RECORD_THRESHOLD\s*=/, 'the record threshold must not come back');
     assert.doesNotMatch(src, /SPILL_INLINE_RESULTS\s*=/, 'nor the three-record sample it went with');
-    const at = src.indexOf('export async function spillResultSet');
-    const body = src.slice(at, at + 1800);
+    /*
+     * The window is the WHOLE function, and here that is not tidiness — the assertion below is a
+     * `doesNotMatch`. A window that falls short of its subject passes by looking at less: a `return null` past
+     * the old 1 800-character cap would have gone unseen, and this is the exact rule whose absence shipped a
+     * truncated answer with nowhere to go.
+     */
+    const body = bodyOf(src, 'spillResultSet', 'the no-threshold rule');
     assert.doesNotMatch(body, /return null;/,
       'a spill asked for must be a spill written — a null here is a truncated answer with nowhere to go');
     assert.match(body, /\): Promise<ResultSpill> \{/,
@@ -104,8 +108,7 @@ describe('the remainder is written out, with a TTL', () => {
   it('one-day TTL, through the record machinery', () => {
     assert.equal(SPILL_TTL_DAYS, 1);
     const src = read('server/src/brain/graph-spill.ts');
-    const at = src.indexOf('export async function spillResultSet');
-    assert.match(src.slice(at, at + 1800), /ttlDays: SPILL_TTL_DAYS/,
+    assert.match(bodyOf(src, 'spillResultSet', 'the TTL'), /ttlDays: SPILL_TTL_DAYS/,
       'the file must expire with its record, like the graph spill beside it');
   });
 

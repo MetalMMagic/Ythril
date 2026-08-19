@@ -39,7 +39,7 @@
  */
 import type { EdgeDoc, EntityDoc } from '../config/types.js';
 import { type SeedTraverseNeighbor } from './edges.js';
-import { RECALL_DIAGNOSTIC_FIELDS, NEVER_RETURNED_FIELDS } from './recall-shape.js';
+import { RECALL_RECORD_DIAGNOSTICS, NEVER_RETURNED_FIELDS } from './recall-shape.js';
 import { applyProjection, type NormalisedProjection } from './projection.js';
 
 /**
@@ -157,7 +157,11 @@ function stripDiag<T extends object>(doc: T, include: boolean): T {
   // `NEVER_RETURNED_FIELDS` is dropped on BOTH branches — `includeDiagnostics` restores diagnostics,
   // never the vector, and an early return here would have made it an opt-in to a 768-float array.
   const out = { ...doc } as Record<string, unknown>;
-  const drop = include ? NEVER_RETURNED_FIELDS : [...RECALL_DIAGNOSTIC_FIELDS, ...NEVER_RETURNED_FIELDS];
+  // `RECALL_RECORD_DIAGNOSTICS`, not the old union that also held the three ranking scores. Nothing observable
+  // changes HERE — a traversed node was never ranked, so it never had a `lexicalScore` to strip — but naming
+  // the record set is what stops this line silently becoming the one place that still hides an ordering score
+  // if a future change ever attaches one to a node.
+  const drop = include ? NEVER_RETURNED_FIELDS : [...RECALL_RECORD_DIAGNOSTICS, ...NEVER_RETURNED_FIELDS];
   for (const k of drop) delete out[k];
   return out as T;
 }

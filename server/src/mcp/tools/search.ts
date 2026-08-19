@@ -25,7 +25,7 @@ import { memberSpacesWithin } from '../../spaces/proxy-scoped.js';
 import { pageAcrossMembers } from '../../spaces/page-across-members.js';
 import { NotFoundError } from '../../util/errors.js';
 import {
-  rankOf, mergeRecallResults, diagnosticFields, RECALL_RANKING_DIAGNOSTICS,
+  rankOf, mergeRecallResults, rankingFields,
 } from '../../brain/recall-shape.js';
 
 /**
@@ -63,7 +63,7 @@ export const recallTool: ToolHandler = {
   description: 'Search all knowledge types (memories, entities, edges, chrono entries, files) by MEANING and by exact tokens: a semantic vector ranking is fused with a lexical (BM25) ranking, so identifiers such as article numbers or form ids rank even though their embeddings carry little meaning. A cross-encoder refines the top candidates when the operator has configured one. Searches the specified space if provided, otherwise across all accessible spaces.\n\n'
     + 'THE RESPONSE, because knowing the parameters is only half of it:\n'
     + '• `results` — the ranked matches. Each carries `_id`, its name/fact/title, type, tags, properties, `spaceId`, timestamps and `score` (vector similarity).\n'
-    + '• WHAT THIS DOOR DOES NOT SEND YOU, so you do not go looking for a flag to switch it off: the embedding VECTOR (never returned by anything here, and no parameter can ask for it), `matchedText` (the pre-embedding source string — for a file chunk it is the passage a SECOND time), `embeddingModel` (identical for every record in a space), `seq` (a sync counter that is not an input to any tool), and the per-stage `lexicalScore`/`fusedScore`/`rerankScore`. All six are withheld on REST too, with the same default, since 3.1.0 — `includeDiagnostics: true` restores them on either door and applies recursively, so a `traverse` answer\'s `_graph` follows it at every depth. Leave it off: each of these is multiplied by `topK` and paid for in your context, and you want them only to answer WHY something ranked where it did. The other size lever is `includeContent: false`, which drops file-passage bodies and keeps their locations.\n'
+    + '• WHAT THIS DOOR DOES NOT SEND YOU, so you do not go looking for a flag to switch it off: the embedding VECTOR (never returned by anything here, and no parameter can ask for it), `matchedText` (the pre-embedding source string — for a file chunk it is the passage a SECOND time), `embeddingModel` (identical for every record in a space), and `seq` (a sync counter that is not an input to any tool). Withheld on REST too, with the same default, since 3.1.0 — `includeDiagnostics: true` restores them on either door and applies recursively, so a `traverse` answer\'s `_graph` follows it at every depth. Leave it off: each of these is multiplied by `topK` and paid for in your context, and you want them only to answer WHY something ranked where it did. The other size lever is `includeContent: false`, which drops file-passage bodies and keeps their locations.\n'
     + '• `count` — the number of MATCHES. Traversed nodes are NOT counted in it.\n'
     + '• `graphNodes` — an integer COUNT of what a traversal reached, not the content. The content is nested per-result under `_graph`, and a result with no edges simply has no `_graph` at all: reading `results[0]` and concluding the feature is absent is the mistake to avoid.\n'
     + '• THE SIZE ANSWER, and it is a slope now rather than a cliff. `returned`, `count`, `truncated`, `budgetBytes` and `bytesReturned` are on EVERY response, so you never have to interpret an absence. `results` is a PREFIX of the ranked matches that fits `maxBytes`, and every record in it is WHOLE — full body, full properties, its complete `_graph`, byte-identical to that record from an unbudgeted call. When `truncated` is true, `remainder` points at the matches that did NOT fit, written to the space as JSON with an authenticated download valid one day.\n'
@@ -116,7 +116,7 @@ export const recallTool: ToolHandler = {
             includeDiagnostics: {
               type: 'boolean',
               default: false,
-              description: 'Add back the fields a result carries for the SYSTEM rather than for you (default false, and false is what you want almost always). On the record: `matchedText` — the exact pre-embedding source string, which for a file chunk is the heading plus the passage, so the passage a SECOND time; `embeddingModel`, identical for every record in a space; and `seq`, a sync counter that is not an input to any tool. Beside `score`: the per-stage `lexicalScore`, `fusedScore` and `rerankScore`, each present only if that stage ran. Turn it on to answer WHY something ranked where it did — which text was embedded, which stage promoted it — then turn it off, because every one of these is multiplied by `topK` and paid for in your context. REST takes the same parameter with the same default; before 3.1.0 REST sent all six unconditionally and this door sent none, which is the asymmetry it closes.',
+              description: 'Add back the three RECORD fields a result carries for the SYSTEM rather than for you (default false, and false is what you want almost always): `matchedText` — the exact pre-embedding source string, which for a file chunk is the heading plus the passage, so the passage a SECOND time; `embeddingModel`, identical for every record in a space; and `seq`, a sync counter that is not an input to any tool. Turn it on to see WHICH TEXT was embedded, then turn it off — `matchedText` especially is multiplied by `topK` and paid for in your context. REST takes the same parameter with the same default. **THIS NO LONGER GOVERNS THE PER-STAGE SCORES.** `lexicalScore`, `fusedScore` and `rerankScore` come back on EVERY recall, on both doors, each present only if that stage ran — because they are the ORDERING, not payload. `score` is vector similarity, and precedence in a fused recall is `rerankScore > fusedScore > score`, so on an instance with a reranker the number that decided a result’s position was previously the one you could not see. Three floats are not a cost, so they do not belong behind a flag whose purpose is removing cost.',
             },
             projection: {
               type: 'object',
@@ -286,8 +286,7 @@ export const recallTool: ToolHandler = {
       // alone, which meant the plainest large call was the one that returned everything.
       const plain = seeds.map(r => ({
         score: r.score,
-        ...diagnosticFields(r as unknown as Record<string, unknown>,
-          RECALL_RANKING_DIAGNOSTICS, includeDiagnostics),
+        ...rankingFields(r as unknown as Record<string, unknown>),
         spaceId: r.spaceId,
         type: r.type,
         record: applyProjection(toRecallRecord(r, { includeContent, includeDiagnostics }), recallProjection),
@@ -327,8 +326,7 @@ export const recallTool: ToolHandler = {
       const nested = mapGraphNodes(graph.bySeed.get(r._id), graphNodeRecord, includeDiagnostics, recallProjection);
       return {
         score: r.score,
-        ...diagnosticFields(r as unknown as Record<string, unknown>,
-          RECALL_RANKING_DIAGNOSTICS, includeDiagnostics),
+        ...rankingFields(r as unknown as Record<string, unknown>),
         spaceId: r.spaceId, type: r.type,
         record: applyProjection(toRecallRecord(r, { includeContent, includeDiagnostics }), recallProjection),
         ...(nested ? { _graph: nested } : {}),
@@ -389,7 +387,7 @@ export const find_similarTool: ToolHandler = {
             includeDiagnostics: {
               type: 'boolean',
               default: false,
-              description: 'Add back the fields a result carries for the SYSTEM rather than for you (default false, and false is what you want almost always). On the record: `matchedText` — the exact pre-embedding source string, which for a file chunk is the heading plus the passage, so the passage a SECOND time; `embeddingModel`, identical for every record in a space; and `seq`, a sync counter that is not an input to any tool. Beside `score`: the per-stage `lexicalScore`, `fusedScore` and `rerankScore`, each present only if that stage ran. Turn it on to answer WHY something ranked where it did — which text was embedded, which stage promoted it — then turn it off, because every one of these is multiplied by `topK` and paid for in your context. REST takes the same parameter with the same default; before 3.1.0 REST sent all six unconditionally and this door sent none, which is the asymmetry it closes.',
+              description: 'Add back the three RECORD fields a result carries for the SYSTEM rather than for you (default false, and false is what you want almost always): `matchedText` — the exact pre-embedding source string, which for a file chunk is the heading plus the passage, so the passage a SECOND time; `embeddingModel`, identical for every record in a space; and `seq`, a sync counter that is not an input to any tool. Turn it on to see WHICH TEXT was embedded, then turn it off — `matchedText` especially is multiplied by `topK` and paid for in your context. REST takes the same parameter with the same default. **THIS NO LONGER GOVERNS THE PER-STAGE SCORES.** `lexicalScore`, `fusedScore` and `rerankScore` come back on EVERY recall, on both doors, each present only if that stage ran — because they are the ORDERING, not payload. `score` is vector similarity, and precedence in a fused recall is `rerankScore > fusedScore > score`, so on an instance with a reranker the number that decided a result’s position was previously the one you could not see. Three floats are not a cost, so they do not belong behind a flag whose purpose is removing cost.',
             },
             projection: {
               type: 'object',
@@ -486,8 +484,7 @@ export const find_similarTool: ToolHandler = {
       // specific entry and the answer names it back.
       const plain = result.results.map(r => ({
         score: r.score,
-        ...diagnosticFields(r as unknown as Record<string, unknown>,
-          RECALL_RANKING_DIAGNOSTICS, includeDiagnostics),
+        ...rankingFields(r as unknown as Record<string, unknown>),
         spaceId: r.spaceId,
         type: r.type,
         record: applyProjection(toRecallRecord(r, { includeContent, includeDiagnostics }), recallProjection),
@@ -523,8 +520,7 @@ export const find_similarTool: ToolHandler = {
       const nested = mapGraphNodes(graph.bySeed.get(r._id), graphNodeRecord, includeDiagnostics, recallProjection);
       return {
         score: r.score,
-        ...diagnosticFields(r as unknown as Record<string, unknown>,
-          RECALL_RANKING_DIAGNOSTICS, includeDiagnostics),
+        ...rankingFields(r as unknown as Record<string, unknown>),
         spaceId: r.spaceId, type: r.type,
         record: applyProjection(toRecallRecord(r, { includeContent, includeDiagnostics }), recallProjection),
         ...(nested ? { _graph: nested } : {}),

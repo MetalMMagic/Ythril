@@ -151,6 +151,25 @@ unavailable, and **none of them can fail a search** — a stage that cannot answ
 **Ordering precedence is `rerankScore` → `fusedScore` → `score`** — the order of how much each signal
 actually knows.
 
+#### The per-stage scores are the ORDERING
+
+`lexicalScore`, `fusedScore` and `rerankScore` are on **every** recall and find-similar result, on **both**
+doors, each present only when that stage actually ran. **No parameter removes them**, and
+`includeDiagnostics` does not govern them — that flag covers `matchedText`, `embeddingModel` and `seq`.
+
+**Read the highest one present to know why a result placed where it did.** Precedence is
+`rerankScore > fusedScore > score`, so on an instance with a cross-encoder configured, `score` — plain vector
+similarity — is *not* the number that ordered the answer. Combined with the section below, where `minScore`
+filters on `score` alone, a caller could previously threshold on one number while a different one decided the
+positions, and could not read the second.
+
+They sat behind `includeDiagnostics` until now. That flag exists to remove COST, and three floats per result
+are not a cost — `matchedText` is, which is why it stayed behind the flag and these did not. MCP had never
+sent them at all, so that door gained them rather than merely un-gating them.
+
+An absent score means that stage did not run: no reranker configured, no lexical channel for that query.
+That was always the contract; what changed is that you no longer have to ask.
+
 #### `minScore` always filters on `score`
 
 This is deliberate and worth being explicit about: `minScore` is a **vector-similarity** floor and stays

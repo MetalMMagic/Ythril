@@ -9,6 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking
 
+- **The three per-stage scores are the ORDERING, and they were hidden behind a flag whose purpose is removing
+  cost.** `lexicalScore`, `fusedScore` and `rerankScore` now come back on **every** recall and find-similar
+  result, on **both** doors, each present only when that stage ran. `includeDiagnostics` no longer governs
+  them — it covers `matchedText`, `embeddingModel` and `seq`, which is what it was for.
+
+  breituai-platform 2026-08-17T1549Z, correcting their own 1540Z, and the argument is ours turned around
+  correctly: we said the six bundled fields are not where a large response comes from — the bodies are. **Three
+  floats per result are not a cost.** Bundling a passage-sized field with three numbers under one switch was
+  the actual error.
+
+  **And `score` is not the number that ranked the result.** Precedence in a fused recall is
+  `rerankScore > fusedScore > score`, so on any instance with a cross-encoder the value in the response did not
+  decide the position in the response, and the value that did was unavailable. Their reranker has been live
+  since 2026-08-03. It compounds with our own documented behaviour: **`minScore` filters on `score` alone**,
+  never on the fused or rerank ordering — so a caller could threshold on a number that did not order the
+  results while being unable to see the one that did.
+
+  **MCP had never sent them at all**, so that door gained them rather than merely un-gating them. An absent
+  score still means the stage did not run; that contract is unchanged.
+
+  `RECALL_DIAGNOSTIC_FIELDS` — the union of both groups — is DELETED rather than left unreferenced. It was the
+  strip list for both doors, which is exactly what made the ordering conditional; with the ranking half
+  unconditional, a name that reads like "the withheld set" and is not one would be worse than no name. The
+  strip sites take `RECALL_RECORD_DIAGNOSTICS`, and `rankingFields` emits the scores with no flag to pass.
+
+  Two assertions in `both-doors-same-recall-content.test.js` were rewritten rather than renumbered: one
+  required all six fields absent by default, which is now requiring the defect. It splits into *record
+  diagnostics absent* and *ranking scores present*, and the graph walk additionally asserts a traversed node
+  carries **no** ranking score — it was never ranked, so a score there would be a number with nothing behind
+  it.
 - **A failure of the store answered `400`, telling every caller the fault was theirs. It is now `503` and says
   `retryable`.** Two parties reported the same defect from opposite sides within thirty hours, and the second
   report is what priced it.

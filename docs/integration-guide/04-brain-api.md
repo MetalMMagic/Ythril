@@ -718,16 +718,17 @@ What you *can* control:
 |---|---|---|
 | `projection` | `POST /query`, **and recall / find-similar** | any field you do not name. On recall it applies recursively, so a `traverse` answer's `_graph` is projected at every depth |
 | `includeContent: false` | recall, find-similar | file-passage **bodies**, keeping path, heading, chunk index, tags and properties |
-| `includeDiagnostics: false` *(the default)* | recall, find-similar | `matchedText`, `embeddingModel`, `seq` and the per-stage scores — **recursively**, so a `traverse` answer's `_graph` follows it at every depth |
+| `includeDiagnostics: false` *(the default)* | recall, find-similar | `matchedText`, `embeddingModel` and `seq` — **recursively**, so a `traverse` answer's `_graph` follows it at every depth. **NOT the per-stage scores** — see below |
 | `includeDiagnostics` *(query string, default off)* | the **list** routes — entities, memories, edges, chrono | `matchedText` and `embeddingModel`. **`seq` is NOT dropped here**, unlike on recall: it is the `If-Match` value, and withholding it would take away conditional writes. Send `?includeDiagnostics=true` to get the two fields back |
 
 A projection is worth reaching for rather than skipping: a bare query over a dozen records with full
 descriptions and properties is the cheapest way to overrun a token budget, and naming the four fields you
 actually branch on turns that into a page you can read.
 
-**REST and MCP return the same recall content.** Until 3.1.0 they did not: REST sent `matchedText`,
-`embeddingModel`, `seq` and the per-stage scores unconditionally while MCP sent none of them, and neither
-door said so. All six are now off by default on both, and `includeDiagnostics: true` restores them on both.
+**The per-stage scores always come back on both doors and no parameter removes them — they are the ORDERING.** See [the recall API page](04a-recall-api.md#the-per-stage-scores-are-the-ordering).
+**REST and MCP return the same recall content.** Until 3.1.0 they did not: REST sent all six unconditionally
+while MCP sent none. Now the three RECORD fields are off by default on both (`includeDiagnostics: true`
+restores them) and the three SCORES are on by default on both — which MCP had never sent at all.
 
 What still differs is the **shape**, deliberately, because each is natural to its transport: a REST result is
 flat — record fields beside `score` — while an MCP result nests them under `record`. The *field set* a caller

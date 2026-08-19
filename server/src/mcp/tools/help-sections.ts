@@ -109,13 +109,21 @@ What you CAN control, and where:
   the part you decided you need. Passage bodies are by far the largest thing a
   result carries.
 - recall -> includeDiagnostics, and you almost never want it. Off by default on
-  BOTH doors since 3.1.0, it adds back the six fields a result carries for the
+  BOTH doors, it adds back the three RECORD fields a result carries for the
   system: matchedText (the pre-embedding source string -- for a file chunk, the
   passage a second time), embeddingModel (identical for every record in a
-  space), seq (a sync counter that is not an input to any tool), and the
-  per-stage lexical/fused/rerank scores. It is RECURSIVE: a traverse answer's
-  _graph nodes and edges follow it at every depth. Turn it on to work out why
-  something ranked where it did, then turn it off.
+  space), and seq (a sync counter that is not an input to any tool). It is
+  RECURSIVE: a traverse answer's _graph nodes and edges follow it at every
+  depth. Turn it on to see WHICH TEXT was embedded, then turn it off.
+
+THE PER-STAGE SCORES ARE NOT BEHIND THAT FLAG, and this is worth knowing before
+you try to switch them on. lexicalScore, fusedScore and rerankScore come back on
+EVERY recall, on both doors, each present only when that stage ran. They are the
+ORDERING: score is vector similarity, precedence in a fused recall is
+rerankScore > fusedScore > score, and minScore filters on score ALONE -- so on an
+instance with a reranker configured, the number that decided a result's position
+is rerankScore and the number you can threshold on is a different one. Read the
+highest of the three that is present to know why something placed where it did.
 - The other read tools return a formatted summary line per record rather than a
   document. list_chrono and find_entities_by_name cost you an id, a name and a
   type whatever the record holds, so there is nothing to trim.

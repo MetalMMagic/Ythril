@@ -48,12 +48,45 @@ import type { RecallResult, RecallKnowledgeType } from './recall.js';
  */
 export const RECALL_RECORD_DIAGNOSTICS = ['matchedText', 'embeddingModel', 'seq'] as const;
 
-/** The per-stage ranking scores: why this result placed where it did. Beside `score`, never inside `record`. */
+/**
+ * The per-stage ranking scores. **RETURNED BY DEFAULT, on both doors — they are the ORDERING, not payload.**
+ *
+ * ## Why they left the `includeDiagnostics` bundle
+ *
+ * breituai-platform 2026-08-17T1549Z, correcting their own 1540Z, and the argument is mine turned around
+ * correctly. I wrote that the six bundled fields are not where a large response comes from — the bodies are.
+ * **Three floats per result are not a cost, so they do not belong behind a flag whose purpose is removing
+ * cost.** Bundling a passage-sized field with three numbers under one switch was the actual error.
+ *
+ * ## And `score` is not the number that ranked the result
+ *
+ * Precedence in a fused recall is `rerankScore > fusedScore > score`. So on any instance with a cross-encoder,
+ * the value in the response did not decide the position in the response, and the value that did was
+ * unavailable. Their reranker has been live since 2026-08-03, which makes `rerankScore` the operative number
+ * on every recall they make.
+ *
+ * It compounds with our own documented behaviour: `minScore` filters on `score` ALONE, never on the fused or
+ * rerank ordering. A caller could threshold on a number that did not order the results while being unable to
+ * see the one that did. Either half alone is survivable.
+ *
+ * ## Absent still means "that stage did not run"
+ *
+ * These are emitted only when present, so an instance with no reranker returns no `rerankScore` and a
+ * lexical-free query returns no `lexicalScore`. That was already the contract and it is unchanged — what
+ * changed is that a caller no longer has to ask.
+ *
+ * Beside `score`, never inside `record`: a score describes how the result RANKED, not what the record is.
+ */
 export const RECALL_RANKING_DIAGNOSTICS = ['lexicalScore', 'fusedScore', 'rerankScore'] as const;
 
-/** Both groups, for the flat REST shape and for anything asserting on the whole set. */
-export const RECALL_DIAGNOSTIC_FIELDS: readonly string[] =
-  [...RECALL_RECORD_DIAGNOSTICS, ...RECALL_RANKING_DIAGNOSTICS];
+/*
+ * `RECALL_DIAGNOSTIC_FIELDS` WAS HERE — the union of both groups — AND IS DELETED.
+ *
+ * It was the strip list for both doors, which is precisely what made the ordering scores conditional. With
+ * the ranking half now unconditional, a union constant has no caller that should want it: a stripper wants
+ * `RECALL_RECORD_DIAGNOSTICS`, and a test asserting on "the six that used to be bundled" can spread the two
+ * itself and say why. Keeping it would leave a name that reads like the withheld set and is not one.
+ */
 
 /**
  * Stripped always, restorable by nothing — deliberately NOT part of `RECALL_DIAGNOSTIC_FIELDS`.
@@ -90,12 +123,32 @@ export function diagnosticFields(
  * the traverse builder and to the audit outcome, and deleting a field in place would change what those saw.
  */
 export function withoutDiagnostics<T extends object>(results: T[], include: boolean): T[] {
-  if (include) return results;
-  return results.map(r => {
+  // `RECALL_RECORD_DIAGNOSTICS` and NOT the old union: the three ranking scores are the ORDERING and are now
+  // unconditional, so stripping them here is what made the number that ranked a result unavailable to the
+  // caller who wanted to know why it ranked there. The vector is still removed either way.
+  if (include) return results.map(r => {
     const out = { ...r } as Record<string, unknown>;
-    for (const k of [...RECALL_DIAGNOSTIC_FIELDS, ...NEVER_RETURNED_FIELDS]) delete out[k];
+    for (const k of NEVER_RETURNED_FIELDS) delete out[k];
     return out as T;
   });
+  return results.map(r => {
+    const out = { ...r } as Record<string, unknown>;
+    for (const k of [...RECALL_RECORD_DIAGNOSTICS, ...NEVER_RETURNED_FIELDS]) delete out[k];
+    return out as T;
+  });
+}
+
+/**
+ * The ranking scores a result actually carries — always, and only the ones whose stage ran.
+ *
+ * Separate from `diagnosticFields` because that helper takes an `include` flag, and passing it a literal
+ * `true` at four call sites would read as "this is still conditional, we just always say yes". It is not
+ * conditional: there is no parameter that removes these, by design.
+ */
+export function rankingFields(src: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const k of RECALL_RANKING_DIAGNOSTICS) if (src[k] !== undefined) out[k] = src[k];
+  return out;
 }
 
 /**

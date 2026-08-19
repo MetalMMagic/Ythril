@@ -5,7 +5,7 @@ import { authRateLimit, globalRateLimit } from '../rate-limit/middleware.js';
 import { createToken, listTokens, revokeToken, regenerateToken, renameToken, setTokenRights, setTokenMfa } from '../auth/tokens.js';
 import { isMfaEnabled, verifyMfaCode } from '../auth/totp.js';
 import { z } from 'zod';
-import { SPACE_AREAS, RUNGS, RUNG_IMPLICATIONS } from '../config/rights-shape.js';
+import { SPACE_AREAS, RUNGS, RUNG_IMPLICATIONS, DERIVED_RUNGS } from '../config/rights-shape.js';
 import { ROUTE_RIGHTS } from '../auth/space-rights.js';
 import { refusalsOutsideEditorScope, editorScopeFor } from '../auth/editor-scope.js';
 import { capRights, describeExcess } from '../auth/mint-cap.js';
@@ -86,6 +86,11 @@ tokensRouter.get('/rights-catalog', globalRateLimit, requireAuth, (_req, res) =>
     areas: SPACE_AREAS,
     rungs: RUNGS,
     implications: RUNG_IMPLICATIONS,
+    // The states the matrix expresses without naming. `spaceAdmin` has been enforced since #937 and was
+    // findable nowhere: an operator saw four independent rungs and nothing said that all four at `admin` IS
+    // administering that space. Published here for the same reason `routes` is — this is the description that
+    // cannot be wrong, because `requires` is computed from `SPACE_AREAS` rather than restated.
+    derivedRungs: DERIVED_RUNGS,
     routes: ROUTE_RIGHTS.map(r => ({ area: r.area, method: r.method, route: r.route, needs: r.needs })),
   });
 });

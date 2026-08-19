@@ -135,6 +135,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The space-admin rung was enforced everywhere and named nowhere, so nobody could find it, grant it, or
+  check they had it.** A token with all four areas at `admin` for one space has administered that space since
+  3.0 (`isSpaceAdminFor`), with both containment rules red-teamed. Measured 2026-08-19: that predicate appeared
+  in **three server files and zero client files** — the matrix showed four independent rungs and nothing said
+  the all-four state had a meaning. breituai-platform asked twice, both times about the surface rather than the
+  capability.
+
+  Now named on the three surfaces that were blind:
+
+  - **`GET /api/tokens/rights-catalog`** gains `derivedRungs` — `requires`, `grants` and `excludes`. **`requires`
+    is COMPUTED from the area list, never written out**, for the same reason the catalog publishes `ROUTE_RIGHTS`
+    instead of letting a client type one: a second statement of a security rule is free to disagree with the
+    first, and a fifth area would break a hand-written copy silently.
+  - **`help()`** names the rung and **marks which spaces the calling token administers**, from the same
+    predicate the server enforces with. Naming answers *find it*; the mark answers *verify I hold it*, which
+    prose cannot.
+  - **The docs**: `07-tokens-api.md` for integrators and `04-settings.md` for operators, both leading with the
+    containment — it is never instance-wide, cannot grant `instanceAdmin`/`createSpaces`, cannot set a floor,
+    and cannot see or edit tokens for a space it does not administer.
+
+  **No security change and no schema change.** Both constraints already held and are covered by named
+  red-team tests; there is deliberately no `spaceAdmin: true` field, because the four rungs already express it.
+  `space-admin-rung-is-named.test.js` runs `isSpaceAdminFor` over a matrix built from the PUBLISHED `requires`,
+  so the description is proven against the enforcement rather than intended to match it — including that each
+  of the four areas is individually necessary.
+
+  Still open: naming it in the rights-matrix UI and granting it in one action, which needs three locale files.
+
 - **The brain-ops guide still described the 25-record spill cliff that the byte budget replaced.** It told a
   caller the answer collapses to *three matches* past 25 records and documented a `complete: {matches, records,
   inline, path, download, expiresAt}` block — a shape that no longer exists. Rewritten to the budget: a whole-

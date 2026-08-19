@@ -433,7 +433,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **An infrastructure env pin was a UI hint rather than a guarantee, for five of the six field families it
+- **After a wiped database, three of the four sync watermarks kept describing sequence numbers about to be
+  reused.** `resetStaleWatermarksIfNeeded` exists for a state operators do reach — `docker compose down -v` wipes
+  the MongoDB volume while `config.json` survives on a host bind-mount, so the sequence counter restarts at 1 while
+  the config still records positions from the previous run. It cleared `lastSeqReceived` and left the rest, and each
+  one fails differently: a stale **`lastSeqPushed`** means we push `seq > 47` and **never send our own new 1..47**;
+  a stale `lastSeqServed` or `lastFileTombstoneAckedAt` means we believe a peer applied deletions it has not and
+  prune the tombstones, so a deleted record comes back from that peer. The push case is the same defect as the one
+  the function was written for, pointing the other way, and it is the harder one to notice: the sender's cycles
+  complete normally, because `seq > 47` genuinely matches nothing. All four are now cleared from one declared list,
+  the reset walks that list rather than naming fields, and the warning enumerates which maps it reset instead of
+  claiming one field was the whole job.
   covers.** `PATCH /api/admin/media-config` refuses a write to a pinned field with `403` — but the guard only
   understood nested pins for `faceRecognition`, so a patch overwriting any other pinned `block.field` path
   answered **200** and was written to `config.json`:

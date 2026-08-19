@@ -117,41 +117,78 @@ export async function bumpSeq(spaceId: string, minSeq: number): Promise<void> {
 }
 
 /**
+ * Every watermark that becomes a LIE when the seq counters are wiped.
+ *
+ * All four are `spaceId -> position` maps on a network member, and all four are meaningless once the counter
+ * they were measured against restarts at zero. Listing them here rather than at the reset below is what makes
+ * "did we cover all of them" a readable question — the reset used to clear exactly one, and the other three
+ * were not excluded for a reason, they were not thought of.
+ */
+const STALE_ON_COUNTER_WIPE = ['lastSeqReceived', 'lastSeqPushed', 'lastSeqServed',
+  'lastFileTombstoneAckedAt'] as const;
+
+/**
  * Detects the bind-mount / volume mismatch that occurs when `docker compose
  * down -v` wipes MongoDB but leaves config.json intact on the host bind-mount.
  *
- * Symptom: ythril_counters is empty (seq counter was in the wiped volume) yet
- * one or more network members carry a non-zero lastSeqReceived watermark from
- * the previous run.  Without this fix those networks would pull with a high
- * sinceSeq and silently miss every document whose seq falls below the stale
- * watermark.
+ * Symptom: `ythril_counters` is empty — the counter lived in the wiped volume — yet one or more network
+ * members still carry watermarks from the previous run. Local seqs now restart at 1 while the watermarks
+ * describe a history of numbers that will be reused for entirely different records.
  *
- * Safe to call at every startup: it is a no-op when ythril_counters is
- * non-empty (normal restart) or when all watermarks are already zero.
+ * ## It used to clear ONE of the four, and the other three fail in different directions
+ *
+ * | watermark | what it means | stale-high costs |
+ * |---|---|---|
+ * | `lastSeqReceived` | our position in the peer's data | we pull `sinceSeq=47` and silently miss its 1..47 |
+ * | `lastSeqPushed` | our position in what we have sent | we push `seq > 47` and NEVER send our own new 1..47 |
+ * | `lastSeqServed` | the peer's position in ours | we believe it has applied deletions it has not, and prune |
+ * | `lastFileTombstoneAckedAt` | file deletions a peer has taken | same, for files: prune, and the file returns |
+ *
+ * Only the first was reset, and the second is the same defect pointing the other way — a silent, permanent
+ * failure to deliver our own records, with the sender's cycles completing normally because `seq > 47`
+ * genuinely matches nothing. That is indistinguishable from a healthy idle cycle without the debug line the
+ * push loop now emits.
+ *
+ * The third and fourth fail toward PRUNING, which `sync/served-watermark.ts` names as the dangerous direction:
+ * a tombstone dropped too early lets a deleted record come back from a peer that never saw the deletion.
+ * Clearing them fails toward keeping, which is that module's stated rule.
+ *
+ * Safe to call at every startup: a no-op when `ythril_counters` is non-empty (a normal restart) or when no
+ * watermark is set.
  */
 export async function resetStaleWatermarksIfNeeded(): Promise<void> {
   const count = await col<SpaceCounterDoc>('ythril_counters').estimatedDocumentCount();
   if (count > 0) return; // MongoDB intact — nothing to do
 
   const cfg = getConfig();
-  let changed = false;
-  for (const net of cfg.networks) {
-    for (const member of net.members) {
-      if (member.lastSeqReceived && Object.keys(member.lastSeqReceived).length > 0) {
-        member.lastSeqReceived = {};
-        changed = true;
+  const cleared: string[] = [];
+
+  /** Clear every stale map on one member, reporting which were actually set. */
+  const clear = (member: Record<string, unknown> | undefined, where: string): void => {
+    if (!member) return;
+    for (const field of STALE_ON_COUNTER_WIPE) {
+      const value = member[field];
+      if (value && typeof value === 'object' && Object.keys(value).length > 0) {
+        member[field] = {};
+        cleared.push(`${where}.${field}`);
       }
     }
-    // Also clear any pendingMember watermarks inside vote rounds
+  };
+
+  for (const net of cfg.networks) {
+    for (const member of net.members) clear(member as unknown as Record<string, unknown>, member.instanceId);
+    // A vote round in flight carries its own copy of the joining member, with its own watermarks.
     for (const round of net.pendingRounds) {
-      if (round.pendingMember?.lastSeqReceived && Object.keys(round.pendingMember.lastSeqReceived).length > 0) {
-        round.pendingMember.lastSeqReceived = {};
-        changed = true;
-      }
+      clear(round.pendingMember as unknown as Record<string, unknown> | undefined, 'pendingMember');
     }
   }
-  if (changed) {
+
+  if (cleared.length > 0) {
     saveConfig(cfg);
-    log.warn('Seq counters absent but watermarks were non-zero — reset all lastSeqReceived to 0 (bind-mount/volume mismatch recovery)');
+    log.warn(
+      `Seq counters absent but ${cleared.length} watermark map(s) were set — reset (bind-mount/volume mismatch `
+      + `recovery). Local seqs restart at 1, so a retained watermark would describe numbers about to be reused: `
+      + `${cleared.join(', ')}`,
+    );
   }
 }

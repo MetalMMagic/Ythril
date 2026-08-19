@@ -97,6 +97,39 @@ import type { Space, TokenRecord } from '../../core/api.types';
               }
             </div>
 
+            <!-- INSTANCE-LEVEL RIGHTS, and this dialog had none of them.
+                 draftRights hardcoded instanceAdmin and createSpaces to false with no control, so a token
+                 that should hold either had to be created and then EDITED — while the create API has always
+                 accepted both (CreateTokenBody declares them). The edit dialog grew these controls in #908
+                 and nothing brought them here. Reported by breituai-platform 2026-08-17 §9 as the two forms
+                 presenting different rights surfaces; it is one missing block, not a diverged surface.
+
+                 OUTSIDE the spaces check above, deliberately. That branch renders nothing when the instance
+                 has no spaces yet — and a fresh instance with no spaces is exactly when createSpaces is the
+                 right thing to grant. Nesting these inside it would leave the one case they matter most
+                 unreachable.
+
+                 Shown rather than hidden from a scoped editor, matching the edit dialog and its stated reason:
+                 the server refuses a space-restricted administrator who tries to grant either, so the control
+                 offers what the caller may attempt and the server stays the authority. -->
+            <div class="danger-zone" style="margin-top:14px;">
+              <div class="danger-title">{{ 'tokens.rights.instanceLevel' | transloco }}</div>
+              <p class="permission-help" style="margin-top:6px;">
+                <ph-icon name="info" [size]="14" />
+                <span>{{ 'tokens.rights.instanceLevelHint' | transloco }}</span>
+              </p>
+              <label style="display:flex;align-items:center;gap:8px;margin-top:10px;">
+                <input type="checkbox" [checked]="draftRights().instanceAdmin"
+                       (change)="setFlag('instanceAdmin', $any($event.target).checked)" />
+                <span>{{ 'tokens.rights.instanceAdmin' | transloco }}</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+                <input type="checkbox" [checked]="draftRights().createSpaces"
+                       (change)="setFlag('createSpaces', $any($event.target).checked)" />
+                <span>{{ 'tokens.rights.createSpaces' | transloco }}</span>
+              </label>
+            </div>
+
             <div class="form-grid-bottom" style="margin-top:12px;">
               <button class="btn-secondary btn" type="button" (click)="close.emit()">{{ 'common.cancel' | transloco }}</button>
               <button class="btn-primary btn" type="submit" style="margin-left:auto;" [disabled]="creating() || !newName.trim()">
@@ -125,6 +158,20 @@ export class TokenCreateDialogComponent {
   draftRights = signal<TokenRights>({ instanceAdmin: false, createSpaces: false, floor: null, perSpace: {} });
   newName = '';
   newExpiry = '';
+
+  /**
+   * The two instance-level flags, settable at MINT time — which they were not.
+   *
+   * `draftRights` initialised both to `false` and nothing could change them, so a token that should hold
+   * either had to be created and then edited. The create API accepted both throughout (`CreateTokenBody`),
+   * and the edit dialog grew the controls in #908; only this form was left behind.
+   *
+   * Same signature and same one-line body as the edit dialog's `setFlag`, on purpose: two spellings of one
+   * update is how the two forms drift apart again, and this defect IS that drift.
+   */
+  setFlag(key: 'instanceAdmin' | 'createSpaces', on: boolean): void {
+    this.draftRights.update(d => ({ ...d, [key]: on }));
+  }
 
   createToken(): void {
     if (!this.newName.trim()) return;

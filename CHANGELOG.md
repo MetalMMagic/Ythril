@@ -135,6 +135,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The create-token dialog could not grant the two instance-level rights, so an instance admin had to be
+  created and then edited.** `draftRights` initialised `instanceAdmin` and `createSpaces` to `false` and no
+  control could change them — while `CreateTokenBody` has accepted both throughout. The edit dialog grew these
+  controls in #908 and nothing brought them to create; reported by breituai-platform 2026-08-17 §9 as the two
+  forms presenting different rights surfaces. It was one missing block, not a diverged surface: both forms
+  already shared the same per-space matrix, and all four translation keys already existed in en/de/pl.
+
+  Placed **outside** the spaces check, deliberately. That branch renders nothing when the instance has no
+  spaces yet, and a fresh instance with no spaces is exactly when `createSpaces` is the right thing to grant.
+
+- **And a rendering defect found while doing it: `.permission-help` in that dialog had never been styled.**
+  It was defined in `tokens.styles.ts`, which only `tokens.component.ts` imports, and Angular scopes component
+  styles — so the create dialog's own use of the class had no CSS behind it. **`tokens.component.spec.ts`
+  asserted the element was `not.toBeNull()` and passed the whole time**, which is the point: a DOM assertion
+  cannot see an unstyled element.
+
+  This is the third time this one file has lost a stylesheet to component scoping — its own header documents
+  the first, when extracting the dialog left `.dialog-backdrop` behind and it rendered as a full-width block
+  with no backdrop. So `.danger-zone`, `.danger-title` and `.permission-help` now live in `DIALOG_STYLES`,
+  which both dialogs import and a move cannot leave behind. The row styles stay in the rights dialog: rotate
+  and revoke exist nowhere else. A gate asserts each class is defined in the stylesheet the component actually
+  imports, and was mutation-tested by renaming one away.
+
 - **The space-admin rung was enforced everywhere and named nowhere, so nobody could find it, grant it, or
   check they had it.** A token with all four areas at `admin` for one space has administered that space since
   3.0 (`isSpaceAdminFor`), with both containment rules red-teamed. Measured 2026-08-19: that predicate appeared

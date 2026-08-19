@@ -29,6 +29,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { bodyOf } from './_structural-window.mjs';
 
 const SRC = readFileSync('server/src/db/mongo.ts', 'utf8');
 
@@ -124,9 +125,7 @@ describe('the retry loop itself', () => {
   it('closes the failed client before making another', () => {
     // Each MongoClient carries a topology and timers. Looping without closing leaks one per attempt, so
     // a database that is down for the whole budget leaves a pile of live monitors behind.
-    const at = SRC.indexOf('export async function connectMongo');
-    const body = SRC.slice(at, at + 2000);
-    assert.match(body, /await _client\.close\(\)\.catch\(/);
+    assert.match(bodyOf(SRC, 'connectMongo'), /await _client\.close\(\)\.catch\(/);
   });
 
   it('backs off with jitter and a ceiling', () => {

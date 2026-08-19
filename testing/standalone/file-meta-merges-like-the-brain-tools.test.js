@@ -29,6 +29,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripComments } from './_strip-comments.mjs';
+import { blockAfter } from './_structural-window.mjs';
 
 const src = (p) => stripComments(readFileSync(p, 'utf8'));
 
@@ -83,7 +84,7 @@ describe('deleteFields shipped with the merge, not after it', () => {
     const s = src('server/src/files/file-meta.ts');
     const at = s.indexOf('if (deleteFieldsPaths && deleteFieldsPaths.length > 0)');
     assert.ok(at > 0, 'the deleteFields block was not found — the scanner is wrong, not the code');
-    const block = s.slice(at, at + 1600);
+    const block = blockAfter(s, at, 'the deleteFields block');
     for (const f of ['description', 'excerpt', 'tags', 'entityIds', 'chronoIds', 'memoryIds', 'properties']) {
       assert.match(block, new RegExp(`'${f}'`), `${f} is settable but cannot be deleted`);
     }

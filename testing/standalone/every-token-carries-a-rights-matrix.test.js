@@ -30,6 +30,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { stripComments } from './_strip-comments.mjs';
+import { bodyOf } from './_structural-window.mjs';
 
 const read = p => stripComments(readFileSync(p, 'utf8'));
 const TOKENS = 'server/src/auth/tokens.ts';
@@ -59,9 +60,7 @@ describe('the boot migration is durable', () => {
   const src = read(BOOT);
 
   it('the backfill result is written to disk, not just held in memory', () => {
-    const at = src.indexOf('export function migrateTokenRightsOnBoot');
-    assert.ok(at > -1, 'the boot step is gone — re-anchor this gate');
-    const after = src.slice(at, at + 700);
+    const after = bodyOf(src, 'migrateTokenRightsOnBoot');
     // Both counts, because the boot step does two things now: derive a missing matrix, and repair a malformed
     // one. `if (filled === 0)` alone would return before persisting a repair — the fix would run and be lost.
     assert.match(after, /if \(filled === 0 && repaired === 0\) return 0;/, 'a write only when something changed');
@@ -71,8 +70,9 @@ describe('the boot migration is durable', () => {
   });
 
   it('a failed write retries next boot rather than being reported as done', () => {
-    const at = src.indexOf('export function migrateTokenRightsOnBoot');
-    const after = src.slice(at, at + 900);
+    // Same subject as the test above, and previously a different guess at how much of it to read — 700 there and
+    // 900 here. Two windows on one function is a sign neither was measured.
+    const after = bodyOf(src, 'migrateTokenRightsOnBoot');
     assert.match(after, /catch/, 'a failed persist must not throw at boot');
     assert.match(after, /will retry next boot/i, 'and must say so, like the media-embedding migration beside it');
   });

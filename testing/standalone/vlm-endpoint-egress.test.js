@@ -34,6 +34,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { bodyOf, statementUpTo } from './_structural-window.mjs';
 
 const ENDPOINT_SRC = 'server/src/files/converters/vlm-endpoint.ts';
 const CLIENT_SRC = 'server/src/files/converters/vlm-client.ts';
@@ -133,9 +134,7 @@ describe('egress is guarded whenever the endpoint is not the bundled model', () 
       ['repairMarkdown', 'docRepair'],
       ['reconcileConsensus', 'docVlm'],
     ]) {
-      const at = client.indexOf(`export async function ${fn}`);
-      assert.ok(at > 0, `${fn} should exist`);
-      assert.match(client.slice(at, at + 600), new RegExp(`asEndpoint\\(opts, '${slot}'\\)`),
+      assert.match(bodyOf(client, fn), new RegExp(`asEndpoint\\(opts, '${slot}'\\)`),
         `${fn} must resolve egress under the ${slot} slot`);
     }
   });
@@ -217,7 +216,10 @@ describe('no operator-configurable URL is fetched without the guard', () => {
       const src = strip(readFileSync(f, 'utf8'));
       // `fetch(` but not `ssrfSafeFetch(` / `peerSafeFetch(` / `egressFetch(` / `.fetch(`.
       for (const m of src.matchAll(/(?<![A-Za-z.])fetch\(/g)) {
-        const window = src.slice(Math.max(0, m.index - 220), m.index);
+        // The statement this fetch is chosen inside, bounded by where that statement begins. At 220 characters
+        // backwards the window could start mid-way through the previous statement and miss the ternary that picks
+        // the client — which would report a correctly-guarded fetch as an offender.
+        const window = statementUpTo(src, m.index, `the fetch in ${f}`);
         if (!GUARD_PREDICATES.test(window)) {
           offenders.push(`${f} (line ${src.slice(0, m.index).split('\n').length})`);
         }

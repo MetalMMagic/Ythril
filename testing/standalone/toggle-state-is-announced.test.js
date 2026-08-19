@@ -29,6 +29,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { openTagAt } from './_structural-window.mjs';
 
 /**
  * Known gaps, by path, with the exact number of buttons still missing an ARIA state.
@@ -120,8 +121,11 @@ describe('the groups fixed here stay fixed', () => {
     const at = src.indexOf('<div class="tabs"');
     assert.ok(at > 0, 'the Brain tab strip is gone — re-anchor this gate');
     const strip = src.slice(at, src.indexOf('</div>', at));
-    assert.match(src.slice(at, at + 200), /role="tablist"/, 'the strip must be a tablist');
-    assert.match(src.slice(at, at + 200), /aria-label/, 'a tablist needs a name');
+    // Both are assertions about the opening TAG, so the tag is the bound. At 200 characters an attribute added
+    // ahead of `aria-label` would push it out and fail a correct template — the Space Admin failure exactly.
+    const tag = openTagAt(src, at, 'the Brain tab strip');
+    assert.match(tag, /role="tablist"/, 'the strip must be a tablist');
+    assert.match(tag, /aria-label/, 'a tablist needs a name');
     const tabs = [...strip.matchAll(/<button class="tab"[^>]*>/g)];
     assert.ok(tabs.length >= 5, `expected the tab buttons, found ${tabs.length}`);
     const silent = tabs.filter(m => !/aria-selected/.test(m[0])).length;

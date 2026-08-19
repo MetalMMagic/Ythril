@@ -47,6 +47,25 @@ import { stripComments } from './_strip-comments.mjs';
  */
 const MAGIC_WINDOW = /\.slice\(\s*([A-Za-z_$][\w$]*)\s*,\s*\1\s*\+\s*\d+\s*\)/g;
 
+/**
+ * The same defect written BACKWARDS: `src.slice(Math.max(0, at - 400), at)`.
+ *
+ * It was outside the pattern above, so it was never counted and never grandfathered — nine of them across eight
+ * files, none of which the first version of this gate could see. Found while converting the forward population,
+ * which is the argument for widening a ratchet's pattern as soon as its blind spot is known: a rule that reports
+ * zero because it is not looking reads exactly like a rule that is satisfied.
+ *
+ * Backwards is the WORSE half. A window that stops short of its subject going forwards usually breaks the
+ * assertion and goes red; going backwards it silently starts inside the subject, and in this suite the backwards
+ * form is mostly paired with `doesNotMatch` — an absence asserted over less text than intended, which passes.
+ *
+ * A LINE window (`lines.slice(Math.max(0, i - 3), i + 4).join(' ')`) is deliberately NOT matched. Those are
+ * adjacency claims — "a comment within three lines of the call" — where the number IS the rule rather than a guess
+ * at how much of a subject fits. The `.join(` is what separates them, and it is a reliable signal because a
+ * character window has nothing to join.
+ */
+const MAGIC_WINDOW_BACK = /\.slice\(\s*Math\.max\(\s*0\s*,\s*[A-Za-z_$][\w$.]*\s*-\s*\d+\s*\)[^)]*\)(?!\s*\.join\()/g;
+
 /*
  * NOT BANNED HERE, and the reason is the whole discipline of this file: `[\s\S]{0,N}` inside a pattern.
  *
@@ -82,25 +101,55 @@ function sources(dir, out = []) {
  * none at all. Counts rather than a bare filename, so a file with three cannot silently gain a fourth.
  */
 const GRANDFATHERED = new Map([
-  ['testing/standalone/backups-are-not-world-readable.test.js', 1],
-  ['testing/standalone/changelog-entry-is-enforced.test.js', 2],
-  ['testing/standalone/console-redaction-coverage.test.js', 1],
-  ['testing/standalone/credential-bodies-are-strict.test.js', 1],
-  ['testing/standalone/every-token-carries-a-rights-matrix.test.js', 2],
-  ['testing/standalone/face-index-width-is-never-rebuilt.test.js', 1],
-  ['testing/standalone/file-meta-merges-like-the-brain-tools.test.js', 1],
-  ['testing/standalone/mcp-audit-coverage.test.js', 1],
-  ['testing/standalone/meta-precondition.test.js', 1],
-  ['testing/standalone/mint-accepts-rights-capped.test.js', 1],
-  ['testing/standalone/mongo-connect-retry.test.js', 1],
-  ['testing/standalone/no-runtime-model-egress.test.js', 1],
-  ['testing/standalone/notice-coverage.test.js', 1],
-  ['testing/standalone/space-admin-rung-is-named.test.js', 1],
-  ['testing/standalone/ssrf-allow-private-coverage.test.js', 1],
-  ['testing/standalone/sync-dropped-record-is-not-silent.test.js', 1],
+  /*
+   * TWO ENTRIES LEFT, and both are here because the number is not a window at all.
+   *
+   * The other nineteen files are converted. `_structural-window.mjs` grew the four bounds they actually needed —
+   * a bracketed group, a statement, the block an anchor sits inside, and the three markup shapes — and each
+   * conversion was read individually rather than swept, because a window rewritten without understanding its
+   * subject is a gate that quietly checks less.
+   */
+
+  /*
+   * `parseInt(h.slice(i, i + 2), 16)` — reading the red, green and blue bytes out of a hex colour.
+   *
+   * A hex pair is two characters by definition. There is no subject that can grow, so there is nothing for a
+   * structural bound to bound. This is a fixed-width FIELD read wearing the same syntax as a window, and the
+   * distinction matters: converting it would replace a correct expression with a worse one to satisfy a pattern.
+   */
   ['testing/standalone/text-contrast-meets-aa.test.js', 1],
-  ['testing/standalone/toggle-state-is-announced.test.js', 2],
-  ['testing/standalone/vlm-endpoint-egress.test.js', 1],
+
+  /*
+   * `JSON.stringify(src.slice(handlerStart, handlerStart + 90))` — inside an assertion MESSAGE.
+   *
+   * Nothing is asserted about those 90 characters. They are an excerpt shown to whoever reads the failure, so
+   * they can find the handler; the check itself is `checkSites.some(...)` on real indices. A window only needs a
+   * structural bound when something is CHECKED inside it, and a 90-character quote is the right length for a
+   * message where a whole handler body would not be.
+   */
+  ['testing/standalone/meta-precondition.test.js', 1],
+]);
+
+/**
+ * Files still allowed to carry a BACKWARDS character window, with how many.
+ *
+ * Nine sites the pattern could not previously see, recorded rather than converted in the same change: the forward
+ * population was twenty-two, and rewriting thirty-one windows in one commit is the blind sweep this gate exists to
+ * prevent. **This list may only shrink**, on the same terms as the one above.
+ *
+ * Named individually because each has a different subject. `theme-cannot-recolour-facts` reads 1 400 characters of
+ * CSS behind a declaration; `config-key-docs-coverage` reads a doc comment above a key; `index-ready-poll` reads
+ * what precedes a call. Those are three different structural bounds, not one conversion applied nine times.
+ */
+const GRANDFATHERED_BACK = new Map([
+  ['testing/standalone/backups-are-not-world-readable.test.js', 1],
+  ['testing/standalone/config-key-docs-coverage.test.js', 2],
+  ['testing/standalone/index-ready-poll.test.js', 1],
+  ['testing/standalone/infra-managed-locks-every-field.test.js', 1],
+  ['testing/standalone/models-are-attributed.test.js', 1],
+  ['testing/standalone/proxy-fanout-inventory.test.js', 1],
+  ['testing/standalone/swallowed-writes-must-be-visible.test.js', 1],
+  ['testing/standalone/theme-cannot-recolour-facts.test.js', 1],
 ]);
 
 /**
@@ -116,16 +165,25 @@ const GRANDFATHERED = new Map([
  */
 const SELF = 'gates-bound-their-subject-structurally.test.js';
 
+/*
+ * The helper's own spec is excluded too. It contains every banned shape as a FIXTURE — that is what proves the
+ * bounds are correct, and it is the one file where a magic window is the subject rather than a defect.
+ */
+const FIXTURES = 'structural-window-helper.test.js';
+
 const found = new Map();
+const foundBack = new Map();
 for (const root of ROOTS) {
   for (const file of sources(root)) {
     // Split on the platform separator and rejoin with `/`, so the keys read the same on Windows and in CI. A
     // grandfathered entry that only matched on one platform would be an allowance nobody could see.
     const key = file.split(sep).join('/');
-    if (key.endsWith(SELF)) continue;
+    if (key.endsWith(SELF) || key.endsWith(FIXTURES)) continue;
     const code = stripComments(readFileSync(file, 'utf8'));
     const n = [...code.matchAll(MAGIC_WINDOW)].length;
     if (n > 0) found.set(key, n);
+    const back = [...code.matchAll(MAGIC_WINDOW_BACK)].length;
+    if (back > 0) foundBack.set(key, back);
   }
 }
 
@@ -145,6 +203,24 @@ describe('the scan works before anything is concluded from it', () => {
       assert.equal([...ok.matchAll(MAGIC_WINDOW)].length, 0, `false positive on: ${ok}`);
     }
   });
+
+  it('the BACKWARDS pattern matches its shape, and leaves line windows alone', () => {
+    const back = 'const before = src.slice(Math.max(0, at - 400), at);';
+    assert.equal([...back.matchAll(MAGIC_WINDOW_BACK)].length, 1,
+      'MAGIC_WINDOW_BACK no longer matches a backwards window — it would report zero by not looking');
+
+    /*
+     * A line window is an ADJACENCY claim, where the number is the rule. `.join(` is the signal, and asserting the
+     * exclusion here is what stops a future tightening from banning thirty legitimate proximity checks.
+     */
+    for (const ok of [
+      "const near = lines.slice(Math.max(0, i - 3), i + 4).join(' ')",
+      'const around = lines.slice(Math.max(0, i - 6), i + 2).join("\\n")',
+      'src.slice(0, i)',
+    ]) {
+      assert.equal([...ok.matchAll(MAGIC_WINDOW_BACK)].length, 0, `false positive on: ${ok}`);
+    }
+  });
 });
 
 describe('no NEW magic window', () => {
@@ -160,6 +236,24 @@ describe('no NEW magic window', () => {
       'a gate bounds its subject with a character count. Use `_structural-window.mjs` — `bodyOf`, `between`, or\n'
       + '`bodyOfEndingWith` — which bound by the next top-level declaration or by the closing marker. A window that\n'
       + 'can fall short of its subject is a gate that can pass while checking less than it means to.\n'
+      + problems.join('\n'));
+  });
+
+  it('no NEW backwards window either, and that list only shrinks too', () => {
+    // Both directions on one ratchet, so closing the forward half cannot look like closing the problem.
+    const problems = [];
+    for (const [file, n] of foundBack) {
+      const allowed = GRANDFATHERED_BACK.get(file) ?? 0;
+      if (n > allowed) problems.push(`${file}: ${n} backwards window(s), allowed ${allowed}`);
+    }
+    for (const [file, allowed] of GRANDFATHERED_BACK) {
+      const actual = foundBack.get(file) ?? 0;
+      if (actual < allowed) problems.push(`${file}: allowed ${allowed} backwards, now has ${actual} — lower it`);
+    }
+    assert.deepEqual(problems, [],
+      'a gate reads a fixed number of characters BEHIND its anchor. That is the same defect as a forward window\n'
+      + 'and a worse one: it starts inside its subject silently, and it is usually paired with `doesNotMatch`, so\n'
+      + 'an absence gets asserted over less text than intended and passes. Bound it with `_structural-window.mjs`.\n'
       + problems.join('\n'));
   });
 

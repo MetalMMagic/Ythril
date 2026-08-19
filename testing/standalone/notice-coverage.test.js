@@ -35,6 +35,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { markdownSectionFrom } from './_structural-window.mjs';
 
 const NOTICE = readFileSync('NOTICE', 'utf8');
 const NOTICE_LC = NOTICE.toLowerCase();
@@ -138,7 +139,8 @@ describe('NOTICE covers everything we redistribute', () => {
         // The verb AND the licence it selects. A bare `/elect/i` was too loose to be worth having: it
         // matched the surrounding prose explaining *why* an election is recorded, so deleting the actual
         // election statement left the test green. Caught by mutating the entry.
-        return !/elects?\s+[^.\n]{0,40}(Apache|MIT|MPL|BSD|ISC|GPL)/i.test(NOTICE.slice(at, at + 700));
+        // The entry, bounded by the next `###` — so an entry that grows an explanation is still read whole.
+        return !/elects?\s+[^.\n]{0,40}(Apache|MIT|MPL|BSD|ISC|GPL)/i.test(markdownSectionFrom(NOTICE, at));
       })
       .map(d => `  ${d.name} (${d.license})`);
 

@@ -32,6 +32,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { yamlItemAt, blockAfter } from './_structural-window.mjs';
 
 const SCRIPT_PATH = join('scripts', 'check-changelog.mjs');
 const WORKFLOW_PATH = join('.github', 'workflows', 'ci.yml');
@@ -68,7 +69,9 @@ describe('CI runs the check', () => {
     // check" — a green build for a missing entry, which is worse than not having the check.
     const at = WORKFLOW.indexOf('actions/checkout@v4');
     assert.ok(at > 0, 'the checkout step is gone');
-    const step = WORKFLOW.slice(at, at + 400);
+    // The step is bounded by where the next step begins, which is indentation. A character count here changes
+    // meaning the moment somebody adds a `name:` to the step above it.
+    const step = yamlItemAt(WORKFLOW, at, 'the checkout step');
     assert.match(step, /fetch-depth:\s*0/,
       'actions/checkout needs fetch-depth: 0, or `base...HEAD` has no merge base and the check silently no-ops');
   });
@@ -107,7 +110,7 @@ describe('the check cannot pass vacuously', () => {
   it('a missing [Unreleased] section fails rather than passing', () => {
     const at = CODE.indexOf('if (!range)');
     assert.ok(at > 0, 'the missing-section branch is gone');
-    assert.match(CODE.slice(at, at + 300), /process\.exit\(1\)/,
+    assert.match(blockAfter(CODE, at, 'the missing-section branch'), /process\.exit\(1\)/,
       'no Unreleased section must fail — otherwise deleting the heading disables the check');
   });
 });

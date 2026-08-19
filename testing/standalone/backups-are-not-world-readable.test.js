@@ -28,6 +28,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { bodyOf } from './_structural-window.mjs';
 
 const ROOT = process.cwd();
 const read = (p) => readFileSync(join(ROOT, p), 'utf8');
@@ -68,9 +69,7 @@ describe('one definition of "as tight as the state files"', () => {
     assert.match(modes, /chmodSync\(target, mode\)/, 'hardenSync must chmod the target');
     assert.match(modes, /chmod\(target, mode\)/, 'harden must chmod the target');
     for (const fn of ['mkdirPrivateSync', 'mkdirPrivate']) {
-      const at = modes.indexOf(`export ${fn.endsWith('Sync') ? 'function' : 'async function'} ${fn}(`);
-      assert.ok(at > 0, `${fn} is gone`);
-      assert.match(modes.slice(at, at + 260), /harden(Sync)?\(dir, DIR_MODE\)/,
+      assert.match(bodyOf(modes, fn), /harden(Sync)?\(dir, DIR_MODE\)/,
         `${fn} must tighten a directory that already existed, not only one it creates`);
     }
   });

@@ -174,9 +174,16 @@ search you can run without writing a request by hand:
   guaranteed and they are the ones that matter: **every record you get is whole** — never half a passage, never
   a record missing part of its graph — and the results you get are the **top of the ranking**, in order, with
   nothing skipped in the middle. So a shortened answer is still the best answers, and the next request picks up
-  exactly where this one stopped. The API calls the ceiling `maxBytes` and the continuation `skip`; through the
-  search form you control the same thing by asking for fewer results or fewer graph hops, and a search that
-  comes back shortened is usually a sign the question was broader than intended.
+  exactly where this one stopped. And **the page tells you when it happened** — a notice above the results says
+  how many of how many came back, states both guarantees, and says what to do about it. Until 3.2.0 it did not:
+  a shortened answer looked exactly like a complete one, so a hundred-match search could show a handful of
+  records with nothing anywhere explaining why.
+  - **Max response size**, under **Show advanced**, is the ceiling itself — the API calls it `maxBytes`. Raise it
+    to get more of a shortened answer in one go; leave it empty for the instance default. There is deliberately
+    one control and not two: the API also accepts the same ceiling expressed in tokens, and the smaller of the
+    two always wins, so offering both would only let you set two limits and then wonder which applied.
+  - Narrowing the search — fewer results, fewer graph hops, a tighter filter — does the same job from the other
+    end, and a search that comes back shortened is usually a sign the question was broader than intended.
   - **Getting the whole tail as one file is a request you make, not something that happens to you.** An API
     caller can add `remainderDump` to have everything that did not fit written to a downloadable file in the
     space, valid for a day. Until 3.2.0 that file was written on *every* shortened search whether anyone wanted

@@ -153,6 +153,16 @@ import { BrainStore } from './brain-store.service';
                         <input type="number" [(ngModel)]="recallForm.maxTimeMS" name="recallMaxTimeMS" min="0" max="30000"
                           [placeholder]="'brain.query.recallMaxTimeMs.none' | transloco" style="width:100px;" />
                       </div>
+                      <div class="field" style="min-width:120px;">
+                        <!-- ONE control for the size ceiling, not two. maxTokens is a convenience onto the same
+                             number and the server applies whichever is smaller, so offering both would let an
+                             operator set two limits and then have to work out which one won. -->
+                        <label>{{ 'brain.query.recallMaxBytes' | transloco }}
+                          <span style="color:var(--text-muted);font-size:11px;" [attr.title]="'brain.query.recallMaxBytes.tooltip' | transloco"><ph-icon name="info" [size]="11" style="display:inline-flex;vertical-align:middle;"/></span>
+                        </label>
+                        <input type="number" [(ngModel)]="recallForm.maxBytes" name="recallMaxBytes" min="0" max="5000000" step="1000"
+                          [placeholder]="'brain.query.recallMaxBytes.default' | transloco" style="width:110px;" />
+                      </div>
                       <label style="display:flex; align-items:center; gap:6px; align-self:flex-end; cursor:pointer;">
                         <input type="checkbox" [(ngModel)]="recallForm.includeFreshWrites" name="recallFresh" />
                         <span>{{ 'brain.query.includeFreshWrites' | transloco }}</span>
@@ -249,6 +259,19 @@ import { BrainStore } from './brain-store.service';
                   }
                 </div>
               </div>
+
+              <!-- THE ANSWER WAS SHORTENED, and until now the page did not say so.
+                   Placed above the results rather than below them: a reader who scrolls to the end has already
+                   concluded that is all there was, which is the whole failure. Says both guarantees, because
+                   "shortened" on its own reads as "unreliable" — the records that came back are complete and
+                   they are the top of the ranking, with nothing missing from the middle. -->
+              @if (recallTruncated(); as t) {
+                <div class="alert alert-warning" style="margin-top:12px;">
+                  <div><strong>{{ 'brain.query.truncated.title' | transloco: { returned: t.returned, count: t.count } }}</strong></div>
+                  <div style="font-size:12px; margin-top:4px;">{{ 'brain.query.truncated.body' | transloco }}</div>
+                  <div style="font-size:12px; margin-top:4px;">{{ 'brain.query.truncated.what' | transloco }}</div>
+                </div>
+              }
 
               @if (recallResults().length) {
                 <div class="query-results-header" style="margin-top:12px;">
@@ -424,7 +447,23 @@ export class QueryTabComponent {
     // Both 0 = "don't send it". `traverse: 0` is also the server default (no expansion), and `maxTimeMS: 0`
     // is not a legal deadline, so neither zero can be mistaken for a value the operator chose.
     traverse: 0, maxTimeMS: 0,
+    // Same rule: 0 means "use the instance default". The server's own floor is 1000, so zero could never be a
+    // ceiling an operator chose either.
+    maxBytes: 0,
   };
+
+  /**
+   * Set when the answer was SHORTENED by the byte budget, so the page can say so.
+   *
+   * The server has reported this since the spill shipped and the client never read it — so a hundred-match
+   * search could show a handful of records with nothing anywhere on the page explaining why. Under the old
+   * record cap that was three records out of a hundred.
+   *
+   * Only the two numbers an operator can act on are kept. `budgetBytes` and `bytesReturned` are deliberately
+   * left out: they are for a caller tuning a request programmatically, and a byte count in the interface is a
+   * number nobody can do anything with.
+   */
+  recallTruncated = signal<{ returned: number; count: number } | null>(null);
 
   /** Type names offered by the recall "filter by type" dropdown (F5): schema type
    *  names for the space UNION the distinct `type` values present in the loaded
@@ -550,6 +589,7 @@ export class QueryTabComponent {
     this.recallRunning.set(true);
     this.recallError.set('');
     this.recallResults.set([]);
+    this.recallTruncated.set(null);
     this.brainApi.recallBrain(this.spaceId(), {
       query: this.recallForm.query.trim(),
       topK: this.recallForm.topK,
@@ -571,10 +611,19 @@ export class QueryTabComponent {
       ...(this.recallForm.includeDiagnostics ? { includeDiagnostics: true } : {}),
       ...(this.recallForm.traverse > 0 ? { traverse: this.recallForm.traverse } : {}),
       ...(this.recallForm.maxTimeMS > 0 ? { maxTimeMS: this.recallForm.maxTimeMS } : {}),
+      ...(this.recallForm.maxBytes > 0 ? { maxBytes: this.recallForm.maxBytes } : {}),
     }).subscribe({
       // Flattened on arrival: `traverse > 0` returns each item wrapped in an envelope, and the grouping and
       // rendering below both read the record's own fields directly.
-      next: (res) => { this.recallRunning.set(false); this.recallResults.set(flattenRecallItems(res.results)); },
+      next: (res) => {
+        this.recallRunning.set(false);
+        this.recallResults.set(flattenRecallItems(res.results));
+        // `=== true` rather than truthy: the field is optional on the type (an older server sends none), and an
+        // absent one must read as "not truncated" rather than as "unknown".
+        this.recallTruncated.set(res.truncated === true
+          ? { returned: res.returned ?? res.results.length, count: res.count }
+          : null);
+      },
       error: (err) => { this.recallRunning.set(false); this.recallError.set(err.error?.error ?? 'Search failed'); },
     });
   }
@@ -582,6 +631,7 @@ export class QueryTabComponent {
   clearRecall(): void {
     this.recallResults.set([]);
     this.recallError.set('');
+    this.recallTruncated.set(null);
   }
 
   formatQueryDoc(doc: Record<string, unknown>): string {

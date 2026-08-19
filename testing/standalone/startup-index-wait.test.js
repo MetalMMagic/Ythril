@@ -106,8 +106,18 @@ describe('the readiness timeout is a parameter, and generous off the boot path',
     // A timeout accepted at the top and dropped halfway down is the worst kind of knob: it looks
     // configurable and is not.
     assert.match(VECTOR, /pollVectorIndexReady\(spaceId, suffix, `\$\{spaceId\}_\$\{suffix\}_embedding`, opts\)/);
-    assert.match(VECTOR, /pollVectorIndexReady\(spaceId, 'files', `\$\{spaceId\}_files_faceEmbedding`, opts\)/);
+    // The face poll's index name moved into a named const, so the log line that reports it and the poll that
+    // waits for it cannot disagree about which index they mean. Asserted on the SUBJECT of this test — that
+    // `opts` reaches the call — rather than on the spelling of the second argument.
+    assert.match(VECTOR, /pollVectorIndexReady\(spaceId, 'files', faceIndexName, opts\)/,
+      'the face poll must still receive the timeout');
+    assert.match(VECTOR, /const faceIndexName = `\$\{spaceId\}_files_faceEmbedding`/,
+      'and it must still be the face gallery it polls');
     assert.match(VECTOR, /waitForSpaceIndexesReady\(spaceId, opts\)/);
+    // Deliberately NOT "every call to the poll takes opts". The two calls inside `ensureVectorSearchIndex`
+    // take the 60 s default on purpose: they run right after creating an index and are not on the boot path,
+    // which is what the generous startup ceiling exists for. A check that swept every call site would have
+    // demanded the timeout be threaded somewhere it was correct to leave it out.
   });
 
   it('startup waits far longer than 60s, because nothing is blocked on it', () => {

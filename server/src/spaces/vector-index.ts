@@ -388,6 +388,16 @@ async function indexServes(
   }
 }
 
+/**
+ * How long "the index is not in the list" must hold before it counts as terminal rather than as lag.
+ *
+ * 15 s against a `createSearchIndex` that has already returned. The one legitimate reason for a create to be
+ * followed by an empty listing is mongot's catalogue lagging the write, and the drop path one function up
+ * budgets 2 s for the same bookkeeping — so this is generous by more than seven times, and it is still two
+ * orders of magnitude below the 600 s boot window it replaces.
+ */
+const ABSENT_IS_TERMINAL_AFTER = 15;
+
 /** Poll a single vector-search index for READY status, up to ~60 seconds.
  *  Returns true once READY, false if it never became READY in the window. */
 export async function pollVectorIndexReady(
@@ -399,6 +409,8 @@ export async function pollVectorIndexReady(
   const coll = getDb().collection(`${spaceId}_${collectionSuffix}`);
   const attempts = Math.max(1, Math.round((opts.timeoutMs ?? 60_000) / 1000));
   let lastSeen = 'nothing yet';
+  /** Consecutive reads where the backend answered about this collection and this index was not in the list. */
+  let absentFor = 0;
 
   for (let attempt = 0; attempt < attempts; attempt++) {
     await new Promise(r => setTimeout(r, 1000));
@@ -419,7 +431,38 @@ export async function pollVectorIndexReady(
 
       if (!current) {
         lastSeen = `index not present (saw: ${all.map(i => i.name).join(', ') || 'none'})`;
+        /*
+         * NOT PRESENT IS A TERMINAL STATE, once the backend has demonstrably answered about this collection.
+         *
+         * Nothing inside this loop creates an index. If `listSearchIndexes` returns OTHER indexes on the same
+         * collection, then mongot is answering and it holds this collection's catalogue — our index simply is
+         * not in it, and it will not appear while all we do is ask again. Every remaining second is spent
+         * waiting for a caller that already ran and returned.
+         *
+         * This is the same argument the `probe.permanent` branch below already makes, and it was written for
+         * the same measured cost: 600 s per index, then working spaces marked failed. That fix covered the
+         * index that EXISTS and cannot be probed; the absent index kept the old behaviour, and
+         * `ensureVectorSearchIndex` has four paths that return without creating one — search unavailable,
+         * `listSearchIndexes` throwing, `createSearchIndex` throwing, and a refused width change.
+         *
+         * The grace period is what keeps this correct rather than merely fast. `ensureVectorSearchIndex` polls
+         * immediately after `createSearchIndex`, and mongot's catalogue lags a create by a moment — that is
+         * the same bookkeeping lag the `force` flag exists for, one function up. So absence only becomes
+         * terminal after it has held for ABSENT_IS_TERMINAL_AFTER consecutive reads.
+         */
+        if (all.length > 0) absentFor++;
+        if (absentFor >= ABSENT_IS_TERMINAL_AFTER) {
+          log.warn(
+            `Vector search index ${indexName} does not exist and nothing here creates it — giving up after `
+            + `${absentFor}s instead of ${attempts}s. The backend is answering: it listed `
+            + `${all.map(i => i.name).join(', ')} on this collection. Something refused or failed to create `
+            + `this index; look upstream for a "Failed to create vector search index" or "REFUSING to change" `
+            + `line, or rebuild from Settings → Space → Danger Zone.`,
+          );
+          return false;
+        }
       } else {
+        absentFor = 0;
         lastSeen = `status=${current.status ?? 'undefined'} queryable=${current.queryable ?? 'undefined'}`;
         // `queryable` counts as ready too: it is the property recall actually depends on, and a
         // deployment whose mongot reports it without a READY status would otherwise poll forever.
@@ -519,8 +562,32 @@ export async function buildSpaceVectorIndexes(
   }
 }
 
-/** Poll all of a space's vector-search indexes until READY. Returns true only if every
- *  expected index reached READY within the window. */
+/**
+ * Poll all of a space's vector-search indexes until READY. Returns true only if every index the space's
+ * SEARCH depends on reached READY within the window.
+ *
+ * ## The face gallery is polled and does NOT get a vote
+ *
+ * breituai-platform 2026-08-17T1540Z §8: fourteen spaces, three showing a red *"Index build failed"* and
+ * eleven *"Preparing indexes…"*, on an instance whose search worked normally. The three and the eleven are one
+ * number — `FINALIZE_CONCURRENCY` is 3, so those were simply the first batch to reach the end of a 600 s
+ * window while the rest were still queued behind it.
+ *
+ * The verdict here is what writes `indexStatus`, and `indexStatus: 'failed'` is what paints the badge red. So
+ * a space with five READY indexes and an absent face gallery was reported as a failed space — and their line
+ * is the argument: *"a red badge that is always red on a working system trains an operator to stop reading red
+ * badges."*
+ *
+ * **The face gallery is not part of what a space's search depends on.** Recall, traversal, hybrid text, every
+ * read a caller makes — all of them work with the gallery absent. It serves one optional capability, and on
+ * their fleet `FACE_RECOGNITION_ENABLED=true` is set with no `faceRecognition.externalModel` and no manually
+ * placed model files, so nothing can write a face vector at all. Letting it decide the space's status meant an
+ * unconfigured optional feature could condemn a working space, permanently, on every boot.
+ *
+ * It is still polled, and its outcome is still logged with a name and a reason. Withholding the vote is not
+ * withholding the information — a gallery that genuinely fails to build is something an operator should read
+ * about, just not as *"this space's indexes failed"*.
+ */
 export async function waitForSpaceIndexesReady(
   spaceId: string,
   opts: { timeoutMs?: number } = {},
@@ -529,13 +596,32 @@ export async function waitForSpaceIndexesReady(
   // another only adds up their timeouts: five collections at a 60s ceiling each meant a space could sit
   // at indexStatus='building' for five minutes when every index was in fact ready in seconds. That was
   // masked for as long as only `memories` was ever indexed — fixing that made the serial wait visible.
-  const polls = VECTOR_INDEXED_COLLECTIONS.map(suffix =>
+  const required = VECTOR_INDEXED_COLLECTIONS.map(suffix =>
     pollVectorIndexReady(spaceId, suffix, `${spaceId}_${suffix}_embedding`, opts),
   );
-  if (getFaceRecognitionConfig().enabled) {
-    polls.push(pollVectorIndexReady(spaceId, 'files', `${spaceId}_files_faceEmbedding`, opts));
+  // Started alongside the required ones so it costs no extra wall-clock, and awaited separately so its answer
+  // cannot reach the verdict. Kicked off before the await below for that reason — sequencing it after would
+  // add its window to the total.
+  const faceIndexName = `${spaceId}_files_faceEmbedding`;
+  const face = getFaceRecognitionConfig().enabled
+    ? pollVectorIndexReady(spaceId, 'files', faceIndexName, opts)
+    : null;
+
+  const results = await Promise.all(required);
+  if (face) {
+    // Never allowed to throw into the verdict either: an optional index cannot be the reason a working space
+    // reports an error, and that has to hold for a rejected promise as much as for a `false`.
+    const faceReady = await face.catch(() => false);
+    if (!faceReady) {
+      log.warn(
+        `Space '${spaceId}': the optional face gallery index (${faceIndexName}) is not ready. This does NOT `
+        + `affect recall, traversal or text search, and the space's index status is unchanged by it. Face `
+        + `recognition is enabled for this instance; if that was not intended, unset FACE_RECOGNITION_ENABLED, `
+        + `and if it was, note that a face vector also needs either faceRecognition.externalModel or the model `
+        + `files placed under DATA_ROOT.`,
+      );
+    }
   }
-  const results = await Promise.all(polls);
   return results.every(Boolean);
 }
 

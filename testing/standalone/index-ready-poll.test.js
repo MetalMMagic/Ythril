@@ -75,7 +75,19 @@ describe('search-index listing is never name-filtered', () => {
     const src = readFileSync(`${ROOT}/spaces/vector-index.ts`, 'utf8');
     const at = src.indexOf('export async function pollVectorIndexReady');
     assert.ok(at > 0);
-    const body = src.slice(at, at + 3000);
+    // Bounded STRUCTURALLY — the whole function, to the next top-level export — rather than by `at + 3000`.
+    // A character window spans different lines on CRLF than on LF, and it silently shrinks whenever the
+    // function grows: adding the terminal-absence branch pushed the statement below past 3000 characters and
+    // this assertion started failing on code that was correct. A window that can look at less than it means
+    // to is a window that can pass on less than it means to.
+    const srcLines = src.split(/\r?\n/);
+    const start = srcLines.findIndex(l => l.includes('export async function pollVectorIndexReady'));
+    let end = srcLines.length;
+    for (let i = start + 1; i < srcLines.length; i++) {
+      if (/^export (async function|function|const) /.test(srcLines[i])) { end = i; break; }
+    }
+    const body = srcLines.slice(start, end).join('\n');
+    assert.ok(body.includes('gave up after'), 'the window must reach the end of the function');
     assert.match(body, /all\.find\(i => i\.name === indexName\)/);
     // `queryable` is the property recall actually depends on; a mongot reporting it without a READY
     // status would otherwise poll forever.

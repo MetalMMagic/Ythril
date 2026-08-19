@@ -45,7 +45,14 @@ export const helpTool: ToolHandler = {
     + 'line. Omit it for the complete guide.\n\n'
     + 'RESPONSE: the matching sections, or the whole guide when `query` is omitted. A query matching NOTHING '
     + 'returns the section index rather than an empty answer — so a reply that is a list of section names '
-    + 'means your keywords missed, and the fix is fewer words or a tool name.',
+    + 'means your keywords missed, and the fix is fewer words or a tool name.\n\n'
+    + 'THE GUIDE IS IN BOTH `content[0].text` AND `structuredContent.guide`, and this paragraph exists '
+    + 'because it was in `content` alone. `structuredContent` also carries `sections` (the index, as '
+    + '{id, title}), `matched` (which sections your query hit) and `restOnly` (capabilities that exist over '
+    + 'REST and have no tool). A client that surfaces `structuredContent` in preference to `content` '
+    + 'therefore used to receive the index and NO guide — and reported, reasonably, that the guide was '
+    + 'unreachable. If you see `sections` and no `guide`, the instance predates that fix and the prose is in '
+    + '`content[0].text`, complete, on every version.',
   // Deliberately not mutating, not admin, not spaceRequired: read-only and instance-global.
   inputSchema: (_s: ToolSchemas) => ({
     type: 'object',
@@ -98,13 +105,34 @@ export const helpTool: ToolHandler = {
 
     // The gap, machine-readable, beside the prose. breituai-platform asked for a capability map because their
     // agents BRANCH on it, and because a hole they can read is an afternoon they do not spend discovering it.
-    // `structuredContent` rather than more text: a client that reads only `content` loses nothing.
     //
     // `sections` is always present so a caller can discover what to search for without a second call, and `matched`
     // distinguishes "your query matched these" from "nothing matched, here is the index" without parsing English.
+    //
+    // ## `guide` CARRIES THE PROSE, and its absence is what made this tool look broken
+    //
+    // This block used to hold the index and the capability map ALONE, on the note — deleted above — that "a client
+    // that reads only `content` loses nothing". True, and the OPPOSITE client is the one that breaks: a client
+    // surfacing `structuredContent` in preference to `content` received six `{id, title}` pairs, `matched`, and no
+    // guide at all.
+    //
+    // breituai-platform reported exactly that on 2026-08-17 as *"the section index plus `matched` and no bodies,
+    // in both modes"* — and filed it as `help()` returning no section bodies, which it never did: measured
+    // 2026-08-19, `content[0].text` is 76,754 characters with every body, and `structuredContent` was 599. Their
+    // own report identifies where they read, because **`matched` exists nowhere in the prose.**
+    //
+    // **`query` had the identical defect and was fixed; this tool was overlooked, and it is the worst one to
+    // overlook.** A client that asks the discovery tool what exists, gets an index, and concludes the guide is
+    // unreachable does not then go looking for the parameter that would have corrected it — so two other reported
+    // items exist downstream of this one. The comment beside `query`'s fix even claimed it was "the only tool with
+    // that shape"; a sweep of every tool on 2026-08-19 found this was the single exception, which is why
+    // `mcp-structured-content-carries-its-payload.test.js` now asserts the shape instead of a comment claiming it.
     return {
       content: [{ type: 'text' as const, text }],
       structuredContent: {
+        // Byte-identical to `content[0].text`, deliberately. A second rendering would be a second implementation
+        // of the guide, which is the defect this tool's own header warns about for the searched-vs-full paths.
+        guide: text,
         restOnly: restOnlyCapabilityMap(),
         sections: sections.map(s => ({ id: s.id, title: s.title })),
         ...(query ? { query, matched: matchedIds } : {}),

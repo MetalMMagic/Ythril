@@ -65,6 +65,20 @@ On connect, the server sends global instructions listing all available space IDs
 > rows, which reads as a page that returned nothing rather than as a payload the client dropped. If you
 > built against the old shape nothing changes: `content` was, and remains, complete.
 >
+> **`help` does the same, and it is the one that cost somebody a day.** `structuredContent.guide` carries the
+> rendered guide, byte-identical to `content[0].text`, alongside `sections` (the index as `{id, title}`),
+> `matched` and `restOnly`.
+>
+> Until this release `help`'s `structuredContent` was the index and the capability map with **no guide at
+> all** — the same defect `query` had, on the one tool whose entire job is telling you what exists. An
+> integrator reading `structuredContent` received six section titles, concluded the guide was unreachable,
+> and reported it as `help()` returning no section bodies. It never did: `content[0].text` was 76,754
+> characters of them at the time, on the version they were running.
+>
+> **If you are on an older instance, read `content[0].text` — the guide is there, complete, and always was.**
+> A gate now sweeps every tool and refuses a `structuredContent` built from metadata alone, because the
+> comment beside `query`'s fix claimed no other tool had that shape and one did.
+>
 > **The consequence to plan for: tightening a schema freezes the records that no longer fit it.** Remove a value from
 > an `enum` and every stored record still carrying it is uneditable until that field is repaired — even an edit to an
 > unrelated field like `description`. Under `warn` the same violations are reported and the write proceeds. Branch on

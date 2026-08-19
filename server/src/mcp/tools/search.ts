@@ -641,8 +641,15 @@ export const queryTool: ToolHandler = {
     //
     // That is the worst shape a result can have: the answer is absent and the metadata says how many rows were
     // returned, so it reads as a successful empty-ish page rather than as a client that dropped the payload. It is
-    // also the only tool with that shape — every other structuredContent in this layer carries its own payload.
     // The MCP spec's own framing is that structuredContent is the structured form of the SAME result, not a sidecar.
+    //
+    // **THIS COMMENT USED TO CLAIM IT WAS "the only tool with that shape — every other structuredContent in this
+    // layer carries its own payload". THAT WAS FALSE, and the claim is why nobody checked.** `help` had the
+    // identical shape: an index plus a capability map, with the entire guide in `content` alone. breituai-platform
+    // then reported the guide as unreachable and filed it as `help()` returning no bodies — which it never did.
+    //
+    // A universal claim cannot live in a comment. `mcp-structured-content-carries-its-payload.test.js` now sweeps
+    // every tool and asserts it, so the next overlooked one fails a test instead of being described as impossible.
     return {
       content: [
         {

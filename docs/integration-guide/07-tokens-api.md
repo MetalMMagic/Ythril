@@ -54,6 +54,12 @@ Authorization: Bearer <token>
   "implications": [
     { "when": "knowledge", "atLeast": "write", "grants": "schema", "rung": "read" }
   ],
+  "derivedRungs": [
+    { "id": "spaceAdmin",
+      "requires": { "knowledge": "admin", "files": "admin", "schema": "admin", "dataQuality": "admin" },
+      "grants": "That space’s own tokens (listing, minting and editing) and that space’s own settings, schema and index rebuilds.",
+      "excludes": "Nothing instance-shaped: it cannot grant `instanceAdmin` or `createSpaces`, cannot set a floor, and cannot reach, mint for, or edit tokens for any space it does not administer — it does not even list them." }
+  ],
   "routes": [
     { "area": "knowledge", "method": "POST", "route": "/api/brain/spaces/:spaceId/recall", "needs": "read" },
     { "area": "files", "method": "DELETE", "route": "/api/files/:spaceId", "needs": "write" }
@@ -85,6 +91,27 @@ Three properties worth building against:
 - **It does not chain.** Each rule is evaluated against what was *granted*, never against another rule's
   inference, so the order of the array is not load-bearing.
 - **It is scoped to one space**, and applies to the all-spaces floor within the floor's own scope.
+
+#### `derivedRungs` — states the matrix expresses without naming
+
+**A token whose FOUR areas are all at `admin` for one space is that space's administrator.** That has been
+enforced since 3.0 and, until now, was named nowhere: the matrix showed four independent rungs and nothing
+said the all-four-at-`admin` state had a meaning. An operator could not find it, grant it in one action, or
+verify they held it — and neither could you.
+
+`requires` is the condition, `grants` is what it unlocks **beyond** what the four rungs already give, and
+`excludes` is the containment. Read `excludes` if you are building against it: **it is never instance-wide.**
+It cannot grant `instanceAdmin` or `createSpaces`, cannot set an all-spaces floor, and cannot reach, mint for
+or edit tokens for any space it does not administer — it does not even list them. Those rules are red-teamed,
+not aspirational.
+
+**Derive the state, do not store it.** `requires` is computed server-side from the area list, so it stays
+correct if a fifth area is ever added; a copy of the four names in your own code would not. There is no
+`spaceAdmin: true` field on a token and there will not be — the four rungs already express it, and a second
+field could disagree with them.
+
+To show it in your own UI: read `derivedRungs`, then compare a token's effective rung per area (after
+`implications`) against `requires`.
 
 The stored matrix is *not* rewritten — `GET /api/tokens` returns what was set. Resolve the effective rung by
 applying this table on read; do not persist the result, or a rung that exists only while `knowledge` is

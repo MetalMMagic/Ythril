@@ -149,6 +149,25 @@ description differs per column, because `write` on Files and `write` on Knowledg
 What clicking will do follows after it, including the fact that clicking the level you are already on steps
 down one.
 
+#### Administering one space, without administering the instance
+
+**A token with all four areas at `admin` for one space is that space's administrator.** There is no separate
+checkbox for it, and there deliberately is not: the four rungs already say it, and a second setting could
+disagree with them. But it *is* a real, named thing, and until now nothing on this page told you so — which
+is why it was asked for twice by an operator who already had it and could not tell.
+
+What it means in practice: that token can manage **that space's own tokens** — list, mint and edit them — and
+**that space's own settings**, schema and index rebuilds. Nothing wider.
+
+**What it cannot do, which is the part worth trusting:** it is never instance-wide. It cannot grant
+**instance admin** or **create spaces**, it cannot set the all-spaces floor, and it cannot see or edit tokens
+that reach any space it does not administer — those tokens do not appear in its list at all. So handing
+somebody administration of one space does not quietly hand them a way to widen it.
+
+**To check whether a token has it:** set all four cells in that space's row to admin, or read the row — four
+admins is the state. An agent can ask `help` and its space list marks the spaces the calling token
+administers.
+
 #### Some cells hold each other up
 
 A cell will not always go as low as you click, and the greyed-out segments say why when you hover them. There

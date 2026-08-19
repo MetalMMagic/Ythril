@@ -61,6 +61,55 @@ export type AreaRungs = Record<SpaceArea, Rung>;
  * chain would make the order of this array load-bearing and let two innocuous rules compose into a grant
  * nobody wrote down. If a transitive implication is ever wanted, it goes in as its own row, visibly.
  */
+/**
+ * The DERIVED rungs — states the matrix expresses without naming, published so they can be found.
+ *
+ * ## Why this exists at all
+ *
+ * `isSpaceAdminFor` (auth/editor-scope.ts) is `SPACE_AREAS.every(area => effectiveRung(...) === 'admin')`.
+ * That capability has been enforced since #937 and is real: it unlocks a space's own tokens and settings, and
+ * `space-admin-edit-boundary.test.js` red-teams both of its containment rules.
+ *
+ * **But it had no NAME on any surface.** `isSpaceAdminFor` appears in three server files and zero client
+ * files, so the matrix showed four independent rungs and nothing said that all four at `admin` IS being that
+ * space's administrator. breituai-platform asked for it twice — 2026-08-17T1910Z and a 1916Z narrowing — and
+ * their words were about the surface, not the capability: *"there is still no SPACE ADMIN rung in the rights
+ * matrix"*. An operator could not find it, grant it in one action, or verify they held it.
+ *
+ * ## Why `requires` is COMPUTED and not written out
+ *
+ * The same reason `rights-catalog` publishes `ROUTE_RIGHTS` instead of letting the client type a list: *"a
+ * list typed into the client would be a second copy of a security control, and the copy that drifts is the
+ * one people read."* A literal `{knowledge: 'admin', files: 'admin', ...}` here would be a second statement
+ * of the predicate, free to disagree with it — and if a fifth area is ever added, the predicate would change
+ * and the published definition would not. Built from `SPACE_AREAS`, both move together or neither does.
+ *
+ * `space-admin-rung-is-named.test.js` asserts this definition against `isSpaceAdminFor` itself, by running
+ * the predicate over a rights object built from `requires` — so agreement is proven rather than intended.
+ */
+export const DERIVED_RUNGS = [
+  {
+    id: 'spaceAdmin',
+    /** Every area at its top rung, FOR ONE SPACE — never the instance. */
+    requires: Object.fromEntries(SPACE_AREAS.map(a => [a, 'admin'])) as AreaRungs,
+    /**
+     * What it unlocks BEYOND what the four rungs already grant, in words rather than as a route list.
+     *
+     * Deliberately prose: the routes it governs are the ones NOT in `ROUTE_RIGHTS` (that table is the four
+     * DATA areas), so enumerating them here would create the second copy this file's own reasoning forbids.
+     * `NOT_AREA_SCOPED` in auth/space-rights.ts carries them with a `why` each.
+     */
+    grants: 'That space’s own tokens (listing, minting and editing) and that space’s own settings, schema '
+      + 'and index rebuilds.',
+    /**
+     * The two containment rules, stated because breituai-platform asked for them to be part of the
+     * DEFINITION rather than inferred. Both are enforced today and red-teamed.
+     */
+    excludes: 'Nothing instance-shaped: it cannot grant `instanceAdmin` or `createSpaces`, cannot set a floor, '
+      + 'and cannot reach, mint for, or edit tokens for any space it does not administer — it does not even '
+      + 'list them.',
+  },
+] as const;
 export const RUNG_IMPLICATIONS = [
   { when: 'knowledge', atLeast: 'write', grants: 'schema', rung: 'read' },
 ] as const satisfies readonly { when: SpaceArea; atLeast: Rung; grants: SpaceArea; rung: Rung }[];

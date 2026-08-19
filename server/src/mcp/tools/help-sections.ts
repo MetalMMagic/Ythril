@@ -24,6 +24,7 @@
  * put it on the embedding path — so a broken embedder would take the tool that explains the instance down with it.
  */
 import type { ToolContext } from './types.js';
+import { isSpaceAdminFor } from '../../auth/editor-scope.js';
 
 /** Strip control chars (incl. newlines) and backticks, clamp length. */
 export function sanitizeDynamic(s: string, max = 200): string {
@@ -158,10 +159,30 @@ export function helpSections(
     title: 'Spaces accessible to this token',
     body: '',
     preamble: 'Most tools take a "space" parameter; recall and list_chrono search across all your spaces when it is '
-      + 'omitted. Call list_spaces for storage/quota details.',
+      + 'omitted. Call list_spaces for storage/quota details.\n\n'
+      /*
+       * NAMING THE SPACE-ADMIN RUNG, and marking the spaces where this token holds it.
+       *
+       * The capability has been enforced since #937 as `isSpaceAdminFor` — every one of the four areas at
+       * `admin`, for ONE space. It had no name on any surface: the rights matrix shows four independent rungs
+       * and nothing said that all four at admin IS administering that space. breituai-platform asked twice
+       * (2026-08-17T1910Z, narrowed 1916Z) and their complaint was about the surface rather than the
+       * capability — an operator could not find it, grant it in one action, or verify they held it.
+       *
+       * MARKED per space rather than described in prose, because "verify they held it" is the third part of
+       * that complaint and a sentence cannot answer it. The mark comes from the same predicate the server
+       * enforces with, so it cannot claim a rung the caller does not have.
+       */
+      + 'ADMINISTERING A SPACE has a name and this list shows where you hold it. A token whose FOUR areas '
+      + '(knowledge, files, schema, dataQuality) are all at the `admin` rung for one space is that space’s '
+      + 'administrator: it manages that space’s own tokens and settings. It is never instance-wide — it '
+      + 'cannot grant `instanceAdmin` or `createSpaces`, cannot set a floor, and cannot see or edit tokens '
+      + 'for a space it does not administer. `GET /api/tokens/rights-catalog` publishes the definition as '
+      + '`derivedRungs`.',
     lines: ctx.accessibleSpaces.length > 0
       ? ctx.accessibleSpaces.map(s =>
-        `- ${sanitizeDynamic(s.id)}${s.label ? ` ("${sanitizeDynamic(s.label)}")` : ''}`)
+        `- ${sanitizeDynamic(s.id)}${s.label ? ` ("${sanitizeDynamic(s.label)}")` : ''}`
+        + `${isSpaceAdminFor(ctx.rights, s.id) ? '  [you administer this space]' : ''}`)
       : ['(none accessible to this token)'],
   });
 

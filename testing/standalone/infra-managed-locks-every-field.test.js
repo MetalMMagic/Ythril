@@ -30,12 +30,18 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
+import { angularTemplateOf, enclosingMarkupBlocksMatching } from './_structural-window.mjs';
 
 const files = execSync('git ls-files "client/src/app/pages/settings/media-processing/*.component.ts"',
   { encoding: 'utf8' }).trim().split('\n').filter(f => f && !f.endsWith('.spec.ts'));
 
 /** Every `<input>`, `<select>` and `<textarea>` that is bound to a model — i.e. that a person can change. */
-function boundControls(src) {
+function boundControls(componentSrc) {
+  /*
+   * The TEMPLATE, not the component file. The containment walk below reads markup braces, and the JS scanner in
+   * `_structural-window.mjs` treats the whole template literal as a string and skips it — so run it on the markup.
+   */
+  const src = angularTemplateOf(componentSrc);
   const out = [];
   for (const m of src.matchAll(/<(input|select|textarea)\b[\s\S]{0,400}?(?:\/>|<\/(?:select|textarea)>)/g)) {
     const block = m[0];
@@ -44,10 +50,25 @@ function boundControls(src) {
     // inside `@if (!(s.faceLocked('personEntityTypes') || s.managed))` — it does not RENDER when managed, which
     // is a stronger lock than a disabled attribute. A gate that understood only `[disabled]` reported that as a
     // defect, and following it would have meant adding a redundant binding to correct code.
-    const before = src.slice(Math.max(0, m.index - 600), m.index);
-    // `[^)]*` would stop at the first `)`, and these conditions contain their own — `s.faceLocked('…')` closes
-    // before `managed` is reached, so the guard read as absent on a control that has one.
-    if (/@if\s*\([\s\S]{0,120}?\bmanaged\b[\s\S]{0,300}$/.test(before)) continue;
+    /*
+     * CONTAINMENT, not proximity — and this is the one conversion in this batch that fixes a real hole rather than
+     * merely stating the bound properly.
+     *
+     * `src.slice(m.index - 600, m.index)` asks "is there a managed guard NEARBY". The question is "is this control
+     * INSIDE one". A guard that opened and closed above the control satisfies the first and contains nothing, so an
+     * unguarded control 600 characters below a closed `@if` read as locked. The walk below keeps a brace stack, so
+     * only a guard still OPEN at this control counts.
+     *
+     * It reads MARKUP braces rather than TypeScript ones, and that distinction is not cosmetic: the JS scanner in
+     * `_structural-window.mjs` treats a template literal as a string and skips it whole, so on a component file it
+     * finds no `@if` at all and reported this correctly-guarded picker as unguarded. Two languages in one file need
+     * two walks.
+     *
+     * It also drops the `[\s\S]{0,120}?` gap: the whole opening line is returned, so a condition containing its own
+     * parens — `s.faceLocked('personEntityTypes') || s.managed` — cannot be cut short of `managed`.
+     */
+    const guards = enclosingMarkupBlocksMatching(src, m.index, /@if\s*\(/);
+    if (guards.some(g => /\bmanaged\b/.test(g))) continue;
     const id = /id="([^"]+)"/.exec(block)?.[1]
       ?? /\[\(ngModel\)\]="([^"]+)"/.exec(block)?.[1]
       ?? '(unnamed)';

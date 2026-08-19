@@ -45,7 +45,16 @@ import { stripComments } from './_strip-comments.mjs';
  * Requires the SAME identifier on both sides, which is what distinguishes a window over a subject from an
  * unrelated pair of offsets — and keeps `slice(0, 300)` message truncation out of scope entirely.
  */
-const MAGIC_WINDOW = /\.slice\(\s*([A-Za-z_$][\w$]*)\s*,\s*\1\s*\+\s*\d+\s*\)/g;
+/**
+ * A forward window: `src.slice(at, at + 1600)`, and now also `src.slice(f(x), f(x) + 900)`.
+ *
+ * The capture was a bare IDENTIFIER, which missed the form with the anchor inlined —
+ * `src.slice(src.indexOf('async function indexServes'), src.indexOf('async function indexServes') + 900)`, found in
+ * a file that already carried a comment explaining why character counts are wrong. Widened to any repeated
+ * expression up to 80 characters with no comma in it. The backreference matches literally, so the two halves still
+ * have to be the same text — which is what makes this a window rather than an ordinary two-index slice.
+ */
+const MAGIC_WINDOW = /\.slice\(\s*([^,()]{1,80}?(?:\([^()]{0,60}\))?)\s*,\s*\1\s*\+\s*\d+\s*\)/g;
 
 /**
  * The same defect written BACKWARDS: `src.slice(Math.max(0, at - 400), at)`.
@@ -120,6 +129,16 @@ const GRANDFATHERED = new Map([
   ['testing/standalone/text-contrast-meets-aa.test.js', 1],
 
   /*
+   * `parseInt(bits.slice(i * 8, i * 8 + 8), 2)` — reading one byte out of a bit string.
+   *
+   * The same class as the hex pair above and found by the same widening: eight bits is what a byte IS. Both are
+   * fixed-width FIELD reads, and the fact that two of the three surviving entries are this shape is the argument for
+   * keeping the exemptions rather than contorting the pattern to exclude them — a pattern that tries to tell a field
+   * read from a window by its arithmetic will get it wrong in the other direction eventually.
+   */
+  ['testing/red-team-tests/auth-surface-hardening.test.js', 1],
+
+  /*
    * `JSON.stringify(src.slice(handlerStart, handlerStart + 90))` — inside an assertion MESSAGE.
    *
    * Nothing is asserted about those 90 characters. They are an excerpt shown to whoever reads the failure, so
@@ -142,14 +161,15 @@ const GRANDFATHERED = new Map([
  * what precedes a call. Those are three different structural bounds, not one conversion applied nine times.
  */
 const GRANDFATHERED_BACK = new Map([
-  ['testing/standalone/backups-are-not-world-readable.test.js', 1],
-  ['testing/standalone/config-key-docs-coverage.test.js', 2],
-  ['testing/standalone/index-ready-poll.test.js', 1],
-  ['testing/standalone/infra-managed-locks-every-field.test.js', 1],
-  ['testing/standalone/models-are-attributed.test.js', 1],
-  ['testing/standalone/proxy-fanout-inventory.test.js', 1],
-  ['testing/standalone/swallowed-writes-must-be-visible.test.js', 1],
-  ['testing/standalone/theme-cannot-recolour-facts.test.js', 1],
+  /*
+   * EMPTY. All nine are converted, and the list stays here rather than being deleted because an empty ratchet is the
+   * thing that keeps it empty — remove the map and the check goes with it.
+   *
+   * Reading the nine showed they were asking five different questions, which is why they were not swept: an
+   * enclosing block, the line above, the doc comment above, the section around, and — the one that mattered — which
+   * blocks CONTAIN the anchor. That last one was answering a containment question with a proximity measurement, so a
+   * guard that opened and closed above a form control counted as guarding it.
+   */
 ]);
 
 /**
@@ -198,8 +218,24 @@ describe('the scan works before anything is concluded from it', () => {
     // Proven against a literal, so a regex that silently stopped matching cannot pass as "none left".
     const sample = 'const body = src.slice(at, at + 1600);';
     assert.equal([...sample.matchAll(MAGIC_WINDOW)].length, 1, 'MAGIC_WINDOW no longer matches a magic window');
-    // And does NOT match the two shapes that are fine.
-    for (const ok of ['JSON.stringify(b).slice(0, 300)', 'src.slice(start, end)', 'x.slice(a, b + 4)']) {
+
+    /*
+     * The INLINED-ANCHOR form, which the identifier-only capture could not see. Pinned as its own case because it is
+     * how the widening was earned: three of these were sitting in the suite, one of them in a file that already
+     * carried a comment about why character counts are wrong.
+     */
+    const inlined = "const fn = src.slice(src.indexOf('function f'), src.indexOf('function f') + 900);";
+    assert.equal([...inlined.matchAll(MAGIC_WINDOW)].length, 1,
+      'MAGIC_WINDOW no longer matches a window whose anchor is written out twice');
+
+    // And does NOT match the shapes that are fine.
+    for (const ok of [
+      'JSON.stringify(b).slice(0, 300)',
+      'src.slice(start, end)',
+      'x.slice(a, b + 4)',
+      // Two DIFFERENT expressions is an ordinary slice, not a window — the backreference is what separates them.
+      "s.slice(s.indexOf('a'), s.indexOf('b') + 4)",
+    ]) {
       assert.equal([...ok.matchAll(MAGIC_WINDOW)].length, 0, `false positive on: ${ok}`);
     }
   });

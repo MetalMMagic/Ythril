@@ -204,14 +204,7 @@ export function statementUpTo(src, at, label = 'statementUpTo') {
    * the window starts at `) : await ` and contains no `.external` — and the gate reports a correctly-guarded fetch
    * as unguarded. Only a boundary at the anchor's own nesting level ends its statement.
    */
-  const marks = [];
-  let depthAt = null;
-  scanCode(src, 0, (c, i, depth) => {
-    if (i >= at) { if (depthAt === null) depthAt = depth; return at; }
-    if (c === ';' || c === '{' || c === '}') marks.push({ c, i, depth });
-    return undefined;
-  });
-  assert.ok(depthAt !== null, `${label}: index ${at} was never reached — it is inside a string or a comment`);
+  const { marks, depthAt } = boundariesBefore(src, at, label);
   const boundary = marks.filter(m =>
     (m.c === ';' && m.depth === depthAt)
     || (m.c === '{' && m.depth === depthAt - 1)    // the brace that opened the block we are in
@@ -280,4 +273,174 @@ export function yamlItemAt(src, at, label = 'yamlItemAt') {
     if (lead <= indent[1].length) { end = i; break; }
   }
   return lines.slice(start, end).join('\n');
+}
+
+/*
+ * ---------------------------------------------------------------------------------------------------------------
+ * The bounds the BACKWARDS population needed (X-25b).
+ *
+ * Nine gates read a fixed number of characters behind an anchor. Reading all nine showed they were asking five
+ * different questions, and every one of them has an exact answer that a count only approximates:
+ *
+ *   "is this call inside a try/catch?"                    -> the enclosing block
+ *   "is this fence marked as a response?"                 -> the line above it
+ *   "what does this field's doc comment say?"             -> the comment block above it
+ *   "which NOTICE section mentions this model?"           -> the section around it
+ *   "is this control inside an @if that checks managed?"  -> which enclosing blocks contain it
+ *
+ * The last one is the reason not to have swept these: a backwards character window answers a CONTAINMENT question
+ * with a PROXIMITY measurement, and those are not the same question. A guard that opened and CLOSED above the
+ * control satisfies proximity while containing nothing.
+ * ---------------------------------------------------------------------------------------------------------------
+ */
+
+/**
+ * Every real-code `;`, `{` and `}` before `at`; the bracket depth at `at`; and the stack of `{` still OPEN there.
+ *
+ * THE STACK, NOT THE DEPTH, ANSWERS "WHICH BLOCK AM I IN" — and the difference is not academic. Bracket depth
+ * counts parens too, so an anchor inside `log.info(\`readiness confirmed…\`)` sits two deep rather than one, and
+ * comparing against `depthAt - 1` then looks for a brace at a level where none exists. The gate would have reported
+ * a re-anchoring failure rather than a wrong window, so this one was loud — but it was found by a spec fixture that
+ * anchors inside a string, which is exactly what the real gate does, and not by reasoning about it.
+ *
+ * Depth is kept as well, because `statementUpTo` genuinely does want same-level `;` boundaries.
+ */
+function boundariesBefore(src, at, label) {
+  const marks = [];
+  const open = [];
+  let depthAt = null;
+  scanCode(src, 0, (c, i, depth) => {
+    if (i >= at) { if (depthAt === null) depthAt = depth; return at; }
+    if (c === ';' || c === '{' || c === '}') marks.push({ c, i, depth });
+    if (c === '{') open.push(i);
+    else if (c === '}') open.pop();
+    return undefined;
+  });
+  assert.ok(depthAt !== null, `${label}: index ${at} was never reached — it is inside a string or a comment`);
+  return { marks, depthAt, open };
+}
+
+/** The text from the start of the line containing `brace` up to it — the `if (…)` or `try` that opened the block. */
+function openingLineOf(src, brace) {
+  return src.slice(src.lastIndexOf('\n', brace) + 1, brace);
+}
+
+/**
+ * The whole block `at` sits inside, INCLUDING the line that opens it.
+ *
+ * The bound for "is this guarded?" — a `try {` or an `if (failed.length === 0) {`. The opening LINE is included
+ * deliberately, because the guard is usually the condition rather than the brace: bounding at the brace itself
+ * would answer "what is in the block" while the question was "what let us into it".
+ */
+export function enclosingBlockAround(src, at, label = 'enclosingBlockAround') {
+  const { open } = boundariesBefore(src, at, label);
+  const brace = open[open.length - 1];
+  assert.ok(brace !== undefined, `${label}: index ${at} is not inside a block — re-anchor this gate`);
+  return openingLineOf(src, brace) + balancedFrom(src, brace, label);
+}
+
+/**
+ * Every enclosing block whose opening line matches `opener`, outermost first.
+ *
+ * Answers CONTAINMENT rather than proximity. A block that opened and closed before `at` is not returned, which is
+ * the whole difference: `src.slice(at - 600, at)` cannot tell "the control is inside this guard" from "a guard
+ * happens to be written nearby", and the second one is a false pass on an unguarded control.
+ */
+export function enclosingBlocksMatching(src, at, opener, label = 'enclosingBlocksMatching') {
+  const { open } = boundariesBefore(src, at, label);
+  return open
+    .map(brace => `${openingLineOf(src, brace)}{`)
+    .filter(head => opener.test(head));
+}
+
+/**
+ * An Angular component's inline template — the text inside `template: ` + backtick … backtick.
+ *
+ * Needed because the JS scanner treats a template literal as a STRING and skips it whole, so every `@if (…) {` in
+ * an Angular template is invisible to `enclosingBlocksMatching`. That is correct for reading TypeScript and useless
+ * for reading the markup inside it, which is a different language in the same file.
+ */
+export function angularTemplateOf(src, label = 'angularTemplateOf') {
+  const key = src.indexOf('template:');
+  assert.ok(key > -1, `${label}: no inline template in this component — re-anchor this gate`);
+  const open = src.indexOf('`', key);
+  assert.ok(open > -1, `${label}: template: is not followed by a template literal`);
+  let i = open + 1;
+  while (i < src.length && src[i] !== '`') i += src[i] === '\\' ? 2 : 1;
+  assert.ok(i < src.length, `${label}: the template literal is never closed`);
+  return src.slice(open + 1, i);
+}
+
+/**
+ * Every enclosing MARKUP block whose opening line matches `opener`, outermost first.
+ *
+ * The same containment question as `enclosingBlocksMatching`, over template syntax rather than TypeScript. It skips
+ * `{{ … }}` interpolations and quoted attribute values, because a brace in either is not control flow — an
+ * `[ngModel]="{a: 1}"` would otherwise push a level that never closes and put every later control inside a
+ * phantom block.
+ */
+export function enclosingMarkupBlocksMatching(text, at, opener) {
+  const open = [];
+  let i = 0;
+  while (i < at) {
+    const c = text[i];
+    if (c === '"' || c === "'") {                  // an attribute value: braces in it are data, not structure
+      const quote = c;
+      i++;
+      while (i < at && text[i] !== quote) i++;
+      i++;
+      continue;
+    }
+    if (c === '{' && text[i + 1] === '{') {        // an interpolation, balanced by its own `}}`
+      const end = text.indexOf('}}', i + 2);
+      i = end === -1 ? at : end + 2;
+      continue;
+    }
+    if (c === '{') open.push(i);
+    else if (c === '}') open.pop();
+    i++;
+  }
+  return open
+    .map(brace => `${text.slice(text.lastIndexOf('\n', brace) + 1, brace)}{`)
+    .filter(head => opener.test(head));
+}
+
+/** The last non-empty line before `at` — for a marker whose rule IS "immediately above". */
+export function lineBefore(src, at, label = 'lineBefore') {
+  const lines = src.slice(0, at).split(/\r?\n/);
+  while (lines.length && lines[lines.length - 1].trim() === '') lines.pop();
+  assert.ok(lines.length, `${label}: nothing precedes index ${at} — re-anchor this gate`);
+  return lines[lines.length - 1];
+}
+
+/**
+ * The `/* … *' + '/` comment block immediately above `at`, or `''` when there is none.
+ *
+ * Returns empty rather than throwing: "this field has no doc comment" is a legitimate answer that a gate asserts
+ * ON, and turning it into an exception would make an absent comment indistinguishable from a broken anchor.
+ */
+export function docCommentBefore(src, at, label = 'docCommentBefore') {
+  const close = src.lastIndexOf('*/', at);
+  if (close === -1) return '';
+  // Only if nothing but whitespace separates the comment from the anchor — otherwise it belongs to something else.
+  if (src.slice(close + 2, at).trim() !== '') return '';
+  const open = src.lastIndexOf('/*', close);
+  if (open === -1) return '';
+  return src.slice(open, close + 2);
+}
+
+/**
+ * The markdown section CONTAINING `at` — back to its own heading, forward to the next.
+ *
+ * `markdownSectionFrom` starts at the anchor, which is right when the anchor IS the heading. When the anchor is a
+ * mention somewhere inside a section, the thing being asked about is the section it belongs to, and half of that
+ * is behind the anchor.
+ */
+export function markdownSectionAround(src, at, label = 'markdownSectionAround') {
+  const before = src.slice(0, at);
+  const heads = [...before.matchAll(/^#{1,6} .*$/gm)];
+  const start = heads.length ? heads[heads.length - 1].index : 0;
+  const rest = src.slice(at);
+  const next = /\n#{1,6} /.exec(rest);
+  return src.slice(start, next ? at + next.index : src.length);
 }

@@ -49,6 +49,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { lineBefore, docCommentBefore } from './_structural-window.mjs';
 
 const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..', '..');
 const TYPES = join(ROOT, 'server', 'src', 'config', 'types.ts');
@@ -153,7 +154,9 @@ function configExamples() {
       // its own: `{"tokens": [...]}` is a token-access response AND `tokens` is a real config field, so a response example
       // was reported as three undeclared config keys. The docs mark these unambiguously with a `**Response**` line
       // immediately above the fence, so that marker is what to read.
-      const preamble = src.slice(Math.max(0, m.index - 220), m.index);
+      // "Immediately above the fence" IS the rule, so the bound is the LINE above it rather than 220 characters,
+      // which reaches back over a paragraph and can find a `**Response**` belonging to a different example.
+      const preamble = lineBefore(src, m.index, 'the fence preamble');
       if (/\*\*Response\*\*/i.test(preamble)) continue;
       found.push({ doc: f, parsed });
     }
@@ -222,7 +225,10 @@ describe('every top-level config field is documented', () => {
       assert.ok(at > 0, `${field} should be a top-level Config field (${why})`);
       // Normalised first: a JSDoc comment wraps, so the phrase routinely reads `not\n   * meant to be
       // hand-edited` and a `\s+` between the words does not match the leading asterisk.
-      const comment = src.slice(Math.max(0, at - 700), at).replace(/^\s*\*/gm, ' ').replace(/\s+/g, ' ');
+      // The field's OWN doc comment, bounded by its delimiters. At 700 characters this reached back into the comment
+      // on the field ABOVE, so one field's exemption reason could satisfy its neighbour's.
+      const comment = docCommentBefore(src, at, `${field}'s doc comment`)
+        .replace(/^\s*\*/gm, ' ').replace(/\s+/g, ' ');
       assert.match(comment, /not\s+(meant to be\s+)?hand-edited/i,
         `${field} is exempted as machine-managed, so its declaration must say it is not hand-edited`);
     }

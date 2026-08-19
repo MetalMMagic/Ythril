@@ -26,6 +26,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { statementUpTo } from './_structural-window.mjs';
 
 const FILE = 'server/src/files/media/worker.ts';
 const src = readFileSync(FILE, 'utf8');
@@ -79,7 +80,13 @@ describe('the media worker never loses a write in silence', () => {
     // fix was visibility, not severity, and a later "tidy-up" that promotes these to throws would be a
     // regression dressed as rigour.
     const describeAt = src.indexOf('described but the metadata write failed');
-    const window = src.slice(Math.max(0, describeAt - 400), describeAt);
+    assert.ok(describeAt > -1, 'the log line is gone — re-anchor this gate');
+    /*
+     * The statement the log line is IN, bounded by where that statement begins. This is the shape where a backwards
+     * count is at its most dangerous: the assertion is that a rethrow is ABSENT, so a window starting too late reads
+     * less text and passes. Here it would pass on exactly the regression it exists to catch.
+     */
+    const window = statementUpTo(src, describeAt, 'the describe-write handler');
     assert.doesNotMatch(window, /\.catch\(\s*\(\s*err[^)]*\)\s*=>\s*\{\s*throw/,
       'the describe write must not rethrow — that re-pays for a model call that already succeeded');
   });

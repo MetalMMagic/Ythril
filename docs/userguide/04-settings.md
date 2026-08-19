@@ -195,6 +195,15 @@ shows `none` — both are correct, and the grid is showing you what the token ca
 
 #### Setting all four areas to admin makes a space administrator
 
+**There is a `Space admin` column for this, at the right-hand end of the matrix.** Press **A** on a space's row
+and all four of its areas go to admin in one action; press **–** and they all clear. The column also shows the
+state: a row already at admin on all four areas reads as **A** whether you set it that way or reached it through
+**All spaces**.
+
+It is a shortcut and a read-out, not a fifth kind of right. Anything other than all-or-nothing is still said with
+the four area cells, and the column simply reflects them — which is why it has two positions and not four. Before
+3.2.0 the column did not exist, so the commonest grant meant setting four cells and hoping none was missed.
+
 Give a token **admin** on all four areas of one space and it becomes that space's administrator. It can then do
 two things it could not before:
 

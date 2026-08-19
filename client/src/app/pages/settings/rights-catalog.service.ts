@@ -24,11 +24,31 @@ export interface CatalogImplication {
   rung: Rung;
 }
 
+/**
+ * A rung the matrix expresses without naming — today only `spaceAdmin`.
+ *
+ * The server has published this since #937 and the client never read it, which is most of why the Space Admin
+ * column took five releases to appear: the definition, what it grants and what it deliberately excludes were all
+ * already on the wire, computed from `SPACE_AREAS` rather than restated, and the UI had no idea.
+ *
+ * `grants` and `excludes` are PROSE on purpose, server-side: the routes a space admin governs are the ones NOT in
+ * the area table, so enumerating them would be the second copy that table's own reasoning forbids.
+ */
+export interface CatalogDerivedRung {
+  id: string;
+  /** The area-to-rung combination that IS this rung, e.g. every area at `admin`. */
+  requires: Record<string, Rung>;
+  grants: string;
+  excludes: string;
+}
+
 export interface RightsCatalog {
   areas: readonly string[];
   rungs: readonly Rung[];
   /** Absent on a server older than this field — treated as "no implications", never as an error. */
   implications?: readonly CatalogImplication[];
+  /** Absent on an older server too, and read the same way: no derived rungs, not an error. */
+  derivedRungs?: readonly CatalogDerivedRung[];
   routes: readonly CatalogRoute[];
 }
 
@@ -98,6 +118,17 @@ export class RightsCatalogService {
    * the routes added AT a rung would understate what is being granted, and on a permissions screen the safe
    * direction to be wrong in is to overstate.
    */
+  /**
+   * The server's own description of a derived rung, or `null` on a server that does not publish it.
+   *
+   * Returned rather than reformatted: this is the one description that cannot be wrong, because the server
+   * computes `requires` from its own `SPACE_AREAS`. A sentence written in the client would be a second copy of a
+   * containment rule that has been red-teamed.
+   */
+  derived(id: string): CatalogDerivedRung | null {
+    return this.catalog()?.derivedRungs?.find(d => d.id === id) ?? null;
+  }
+
   routesFor(area: string, rung: Rung): CatalogRoute[] {
     const c = this.catalog();
     if (!c || rung === 'none') return [];

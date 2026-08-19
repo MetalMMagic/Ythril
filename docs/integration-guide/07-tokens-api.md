@@ -113,6 +113,13 @@ field could disagree with them.
 To show it in your own UI: read `derivedRungs`, then compare a token's effective rung per area (after
 `implications`) against `requires`.
 
+**That is what our own matrix does since 3.2.0**, and it is worth saying because the field existed for several
+releases before anything read it: the `Space admin` column is computed from the four displayed rungs, and setting
+it writes all four areas in ONE update rather than four. Compare against the DISPLAYED rung, not the stored one —
+a row that reaches admin through the floor is administered, and a column reading the stored matrix would
+contradict the cells beside it. Write the whole row at once for the same reason a patch is whole: four sequential
+updates let a reader observe three intermediate states that nobody asked for.
+
 The stored matrix is *not* rewritten — `GET /api/tokens` returns what was set. Resolve the effective rung by
 applying this table on read; do not persist the result, or a rung that exists only while `knowledge` is
 `write` will outlive it being lowered.

@@ -24,6 +24,8 @@ import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
 import {
   parseRecordSuppression, RECORD_SUPPRESS_FIELD, LEGACY_RECORD_SUPPRESS_FIELD,
 } from '../../brain/suppress-embeddings.js';
+import { withoutListDiagnostics } from '../../brain/read-projection.js';
+import { listDiagnosticsAsked } from './_shared.js';
 
 export const chronoRouter = Router();
 
@@ -372,7 +374,8 @@ chronoRouter.get('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, a
   if (!page.ok) { res.status(400).json({ error: page.error }); return; }
   let total = 0;
   for (const mid of members) total += await countBrain(mid, 'chrono', await filterFor(mid));
-  res.json({ chrono: page.rows, limit, skip, total, truncated: skip + page.rows.length < total });
+  res.json({ chrono: withoutListDiagnostics(page.rows, listDiagnosticsAsked(req)),
+    limit, skip, total, truncated: skip + page.rows.length < total });
 });
 
 

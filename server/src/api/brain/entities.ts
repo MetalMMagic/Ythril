@@ -24,6 +24,8 @@ import { classifyEntityUpsert, classifyUpdateViolations } from '../../brain/writ
 import { tagContains, textContains, propertiesValueContains } from '../../brain/tag-filter.js';
 import { mergePropertiesOrKeep, mergeTagsOrKeep } from '../../brain/merge-fields.js';
 import { parseRecordSuppression } from '../../brain/suppress-embeddings.js';
+import { withoutListDiagnostics } from '../../brain/read-projection.js';
+import { listDiagnosticsAsked } from './_shared.js';
 
 export const entitiesRouter = Router();
 
@@ -151,7 +153,8 @@ entitiesRouter.get('/spaces/:spaceId/entities', globalRateLimit, requireSpaceAut
   if (!page.ok) { res.status(400).json({ error: page.error }); return; }
   let total = 0;
   for (const mid of members) total += await countBrain(mid, 'entities', filter);
-  res.json({ entities: page.rows, limit, skip, total, truncated: skip + page.rows.length < total });
+  res.json({ entities: withoutListDiagnostics(page.rows, listDiagnosticsAsked(req)),
+    limit, skip, total, truncated: skip + page.rows.length < total });
 });
 
 

@@ -23,6 +23,8 @@ import { classifyEdgeUpsert, classifyUpdateViolations } from '../../brain/write-
 import { resolveEntityIdsByName } from '../../brain/entities.js';
 import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
 import { parseRecordSuppression } from '../../brain/suppress-embeddings.js';
+import { withoutListDiagnostics } from '../../brain/read-projection.js';
+import { listDiagnosticsAsked } from './_shared.js';
 
 export const edgesRouter = Router();
 
@@ -174,7 +176,8 @@ edgesRouter.get('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, asy
   const enriched = all.map(e => ({ ...e, fromName: nameMap.get(e.from), toName: nameMap.get(e.to) }));
   let total = 0;
   for (const mid of members) total += await countBrain(mid, 'edges', await filterFor(mid));
-  res.json({ edges: enriched, limit, skip, total, truncated: skip + enriched.length < total });
+  res.json({ edges: withoutListDiagnostics(enriched, listDiagnosticsAsked(req)),
+    limit, skip, total, truncated: skip + enriched.length < total });
 });
 
 

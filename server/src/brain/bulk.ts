@@ -28,6 +28,7 @@ import type { EntityDoc, ChronoType, ChronoStatus } from '../config/types.js';
 export const BULK_MAX_PER_TYPE = 500;
 
 import { UUID_V4_RE } from './entity-refs.js';
+import { NEVER_RETURNED_PROJECTION } from './read-projection.js';
 const CHRONO_STATUSES = new Set<ChronoStatus>(['upcoming', 'active', 'completed', 'overdue', 'cancelled']);
 const MAX_FACT_LENGTH = 50_000;
 
@@ -139,7 +140,8 @@ export async function bulkWrite(spaceId: string, input: BulkInput): Promise<Bulk
       // The MERGED record, not the payload — an id that matches an existing entity makes this an
       // update, and the importer had the merge target in hand two lines later for its own counter.
       const existing = rawId
-        ? await col<EntityDoc>(`${spaceId}_entities`).findOne(asFilter<EntityDoc>({ _id: rawId, spaceId }))
+        ? await col<EntityDoc>(`${spaceId}_entities`).findOne(asFilter<EntityDoc>({ _id: rawId, spaceId }),
+          { projection: NEVER_RETURNED_PROJECTION })
         : null;
       const mergedEnt = mergeTagsAndProperties(existing as EntityDoc | null, { tags: strArray(item['tags']), properties });
       if (schemaFails('entity', i, validateEntity(meta ?? {}, { name, type, properties: mergedEnt.properties, tags: mergedEnt.tags }))) continue;

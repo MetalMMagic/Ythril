@@ -415,10 +415,19 @@ GET /api/brain/spaces/:spaceId/memories/:id
 > | `matchedText` | The exact text this record's vector was built from. Derived from the fields above it, and for a file chunk it is the heading plus the passage — so the passage a SECOND time |
 > | `embeddingModel` | Which model produced the vector. Identical for every record in a space |
 >
-> **These are NOT stripped here, unlike on `recall`**, where `includeDiagnostics` withholds all three by
-> default. The list routes have no field selection at all today — that asymmetry is real and is written down
-> rather than left for you to discover. If it costs your integration, say so; the structured
-> [`POST /query`](04d-brain-ops-api.md#structured-query-read-only) route accepts a `projection` and is the way to bound a read meanwhile.
+> **`matchedText` and `embeddingModel` are now withheld by DEFAULT here** — the paragraph above used
+> to say all three came back unconditionally, invited anyone it cost to say so, and an integrator did:
+> *"matchedText is the passage a second time, and a list route is the call most likely to be made in bulk."*
+> Send `?includeDiagnostics=true` to get them back, the same parameter name `recall` uses.
+>
+> **`seq` still comes back, always, and that is deliberate rather than an oversight.** It was withheld on
+> `recall` along with the other two, but on a list route it is the `If-Match` value: dropping it would remove
+> the conditional-write path, which costs more than the bytes are worth. So the two doors withhold a
+> *different* set by one field, on purpose — asked for by name by the integrator who wanted the other two gone.
+>
+> The list routes still have no `projection`; the structured
+> [`POST /query`](04d-brain-ops-api.md#structured-query-read-only) route accepts one and remains the way to
+> bound a read to named fields.
 
 ---
 
@@ -692,9 +701,16 @@ The same header, in the same spellings, is honoured on space-meta writes against
 
 **The embedding vector is never returned — by any endpoint, on either door, and there is no parameter that
 asks for it.** `POST /query` merges a mandatory exclusion into whatever projection you send and strips an
-explicit `"embedding": 1` out of it, so the vector cannot be opted back in; the list routes project it out
-before the documents leave the database. If you have been hunting for a flag to switch it off, this is why
-you could not find one.
+explicit `"embedding": 1` out of it, so the vector cannot be opted back in; every read of a record collection
+projects it out before the document leaves the database. If you have been hunting for a flag to switch it off,
+this is why you could not find one.
+
+> **This was FALSE for the list routes in 3.1.0 and every version before it.** A `?limit=500` read of the
+> entities list returned every record's vector: an integrator measured **11.19 MB** where `POST /query`
+> answered the same 100 records in **0.145 MB**. They found it by running out of memory rather than by
+> reading a response — because this paragraph told them the field could not be there, which is why the
+> correction is here and not only in the changelog. **On 3.1.0 or earlier, use `POST /query` with a
+> projection for any bulk read.**
 
 What you *can* control:
 
@@ -703,6 +719,7 @@ What you *can* control:
 | `projection` | `POST /query`, **and recall / find-similar** | any field you do not name. On recall it applies recursively, so a `traverse` answer's `_graph` is projected at every depth |
 | `includeContent: false` | recall, find-similar | file-passage **bodies**, keeping path, heading, chunk index, tags and properties |
 | `includeDiagnostics: false` *(the default)* | recall, find-similar | `matchedText`, `embeddingModel`, `seq` and the per-stage scores — **recursively**, so a `traverse` answer's `_graph` follows it at every depth |
+| `includeDiagnostics` *(query string, default off)* | the **list** routes — entities, memories, edges, chrono | `matchedText` and `embeddingModel`. **`seq` is NOT dropped here**, unlike on recall: it is the `If-Match` value, and withholding it would take away conditional writes. Send `?includeDiagnostics=true` to get the two fields back |
 
 A projection is worth reaching for rather than skipping: a bare query over a dozen records with full
 descriptions and properties is the cheapest way to overrun a token budget, and naming the four fields you

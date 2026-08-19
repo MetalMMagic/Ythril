@@ -584,12 +584,21 @@ On a **proxy space** the page is computed over the **merged** set of all member 
 the first `skip + limit` rows from each member, merges them into the documented order, and returns the window. A deep
 page therefore costs more on a proxy space than on a plain one, but it is the same page.
 
-#### A read result too large to return inline is downloadable
+#### A read result too large to return inline is bounded, and the rest is downloadable
 
-`recall` and `find-similar` write the **whole result set** to the space's `_tmp/` as JSON once it passes 25
-records (matches plus traversed nodes), and return three matches as a sample with `truncated: true` and a
-`complete: {matches, records, inline, path, download, expiresAt}` block. `count` still reports the real total.
-The file carries no embedding vectors and expires after one day.
+`recall` and `find-similar` bound the response by **`maxBytes`** (operator default 100 000; `maxTokens` is the
+same ceiling in tokens, and the smaller of the two wins). What fits comes back as the longest **prefix** of the
+ranked matches, every record whole; what does not fit is written to the space's `_tmp/` as JSON and reported as
+`remainder: {matches, records, path, download, expiresAt}`.
+
+`returned`, `count`, `truncated`, `budgetBytes` and `bytesReturned` are on **every** response, whether the
+budget bit or not, so an absence never has to be interpreted. `remainder` carries **only** what did not fit —
+it is a continuation, not a copy. The file carries no embedding vectors and expires after one day.
+
+> **This replaced a 25-record cap that collapsed the answer to three inline matches plus a download of
+> everything**, including the three already sent. `read_file` takes no offset or limit, so that roughly doubled
+> what a caller had to read rather than reducing it. The full reasoning is in
+> [Prefiltered Recall and the byte budget](04a-recall-api.md).
 
 `recall` and `find-similar` with `traverse > 0` cap the traversed nodes they return inline. Past that cap the
 **complete** graph is written to the space's file store under `_tmp/` as JSON, and the response carries

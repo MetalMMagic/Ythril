@@ -9,6 +9,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The embedded client wears the host portal's decoration, when the host supplies it.** Owner ruled **A** on
+  2026-08-19 (was P-11), on breituai-platform's ask of 2026-08-18T1806Z — which they framed as an ask and not a
+  request: *"Nothing here is urgent, nothing is blocked on you, and 'not our aesthetic' is a complete answer that
+  we will not raise again."*
+
+  Their portal already declares eleven decoration custom properties on `:root`, under their own names and mapped
+  onto nothing of ours — raw material, not a restyle. **Their absence is the signal**: no `--tr-hot` means render
+  flat. So this needed no negotiation, no dependency and no `postMessage`; the values were already in our document.
+
+  They cannot do it from their side, and not for want of trying: a parent stylesheet does not cross an iframe
+  boundary, and our document paints its own background over anything behind the frame. They raised their own layer
+  in FRONT of the frame, saw traces over the content someone was reading, reverted it, and left a note telling the
+  next person not to retry it.
+
+  **Three surfaces, which is the number the decision rested on.** They asked whether a card surface is defined in
+  one place or forty and said forty would mean no; it is `.card`, `.modal` and the shared `.dialog` constant, all
+  global, none per-view. Four declarations on each: a translucent fill so their backdrop shows through, ONE lit
+  hairline along the top, a hairline outline in their mid ink, and one soft cast shadow.
+
+  It is the PLAINER of the two treatments they built, and keeping it restrained is their own measurement: three
+  background layers plus scanlines plus a four-shadow stack read as both slower AND less clear, because texture
+  over text costs legibility and every layer is another composite. Two things they are explicitly NOT asking for
+  are not built — a pointer-following light (their owner rejected the idea, twice implemented) and framing
+  permission over `postMessage` (`embed.allowedOrigins` is empty and that is their decision, unmade).
+
+  **An undecorated instance is not merely equivalent to before — it has none of these declarations at all.** CSS
+  has no portable way to ask whether a custom property is set: `var(--tr-hot, fallback)` can substitute a value
+  but cannot switch a rule off, and style container queries are not broadly available. So presence is resolved
+  once at startup and published as a class, and everything else is ordinary CSS under `:root.ythril-decorated`.
+  Nothing extra to compute, nothing extra to composite, and the spec asserts the flat path FIRST.
+
+  Resolved before `bootstrapApplication`, so the first paint is already correct rather than flashing flat for a
+  frame. A declared-but-empty ink reads as undecorated — the same trap the env pins have, and an empty value would
+  otherwise turn every fallback into a colour of nothing.
+
 - **The rights matrix has a `Space admin` column.** Owner-reported five times across five releases, most recently
   as a screenshot with the column drawn in: *"i miss space admin"*.
 

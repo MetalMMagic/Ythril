@@ -158,6 +158,34 @@ greys, the borders, the radii. Anything that says *"you are here"* — a selecte
 One caveat if you do restyle the text greys: they are chosen to clear **WCAG AA (4.5:1)** against all three
 background tokens, and that is computed on every build (`text-contrast-meets-aa`). A theme is outside that check.
 
+### Decoration inks: making our surfaces sit in your page (3.2.0)
+
+A theme recolours our tokens. **Decoration inks are different** — they are your own properties, under your own
+names, which our card surfaces read if you supply them. Set `--tr-hot` and Ythril's cards, modals and dialogs
+become translucent with a lit top edge and a soft cast shadow, so your backdrop shows through instead of our
+opaque surface hiding it.
+
+| property | used for |
+|---|---|
+| `--tr-hot` | **the signal.** Its presence is what turns decoration on; also the lit hairline along each surface's top edge |
+| `--tr-mid` | the hairline outline. Falls back to our own `--border` if unset |
+
+**Absence is the signal, and that is the whole contract.** No `--tr-hot` means every surface renders exactly as it
+does on a standalone instance — not "equivalently", but with none of these declarations present at all. A
+declared-but-empty value counts as absent, because your orchestrator cannot distinguish *"left blank"* from
+*"wants blank"*.
+
+Resolved once, before the app boots, so the first paint is already right. Changing the ink after load needs a
+reload — this is a property of your served stylesheet, not a runtime channel, and it deliberately does not use
+`postMessage`: the values are already in our document.
+
+**Why we read yours rather than you styling ours:** a parent stylesheet does not cross an iframe boundary, and our
+document paints its own background over anything behind the frame. Raising a layer in front of the frame puts
+traces over text somebody is reading. Reading the inks from inside is the only version that works.
+
+The treatment is deliberately restrained — a translucent fill, one hairline, one outline, one shadow — because
+texture over text costs legibility and every layer is another composite.
+
 ### Enabling cross-origin embedding (opt-in)
 
 By default Ythril may only be framed and themed by its own origin. To embed it in a portal on a **different** origin, list that origin in `config.json`:

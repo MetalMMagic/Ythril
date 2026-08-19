@@ -424,6 +424,37 @@ button:disabled, .btn:disabled {
   padding: 24px;
 }
 
+/* ── The host's decoration, on the surfaces that define a "card" ────────────────────────────────
+   Only under `:root.ythril-decorated`, which `core/host-decoration.ts` adds when the host page supplies
+   `--tr-hot`. So an undecorated theme does not merely LOOK the same as before — it has none of these
+   declarations at all, nothing extra to compute and nothing extra to composite. That is the property worth
+   protecting, and the verify line for this change checks the flat path FIRST.
+
+   breituai-platform asked for this (2026-08-18T1806Z); the owner ruled A on 2026-08-19. Their portal already
+   declares eleven decoration inks on `:root` and their ABSENCE is the signal to stay flat. They cannot do it
+   from their side: a parent stylesheet does not cross an iframe boundary, and our document paints its own
+   background over anything behind the frame. They tried raising their layer in front of the frame, saw traces
+   over the content someone was reading, and reverted it.
+
+   This is the PLAINER of the two treatments they built, and keeping it restrained is their own measurement:
+   three background layers plus scanlines plus a four-shadow stack read as both slower AND less clear, because
+   texture over text costs legibility and every layer is another composite.
+
+   Four declarations, no more — a translucent fill so their backdrop shows through instead of our opaque
+   surface hiding it, ONE lit hairline along the top, a hairline outline in their mid ink, and one soft cast
+   shadow to lift the surface off their background. Every ink is read with OUR token as the fallback, so a host
+   that sets `--tr-hot` and nothing else still gets a coherent card rather than transparent borders. */
+:root.ythril-decorated {
+  .card,
+  .modal {
+    background: color-mix(in srgb, var(--bg-surface) 74%, transparent);
+    border-color: var(--tr-mid, var(--border));
+    box-shadow:
+      inset 0 1px 0 var(--tr-hot, transparent),
+      0 10px 30px rgb(0 0 0 / 28%);
+  }
+}
+
 .card-sm {
   padding: 16px;
 }

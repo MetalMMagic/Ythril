@@ -33,6 +33,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   All eight result paths go through one `budgetedEnvelope` — recall and find-similar, plain and traversing,
   on both doors. The previous cap reached four of the eight until an E2E caught it.
 
+  **Two faults in the first cut of this change, both repaired before it shipped, both worth recording because
+  they are the same defect class the change was removing:**
+
+  1. **A truncated answer could carry no way to reach the rest.** `spillResultSet` still held the old
+     `if (records <= 25) return null` guard, so a remainder of 25 records or fewer was silently dropped: the
+     response said `truncated: true` and carried no `remainder`. The byte budget had become the second rule
+     about size and the weaker one won. The guard is gone — the budget decides, and a spill that is asked for
+     is a spill that is written. `SPILL_RECORD_THRESHOLD` and `SPILL_INLINE_RESULTS` are deleted rather than
+     kept, so neither can quietly start deciding again.
+  2. **`remainder.records` counted the wrong set.** The routes passed the WHOLE answer's traversed-node total
+     into a file that now holds only the overflow, so a caller sizing the download could read a figure an
+     order of magnitude too large. The parameter is removed; `countGraphNodes` derives it from the payload
+     being written, at every depth and on both doors, so it cannot disagree with the file.
+
+  `remainder` also drops `inline`, which described the three-record sample that no longer exists. The number
+  of records returned is `returned`, on every response.
 
 ### Fixed
 

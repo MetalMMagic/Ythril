@@ -13,7 +13,7 @@ import { MAX_RECALL_TRAVERSE } from '../../brain/edges.js';
 import { mapGraphNodes, graphNodeRecord } from '../../brain/recall-graph.js';
 import { applyProjection, normaliseProjection } from '../../brain/projection.js';
 import { resolveBudget, budgetedEnvelope, type BudgetRequest } from '../../brain/result-budget.js';
-import { buildGraphWithSpill, spillResultSet, SPILL_INLINE_RESULTS } from '../../brain/graph-spill.js';
+import { buildGraphWithSpill, spillResultSet } from '../../brain/graph-spill.js';
 import { type FilterExpression } from '../../brain/filter.js';
 import { resolveRecallFilter, type RawMongoFilter } from '../../brain/recall-filter.js';
 import {
@@ -285,7 +285,6 @@ export const recallTool: ToolHandler = {
         spillRemainder: remainder => spillResultSet({
           memberSpaceId: seeds[0]?.spaceId ?? traverseSpaces[0] ?? callSpace,
           results: remainder,
-          graphNodes: 0,
           request: { query, topK, traverse: 0, types: types ?? null },
         }),
       });
@@ -330,7 +329,6 @@ export const recallTool: ToolHandler = {
       spillRemainder: remainder => spillResultSet({
         memberSpaceId: seeds[0]?.spaceId ?? traverseSpaces[0]!,
         results: remainder,
-        graphNodes: graph.nodes,
         request: { query, topK, traverse, types: types ?? null },
       }),
     });
@@ -487,7 +485,6 @@ export const find_similarTool: ToolHandler = {
         spillRemainder: remainder => spillResultSet({
           memberSpaceId: result.results[0]?.spaceId ?? usedBase,
           results: remainder,
-          graphNodes: 0,
           request: { entryId, entryType, topK, traverse: 0 },
         }),
       });
@@ -526,7 +523,6 @@ export const find_similarTool: ToolHandler = {
       spillRemainder: remainder => spillResultSet({
         memberSpaceId: result.results[0]?.spaceId ?? usedBase,
         results: remainder,
-        graphNodes: graph.nodes,
         request: { entryId, entryType, topK, traverse },
       }),
     });

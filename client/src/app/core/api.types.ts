@@ -431,6 +431,42 @@ export interface RecallResponse {
   results: RecallResult[];
   /** The number of MATCHES. Traversed nodes are nested inside a result, never counted here. */
   count: number;
+  /**
+   * How many matches are in `results` — `results.length`, said rather than counted.
+   *
+   * ## The four fields below are on EVERY recall response, and this file used to declare none of them
+   *
+   * The byte budget bounds a response by size: what fits comes back as the longest PREFIX of the ranked
+   * matches, every record whole, and what does not fit is written to the space with `remainder` pointing at
+   * it. That is server behaviour the client has always received and never typed, so a component had no way to
+   * know an answer was cut — the previous shape returned three records and nothing here said why.
+   *
+   * **Typed here without a consumer, deliberately.** Nothing in the client reads them yet and the search UI
+   * still shows a truncated answer as if it were the whole one. That is a real gap and it is tracked as its
+   * own item rather than smuggled in here, because surfacing it means a notice plus three locale files
+   * (`en`, `de`, `pl`) and a `maxBytes` control in the advanced panel. Typing the fields is what makes the
+   * gap visible to whoever picks that up.
+   */
+  returned?: number;
+  /** True when at least one match did not fit the budget. Present whether it bit or not — never interpret an absence. */
+  truncated?: boolean;
+  /** The byte ceiling that was applied, after `maxBytes`/`maxTokens` resolution. */
+  budgetBytes?: number;
+  /** Serialised size of `results`, in bytes. */
+  bytesReturned?: number;
+  /**
+   * Where the matches that did NOT fit were written. Present only when `truncated` is true.
+   *
+   * A continuation, not a copy: the records in `results` are not repeated in the file. `matches` and `records`
+   * describe the file — matches in it, and matches plus their traversed nodes.
+   */
+  remainder?: {
+    matches: number;
+    records: number;
+    path: string;
+    download: string;
+    expiresAt: string;
+  };
   /** Present only when `traverse > 0` was asked for. */
   traverseDepth?: number;
   /** How many traversed nodes the `_graph` trees hold in total. Present only with `traverse > 0`. */

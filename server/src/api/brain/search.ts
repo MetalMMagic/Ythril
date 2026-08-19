@@ -23,7 +23,7 @@ import { findSimilar, recall, type RecallKnowledgeType, type RecallResult } from
 import { type FilterExpression } from '../../brain/filter.js';
 import { resolveRecallFilter } from '../../brain/recall-filter.js';
 import { traverseGraph, MAX_RECALL_TRAVERSE, resolveEdgeEntityNames } from '../../brain/edges.js';
-import { buildGraphWithSpill, spillResultSet, SPILL_INLINE_RESULTS } from '../../brain/graph-spill.js';
+import { buildGraphWithSpill, spillResultSet } from '../../brain/graph-spill.js';
 import { embed } from '../../brain/embedding.js';
 import { getConfig } from '../../config/loader.js';
 import { col, asFilter } from '../../db/mongo.js';
@@ -575,7 +575,6 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
         spillRemainder: remainder => spillResultSet({
           memberSpaceId: seeds[0]?.spaceId ?? spaceId,
           results: remainder,
-          graphNodes: 0,
           request: { query: query.trim(), topK: safeTopK, traverse: 0, types: safeTypes ?? null },
         }),
       });
@@ -625,7 +624,6 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
       spillRemainder: remainder => spillResultSet({
         memberSpaceId: seeds[0]?.spaceId ?? spaceId,
         results: remainder,
-        graphNodes: graph.nodes,
         request: { query: query.trim(), topK: safeTopK, traverse: safeTraverse, types: safeTypes ?? null },
       }),
     });
@@ -764,7 +762,6 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
         spillRemainder: remainder => spillResultSet({
           memberSpaceId: result.results[0]?.spaceId ?? spaceId,
           results: remainder,
-          graphNodes: 0,
           request: { entryId, entryType, topK, traverse: 0 },
         }),
       });
@@ -801,7 +798,6 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
       spillRemainder: remainder => spillResultSet({
         memberSpaceId: result.results[0]?.spaceId ?? spaceId,
         results: remainder,
-        graphNodes: graph.nodes,
         request: { entryId, entryType, topK, traverse: safeTraverse },
       }),
     });

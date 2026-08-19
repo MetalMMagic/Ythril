@@ -22,7 +22,7 @@ import { readFileSync } from 'node:fs';
 import { stripComments } from './_strip-comments.mjs';
 
 const {
-  suppressEmbeddings, SPILL_INLINE_RESULTS, SPILL_RECORD_THRESHOLD, SPILL_TTL_DAYS,
+  suppressEmbeddings, countGraphNodes, SPILL_TTL_DAYS,
 } = await import('../../server/dist/brain/graph-spill.js');
 
 const read = p => stripComments(readFileSync(p, 'utf8'));
@@ -63,18 +63,42 @@ describe('vectors never reach the file', () => {
   });
 });
 
-describe('the whole result set spills, with a TTL', () => {
-  it('the threshold counts RECORDS — matches plus traversed nodes', () => {
+describe('the remainder is written out, with a TTL', () => {
+  it('the record count is taken from the payload, not passed in', () => {
+    // It WAS passed in, as `opts.graphNodes`, and the route handed it the node total for the WHOLE result
+    // set. Once the byte budget started handing this function the remainder alone, that number described a
+    // different set of records from the one being written — and `records` is what a caller sizes the
+    // download by. A count taken from the payload cannot disagree with the payload.
     const src = read('server/src/brain/graph-spill.ts');
-    assert.match(src, /const records = opts\.results\.length \+ opts\.graphNodes;/,
-      'a threshold on matches alone would let traverse: 2 return an enormous answer');
-    assert.match(src, /if \(records <= SPILL_RECORD_THRESHOLD\) return null;/);
+    assert.match(src, /const graphNodes = countGraphNodes\(opts\.results\);/,
+      'the node figure must be derived from what is being written');
+    assert.match(src, /const records = opts\.results\.length \+ graphNodes;/);
+    assert.doesNotMatch(src, /graphNodes: number;/,
+      'a `graphNodes` parameter is a second source for one number, and the routes fed it the wrong set');
+    // Counted at every depth: a nested node carries its own `_graph`, so a shallow count would understate a
+    // depth-2 file by most of its content.
+    assert.equal(countGraphNodes([{ _graph: [{ node: 1, _graph: [{ node: 2 }, { node: 3 }] }] }]), 3);
+    assert.equal(countGraphNodes([{ record: { name: 'x' } }]), 0, 'no traversal, no nodes');
   });
 
-  it('a sample comes back inline, not the whole thing', () => {
-    assert.equal(SPILL_INLINE_RESULTS, 3, 'the owner asked for three');
-    assert.ok(SPILL_RECORD_THRESHOLD > SPILL_INLINE_RESULTS,
-      'a threshold at or below the inline count would spill every call');
+  it('there is no threshold left here — the budget decides, and this always writes', () => {
+    // The guard `if (records <= SPILL_RECORD_THRESHOLD) return null` survived the switch to the byte budget
+    // and became a second rule about size. It cost exactly what a disagreeing second rule costs: a response
+    // truncated at twenty records with five left over said `truncated: true` and carried NO link to the
+    // five, because the remainder was under the old count. The caller was told there was more and given no
+    // way to reach it.
+    const src = read('server/src/brain/graph-spill.ts');
+    assert.doesNotMatch(src, /SPILL_RECORD_THRESHOLD\s*=/, 'the record threshold must not come back');
+    assert.doesNotMatch(src, /SPILL_INLINE_RESULTS\s*=/, 'nor the three-record sample it went with');
+    const at = src.indexOf('export async function spillResultSet');
+    const body = src.slice(at, at + 1800);
+    assert.doesNotMatch(body, /return null;/,
+      'a spill asked for must be a spill written — a null here is a truncated answer with nowhere to go');
+    assert.match(body, /\): Promise<ResultSpill> \{/,
+      'and the type must say so, so no caller has to handle an absence that cannot happen');
+    // `inline` described how many matches came back in the response. Under the budget that number is
+    // `returned`, which the envelope already reports, and a copy on the file object could only disagree.
+    assert.doesNotMatch(src, /inline: Math\.min/, 'the stale inline count must be gone from the spill object');
   });
 
   it('one-day TTL, through the record machinery', () => {
@@ -103,12 +127,20 @@ describe('the whole result set spills, with a TTL', () => {
     // with a byte budget, so the rule it was protecting has changed shape rather than gone: the response
     // must still be BOUNDED, and the spill must still receive what the caller did not get. The pinned detail
     // was the old mechanism; the rule is that neither door hands back an unbounded set.
+    //
+    // The `doesNotMatch` here does NOT name the old constant. It cannot: `SPILL_INLINE_RESULTS` is deleted,
+    // so a pattern mentioning it can never match and the assertion would pass by looking at nothing. What
+    // would actually reintroduce the shape is any fixed-count slice of the results before they are returned,
+    // whatever the number is spelled as — so that is what is refused.
     for (const [name, src] of [['REST', rest], ['MCP', mcp]]) {
       assert.ok((src.match(/budgetedEnvelope\(\{/g) ?? []).length >= 4,
         `${name} must bound every result path through the shared budget rather than returning what it has`);
-      assert.doesNotMatch(src, /slice\(0, SPILL_INLINE_RESULTS\)/,
-        `${name} still collapses to the fixed sample — that cap is what X-17 removed, and reintroducing it `
-        + 'would restore the shape that doubled a caller\'s cost');
+      // A CONSTANT second argument is the tell: `slice(0, SPILL_INLINE_RESULTS)` and `slice(0, 3)` both cut
+      // the answer to a number nobody asked for, while `slice(0, safeTopK)` cuts it to what the caller did
+      // ask for and is right. Screaming-snake or a bare digit, therefore — not any identifier.
+      assert.doesNotMatch(src, /\.slice\(0,\s*(\d+|[A-Z][A-Z0-9_]{2,})\)/,
+        `${name} cuts the results to a fixed count — a constant sample is the shape X-17 removed, and `
+        + 'reintroducing it would restore the cost it roughly doubled');
     }
   });
 

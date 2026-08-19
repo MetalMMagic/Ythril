@@ -412,22 +412,26 @@ counting rows never double-counts a record, and no relationship is invisible.
 
 **Performance:** traversal issues roughly two batched (`$in`) MongoDB queries per hop, not one query per node. Even so, `traverse > 2` on a densely-connected graph can fan out quickly — pair it with `filter`, `tags`, or a low `topK` to keep the seed set (and therefore the traversal frontier) tight.
 
-#### A large answer comes back as a sample and a download
+#### A large answer comes back as a prefix and a link to the rest
 
 A recall cannot be paged — `topK` is the answer, not a window into it — so an answer that is too large to return
-has nowhere to go. Past **25 records** (matches plus traversed nodes) the whole result set is written to the
-space's `_tmp/` as JSON and the response carries **three matches** as a sample plus the link to all of it:
+has nowhere to go. The response is bounded by **`maxBytes`** (operator default 100 000; `maxTokens` is the same
+control expressed in tokens, and if you send both the smaller wins). What fits comes back as the **longest
+prefix of the ranked matches**, every record whole; what does not fit is written to the space's `_tmp/` as JSON
+and reachable through an authenticated download:
 
 ```json
 {
-  "results": [ /* 3 matches, complete, each with its own `_graph` */ ],
+  "results": [ /* 22 matches, each complete, each with its own `_graph` */ ],
+  "returned": 22,
   "count": 100,
-  "graphNodes": 240,
   "truncated": true,
-  "complete": {
-    "matches": 100,
-    "records": 340,
-    "inline": 3,
+  "budgetBytes": 100000,
+  "bytesReturned": 99612,
+  "graphNodes": 240,
+  "remainder": {
+    "matches": 78,
+    "records": 264,
     "path": "_tmp/results-9f1c….json",
     "download": "/api/files/dev-apps?path=_tmp%2Fresults-9f1c….json",
     "expiresAt": "2026-08-14T20:11:00.000Z"
@@ -435,12 +439,30 @@ space's `_tmp/` as JSON and the response carries **three matches** as a sample p
 }
 ```
 
-- **`count` is the real total**, never the sample. A caller reading `count: 3` would conclude the space holds three
-  matching records.
+- **The five accounting fields are on EVERY response**, whether the budget bit or not: `returned`, `count`,
+  `truncated`, `budgetBytes`, `bytesReturned`. A field that appeared only when it bit would be one whose
+  absence has to be interpreted, and the caller who most needs it is the one who does not know to look.
+- **`count` is the real total**, never what was sent. `returned` is what was sent, and it is
+  `results.length` — read `returned` and you never have to count.
+- **`remainder` holds ONLY what did not fit.** It is a continuation, not a copy: the records already in
+  `results` are not repeated in it. The previous shape dumped the whole set including the part already sent,
+  which is most of why it cost a caller more than it saved.
+- **`remainder.matches` and `remainder.records` describe the FILE** — matches in it, and matches plus their
+  traversed nodes. Both are counted from what was actually written, so neither can disagree with the download.
+- **Truncation is atomic at the match, and the answer is always a prefix.** The first match whose complete
+  `_graph` subtree would not fit is omitted and so is every match after it, even a later smaller one. No
+  answer has a hole in the middle and no record arrives with half its graph.
+- **A single match larger than the whole budget is still returned, alone.** A budget must not become a wall.
 - The file is **self-describing**: it repeats the request that produced it, the counts, and its own expiry.
 - **No embedding vectors are written**, at any depth — a result set serialised verbatim is the one place they
   would otherwise land in a file an operator opens.
 - Same authenticated download and same **one-day** expiry as the graph spill below.
+
+> **This replaced a record cap, and the reason is worth one line.** Past 25 records the answer used to collapse
+> to **three** inline matches plus a download of everything. That did not reduce what a caller had to read — it
+> roughly doubled it, because `read_file` takes no offset or limit, so the file had to be read whole and it
+> contained the three records already sent. A budget with a prefix and a remainder gives the caller the same
+> ceiling without the duplication.
 
 #### Recall without passage bodies (`includeContent`)
 

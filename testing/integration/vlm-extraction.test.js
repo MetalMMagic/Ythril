@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'url';
-import { INSTANCES, get, patch } from '../sync/helpers.js';
+import { INSTANCES, get, patch, restoreOrFail } from '../sync/helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TOKEN_FILE_A = path.join(__dirname, '..', 'sync', 'configs', 'a', 'token.txt');
@@ -36,8 +36,13 @@ describe('VLM extraction mode wiring (F11)', () => {
   });
   after(async () => {
     // Restore OCR mode so this doesn't leak into other suites.
-    await patch(INSTANCES.a, tokenA, '/api/admin/media-config',
-      { documentProcessing: originalDp ?? { mode: 'ocr' } }).catch(() => {});
+    //
+    // Found by the ratchet and not by a grep: the path and the `.catch` are on different LINES here, so a
+    // line-based sweep for the shape missed it while a statement-bounded one did not.
+    const want = originalDp ?? { mode: 'ocr' };
+    await restoreOrFail('documentProcessing (vlm-extraction)',
+      () => patch(INSTANCES.a, tokenA, '/api/admin/media-config', { documentProcessing: want }),
+      async () => (await get(INSTANCES.a, tokenA, '/api/admin/media-config')).body?.documentProcessing?.mode === want.mode);
   });
 
   it('a PDF uploaded under mode:vlm is still accepted (202) and degrades to the async path', async () => {

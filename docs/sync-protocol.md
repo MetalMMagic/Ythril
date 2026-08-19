@@ -56,7 +56,11 @@ Four high-water marks are kept per member. The first two prevent redundant data 
 | `lastSeqServed[spaceId]` | `Record<string,number>` | Highest `sinceSeq` this peer has pulled **our** tombstones from — its confirmed position in our data ([details](#lastseqserved--the-mirror-watermark-and-why-tombstone-retention-needs-it)) |
 | `lastFileTombstoneAckedAt[spaceId]` | `Record<string,string>` | Newest `deletedAt` among FILE tombstones this peer answered `200` to on a push ([details](#lastfiletombstoneackedat--the-same-bound-for-file-tombstones-from-acknowledgement)) |
 
-All three are stored per member in the config file. After a successful sync they are written through the coalesced asynchronous config flush (`saveConfigSoon`) rather than a blocking synchronous write — sync bookkeeping never stalls the event loop. If a sync fails mid-way, the watermark is not advanced — the next cycle retries from the last safe point, giving at-least-once delivery semantics (re-delivery is harmless: everything is re-derived from `seq`).
+All three are stored per member in the config file. After a successful sync they are written through the coalesced asynchronous config flush (`saveConfigSoon`) rather than a blocking synchronous write — sync bookkeeping never stalls the event loop. If a sync fails mid-way, the watermark is not advanced past the failure — the next cycle retries from the last safe point, giving at-least-once delivery semantics (re-delivery is harmless: everything is re-derived from `seq`).
+
+**One watermark, five transfers, and that is what "the last safe point" has to mean.** A cycle runs five independent transfers under each watermark — tombstones plus memories, entities, edges and chrono — and any one of them can stop early: a non-`2xx` from the peer, or its page cap. **The watermark advances only as far as EVERY transfer in the cycle is complete through.** A transfer that finished places no limit; one that stopped early limits the advance to the last position it actually delivered, and the lowest such limit wins.
+
+Before 3.2.0 both watermarks were set to the *maximum* across the transfers, which is only correct when all of them finished. A memories push that failed at seq 300, in a cycle where the entities push succeeded to seq 500, moved the watermark to 500 — and the memory at seq 400 was behind it permanently, re-sent by nothing, while every later cycle reported success. A held-back cycle now says so in the log, naming which transfers stopped, because a watermark quietly staying put reads exactly like a cycle with nothing to do.
 
 ---
 
@@ -106,6 +110,8 @@ Without `?full=true` the list endpoints return `{_id, seq}` stubs, and the calle
 With `?full=true` the full document payload is embedded in the paginated list response. The pull phase is `ceil(N/200)` requests regardless of how many documents exist.
 
 Pagination is additionally capped at **50 pages per type per cycle** (~10,000 documents). A backlog larger than that is drained across successive cycles — the watermark advances each cycle, so nothing is lost, it just takes more than one cycle to catch up.
+
+Hitting that cap counts as a transfer stopping early (see [watermarks](#watermarks)), so it limits how far the shared watermark may advance — to exactly what this type delivered. That is also why the rule is a *limit* rather than "do not advance at all": a capped type has more to give, and refusing to advance would make it re-fetch the same pages every cycle and never catch up.
 
 **Impact at 100 ms WAN latency:**
 
@@ -200,7 +206,9 @@ Response: `{ status: 'ok', memories: {inserted,updated,forked,skipped,tombstoned
 
 ### `lastSeqPushed` update
 
-After a successful batch push, `lastSeqPushed[spaceId]` is advanced to the highest `seq` **among documents authored by this instance** (`doc.author.instanceId === cfg.instanceId`). The maximum is tracked per acknowledged batch, but persistence happens once after all four collections have pushed — a network drop mid-push persists nothing for that cycle. That is safe, just conservative: the next cycle re-pushes from the old watermark and the upserts are idempotent.
+After a successful batch push, `lastSeqPushed[spaceId]` is advanced to the highest `seq` **among documents authored by this instance** (`doc.author.instanceId === cfg.instanceId`), and never past the point every transfer in the cycle is complete through (see [watermarks](#watermarks)). The maximum is tracked per acknowledged batch and persisted once after all four collections have pushed, so a drop mid-push leaves the watermark at the last position the peer actually accepted. The next cycle re-pushes from there and the upserts are idempotent.
+
+**The limit is the last ACCEPTED seq, not the author-guarded maximum**, and the two answer different questions: the author guard says how far this instance's own records reached, while the accepted position says how far the transfer got at all. On a `pubsub` or `braintree` network the push filter is empty — this instance relays every document it holds — so limiting by the author-guarded number would let the watermark advance past a relayed document the peer never accepted, and nothing else was going to send it.
 
 Relayed docs (received from a third peer and stored locally) are pushed to other members but do **not** advance `lastSeqPushed`. Their seq values belong to the originating instance's counter and could be arbitrarily higher than the local counter, which would incorrectly suppress future pushes of this instance's own work.
 

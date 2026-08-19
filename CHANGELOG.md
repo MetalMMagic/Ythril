@@ -211,6 +211,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A sync watermark could advance past a record the peer never received, and then nothing ever sent it again.**
+  `lastSeqPushed` and `lastSeqReceived` are one number per member per space, and each cycle runs **five**
+  independent transfers under it — tombstones plus memories, entities, edges and chrono. Any one can stop early:
+  a non-`2xx` from the peer, or its 50-page cap.
+
+  Both watermarks were set to the **maximum** across those transfers, which is only correct when all of them
+  finished. A memories push that failed at seq 300, in a cycle where the entities push succeeded to seq 500,
+  moved the watermark to 500 — and **the memory at seq 400 was behind it permanently.** Nothing errored at the
+  cycle level, one warn was logged and then discarded, and every later cycle reported success while never
+  sending that record again. The pull side had the same shape, and its tombstone fetch was worse: a non-`ok`
+  response there had no `else` at all — nothing applied, nothing logged, and the watermark moved past the
+  deletions anyway.
+
+  **`docs/sync-protocol.md` already described the correct rule**, in three places: *"if a sync fails mid-way, the
+  watermark is not advanced"*, *"a network drop mid-push persists nothing for that cycle"*, and the page-cap
+  paragraph's *"nothing is lost"*. The engine did not implement it. All three statements were true per transfer
+  and false for the number that actually gates the next cycle.
+
+  The rule is now in one place, `sync/watermark.ts`: a transfer that ran to completion places no limit; one that
+  stopped early limits the advance to the last position it actually delivered; the lowest limit wins; and the
+  watermark never moves backwards.
+
+  **"Never advance when something was truncated" would have been the wrong fix, and this is the part worth
+  keeping.** It livelocks. A transfer that stopped at its page cap has more to give, so the next cycle would
+  re-fetch the same pages and stop in the same place for ever, and a space more than one cap behind could never
+  catch up — trading one lost record for a space that syncs nothing. A limit keeps both properties: nothing is
+  skipped, and a capped transfer still advances by a full page-set per cycle.
+
+  Two details that are load-bearing rather than incidental. The push limit is the last **accepted** seq, not the
+  author-guarded maximum: on a `pubsub` or `braintree` network the push filter is empty and this instance relays
+  every document it holds, so the author-guarded number would let the watermark pass a relayed document the peer
+  never accepted and nothing else was going to send. And the pull records its position **after** the batch
+  upsert, never before — vouching first would promise records that a throw between the two had lost.
+
+  A cycle that held its watermark back now says so and names the transfers, because a watermark quietly staying
+  put reads exactly like a cycle with nothing to do.
+
+  **This is the collection axis of a hypothesis recorded as killed on the author axis.** Both existing author
+  guards are correct and unchanged — they govern *whose* records may move a watermark, never *whether a transfer
+  finished*. It is **not** established as the cause of the intermittent pub/sub propagation stall under
+  investigation: that run's logs contain no truncated transfer at all. The two are tracked separately until one
+  is measured to explain the other.
+
+  Eight mutations, eight caught, including the pre-fix state and both wrong-fix directions.
 - **An unconfigured optional feature was reporting fourteen working spaces as broken, permanently.** Enabling
   face recognition with nothing able to write a face vector — `FACE_RECOGNITION_ENABLED=true`, no
   `faceRecognition.externalModel`, no model files placed under `DATA_ROOT` — made every space report a red

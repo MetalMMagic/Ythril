@@ -139,7 +139,14 @@ describe('NOTICE covers everything we redistribute', () => {
         // The verb AND the licence it selects. A bare `/elect/i` was too loose to be worth having: it
         // matched the surrounding prose explaining *why* an election is recorded, so deleting the actual
         // election statement left the test green. Caught by mutating the entry.
-        // The entry, bounded by the next `###` — so an entry that grows an explanation is still read whole.
+        /*
+         * The entry, bounded by the next `###` — so an entry that grows an explanation is still read whole.
+         *
+         * The `{0,40}` inside the pattern is an ADJACENCY CLAIM and stays: `[^.\n]` crosses neither a full stop
+         * nor a line, so it asserts the verb and the licence it selects are in ONE clause. That is the rule the
+         * comment above it already gives — a bare `/elect/i` matched the surrounding prose ABOUT elections, so
+         * deleting the actual election statement left this green. Widening the gap would undo that fix.
+         */
         return !/elects?\s+[^.\n]{0,40}(Apache|MIT|MPL|BSD|ISC|GPL)/i.test(markdownSectionFrom(NOTICE, at));
       })
       .map(d => `  ${d.name} (${d.license})`);

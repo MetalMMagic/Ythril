@@ -34,6 +34,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { enclosingBlockAround } from './_structural-window.mjs';
 
 const ROOT = process.cwd();
 const SRC = 'server/src/metrics/registry.ts';
@@ -140,8 +141,14 @@ describe('every async metric collector is timed and bounded', () => {
   it('the histogram can describe a scrape that timed out', () => {
     // Prometheus times out at 10 s by default. A top bucket at or below that cannot express the failure, so the
     // graph would show everything in `+Inf` and say nothing about how bad it got.
-    const m = src.match(/name: 'ythril_metrics_collect_duration_seconds'[\s\S]{0,400}?buckets: \[([^\]]+)\]/);
-    assert.ok(m, 'the collector-duration histogram or its buckets are missing');
+    // A WINDOW, converted: the subject is the histogram's own definition object, bounded by the brace that
+    // closes it. At 400 characters a definition that gained a label or a help string would push `buckets`
+    // out of range, and the anchor assertion would then report the histogram as MISSING.
+    const at = src.indexOf("name: 'ythril_metrics_collect_duration_seconds'");
+    assert.ok(at > -1, 'the collector-duration histogram is missing');
+    const def = enclosingBlockAround(src, at, 'the collector-duration histogram');
+    const m = /buckets: \[([^\]]+)\]/.exec(def);
+    assert.ok(m, 'the collector-duration histogram has no buckets');
     const buckets = m[1].split(',').map(s => Number(s.trim()));
     assert.ok(Math.max(...buckets) > 10, `top bucket is ${Math.max(...buckets)}s — it must exceed the 10s timeout`);
     assert.ok(Math.min(...buckets) <= 0.05, 'needs a fast bucket too: a healthy collector is ~25 ms');

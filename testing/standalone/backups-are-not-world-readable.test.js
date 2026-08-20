@@ -142,6 +142,9 @@ describe('the docs admit what encryption at rest does not cover', () => {
     const doc = read('docs/integration-guide/12-admin-api.md');
     assert.match(doc, /unencrypted copy of everything/i,
       'the backup endpoint must say the dump is unencrypted');
+    // ADJACENCY CLAIM, not a window: `.` does not match a newline, so this asserts the flag and the disclaimer
+    // are on ONE LINE of prose. That is the rule — a page that names the flag and admits the gap forty lines
+    // apart has not corrected the assumption, which is the whole point of the sentence.
     assert.match(doc, /requireEncryptedAtRest.{0,40}does not cover it/i,
       'it must say explicitly that the at-rest flag does not cover a dump — that is the assumption being corrected');
     assert.match(doc, /decrypted/i,

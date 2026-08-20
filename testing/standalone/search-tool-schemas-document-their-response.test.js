@@ -50,6 +50,9 @@ describe('the response is documented, not just the request', () => {
   });
 
   it('says `count` excludes traversed nodes', () => {
+    // ADJACENCY CLAIM, not a window: `[^.]` cannot cross a full stop, so this asserts the two words are in ONE
+    // SENTENCE. The 80 is a belt on top of that bound, and the sentence is the rule — a schema that mentions
+    // `count` in one paragraph and MATCHES three paragraphs later has not told the caller anything.
     assert.match(RECALL, /count[^.]{0,80}MATCHES/,
       '`count` counts matches; a caller comparing it to `graphNodes` needs to know that');
   });
@@ -81,6 +84,10 @@ describe('query says what it is FOR and what comes back', () => {
   it('says count is the page and total is the filter', () => {
     // The difference between them is the only signal that more rows exist. A full page is not evidence of
     // being the last one, and nothing said so.
+    //
+    // ADJACENCY CLAIMS, both of them: `[^.]` cannot cross a full stop, so each asserts a field and its meaning
+    // sit in ONE SENTENCE. That IS the requirement — the two fields differ by one word and a caller who has to
+    // assemble the distinction from separate paragraphs will not.
     assert.match(QUERY, /`count`[^.]{0,120}THIS page/, '`count` is this page');
     assert.match(QUERY, /`total`[^.]{0,120}overall/, '`total` is the whole filter');
   });

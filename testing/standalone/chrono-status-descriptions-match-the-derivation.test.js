@@ -32,7 +32,7 @@ import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripComments } from './_strip-comments.mjs';
-import { statementAround } from './_structural-window.mjs';
+import { statementAround, bodyOf } from './_structural-window.mjs';
 
 let deriveChronoStatus, ALL_TOOLS;
 before(async () => {
@@ -79,7 +79,8 @@ describe('every chrono read path applies it, which is what makes the sentences t
   const src = () => stripComments(readFileSync('server/src/brain/chrono.ts', 'utf8'));
 
   it('a single-entry get derives', () => {
-    assert.match(src(), /getChronoById[\s\S]{0,300}?withDerivedStatus/,
+    // A WINDOW, converted: the subject is the function, and 300 characters was a guess at how much of it fits.
+    assert.match(bodyOf(src(), 'getChronoById'), /withDerivedStatus/,
       'the tools say a get reads back overdue');
   });
 
@@ -129,6 +130,17 @@ describe('no tool repeats the claim that was false', () => {
     // paragraph this gate exists to refuse left it green. Its own mutation check is what said so.
     // Whole-body, not description-only, for the same reason — on `create_chrono` the claim lived in the
     // parameter schema rather than in the prose.
+    /*
+     * EVERY `{0,N}` in this list is an ADJACENCY CLAIM, and they stay.
+     *
+     * These patterns refuse a SENTENCE that was written and was false. The gap exists because the sentence
+     * appeared with small variations — "nothing recomputes `status`" and "nothing recomputes the status" — and
+     * the number is how many characters of variation are tolerated between two fixed words. Widen it and the
+     * pattern starts matching prose that merely contains both words far apart, which is how a refusal turns
+     * into a false positive on a description that is now correct.
+     *
+     * The one WINDOW in this file — a function body behind `{0,300}` — is converted above. These are not that.
+     */
     const BAD = [
       [/nothing recomputes[\s\S]{0,20}status/i, 'nothing recomputes'],
       [/only finds entries somebody marked overdue/i, 'somebody marked overdue'],

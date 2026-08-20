@@ -204,12 +204,29 @@ describe('both doors name the one tier name', () => {
     // CHANGELOG that had become MORE correct. The rule is that an upgrader searching the old spelling finds
     // it in the current notes; which heading it sits under is the release process's business, not this
     // gate's.
+    /*
+     * THE WHOLE CURRENT-MAJOR CHANGELOG, and that is the second correction this assertion has needed for the
+     * same underlying reason: a window measured in RELEASES decays every time one is cut.
+     *
+     * Version one pinned `[Unreleased]` alone, and cutting 3.1.0 — which moved the entry into a dated heading,
+     * exactly as a release is supposed to — turned it red against a CHANGELOG that had become more correct.
+     * Version two widened to "[Unreleased] plus the newest released section", which survived one release and
+     * broke on the next: cutting 3.2.0 pushed 3.1.0 into second place and the entry out of the window.
+     *
+     * A window of N sections is just a magic number wearing release clothes. The actual rule is the one the
+     * comment above always stated — **an upgrader searching the old spelling finds it in the current notes** —
+     * and `CHANGELOG.md` IS the current major series by construction: its own header says earlier majors are
+     * archived under `changelog/`.
+     *
+     * So this holds while the old spelling is still ACCEPTED, which is the whole point of documenting it. When
+     * 4.0 removes the field and this file is archived, the gate goes red and asks to be revisited — which is
+     * correct, because that is the release where an upgrader stops needing to find it and starts needing to be
+     * told it is gone.
+     */
     const ch = readFileSync('CHANGELOG.md', 'utf8');
-    const m = /^## \[Unreleased\]$([\s\S]*?)^## \[[^\]]+\][^\n]*$([\s\S]*?)^## \[/m.exec(ch);
-    assert.ok(m, 'expected [Unreleased] then at least two released sections — this gate measures nothing now');
-    const unreleased = m[1] + m[2];
-    assert.match(unreleased, /excludeFromVectorSearch/,
-      'the [Unreleased] section must name the OLD spelling — that is the word an upgrader searches for');
-    assert.match(unreleased, /suppressEmbeddings/, 'and the new one');
+    assert.match(ch, /^## \[Unreleased\]$/m, 'the changelog has no [Unreleased] heading — this gate measures nothing');
+    assert.match(ch, /excludeFromVectorSearch/,
+      'the current-major changelog must name the OLD spelling — that is the word an upgrader searches for');
+    assert.match(ch, /suppressEmbeddings/, 'and the new one');
   });
 });

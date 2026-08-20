@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.0] — 2026-08-20
+
 ### Breaking
 
 - **The three per-stage scores are the ORDERING, and they were hidden behind a flag whose purpose is removing
@@ -894,7 +896,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   Eleven mutations across the three rules, eleven caught. A twelfth was dropped as an equivalent
   mutant with the reason recorded rather than chased: on CRLF text `split('
-')` and `split(/?
+')` and `split(/
+?
 /)` yield arrays
   of the same length, and the call reads `.length`.
 

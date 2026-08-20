@@ -111,8 +111,61 @@ export const estimateLabelWidth = (r: { label: string; count: number }): number 
 const PAD = 16;
 const HEAD_H = 26;
 const ROW_H = 16;
-/** A box is its header plus a row per property, floored so an empty type is still a box and not a line. */
-const boxHeight = (t: ErEntityType): number => HEAD_H + Math.max(2, t.properties.length + 1) * ROW_H + 12;
+/** The natural height of a box: its header plus a row per property, floored so an empty type is a box. */
+const naturalHeight = (t: ErEntityType): number => HEAD_H + Math.max(2, t.properties.length + 1) * ROW_H + 12;
+
+/**
+ * AT MOST THREE DISTINCT BOX HEIGHTS IN A DIAGRAM, chosen once from the model's own distribution.
+ *
+ * ## Why, in the words of the person looking at it
+ *
+ * breituai-platform's owner, at a browser on a live instance, 2026-08-20: *"a salad of edges"*, *"non-uniform
+ * height entities"*, and the whole thing *"salad"*. Their post is a specification rather than a defect list,
+ * and this is its first rule: not a height per entity, but three buckets chosen once for the whole diagram,
+ * with a box taking its bucket's height and padding.
+ *
+ * The measurement behind it is theirs too, from `er_model` against their `infrastructure` space: 22 entity
+ * types whose property counts run 0 to 10, with **eighteen of the twenty-two between 4 and 8**. Eight distinct
+ * property counts, therefore eight distinct box heights, therefore no horizontal line anywhere in the picture.
+ *
+ * ## How the buckets are chosen, and why not their literal split
+ *
+ * They proposed `<=4 / 5-7 / >=8`, derived from their data — and said so, which is why it is not hardcoded
+ * here. Those three numbers are right for a 22-type model with that spread and wrong for a model of four types
+ * that all have two properties, where they would produce one bucket doing nothing and two empty.
+ *
+ * So the split is by TERCILE OF THE TYPES, not by fixed property counts: sort the types by property count and
+ * cut where a third and two thirds of them fall. On their space that lands within a property of their own
+ * split; on a uniform model it collapses to one bucket, which is correct — one height is *at most three*.
+ *
+ * **A bucket's height is the height its LARGEST member needs**, never an average. Averaging would clip the
+ * properties of the tallest type in each bucket, and a diagram that hides a field to look tidy is worse than a
+ * ragged one. So this only ever grows a box, never shrinks it.
+ */
+export function heightBuckets(types: readonly ErEntityType[]): (t: ErEntityType) => number {
+  if (types.length === 0) return naturalHeight;
+  const counts = types.map(t => t.properties.length).sort((a, b) => a - b);
+  // Tercile boundaries by POSITION in the sorted list, so each bucket holds roughly a third of the types.
+  const lo = counts[Math.floor(counts.length / 3)]!;
+  const hi = counts[Math.floor((counts.length * 2) / 3)]!;
+
+  /** The tallest natural height among types falling in a bucket, or 0 when the bucket is empty. */
+  const ceilingFor = (pred: (n: number) => boolean): number =>
+    types.filter(t => pred(t.properties.length)).reduce((h, t) => Math.max(h, naturalHeight(t)), 0);
+
+  const heights = [
+    ceilingFor(n => n <= lo),
+    ceilingFor(n => n > lo && n <= hi),
+    ceilingFor(n => n > hi),
+  ];
+  return (t: ErEntityType): number => {
+    const n = t.properties.length;
+    const h = n <= lo ? heights[0]! : n <= hi ? heights[1]! : heights[2]!;
+    // An empty bucket cannot happen for a type that selects it, but a defensive floor costs nothing and a
+    // zero height would collapse a box to a line — the exact failure `Math.max(2, …)` above guards against.
+    return h > 0 ? h : naturalHeight(t);
+  };
+}
 
 /** The three kinds that link INTO entities, and the label each one's box carries. */
 const KINDS = [
@@ -175,7 +228,7 @@ function syntheticKinds(realTypes: ErEntityType[]): {
       count: linked.reduce((n, t) => n + (t.linkedFrom?.[key] ?? 0), 0),
       declared: false,
       // No properties and no naming pattern: a memory has no schema of its own here, so the box is a name and
-      // a count. `boxHeight`'s floor of two rows is what keeps it a box rather than a line.
+      // a count. `naturalHeight`'s floor of two rows is what keeps it a box rather than a line.
       properties: [],
       linkedFrom: { memories: 0, chrono: 0, files: 0 },
     });
@@ -216,6 +269,15 @@ export function layoutErModel(realTypes: ErEntityType[], realRels: ErRelationshi
    */
   const hub = [...realTypes].sort((a, b) =>
     degree(rels, b.type) - degree(rels, a.type) || b.count - a.count)[0]!;
+
+  /**
+   * Rule 1's bucketed height, resolved ONCE for this diagram and used for every box in it.
+   *
+   * Over `types`, not `realTypes`: the synthetic Memories / Chrono / Files boxes are boxes on the same
+   * picture, so a bucket chosen without them would put them outside every band. They carry no properties, so
+   * they land in the shortest bucket, which is where a box with a count and no fields belongs.
+   */
+  const boxHeight = heightBuckets(types);
 
   const pointsAtHub = new Set(rels.filter(r => r.to === hub.type && r.from !== hub.type).map(r => r.from));
   const hubPointsAt = new Set(rels.filter(r => r.from === hub.type && r.to !== hub.type).map(r => r.to));
@@ -318,16 +380,35 @@ export function layoutErModel(realTypes: ErEntityType[], realRels: ErRelationshi
   const kindFor = (name: string): ErBox['kind'] => synth.kindOf.get(name) ?? 'entity';
 
   const boxes: ErBox[] = [];
-  const stack = (list: ErEntityType[], col: 0 | 2): void => {
-    let y = PAD;
-    for (const t of list) {
-      const h = boxHeight(t);
-      boxes.push({ type: t.type, x: colX[col]!, y, w: BOX_W, h, col, kind: kindFor(t.type), count: t.count });
-      y += h + GAP_Y;
-    }
-  };
-  stack(left, 0);
-  stack(right, 2);
+
+  /**
+   * NEVER TWO HEIGHTS IN ONE ROW — the two columns advance in LOCKSTEP.
+   *
+   * breituai-platform's second rule, and the one they said matters most: *"Within a row, every box takes the
+   * height of the tallest bucket present in that row. A row then has a single top edge and a single bottom
+   * edge. This is the rule that turns a ragged field into bands, and it is worth stating separately because
+   * rule 1 alone still permits a short box beside a tall one."*
+   *
+   * Rule 1 gives at most three heights; it does not stop a 3-property box sitting beside an 8-property one. So
+   * the left and right columns are no longer stacked independently. Row `i` takes the taller of its two boxes,
+   * both boxes take that height, and both start at the same `y`. Where one column runs out, the row is just
+   * the remaining box — nothing to align it against, and a phantom row would only add space.
+   *
+   * The cost is honest and small: a short box beside a tall one grows to match, so a column can be a little
+   * taller than the sum of its natural heights. The gain is that every horizontal edge in the picture lines up
+   * with another one, which is what a reader's eye follows and — per their own prerequisite argument — what
+   * gives an orthogonal router consistent channels to run lines through.
+   */
+  const rows = Math.max(left.length, right.length);
+  let rowY = PAD;
+  for (let i = 0; i < rows; i++) {
+    const l = left[i];
+    const r = right[i];
+    const rowH = Math.max(l ? boxHeight(l) : 0, r ? boxHeight(r) : 0);
+    if (l) boxes.push({ type: l.type, x: colX[0]!, y: rowY, w: BOX_W, h: rowH, col: 0, kind: kindFor(l.type), count: l.count });
+    if (r) boxes.push({ type: r.type, x: colX[2]!, y: rowY, w: BOX_W, h: rowH, col: 2, kind: kindFor(r.type), count: r.count });
+    rowY += rowH + GAP_Y;
+  }
 
   // The hub is centred against the taller of the two columns, so the picture is not bottom-heavy.
   const colHeight = (col: 0 | 2): number => {
@@ -457,9 +538,12 @@ export function layoutErModel(realTypes: ErEntityType[], realRels: ErRelationshi
     let y = joinedBottom + SHELF_GAP;
     for (let i = 0; i < shelf.length; i += perRow) {
       const row = shelf.slice(i, i + perRow);
+      // Rule 2 on the shelf, where the rows are literal. The row height was already the tallest box in it —
+      // that part was right — but each box kept its OWN height inside that slot, so a row of four boxes had
+      // four different bottom edges inside one band. Every box in the row takes the row's height now.
       const rowH = Math.max(...row.map(boxHeight));
       row.forEach((t, j) => {
-        boxes.push({ type: t.type, x: PAD + j * (BOX_W + GAP_X), y, w: BOX_W, h: boxHeight(t), col: 3, kind: kindFor(t.type), count: t.count });
+        boxes.push({ type: t.type, x: PAD + j * (BOX_W + GAP_X), y, w: BOX_W, h: rowH, col: 3, kind: kindFor(t.type), count: t.count });
       });
       y += rowH + GAP_Y;
       shelfBottom = y - GAP_Y;

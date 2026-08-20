@@ -27,7 +27,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { bodyOf } from './_structural-window.mjs';
+import { balancedFrom, bodyOf } from './_structural-window.mjs';
 
 const LIFECYCLE = readFileSync('server/src/spaces/lifecycle.ts', 'utf8');
 const VECTOR = readFileSync('server/src/spaces/vector-index.ts', 'utf8');
@@ -108,12 +108,24 @@ describe('the readiness timeout is a parameter, and generous off the boot path',
   it('waitForSpaceIndexesReady and finalizeSpaceIndexReady thread it through', () => {
     // A timeout accepted at the top and dropped halfway down is the worst kind of knob: it looks
     // configurable and is not.
-    assert.match(VECTOR, /pollVectorIndexReady\(spaceId, suffix, `\$\{spaceId\}_\$\{suffix\}_embedding`, opts\)/);
-    // The face poll's index name moved into a named const, so the log line that reports it and the poll that
-    // waits for it cannot disagree about which index they mean. Asserted on the SUBJECT of this test — that
-    // `opts` reaches the call — rather than on the spelling of the second argument.
-    assert.match(VECTOR, /pollVectorIndexReady\(spaceId, 'files', faceIndexName, opts\)/,
-      'the face poll must still receive the timeout');
+    /*
+     * Asserted on `opts` being the LAST argument, not on the argument list's spelling.
+     *
+     * The previous version matched the whole call verbatim, and broke the day the poll gained a `ProbeTarget`
+     * argument in front of `opts` — a change that threads the timeout exactly as before. A test that fails on
+     * a new parameter is testing the signature, not the property; the property is "the timeout reaches the
+     * call", and `balancedFrom` on the call's own bracket asks that directly whatever else is in there.
+     */
+    for (const [label, anchor] of [
+      ['the text indexes', 'pollVectorIndexReady(spaceId, suffix,'],
+      ['the face gallery', "pollVectorIndexReady(spaceId, 'files', faceIndexName,"],
+    ]) {
+      const at = VECTOR.indexOf(anchor);
+      assert.ok(at > -1, `${label}: the poll call is gone — re-anchor this gate`);
+      const args = balancedFrom(VECTOR, VECTOR.indexOf('(', at + 'pollVectorIndexReady'.length - 1), label);
+      assert.match(args, /,\s*opts\s*\)$/,
+        `${label}: the timeout must be the last argument, or it is accepted at the top and dropped here`);
+    }
     assert.match(VECTOR, /const faceIndexName = `\$\{spaceId\}_files_faceEmbedding`/,
       'and it must still be the face gallery it polls');
     assert.match(VECTOR, /waitForSpaceIndexesReady\(spaceId, opts\)/);

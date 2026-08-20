@@ -30,7 +30,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { enclosingBlockAround, bodyOfEndingWith, bodyOf } from './_structural-window.mjs';
+import { enclosingBlockAround, bodyOfEndingWith, bodyOf, statementAround, statementFrom }
+  from './_structural-window.mjs';
 
 const ROOT = 'server/src';
 
@@ -139,6 +140,12 @@ describe('search-index listing is never name-filtered', () => {
     assert.match(fn, /\$vectorSearch/, 'the probe must be a real vector query');
     assert.match(fn, /index: indexName/, 'against the index being polled, by name');
     assert.match(fn, /limit: 1/, 'and cheap — this is a liveness question, not a search');
+    // AND ABOUT THE RIGHT FIELD. This file passed for five releases with the three assertions above and
+    // without this one, which is the whole lesson: "a real vector query, cheap, against the named index"
+    // was true of a probe that could never succeed. A satisfied check is the strongest reason not to look
+    // further. See the block at the bottom of this file.
+    assert.match(fn, /path: target\.vectorPath/,
+      'the probe must ask about the field the index indexes, not about a literal');
   });
 
   it('the probe runs ONLY when both fields are absent', () => {
@@ -168,5 +175,98 @@ describe('search-index listing is never name-filtered', () => {
       'the success wording must be conditional on nothing having failed');
     assert.match(src, /did not reach ready for \$\{failed\.length\}/,
       'and the failure case must name how many, and which');
+  });
+});
+
+/**
+ * The probe asks about the field the index INDEXES, and at the width it was BUILT at.
+ *
+ * ## The defect, and how a passing spec hid it
+ *
+ * `indexServes` hardcoded `path: 'embedding'` and took its width from `getEmbeddingConfig().dimensions`.
+ * Correct for the five text indexes. Wrong for the face gallery, which indexes `faceEmbedding` at 128. So on
+ * every space, every second, for the full 600 s window:
+ *
+ *     Vector search index <space>_files_faceEmbedding: gave up after 600s
+ *       — probe did not serve: ... :: caused by :: embedding is not indexed as vector
+ *
+ * **The probe could not succeed, so its answer carried no information.** breituai-platform read those lines
+ * off a live pod on 2026-08-20, concluded no face index had ever been built, and stopped a configuration
+ * change on it. The index may have been READY the whole time.
+ *
+ * The test above asserted the probe was "a real vector query, against the named index, cheap". All three were
+ * true. None of them is the question. That is why this block asserts the FIELD and the WIDTH, and asserts them
+ * per call site rather than once: the bug was not in the probe's shape, it was in what two callers failed to
+ * tell it.
+ *
+ * `ensureVectorSearchIndex` had both values — it built the definition from them — and did not pass them on.
+ * Worth naming as a shape: the caller held the answer and the callee guessed.
+ */
+describe('the probe is told what to ask about, per call site', () => {
+  const src = readFileSync(`${ROOT}/spaces/vector-index.ts`, 'utf8')
+    .replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+
+  it('nothing hardcodes a vector path in the probe path any more', () => {
+    // Comments stripped above, deliberately: the account of the defect quotes the old literal, and a naive
+    // search would find the explanation and report the fix as missing.
+    assert.doesNotMatch(src, /path: 'embedding'/,
+      "a literal path in this file is the defect returning — pass a ProbeTarget");
+    assert.doesNotMatch(bodyOf(src, 'indexServes'), /getEmbeddingConfig\(\)/,
+      'the probe must not reach for the TEXT embedding width; the face gallery is not that width');
+  });
+
+  it('the target is REQUIRED, not defaulted', () => {
+    // A default would be the bug again, silently: the face caller would inherit `embedding`/768 and go back to
+    // reporting a working index as failed. Required means a new index whose path nobody thought about fails to
+    // compile rather than fails to probe.
+    const sig = bodyOf(src, 'pollVectorIndexReady');
+    assert.match(sig, /target: ProbeTarget,/,
+      'pollVectorIndexReady must take a ProbeTarget with no default');
+    assert.doesNotMatch(sig, /target: ProbeTarget = /, 'a default here reintroduces the silent inheritance');
+  });
+
+  it('every call site names its target — none is left to guess', () => {
+    /*
+     * PER SITE, not two global counts. The first version of this counted `pollVectorIndexReady(` against
+     * `vectorPath:` and was wrong in both directions at once: the count of calls included the function's own
+     * DECLARATION, and the count of targets included the `ProbeTarget` interface field plus missed the two
+     * sites that pass the shorthand `{ vectorPath, dims: numDimensions }` — no colon, same argument.
+     *
+     * Two totals that happen to match prove nothing about which site matched which. Resolving each call's own
+     * statement asks the question directly, and the anti-vacuity floor below is what stops it passing on zero.
+     */
+    // A NEGATIVE LOOKBEHIND, not a backwards slice. The first version wrote
+    // `src.slice(Math.max(0, m.index - 20), m.index)` to skip the declaration — which is precisely the
+    // backwards magic window `gates-bound-their-subject-structurally` refuses, and it refused this file. A
+    // lookbehind asks the same question with no number in it.
+    const calls = [...src.matchAll(/(?<!function )pollVectorIndexReady\(/g)];
+    assert.ok(calls.length >= 4,
+      `expected the poll to be called from several places, found ${calls.length}`);
+    const guessing = calls
+      .filter(m => !/vectorPath/.test(statementFrom(src, m.index, 'a pollVectorIndexReady call')))
+      .map(m => `line ${src.slice(0, m.index).split('\n').length}`);
+    assert.deepEqual(guessing, [],
+      'these calls do not name the field to probe, so the probe guesses — and guessing wrong is the defect '
+      + `this gate exists for:\n  ${guessing.join('\n  ')}`);
+  });
+
+  it('the FACE caller names faceEmbedding, which is the whole point', () => {
+    const at = src.indexOf("pollVectorIndexReady(spaceId, 'files', faceIndexName");
+    assert.ok(at > -1, 'the face gallery poll is gone — re-anchor this gate');
+    // The statement the call sits in, bounded structurally: a character window could not tell "this call's
+    // argument" from "a faceEmbedding mentioned on the next line", and those differ by exactly the defect.
+    assert.match(statementAround(src, at, 'the face gallery poll'), /vectorPath: 'faceEmbedding'/,
+      'the face poll must probe faceEmbedding — probing `embedding` is what made it always fail');
+  });
+
+  it('and the face width comes from the same two places the INDEX is built from', () => {
+    // `initSpace` builds at `space.faceDescriptorDims ?? FACE_DESCRIPTOR_DIMS`. The probe must resolve the
+    // width identically or it asks about a real field with a wrong-width vector, which fails just as
+    // uninformatively. Two copies of one resolution is this repo's most-produced defect, so both are pinned.
+    const at = src.indexOf('faceDims');
+    assert.ok(at > -1, 'the face width is no longer resolved for the probe');
+    const resolution = statementAround(src, at, 'the face width resolution');
+    assert.match(resolution, /faceDescriptorDims/, "it must read the space's own width");
+    assert.match(resolution, /FACE_DESCRIPTOR_DIMS/, 'and fall back to the same constant initSpace does');
   });
 });

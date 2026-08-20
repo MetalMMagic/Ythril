@@ -253,7 +253,8 @@ export async function ensureVectorSearchIndex(
     try {
       await coll.updateSearchIndex(indexName, definition);
       if (waitForReady) {
-        const ready = await pollVectorIndexReady(spaceId, collectionSuffix, indexName);
+        const ready = await pollVectorIndexReady(spaceId, collectionSuffix, indexName,
+          { vectorPath, dims: numDimensions });
         if (!ready) log.warn(`Vector search index ${indexName} did not reach READY within 60s after update`);
       }
       return;
@@ -286,7 +287,8 @@ export async function ensureVectorSearchIndex(
 
   // Poll for READY status (unless the caller will confirm asynchronously — B1).
   if (waitForReady) {
-    const ready = await pollVectorIndexReady(spaceId, collectionSuffix, indexName);
+    const ready = await pollVectorIndexReady(spaceId, collectionSuffix, indexName,
+      { vectorPath, dims: numDimensions });
     if (!ready) log.warn(`Vector search index ${indexName} did not reach READY state within 60 seconds`);
   }
 }
@@ -361,17 +363,61 @@ export function probeQueryVector(dims: number): number[] {
 /** `numCandidates` for the probe. Must be >= `limit`; 1 sat on the boundary for no benefit. */
 export const PROBE_NUM_CANDIDATES = 10;
 
+/**
+ * What to ask an index about: the field it indexes, and the width it was built at.
+ *
+ * ## Why this is a parameter and not two constants
+ *
+ * The probe used to hardcode `path: 'embedding'` and take its width from `getEmbeddingConfig().dimensions`.
+ * Both are correct for the five text indexes and both are WRONG for the face gallery, which indexes
+ * `faceEmbedding` at 128. So the probe queried a field that index does not index, with a vector of the wrong
+ * width, and MongoDB answered — every second, for the full 600 s window, on every space:
+ *
+ *     Vector search index <space>_files_faceEmbedding: gave up after 600s
+ *       — probe did not serve: Executor error during aggregate command ...
+ *         :: caused by :: embedding is not indexed as vector
+ *
+ * **The probe could never succeed, so its answer carried no information at all.** breituai-platform read
+ * those lines off a live pod on 2026-08-20, concluded from them that no face index had ever been built, and
+ * stopped a configuration change on the strength of it. The index may well have been READY throughout; the
+ * only instrument that could have said was the broken one.
+ *
+ * Two costs. A READY gallery is reported as failed, so the one diagnostic this feature has always reads red —
+ * the trap the same reporters named to us about space badges: *"a red badge that is always red on a working
+ * system trains an operator to stop reading red badges."* And each miss burns the whole window: fourteen
+ * spaces at 600 s each is exactly the boot-time starvation the `maxTimeMS` comment in `indexServes` warns
+ * about, arriving through the one path that comment did not cover.
+ *
+ * `ensureVectorSearchIndex` knew both values — it built the definition with them — and simply did not pass
+ * them on. That is the shape worth naming: the caller had the answer and the callee guessed.
+ *
+ * Face is the only non-`embedding` path today, so this is one instance. The parameter is what stops the next
+ * one, and `probe-asks-the-indexed-field.test.js` refuses a caller that does not name its target.
+ */
+export interface ProbeTarget {
+  /** The `path` in the index definition — `embedding` for the five text indexes, `faceEmbedding` for faces. */
+  vectorPath: string;
+  /** `numDimensions` as the index was built. A probe vector of any other width is rejected outright. */
+  dims: number;
+}
+
 async function indexServes(
   coll: ReturnType<ReturnType<typeof getDb>['collection']>,
   indexName: string,
+  /**
+   * The path this index actually indexes, and the width it was built at.
+   *
+   * Both used to be assumed here — `path: 'embedding'` and the TEXT embedding width — and both are wrong for
+   * the one index whose path is not `embedding`. See the note above `ProbeTarget`.
+   */
+  target: ProbeTarget,
 ): Promise<ProbeOutcome> {
-  const dims = getEmbeddingConfig().dimensions ?? 768;
   try {
     await coll.aggregate([{
       $vectorSearch: {
         index: indexName,
-        path: 'embedding',
-        queryVector: probeQueryVector(dims),
+        path: target.vectorPath,
+        queryVector: probeQueryVector(target.dims),
         numCandidates: PROBE_NUM_CANDIDATES,
         limit: 1,
       },
@@ -416,6 +462,14 @@ export async function pollVectorIndexReady(
   spaceId: string,
   collectionSuffix: VectorIndexedCollection,
   indexName: string,
+  /**
+   * REQUIRED, and deliberately not defaulted to the text index's shape.
+   *
+   * A default here would be the bug again: the face caller would silently inherit `embedding`/768 and go on
+   * reporting a working index as failed. Making it required means a new index whose path nobody thought about
+   * fails to compile rather than fails to probe.
+   */
+  target: ProbeTarget,
   opts: { timeoutMs?: number } = {},
 ): Promise<boolean> {
   const coll = getDb().collection(`${spaceId}_${collectionSuffix}`);
@@ -530,7 +584,7 @@ export async function pollVectorIndexReady(
          * which matters at 65 indexes on one boot.
          */
         if (current.status === undefined && current.queryable === undefined) {
-          const probe = await indexServes(coll, indexName);
+          const probe = await indexServes(coll, indexName, target);
           if (probe.serves) {
             log.debug(`Vector search index ${indexName} serves queries (no lifecycle fields on this backend)`);
             return true;
@@ -634,14 +688,22 @@ export async function waitForSpaceIndexesReady(
   // at indexStatus='building' for five minutes when every index was in fact ready in seconds. That was
   // masked for as long as only `memories` was ever indexed — fixing that made the serial wait visible.
   const required = VECTOR_INDEXED_COLLECTIONS.map(suffix =>
-    pollVectorIndexReady(spaceId, suffix, `${spaceId}_${suffix}_embedding`, opts),
+    // The five text indexes: path `embedding`, at the configured embedding width.
+    pollVectorIndexReady(spaceId, suffix, `${spaceId}_${suffix}_embedding`,
+      { vectorPath: 'embedding', dims: getEmbeddingConfig().dimensions ?? 768 }, opts),
   );
   // Started alongside the required ones so it costs no extra wall-clock, and awaited separately so its answer
   // cannot reach the verdict. Kicked off before the await below for that reason — sequencing it after would
   // add its window to the total.
   const faceIndexName = `${spaceId}_files_faceEmbedding`;
+  // The path AND the width, from the same two places `initSpace` builds the index from. Passing neither is
+  // what made this poll uninformative for five releases: it probed `embedding` at the text width against an
+  // index that indexes `faceEmbedding` at 128, so it could only ever report failure. See `ProbeTarget`.
+  const faceDims = getConfig().spaces.find(sp => sp.id === spaceId)?.faceDescriptorDims
+    ?? FACE_DESCRIPTOR_DIMS;
   const face = getFaceRecognitionConfig().enabled
-    ? pollVectorIndexReady(spaceId, 'files', faceIndexName, opts)
+    ? pollVectorIndexReady(spaceId, 'files', faceIndexName,
+        { vectorPath: 'faceEmbedding', dims: faceDims }, opts)
     : null;
 
   const results = await Promise.all(required);

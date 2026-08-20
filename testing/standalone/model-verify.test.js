@@ -26,6 +26,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { blockAfter } from './_structural-window.mjs';
 
 const SRC = readFileSync('server/src/api/model-verify.ts', 'utf8');
 const AUDIT = readFileSync('server/src/audit/middleware.ts', 'utf8');
@@ -112,7 +113,11 @@ describe('outcomes are honest about what was established', () => {
 
   it('a thrown error becomes a failed outcome, not a 500', () => {
     // The whole point is to report on a broken endpoint; crashing on one would be perverse.
-    assert.match(SRC, /catch \(err\)[\s\S]{0,220}return done\('failed'/);
+    // The catch BLOCK, bounded by its own brace. A cap here says "within 220 characters of the catch", which
+    // is a guess about formatting rather than a claim about the handler.
+    const at = SRC.indexOf('catch (err)');
+    assert.ok(at > -1, 'the catch is gone — re-anchor this gate');
+    assert.match(blockAfter(SRC, at, 'the verify catch'), /return done\('failed'/);
   });
 });
 

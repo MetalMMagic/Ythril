@@ -163,9 +163,18 @@ const GRANDFATHERED = new Map([
 /**
  * A CAPPED GAP inside a regex: `/marker[\s\S]{0,400}?other/`. Files still allowed to carry one, with how many.
  *
- * **66 occurrences across 36 files, and the tracker recorded 30.** Measured here rather than trusted, and the number
- * is in the gate so nobody has to re-measure it — a population counted once in a markdown file is a population that
- * drifts.
+ * **57 occurrences across 31 files**, down from 66/36 when this was first measured — and the tracker had recorded
+ * 30, which is why the number lives in the gate now rather than in a markdown file that drifts.
+ *
+ * The nine that left were the ones whose subject is a NAMED FUNCTION or a BRANCH, where the structural bound is
+ * unambiguous: an update call's arguments, a 412 branch, a catch block, an abandon branch, `spaceStillExists`,
+ * `selectSpace` (a 2 000-character cap — nobody chooses that number, they raise it until the test passes),
+ * `chronoAllowedTypes`, `getAllowedChronoTypes`, and a try/finally.
+ *
+ * **What remains is the fails-LOUDLY class, and that is why it is a frozen list rather than a blocker.** Every one
+ * of the six negative-polarity sites — where a short window makes an absence hold and the gate pass — was converted
+ * first. For a POSITIVE assertion a cap that falls short breaks the match and turns the gate red on correct code:
+ * a nuisance that announces itself, not a hole.
  *
  * ## Why this is a THIRD list rather than a ban
  *
@@ -190,7 +199,6 @@ const GRANDFATHERED = new Map([
 const GRANDFATHERED_GAP = new Map([
   ['testing/red-team-tests/ssrf-ipv6.test.js', 1],
   ['testing/standalone/backups-are-not-world-readable.test.js', 1],
-  ['testing/standalone/brain-if-match.test.js', 2],
   ['testing/standalone/brain-read-bodies-are-strict.test.js', 2],
   ['testing/standalone/caller-supplied-ids-are-uuids.test.js', 1],
   ['testing/standalone/chrono-retention.test.js', 1],
@@ -204,23 +212,19 @@ const GRANDFATHERED_GAP = new Map([
   ['testing/standalone/mcp-tool-rights.test.js', 2],
   ['testing/standalone/merge-relinks-every-entity-reference.test.js', 2],
   ['testing/standalone/meta-precondition.test.js', 1],
-  ['testing/standalone/model-verify.test.js', 1],
   ['testing/standalone/no-boot-migration-on-synced-data.test.js', 1],
   ['testing/standalone/no-copyleft-in-the-shipped-tree.test.js', 2],
-  ['testing/standalone/no-polling-a-deleted-space.test.js', 2],
   ['testing/standalone/notice-coverage.test.js', 1],
   ['testing/standalone/oidc-carries-a-rights-matrix.test.js', 1],
-  ['testing/standalone/overview-pending-is-cleared.test.js', 1],
   ['testing/standalone/recall-params-reach-the-ui.test.js', 2],
   ['testing/standalone/reembed-backfill.test.js', 1],
   ['testing/standalone/retention-reaches-every-collection.test.js', 3],
   ['testing/standalone/rights-are-explained.test.js', 3],
   ['testing/standalone/route-guard-coverage.test.js', 1],
-  ['testing/standalone/schema-derived-type-controls.test.js', 4],
+  ['testing/standalone/schema-derived-type-controls.test.js', 2],
   ['testing/standalone/search-tool-schemas-document-their-response.test.js', 3],
   ['testing/standalone/single-flight.test.js', 1],
   ['testing/standalone/space-admin-reaches-its-own-space-settings.test.js', 1],
-  ['testing/standalone/space-op-recovery-guard.test.js', 1],
   ['testing/standalone/stt-multipart-and-partial.test.js', 2],
   ['testing/standalone/sync-waits-retrigger-and-diagnose.test.js', 1],
   ['testing/standalone/vlm-endpoint-egress.test.js', 1],

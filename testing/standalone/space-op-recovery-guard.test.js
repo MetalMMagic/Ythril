@@ -30,6 +30,7 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { enclosingBlockFrom } from './_structural-window.mjs';
 
 let beginSpaceOp, endSpaceOp, spaceOpInFlight;
 const strip = s => s
@@ -85,7 +86,19 @@ describe('both space operations claim the guard, and recovery reads it', () => {
 
   it('removeSpace does too — it writes the same kind of marker', () => {
     const src = strip(readFileSync('server/src/spaces/lifecycle.ts', 'utf8'));
-    assert.match(src, /beginSpaceOp\(\);[\s\S]{0,200}?finally\s*\{\s*endSpaceOp\(\);/);
+    /*
+     * The rest of the FUNCTION the marker is opened in, bounded by the brace that closes it.
+     *
+     * `blockAfter` on the `try` was the obvious choice and is wrong: a `finally` is a SIBLING of the try block,
+     * not inside it, so bounding at the try's own brace excludes the very thing being looked for. The enclosing
+     * function is the smallest bound that contains both halves, and it still refuses an `endSpaceOp()` that
+     * belongs to some other function further down the file — which is what the 200-character cap could not.
+     */
+    const at = src.indexOf('beginSpaceOp();');
+    assert.ok(at > -1, 'beginSpaceOp is no longer called here — re-anchor this gate');
+    const rest = enclosingBlockFrom(src, at, 'the removeSpace body');
+    assert.match(rest, /finally\s*\{[\s\S]*?endSpaceOp\(\);/,
+      'the marker must be cleared in a finally of the function it was opened in');
   });
 
   it('reconcilePendingSpaceOp checks it BEFORE doing any work', () => {

@@ -21,6 +21,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { blockAfter } from './_structural-window.mjs';
 
 const ROOT = process.cwd();
 const BRAIN = 'client/src/app/pages/brain/brain.component.ts';
@@ -116,7 +117,11 @@ describe('an Overview skeleton can always be dismissed', () => {
     // (G-2). The guarantee is unchanged and so is its shape — raised beside the blanks, in one place — so this
     // anchors on that method, and separately requires the space switch to still call it. Splitting the two is
     // what keeps "blanked on a switch" true rather than merely "blanked somewhere".
-    assert.match(src, /selectSpace\(id: string\): void \{[\s\S]{0,2000}?this\.ov\.blankForSpaceSwitch\(\)/,
+    // The METHOD, bounded by the brace that closes it. 2 000 characters was the largest cap in the suite and
+    // the clearest sign of a guess: nobody chooses that number, they raise it until the test passes.
+    const sel = src.indexOf('selectSpace(id: string): void {');
+    assert.ok(sel > -1, 'selectSpace is gone — re-anchor this gate');
+    assert.match(blockAfter(src, sel, 'selectSpace'), /this\.ov\.blankForSpaceSwitch\(\)/,
       'a space switch must still blank the panels, or the skeletons never go up in the first place');
     const at = src.indexOf('  blankForSpaceSwitch(): void {');
     assert.ok(at > 0, 'blankForSpaceSwitch method not found');

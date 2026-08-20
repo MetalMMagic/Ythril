@@ -29,6 +29,7 @@ import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { balancedFrom, blockAfter } from './_structural-window.mjs';
 
 const ROOT = process.cwd();
 const src = (p) => readFileSync(join(ROOT, p), 'utf8');
@@ -189,7 +190,11 @@ describe('all four record types, or none', () => {
   it('every PATCH route hands the seq to its update function', () => {
     for (const r of RECORDS) {
       const code = withoutComments(src(r.route));
-      assert.match(code, new RegExp(`${r.update}\\([\\s\\S]{0,400}?ifMatch\\.seq`),
+      // The update CALL, bounded by the paren that closes it — the seq is one of its arguments, so the
+      // argument list is the subject and 400 characters was a guess at how long one gets.
+      const at = code.indexOf(`${r.update}(`);
+      assert.ok(at > -1, `${r.name}: ${r.update} is not called at all — re-anchor this gate`);
+      assert.match(balancedFrom(code, at, `${r.update} call`), /ifMatch\.seq/,
         `${r.name}: the parsed precondition never reaches ${r.update}, so it is parsed and then dropped`);
     }
   });
@@ -197,7 +202,10 @@ describe('all four record types, or none', () => {
   it('every PATCH route answers 412, and only when a precondition was given', () => {
     for (const r of RECORDS) {
       const code = withoutComments(src(r.route));
-      assert.match(code, /if \(ifMatch\.seq !== undefined[\s\S]{0,120}?res\.status\(412\)/,
+      // The branch, bounded by the brace that closes it.
+      const at = code.indexOf('if (ifMatch.seq !== undefined');
+      assert.ok(at > -1, `${r.name}: the precondition branch is gone — re-anchor this gate`);
+      assert.match(blockAfter(code, at, 'the 412 branch'), /res\.status\(412\)/,
         `${r.name}: a refused write does not produce a 412`);
     }
   });

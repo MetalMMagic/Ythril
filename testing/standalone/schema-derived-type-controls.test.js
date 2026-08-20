@@ -49,6 +49,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { blockAfter, bodyOf } from './_structural-window.mjs';
 
 const BRAIN_DIR = 'client/src/app/pages/brain';
 
@@ -134,9 +135,10 @@ describe('a brain type control offers server-accepted values, not a hardcoded li
 
   it('the client mirror REPLACES the built-ins on a declared schema — it does not union with them', () => {
     const src = stripComments(readFileSync(`${BRAIN_DIR}/brain-store.service.ts`, 'utf8'));
-    const fn = /chronoAllowedTypes\(\)\s*:\s*string\[\]\s*\{([\s\S]{0,600}?)\n  \}/.exec(src);
-    assert.ok(fn, 'chronoAllowedTypes() not found in brain-store.service.ts');
-    const body = fn[1];
+    const at = src.indexOf('chronoAllowedTypes()');
+    assert.ok(at > -1, 'chronoAllowedTypes() not found in brain-store.service.ts');
+    // The method body, bounded by its own closing brace rather than by 600 characters of it.
+    const body = blockAfter(src, at, 'chronoAllowedTypes');
 
     assert.match(body, /typeSchemas\?\.chrono/, 'the mirror must read the space\'s declared chrono types');
 
@@ -161,10 +163,10 @@ describe('a brain type control offers server-accepted values, not a hardcoded li
 
   it('the server rule this mirrors is still exclusive — if it changes, come back here', () => {
     const src = stripComments(readFileSync('server/src/spaces/schema-validation.ts', 'utf8'));
-    const fn = /export function getAllowedChronoTypes\([\s\S]{0,400}?\n\}/.exec(src);
-    assert.ok(fn, 'getAllowedChronoTypes not found — the client mirror has lost its subject');
+    // The whole function, to the next top-level declaration.
+    const fnBody = bodyOf(src, 'getAllowedChronoTypes', 'the client mirror has lost its subject');
     // Two returns, one per branch, and the declared branch returns ONLY the declared keys.
-    assert.match(fn[0], /return new Set\(Object\.keys\(customTypes\)\)/,
+    assert.match(fnBody, /return new Set\(Object\.keys\(customTypes\)\)/,
       'the declared branch no longer returns exactly the declared keys — re-check chronoAllowedTypes()');
   });
 });

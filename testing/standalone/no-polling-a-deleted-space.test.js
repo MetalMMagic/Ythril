@@ -30,21 +30,17 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripComments } from './_strip-comments.mjs';
+import { blockAfter, bodyOf } from './_structural-window.mjs';
 
 const vector = stripComments(readFileSync('server/src/spaces/vector-index.ts', 'utf8'));
 const lifecycle = stripComments(readFileSync('server/src/spaces/lifecycle.ts', 'utf8'));
 
-/** One exported function's body, bounded structurally — never by a character count. */
-function bodyOf(src, name) {
-  const lines = src.split(/\r?\n/);
-  const start = lines.findIndex(l => l.includes(`export async function ${name}(`));
-  assert.ok(start > -1, `${name} is gone — re-anchor this gate`);
-  let end = lines.length;
-  for (let i = start + 1; i < lines.length; i++) {
-    if (/^export (async function|function|const) /.test(lines[i])) { end = i; break; }
-  }
-  return lines.slice(start, end).join('\n');
-}
+/*
+ * The local `bodyOf` that used to live here was the FOURTH independent hand-roll of the same bound, and it was
+ * narrower than it looked: it matched `export async function ${name}(` only, so it could not have found
+ * `spaceStillExists`, which is a plain non-exported function. The shared helper matches any top-level
+ * declaration, which is why the assertion below could move onto it at all.
+ */
 
 describe('the poll abandons a space that no longer exists', () => {
   const body = bodyOf(vector, 'pollVectorIndexReady');
@@ -66,7 +62,9 @@ describe('the poll abandons a space that no longer exists', () => {
   });
 
   it('abandons rather than continues — a `continue` would spin at full speed', () => {
-    assert.match(body, /if \(!spaceStillExists\(spaceId\)\) \{[\s\S]{0,220}?return false;/,
+    const at = body.indexOf('if (!spaceStillExists(spaceId))');
+    assert.ok(at > -1, 'the existence check is gone — re-anchor this gate');
+    assert.match(blockAfter(body, at, 'the abandon branch'), /return false;/,
       'the check must return, not continue');
   });
 
@@ -76,7 +74,7 @@ describe('the poll abandons a space that no longer exists', () => {
      * returning `false` would make every such poll conclude its space was deleted — the fix causing the outage
      * it was written to prevent, and quietly, since the log line is `debug`.
      */
-    assert.match(vector, /function spaceStillExists\(spaceId: string\): boolean \{[\s\S]{0,200}?catch \{ return true; \}/,
+    assert.match(bodyOf(vector, 'spaceStillExists'), /catch \{ return true; \}/,
       'an unreadable config must read as "the space still exists"');
   });
 });

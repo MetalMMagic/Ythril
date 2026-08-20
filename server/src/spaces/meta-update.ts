@@ -342,9 +342,16 @@ export async function applySpaceMetaUpdate(plan: MetaUpdatePlan): Promise<MetaUp
 
       // Non-meta updates apply immediately (label, maxGiB). `description` is not among them: the planner rewrote it
       // into `meta.purpose`, so it travels with the rest of the meta and is voted on.
-      const nonMetaUpdates: { label?: string; maxGiB?: number | null } = {};
+      const nonMetaUpdates: { label?: string; maxGiB?: number | null; faceDescriptorDims?: number } = {};
       if (patchData.label !== undefined) nonMetaUpdates.label = patchData.label;
       if (patchData.maxGiB !== undefined) nonMetaUpdates.maxGiB = patchData.maxGiB;
+      // `faceDescriptorDims` belongs here for the same reason `maxGiB` does: it configures THIS instance's
+      // index, not the shared meaning of the space, so it is not a thing peers vote on. Omitting it would have
+      // made a width change silently vanish whenever the same PATCH also touched meta on a networked space —
+      // a 202 for two edits, one of which never happened.
+      if (patchData.faceDescriptorDims !== undefined) {
+        nonMetaUpdates.faceDescriptorDims = patchData.faceDescriptorDims;
+      }
       if (Object.keys(nonMetaUpdates).length > 0) updateSpace(id, nonMetaUpdates);
       else saveConfig(cfg);
 

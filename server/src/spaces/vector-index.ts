@@ -786,6 +786,50 @@ const faceDimsBySpace = new Map<string, number>();
 
 export function resetFaceDimsCache(): void { faceDimsBySpace.clear(); }
 
+/**
+ * The width the face index is BUILT at, or `null` when there is no such index.
+ *
+ * ## Why this is not `faceDescriptorDimsFor`
+ *
+ * They read the same index and answer different questions, and the difference is the whole reason both exist.
+ * `faceDescriptorDimsFor` answers *"what width should I validate a descriptor against"*, so a miss must
+ * produce a usable number and it falls back to `FACE_DESCRIPTOR_DIMS`. That is right for its caller and fatal
+ * here: this function's caller needs to distinguish **no index** from **an index that happens to be 128**, and
+ * a fallback makes those two the same answer.
+ *
+ * That conflation is what a width-change guard cannot afford. "No index exists, so building one at 512 is
+ * free" and "an index exists at 128, so moving to 512 is a rebuild" are opposite verdicts, and the fallback
+ * reports the second as the first.
+ *
+ * Deliberately UNCACHED, for the same reason and one more: it is called once per width change, not once per
+ * image, so there is nothing to amortise — and a cached answer would be the stalest possible input to a
+ * decision about whether an index exists.
+ *
+ * `null` on a read error too, and that is the conservative direction here: the caller treats `null` as "no
+ * index at a conflicting width", so a transient failure permits the change rather than refusing it. That is
+ * safe because `ensureVectorSearchIndex` still holds `refuseWidthChange` — a real index at another width is
+ * refused at build time whatever this said, so the worst a wrong `null` produces is a stored number the index
+ * declines to adopt, which is logged loudly rather than silent.
+ */
+export async function faceIndexWidth(spaceId: string): Promise<number | null> {
+  const indexName = `${spaceId}_files_faceEmbedding`;
+  try {
+    const coll = getDb().collection(`${spaceId}_files`);
+    const indexes = await coll.listSearchIndexes().toArray() as Array<{
+      name?: string; latestDefinition?: { fields?: SearchIndexField[] };
+    }>;
+    const found = indexes.find(i => i.name === indexName);
+    if (!found) return null;
+    const fields = found.latestDefinition?.fields ?? [];
+    const dims = fields.find(f => f.type === 'vector')?.numDimensions ?? fields[0]?.numDimensions;
+    return typeof dims === 'number' && dims > 0 ? dims : null;
+  } catch (err) {
+    log.debug(`Could not read ${indexName} to establish its width `
+      + `(${err instanceof Error ? err.message : String(err)}); treating it as absent`);
+    return null;
+  }
+}
+
 export async function faceDescriptorDimsFor(spaceId: string): Promise<number> {
   const hit = faceDimsBySpace.get(spaceId);
   if (hit !== undefined) return hit;

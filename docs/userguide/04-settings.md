@@ -507,6 +507,30 @@ These are set in `config.json` under `mediaEmbedding.faceRecognition`, or pinned
 | `personEntityTypes` | `["person"]` | Entity types considered as people. Only entities of these types can enter the face gallery. In the admin UI (**Settings → Media Processing → Face recognition**) these are **picked from your Schema Library's entity types**, shown as removable chips; any value already stored stays selectable even if it's no longer in the library. |
 | `reprocessSyncedImages` | `true` | When true, images received from other instances via sync are queued for face recognition automatically. |
 
+#### If face recognition finds nobody, check the descriptor width first
+
+**This is the one failure here that is silent and, until it is fixed, permanent.** A face gallery is built at
+a fixed vector width, and a face measured at any other width is skipped — logged once per restart and never
+again. So the symptom is not an error: it is photographs that plainly contain people being recorded as
+containing none.
+
+The default width is **128**, which is what the bundled recogniser produces. If you point Ythril at your own
+recogniser — the `externalModel` setting above — and it is one of the 512-wide families (ArcFace, AdaFace,
+FaceNet, EdgeFace, buffalo_l), the space needs to be told. **Nothing derives the width from the endpoint you
+configure**, so an untold space stays at 128 and skips everything your model sends it.
+
+There is no control for this on the Settings page; it is a per-space number set through the API
+(`faceDescriptorDims`). What matters at this level is knowing to ask:
+
+- **A space that has never held a face can be moved to a new width.** Ask whoever administers the instance
+  to set it; the change is accepted.
+- **A space that already holds faces cannot.** Its stored vectors were measured at the old width and nothing
+  re-measures them, so re-declaring it would break every face already labelled rather than fix the new ones.
+  Those photographs have to be re-processed in a space created at the right width.
+
+The practical order, if you are bringing your own recogniser: get the width right **before** the first
+photograph is uploaded. Everything after that is recoverable only by re-processing.
+
 ---
 
 ### Document Processing (OCR & Image Extraction)

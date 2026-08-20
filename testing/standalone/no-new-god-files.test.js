@@ -108,9 +108,10 @@ const FROZEN = {
   // 839 -> 843: `typeSchemasMode` on the update body and the replace branch in `mergeSpaceMeta`. Both are
   // small and belong beside the merge they qualify — splitting a two-branch decision across files would
   // make the contract harder to read, not easier.
-  // 843 -> 844: one Zod line accepting `faceDescriptorDims` on the CREATE body. Deliberately NOT added to
-  // the update body — see `face-width-is-create-only.test.js` — so this is the single line that admits the
-  // field at all, and there is nowhere smaller to put it.
+  // 843 -> 844: one Zod line accepting `faceDescriptorDims` on the CREATE body. It is on the UPDATE body too
+  // now — refused by state rather than by surface, see `face-width-refused-by-state-not-surface.test.js` —
+  // which is a second Zod line in the same file, and both schemas are `.strict()` so there is nowhere smaller
+  // to put either.
   // RAISED 844 -> 847 for `suppressEmbeddings`: the field on `SpaceMetaBody`, the field on `TypeSchemaZ`, and the
   // `!== undefined` merge guard. Both schemas are `.strict()`, so an unlisted field is REJECTED rather than
   // ignored — there is no "put it beside this file" for a field the API must accept. Raised rather than split

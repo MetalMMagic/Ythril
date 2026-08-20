@@ -72,14 +72,27 @@ Authorization: Bearer <admin-token>
 | `label` | yes | Human-readable display name, max 200 chars. |
 | `folders` | no | Pre-create these directories on disk at space creation time. |
 | `maxGiB` | no | Maximum storage quota for the space (positive number in GiB). |
-| `faceDescriptorDims` | no | Width of this space's face descriptors (integer, 64–4096, default 128). **Create-only** — see below. |
+| `faceDescriptorDims` | no | Width of this space's face descriptors (integer, 64–4096, default 128). Changeable later **only while the space has never held a face descriptor** — see below. |
 
-**`faceDescriptorDims` cannot be changed after creation, and that is deliberate.** The space's face gallery
-stores vectors at this width and nothing re-derives them, so re-dimensioning the index later would leave the
-stored vectors indexed as a different size — every similarity score wrong, with no error reported anywhere.
-The field is therefore absent from `PATCH /api/spaces/:id`, and the index build refuses a width change
-independently. Set it at creation or accept 128. To move a populated gallery, create a new space at the new
-width and re-process its images.
+**`faceDescriptorDims` is refused by the space's STATE, not by the surface you ask on.** The space's face
+gallery stores vectors at this width and nothing re-derives them, so re-dimensioning the index under stored
+vectors would leave them indexed as a different size — every similarity score wrong, with no error reported
+anywhere. That is what the rule protects, and it is why the rule is about vectors rather than about time.
+
+So `PATCH /api/spaces/:id` and the `update_space` MCP tool both **accept** the field, and answer **409** in
+exactly two states, each naming the number it found:
+
+| State | Refusal |
+| --- | --- |
+| The space holds face descriptors | It says how many, and at what width |
+| Its face index is built at a different width | It says which width the index is at |
+
+On a space that has never held a face descriptor it succeeds. Sending the width the space already has is
+always accepted and changes nothing, so a client re-sending its whole config can still save an unrelated
+edit. To move a POPULATED gallery there is still no path: create a new space at the new width and
+re-process its images.
+
+Setting it at creation remains the reliable route, because it is the only one that cannot be refused.
 
 Use it when you point `faceRecognition.externalModel` at a recogniser that does not emit 128 dimensions —
 most current open models emit 512.

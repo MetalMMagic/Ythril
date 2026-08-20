@@ -94,17 +94,35 @@ POST /api/spaces
 
 Also available as `faceDescriptorDims` on the `create_space` MCP tool. Use **128** for MobileFaceNet-class models (including the bundled one) and **512** for ArcFace / AdaFace / FaceNet / EdgeFace / buffalo_l.
 
-**Every space has a width from the moment it exists, whether or not a face index was ever built.** An unset `faceDescriptorDims` is not "undecided" — it resolves to **128**, the built-in default, and nothing derives it from the endpoint you configure. So a space created without it, pointed at a 512-d recogniser, builds a 128-wide index and skips every descriptor it is handed. This sentence exists because the create-only rule below was read as leaving the empty case open, and it does not.
+**Every space has a width from the moment it exists, whether or not a face index was ever built.** An unset `faceDescriptorDims` is not "undecided" — it resolves to **128**, the built-in default, and nothing derives it from the endpoint you configure. So a space created without it, pointed at a 512-d recogniser, builds a 128-wide index and skips every descriptor it is handed. This sentence exists because that resolution was invisible: an operator with fourteen spaces read the rule below and could not tell whether their empty ones carried a width at all.
 
-**It is create-only.** There is no admin call to change it afterwards, on a populated gallery or an empty one. On a populated gallery that is deliberate: its stored vectors have not moved, so re-declaring the width would leave every existing descriptor unmatchable. On a space that has never held a face there is nothing to strand, and the restriction is broader than the safety guard needs to be — it is the API surface stopping you, not the guard. Reported by an operator on 2026-08-20 who read these two paragraphs and correctly concluded that neither covered them.
+**It can be changed afterwards, but only while the space has never held a face descriptor.**
 
-**The supported order for bringing your own recogniser** is therefore: create the space with the right `faceDescriptorDims` **first**, then point `FACE_RECOGNITION_EXTERNAL_MODEL` at your endpoint. Doing it the other way round embeds at your width against a 128-wide gallery, and every descriptor is skipped.
+```http
+PATCH /api/spaces/photos
+{ "faceDescriptorDims": 512 }
+```
+
+Also `faceDescriptorDims` on the `update_space` MCP tool, with the same refusals.
+
+Two states refuse it, both with **409** and both naming the number they found:
+
+| State | Why |
+| --- | --- |
+| The space holds face descriptors | Nothing re-derives a stored face vector, so re-declaring the width would leave every one of them unmatchable while reporting success |
+| Its face index is built at a different width | The gallery is empty, so nothing would be stranded — but an existing index is not re-dimensioned in place, and a width recorded here that the index disagrees with is worse than either number alone |
+
+Sending the width it already has is always accepted and changes nothing, so a client that re-sends its whole config can still save an unrelated edit.
+
+**This used to be refused categorically, and that was too broad.** The reason for the rule is about STORED VECTORS — and a space that has never held a face has none to strand. An operator asked the question on 2026-08-20 with fourteen spaces, three images between them and not one descriptor at any width; their only remedy was to re-create every space, which for spaces holding real data is not a remedy. The safety guard was always index-and-descriptor based; it was the API surface that was absolute.
+
+**The supported order for bringing your own recogniser** is still: create the space with the right `faceDescriptorDims` **first**, then point `FACE_RECOGNITION_EXTERNAL_MODEL` at your endpoint. It is the reliable path because it is the only one that cannot be refused. Doing it the other way round embeds at your width against a 128-wide gallery, and every descriptor is skipped.
 
 The matcher reads the width from **the space's own index**, not from an instance-wide constant, so a space is judged against the vectors it actually holds and a later change of default cannot invalidate an existing gallery.
 
 **This index is never re-dimensioned automatically, and that is deliberate.** Ythril rebuilds other vector indexes when their definition changes, because re-embedding the records makes the vectors catch up. Face vectors live on already-stored face-chunk records and nothing re-derives them, so a rebuild at a new width would leave the stored vectors indexed as if they were the new width — every similarity score wrong, with no error reported. If the configured width ever differs from an existing space's index, Ythril **refuses the change, keeps the existing width, and logs both numbers**. A filter-field change still applies, at the existing width.
 
-**There is no supported way to move a populated gallery to a new width.** An earlier version of this page said to re-embed its faces at the new width first, which described a path that was never built: having re-embedded, there is still no call that sets the new number. Re-create the space at the width you want. The refusal above protects a gallery that HAS vectors; it is not a step in a migration.
+**There is still no supported way to move a POPULATED gallery to a new width.** An earlier version of this page said to re-embed its faces at the new width first, which described a path that was never built: having re-embedded, there was no call that set the new number. There is one now — see above — but it refuses precisely the populated case, because the refusal protects vectors that already exist. Re-create the space at the width you want.
 
 When the face recognition feature is first enabled, any existing `initSpace` call will create the required index. If you add the feature after spaces already exist, re-run `initSpace` for each space or create the index manually via the Atlas UI / MongoDB admin API.
 

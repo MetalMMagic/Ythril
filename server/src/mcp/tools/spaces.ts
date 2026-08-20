@@ -227,12 +227,12 @@ export const get_space_metaTool: ToolHandler = {
 
 export const update_spaceTool: ToolHandler = {
   name: 'update_space',
-  description: 'Update the label or purpose of the specified space. Needs EITHER instance-admin rights OR the '
+  description: 'Update the label, purpose or face-descriptor width of the specified space. Needs EITHER instance-admin rights OR the '
     + '`admin` rung on all four areas (knowledge, files, schema, dataQuality) of the space named in `space` — '
     + 'administering a different space does not grant this one. `purpose` is the space-level directive MCP '
     + 'clients receive at handshake. Its `description` alias was removed in 3.0 — sending `description` is now '
     + 'rejected, not silently folded into `purpose`. To change the space\'s storage quota you need instance-admin '
-    + 'rights and the REST route: `maxGiB` is the space\'s share of the host disk, so it is not a space setting.',
+    + 'rights and the REST route: `maxGiB` is the space\'s share of the host disk, so it is not a space setting. `faceDescriptorDims` is accepted here and refused by the space\'s STATE rather than by this surface: 409 if the gallery already holds descriptors, or if its index is built at a different width. On a space that has never held a face it succeeds, which is the case an operator was blocked on.',
   mutating: true,
   spaceAdmin: true,
   spaceRequired: true,
@@ -242,6 +242,10 @@ export const update_spaceTool: ToolHandler = {
             space: s.requiredSpace,
             label: { type: 'string', minLength: 1, maxLength: 200, description: 'New display label for the space (1–200 chars).' },
             purpose: { type: 'string', maxLength: SPACE_PURPOSE_MAX, description: `New purpose for the space (max ${SPACE_PURPOSE_MAX} chars) — the space-level directive injected into MCP instructions at handshake.` },
+            faceDescriptorDims: {
+              type: 'integer', minimum: 64, maximum: 4096,
+              description: 'New face-descriptor width: 128 for MobileFaceNet-class models, 512 for ArcFace / AdaFace / FaceNet / EdgeFace. REFUSED BY STATE, NOT BY SURFACE — 409 if this space already holds face descriptors (nothing re-derives a stored face vector, so re-declaring the width would leave every one unmatchable while reporting success), or if its face index is already built at a different width. It SUCCEEDS on a space that has never held a face, which is the case the create-only rule used to block for no reason. READ THIS BEFORE POINTING AN EXTERNAL RECOGNISER AT AN INSTANCE: a space with no width set resolves to 128, and nothing derives it from your endpoint, so a 512-d model against an unset space builds a 128-wide index and skips every descriptor it is handed — one warning per process, silent after that.',
+            },
           },
           required: ['space'],
           additionalProperties: false,
@@ -255,8 +259,9 @@ export const update_spaceTool: ToolHandler = {
     const { args: a, callSpace } = ctx;
     const newLabel = typeof a['label'] === 'string' ? a['label'].trim() : undefined;
     const newDesc = typeof a['purpose'] === 'string' ? a['purpose'] : undefined;
-    if (newLabel === undefined && newDesc === undefined) {
-      throw new Error('At least one of label or purpose must be provided');
+    const newDims = typeof a['faceDescriptorDims'] === 'number' ? a['faceDescriptorDims'] : undefined;
+    if (newLabel === undefined && newDesc === undefined && newDims === undefined) {
+      throw new Error('At least one of label, purpose or faceDescriptorDims must be provided');
     }
     if (newLabel !== undefined && newLabel.length === 0) throw new Error('label must not be empty');
     if (newDesc !== undefined && newDesc.length > SPACE_PURPOSE_MAX) throw new Error(`purpose must not exceed ${SPACE_PURPOSE_MAX} characters`);
@@ -264,9 +269,20 @@ export const update_spaceTool: ToolHandler = {
     // `meta.purpose` directly. Until 3.0 this sent `description` and let the planner fold it in — that fold is
     // gone with the alias, so a tool still sending the old spelling would now be dropped by a `.strict()` body
     // rather than rewritten. The planner is the same one the REST route uses, so both doors keep one rule.
-    const updates: { label?: string; meta?: { purpose: string } } = {};
+    const updates: { label?: string; meta?: { purpose: string }; faceDescriptorDims?: number } = {};
     if (newLabel !== undefined) updates.label = newLabel;
     if (newDesc !== undefined) updates.meta = { purpose: newDesc };
+
+    // The state check runs HERE, before the planner, exactly where the REST route puts it — one implementation
+    // of the rule, called from both doors, rather than a second copy of the two queries. `runSpaceMetaUpdate`
+    // below reports a refusal's status alongside its text, so an agent sees the same 409 a REST caller does.
+    if (newDims !== undefined) {
+      const { refuseFaceWidthChange } = await import('../../spaces/face-width-change.js');
+      const current = getConfig().spaces.find(sp => sp.id === callSpace);
+      const refusal = await refuseFaceWidthChange(callSpace, newDims, current?.faceDescriptorDims);
+      if (refusal) throw new Error(`Error (${refusal.status}): ${refusal.reason}`);
+      updates.faceDescriptorDims = newDims;
+    }
 
     // Through the planner, NOT `updateSpace` directly — and this was a live governance bypass, not a tidy-up.
     //
@@ -423,9 +439,14 @@ export const update_space_schemaTool: ToolHandler = {
  *
  * ## `faceDescriptorDims` is on the tool deliberately
  *
- * It is the parameter breituai-platform was blocked on for a week, and it is **create-only by design**: a populated
- * gallery cannot be re-dimensioned, so `PATCH` does not offer it. Leaving it off the tool would mean an agent could
+ * It is the parameter breituai-platform was blocked on for a week. Leaving it off the tool would mean an agent could
  * create a space but never one that works with a 512-float recogniser — the exact shape of their complaint.
+ *
+ * It used to be described here as **create-only by design**, on the grounds that a populated gallery cannot be
+ * re-dimensioned. That reason is sound and the conclusion was too broad: the guard is about STORED VECTORS, and a
+ * space that has never held a face has none to strand. `update_space` now accepts it and refuses by state — the
+ * same operator asked the question on 2026-08-20, and neither the schema nor the guide covered the empty case.
+ * Setting it at creation is still the reliable path, because it is the only one that cannot be refused.
  */
 export const create_spaceTool: ToolHandler = {
   name: 'create_space',
@@ -433,8 +454,7 @@ export const create_spaceTool: ToolHandler = {
     + 'A new space is seeded with a fully strict schema posture (validationMode: strict, strictLinkage: true) '
     + 'unless you pass meta saying otherwise — with no typeSchemas defined yet that accepts every type, so it does '
     + 'not block an empty space. A proxy space (proxyFor) holds no data of its own and is left un-seeded. '
-    + '`faceDescriptorDims` is CREATE-ONLY: a populated gallery cannot be re-dimensioned, so it cannot be changed '
-    + 'afterwards. Refusals match POST /api/spaces exactly, including 422 for a $ref to a schema-library entry that '
+    + 'Set `faceDescriptorDims` HERE if you are bringing your own recogniser: it can be changed later with `update_space`, but ONLY while the space has never held a face descriptor, so getting it right at creation is the reliable path. Refusals match POST /api/spaces exactly, including 422 for a $ref to a schema-library entry that '
     + 'does not exist and 409 when the id is taken.',
   mutating: true,
   admin: true,
@@ -465,8 +485,11 @@ export const create_spaceTool: ToolHandler = {
       },
       faceDescriptorDims: {
         type: 'integer', minimum: 64, maximum: 4096,
-        description: 'Face-descriptor width for this space. CREATE-ONLY and permanent: 128 for MobileFaceNet-class '
-          + 'models, 512 for ArcFace / AdaFace / FaceNet / EdgeFace. Omit to take the instance default.',
+        description: 'Face-descriptor width for this space: 128 for MobileFaceNet-class models, 512 for '
+          + 'ArcFace / AdaFace / FaceNet / EdgeFace. OMITTING IT DOES NOT MEAN "decide later" — it resolves to '
+          + '128, and nothing derives it from the recogniser you configure, so a 512-d model against an unset '
+          + 'space builds a 128-wide index and silently skips every descriptor. Changeable afterwards with '
+          + '`update_space`, but only while the space has never held a face descriptor.',
       },
       meta: {
         type: 'object',

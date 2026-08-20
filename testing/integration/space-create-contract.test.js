@@ -137,10 +137,11 @@ describe('POST /api/spaces — the schema-library $ref, at create time', () => {
   });
 });
 
-describe('POST /api/spaces — faceDescriptorDims, which cannot be changed afterwards', () => {
-  // Create-only by design (`face-width-is-create-only.test.js` gates its absence from the update body), so a value
-  // accepted here is permanent for the life of the space. That asymmetry is why the bounds are pinned at runtime and
-  // not just in the schema: there is no second chance to refuse it.
+describe('POST /api/spaces — faceDescriptorDims, which a populated gallery can never change', () => {
+  // It is changeable afterwards ONLY while the space has never held a face descriptor — see
+  // `face-width-refused-by-state-not-surface.test.js`. So for a space that will hold photographs, a value
+  // accepted here is effectively permanent, which is why the bounds are pinned at runtime and not just in the
+  // schema: by the time the first face is stored there is no second chance to refuse it.
   for (const [what, dims] of [['too small', 32], ['too large', 8192], ['fractional', 128.5]]) {
     it(`400 for a ${what} descriptor width, and no space is created`, async () => {
       const id = idFor(`dims-${dims}`.replace('.', '-'));

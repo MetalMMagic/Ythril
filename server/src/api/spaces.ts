@@ -38,6 +38,7 @@ import {
   CreateSpaceBody, DeleteSpaceBody, RenameSpaceBody, ReorderSpacesBody, PutSchemaBody,
 } from '../spaces/body-schemas.js';
 import { planSpaceMetaUpdate, applySpaceMetaUpdate } from '../spaces/meta-update.js';
+import { refuseFaceWidthChange } from '../spaces/face-width-change.js';
 import { planSpaceCreate, applySpaceCreate } from '../spaces/space-create.js';
 
 export const spacesRouter = Router();
@@ -293,6 +294,20 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminOrSpaceAdminMfaScoped('i
         + 'its share of the host\'s storage. Ask an instance administrator to change the quota.',
     });
     return;
+  }
+
+  // The face gallery's width is refused by STATE, not by surface — it is accepted on this body and declined
+  // when the space holds descriptors or its index is already built at another width. Checked HERE rather than
+  // in the planner because the planner is synchronous by design and this needs two database reads; the maxGiB
+  // guard above sits in the same place for the same reason. See `spaces/face-width-change.ts` for the whole
+  // account, including why it is a 409 and not a 400.
+  if (space && req.body?.faceDescriptorDims !== undefined
+      && typeof req.body.faceDescriptorDims === 'number') {
+    const refusal = await refuseFaceWidthChange(id, req.body.faceDescriptorDims, space.faceDescriptorDims);
+    if (refusal) {
+      res.status(refusal.status).json({ error: refusal.reason });
+      return;
+    }
   }
 
   const decision = planSpaceMetaUpdate({ spaceId: id, space, body: req.body, ifMatch: req.get('If-Match') });

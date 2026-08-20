@@ -220,9 +220,11 @@ export const SERVER_OWNED_SPACE_FIELDS = ['builtIn', 'usageGiB', 'indexStatus', 
  * with `builtIn` not injectable. Stripping `id` on create would have thrown away a field the create body
  * legitimately accepts — the caller's chosen space id, silently replaced by a generated one.
  *
- * `faceDescriptorDims` is deliberately in NEITHER list. It is create-only too, but no response emits it, so
- * sending it to a PATCH is a request rather than round-trip noise — and the right answer to "change the
- * descriptor width of a populated gallery" is a 400 naming the field, not a silent drop.
+ * `faceDescriptorDims` is deliberately in NEITHER list, and it is no longer create-only. It is accepted on
+ * PATCH and refused by STATE rather than by surface: `refuseFaceWidthChange` answers 409 when the gallery
+ * holds descriptors or its index is already built at another width, and permits it otherwise. Keeping it out
+ * of both lists is what makes that refusal reachable — a field on the strip list is dropped before any
+ * handler sees it, so the caller would get a 200 for a change that did not happen.
  */
 export const CREATE_ONLY_SPACE_FIELDS = ['id', 'folders', 'proxyFor'] as const;
 
@@ -252,10 +254,14 @@ export const CreateSpaceBody = z.object({
   label: z.string().min(1).max(200),
   folders: z.array(z.string()).optional(),
   maxGiB: z.number().positive().optional(),
-  // Create-only, and deliberately absent from the update body: a populated gallery cannot be re-dimensioned,
-  // so offering the field on PATCH would be offering a change the index build then refuses.
   // Bounds rather than an enum — 128 (MobileFaceNet class) and 512 (ArcFace, AdaFace, FaceNet, EdgeFace) are
   // today's answers, and pinning an enum would make the next model a code change.
+  //
+  // Also on the UPDATE body now, refused by STATE rather than by surface. The old comment here said the field
+  // was absent from PATCH because "a populated gallery cannot be re-dimensioned, so offering the field on
+  // PATCH would be offering a change the index build then refuses" — true of a POPULATED gallery and false of
+  // an empty one, which is the case an operator asked about on 2026-08-20 and neither the schema nor the guide
+  // covered. See `spaces/face-width-change.ts`.
   faceDescriptorDims: z.number().int().min(64).max(4096).optional(),
   proxyFor: ProxyForZ.optional(),
   meta: SpaceMetaBody.optional(),
@@ -282,6 +288,14 @@ const TtlWindowZ = z.number().int().nonnegative().max(36500).nullable().optional
 export const UpdateSpaceBody = z.object({
   label: z.string().min(1).max(200).optional(),
   maxGiB: z.number().positive().nullable().optional(),
+  /**
+   * The face gallery's descriptor width. Same bounds as on create, because it is the same number.
+   *
+   * Accepted here and refused by `refuseFaceWidthChange` when the space's STATE forbids it — descriptors
+   * stored, or an index already built at another width. Not `nullable`: there is no "unset it" operation,
+   * because absence resolves to 128 and writing 128 says the same thing more clearly.
+   */
+  faceDescriptorDims: z.number().int().min(64).max(4096).optional(),
   meta: SpaceMetaBody.optional(),
   /**
    * How `meta.typeSchemas` combines with what is already stored. Default `merge`, which is the behaviour

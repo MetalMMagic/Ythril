@@ -9,6 +9,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`faceDescriptorDims` can be changed on a space that has never held a face descriptor.** It was create-only,
+  refused categorically, and the reason given everywhere — schema, guide, code comment — is about STORED
+  VECTORS: *"a populated gallery cannot be re-dimensioned: its stored vectors have not moved, so re-declaring
+  the width would leave every existing descriptor unmatchable."* Every word of that is true of a gallery that
+  holds descriptors, and none of it bites on one that never has.
+
+  breituai-platform asked the question nobody had, 2026-08-20, and framed it usefully: *"we are asking whether
+  the guard is 'no stored faces may be invalidated' or 'no, categorically'."* **It was the first, and the API
+  was enforcing the second.** `ensureVectorSearchIndex` refuses on `existing && !dimsMatch &&
+  refuseWidthChange` — index-and-descriptor based. The absolute rule lived in the API surface, which was
+  broader than the safety mechanism needed it to be. Their position: fourteen spaces, three images between
+  them (two of which are page renders our own conversion pipeline extracted from a scanned invoice), not one
+  descriptor at any width — and a remedy that meant re-creating every space, which for spaces holding real
+  data is not a remedy.
+
+  `PATCH /api/spaces/:id` and the `update_space` MCP tool now both accept it and answer **409** in exactly two
+  states, each naming the number it found: the space holds descriptors, or its face index is already built at
+  a different width. The second is refused too because an empty index at another width is still an index and
+  rebuilding one is not the same act as creating one. Sending the width the space already has is always
+  accepted and changes nothing, so a client re-sending its whole config can still save an unrelated edit. One
+  implementation of the rule (`spaces/face-width-change.ts`), called from both doors — a second copy of those
+  two queries is the defect this repo produces most.
+
+  **Why this mattered more than one field becoming editable.** A space with no stored width builds its index at
+  `FACE_DESCRIPTOR_DIMS`, which is **128**, a compile-time constant that nothing derives from the configured
+  endpoint. So pointing `FACE_RECOGNITION_EXTERNAL_MODEL` at a 512-d recogniser without setting the width gives
+  a 128-wide index that silently skips every descriptor it is handed — in their words, *"photographs that
+  genuinely contain people being stored as containing none, permanently, until they are reprocessed."* Both
+  MCP schema descriptions now say that outright, because omitting the field is not "decide later".
+
+  Documented on all four surfaces that carried the old absolute claim: `05c-face-recognition.md`,
+  `06-spaces-api.md`, both MCP tool schemas, and — new — a Settings-page section telling an operator to check
+  the descriptor width FIRST when face recognition finds nobody, since that failure produces no error at all.
+  Token rights needed nothing: no new route, and `PATCH /api/spaces/:id` is already classified.
+
+  Eight mutants killed, and the eighth found a fault in the gate rather than in the code: the MCP bounds check
+  used `assert.match` and survived narrowing `update_space`'s range, because the pattern found `create_space`'s
+  field instead. Two tools declare that parameter, so a sample proves nothing about which one it matched — the
+  assertion counts both now.
+
 - **`notAreaScoped` on `GET /api/tokens/rights-catalog`, and in the Space admin panel.** The same defect one
   layer up: a route absent from `routes` was indistinguishable to a caller from one nobody had classified, so
   *"the matrix does not govern renaming a space"* was a fact only the server's source held, and a grid of four

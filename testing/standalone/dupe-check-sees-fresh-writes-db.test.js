@@ -105,7 +105,7 @@ describe('the duplicate check sees a record written a moment ago', { skip }, () 
 
     // And then check that it is actually usable, because `ensureVectorSearchIndex` reports failure by
     // logging and returning: a backend without search leaves this suite green-but-meaningless otherwise.
-    const ready = await vectorIndex.pollVectorIndexReady(SPACE, 'entities', `${SPACE}_entities_embedding`);
+    const ready = await vectorIndex.pollVectorIndexReady(SPACE, 'entities', `${SPACE}_entities_embedding`, { vectorPath: 'embedding', dims: 768 });
     assert.ok(ready,
       `no queryable vector index on ${SPACE}_entities — this suite compares the ANN index against `
       + 'committed documents, so without one it proves nothing either way. The test stack must be '

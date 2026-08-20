@@ -94,15 +94,39 @@ POST /api/spaces
 
 Also available as `faceDescriptorDims` on the `create_space` MCP tool. Use **128** for MobileFaceNet-class models (including the bundled one) and **512** for ArcFace / AdaFace / FaceNet / EdgeFace / buffalo_l.
 
-**It is create-only and permanent.** A populated gallery cannot be re-dimensioned: its stored vectors have not moved, so re-declaring the width would leave every existing descriptor unmatchable. There is no admin call to change it afterwards, and that is deliberate rather than missing — a space whose width is wrong is re-created, not migrated.
+**Every space has a width from the moment it exists, whether or not a face index was ever built.** An unset `faceDescriptorDims` is not "undecided" — it resolves to **128**, the built-in default, and nothing derives it from the endpoint you configure. So a space created without it, pointed at a 512-d recogniser, builds a 128-wide index and skips every descriptor it is handed. This sentence exists because the create-only rule below was read as leaving the empty case open, and it does not.
+
+**It is create-only.** There is no admin call to change it afterwards, on a populated gallery or an empty one. On a populated gallery that is deliberate: its stored vectors have not moved, so re-declaring the width would leave every existing descriptor unmatchable. On a space that has never held a face there is nothing to strand, and the restriction is broader than the safety guard needs to be — it is the API surface stopping you, not the guard. Reported by an operator on 2026-08-20 who read these two paragraphs and correctly concluded that neither covered them.
 
 **The supported order for bringing your own recogniser** is therefore: create the space with the right `faceDescriptorDims` **first**, then point `FACE_RECOGNITION_EXTERNAL_MODEL` at your endpoint. Doing it the other way round embeds at your width against a 128-wide gallery, and every descriptor is skipped.
 
 The matcher reads the width from **the space's own index**, not from an instance-wide constant, so a space is judged against the vectors it actually holds and a later change of default cannot invalidate an existing gallery.
 
-**This index is never re-dimensioned automatically, and that is deliberate.** Ythril rebuilds other vector indexes when their definition changes, because re-embedding the records makes the vectors catch up. Face vectors live on already-stored face-chunk records and nothing re-derives them, so a rebuild at a new width would leave the stored vectors indexed as if they were the new width — every similarity score wrong, with no error reported. If the configured width ever differs from an existing space's index, Ythril **refuses the change, keeps the existing width, and logs both numbers**. To move a populated gallery, re-embed its faces at the new width first. A filter-field change still applies, at the existing width.
+**This index is never re-dimensioned automatically, and that is deliberate.** Ythril rebuilds other vector indexes when their definition changes, because re-embedding the records makes the vectors catch up. Face vectors live on already-stored face-chunk records and nothing re-derives them, so a rebuild at a new width would leave the stored vectors indexed as if they were the new width — every similarity score wrong, with no error reported. If the configured width ever differs from an existing space's index, Ythril **refuses the change, keeps the existing width, and logs both numbers**. A filter-field change still applies, at the existing width.
+
+**There is no supported way to move a populated gallery to a new width.** An earlier version of this page said to re-embed its faces at the new width first, which described a path that was never built: having re-embedded, there is still no call that sets the new number. Re-create the space at the width you want. The refusal above protects a gallery that HAS vectors; it is not a step in a migration.
 
 When the face recognition feature is first enabled, any existing `initSpace` call will create the required index. If you add the feature after spaces already exist, re-run `initSpace` for each space or create the index manually via the Atlas UI / MongoDB admin API.
+
+#### Reading the gallery's readiness log
+
+At boot, each space's face index is polled and its outcome logged by name. The line to know:
+
+```text
+Vector search index photos_files_faceEmbedding: gave up after 600s — probe did not serve: ...
+```
+
+**This line used to mean nothing.** The readiness probe queried the field `embedding` at the text
+embedding width, against an index that indexes `faceEmbedding` at 128 — so it could never succeed, on any
+instance, and the message appeared for galleries that were READY and serving. An operator reported it, in good
+faith, as evidence that no face index had ever been built. It was not evidence of anything.
+
+It now asks about the field the index indexes, at the width it was built at, so the line means
+what it says: this space's gallery did not become queryable inside the window.
+
+**It never affects the space's `indexStatus`.** The face gallery is optional — recall, traversal and text
+search all work with it absent — so it is polled and logged but does not vote. A space with five ready text
+indexes and no gallery is `ready`, not `failed`.
 
 #### Configuration Reference
 

@@ -64,6 +64,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   auth entry point calls, and that function now consumes `next` so a new auth path cannot attach a token
   without metering it.
 
+### Fixed
+
+- **The face gallery's readiness probe asked about the wrong field, so its answer carried no information.**
+  Reported indirectly by breituai-platform, 2026-08-20 — they quoted the log line as evidence that no face
+  index had ever been built on any of fourteen spaces, and stopped a configuration change on it:
+
+      Vector search index infrastructure_files_faceEmbedding: gave up after 600s
+        — probe did not serve: ... :: caused by :: embedding is not indexed as vector
+
+  `indexServes` hardcoded `path: 'embedding'` and took its width from `getEmbeddingConfig().dimensions`. Both
+  correct for the five text indexes; both wrong for the face gallery, which indexes `faceEmbedding` at 128. So
+  the probe queried a field that index does not index, with a vector of the wrong width, and MongoDB answered
+  exactly that string — every second, for the full 600 s window, on every space, whether or not the gallery
+  was READY and serving. **The probe could not succeed, so it was never evidence of anything.**
+  `pollVectorIndexReady` took no vector path, so the caller could not supply one — even though
+  `ensureVectorSearchIndex` two levels up had built the definition WITH the path and the width and simply did
+  not pass them on. The caller held the answer and the callee guessed.
+
+  Two costs. A READY gallery reported as failed makes the one diagnostic this feature has always read red —
+  the trap the same reporters named to us about space badges, that a red which is always red teaches an
+  operator to stop reading red. And each miss burns the whole window: fourteen spaces at 600 s each is the
+  boot-time starvation the `maxTimeMS` comment inside that very function warns about, arriving through the one
+  path the comment did not cover.
+
+  `pollVectorIndexReady` now takes a required `ProbeTarget` — the indexed path and the built width — with no
+  default, deliberately: a default would let the next non-`embedding` index silently inherit `embedding`/768
+  and fail to probe rather than fail to compile. The face caller resolves its width from the same two places
+  `initSpace` builds the index from, so the two cannot drift.
+
+  **Its own spec had passed for five releases.** `index-ready-poll.test.js` asserted the probe was a real
+  `$vectorSearch`, against the named index, cheap. All three were true of a probe that could never answer. It
+  now asserts the field and the width, per call site rather than in total, and refuses a caller that does not
+  name its target — five mutants killed against the pre-fix shape.
+
+
 ### Changed
 
 - **Ten more guessed character windows in the gates became structural bounds, emptying five files.** Two of
@@ -77,6 +112,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of the call the branch makes. Structural is not automatically tighter than a character count; it is
   tighter only when the structure chosen is the subject. Every conversion was mutation-tested against the
   behaviour it claims. `GRANDFATHERED_GAP` falls to **46 across 24 files**, from 56/29.
+
+- **`05c-face-recognition.md` no longer describes a migration path that was never built, and says what an
+  unset width IS.** An operator quoted two of its paragraphs back to us, could not reconcile them, and asked
+  rather than guessed — correctly, because neither covered the case they were in: gallery EMPTY, index never
+  built. One paragraph said there is no admin call to change the width; the next said *"to move a populated
+  gallery, re-embed its faces at the new width first"*, whose closing clause implies that having re-embedded
+  the width can then move. It cannot; there was never a call to set it. That sentence is gone and replaced by
+  what is true — re-create the space — and the create-only paragraph now opens by saying that every space has
+  a width from the moment it exists, defaults to 128, and does not derive it from the endpoint you configure.
+  Their own suggested wording, taken because it is better than what it replaces. The page also gains a section
+  on reading the gallery's readiness log, including that the line meant nothing before the probe fix above.
 
 ## [3.2.0] — 2026-08-20
 

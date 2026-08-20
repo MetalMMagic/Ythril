@@ -86,6 +86,12 @@ import type { Space, TokenRecord } from '../../core/api.types';
                 <label>{{ 'tokens.create.expires' | transloco }}</label>
                 <input type="date" class="styled-input" [(ngModel)]="newExpiry" name="expiry" />
               </div>
+              <div class="field" style="margin-bottom:0;">
+                <label>{{ 'tokens.create.rateLimit' | transloco }}</label>
+                <input type="number" class="styled-input" [(ngModel)]="newRateLimit" name="rateLimit"
+                  min="1" step="1" [placeholder]="'tokens.create.rateLimitInherit' | transloco" />
+                <div class="hint">{{ 'tokens.create.rateLimitHint' | transloco }}</div>
+              </div>
             </div>
 
             <!-- The per-space matrix, and it is the whole permission model now.
@@ -174,6 +180,12 @@ export class TokenCreateDialogComponent {
   draftRights = signal<TokenRights>({ instanceAdmin: false, createSpaces: false, floor: null, perSpace: {} });
   newName = '';
   newExpiry = '';
+  /*
+   * Empty means INHERIT the instance value, which is what most tokens should carry — so the field is left
+   * blank by default and an empty string is never sent as a number. Sending a resolved default instead would
+   * freeze today's instance value onto every token minted through this dialog.
+   */
+  newRateLimit: number | null = null;
 
   /**
    * The two instance-level flags, settable at MINT time — which they were not.
@@ -197,11 +209,14 @@ export class TokenCreateDialogComponent {
     // ONE description of access, always the matrix. The legacy `spaces`/`admin`/`readOnly` trio is mutually
     // exclusive with `rights` on the server, so a form offering both could compose a body the API refuses —
     // and the operator would read that 400 as a bug rather than as a choice they had made.
-    const body: { name: string; expiresAt?: string; rights: TokenRights } = {
+    const body: { name: string; expiresAt?: string; rights: TokenRights; rateLimitPerMinute?: number } = {
       name: this.newName.trim(),
       rights: this.draftRights(),
     };
     if (this.newExpiry) body.expiresAt = new Date(this.newExpiry).toISOString();
+    // Only when actually given. A blank field means inherit, and `0` is not a legal quota — the server
+    // refuses it — so a falsy check is the right test rather than a null check.
+    if (this.newRateLimit) body.rateLimitPerMinute = Number(this.newRateLimit);
 
     this.authApi.createToken(body).subscribe({
       next: ({ token, plaintext }) => {
@@ -210,6 +225,7 @@ export class TokenCreateDialogComponent {
         this.created.emit({ token, plaintext });
         this.newName = '';
         this.newExpiry = '';
+        this.newRateLimit = null;
       },
       error: (err) => {
         this.creating.set(false);

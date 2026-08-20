@@ -18,6 +18,7 @@ import { RightsGlyphComponent, type TokenRights } from './rights-glyph.component
 import { TokenCreateDialogComponent } from './token-create-dialog.component';
 import { TokenRightsDialogComponent } from './token-rights-dialog.component';
 import { OwnTokenRightsComponent } from './own-token-rights.component';
+import { TokenQuotaCellComponent } from './token-quota-cell.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
 import { httpErrorReason } from '../../core/http-error';
 import { TOKENS_PAGE_STYLES } from './tokens.styles';
@@ -28,7 +29,7 @@ import { TOKENS_PAGE_STYLES } from './tokens.styles';
   imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, ModalDirective,
             SummaryStripComponent, StatusPillComponent, HscrollTopDirective,
             ErrorStateComponent, RightsGlyphComponent, TokenCreateDialogComponent,
-            TokenRightsDialogComponent, OwnTokenRightsComponent],
+            TokenRightsDialogComponent, OwnTokenRightsComponent, TokenQuotaCellComponent],
   styles: [TOKENS_PAGE_STYLES],
   template: `
     <!-- New token success banner -->
@@ -114,7 +115,7 @@ import { TOKENS_PAGE_STYLES } from './tokens.styles';
           <table>
             <thead>
               <tr>
-                <th>{{ 'tokens.table.label' | transloco }}</th><th>{{ 'tokens.table.permission' | transloco }}</th><th>{{ 'tokens.table.created' | transloco }}</th><th>{{ 'tokens.table.lastUsed' | transloco }}</th><th>{{ 'tokens.table.expires' | transloco }}</th><th>{{ 'tokens.table.spaces' | transloco }}</th><th></th>
+                <th>{{ 'tokens.table.label' | transloco }}</th><th>{{ 'tokens.table.permission' | transloco }}</th><th>{{ 'tokens.table.created' | transloco }}</th><th>{{ 'tokens.table.lastUsed' | transloco }}</th><th>{{ 'tokens.table.expires' | transloco }}</th><th>{{ 'tokens.table.spaces' | transloco }}</th><th>{{ 'tokens.table.quota' | transloco }}</th><th></th>
               </tr>
             </thead>
             <tbody>
@@ -179,6 +180,9 @@ import { TOKENS_PAGE_STYLES } from './tokens.styles';
                     } @else {
                       <span class="badge badge-gray">{{ t.spaces.join(', ') }}</span>
                     }
+                  </td>
+                  <td>
+                    <app-token-quota-cell [perToken]="t.rateLimitPerMinute" [effective]="t.rateLimitEffective" />
                   </td>
                   <td style="white-space:nowrap; display:flex; gap:6px; align-items:center;">
                     <button class="icon-btn" [attr.title]="'tokens.action.rotateTitle' | transloco" [attr.aria-label]="'tokens.action.rotateAriaLabel' | transloco" (click)="regenerate(t)"><ph-icon name="arrows-clockwise" [size]="14"/></button>

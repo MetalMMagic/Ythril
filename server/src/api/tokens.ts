@@ -2,7 +2,8 @@
 import type { Request, Response } from 'express';
 import { requireAuth, requireAdminOrSpaceAdmin, requireAdminOrSpaceAdminMfa, isInstanceAdmin } from '../auth/middleware.js';
 import { authRateLimit, globalRateLimit } from '../rate-limit/middleware.js';
-import { createToken, listTokens, revokeToken, regenerateToken, renameToken, setTokenRights, setTokenMfa } from '../auth/tokens.js';
+import { rateLimitRefusal } from '../rate-limit/per-token.js';
+import { createToken, listTokens, revokeToken, regenerateToken, renameToken, setTokenRights, setTokenMfa, setTokenRateLimit } from '../auth/tokens.js';
 import { isMfaEnabled, verifyMfaCode } from '../auth/totp.js';
 import { z } from 'zod';
 import { SPACE_AREAS, RUNGS, RUNG_IMPLICATIONS, DERIVED_RUNGS } from '../config/rights-shape.js';
@@ -108,7 +109,12 @@ tokensRouter.get('/rights-catalog', globalRateLimit, requireAuth, (_req, res) =>
  * the strictness. Neither is sufficient alone, which is exactly how the first attempt at this fix broke: it
  * added `.strict()` and turned the round-trip into a 400.
  */
-const SERVER_OWNED_TOKEN_FIELDS = ['id', 'hash', 'prefix'] as const;
+// `rateLimitEffective` is DERIVED for the response (see `listTokens`) and is not a field anybody may set.
+// It joins the strip list for exactly the reason the list exists: a client that reads a token back and posts
+// it is round-tripping, and being told "unknown key" for a field we ourselves emitted is a worse answer than
+// ignoring it. Without this the new field would 400 every round-trip — the defect this list was created for,
+// reintroduced by the next response field somebody adds.
+const SERVER_OWNED_TOKEN_FIELDS = ['id', 'hash', 'prefix', 'rateLimitEffective'] as const;
 
 function stripServerOwnedToken(body: unknown): unknown {
   if (body == null || typeof body !== 'object' || Array.isArray(body)) return body;
@@ -145,6 +151,15 @@ const CreateTokenBody = z.object({
    * See `TokenRecord.mfa` for why it is three states.
    */
   mfa: z.enum(['inherit', 'exempt', 'required']).optional(),
+  /**
+   * This token's own request quota, per minute. Absent = inherit the instance value.
+   *
+   * Deliberately NOT bounded here. The bounds and the instance ceiling live in
+   * `rate-limit/per-token.ts` because the MCP tool enforces the same rule, and a `z.number().max(…)` in this
+   * schema would be a second copy of a number infra owns — the one that goes stale when the env changes.
+   * See `rateLimitRefusal`.
+   */
+  rateLimitPerMinute: z.number().int().optional(),
   /**
    * The per-space rights matrix for the new token.
    *
@@ -217,7 +232,7 @@ tokensRouter.post('/', authRateLimit, requireAdminOrSpaceAdminMfa, async (req, r
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const { name, expiresAt, spaces, admin, readOnly, peerInstanceId, schemaLibrary, mfa, rights } = parsed.data;
+  const { name, expiresAt, spaces, admin, readOnly, peerInstanceId, schemaLibrary, mfa, rights, rateLimitPerMinute } = parsed.data;
 
   // One description of access per request. A body carrying both `rights` and a legacy field describes the
   // same thing twice, and whichever lost would do so silently — which is the failure this whole area keeps
@@ -246,6 +261,19 @@ tokensRouter.post('/', authRateLimit, requireAdminOrSpaceAdminMfa, async (req, r
     }
   }
   if (!exemptionNeedsLiveCode(req, res, mfa)) return;
+  /*
+   * The quota, checked with the SHARED refusal — the MCP tool calls the same function.
+   *
+   * `403` rather than `400` when it is the instance ceiling that refuses, matching what a pinned media-config
+   * field answers: the request is well-formed and the caller is not allowed to ask for that number. A malformed
+   * value is still a `400`. Never accepted-and-clamped: storing a smaller number than was asked for and
+   * answering 201 is the defect this file's `.strict()` comment is about, one field over.
+   */
+  const quotaRefusal = rateLimitRefusal(rateLimitPerMinute);
+  if (quotaRefusal) {
+    res.status(quotaRefusal.includes('instance ceiling') ? 403 : 400).json({ error: quotaRefusal });
+    return;
+  }
   if (admin && readOnly) {
     res.status(400).json({ error: 'A token cannot be both admin and readOnly' });
     return;
@@ -281,7 +309,7 @@ tokensRouter.post('/', authRateLimit, requireAdminOrSpaceAdminMfa, async (req, r
   // schemaLibrary tokens are always read-only and have no space access
   const effectiveReadOnly = schemaLibrary ? true : (readOnly ?? false);
   const effectiveSpaces = schemaLibrary ? [] : spaces;
-  const { record, plaintext } = await createToken({ name, expiresAt: expiresAt ?? null, spaces: effectiveSpaces, admin, readOnly: effectiveReadOnly, peerInstanceId, schemaLibrary, mfa, rights: rights as never });
+  const { record, plaintext } = await createToken({ name, expiresAt: expiresAt ?? null, spaces: effectiveSpaces, admin, readOnly: effectiveReadOnly, peerInstanceId, schemaLibrary, mfa, rights: rights as never, rateLimitPerMinute });
   // Return plaintext only on creation — never retrievable again
   const { hash: _h, ...safeRecord } = record;
   res.status(201).json({ token: withReadOnlyAlias(safeRecord), plaintext });
@@ -371,6 +399,15 @@ const RenameTokenBody = z.object({
    * is shorter still than minting.
    */
   mfa: z.enum(['inherit', 'exempt', 'required']).optional(),
+  /**
+   * This token's own request quota, per minute. Absent = inherit the instance value.
+   *
+   * Deliberately NOT bounded here. The bounds and the instance ceiling live in
+   * `rate-limit/per-token.ts` because the MCP tool enforces the same rule, and a `z.number().max(…)` in this
+   * schema would be a second copy of a number infra owns — the one that goes stale when the env changes.
+   * See `rateLimitRefusal`.
+   */
+  rateLimitPerMinute: z.number().int().optional(),
   // ── The rest of the record, accepted ONLY unchanged ──────────────────────────────────────────────
   //
   // These are declared so that echoing back a token you just read does not 400 on the first field the
@@ -388,7 +425,7 @@ tokensRouter.patch('/:id', requireAdminOrSpaceAdminMfa, (req, res) => {
     return;
   }
   const id = req.params['id'] as string;
-  const { name, rights, mfa } = parsed.data;
+  const { name, rights, mfa, rateLimitPerMinute } = parsed.data;
   const previous = listTokens().find(t => t.id === id);
   if (!previous) {
     res.status(404).json({ error: 'Token not found' });
@@ -499,6 +536,21 @@ tokensRouter.patch('/:id', requireAdminOrSpaceAdminMfa, (req, res) => {
   if (mfa !== undefined && !setTokenMfa(id, mfa)) {
     res.status(404).json({ error: 'Token not found' });
     return;
+  }
+  /*
+   * Same shared refusal as the create path, and the same status split: `403` when the instance ceiling is
+   * what refuses, `400` when the value itself is malformed. One function, two surfaces, one answer.
+   */
+  if (rateLimitPerMinute !== undefined) {
+    const refusal = rateLimitRefusal(rateLimitPerMinute);
+    if (refusal) {
+      res.status(refusal.includes('instance ceiling') ? 403 : 400).json({ error: refusal });
+      return;
+    }
+    if (!setTokenRateLimit(id, rateLimitPerMinute)) {
+      res.status(404).json({ error: 'Token not found' });
+      return;
+    }
   }
 
   const updated = listTokens().find(t => t.id === id);

@@ -224,6 +224,19 @@ export interface TokenRecord {
    */
   mfa?: 'inherit' | 'exempt' | 'required';
   /**
+   * This token's own request quota per minute, as SET by an admin. Absent on most tokens, and absent means
+   * inherit the instance value — never unlimited.
+   */
+  rateLimitPerMinute?: number;
+  /**
+   * The quota actually ENFORCED, resolved by the server from token, then instance env, then the default.
+   *
+   * Read this one to show an operator what applies. Showing only the field above would make "inherits 300"
+   * and "inherits 50 because infra capped it" look identical — both blank — which is the absent-versus-
+   * not-checked ambiguity this product keeps having to fix.
+   */
+  rateLimitEffective?: number;
+  /**
    * The per-space rights matrix, when the server has one for this token.
    *
    * Optional because OIDC-derived records never pass through the config backfill that derives it. A missing

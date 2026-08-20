@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A request quota an instance admin can set per TOKEN, under a ceiling infra sets instance-wide.** Owner
+  request, 2026-08-20. `rateLimitPerMinute` on a token, settable at create and via `PATCH /api/tokens/:id`;
+  `YTHRIL_RATE_LIMIT_PER_MINUTE` for the instance. Resolution is `token > instance > 300/minute`, the same
+  `record > … > default` order `ttlDays` and `suppressEmbeddings` use, so **an instance that configures
+  neither behaves exactly as it did before** and absence on a token means INHERIT rather than unlimited.
+  The env value is a **ceiling, not just a default**: a per-token value above it is refused with a `403`
+  naming the ceiling, never accepted and quietly reduced — a ceiling an admin can exceed is decorative, and
+  storing a smaller number than was asked for is the accepted-but-discarded defect this codebase keeps
+  finding. `GET /api/tokens` and the MCP `list_tokens` tool both report `rateLimitPerMinute` (what was set)
+  beside `rateLimitEffective` (what is enforced), derived in `listTokens` so the two doors cannot disagree.
+  **Enforced by a SECOND limiter, after authentication.** The existing one runs before auth deliberately —
+  it is the only throttle in front of admin TOTP, so it must throttle requests carrying no valid credential
+  and therefore cannot know which token a request holds without a bcrypt compare per request. It is
+  unchanged and remains the outer bound. The new one is applied inside `attachToken`, the one function every
+  auth entry point calls, and that function now consumes `next` so a new auth path cannot attach a token
+  without metering it.
+
 ## [3.2.0] — 2026-08-20
 
 ### Breaking

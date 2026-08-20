@@ -134,7 +134,8 @@ to correct. The information is identical; only the envelope differs.
 | Scope | Limit | Keyed by | Applies To |
 |---|---|---|---|
 | Auth | 10 / min | source IP | Token creation, setup, invite/apply |
-| Global | 300 / min | client | All authenticated endpoints |
+| Global | 300 / min | client | All authenticated endpoints — the pre-auth backstop |
+| Per token | 300 / min by default, **settable** | token id | All authenticated endpoints, once the token is resolved |
 | Sync | 2 000 / min | client (peer) | Sync API endpoints |
 | Notify | 60 / min | client | `GET /api/notify`, `POST /api/notify`, `POST /api/notify/trigger` |
 | Bulk wipe | 5 / min | client | `DELETE /api/brain/spaces/:spaceId/{memories,entities,edges,chrono}` |
@@ -150,6 +151,32 @@ appears in a key, a log line, or a header.
 Requests with **no** credential (login, setup, an anonymous probe) key on the source IP — that is the only
 identity they have — and IPv6 addresses are normalised to their `/64` so a client cannot rotate through
 addresses it already owns.
+
+### The per-token quota is settable, and there are two tiers
+
+Added in 3.3.0. The number a token gets is resolved in this order:
+
+1. the token's own `rateLimitPerMinute`, set by an instance admin;
+2. `YTHRIL_RATE_LIMIT_PER_MINUTE`, set by whoever runs the instance;
+3. **300 / min**, which is what the global limiter has always allowed.
+
+So an instance that configures neither tier behaves exactly as it did before.
+
+**Absent on a token means INHERIT, not unlimited.** Most tokens carry no value at all, and that is the
+default state rather than an escape from the limit.
+
+`GET /api/tokens` and the MCP `list_tokens` tool both return two fields, and you almost always want the
+second: `rateLimitPerMinute` is what somebody SET, and `rateLimitEffective` is the number actually
+enforced. Read the effective one to answer *why is this client getting 429*.
+
+**`YTHRIL_RATE_LIMIT_PER_MINUTE` is a ceiling, not just a default.** When it is set, a per-token value above
+it is refused with a **403** naming the ceiling — never accepted and quietly reduced. If you automate token
+creation, that 403 means infra owns the number and your request asked for more than it allows.
+
+**Two limiters, not one.** The global limiter still runs BEFORE authentication and is unchanged: it has to
+throttle requests carrying no valid credential, so it keys on a hash of what you presented and cannot know
+which token that is. The per-token quota is enforced after the token is resolved. In practice you may see a
+429 from either, and the message says which.
 
 The **flood backstop** is a per-IP ceiling in front of every route, set far above any legitimate single
 client. It exists because per-client keying alone would let a flood of random bearer strings mint an

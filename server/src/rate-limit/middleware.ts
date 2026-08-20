@@ -2,6 +2,7 @@ import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { createHash } from 'node:crypto';
 import type { Request } from 'express';
 import { log } from '../util/log.js';
+import { resolveLimitFor, WINDOW_MS } from './per-token.js';
 
 /**
  * Bucket requests by CLIENT, not by source IP.
@@ -163,5 +164,53 @@ export const bulkWipeRateLimit = rateLimit({
     log.warn(`bulkWipeRateLimit hit: ${req.ip} on ${req.method} ${req.path}`);
     res.status(options.statusCode).json(options.message);
   },
+  skip: () => skipRateLimit('SKIP_GLOBAL_RATE_LIMIT'),
+});
+
+/**
+ * The PER-TOKEN quota, enforced after authentication.
+ *
+ * ## Why it is separate from `globalRateLimit`
+ *
+ * That one runs before auth, deliberately — it is the only throttle in front of admin TOTP verification, so it
+ * must throttle requests carrying no valid credential at all. It therefore cannot know WHICH token a request
+ * holds: answering that means a bcrypt compare against every stored token, per request. So it keys on a hash of
+ * the credential, which buckets correctly and identifies nothing.
+ *
+ * This one runs where the record is already resolved and free. `globalRateLimit` is unchanged and remains the
+ * outer bound for the anonymous surface.
+ *
+ * ## Keyed on the token ID, not on the credential hash
+ *
+ * A rotated token is a new credential and the same grant. Keying on the hash would hand a fresh bucket to every
+ * rotation, which turns a quota into an inconvenience.
+ *
+ * ## Why `max` is a function
+ *
+ * Because the answer is per request: `express-rate-limit` calls it with the request, and
+ * `resolveLimitFor` reads the resolved record. A constant here is what this change exists to remove.
+ */
+export const tokenRateLimit = rateLimit({
+  windowMs: WINDOW_MS,
+  max: (req: Request) => resolveLimitFor(req.authToken as { rateLimitPerMinute?: number } | undefined),
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: (req: Request) => {
+    const token = req.authToken as { id?: string } | undefined;
+    // An OIDC-derived identity has no stored token id; fall back to the shared client key so it is still
+    // bucketed rather than exempt. Exempting anything from a quota is how a quota stops being one.
+    return token?.id ? `t:${token.id}` : clientRateLimitKey(req);
+  },
+  message: { error: 'Rate limit exceeded for this token, please slow down.' },
+  handler: (req, res, _next, options) => {
+    const token = req.authToken as { id?: string; name?: string } | undefined;
+    // The token is named because the operator's next question is always WHICH one, and a quota they set
+    // themselves is the one thing they can act on.
+    log.warn(`tokenRateLimit hit: token '${token?.name ?? 'unknown'}' (${token?.id ?? 'no id'}) `
+      + `on ${req.method} ${req.path} — limit ${resolveLimitFor(token as { rateLimitPerMinute?: number })}/min`);
+    res.status(options.statusCode).json(options.message);
+  },
+  // The same kill-switch the global limiter honours, and for the same reason: parallel test suites on one host
+  // would otherwise exhaust a shared window. Non-production only, enforced in `skipRateLimit`.
   skip: () => skipRateLimit('SKIP_GLOBAL_RATE_LIMIT'),
 });

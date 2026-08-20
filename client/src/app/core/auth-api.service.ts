@@ -47,7 +47,7 @@ export class AuthApi {
     return this.http.get<{ tokens: TokenRecord[] }>('/api/tokens');
   }
 
-  createToken(body: { name: string; expiresAt?: string; spaces?: string[]; admin?: boolean; readOnly?: boolean; schemaLibrary?: boolean; mfa?: 'exempt' | 'required' }): Observable<{ token: TokenRecord; plaintext: string }> {
+  createToken(body: { name: string; expiresAt?: string; spaces?: string[]; admin?: boolean; readOnly?: boolean; schemaLibrary?: boolean; mfa?: 'exempt' | 'required'; rateLimitPerMinute?: number }): Observable<{ token: TokenRecord; plaintext: string }> {
     return this.http.post<{ token: TokenRecord; plaintext: string }>('/api/tokens', body);
   }
 

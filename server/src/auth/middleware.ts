@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { log } from '../util/log.js';
+import { tokenRateLimit } from '../rate-limit/middleware.js';
 import { findMatchingToken, touchToken } from './tokens.js';
 import { consumeSseTicket } from './sse-ticket.js';
 import { isMfaEnabled, verifyMfaCode } from './totp.js';
@@ -179,15 +180,37 @@ function extractBearer(req: Request): string | null {
 // helpers hold each in one place so a change — a new metric, an audit hook, an
 // OIDC tweak — is made once instead of mirrored by hand across ~6 functions.
 
-/** Attach the resolved record to the request and refresh a PAT's lastUsed. */
+/**
+ * Attach the resolved record, refresh a PAT's `lastUsed`, and METER the request against the token's quota.
+ *
+ * ## Why the metering lives here, and why this function consumes `next`
+ *
+ * There are NINE auth entry points — `requireAuth`, `requireMcpAuth`, `requireSpaceAuth`, the admin variants,
+ * the MFA one — and each resolves a record and attaches it separately. Applying the per-token limiter at any
+ * one of them would leave the other eight uncounted, and a quota with a hole in it is not a quota. Applying it
+ * at all nine works until somebody adds a tenth.
+ *
+ * So the function that ATTACHES a token is the function that METERS it, and it takes `next` rather than letting
+ * the caller call it. A new auth path cannot attach a token without metering, because attaching is how a
+ * request proceeds: there is no `next()` left for a caller to reach on its own.
+ *
+ * It also cannot be applied any earlier than this. The limit is a property of the token, so until the record is
+ * resolved there is nothing to read it from — which is exactly why the pre-auth `globalRateLimit` keys on a
+ * hash of the credential and identifies nothing.
+ *
+ * `tokenRateLimit` calls `next()` on a pass and answers 429 on a hit.
+ */
 function attachToken(
   req: Request,
+  res: Response,
+  next: NextFunction,
   record: Omit<TokenRecord, 'hash'> | OidcTokenRecord,
   bearer: string,
 ): void {
   req.authToken = record;
   // Update lastUsed asynchronously for PAT tokens — do not block the request.
   if (isPat(bearer) && 'id' in record) touchToken(record.id);
+  tokenRateLimit(req, res, next);
 }
 
 /**
@@ -502,8 +525,7 @@ async function performAuth(
   }
 
   authAttemptsTotal.inc({ result: 'success' });
-  attachToken(req, record, bearer);
-  next();
+  attachToken(req, res, next, record, bearer);
 }
 
 /**
@@ -536,8 +558,7 @@ export async function acceptSchemaLibraryToken(
   }
 
   authAttemptsTotal.inc({ result: 'success' });
-  attachToken(req, record, bearer);
-  next();
+  attachToken(req, res, next, record, bearer);
 }
 
 /**
@@ -568,9 +589,8 @@ export function requireSpaceAuthScoped(paramName: string) {
     if (!enforceAreaRung(res, record, req, spaceTargets(spaceId, record))) return;
 
     authAttemptsTotal.inc({ result: 'success' });
-    attachToken(req, record, bearer);
     req.resolvedSpaceId = spaceId;
-    next();
+    attachToken(req, res, next, record, bearer);
   };
 }
 
@@ -605,8 +625,7 @@ export function requireAdminMfaScoped(paramName: string) {
     if (!enforceSpaceScope(res, record, spaceId)) return;
   if (!enforceAreaRung(res, record, req, spaceTargets(spaceId, record))) return;
 
-    attachToken(req, record, bearer);
-    next();
+    attachToken(req, res, next, record, bearer);
   };
 }
 
@@ -657,8 +676,7 @@ export function requireAdminOrSpaceAdminMfaScoped(paramName: string) {
     if (!enforceSpaceScope(res, record, spaceId)) return;
     if (!enforceAreaRung(res, record, req, spaceTargets(spaceId, record))) return;
 
-    attachToken(req, record, bearer);
-    next();
+    attachToken(req, res, next, record, bearer);
   };
 }
 
@@ -676,8 +694,7 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
 
   if (!enforceAdmin(res, record)) return;
 
-  attachToken(req, record, bearer);
-  next();
+  attachToken(req, res, next, record, bearer);
 }
 
 /**
@@ -694,8 +711,7 @@ export async function requireAdminOrSpaceAdmin(req: Request, res: Response, next
 
   if (!enforceAdminOrSpaceAdmin(res, record)) return;
 
-  attachToken(req, record, bearer);
-  next();
+  attachToken(req, res, next, record, bearer);
 }
 
 /** As `requireAdminMfa`, and a matrix space administrator also passes. See `requireAdminOrSpaceAdmin`. */
@@ -709,8 +725,7 @@ export async function requireAdminOrSpaceAdminMfa(req: Request, res: Response, n
   // make "space admin" a way around the instance-wide second factor.
   if (!enforceMfa(req, res, bearer, record)) return;
 
-  attachToken(req, record, bearer);
-  next();
+  attachToken(req, res, next, record, bearer);
 }
 
 /**
@@ -735,6 +750,5 @@ export async function requireAdminMfa(req: Request, res: Response, next: NextFun
   if (!enforceAdmin(res, record)) return;
   if (!enforceMfa(req, res, bearer, record)) return;
 
-  attachToken(req, record, bearer);
-  next();
+  attachToken(req, res, next, record, bearer);
 }

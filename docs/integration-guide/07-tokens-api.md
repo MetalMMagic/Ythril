@@ -63,6 +63,10 @@ Authorization: Bearer <token>
   "routes": [
     { "area": "knowledge", "method": "POST", "route": "/api/brain/spaces/:spaceId/recall", "needs": "read" },
     { "area": "files", "method": "DELETE", "route": "/api/files/:spaceId", "needs": "write" }
+  ],
+  "notAreaScoped": [
+    { "route": "/api/spaces/:id/rename",
+      "why": "Renaming a space is Space-admin, which is a column in the approved design but not one of the four DATA areas this inventory covers." }
   ]
 }
 ```
@@ -126,6 +130,27 @@ applying this table on read; do not persist the result, or a rung that exists on
 
 The same resolution governs both doors. A capability refused over REST is refused over MCP for the identical
 reason, because `effectiveRung` is the single place either surface asks what a token holds.
+
+#### `notAreaScoped` — the space-scoped routes NO area governs
+
+Some space-scoped routes are deliberately outside the four data areas, and each carries the reason. Renaming a
+space is Space-admin. Reading which tokens reach a space is a read of **auth** state, not of the space's
+contents. Per-space usage counters are instance observability that happens to be keyed by space.
+
+**Why this is published rather than left implicit.** A route absent from `routes` used to be indistinguishable
+from one nobody had classified — so "the matrix does not govern renaming" was a fact only the server's source
+held, and a grid of four areas read as complete while three routes sat outside all of them. Same argument as
+`routes` itself: the list the server decides from is the only description of a right that cannot be wrong.
+
+**No `method`, unlike `routes`.** An exemption is a claim about what the route *is*, so it covers every verb on
+that path. `routes` keys on method + path because `GET` and `DELETE` genuinely need different rungs; an
+exemption does not have that shape.
+
+**What it does not mean.** Not "unauthenticated", and not "ungoverned". Reach is still enforced — a token that
+cannot touch the space cannot call these either — and each route keeps its own guard, which for all of them
+today is admin or space-admin. What the field says is only that *the four-area grid* is not the thing deciding.
+
+Absent on a server that predates the field. Read that as an empty list, never as an error.
 
 ---
 

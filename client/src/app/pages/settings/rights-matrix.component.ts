@@ -153,6 +153,18 @@ const EMPTY = (): WireRungs => ({ knowledge: 'none', files: 'none', schema: 'non
               <li>{{ 'tokens.rights.spaceAdmin.excludes' | transloco }} {{ d.excludes }}</li>
             </ul>
           }
+          <!-- The routes NO area governs, from the server's own exemption list. This belongs in the Space
+               Admin panel because it answers the question the panel raises: if the four areas do not cover
+               renaming a space, what does. Before this the answer existed only in server source, so a grid
+               of four areas read as complete while three space-scoped routes sat outside all of them. -->
+          @if (catalog.notAreaScoped().length) {
+            <p class="muted">{{ 'tokens.rights.notAreaScoped' | transloco }}</p>
+            <ul class="rungs">
+              @for (n of catalog.notAreaScoped(); track n.route) {
+                <li><code>{{ n.route }}</code> — {{ n.why }}</li>
+              }
+            </ul>
+          }
         } @else {
         <h4>{{ 'tokens.rights.area.' + a | transloco }}</h4>
         <p>{{ 'tokens.rights.area.' + a + '.desc' | transloco }}</p>

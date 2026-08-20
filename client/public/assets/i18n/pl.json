@@ -1889,6 +1889,7 @@
   "tokens.rights.spaceAdmin.off": "Nie administrator tej przestrzeni (czyści wszystkie cztery obszary)",
   "tokens.rights.spaceAdmin.grants": "Daje również:",
   "tokens.rights.spaceAdmin.excludes": "Nigdy nie daje:",
+  "tokens.rights.notAreaScoped": "Trasy w obrębie przestrzeni, których nie kontroluje żaden obszar, i dlaczego:",
   "tokens.own.title": "Twoje uprawnienia",
   "tokens.own.readOnly": "Co może token, którym jesteś zalogowany. Tylko do wglądu — zmiana wymaga administratora.",
   "tokens.own.legacy": "Ten token powstał przed modelem uprawnień i nie ma siatki. Działa tak jak dotąd; administrator może go przenieść.",

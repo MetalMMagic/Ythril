@@ -27,6 +27,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { blockAfter } from './_structural-window.mjs';
+
 const ROOT = process.cwd();
 const SRC = 'server/src/auth/middleware.ts';
 const code = readFileSync(join(ROOT, SRC), 'utf8')
@@ -48,9 +50,47 @@ describe('the area check', () => {
 
   it('an unresolved route falls through to reach, and says so', () => {
     const b = body('enforceAreaRung');
-    assert.match(b, /if \(!need\)/, 'a miss is not handled at all');
+    assert.match(b, /verdict\.kind === 'unclassified'/, 'a miss is not handled at all');
     assert.match(b, /log\.warn/, 'a miss is silent, so nothing would ever reveal the gap');
     assert.match(b, /return true;/, 'a miss must fall through to reach, not refuse');
+  });
+
+  it('a DELIBERATELY exempt route is silent — it is decided, not missed', () => {
+    /*
+     * The defect breituai-platform read off a live pod on 2026-08-20. `NOT_AREA_SCOPED` records, with a
+     * written reason each, that four routes are not views of a space's DATA. The runtime knew only
+     * `ROUTE_RIGHTS`, so every request to one of them logged
+     *
+     *     no inventory entry for 'GET /api/brain/spaces/:spaceId/activity' — reach enforced, area not.
+     *     Add it to ROUTE_RIGHTS; misses become refusals once the log is clean.
+     *
+     * Two things wrong with that, and the second is the serious one. The advice would have UNDONE the
+     * recorded decision. And "once the log is clean" was a state four routes guaranteed could never be
+     * reached, so the refusal flip the message promises could never happen — a deferred safety improvement
+     * that its own log message makes unreachable is indistinguishable from one nobody got round to.
+     */
+    const b = body('enforceAreaRung');
+    const exempt = b.indexOf("verdict.kind === 'not-area-scoped'");
+    const unclassified = b.indexOf("verdict.kind === 'unclassified'");
+    assert.ok(exempt > -1, 'the exempt case is not handled, so an exemption reads as an oversight again');
+    assert.ok(unclassified > exempt,
+      'the exempt check must come FIRST; after the warning it cannot prevent it');
+
+    // AN ORDERING CLAIM, not a window: the exempt branch has to return before ANY log call in this function,
+    // which is what makes it silent. Comparing indices says exactly that and nothing about how much text
+    // sits between them.
+    assert.ok(b.indexOf('log.warn') > exempt, 'the warning is reachable from the exempt path');
+
+    // And the warning belongs to the unclassified branch specifically, bounded by that branch's own brace —
+    // not to the function at large. `blockAfter` because a cap here could not tell "inside the branch" from
+    // "a few lines after it", and those are the two opposite behaviours.
+    assert.match(blockAfter(b, unclassified, 'the unclassified branch'), /log\.warn/,
+      'the warning must live inside the unclassified branch, or it fires for decided routes too');
+
+    // The advice in the message names BOTH lists now. Naming only ROUTE_RIGHTS is what sent an operator at
+    // the wrong fix for two of the four.
+    assert.match(b, /NOT_AREA_SCOPED/,
+      'the warning must offer the exemption list as well, or the only advice on offer is the wrong one');
   });
 
   it('iterating routes are NOT gated on the call', () => {

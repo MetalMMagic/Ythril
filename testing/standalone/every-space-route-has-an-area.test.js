@@ -88,6 +88,31 @@ function exemptRoutes() {
   return new Set([...block.matchAll(/route:\s*'([^']+)'/g)].map(m => m[1]));
 }
 
+/**
+ * Does this route exist on the real surface? Takes `METHOD path` or a bare path.
+ *
+ * Extracted because the two staleness checks below need the identical question, and this repo's most-produced
+ * defect is one rule with two implementations where the weaker one wins. The spaces router needs the special
+ * case: it is not wholly space-scoped, so it is not in SPACE_ROUTERS and its entries are checked against the
+ * file directly.
+ */
+function routeExists(methodAndPath) {
+  const space = methodAndPath.indexOf(' ');
+  const bare = space === -1 ? methodAndPath : methodAndPath.slice(space + 1);
+  if (bare.startsWith('/api/spaces/')) {
+    const code = withoutComments(read('server/src/api/spaces.ts'))
+      + withoutComments(read('server/src/api/spaces-activity.ts'))
+      + withoutComments(read('server/src/api/spaces-reembed.ts'));
+    const path = bare.replace('/api/spaces', '') || '/';
+    return code.includes(`'${path}'`);
+  }
+  const found = discoveredRoutes();
+  // A bare path matches any verb registered on it, which is what a method-less exemption means.
+  return space === -1
+    ? [...found].some(r => r.slice(r.indexOf(' ') + 1) === bare)
+    : found.has(methodAndPath);
+}
+
 describe('every space-scoped route is classified', () => {
   it('discovers a real route surface', () => {
     // A gate that enumerates nothing passes vacuously, and would keep passing if a router moved.
@@ -123,18 +148,29 @@ describe('every space-scoped route is classified', () => {
   it('the inventory claims no route that does not exist', () => {
     // The other direction, and the one that rots quietly: a classified route that was deleted or renamed
     // leaves a rule guarding nothing, and the count still looks healthy.
-    const found = discoveredRoutes();
-    const stale = [...classifiedRoutes()].filter(r => {
-      // The spaces router is not in SPACE_ROUTERS — it is not wholly space-scoped — so its entries are
-      // checked against the file directly rather than against the discovered set.
-      if (r.includes('/api/spaces/:id')) {
-        const code = withoutComments(read('server/src/api/spaces.ts'));
-        const path = r.slice(r.indexOf(' ') + 1).replace('/api/spaces', '') || '/';
-        return !code.includes(`'${path}'`);
-      }
-      return !found.has(r);
-    }).sort();
+    const stale = [...classifiedRoutes()].filter(r => !routeExists(r)).sort();
     assert.deepEqual(stale, [], `the inventory classifies routes that no longer exist:\n  ${stale.join('\n  ')}`);
+  });
+
+  it('and the EXEMPTION list claims none either', () => {
+    /*
+     * The same rot, on the list nobody was checking. `/api/spaces/:id/token-access` sat in NOT_AREA_SCOPED
+     * with a two-line reason for a route that does not exist anywhere in the server — the only token-access
+     * route is the brain one, which has its own entry. Found by reading the list while fixing the runtime,
+     * not by any gate: the staleness check above iterated `classifiedRoutes()` alone, so an exemption could
+     * name anything at all.
+     *
+     * Worth its own test rather than a wider one, because a stale exemption is the more dangerous of the two.
+     * A stale CLASSIFICATION guards nothing and enforces nothing. A stale EXEMPTION is a standing licence:
+     * the day a route with that path is added, it arrives pre-excused from the rights matrix and no gate
+     * objects, because the excuse was written before the route existed.
+     *
+     * Exemptions carry no method, so existence is checked path-only — `routeExists` takes either shape.
+     */
+    const stale = [...exemptRoutes()].filter(r => !routeExists(r)).sort();
+    assert.deepEqual(stale, [], 'NOT_AREA_SCOPED exempts routes that do not exist. Delete the entry — an '
+      + 'exemption for a path nothing serves is a standing licence for whatever is added there next:\n  '
+      + stale.join('\n  '));
   });
 
   it('every data-quality route scopes by iterating, not by path', () => {

@@ -724,9 +724,14 @@ export const list_tokensTool: ToolHandler = {
     + 'An expired token is still LISTED. Expiry is enforced when the token is used, not by removing the row, '
     + 'so seeing it here does not mean it works — check `expiresAt` before concluding anything about who has '
     + 'access.\n\n'
+    + 'THE QUOTA IS TWO FIELDS AND YOU WANT THE SECOND ONE. `rateLimitPerMinute` is what an admin SET on '
+    + 'this token, and it is absent on most of them — absent means "inherit the instance value", which is '
+    + 'not the same as unlimited. `rateLimitEffective` is the number actually enforced, resolved from the '
+    + 'token, then YTHRIL_RATE_LIMIT_PER_MINUTE, then the 300/minute default. Read the effective one to '
+    + 'answer "why is this client getting 429"; read the stored one to answer "did somebody set this".\n\n'
     + 'RESPONSE: one row per token with its id, name, prefix, expiry, whether it carries a rights matrix or '
-    + 'legacy scope, and the matrix itself. Use it to answer "which tokens reach this space, and at what '
-    + 'level" — the question the rights editor answers one token at a time.',
+    + 'legacy scope, the matrix itself, and both quota fields. Use it to answer "which tokens reach this '
+    + 'space, and at what level" — the question the rights editor answers one token at a time.',
   admin: true,
   inputSchema: () => ({
     type: 'object',

@@ -5,6 +5,7 @@ import { getConfig, saveConfig, mutateConfig, getSecrets, saveSecrets } from '..
 import { log } from '../util/log.js';
 import type { TokenRecord } from '../config/types.js';
 import { migrateToken } from './rights-migration.js';
+import { resolveLimitFor } from '../rate-limit/per-token.js';
 
 const BCRYPT_ROUNDS = 12;
 const BASE62 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
@@ -191,6 +192,14 @@ export async function createToken(opts: {
    * knowing about it. Absent means the load-time backfill will derive one from the legacy fields.
    */
   rights?: TokenRecord['rights'];
+  /**
+   * This token's own request quota per minute. Absent = inherit the instance value.
+   *
+   * Validated by the CALLER against `rateLimitRefusal`, which owns the bounds and the instance ceiling.
+   * Not re-checked here for the same reason `rights` is not re-capped here: the check needs the env and the
+   * caller's context, and a second copy of a rule infra owns is how the two answers drift.
+   */
+  rateLimitPerMinute?: number;
 }): Promise<{ record: TokenRecord; plaintext: string }> {
   const plaintext = generateToken();
   const hash = await hashToken(plaintext);
@@ -207,6 +216,9 @@ export async function createToken(opts: {
     // Stored only when it says something. `inherit` IS the absent state, so writing it would put a field on
     // every future token that means exactly what its absence already means.
     ...(opts.mfa && opts.mfa !== 'inherit' ? { mfa: opts.mfa } : {}),
+    // Stored only when set, for the same reason: absence MEANS inherit-the-instance-value, so writing the
+    // resolved number would freeze today's instance default onto the token and stop it following a change.
+    ...(opts.rateLimitPerMinute !== undefined ? { rateLimitPerMinute: opts.rateLimitPerMinute } : {}),
     // ALWAYS stored. Owner ruling 2026-08-13: *"translate old tokens into matrix rights and overwrite on
     // update. only matrix from now on."*
     //
@@ -307,8 +319,22 @@ export async function createOAuthToken(opts: {
 }
 
 /** List all token records (hashes excluded) */
-export function listTokens(): Omit<TokenRecord, 'hash'>[] {
-  return getConfig().tokens.map(({ hash: _h, ...rest }) => rest);
+export function listTokens(): (Omit<TokenRecord, 'hash'> & { rateLimitEffective: number })[] {
+  return getConfig().tokens.map(({ hash: _h, ...rest }) => ({
+    ...rest,
+    /*
+     * The limit that ACTUALLY applies, derived here rather than at either door.
+     *
+     * `rateLimitPerMinute` absent means "inherit the instance value", and from a list that is indistinguishable
+     * from "inherits 300" versus "inherits 50 because infra set a ceiling" — the absent-versus-not-checked
+     * ambiguity this codebase keeps having to fix. So the resolved number rides along beside the stored one.
+     *
+     * In `listTokens` and not in the REST response shaper, because the MCP `list_tokens` tool calls this
+     * function directly. Deriving it at one door would give the two doors different answers to the same
+     * question, which is the parity defect `CLAUDE.md` calls the most expensive lesson in this codebase.
+     */
+    rateLimitEffective: resolveLimitFor(rest),
+  }));
 }
 
 
@@ -355,6 +381,26 @@ export function setTokenMfa(id: string, mfa: 'inherit' | 'exempt' | 'required'):
   if (idx < 0) return false;
   if (mfa === 'inherit') delete config.tokens[idx]!.mfa;
   else config.tokens[idx]!.mfa = mfa;
+  saveConfig(config);
+  return true;
+}
+
+/**
+ * Set (or clear) one token's request quota.
+ *
+ * `null` CLEARS it, and that is the only way back to inheriting the instance value — the same shape
+ * `setTokenMfa` uses for `inherit`. Writing the resolved number instead would freeze today's instance default
+ * onto the token and stop it following a later change, which is a quota nobody set and nobody can see they set.
+ *
+ * The value is validated by the CALLER against `rateLimitRefusal`, which owns the bounds and the instance
+ * ceiling. Re-checking here would be a second copy of a rule infra owns.
+ */
+export function setTokenRateLimit(id: string, perMinute: number | null): boolean {
+  const config = getConfig();
+  const idx = config.tokens.findIndex(t => t.id === id);
+  if (idx < 0) return false;
+  if (perMinute === null) delete config.tokens[idx]!.rateLimitPerMinute;
+  else config.tokens[idx]!.rateLimitPerMinute = perMinute;
   saveConfig(config);
   return true;
 }

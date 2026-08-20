@@ -1951,5 +1951,11 @@
   "embedding.origins.add": "Dodaj źródło",
   "embedding.origins.entryLabel": "Dozwolone źródło",
   "embedding.origins.saved": "Zapisano — działa od razu, bez restartu.",
-  "embedding.origins.hint": "Jedno dokładne źródło w wierszu: tylko schemat, host i port, bez ścieżki. https jest wymagane z wyjątkiem localhost. Symbole wieloznaczne nigdy nie są akceptowane. Zmiana działa od następnego żądania."
+  "embedding.origins.hint": "Jedno dokładne źródło w wierszu: tylko schemat, host i port, bez ścieżki. https jest wymagane z wyjątkiem localhost. Symbole wieloznaczne nigdy nie są akceptowane. Zmiana działa od następnego żądania.",
+  "tokens.create.rateLimit": "Żądania na minutę",
+  "tokens.create.rateLimitInherit": "Domyślna wartość instancji",
+  "tokens.create.rateLimitHint": "Pozostaw puste, aby użyć domyślnej wartości instancji. Dla klienta wykonującego pracę masową ustaw niższą wartość, aby nie wypierał pozostałych.",
+  "tokens.table.quota": "Limit",
+  "tokens.table.perMin": "/min",
+  "tokens.table.quotaInherited": "(odziedziczony)"
 }

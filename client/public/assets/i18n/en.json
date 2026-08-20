@@ -1951,5 +1951,11 @@
   "embedding.origins.add": "Add an origin",
   "embedding.origins.entryLabel": "Allowed origin",
   "embedding.origins.saved": "Saved — active immediately, no restart.",
-  "embedding.origins.hint": "One exact origin per line: scheme, host and port only, with no path. https is required except on localhost. Wildcards are never accepted. A change takes effect on the next request."
+  "embedding.origins.hint": "One exact origin per line: scheme, host and port only, with no path. https is required except on localhost. Wildcards are never accepted. A change takes effect on the next request.",
+  "tokens.create.rateLimit": "Requests per minute",
+  "tokens.create.rateLimitInherit": "Instance default",
+  "tokens.create.rateLimitHint": "Leave blank to use the instance default. Set a lower number for a client doing bulk work, so it cannot crowd out everything else.",
+  "tokens.table.quota": "Quota",
+  "tokens.table.perMin": "/min",
+  "tokens.table.quotaInherited": "(inherited)"
 }

@@ -60,7 +60,11 @@ describe('every field the list route emits is answerable by the edit route', () 
     // meant changing a scheduler's second factor required revoking the token and minting a replacement —
     // rotating a secret to change a flag. Granting an exemption still costs a live TOTP code on the request,
     // pinned by `mfa-is-editable-and-still-guarded.test.js`.
-    const accountedFor = new Set(['hash', 'id', 'prefix', 'name', 'rights', 'mfa', ...Object.keys(ECHOABLE)]);
+    // `rateLimitPerMinute` joined the editable set for the same reason `mfa` did: a quota that could only be
+    // set while minting would mean changing a client's budget required revoking its token and issuing a new
+    // one — rotating a secret to change a number. It is a property of the token, so it is edited on the token.
+    const accountedFor = new Set(['hash', 'id', 'prefix', 'name', 'rights', 'mfa', 'rateLimitPerMinute',
+      ...Object.keys(ECHOABLE)]);
     const orphans = fields.filter(f => !accountedFor.has(f));
     assert.deepEqual(orphans, [],
       `${orphans.join(', ')} are returned by GET and would be refused by PATCH — a token read back cannot `

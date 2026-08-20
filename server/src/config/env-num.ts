@@ -61,6 +61,11 @@ export const NUMERIC_SETTINGS: readonly NumericSetting[] = [
   { name: 'INDEX_READY_TIMEOUT_MS', min: 0, max: 3_600_000, what: 'how long boot waits for vector indexes' },
   { name: 'MCP_OAUTH_TOKEN_TTL_DAYS', min: 0, max: 3_650, what: 'the lifetime of a connector token (0 = never expires)' },
   { name: 'YTHRIL_CONNECTOR_PORT', min: 1, max: 65535, what: "the local agent connector's listen port" },
+  // Infra's instance-wide request quota, and the CEILING a per-token value may not exceed. Registered here
+  // rather than read with a bare `??` for the reason this whole file exists: a typo in a rate limit would
+  // otherwise become NaN, and `max: NaN` in express-rate-limit rejects every request — an instance that
+  // refuses all traffic because somebody wrote `3OO`.
+  { name: 'YTHRIL_RATE_LIMIT_PER_MINUTE', min: 1, max: 1_000_000, what: 'the instance-wide request quota per token, per minute' },
   // Both bound the same scan, and the ceilings are the point rather than the defaults. The scan runs on a
   // write path: 30 minutes of window or 5,000 documents would make a duplicate check cost seconds, which
   // is a slower way to fail than not checking at all.

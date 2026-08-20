@@ -230,6 +230,36 @@ If MFA is on, a space administrator is prompted for a code like everybody else.
 **The second factor is not a token setting.** MFA is instance-wide and lives in **Settings → Preferences**;
 there is nothing about it in the token dialogs, and there is no per-token exemption to grant here.
 
+### How many requests a token may make
+
+**Each token has its own request budget, per minute.** Left alone, every token gets the instance's number — so
+you do not have to think about this at all unless one client is drowning out the others.
+
+Set a lower one on a token when it is doing bulk work you do not want competing with people using the product:
+a nightly importer, an agent that crawls, anything that would happily send a thousand requests a second if you
+let it.
+
+#### What you will see on the token list
+
+Two numbers, and the second is the one that answers questions:
+
+| column | means |
+|---|---|
+| the value you set | blank on most tokens, and blank means *use the instance's number* — not *unlimited* |
+| the effective limit | what is actually enforced right now |
+
+When a client goes over, its requests get **429 Too Many Requests** and a `Retry-After` telling it how long to
+wait. Other tokens are unaffected — the budget is per token, which is the entire point.
+
+#### If the box refuses your number
+
+Whoever runs this instance can set a ceiling that admins cannot exceed. If they have, and you ask for more, the
+save is refused and the message tells you the ceiling and who owns it. Nothing is saved in that case — you will
+not find a smaller number quietly stored in place of what you typed.
+
+That ceiling is set outside the product, in the instance's environment. If you need it raised, that is a
+conversation with whoever operates the server rather than something this page can change.
+
 ### Rotating a token
 
 Click the ↺ icon on any token row. A new secret is generated; the old one stops working immediately. The new value is shown once.

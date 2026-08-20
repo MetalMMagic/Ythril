@@ -60,6 +60,23 @@ export interface TokenRecord {
    */
   mfa?: 'inherit' | 'exempt' | 'required';
   /**
+   * This token's own request quota, in requests per minute. Absent = inherit the instance value.
+   *
+   * Owner request, 2026-08-20. Resolution is `record > instance > default`, the same order `ttlDays` and
+   * `suppressEmbeddings` use: this field, then `YTHRIL_RATE_LIMIT_PER_MINUTE`, then the 300/minute the global
+   * limiter has always allowed — so an instance that configures nothing behaves exactly as it does today.
+   *
+   * **Set by an instance admin; bounded by infra.** When `YTHRIL_RATE_LIMIT_PER_MINUTE` is set it is a CEILING
+   * and not merely a default: a write above it is refused naming the ceiling, because a ceiling an admin can
+   * exceed is decorative. See `rate-limit/per-token.ts` for the resolution and the refusal, which the REST
+   * route and the MCP tool share rather than each implementing.
+   *
+   * Enforced AFTER authentication, by a second limiter. The existing pre-auth limiter cannot be made
+   * token-aware: it must throttle requests carrying no valid credential, so identifying which token a request
+   * holds would mean a bcrypt compare against every stored token, per request.
+   */
+  rateLimitPerMinute?: number;
+  /**
    * The per-space rights matrix, derived from `admin`/`readOnly`/`spaces` by `migrateToken()` at load.
    *
    * **Not authoritative yet.** Enforcement still reads the legacy fields; this is written and compared

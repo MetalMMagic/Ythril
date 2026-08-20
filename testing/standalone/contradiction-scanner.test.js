@@ -22,6 +22,7 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { balancedFrom } from './_structural-window.mjs';
 
 let cursorKey, toJudgeable, DEFAULT_TYPES, unjudgedNeighbours;
 
@@ -152,7 +153,14 @@ describe('contradiction scanner — the free pass is actually free', () => {
   const code = src.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
 
   it('asks the judge for the deterministic pass only', () => {
-    assert.match(code, /pass === 'structured'[\s\S]{0,160}structuredOnly:\s*true/);
+    // A WINDOW, converted to the ARGUMENT LIST of the call the structured branch makes. Not the enclosing
+    // statement: the branch is a ternary, so the statement holds BOTH arms and the flag could sit on the NLI
+    // one and still satisfy it — which is the opposite behaviour, and the whole point of the test.
+    const at = code.indexOf("pass === 'structured'");
+    const call = code.indexOf('judgePair(', at);
+    assert.ok(at > -1 && call > at, 'the structured branch no longer calls judgePair — re-anchor this gate');
+    const args = balancedFrom(code, code.indexOf('(', call), 'the structured-pass judgePair call');
+    assert.match(args, /structuredOnly:\s*true/);
   });
 
   it('does not try to buy silence with an unreachable confidence floor', () => {

@@ -34,6 +34,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import http from 'node:http';
+import { blockAfter } from './_structural-window.mjs';
 
 const { ssrfSafeFetch } = await import('../../server/dist/util/ssrf.js');
 
@@ -171,11 +172,19 @@ describe('a failed chunk is never reported as complete', () => {
   });
 
   it('the worker records partial when any chunk failed', () => {
-    assert.match(worker, /if \(a\.failed > 0\)[\s\S]{0,120}fileEmbeddingStatus = 'partial'/);
+    // A WINDOW, converted: the subject is the branch, bounded by its own brace. A cap cannot tell "the status
+    // is set INSIDE the branch" from "it is set 120 characters after it" — and those are opposite behaviours:
+    // one marks a file partial when a chunk failed, the other marks every file partial.
+    const at = worker.indexOf('if (a.failed > 0)');
+    assert.ok(at > -1, 'the audio-failure branch is gone — re-anchor this gate');
+    assert.match(blockAfter(worker, at, 'the audio partial branch'), /fileEmbeddingStatus = 'partial'/);
   });
 
   it('and does the same for video, whose audio can partly fail', () => {
-    assert.match(worker, /if \(v\.audioFailed > 0\)[\s\S]{0,120}fileEmbeddingStatus = 'partial'/);
+    // Same conversion as the audio branch above, for the same reason.
+    const at = worker.indexOf('if (v.audioFailed > 0)');
+    assert.ok(at > -1, 'the video-audio-failure branch is gone — re-anchor this gate');
+    assert.match(blockAfter(worker, at, 'the video partial branch'), /fileEmbeddingStatus = 'partial'/);
   });
 
   it('embedVideo propagates the audio outcome rather than returning void', () => {

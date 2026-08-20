@@ -163,13 +163,27 @@ const GRANDFATHERED = new Map([
 /**
  * A CAPPED GAP inside a regex: `/marker[\s\S]{0,400}?other/`. Files still allowed to carry one, with how many.
  *
- * **56 occurrences across 29 files**, down from 66/36 when this was first measured — and the tracker had recorded
+ * **46 occurrences across 24 files**, down from 66/36 when this was first measured — and the tracker had recorded
  * 30, which is why the number lives in the gate now rather than in a markdown file that drifts.
  *
  * The nine that left were the ones whose subject is a NAMED FUNCTION or a BRANCH, where the structural bound is
  * unambiguous: an update call's arguments, a 412 branch, a catch block, an abandon branch, `spaceStillExists`,
  * `selectSpace` (a 2 000-character cap — nobody chooses that number, they raise it until the test passes),
  * `chronoAllowedTypes`, `getAllowedChronoTypes`, and a try/finally.
+ *
+ * The ten after those emptied five files, and two of them are worth recording because they change what
+ * "structural" has to mean:
+ *
+ * - **A NOTICE entry read with a 900-character window was 13 characters from reading the WRONG entry.** `### jszip`
+ *   sits at offset 18040 and the next entry's election at 18953. The check asks whether *this* package's licence
+ *   arm is recorded; at 913 characters the neighbour's election would have answered for it, and the test that
+ *   would have gone green is the one whose stated purpose is refusing exactly that. Nothing maintains a
+ *   13-character margin, and nothing would have reported it.
+ * - **The enclosing STATEMENT is the wrong bound for a ternary.** `pass === 'structured' ? judgePair(a, b,
+ *   { structuredOnly: true }) : judgePair(a, b)` is one statement holding BOTH arms, so a statement-level bound is
+ *   satisfied by the flag sitting on the other branch — the opposite behaviour, and a paid model call. The bound
+ *   that holds is the ARGUMENT LIST of the call the branch makes. Structural is not automatically tighter than a
+ *   character count: it is tighter only when the structure chosen is the subject.
  *
  * **And what remains is now SORTED, not merely counted.** The prose sites carry a one-line comment saying
  * the number IS the rule — `[^.]` and `[^.
@@ -210,27 +224,22 @@ const GRANDFATHERED_GAP = new Map([
   ['testing/standalone/caller-supplied-ids-are-uuids.test.js', 1],
   ['testing/standalone/chrono-retention.test.js', 1],
   ['testing/standalone/chrono-status-descriptions-match-the-derivation.test.js', 9],
-  ['testing/standalone/contradiction-scanner.test.js', 1],
   ['testing/standalone/document-description.test.js', 3],
-  ['testing/standalone/file-mutation-tools-state-their-cascade.test.js', 2],
   ['testing/standalone/infra-managed-locks-every-field.test.js', 3],
   ['testing/standalone/mcp-tool-rights.test.js', 2],
   ['testing/standalone/merge-relinks-every-entity-reference.test.js', 2],
   ['testing/standalone/meta-precondition.test.js', 1],
   ['testing/standalone/no-boot-migration-on-synced-data.test.js', 1],
-  ['testing/standalone/no-copyleft-in-the-shipped-tree.test.js', 2],
   ['testing/standalone/notice-coverage.test.js', 2],
   ['testing/standalone/oidc-carries-a-rights-matrix.test.js', 1],
   ['testing/standalone/recall-params-reach-the-ui.test.js', 2],
   ['testing/standalone/reembed-backfill.test.js', 1],
-  ['testing/standalone/retention-reaches-every-collection.test.js', 3],
   ['testing/standalone/rights-are-explained.test.js', 3],
   ['testing/standalone/route-guard-coverage.test.js', 1],
   ['testing/standalone/schema-derived-type-controls.test.js', 2],
   ['testing/standalone/search-tool-schemas-document-their-response.test.js', 3],
   ['testing/standalone/single-flight.test.js', 1],
   ['testing/standalone/space-admin-reaches-its-own-space-settings.test.js', 1],
-  ['testing/standalone/stt-multipart-and-partial.test.js', 2],
   ['testing/standalone/sync-waits-retrigger-and-diagnose.test.js', 1],
   ['testing/standalone/vlm-endpoint-egress.test.js', 1],
 ]);

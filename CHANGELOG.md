@@ -26,6 +26,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   auth entry point calls, and that function now consumes `next` so a new auth path cannot attach a token
   without metering it.
 
+### Changed
+
+- **Ten more guessed character windows in the gates became structural bounds, emptying five files.** Two of
+  them changed what "structural" has to mean rather than just moving a number. A `NOTICE` entry read with a
+  900-character window was **13 characters** from reading the *next* entry: `### jszip` sits at offset 18040
+  and the following entry's licence election at 18953, so at 913 the neighbour would have answered a check
+  whose whole stated purpose is refusing that. And the enclosing STATEMENT turned out to be the wrong bound
+  for a ternary — `pass === 'structured' ? judgePair(a, b, { structuredOnly: true }) : judgePair(a, b)` is
+  ONE statement holding both arms, so a statement-level bound stays green with the flag on the other branch,
+  which is the opposite behaviour and a paid model call per pair. The bound that holds is the argument list
+  of the call the branch makes. Structural is not automatically tighter than a character count; it is
+  tighter only when the structure chosen is the subject. Every conversion was mutation-tested against the
+  behaviour it claims. `GRANDFATHERED_GAP` falls to **46 across 24 files**, from 56/29.
+
 ## [3.2.0] — 2026-08-20
 
 ### Breaking

@@ -27,6 +27,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { balancedFrom, blockAfter } from './_structural-window.mjs';
 
 const ROOT = process.cwd();
 
@@ -88,8 +89,12 @@ describe('the schema retention tier reaches every typed collection', () => {
       assert.ok(!/type:\s*doc\.type|type:\s*existing\.type/.test(c.args),
         `edges.ts:${c.line} resolves its retention type from \`type\`; the schema is keyed by \`label\``);
     }
+    // A WINDOW, converted: the subject is the TYPE_FIELD map itself, bounded by the brace that closes it. 200
+    // characters reached past the map into the functions below, where `'label'` appears for other reasons.
     const ttl = read('server/src/brain/ttl.ts');
-    assert.match(ttl, /TYPE_FIELD[\s\S]{0,200}edge:\s*'label'/,
+    const map = ttl.indexOf('TYPE_FIELD');
+    assert.ok(map > -1, 'TYPE_FIELD is gone — re-anchor this gate');
+    assert.match(balancedFrom(ttl, ttl.indexOf('{', map), 'the TYPE_FIELD map'), /edge:\s*'label'/,
       "ttl.ts must map edge -> 'label' in TYPE_FIELD");
   });
 
@@ -99,7 +104,12 @@ describe('the schema retention tier reaches every typed collection', () => {
     const src = read('server/src/brain/chrono-redaction.ts');
     assert.match(src, /TYPED_COLLECTIONS[^=]*=\s*\[\s*'entity',\s*'memory',\s*'edge',\s*'chrono'\s*\]/,
       'TYPED_COLLECTIONS must list all four typed collections');
-    assert.match(src, /for \(const collection of TYPED_COLLECTIONS\)[\s\S]{0,200}backfillTypedExpiry/,
+    // A WINDOW, converted: the subject is the loop BODY, bounded by the brace that closes it. A cap here also
+    // could not tell "the call is inside the loop" from "the call is 200 characters after it", which is the
+    // difference between per-collection and once.
+    const loop = src.indexOf('for (const collection of TYPED_COLLECTIONS)');
+    assert.ok(loop > -1, 'the sweep loop is gone — re-anchor this gate');
+    assert.match(blockAfter(src, loop, 'the retention sweep loop'), /backfillTypedExpiry/,
       'the sweep must call backfillTypedExpiry for each collection');
     // Files stay out: no type, so no schema window. Asserted so nobody "completes" the list.
     assert.ok(!/TYPED_COLLECTIONS[^=]*=[^\]]*'file/.test(src),
@@ -117,8 +127,13 @@ describe('the schema retention tier reaches every typed collection', () => {
   it('the documented worked example is the one that was broken', () => {
     // 04-brain-api.md promises the tier on `entity`, with `ticket` as its example. If that claim is ever
     // narrowed to chrono, this gate should be reconsidered rather than silently disagreeing with the docs.
+    // A WINDOW, converted: the subject is the `"entity"` object in the JSON example, bounded by its own brace.
+    // The example is prose-adjacent and gets reformatted; 120 characters is a claim about how somebody chose to
+    // wrap the snippet, not about whether `retention` is shown under `entity`.
     const doc = read('docs/integration-guide/04-brain-api.md');
-    assert.match(doc, /"entity":\s*\{[\s\S]{0,120}"retention"/,
+    const entity = doc.indexOf('"entity": {');
+    assert.ok(entity > -1, 'the guide no longer shows an "entity" schema object — re-anchor this gate');
+    assert.match(balancedFrom(doc, doc.indexOf('{', entity), 'the entity schema example'), /"retention"/,
       'the guide no longer shows an entity retention example — check whether the tier’s scope changed');
   });
 });

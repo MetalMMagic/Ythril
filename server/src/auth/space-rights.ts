@@ -279,16 +279,47 @@ export const TOOL_RIGHTS: readonly ToolRight[] = [
   { tool: 'update_space', area: 'schema', needs: 'write' },
 ];
 
+/**
+ * Routes deliberately outside the four DATA areas — and the runtime reads THIS list, not just the gate.
+ *
+ * ## Why that sentence is the whole point
+ *
+ * For five releases this list was read by exactly one thing: the build-time gate. `enforceAreaRung` knew only
+ * `ROUTE_RIGHTS`, so a route on this list and a route nobody had classified were the SAME event at runtime —
+ * both logged
+ *
+ *     Space rights: no inventory entry for 'GET /api/brain/spaces/:spaceId/activity'
+ *       — reach enforced, area not. Add it to ROUTE_RIGHTS; misses become refusals once the log is clean.
+ *
+ * on every single request. breituai-platform read that off their pod's stdout on 2026-08-20 and reported it,
+ * correctly, as two routes in the rights subsystem that are reach-enforced but not area-enforced.
+ *
+ * Two things were wrong, and the second is worse than the first:
+ *
+ * 1. **The advice was wrong for these routes.** Following it — adding them to `ROUTE_RIGHTS` — would area-scope
+ *    a route the design says is not area-scoped, which is the opposite of the decision recorded in each `why`.
+ * 2. **"Once the log is clean" was UNREACHABLE.** The plan the message states is to flip a miss from allow to
+ *    refuse when nothing warns any more. These four could never stop warning, so the log could never be clean,
+ *    so the flip could never happen — and if somebody had made it happen anyway, four routes that worked
+ *    yesterday would answer 403. A deferred safety improvement that its own log message makes unreachable is
+ *    indistinguishable from one nobody got round to.
+ *
+ * This repo's signature defect, exactly: one rule, two implementations, and the weaker one wins silently. The
+ * fix is that both readers now resolve through `rungFor` in `required-rung.ts`, so an exemption is a THIRD
+ * answer rather than an absence dressed as one.
+ *
+ * ## The list carries no METHOD, and that is deliberate
+ *
+ * `ROUTE_RIGHTS` keys on method + path because `GET` and `DELETE` on one path need different rungs. An
+ * exemption is a statement about the ROUTE — "this is not a view of the space's data" — which is true of every
+ * verb on it. `every-space-route-has-an-area.test.js` has always matched exemptions path-only; the runtime now
+ * matches the same way, and a gate below asserts the two agree rather than trusting that they do.
+ */
 export const NOT_AREA_SCOPED: readonly { route: string; why: string }[] = [
   {
     route: '/api/spaces/:id/rename',
     why: 'Renaming a space is Space-admin, which is a column in the approved design but not one of the four '
        + 'DATA areas this inventory covers. It moves with the Space-admin work, not with these.',
-  },
-  {
-    route: '/api/spaces/:id/token-access',
-    why: 'Lists which tokens reach this space. Governed by the Space-admin column for the same reason, and '
-       + 'it is a read of AUTH state rather than of the space\'s contents.',
   },
   {
     route: '/api/brain/spaces/:spaceId/token-access',
@@ -301,3 +332,11 @@ export const NOT_AREA_SCOPED: readonly { route: string; why: string }[] = [
        + 'that happens to be keyed by space, not a view of the space\'s data.',
   },
 ];
+
+/**
+ * The exemption list as a path lookup, so the runtime asks the same question the gate asks.
+ *
+ * Derived rather than written out beside it: a second literal list is the copy that drifts, and this whole file
+ * exists because one list had two readers who disagreed.
+ */
+export const NOT_AREA_SCOPED_PATHS: ReadonlySet<string> = new Set(NOT_AREA_SCOPED.map(r => r.route));

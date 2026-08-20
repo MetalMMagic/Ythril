@@ -230,6 +230,19 @@ If MFA is on, a space administrator is prompted for a code like everybody else.
 **The second factor is not a token setting.** MFA is instance-wide and lives in **Settings → Preferences**;
 there is nothing about it in the token dialogs, and there is no per-token exemption to grant here.
 
+#### A few actions belong to no area, and the panel now says which
+
+Open the **?** beside `Space admin` and, under what it grants, there is a short list of routes the four-area
+grid does **not** decide — renaming a space, reading which tokens reach it, and its usage counters — each with
+the reason. They are read from the server, so the list cannot fall out of step with what is enforced.
+
+**Why it is worth a line.** A grid of four areas looks complete, and nothing used to say that three
+space-scoped actions sat outside all four. If you were checking whether a token can rename a space, no cell in
+the matrix answered and none said it would not.
+
+It does **not** mean those actions are unguarded. A token that cannot reach the space cannot call them at all,
+and each one still needs admin or space-admin. What the list says is only which mechanism decides.
+
 ### How many requests a token may make
 
 **Each token has its own request budget, per minute.** Left alone, every token gets the instance's number — so

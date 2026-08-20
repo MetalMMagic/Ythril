@@ -1889,6 +1889,7 @@
   "tokens.rights.spaceAdmin.off": "Not an administrator of this space (clears all four areas)",
   "tokens.rights.spaceAdmin.grants": "Also grants:",
   "tokens.rights.spaceAdmin.excludes": "Never grants:",
+  "tokens.rights.notAreaScoped": "Space-scoped routes that no area governs, and why:",
   "tokens.own.title": "Your access",
   "tokens.own.readOnly": "What the token you are signed in with may do. Read-only — changing it needs an administrator.",
   "tokens.own.legacy": "This token predates the rights model and carries no grid. It works exactly as before; an administrator can convert it.",

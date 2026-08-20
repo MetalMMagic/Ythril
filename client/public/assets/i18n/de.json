@@ -1889,6 +1889,7 @@
   "tokens.rights.spaceAdmin.off": "Kein Administrator dieses Space (leert alle vier Bereiche)",
   "tokens.rights.spaceAdmin.grants": "Erlaubt zusätzlich:",
   "tokens.rights.spaceAdmin.excludes": "Erlaubt nie:",
+  "tokens.rights.notAreaScoped": "Space-bezogene Routen, die kein Bereich steuert, und warum:",
   "tokens.own.title": "Ihre Berechtigungen",
   "tokens.own.readOnly": "Was das Token darf, mit dem Sie angemeldet sind. Nur Anzeige — Änderungen erfordern eine Administratorin oder einen Administrator.",
   "tokens.own.legacy": "Dieses Token stammt aus der Zeit vor dem Rechtemodell und hat kein Raster. Es funktioniert unverändert; die Administration kann es umstellen.",

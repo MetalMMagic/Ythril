@@ -11,7 +11,7 @@ import type { OidcTokenRecord } from './oidc.js';
 import { resolveMemberSpaces } from '../spaces/proxy.js';
 import { reachesSpace } from './space-reach.js';
 import { legacySpacesOf } from './legacy-spaces.js';
-import { requiredRung, satisfies } from './required-rung.js';
+import { rungFor, satisfies } from './required-rung.js';
 import { effectiveRung } from './mint-cap.js';
 import { authAttemptsTotal } from '../metrics/registry.js';
 import { logAuthFailure } from '../audit/middleware.js';
@@ -411,12 +411,18 @@ function enforceAreaRung(
   if (!rights) return true;                    // OIDC records: reach already answered for them
 
   const routePath = `${req.baseUrl ?? ''}${(req.route as { path?: string } | undefined)?.path ?? ''}`;
-  const need = requiredRung(req.method, routePath);
-  if (!need) {
+  const verdict = rungFor(req.method, routePath);
+  // A route on NOT_AREA_SCOPED is DECIDED, not missed, so it says nothing. Warning on it told an operator to
+  // add it to ROUTE_RIGHTS — which would undo the recorded decision — and made "once the log is clean" a state
+  // four routes guaranteed could never be reached. See the note on NOT_AREA_SCOPED for the whole account.
+  if (verdict.kind === 'not-area-scoped') return true;
+  if (verdict.kind === 'unclassified') {
     log.warn(`Space rights: no inventory entry for '${req.method} ${routePath}' — reach enforced, area not. `
-      + 'Add it to ROUTE_RIGHTS; misses become refusals once the log is clean.');
+      + 'Add it to ROUTE_RIGHTS with its area and lowest rung, or to NOT_AREA_SCOPED with the reason it is not '
+      + 'a view of the space\'s data; misses become refusals once the log is clean.');
     return true;
   }
+  const need = verdict;
   if (need.scope !== 'path') return true;      // iterating routes gate their LOOP, not the call
 
   for (const sid of targets) {

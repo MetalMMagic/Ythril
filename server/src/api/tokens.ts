@@ -7,7 +7,7 @@ import { createToken, listTokens, revokeToken, regenerateToken, renameToken, set
 import { isMfaEnabled, verifyMfaCode } from '../auth/totp.js';
 import { z } from 'zod';
 import { SPACE_AREAS, RUNGS, RUNG_IMPLICATIONS, DERIVED_RUNGS } from '../config/rights-shape.js';
-import { ROUTE_RIGHTS } from '../auth/space-rights.js';
+import { ROUTE_RIGHTS, NOT_AREA_SCOPED } from '../auth/space-rights.js';
 import { refusalsOutsideEditorScope, editorScopeFor } from '../auth/editor-scope.js';
 import { capRights, describeExcess } from '../auth/mint-cap.js';
 import { refuseSelfFloorRaise } from '../auth/floor-guard.js';
@@ -93,6 +93,12 @@ tokensRouter.get('/rights-catalog', globalRateLimit, requireAuth, (_req, res) =>
     // cannot be wrong, because `requires` is computed from `SPACE_AREAS` rather than restated.
     derivedRungs: DERIVED_RUNGS,
     routes: ROUTE_RIGHTS.map(r => ({ area: r.area, method: r.method, route: r.route, needs: r.needs })),
+    // Space-scoped routes governed by NO area, each with the reason. Same argument as `routes` and
+    // `derivedRungs`: a route absent from `routes` was indistinguishable to a caller from one we forgot to
+    // classify, so "the matrix does not govern renaming a space" was a fact only the server source held. Four
+    // rows, and they are the difference between a complete grid and a grid with an unexplained gap. No method:
+    // an exemption is a claim about the route rather than about one verb of it — see NOT_AREA_SCOPED.
+    notAreaScoped: NOT_AREA_SCOPED.map(r => ({ route: r.route, why: r.why })),
   });
 });
 

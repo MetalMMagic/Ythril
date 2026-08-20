@@ -42,6 +42,23 @@ export interface CatalogDerivedRung {
   excludes: string;
 }
 
+/**
+ * A space-scoped route governed by NO area, with the server's reason.
+ *
+ * The gap this closes in the grid: four areas are shown, and a route absent from `routes` was
+ * indistinguishable from one nobody had classified. Renaming a space, reading which tokens reach it, and
+ * reading its usage counters are all deliberately outside the four DATA areas — a decision recorded in the
+ * server's `NOT_AREA_SCOPED` with a reason each, and until now readable nowhere else.
+ *
+ * No `method`: an exemption is a claim about what the route IS, so it covers every verb on that path. That
+ * asymmetry with `CatalogRoute` is deliberate and matches what the server enforces.
+ */
+export interface CatalogNotAreaScoped {
+  route: string;
+  /** The server's own words. Not reformatted here, for the same reason `grants` is not. */
+  why: string;
+}
+
 export interface RightsCatalog {
   areas: readonly string[];
   rungs: readonly Rung[];
@@ -50,6 +67,8 @@ export interface RightsCatalog {
   /** Absent on an older server too, and read the same way: no derived rungs, not an error. */
   derivedRungs?: readonly CatalogDerivedRung[];
   routes: readonly CatalogRoute[];
+  /** Absent on an older server: the grid then shows no exemption list, which is how it looked before. */
+  notAreaScoped?: readonly CatalogNotAreaScoped[];
 }
 
 /**
@@ -127,6 +146,17 @@ export class RightsCatalogService {
    */
   derived(id: string): CatalogDerivedRung | null {
     return this.catalog()?.derivedRungs?.find(d => d.id === id) ?? null;
+  }
+
+  /**
+   * The space-scoped routes no area governs, or an empty list on a server that does not publish them.
+   *
+   * Empty and absent are the same answer here on purpose: both mean "nothing to show", and an older server is
+   * not an error condition. The alternative — distinguishing them in the UI — would put a version check in a
+   * template for no reader's benefit.
+   */
+  notAreaScoped(): readonly CatalogNotAreaScoped[] {
+    return this.catalog()?.notAreaScoped ?? [];
   }
 
   routesFor(area: string, rung: Rung): CatalogRoute[] {

@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A route deliberately outside the rights grid stopped being logged as an oversight — and the log can now
+  actually become clean.** Reported by breituai-platform, 2026-08-20, read off a live pod's stdout: two routes
+  warned on **every request** that they had *"no inventory entry — reach enforced, area not. Add it to
+  ROUTE_RIGHTS; misses become refusals once the log is clean."* Both are on `NOT_AREA_SCOPED`, the list that
+  records — with a written reason each — that a route is not a view of a space's DATA. Renaming a space is
+  space-admin; reading which tokens reach it is a read of AUTH state; per-space usage counters are instance
+  observability keyed by space. The list was read by the build-time gate and by nothing at runtime, so
+  `enforceAreaRung` could not tell a decision from an oversight and reported the decision as one. Two
+  consequences, the second worse than the first: the advice was **wrong** for those routes, since following it
+  would have area-scoped a route the design says is not area-scoped; and *"once the log is clean"* named a
+  state four routes guaranteed could never be reached, so the promised flip from allow to refuse could never
+  fire — and had anyone forced it, four routes that worked yesterday would answer `403`. This repo's signature
+  defect exactly: one rule, two implementations, the weaker one winning in silence. `requiredRung` is now
+  `rungFor` and answers with three kinds — `requires`, `not-area-scoped`, `unclassified` — so the two cannot be
+  conflated at any call site, and the warning names both lists instead of only one.
+- **A stale exemption for a route that does not exist.** `/api/spaces/:id/token-access` sat in
+  `NOT_AREA_SCOPED` with a two-line reason; the server serves no such route, only the brain one, which has its
+  own entry. Invisible because the coverage gate's staleness check read `ROUTE_RIGHTS` alone — an exemption
+  could name anything at all. It now checks both lists through one shared existence helper. A stale exemption
+  is the more dangerous of the two: a stale classification guards nothing, while a stale exemption is a
+  **standing licence** — the day a route with that path is added it arrives pre-excused from the rights matrix
+  and no gate objects, because the excuse was written before the route existed.
+
+### Added
+
+- **`notAreaScoped` on `GET /api/tokens/rights-catalog`, and in the Space admin panel.** The same defect one
+  layer up: a route absent from `routes` was indistinguishable to a caller from one nobody had classified, so
+  *"the matrix does not govern renaming a space"* was a fact only the server's source held, and a grid of four
+  areas read as complete while three space-scoped routes sat outside all of them. Now published with the
+  server's own reason per route, on the same argument the endpoint already makes for `routes` and
+  `derivedRungs` — the list the server decides from is the only description of a right that cannot be wrong.
+  No `method`, unlike `routes`: an exemption is a claim about what the route IS, so it covers every verb on
+  that path, and `/api/spaces/:id/rename` is registered as `PATCH` where a method-keyed exemption written for
+  `POST` would have silently missed it. It does not mean unauthenticated or ungoverned — reach is still
+  enforced and each route keeps its own admin guard; it says only which mechanism decides.
+
 ### Added
 
 - **A request quota an instance admin can set per TOKEN, under a ceiling infra sets instance-wide.** Owner

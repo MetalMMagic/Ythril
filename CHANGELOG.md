@@ -7,7 +7,101 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`notAreaScoped` on `GET /api/tokens/rights-catalog`, and in the Space admin panel.** The same defect one
+  layer up: a route absent from `routes` was indistinguishable to a caller from one nobody had classified, so
+  *"the matrix does not govern renaming a space"* was a fact only the server's source held, and a grid of four
+  areas read as complete while three space-scoped routes sat outside all of them. Now published with the
+  server's own reason per route, on the same argument the endpoint already makes for `routes` and
+  `derivedRungs` — the list the server decides from is the only description of a right that cannot be wrong.
+  No `method`, unlike `routes`: an exemption is a claim about what the route IS, so it covers every verb on
+  that path, and `/api/spaces/:id/rename` is registered as `PATCH` where a method-keyed exemption written for
+  `POST` would have silently missed it. It does not mean unauthenticated or ungoverned — reach is still
+  enforced and each route keeps its own admin guard; it says only which mechanism decides.
+
+
+- **A request quota an instance admin can set per TOKEN, under a ceiling infra sets instance-wide.** Owner
+  request, 2026-08-20. `rateLimitPerMinute` on a token, settable at create and via `PATCH /api/tokens/:id`;
+  `YTHRIL_RATE_LIMIT_PER_MINUTE` for the instance. Resolution is `token > instance > 300/minute`, the same
+  `record > … > default` order `ttlDays` and `suppressEmbeddings` use, so **an instance that configures
+  neither behaves exactly as it did before** and absence on a token means INHERIT rather than unlimited.
+  The env value is a **ceiling, not just a default**: a per-token value above it is refused with a `403`
+  naming the ceiling, never accepted and quietly reduced — a ceiling an admin can exceed is decorative, and
+  storing a smaller number than was asked for is the accepted-but-discarded defect this codebase keeps
+  finding. `GET /api/tokens` and the MCP `list_tokens` tool both report `rateLimitPerMinute` (what was set)
+  beside `rateLimitEffective` (what is enforced), derived in `listTokens` so the two doors cannot disagree.
+  **Enforced by a SECOND limiter, after authentication.** The existing one runs before auth deliberately —
+  it is the only throttle in front of admin TOTP, so it must throttle requests carrying no valid credential
+  and therefore cannot know which token a request holds without a bcrypt compare per request. It is
+  unchanged and remains the outer bound. The new one is applied inside `attachToken`, the one function every
+  auth entry point calls, and that function now consumes `next` so a new auth path cannot attach a token
+  without metering it.
+
+### Changed
+
+- **The MCP door's default recall byte budget is now 25 000, against REST's 100 000 — the one place the two
+  doors deliberately differ.** Reported by breituai-platform, 2026-08-20, and the number in it is theirs: a
+  recall answered `bytesReturned: 98356` against `budgetBytes: 100000`, correct, in budget, fully specified —
+  and **their MCP client refused it outright and spilled it to a local file.** A caller reading over MCP got
+  nothing usable from a call the server answered perfectly.
+
+  They proposed the 100 KB figure themselves in the byte-budget design and did not ask us to change it. What
+  they asked was narrower, and their own diagnosis is why the answer is yes: *"the old 25-record cap had been
+  acting as the de facto size guard on the MCP door, and removing it removed that guard along with the cliff we
+  were complaining about."* Neither side said that out loud when the budget was designed.
+
+  **The parameter is unchanged; only the default differs.** Both doors accept `maxBytes` with the same floor,
+  the same ceiling and the same refusal text — a gate asserts a caller who ASKS gets an identical answer on
+  either door, and that a bad value is refused with identical wording. The divergence is the narrowing itself,
+  which is what `CLAUDE.md` requires of a difference between the two surfaces: an MCP tool result meets a hard
+  per-result ceiling inside the client that the caller cannot raise, while a REST body lands in a buffer its
+  caller allocated. One default cannot be right for both.
+
+  25 000 is about six whole records at their measured ~4 KB mean, roughly 7 000 tokens. It is **not** a
+  measurement of any client's ceiling — the one data point is that 98 356 was refused, with no number for where
+  the limit actually is — so it is chosen from the safe side of that refusal, and a caller who wants more passes
+  `maxBytes` on either door. Their withdrawn clause 2b is honoured too: `maxTokens` with a `charsPerToken`
+  divisor was already built, and nothing more is being added on its account.
+
+  Stated on every surface a caller reads, because a default nobody can find reads as a product ceiling: both
+  `maxBytes` descriptions in the MCP schema name this door's number AND the other's, the recall guide's
+  parameter tables and prose carry both, and the Search page says the browser is on the larger side — so an
+  operator who notices a search answering whole in the UI and shortened for an agent finds it documented as
+  deliberate rather than filing it as an inconsistency.
+
+
+- **Ten more guessed character windows in the gates became structural bounds, emptying five files.** Two of
+  them changed what "structural" has to mean rather than just moving a number. A `NOTICE` entry read with a
+  900-character window was **13 characters** from reading the *next* entry: `### jszip` sits at offset 18040
+  and the following entry's licence election at 18953, so at 913 the neighbour would have answered a check
+  whose whole stated purpose is refusing that. And the enclosing STATEMENT turned out to be the wrong bound
+  for a ternary — `pass === 'structured' ? judgePair(a, b, { structuredOnly: true }) : judgePair(a, b)` is
+  ONE statement holding both arms, so a statement-level bound stays green with the flag on the other branch,
+  which is the opposite behaviour and a paid model call per pair. The bound that holds is the argument list
+  of the call the branch makes. Structural is not automatically tighter than a character count; it is
+  tighter only when the structure chosen is the subject. Every conversion was mutation-tested against the
+  behaviour it claims. `GRANDFATHERED_GAP` falls to **46 across 24 files**, from 56/29.
+
+- **`05c-face-recognition.md` no longer describes a migration path that was never built, and says what an
+  unset width IS.** An operator quoted two of its paragraphs back to us, could not reconcile them, and asked
+  rather than guessed — correctly, because neither covered the case they were in: gallery EMPTY, index never
+  built. One paragraph said there is no admin call to change the width; the next said *"to move a populated
+  gallery, re-embed its faces at the new width first"*, whose closing clause implies that having re-embedded
+  the width can then move. It cannot; there was never a call to set it. That sentence is gone and replaced by
+  what is true — re-create the space — and the create-only paragraph now opens by saying that every space has
+  a width from the moment it exists, defaults to 128, and does not derive it from the endpoint you configure.
+  Their own suggested wording, taken because it is better than what it replaces. The page also gains a section
+  on reading the gallery's readiness log, including that the line meant nothing before the probe fix above.
+
 ### Fixed
+
+- **`topK`'s MCP description still promised a record cap the byte budget replaced.** It said *"past roughly 25
+  results the answer spills and `truncated` is set"* — true before 3.2.0 and wrong after it, on the surface
+  `help()` tells callers is the authoritative reference. This is the failure `CLAUDE.md` records at cost:
+  aigents read *"filter applied after vector search"* there, believed it, and built a skill that deliberately
+  avoided filtered recall. Nobody reports a limit they were told they had.
+
 
 - **A route deliberately outside the rights grid stopped being logged as an oversight — and the log can now
   actually become clean.** Reported by breituai-platform, 2026-08-20, read off a live pod's stdout: two routes
@@ -32,39 +126,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **standing licence** — the day a route with that path is added it arrives pre-excused from the rights matrix
   and no gate objects, because the excuse was written before the route existed.
 
-### Added
-
-- **`notAreaScoped` on `GET /api/tokens/rights-catalog`, and in the Space admin panel.** The same defect one
-  layer up: a route absent from `routes` was indistinguishable to a caller from one nobody had classified, so
-  *"the matrix does not govern renaming a space"* was a fact only the server's source held, and a grid of four
-  areas read as complete while three space-scoped routes sat outside all of them. Now published with the
-  server's own reason per route, on the same argument the endpoint already makes for `routes` and
-  `derivedRungs` — the list the server decides from is the only description of a right that cannot be wrong.
-  No `method`, unlike `routes`: an exemption is a claim about what the route IS, so it covers every verb on
-  that path, and `/api/spaces/:id/rename` is registered as `PATCH` where a method-keyed exemption written for
-  `POST` would have silently missed it. It does not mean unauthenticated or ungoverned — reach is still
-  enforced and each route keeps its own admin guard; it says only which mechanism decides.
-
-### Added
-
-- **A request quota an instance admin can set per TOKEN, under a ceiling infra sets instance-wide.** Owner
-  request, 2026-08-20. `rateLimitPerMinute` on a token, settable at create and via `PATCH /api/tokens/:id`;
-  `YTHRIL_RATE_LIMIT_PER_MINUTE` for the instance. Resolution is `token > instance > 300/minute`, the same
-  `record > … > default` order `ttlDays` and `suppressEmbeddings` use, so **an instance that configures
-  neither behaves exactly as it did before** and absence on a token means INHERIT rather than unlimited.
-  The env value is a **ceiling, not just a default**: a per-token value above it is refused with a `403`
-  naming the ceiling, never accepted and quietly reduced — a ceiling an admin can exceed is decorative, and
-  storing a smaller number than was asked for is the accepted-but-discarded defect this codebase keeps
-  finding. `GET /api/tokens` and the MCP `list_tokens` tool both report `rateLimitPerMinute` (what was set)
-  beside `rateLimitEffective` (what is enforced), derived in `listTokens` so the two doors cannot disagree.
-  **Enforced by a SECOND limiter, after authentication.** The existing one runs before auth deliberately —
-  it is the only throttle in front of admin TOTP, so it must throttle requests carrying no valid credential
-  and therefore cannot know which token a request holds without a bcrypt compare per request. It is
-  unchanged and remains the outer bound. The new one is applied inside `attachToken`, the one function every
-  auth entry point calls, and that function now consumes `next` so a new auth path cannot attach a token
-  without metering it.
-
-### Fixed
 
 - **The face gallery's readiness probe asked about the wrong field, so its answer carried no information.**
   Reported indirectly by breituai-platform, 2026-08-20 — they quoted the log line as evidence that no face
@@ -97,32 +158,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `$vectorSearch`, against the named index, cheap. All three were true of a probe that could never answer. It
   now asserts the field and the width, per call site rather than in total, and refuses a caller that does not
   name its target — five mutants killed against the pre-fix shape.
-
-
-### Changed
-
-- **Ten more guessed character windows in the gates became structural bounds, emptying five files.** Two of
-  them changed what "structural" has to mean rather than just moving a number. A `NOTICE` entry read with a
-  900-character window was **13 characters** from reading the *next* entry: `### jszip` sits at offset 18040
-  and the following entry's licence election at 18953, so at 913 the neighbour would have answered a check
-  whose whole stated purpose is refusing that. And the enclosing STATEMENT turned out to be the wrong bound
-  for a ternary — `pass === 'structured' ? judgePair(a, b, { structuredOnly: true }) : judgePair(a, b)` is
-  ONE statement holding both arms, so a statement-level bound stays green with the flag on the other branch,
-  which is the opposite behaviour and a paid model call per pair. The bound that holds is the argument list
-  of the call the branch makes. Structural is not automatically tighter than a character count; it is
-  tighter only when the structure chosen is the subject. Every conversion was mutation-tested against the
-  behaviour it claims. `GRANDFATHERED_GAP` falls to **46 across 24 files**, from 56/29.
-
-- **`05c-face-recognition.md` no longer describes a migration path that was never built, and says what an
-  unset width IS.** An operator quoted two of its paragraphs back to us, could not reconcile them, and asked
-  rather than guessed — correctly, because neither covered the case they were in: gallery EMPTY, index never
-  built. One paragraph said there is no admin call to change the width; the next said *"to move a populated
-  gallery, re-embed its faces at the new width first"*, whose closing clause implies that having re-embedded
-  the width can then move. It cannot; there was never a call to set it. That sentence is gone and replaced by
-  what is true — re-create the space — and the create-only paragraph now opens by saying that every space has
-  a width from the moment it exists, defaults to 128, and does not derive it from the endpoint you configure.
-  Their own suggested wording, taken because it is better than what it replaces. The page also gains a section
-  on reading the gallery's readiness log, including that the line meant nothing before the probe fix above.
 
 ## [3.2.0] — 2026-08-20
 

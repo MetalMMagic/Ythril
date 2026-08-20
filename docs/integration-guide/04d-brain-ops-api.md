@@ -586,7 +586,7 @@ page therefore costs more on a proxy space than on a plain one, but it is the sa
 
 #### A read result too large to return inline is bounded, and you page through the rest
 
-`recall` and `find-similar` bound the response by **`maxBytes`** (operator default 100 000; `maxTokens` is the
+`recall` and `find-similar` bound the response by **`maxBytes`** (default **100 000 over REST, 25 000 over MCP**; `maxTokens` is the
 same ceiling in tokens, and the smaller of the two wins). What fits comes back as the longest **prefix** of the
 ranked matches, every record whole, and `nextSkip` says where to continue from — send it back as **`skip`** for
 the next prefix, with no match repeated and none missed.

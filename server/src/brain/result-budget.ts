@@ -26,13 +26,50 @@
  */
 
 /**
- * The operator default, near today's effective ceiling so ordinary calls behave as they did.
+ * TWO DEFAULTS, ONE PER DOOR, and this is a deliberate divergence rather than a drift.
  *
- * ~100 KB is about 25 whole records at breituai-platform's measured ~4 KB mean — which is the count the old
- * `SPILL_RECORD_THRESHOLD` used. The point of matching it is that this change should be invisible to anyone
- * whose answers never overflowed, and a plain improvement to everyone whose did.
+ * ## Why the doors differ
+ *
+ * `CLAUDE.md`'s rule is that MCP and REST take the same parameters. They do: both accept `maxBytes`, with the
+ * same floor, the same ceiling, the same refusal text. What differs is the number applied when the caller says
+ * nothing, and it differs because the two doors have different physics.
+ *
+ * An MCP tool result meets a hard per-result ceiling INSIDE THE CLIENT, which the caller cannot raise. A REST
+ * body lands in a buffer the caller allocated. So the same response is fine on one door and unusable on the
+ * other, and a single default cannot be right for both.
+ *
+ * ## The measurement, and it is breituai-platform's own
+ *
+ * 2026-08-20T0925Z, from the canary. A recall answered in-budget and fully specified:
+ *
+ *     bytesReturned: 98,356   budgetBytes: 100,000   truncated: true   returned 29 of 40
+ *
+ * **Their MCP client refused it outright and spilled it to a local file.** A caller reading over MCP got
+ * nothing usable from a call the server answered perfectly.
+ *
+ * They proposed the 100 KB figure themselves and did not ask us to change it — they asked the narrower
+ * question, whether a lower default on the MCP door was something we would consider. Their own diagnosis is
+ * what makes the answer yes: *"the old 25-record cap had been acting as the de facto size guard on the MCP
+ * door, and removing it removed that guard along with the cliff we were complaining about."* Neither of us
+ * said that out loud when the budget was designed.
+ *
+ * ## Where 25 000 comes from, and what it is NOT
+ *
+ * ~6 whole records at their measured ~4 KB mean, ~7 000 tokens at 3.5 chars/token.
+ *
+ * It is **not** a measurement of any client's ceiling — we have exactly one data point, that 98,356 was
+ * refused, and no number for where the limit actually is. So it is chosen from the safe side of the one
+ * refusal we know about, far enough below it that a client with a tighter limit still works. A caller who
+ * wants more passes `maxBytes` and gets it, up to `MAX_MAX_BYTES`, on either door.
+ *
+ * REST keeps 100 KB — about 25 whole records at that same mean, which is the count the old
+ * `SPILL_RECORD_THRESHOLD` used. Matching it is what makes the byte budget invisible to anyone whose answers
+ * never overflowed.
  */
 export const DEFAULT_MAX_BYTES = 100_000;
+
+/** The MCP door's default. See the note above `DEFAULT_MAX_BYTES` — lower, deliberately, and on one door. */
+export const MCP_DEFAULT_MAX_BYTES = 25_000;
 
 /** Floor and ceiling on what a caller may ask for. A budget of zero would be a response with no results. */
 export const MIN_MAX_BYTES = 1_000;

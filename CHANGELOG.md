@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The MCP door's default recall byte budget is now 25 000, against REST's 100 000 — the one place the two
+  doors deliberately differ.** Reported by breituai-platform, 2026-08-20, and the number in it is theirs: a
+  recall answered `bytesReturned: 98356` against `budgetBytes: 100000`, correct, in budget, fully specified —
+  and **their MCP client refused it outright and spilled it to a local file.** A caller reading over MCP got
+  nothing usable from a call the server answered perfectly.
+
+  They proposed the 100 KB figure themselves in the byte-budget design and did not ask us to change it. What
+  they asked was narrower, and their own diagnosis is why the answer is yes: *"the old 25-record cap had been
+  acting as the de facto size guard on the MCP door, and removing it removed that guard along with the cliff we
+  were complaining about."* Neither side said that out loud when the budget was designed.
+
+  **The parameter is unchanged; only the default differs.** Both doors accept `maxBytes` with the same floor,
+  the same ceiling and the same refusal text — a gate asserts a caller who ASKS gets an identical answer on
+  either door, and that a bad value is refused with identical wording. The divergence is the narrowing itself,
+  which is what `CLAUDE.md` requires of a difference between the two surfaces: an MCP tool result meets a hard
+  per-result ceiling inside the client that the caller cannot raise, while a REST body lands in a buffer its
+  caller allocated. One default cannot be right for both.
+
+  25 000 is about six whole records at their measured ~4 KB mean, roughly 7 000 tokens. It is **not** a
+  measurement of any client's ceiling — the one data point is that 98 356 was refused, with no number for where
+  the limit actually is — so it is chosen from the safe side of that refusal, and a caller who wants more passes
+  `maxBytes` on either door. Their withdrawn clause 2b is honoured too: `maxTokens` with a `charsPerToken`
+  divisor was already built, and nothing more is being added on its account.
+
+  Stated on every surface a caller reads, because a default nobody can find reads as a product ceiling: both
+  `maxBytes` descriptions in the MCP schema name this door's number AND the other's, the recall guide's
+  parameter tables and prose carry both, and the Search page says the browser is on the larger side — so an
+  operator who notices a search answering whole in the UI and shortened for an agent finds it documented as
+  deliberate rather than filing it as an inconsistency.
+
+### Fixed
+
+- **`topK`'s MCP description still promised a record cap the byte budget replaced.** It said *"past roughly 25
+  results the answer spills and `truncated` is set"* — true before 3.2.0 and wrong after it, on the surface
+  `help()` tells callers is the authoritative reference. This is the failure `CLAUDE.md` records at cost:
+  aigents read *"filter applied after vector search"* there, believed it, and built a skill that deliberately
+  avoided filtered recall. Nobody reports a limit they were told they had.
+
 ### Fixed
 
 - **A route deliberately outside the rights grid stopped being logged as an oversight — and the log can now

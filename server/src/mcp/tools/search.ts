@@ -12,7 +12,7 @@ import { UUID_V4_RE, formatRecallSummary, toRecallRecord, uuidSchema, unitScoreS
 import { MAX_RECALL_TRAVERSE } from '../../brain/edges.js';
 import { mapGraphNodes, graphNodeRecord } from '../../brain/recall-graph.js';
 import { applyProjection, normaliseProjection } from '../../brain/projection.js';
-import { resolveBudget, resolvePaging, budgetedEnvelope, type BudgetRequest } from '../../brain/result-budget.js';
+import { resolveBudget, resolvePaging, budgetedEnvelope, type BudgetRequest, MCP_DEFAULT_MAX_BYTES } from '../../brain/result-budget.js';
 import { buildGraphWithSpill, spillResultSet } from '../../brain/graph-spill.js';
 import { type FilterExpression } from '../../brain/filter.js';
 import { resolveRecallFilter, type RawMongoFilter } from '../../brain/recall-filter.js';
@@ -74,7 +74,7 @@ export const recallTool: ToolHandler = {
           properties: {
             space: s.optionalSpace,
             query: { type: 'string', minLength: 1, description: 'REQUIRED, non-empty. The natural-language search string. It is EMBEDDED for the vector half and TOKENISED for the BM25 half, so it does double duty — which is why an exact identifier (an article number, a form id) survives a query written as a sentence.' },
-            topK: { type: 'number', minimum: 1, default: 10, description: 'Max results to return. Default 10; no hard cap. It is filled from records that SATISFY `filter` — never applied to an already-truncated shortlist — so a filtered recall cannot silently miss a matching record. Large values are slower, and every field of every result is paid for in tokens. Note the response cap: past roughly 25 results the answer spills and `truncated` is set, so asking for 80 does not return 80 inline.' },
+            topK: { type: 'number', minimum: 1, default: 10, description: 'Max results to return. Default 10; no hard cap. It is filled from records that SATISFY `filter` — never applied to an already-truncated shortlist — so a filtered recall cannot silently miss a matching record. Large values are slower, and every field of every result is paid for in tokens. Note the response cap, which is BYTES and not a count: the answer is a prefix that fits `maxBytes` (default 25000 on this door), `truncated` says whether it bit, and `nextSkip` is how you continue. So asking for 80 does not return 80 inline — how many it does return depends on how big they are, which is why the old sentence here saying "past roughly 25 results" was wrong from 3.2.0 onward.' },
             tags: { type: 'array', items: { type: 'string' }, description: 'Optional tag filter — only results bearing ALL of these tags are returned (applies to memories, entities, chrono entries, and files).' },
             types: {
               type: 'array',
@@ -125,7 +125,7 @@ export const recallTool: ToolHandler = {
             maxBytes: {
               type: 'integer',
               minimum: 1000,
-              description: 'Ceiling on the serialised response body, in bytes (operator default 100000). THE ANSWER IS A PREFIX OF THE RANKED RESULTS AND EVERY RECORD IN IT IS WHOLE — full body, full properties, and for a traversing call its complete `_graph` subtree, byte-identical to that record from an unbudgeted call. Truncation is atomic at the match: the first match whose subtree would not fit is omitted and so is everything after it, so no answer has a gap in the middle and none carries a record with half its graph. It replaced a record cap that collapsed a large answer to three inline records plus a whole-set download — which roughly DOUBLED what a caller had to read. `returned`, `count`, `truncated`, `budgetBytes` and `bytesReturned` are on EVERY response whether it bit or not, so absence never has to be interpreted; a truncated one adds `nextSkip`, which you send back as `skip` to read the rest.',
+              description: 'Ceiling on the serialised response body, in bytes. **DEFAULT 25000 ON THIS DOOR, and 100000 on REST — the one place the two doors deliberately differ.** Both accept the same parameter with the same floor, the same ceiling and the same refusal; only the number applied when you say nothing is different, because an MCP tool result meets a hard per-result ceiling inside YOUR client that you cannot raise, while a REST body lands in a buffer its caller allocated. Measured: a caller received a 98356-byte answer that was correct, in budget and fully specified, and their client refused it outright. 25000 is about 6 whole records at ~4 KB each, roughly 7000 tokens. RAISE IT IF YOUR CLIENT CAN TAKE MORE — up to 5000000, and asking is the whole point of the parameter. THE ANSWER IS A PREFIX OF THE RANKED RESULTS AND EVERY RECORD IN IT IS WHOLE — full body, full properties, and for a traversing call its complete `_graph` subtree, byte-identical to that record from an unbudgeted call. Truncation is atomic at the match: the first match whose subtree would not fit is omitted and so is everything after it, so no answer has a gap in the middle and none carries a record with half its graph. It replaced a record cap that collapsed a large answer to three inline records plus a whole-set download — which roughly DOUBLED what a caller had to read. `returned`, `count`, `truncated`, `budgetBytes` and `bytesReturned` are on EVERY response whether it bit or not, so absence never has to be interpreted; a truncated one adds `nextSkip`, which you send back as `skip` to read the rest.',
             },
             maxTokens: {
               type: 'integer',
@@ -202,7 +202,7 @@ export const recallTool: ToolHandler = {
     const includeContent = a['includeContent'] !== false;
     const includeDiagnostics = a['includeDiagnostics'] === true;
     const recallProjection = normaliseProjection(a['projection'] as Record<string, unknown> | undefined);
-    const budget = resolveBudget(a as BudgetRequest);
+    const budget = resolveBudget(a as BudgetRequest, MCP_DEFAULT_MAX_BYTES);
     if (!budget.ok) throw new Error(budget.error);
     const paging = resolvePaging(a as { skip?: unknown; remainderDump?: unknown });
     if (!paging.ok) throw new Error(paging.error);
@@ -411,7 +411,7 @@ export const find_similarTool: ToolHandler = {
             maxBytes: {
               type: 'integer',
               minimum: 1000,
-              description: 'Ceiling on the serialised response body, in bytes (operator default 100000). THE ANSWER IS A PREFIX OF THE RANKED RESULTS AND EVERY RECORD IN IT IS WHOLE — full body, full properties, and for a traversing call its complete `_graph` subtree, byte-identical to that record from an unbudgeted call. Truncation is atomic at the match: the first match whose subtree would not fit is omitted and so is everything after it, so no answer has a gap in the middle and none carries a record with half its graph. It replaced a record cap that collapsed a large answer to three inline records plus a whole-set download — which roughly DOUBLED what a caller had to read. `returned`, `count`, `truncated`, `budgetBytes` and `bytesReturned` are on EVERY response whether it bit or not, so absence never has to be interpreted; a truncated one adds `nextSkip`, which you send back as `skip` to read the rest.',
+              description: 'Ceiling on the serialised response body, in bytes. **DEFAULT 25000 ON THIS DOOR, and 100000 on REST — the one place the two doors deliberately differ.** Both accept the same parameter with the same floor, the same ceiling and the same refusal; only the number applied when you say nothing is different, because an MCP tool result meets a hard per-result ceiling inside YOUR client that you cannot raise, while a REST body lands in a buffer its caller allocated. Measured: a caller received a 98356-byte answer that was correct, in budget and fully specified, and their client refused it outright. 25000 is about 6 whole records at ~4 KB each, roughly 7000 tokens. RAISE IT IF YOUR CLIENT CAN TAKE MORE — up to 5000000, and asking is the whole point of the parameter. THE ANSWER IS A PREFIX OF THE RANKED RESULTS AND EVERY RECORD IN IT IS WHOLE — full body, full properties, and for a traversing call its complete `_graph` subtree, byte-identical to that record from an unbudgeted call. Truncation is atomic at the match: the first match whose subtree would not fit is omitted and so is everything after it, so no answer has a gap in the middle and none carries a record with half its graph. It replaced a record cap that collapsed a large answer to three inline records plus a whole-set download — which roughly DOUBLED what a caller had to read. `returned`, `count`, `truncated`, `budgetBytes` and `bytesReturned` are on EVERY response whether it bit or not, so absence never has to be interpreted; a truncated one adds `nextSkip`, which you send back as `skip` to read the rest.',
             },
             maxTokens: {
               type: 'integer',
@@ -489,7 +489,7 @@ export const find_similarTool: ToolHandler = {
     const includeContent = a['includeContent'] !== false;
     const includeDiagnostics = a['includeDiagnostics'] === true;
     const recallProjection = normaliseProjection(a['projection'] as Record<string, unknown> | undefined);
-    const budget = resolveBudget(a as BudgetRequest);
+    const budget = resolveBudget(a as BudgetRequest, MCP_DEFAULT_MAX_BYTES);
     if (!budget.ok) throw new Error(budget.error);
     const paging = resolvePaging(a as { skip?: unknown; remainderDump?: unknown });
     if (!paging.ok) throw new Error(paging.error);

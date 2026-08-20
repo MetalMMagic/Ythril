@@ -179,7 +179,11 @@ search you can run without writing a request by hand:
   a shortened answer looked exactly like a complete one, so a hundred-match search could show a handful of
   records with nothing anywhere explaining why.
   - **Max response size**, under **Show advanced**, is the ceiling itself — the API calls it `maxBytes`. Raise it
-    to get more of a shortened answer in one go; leave it empty for the instance default. There is deliberately
+    to get more of a shortened answer in one go; leave it empty for the default. **The default here is the
+    larger one.** An agent talking to this instance over MCP gets a smaller default than this page does, because an
+    agent's tool result has to fit inside its own client and a browser's does not — so a search that comes back
+    whole here can come back shortened for an agent asking the same question, and that is deliberate rather
+    than a discrepancy. There is deliberately
     one control and not two: the API also accepts the same ceiling expressed in tokens, and the smaller of the
     two always wins, so offering both would only let you set two limits and then wonder which applied.
   - Narrowing the search — fewer results, fewer graph hops, a tighter filter — does the same job from the other

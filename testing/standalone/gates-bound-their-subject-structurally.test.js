@@ -163,13 +163,20 @@ const GRANDFATHERED = new Map([
 /**
  * A CAPPED GAP inside a regex: `/marker[\s\S]{0,400}?other/`. Files still allowed to carry one, with how many.
  *
- * **57 occurrences across 31 files**, down from 66/36 when this was first measured — and the tracker had recorded
+ * **56 occurrences across 29 files**, down from 66/36 when this was first measured — and the tracker had recorded
  * 30, which is why the number lives in the gate now rather than in a markdown file that drifts.
  *
  * The nine that left were the ones whose subject is a NAMED FUNCTION or a BRANCH, where the structural bound is
  * unambiguous: an update call's arguments, a 412 branch, a catch block, an abandon branch, `spaceStillExists`,
  * `selectSpace` (a 2 000-character cap — nobody chooses that number, they raise it until the test passes),
  * `chronoAllowedTypes`, `getAllowedChronoTypes`, and a try/finally.
+ *
+ * **And what remains is now SORTED, not merely counted.** The prose sites carry a one-line comment saying
+ * the number IS the rule — `[^.]` and `[^.
+]` cannot cross a full stop or a line, so those patterns assert
+ * that two things sit in ONE SENTENCE, which is exactly what a schema description has to do for a caller to
+ * read it. Widening those gaps would turn a working refusal into a false positive on prose that is now
+ * correct. A site left in this list without such a comment has not been read yet.
  *
  * **What remains is the fails-LOUDLY class, and that is why it is a frozen list rather than a blocker.** Every one
  * of the six negative-polarity sites — where a short window makes an absence hold and the gate pass — was converted
@@ -203,18 +210,16 @@ const GRANDFATHERED_GAP = new Map([
   ['testing/standalone/caller-supplied-ids-are-uuids.test.js', 1],
   ['testing/standalone/chrono-retention.test.js', 1],
   ['testing/standalone/chrono-status-descriptions-match-the-derivation.test.js', 9],
-  ['testing/standalone/collectors-are-timed.test.js', 1],
   ['testing/standalone/contradiction-scanner.test.js', 1],
   ['testing/standalone/document-description.test.js', 3],
   ['testing/standalone/file-mutation-tools-state-their-cascade.test.js', 2],
-  ['testing/standalone/graph-spill-is-not-content.test.js', 1],
   ['testing/standalone/infra-managed-locks-every-field.test.js', 3],
   ['testing/standalone/mcp-tool-rights.test.js', 2],
   ['testing/standalone/merge-relinks-every-entity-reference.test.js', 2],
   ['testing/standalone/meta-precondition.test.js', 1],
   ['testing/standalone/no-boot-migration-on-synced-data.test.js', 1],
   ['testing/standalone/no-copyleft-in-the-shipped-tree.test.js', 2],
-  ['testing/standalone/notice-coverage.test.js', 1],
+  ['testing/standalone/notice-coverage.test.js', 2],
   ['testing/standalone/oidc-carries-a-rights-matrix.test.js', 1],
   ['testing/standalone/recall-params-reach-the-ui.test.js', 2],
   ['testing/standalone/reembed-backfill.test.js', 1],

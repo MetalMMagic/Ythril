@@ -20,6 +20,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { balancedFrom } from './_structural-window.mjs';
 
 const { isSpillPath, SPILL_DIR } = await import('../../server/dist/brain/spill-path.js');
 const { SPILL_TTL_DAYS, SPILL_CEILING_MULTIPLE } = await import('../../server/dist/brain/graph-spill.js');
@@ -149,7 +150,13 @@ describe('the constants say what the ruling said', () => {
       'no caller-supplied write space — the routes had `spaceId` and `callSpace` to hand, and both can be a proxy');
     for (const src of ['server/src/api/brain/search.ts', 'server/src/mcp/tools/search.ts']) {
       const code = read(src);
-      const calls = [...code.matchAll(/buildGraphWithSpill\(([\s\S]{0,320}?)\);/g)].map(m => m[1]);
+      // A WINDOW, converted: the subject is each call's ARGUMENT LIST, and its bound is the paren that closes
+      // it. At 320 characters a call that gained an argument would have stopped matching, and the assertion
+      // below counts the calls — so a missed one reads as "there is only one spill build", not as an error.
+      const calls = [...code.matchAll(/buildGraphWithSpill\(/g)]
+        // Outer parens stripped so the assertion below sees exactly what the capture group used to give it —
+        // this is a re-bounding, not a change of what is checked.
+        .map(m => balancedFrom(code, m.index, `buildGraphWithSpill in ${src}`).slice(1, -1));
       assert.equal(calls.length, 2, `${src}: expected two spill builds, found ${calls.length}`);
       for (const args of calls) {
         assert.ok(!/spaceId,\s*\)?\s*$/.test(args.trim()),

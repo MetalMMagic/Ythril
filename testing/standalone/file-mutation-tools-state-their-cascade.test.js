@@ -30,6 +30,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { blockAfter } from './_structural-window.mjs';
 import { stripComments } from './_strip-comments.mjs';
 
 const FILE_TOOLS = readFileSync('server/src/mcp/tools/file.ts', 'utf8');
@@ -141,7 +142,13 @@ describe('create_dir says when you do not need it', () => {
     // "an empty directory does not sync" true rather than plausible.
     const at = FILES.indexOf('export async function listFilesRecursive');
     const body = FILES.slice(at, FILES.indexOf('\nexport ', at + 10));
-    assert.match(body, /entry\.isDirectory\(\)[\s\S]{0,60}walk\(full\)/, 'it descends');
-    assert.match(body, /entry\.isFile\(\)[\s\S]{0,80}out\.push/, 'but only files are emitted');
+    // TWO WINDOWS, converted: each subject is a BRANCH of the same if/else, bounded by its own brace. The caps
+    // could not tell "the push is in the isFile arm" from "the push is 80 characters later" — and if it moved
+    // into the isDirectory arm the walk would emit directories, which is the exact claim above.
+    const dir = body.indexOf('entry.isDirectory()');
+    const file = body.indexOf('entry.isFile()');
+    assert.ok(dir > -1 && file > -1, 'the walk no longer branches on entry type — re-anchor this gate');
+    assert.match(blockAfter(body, dir, 'the isDirectory arm'), /walk\(full\)/, 'it descends');
+    assert.match(blockAfter(body, file, 'the isFile arm'), /out\.push/, 'but only files are emitted');
   });
 });

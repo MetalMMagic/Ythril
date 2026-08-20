@@ -37,6 +37,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { markdownSectionFrom } from './_structural-window.mjs';
 
 const ROOT = process.cwd();
 
@@ -119,10 +120,19 @@ describe('nothing copyleft is redistributed without a recorded election', () => 
 
     const unrecorded = [];
     for (const [name, v] of hits) {
-      const section = notice.match(new RegExp(`### ${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b[\\s\\S]{0,900}`));
-      if (!section) { unrecorded.push(`${name}@${v.version} (${v.license}) — no NOTICE entry`); continue; }
+      // A WINDOW, converted: the subject is the NOTICE entry, bounded by the next heading — so an entry that
+      // grows an explanation is still read whole, and an entry that grows past 900 characters no longer has
+      // its election cut off and fail for nothing.
+      //
+      // The other direction was 13 characters from being live. `### jszip` sits at offset 18040 and the NEXT
+      // entry's election (`Ythril elects Apache License 2.0`, dompurify's) at 18953 — 913 characters, so the
+      // 900 window stopped just short of letting a NEIGHBOUR'S election satisfy jszip's check. Nobody
+      // maintains a 13-character margin, and nothing would have reported it once a line was added.
+      const head = new RegExp(`^### ${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'm').exec(notice);
+      if (!head) { unrecorded.push(`${name}@${v.version} (${v.license}) — no NOTICE entry`); continue; }
+      const section = markdownSectionFrom(notice, head.index);
       // An entry that just names the dual grant is not an election. It has to say which arm Ythril takes.
-      if (!/elects/i.test(section[0])) {
+      if (!/elects/i.test(section)) {
         unrecorded.push(`${name}@${v.version} (${v.license}) — NOTICE entry does not record which arm is elected`);
       }
     }
@@ -138,9 +148,13 @@ describe('nothing copyleft is redistributed without a recorded election', () => 
     // Named explicitly so a NOTICE rewrite cannot quietly drop an election and leave the generic check satisfied
     // by some other package's wording.
     for (const [name, arm] of [['dompurify', /elects Apache License 2\.0/], ['jszip', /elects the MIT License/]]) {
-      const section = notice.match(new RegExp(`### ${name}[\\s\\S]{0,900}`));
-      assert.ok(section, `NOTICE has no entry for ${name}`);
-      assert.match(section[0], arm, `${name}'s election is not recorded as expected`);
+      // Bounded by the next heading, for the reason the comment above gives. A 900-character window contradicts
+      // its own stated purpose: it reads into the NEXT entry, which is precisely "satisfied by some other
+      // package's wording".
+      const head = new RegExp(`^### ${name}\\b`, 'm').exec(notice);
+      assert.ok(head, `NOTICE has no entry for ${name}`);
+      assert.match(markdownSectionFrom(notice, head.index), arm,
+        `${name}'s election is not recorded as expected`);
     }
   });
 

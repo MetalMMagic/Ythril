@@ -404,3 +404,51 @@ export async function listMemories(baseUrl, token) {
   }
   return { status: 200, body: { memories: all } };
 }
+
+/**
+ * Restore instance-wide state in a cleanup hook, and PROVE it took.
+ *
+ * ## The failure this exists to stop
+ *
+ * A cleanup written `await patch(...).catch(() => {})` reports success whatever happens. For a cleanup that
+ * deletes a record it created, that is right: a leftover record costs nothing and the next run uses fresh ids.
+ * For a cleanup that restores INSTANCE-WIDE state it is wrong, because the cost is not this test — it is every
+ * suite that runs after it in the same job, failing for a reason that has nothing to do with what it tests.
+ *
+ * Measured 2026-08-20 (X-26): `ensureMaintenanceOff` swallowed its own failure under CPU contention, and the 60
+ * `pubsub-topology` runs that followed all died at `Create space on A` with `503 System is in maintenance mode`.
+ * Sixty runs of a measurement against a stack that could not answer.
+ *
+ * ## Why VERIFY and not just check the status
+ *
+ * "I asked" and "it is set" are different claims, and only the second one matters to the next suite. A `200` on
+ * the write can still leave the value unchanged — a field the server ignores, a pin that refuses silently, a
+ * merge that dropped the key. So the caller supplies a predicate over the re-read value.
+ *
+ * Note that `reqJson` RESOLVES for every response: it returns `{status, body}` and never rejects on a 4xx/5xx.
+ * So a `try/catch` alone catches a dropped connection and nothing else, which is why the verify step is the
+ * thing that decides rather than the absence of a throw.
+ *
+ * @param label   what is being restored, quoted in the failure — the next reader needs to know WHICH cleanup
+ * @param apply   performs the restore; its return value is ignored
+ * @param verify  re-reads and returns true when the value is actually back
+ */
+export async function restoreOrFail(label, apply, verify, { attempts = 4, delayMs = 250 } = {}) {
+  let last = 'never ran';
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      await apply();
+      if (await verify()) return;
+      last = `verify still false after attempt ${attempt}`;
+    } catch (err) {
+      last = err instanceof Error ? err.message : String(err);
+    }
+    // Saturated rather than broken is the observed failure, and a wait is what fixes that.
+    await new Promise(r => setTimeout(r, delayMs * attempt));
+  }
+  throw new Error(
+    `Could not restore ${label} after ${attempts} attempts (${last}). Refusing to exit quietly: this is `
+    + 'instance-wide state, so leaving it changed makes later suites in this job fail for a reason that has '
+    + 'nothing to do with what they test.',
+  );
+}

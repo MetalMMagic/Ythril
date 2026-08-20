@@ -17,7 +17,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'url';
-import { INSTANCES, reqJson, post, put } from '../sync/helpers.js';
+import { INSTANCES, reqJson, post, put, get, restoreOrFail } from '../sync/helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TOKEN_FILE_A = path.join(__dirname, '..', 'sync', 'configs', 'a', 'token.txt');
@@ -189,9 +189,22 @@ describe('PUT /api/admin/data/backup-config', () => {
   };
 
   after(async () => {
-    // Best-effort restore — if the PUT fails here the test stack will be
-    // re-built before the next run anyway.
-    await put(BASE_A, tokenA, '/api/admin/data/backup-config', ORIGINAL_CONFIG).catch(() => {});
+    /*
+     * NOT best-effort. The old comment read "if the PUT fails here the test stack will be re-built before the
+     * next run anyway" — and that is not true within a single CI job, where every suite runs against the same
+     * stack. A backup config left pointing somewhere else is inherited by whatever runs next.
+     *
+     * The verify re-reads the schedule, which is the field this suite changes.
+     */
+    await restoreOrFail('backup-config',
+      () => put(BASE_A, tokenA, '/api/admin/data/backup-config', ORIGINAL_CONFIG),
+      async () => {
+        // `{config: {...}}`, not the config at the top level — every assertion in this file reads
+        // `r.body.config.schedule`, and a verify against the wrong shape would never pass and would throw on
+        // every run. Checked against the tests above rather than assumed.
+        const now = await get(BASE_A, tokenA, '/api/admin/data/backup-config');
+        return now.status === 200 && now.body?.config?.schedule === ORIGINAL_CONFIG?.schedule;
+      });
   });
 
   it('returns 403 FEATURE_DISABLED on instance B (flag absent)', async () => {

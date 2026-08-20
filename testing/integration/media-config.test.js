@@ -18,7 +18,7 @@ import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { INSTANCES, get, patch, post } from '../sync/helpers.js';
+import { INSTANCES, get, patch, post, restoreOrFail } from '../sync/helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -56,8 +56,9 @@ describe('Media config hot-reload (A6)', () => {
   after(async () => {
     // Restore whatever the model was so we don't leak state into other suites.
     if (originalModel) {
-      await patch(INSTANCES.a, tokenA, '/api/admin/media-config',
-        { vision: { model: originalModel } }).catch(() => {});
+      await restoreOrFail('vision.model',
+        () => patch(INSTANCES.a, tokenA, '/api/admin/media-config', { vision: { model: originalModel } }),
+        async () => (await get(INSTANCES.a, tokenA, '/api/admin/media-config')).body?.vision?.model === originalModel);
     }
   });
 
@@ -97,8 +98,10 @@ describe('Media config — documentProcessing (F11)', () => {
   });
   after(async () => {
     // Restore to OCR so the (inert in this PR) mode doesn't leak into other suites.
-    await patch(INSTANCES.a, tokenA, '/api/admin/media-config',
-      { documentProcessing: originalDp ?? { mode: 'ocr' } }).catch(() => {});
+    const want = originalDp ?? { mode: 'ocr' };
+    await restoreOrFail('documentProcessing',
+      () => patch(INSTANCES.a, tokenA, '/api/admin/media-config', { documentProcessing: want }),
+      async () => (await get(INSTANCES.a, tokenA, '/api/admin/media-config')).body?.documentProcessing?.mode === want.mode);
   });
 
   it('accepts and round-trips a documentProcessing.mode change', async () => {
@@ -150,7 +153,12 @@ describe('Media config — text embedding', () => {
   before(async () => { tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim(); });
   after(async () => {
     // Restore to the bundled local model so no external/broken endpoint leaks into other suites.
-    await patch(INSTANCES.a, tokenA, '/api/admin/media-config', { embedding: { provider: 'local', baseUrl: null } }).catch(() => {});
+    await restoreOrFail('embedding.provider/baseUrl',
+      () => patch(INSTANCES.a, tokenA, '/api/admin/media-config', { embedding: { provider: 'local', baseUrl: null } }),
+      async () => {
+        const emb = (await get(INSTANCES.a, tokenA, '/api/admin/media-config')).body?.embedding;
+        return emb?.provider === 'local' && !emb?.baseUrl;
+      });
   });
 
   it('GET surfaces the embedding block', async () => {
@@ -178,7 +186,10 @@ describe('Media config — text embedding', () => {
     const reread = await get(INSTANCES.a, tokenA, '/api/admin/media-config');
     const key = reread.body?.embedding?.apiKey;
     assert.ok(!key || !key.includes('sk-emb-secret'), `key must be masked, got: ${key}`);
-    await patch(INSTANCES.a, tokenA, '/api/admin/media-config', { embedding: { provider: 'local', apiKey: null } }).catch(() => {});
+    // A cleared key comes back `undefined` and a set one as a bullet string, so falsiness IS the check.
+    await restoreOrFail('embedding.apiKey (cleared)',
+      () => patch(INSTANCES.a, tokenA, '/api/admin/media-config', { embedding: { provider: 'local', apiKey: null } }),
+      async () => !(await get(INSTANCES.a, tokenA, '/api/admin/media-config')).body?.embedding?.apiKey);
   });
 });
 
@@ -190,11 +201,15 @@ describe('Media config — external assist model (F11-b)', () => {
   });
   after(async () => {
     // Lower the rung so no external routing leaks into other suites. (`uses` is retired — the extraction
-    // rung IS the switch now, so dropping below `repair` is what disables the egress path. Note we do not
-    // try to blank `baseUrl`: the schema requires a valid URL, so an empty string would 400 and the
-    // `.catch()` would swallow it, leaving the cleanup silently undone.)
-    await patch(INSTANCES.a, tokenA, '/api/admin/media-config',
-      { documentProcessing: { mode: 'ocr' } }).catch(() => {});
+    // rung IS the switch now, so dropping below `repair` is what disables the egress path. We do not try to
+    // blank `baseUrl`: the schema requires a valid URL, so an empty string would 400.)
+    //
+    // This is the site whose own comment named the defect — "the `.catch()` would swallow it, leaving the
+    // cleanup silently undone" — and worked around it by not attempting the harder restore. It no longer
+    // swallows, so the workaround is a choice about what to restore rather than a hedge against silence.
+    await restoreOrFail('documentProcessing.mode (egress rung)',
+      () => patch(INSTANCES.a, tokenA, '/api/admin/media-config', { documentProcessing: { mode: 'ocr' } }),
+      async () => (await get(INSTANCES.a, tokenA, '/api/admin/media-config')).body?.documentProcessing?.mode === 'ocr');
   });
 
   it('making an endpoint REACHABLE without acknowledgment is rejected (egress gate)', async () => {
@@ -241,7 +256,10 @@ describe('Media config — external assist model (F11-b)', () => {
     const key = reread.body?.documentProcessing?.assistModel?.apiKey;
     assert.ok(key && !key.includes('sk-secret-xyz'), `key must be masked, got: ${key}`);
     // Clear the stored key.
-    await patch(INSTANCES.a, tokenA, '/api/admin/media-config',
-      { documentProcessing: { assistModel: { apiKey: null } } }).catch(() => {});
+    await restoreOrFail('documentProcessing.assistModel.apiKey (cleared)',
+      () => patch(INSTANCES.a, tokenA, '/api/admin/media-config',
+        { documentProcessing: { assistModel: { apiKey: null } } }),
+      async () => !(await get(INSTANCES.a, tokenA, '/api/admin/media-config'))
+        .body?.documentProcessing?.assistModel?.apiKey);
   });
 });

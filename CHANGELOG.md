@@ -80,6 +80,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The ER diagram's boxes now take one of three heights, and a row of them is a band.** breituai-platform's
+  owner, at a browser on a live 3.2.0 instance, 2026-08-20. His word for the diagram was *"salad"*, and two of
+  his three complaints were heights: *"non-uniform height entities"*, and boxes side by side in a row having
+  different heights so *"a row has no top line and no bottom line"*. Their post is a specification rather than
+  a defect list, and the numbers in it are measured — `er_model` against their `infrastructure` space: 22
+  entity types, property counts 0 to 10, eighteen of them between 4 and 8.
+
+  **Rule 1 — at most three distinct heights**, bucketed once per diagram. A box's height was
+  `HEAD_H + max(2, properties + 1) * ROW_H + 12`, so eight distinct property counts meant eight distinct
+  heights and no horizontal line anywhere in the picture. The split is by **tercile of the types**, not by
+  their proposed fixed `<=4 / 5-7 / >=8` — those three numbers are right for a 22-type model with that spread
+  and wrong for four types that all have two properties, where two buckets would sit empty. On their own data
+  the tercile lands within a property of their split. A bucket's height is what its **tallest** member needs,
+  never an average: averaging would clip the fields of the tallest type in each bucket, and a diagram that
+  hides a property to look tidy is worse than a ragged one.
+
+  Measured against their distribution, this is what it does — eight heights become three, and no box shrinks:
+
+  | properties | before | after |
+  | --- | --- | --- |
+  | 0 | 70 px | 134 px |
+  | 3 | 102 px | 134 px |
+  | 4 | 118 px | 134 px |
+  | 5 | 134 px | 134 px |
+  | 6 | 150 px | 150 px |
+  | 7 | 166 px | 214 px |
+  | 8 | 182 px | 214 px |
+  | 10 | 214 px | 214 px |
+
+  The one to look at is the top row: their single property-less type grows from 70 px to 134 px, because it
+  shares a bucket with thirteen others. That is what three buckets means and it is what was asked for, but it
+  is the number worth a second opinion from somebody with the diagram in front of them.
+
+  **Rule 2 — never two heights in one row**, which they said matters most because rule 1 alone still permits a
+  short box beside a tall one. The two columns no longer stack independently: row `i` takes the taller of its
+  two boxes, both take that height, both start at the same `y`. Where one column runs out the row is just the
+  remaining box. The unlinked shelf gets the same treatment — its row height was already the tallest box in
+  the row, but each box kept its OWN height inside that slot, so a row of four had four bottom edges inside
+  one band.
+
+  Their prerequisite argument is why these went first and is worth recording: uniform row heights are what
+  give an orthogonal router consistent horizontal channels, so *"fixing rules 1 and 2 will visibly reduce the
+  salad on its own, before anyone touches the router."* **Rule 3 — the shelf flowing to the full width — is
+  NOT in this change.** It needs the container's width, which a pure layout function does not have, so it
+  needs a measured element and is its own PR. Their diagnosis of it was also one step off, and the correction
+  matters: the shelf already flows to a width rather than to a fixed four columns, but that width is the
+  DIAGRAM's own — three columns plus their gaps — so widening the window cannot help.
+
+  Seven property-based specs, four mutants killed: per-type heights restored, bucket heights averaged instead
+  of maxed, the columns stacked independently again, and the shelf boxes keeping their own height. The fixture
+  is deliberately built to a spread that WOULD produce many heights, because one whose types all had the same
+  property count would satisfy both rules with the code doing nothing.
+
+
 - **The MCP door's default recall byte budget is now 25 000, against REST's 100 000 — the one place the two
   doors deliberately differ.** Reported by breituai-platform, 2026-08-20, and the number in it is theirs: a
   recall answered `bytesReturned: 98356` against `budgetBytes: 100000`, correct, in budget, fully specified —

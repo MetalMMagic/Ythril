@@ -458,3 +458,116 @@ describe('kind boxes', () => {
     expect(paths).toHaveLength(1);
   });
 });
+
+/**
+ * THREE HEIGHTS AT MOST, AND NEVER TWO IN ONE ROW.
+ *
+ * ## Whose rules these are
+ *
+ * breituai-platform's owner, at a browser on a live 3.2.0 instance, 2026-08-20. His word for the diagram was
+ * "salad", and two of his three complaints were about heights: *"non-uniform height entities"*, and boxes side
+ * by side in a row having different heights so *"a row has no top line and no bottom line"*.
+ *
+ * The numbers behind it are theirs too, measured with `er_model` against their `infrastructure` space: 22
+ * entity types with property counts from 0 to 10, eighteen of them between 4 and 8. Eight distinct property
+ * counts meant eight distinct box heights and no horizontal line anywhere.
+ *
+ * ## Why these assertions and not a snapshot
+ *
+ * A snapshot of a 22-type diagram fails on every tweak and tells nobody which rule broke. These are the two
+ * rules stated as properties, so a future change to the layout that reintroduces a ragged field fails on the
+ * rule it broke.
+ *
+ * The fixture is deliberately built to a spread that WOULD produce many heights: property counts 0..9 across
+ * ten types. A fixture whose types all had the same count would satisfy both rules without the code doing
+ * anything, which is the vacuous pass this file exists to avoid.
+ */
+describe('er-layout box heights are bucketed, and rows are bands', () => {
+  /** Ten types with property counts 0..9 — nine distinct natural heights before bucketing. */
+  const spread = Array.from({ length: 10 }, (_, i) => type(`t${i}`, {
+    properties: Array.from({ length: i }, (_, j) => ({ name: `p${j}`, type: 'string', required: false })),
+  }));
+  // Half point at the hub, half are pointed at by it, so both columns fill and rows can be compared.
+  const hubbed = [
+    ...[1, 2, 3, 4].map(i => rel(`t${i}`, 't0')),
+    ...[5, 6, 7, 8, 9].map(i => rel('t0', `t${i}`)),
+  ];
+  const out = layoutErModel(spread, hubbed);
+
+  it('the fixture really does have a spread of property counts', () => {
+    // Without this the two assertions below pass on a model that could not have broken either rule.
+    const distinct = new Set(spread.map(t => t.properties.length));
+    expect(distinct.size).toBe(10);
+    expect(out.boxes.length).toBeGreaterThanOrEqual(10);
+  });
+
+  it('collapses to AT MOST three distinct heights', () => {
+    const heights = new Set(out.boxes.map(b => b.h));
+    expect(heights.size).toBeLessThanOrEqual(3);
+  });
+
+  it('and never CLIPS a type — a bucket is as tall as its tallest member needs', () => {
+    // The failure an average would produce: the 9-property type losing rows to look tidy. Buckets only ever
+    // grow a box, so every box is at least the height its own properties need.
+    for (const b of out.boxes) {
+      const src = spread.find(t => t.type === b.type);
+      if (!src) continue;                                  // a synthetic kind box has no source type
+      const needed = 26 + Math.max(2, src.properties.length + 1) * 16 + 12;
+      expect(b.h).toBeGreaterThanOrEqual(needed);
+    }
+  });
+
+  it('the two columns are BANDS — same y, same height, per row', () => {
+    // Rule 2, and the one they said matters most: rule 1 alone still permits a short box beside a tall one.
+    const l = out.boxes.filter(b => b.col === 0).sort((a, b) => a.y - b.y);
+    const r = out.boxes.filter(b => b.col === 2).sort((a, b) => a.y - b.y);
+    expect(l.length).toBeGreaterThan(0);
+    expect(r.length).toBeGreaterThan(0);
+    for (let i = 0; i < Math.min(l.length, r.length); i++) {
+      expect(l[i]!.y).toBe(r[i]!.y);
+      expect(l[i]!.h).toBe(r[i]!.h);
+    }
+  });
+
+  it('a row has ONE top edge and ONE bottom edge', () => {
+    // The same claim from the reader's side, which is how it was reported: group every box by its top edge and
+    // require the group to share a bottom edge too.
+    const byTop = new Map<number, number[]>();
+    for (const b of out.boxes) {
+      if (b.col === 1) continue;                           // the hub is centred against the columns by design
+      const bottoms = byTop.get(b.y) ?? [];
+      bottoms.push(b.y + b.h);
+      byTop.set(b.y, bottoms);
+    }
+    for (const [top, bottoms] of byTop) {
+      expect(new Set(bottoms).size, `row at y=${top} has ${new Set(bottoms).size} bottom edges`).toBe(1);
+    }
+  });
+
+  it('the unlinked shelf is a band too', () => {
+    // The shelf's rows are literal rows, and its row height was already the tallest box in it — but each box
+    // kept its own height inside that slot, so a row of four had four bottom edges inside one band.
+    const isolated = Array.from({ length: 5 }, (_, i) => type(`iso${i}`, {
+      properties: Array.from({ length: i * 2 }, (_, j) => ({ name: `p${j}`, type: 'string', required: false })),
+    }));
+    const shelfOut = layoutErModel([...spread, ...isolated], hubbed);
+    const shelf = shelfOut.boxes.filter(b => b.col === 3);
+    expect(shelf.length).toBe(5);
+    const rows = new Map<number, number[]>();
+    for (const b of shelf) rows.set(b.y, [...(rows.get(b.y) ?? []), b.h]);
+    for (const [y, hs] of rows) {
+      expect(new Set(hs).size, `shelf row at y=${y} has ${new Set(hs).size} heights`).toBe(1);
+    }
+  });
+
+  it('a uniform model collapses to ONE height, which is still "at most three"', () => {
+    // The reason the split is by tercile of the TYPES rather than their proposed fixed `<=4 / 5-7 / >=8`:
+    // those three numbers are right for a 22-type model with that spread and wrong for four types that all
+    // have two properties, where two of the three buckets would be empty.
+    const flat = Array.from({ length: 4 }, (_, i) => type(`f${i}`, {
+      properties: [{ name: 'a', type: 'string', required: false }, { name: 'b', type: 'string', required: false }],
+    }));
+    const flatOut = layoutErModel(flat, [rel('f1', 'f0'), rel('f0', 'f2')]);
+    expect(new Set(flatOut.boxes.map(b => b.h)).size).toBe(1);
+  });
+});

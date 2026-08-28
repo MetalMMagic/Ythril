@@ -40,9 +40,18 @@ describe('VLM extraction mode wiring (F11)', () => {
     // Found by the ratchet and not by a grep: the path and the `.catch` are on different LINES here, so a
     // line-based sweep for the shape missed it while a statement-bounded one did not.
     const want = originalDp ?? { mode: 'ocr' };
+    /*
+     * Reports WHAT it re-read, because this is the hook that failed in CI on 2026-08-28 and the message left
+     * nothing to work from. A `200` on the PATCH with an unchanged mode is a different fault from a PATCH that
+     * never landed, and "verify still false" cannot tell them apart.
+     */
     await restoreOrFail('documentProcessing (vlm-extraction)',
       () => patch(INSTANCES.a, tokenA, '/api/admin/media-config', { documentProcessing: want }),
-      async () => (await get(INSTANCES.a, tokenA, '/api/admin/media-config')).body?.documentProcessing?.mode === want.mode);
+      async () => {
+        const r = await get(INSTANCES.a, tokenA, '/api/admin/media-config');
+        const mode = r.body?.documentProcessing?.mode;
+        return { ok: mode === want.mode, saw: { status: r.status, mode, wanted: want.mode } };
+      });
   });
 
   it('a PDF uploaded under mode:vlm is still accepted (202) and degrades to the async path', async () => {

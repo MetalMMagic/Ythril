@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **A cleanup hook that gives up now says WHAT it re-read, not only that its check was false.**
+
+  `restoreOrFail` restores instance-wide state between integration suites, and its failure read
+  `verify still false after attempt 4` and nothing else. That cannot tell two different faults apart: a `200` on
+  the write that left the value unchanged, and a write that never landed. On 2026-08-28 the VLM-extraction hook
+  gave up in CI on a commit whose diff was prose, a re-run of the same commit passed, and the message left nothing
+  to work from — so the flake is filed rather than dismissed, with the instrumentation to diagnose it next time.
+
+  `verify` may now return `{ ok, saw }`, and `saw` is quoted in the failure. A bare boolean still works, because
+  most call sites have nothing interesting to report and forcing an object on all of them would be noise — the
+  ones restoring instance-wide state are the ones worth the extra word.
+
+  The check is `verdict === true || verdict.ok === true`, deliberately, and that is pinned: an `if (verdict)` here
+  would read a truthy `{ ok: false, saw: … }` as a PASS — reporting success on the exact shape added to report
+  failure, with every call site looking correct.
+
 ### Added
 
 - **An audit entry carries the request id, so the audit log and the server log join on one value.**

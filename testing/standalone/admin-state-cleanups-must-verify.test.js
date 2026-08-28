@@ -191,6 +191,44 @@ describe('the replacement is EXERCISED, not read', () => {
     assert.equal(applied, 2, 'it must have tried every attempt before giving up');
   });
 
+  it('a failure quotes WHAT it re-read, when the verify says so', async () => {
+    /*
+     * The instrumentation this exists for. `verify still false after attempt 4` cannot tell a `200` that left the
+     * value unchanged from a write that never landed — and on 2026-08-28 a CI failure on a prose-only diff left
+     * exactly that message and nothing to work from. A `verify` returning `{ ok, saw }` gets `saw` quoted.
+     */
+    await assert.rejects(
+      () => restoreOrFail('the thing',
+        async () => {},
+        async () => ({ ok: false, saw: { status: 200, mode: 'ocr', wanted: 'vlm' } }),
+        { attempts: 1, delayMs: 1 }),
+      err => {
+        assert.match(err.message, /re-read/, 'the failure must say it re-read something');
+        assert.match(err.message, /"mode":"ocr"/, 'and quote the value, or the next reader has nothing');
+        assert.match(err.message, /"wanted":"vlm"/, 'including what it wanted, so the two can be compared');
+        return true;
+      });
+  });
+
+  it('a bare boolean still works, and `{ ok: true }` is a pass', async () => {
+    // Most call sites have nothing interesting to report, and forcing an object on all of them would be noise.
+    await assert.doesNotReject(() => restoreOrFail('bare true', async () => {}, async () => true));
+    await assert.doesNotReject(() => restoreOrFail('object ok', async () => {}, async () => ({ ok: true })));
+  });
+
+  it('a TRUTHY object with ok:false is a failure, not a pass', async () => {
+    /*
+     * The bug an `if (verdict)` would introduce the moment a call site returns `{ ok: false, saw: … }`: an object
+     * is truthy, so the helper would report success on the exact shape added to report failure. Pinned because it
+     * is invisible — every call site would look correct and every cleanup would silently pass.
+     */
+    await assert.rejects(
+      () => restoreOrFail('truthy but not ok', async () => {}, async () => ({ ok: false, saw: 'nope' }),
+        { attempts: 1, delayMs: 1 }),
+      /Could not restore truthy but not ok/);
+  });
+
+
   it('RESOLVES as soon as the verify passes, and stops trying', async () => {
     let applied = 0;
     await restoreOrFail('the thing', async () => { applied++; }, async () => applied >= 2,

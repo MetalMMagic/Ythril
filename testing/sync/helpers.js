@@ -429,17 +429,33 @@ export async function listMemories(baseUrl, token) {
  * So a `try/catch` alone catches a dropped connection and nothing else, which is why the verify step is the
  * thing that decides rather than the absence of a throw.
  *
+ * ## WHAT it read, not only that the predicate was false
+ *
+ * The failure used to say `verify still false after attempt 4` and nothing else, which cannot tell two different
+ * faults apart: a `200` on the write that left the value unchanged, and a write that never landed. On 2026-08-28
+ * this hook gave up in CI on a commit whose diff was prose, the re-run passed, and the message left nothing to
+ * work from — so `verify` may now return `{ ok, saw }` and the `saw` value is quoted in the failure.
+ *
+ * A bare boolean still works, because most call sites have nothing interesting to report and forcing an object
+ * on all of them would be noise. The ones that restore INSTANCE-WIDE state are the ones worth the extra word.
+ *
  * @param label   what is being restored, quoted in the failure — the next reader needs to know WHICH cleanup
  * @param apply   performs the restore; its return value is ignored
- * @param verify  re-reads and returns true when the value is actually back
+ * @param verify  re-reads and returns `true`, or `{ ok, saw }` where `saw` is quoted when it fails
  */
 export async function restoreOrFail(label, apply, verify, { attempts = 4, delayMs = 250 } = {}) {
   let last = 'never ran';
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
       await apply();
-      if (await verify()) return;
-      last = `verify still false after attempt ${attempt}`;
+      const verdict = await verify();
+      // A bare boolean or `{ ok, saw }`. `verdict === true` first, so a truthy object is never mistaken for a
+      // pass — which is the bug an `if (verdict)` here would introduce the moment a call site returns `{ok:false}`.
+      if (verdict === true || (verdict && typeof verdict === 'object' && verdict.ok === true)) return;
+      const saw = verdict && typeof verdict === 'object' && 'saw' in verdict
+        ? ` — re-read: ${JSON.stringify(verdict.saw)}`
+        : '';
+      last = `verify still false after attempt ${attempt}${saw}`;
     } catch (err) {
       last = err instanceof Error ? err.message : String(err);
     }

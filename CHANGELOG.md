@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.0] — 2026-08-28
+
 ### Changed
 
 - **A cleanup hook that gives up now says WHAT it re-read, not only that its check was false.**

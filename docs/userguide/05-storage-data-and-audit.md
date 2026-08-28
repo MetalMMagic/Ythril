@@ -66,7 +66,7 @@ Configure automatic backups and an optional offsite destination from **Settings 
 
 | Field | Description |
 |---|---|
-| `schedule` | Cron expression for automatic backups (e.g. `"0 2 * * *"` = daily at 02:00). |
+| `schedule` | Cron expression for automatic backups (e.g. `"0 2 * * *"` = daily at 02:00). **Takes effect when you save — no restart.** It did not always: saving a schedule wrote the file and reported success, and the instance kept running on whatever schedule it had when it started, so turning backups on for the first time produced none at all until a restart. |
 | `encrypt` | Encrypt every record in a backup with the instance master secret. **Default: `false`** (plaintext). Requires `YTHRIL_MASTER_KEY` or `YTHRIL_MASTER_PASSPHRASE`. Applies to manual, scheduled **and** offsite backups. See [Encrypted backups](#encrypted-backups) below. |
 | `retention.keepLocal` | Maximum number of local backups to retain. Oldest are deleted after each run. **Default: unlimited** — local backups are never pruned unless you set this. |
 | `offsite.destPath` | Absolute path **on the server's filesystem** to copy each backup to. See [Configuring the offsite path](#configuring-the-offsite-path) below. |
@@ -103,7 +103,7 @@ Each backup set at the offsite destination contains:
 - `<backupId>/` — MongoDB NDJSON dump (same format as local backups)
 - `<backupId>-files/` — copy of `<data-root>/files/` (user-uploaded files), if present
 
-All fields are optional. Omit `offsite` to disable offsite copying; omit `schedule` to disable automatic scheduling.
+All fields are optional. Omit `offsite` to disable offsite copying; omit `schedule` to disable automatic scheduling — which also takes effect on save, so clearing it stops the next run rather than the next boot.
 
 #### Configuring the offsite path
 

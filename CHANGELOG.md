@@ -46,6 +46,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it (`02-hosting`, `03-auth-and-limits`), one described the old behaviour exactly (`11-setup-api`) — so the
   reader who happened to open the accurate page was the only one who knew the id was useless for a handled
   failure. `userguide/05-storage-data-and-audit` says what the Server Log tab now shows.
+- **Turning scheduled backups on reported success and produced no backups until the instance was restarted.**
+
+  `PUT /api/admin/data/backup-config` wrote `backup.json` and answered `{ "ok": true }`. `startBackupScheduler()`
+  was called exactly once, from `bootstrap.ts`, and nothing called it again — so a changed schedule was ignored,
+  a cleared one kept firing, and an operator **enabling** scheduled backups for the first time got a success
+  response and nothing else. Believing you have backups is worse than knowing you do not.
+
+  The same shape on the config-reload path: the sync engine, the duplicate scanner and the contradiction scanner
+  fix their cron expression inside `start*`, and `applyConfigFromDisk` never re-armed them. Editing
+  `dupeScanner.schedule` reloaded the config and left the scanner on its boot-time schedule; enabling a scanner
+  that was off did nothing at all. **`POST /api/admin/reload-config` — an endpoint whose entire purpose is
+  "apply what I just changed" — reported success without applying it.**
+
+  The mechanism was already there. Every `start*` stops its own previous task first; `startBackupScheduler`
+  carries the comment *"Stop any previously running task before (re-)scheduling"*; `scheduler-wiring.test.js`
+  pairs each `start*` with a `stop*` and says why — *"so a config reload can restart it cleanly"*; and
+  `api/networks/crud.ts` already re-armed a network's sync when its schedule changed. One rule, two
+  implementations, and the weaker one was silent — this repo's signature defect, in the operational layer.
+
+  The **interval-driven** sweeps are deliberately not re-armed: the TTL sweep, candidate prune, tombstone prune
+  and audit-change retention read the config on every run, so a change reaches them on the next tick. Restarting
+  them would reset the phase of a six-hour timer every time a setting is saved, pushing the next run up to six
+  hours away — repeatedly, for an operator editing several settings. That over-correction is one of the five
+  mutants, alongside both pre-fix shapes.
 
 ### Fixed
 

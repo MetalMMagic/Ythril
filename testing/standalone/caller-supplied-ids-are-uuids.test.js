@@ -33,6 +33,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { balancedFrom } from './_structural-window.mjs';
 import { readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 
@@ -48,10 +49,20 @@ const files = execSync('git ls-files "server/src/mcp/tools/*.ts"', { encoding: '
  */
 function idDeclarations(src) {
   const out = [];
-  // Single-line and multi-line object literals both, up to the closing brace of that property.
-  for (const m of src.matchAll(/^(\s+)id:\s*(uuidSchema\(|\{[\s\S]{0,400}?\},$)/gm)) {
+  /*
+   * A WINDOW, converted: an `id:` declaration is either a `uuidSchema(` call or an OBJECT, and an object is
+   * bounded by the brace that closes it — not by 400 characters of whatever follows.
+   *
+   * The cap decided in advance how large a declaration could be. A schema that grew past it matched a
+   * TRUNCATED blob, and every judgement below then read a fragment: `required` could fall outside the window
+   * and a constrained declaration would be reported as permissive. A positive check would go red and a
+   * negative one would quietly pass, which is the worse half.
+   */
+  for (const m of src.matchAll(/^(\s+)id:\s*(uuidSchema\(|\{)/gm)) {
     const line = src.slice(0, m.index).split('\n').length;
-    const blob = m[2];
+    const blob = m[2] === '{'
+      ? balancedFrom(src, src.indexOf('{', m.index), `the id declaration at line ${line}`)
+      : m[2];
     // A REQUIRED id addresses a record that already exists. Those are deliberately left permissive: records
     // written before this fix may carry a non-UUID id — the reporting operator has one — and constraining the
     // update and delete paths would make exactly those records unfixable and undeletable. Being unable to

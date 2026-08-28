@@ -145,6 +145,10 @@ describe('the docs admit what encryption at rest does not cover', () => {
     // ADJACENCY CLAIM, not a window: `.` does not match a newline, so this asserts the flag and the disclaimer
     // are on ONE LINE of prose. That is the rule — a page that names the flag and admits the gap forty lines
     // apart has not corrected the assumption, which is the whole point of the sentence.
+    // AN ADJACENCY CLAIM, not a window, and the number IS the rule: `.` crosses no newline, so this asserts
+    // the flag and the disclaimer sit in ONE SENTENCE. That is the requirement — a page mentioning
+    // `requireEncryptedAtRest` in one paragraph and "does not cover it" three paragraphs later has told the
+    // reader nothing about the relationship between them. Widening the gap would break the check.
     assert.match(doc, /requireEncryptedAtRest.{0,40}does not cover it/i,
       'it must say explicitly that the at-rest flag does not cover a dump — that is the assumption being corrected');
     assert.match(doc, /decrypted/i,

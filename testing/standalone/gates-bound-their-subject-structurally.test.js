@@ -163,7 +163,7 @@ const GRANDFATHERED = new Map([
 /**
  * A CAPPED GAP inside a regex: `/marker[\s\S]{0,400}?other/`. Files still allowed to carry one, with how many.
  *
- * **45 occurrences across 24 files**, down from 66/36 when this was first measured — and the tracker had recorded
+ * **43 occurrences across 22 files**, down from 66/36 when this was first measured — and the tracker had recorded
  * 30, which is why the number lives in the gate now rather than in a markdown file that drifts.
  *
  * The nine that left were the ones whose subject is a NAMED FUNCTION or a BRANCH, where the structural bound is
@@ -221,9 +221,7 @@ const GRANDFATHERED_GAP = new Map([
   ['testing/red-team-tests/ssrf-ipv6.test.js', 1],
   ['testing/standalone/backups-are-not-world-readable.test.js', 1],
   ['testing/standalone/brain-read-bodies-are-strict.test.js', 2],
-  ['testing/standalone/caller-supplied-ids-are-uuids.test.js', 1],
-  ['testing/standalone/chrono-retention.test.js', 1],
-  ['testing/standalone/chrono-status-descriptions-match-the-derivation.test.js', 9],
+      ['testing/standalone/chrono-status-descriptions-match-the-derivation.test.js', 9],
   ['testing/standalone/document-description.test.js', 3],
   ['testing/standalone/infra-managed-locks-every-field.test.js', 2],
   ['testing/standalone/mcp-tool-rights.test.js', 2],

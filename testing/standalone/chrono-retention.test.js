@@ -32,6 +32,7 @@
  */
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
+import { balancedFrom } from './_structural-window.mjs';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -237,7 +238,13 @@ describe('the feature is reachable and wired', () => {
     // from every request and the whole tier would silently not exist.
     // `TypeSchemaZ` moved to `spaces/body-schemas.ts` with the rest of the space request bodies.
     const src = readFileSync(join(ROOT, 'server/src/spaces/body-schemas.ts'), 'utf8');
-    assert.match(src, /retention: z\.object\(\{[\s\S]{0,200}contentDays: z\.number\(\)/);
+    // A WINDOW, converted: the subject is the `retention` object, bounded by the brace that closes it.
+    // 200 characters reached past it into the sibling fields, so a `contentDays` declared on a NEIGHBOURING
+    // property would have satisfied a check about this one.
+    const at = src.indexOf('retention: z.object({');
+    assert.ok(at > -1, 'the retention schema is gone — re-anchor this gate');
+    assert.match(balancedFrom(src, src.indexOf('{', at + 'retention: z.object('.length - 1), 'the retention schema'),
+      /contentDays: z\.number\(\)/);
   });
 
   it('the sweep runs both passes off the schema policy', () => {

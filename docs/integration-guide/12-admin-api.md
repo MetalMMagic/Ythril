@@ -49,6 +49,16 @@ X-TOTP-Code: <code>   # required when MFA is enabled
 
 Reloading also flushes the token and OIDC caches, so a token revoked by a manual edit — or an updated OIDC block — takes effect immediately rather than after the cache expires. Legacy tokens that lack a `prefix` field are **not** removed: `findMatchingToken()` verifies them via a fallback scan and backfills the prefix on first use, so a reload never invalidates existing tokens.
 
+**And it re-arms the schedulers whose cron expression is fixed when they start** — the sync engine, the duplicate
+scanner and the contradiction scanner. It did not always: changing `dupeScanner.schedule` reloaded the
+config and left the scanner running on the schedule it had at boot, and **enabling a scanner that was off did
+nothing at all** until the instance was restarted — while this endpoint answered `{ "ok": true }`.
+
+The interval-driven sweeps (auto-delete/TTL, candidate prune, tombstone prune, audit-change retention) are
+deliberately **not** restarted: they re-read the config on every run, so a change reaches them on the next tick.
+Restarting them would only reset the phase of a six-hour timer, pushing the next run up to six hours away each
+time a setting is saved.
+
 **Response** `200`:
 
 ```json
@@ -535,6 +545,11 @@ services:
 > **Requires admin MFA** (same as other write operations).
 
 Writes (replaces) `backup.json`. Use this to configure the backup schedule and offsite destination from the UI or programmatically. The backup settings UI in **Settings → Database** calls this endpoint.
+
+**The new schedule is armed before the response returns**, so a `200` here means backups will run on it. It did not always:
+this route wrote the file and nothing re-read it, so a changed schedule was ignored, a cleared one kept
+firing, and an operator turning scheduled backups **on for the first time** got `{ "ok": true }` and no backups
+at all until the instance was restarted.
 
 ```http
 PUT /api/admin/data/backup-config

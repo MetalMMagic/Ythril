@@ -49,6 +49,7 @@ import { clearOidcCache } from './auth/oidc.js';
 import { initSpace, ensureGeneralSpace, wipeSpace, reconcilePendingSpaceOp, WIPE_COLLECTION_TYPES, type WipeCollectionType } from './spaces/lifecycle.js';
 import { col, asFilter, asDoc } from './db/mongo.js';
 import { log, runWithRequestId } from './util/log.js';
+import { rearmCronSchedulers } from './schedulers.js';
 import { getReadiness, classifyCheckError } from './ready.js';
 import { isShuttingDown } from './lifecycle.js';
 import {
@@ -573,6 +574,20 @@ export function createApp() {
         await initSpace(space.id);
       }
     }
+    /*
+     * Re-arm the schedulers whose cron expression is captured at START time — the sync engine, the duplicate
+     * scanner, the contradiction scanner.
+     *
+     * Without this, reloading a config that changed `dupeScanner.schedule` left the scanner on its boot-time
+     * schedule, and ENABLING a scanner that was off did nothing at all until the instance was restarted. This
+     * function is reached by the config watcher AND by `POST /api/admin/reload-config`, which answered
+     * `{ ok: true }` — an endpoint whose entire purpose is "apply what I just changed", reporting success
+     * without applying it.
+     *
+     * Last in the reload, deliberately: a scheduler re-armed before `initSpace` could fire against a space that
+     * does not exist yet. See `schedulers.ts` for why the interval-driven sweeps are NOT re-armed here.
+     */
+    await rearmCronSchedulers();
   }
 
   startConfigWatcher(() => applyConfigFromDisk());

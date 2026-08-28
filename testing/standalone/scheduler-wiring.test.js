@@ -68,3 +68,78 @@ describe('scheduler wiring — a scheduler nobody starts is dead code that looks
     }
   });
 });
+
+/*
+ * ── A scheduler nobody RE-ARMS runs on a schedule nobody chose ─────────────────────────────────────────────
+ *
+ * The pairing above says why it exists — *"so a config reload can restart it cleanly"* — and for three
+ * schedulers no reload did. Their cron expression is read once inside `start*` and handed to `node-cron`, so:
+ *
+ *   - editing `dupeScanner.schedule` reloaded the config and left the scanner on the boot-time schedule;
+ *   - ENABLING a scanner that was off did nothing at all until the instance was restarted;
+ *   - `PUT /api/admin/data/backup-config` wrote `backup.json`, answered `{ ok: true }`, and an operator turning
+ *     scheduled backups ON for the first time got no backups until a restart. Believing you have backups is
+ *     worse than knowing you do not.
+ *   - `POST /api/admin/reload-config` — an endpoint whose entire purpose is "apply what I just changed" —
+ *     reported success without applying it.
+ *
+ * The mechanism was already there: every `start*` stops its own previous task, and `api/networks/crud.ts`
+ * already re-armed a network's sync when its schedule changed. One rule, two implementations, and the weaker one
+ * was silent — this repo's signature defect, in the operational layer.
+ */
+describe('a schedule that is captured at start time is re-armed when it changes', () => {
+  /** Schedulers whose cron expression is fixed inside `start*`, and where the change that must re-arm them lives. */
+  const CAPTURED_AT_START = [
+    { start: 'startSyncScheduler', module: 'server/src/sync/engine.ts' },
+    { start: 'startDupeScanner', module: 'server/src/brain/dupe-scanner.ts' },
+    { start: 'startContradictionScanner', module: 'server/src/brain/contradiction-scanner.ts' },
+  ];
+
+  it('each one is named in the re-arm helper', () => {
+    const rearm = read('server/src/schedulers.ts');
+    for (const { start } of CAPTURED_AT_START) {
+      assert.ok(rearm.includes(start),
+        `${start} captures its cron at start time but is not re-armed on a config reload`);
+    }
+  });
+
+  it('the reload path calls the re-arm helper', () => {
+    // Position matters as much as presence: re-arming before `initSpace` could fire a scan against a space
+    // that does not exist yet, so the call belongs at the END of the reload.
+    const app = read('server/src/app.ts');
+    assert.match(app, /await rearmCronSchedulers\(\)/,
+      'applyConfigFromDisk must re-arm, or POST /api/admin/reload-config reports success without applying');
+    const rearmAt = app.indexOf('await rearmCronSchedulers()');
+    const initAt = app.lastIndexOf('await initSpace(');
+    assert.ok(initAt > -1 && rearmAt > initAt,
+      're-arming before initSpace can schedule work against a space that does not exist yet');
+  });
+
+  it('the backup route re-arms its own scheduler, because its schedule is not in config.json', () => {
+    /*
+     * `backup.json` is its own file with its own route, so the config-reload path never sees it. This is the
+     * instance that mattered most: an operator enabling nightly backups saw `{ ok: true }` and got nothing.
+     */
+    const data = read('server/src/api/data.ts');
+    assert.match(data, /startBackupScheduler\(\)/,
+      'PUT /backup-config writes the schedule without arming it, so the new schedule does not exist');
+    const writeAt = data.indexOf('fs.writeFileSync(BACKUP_CONFIG_PATH');
+    const armAt = data.indexOf('startBackupScheduler()');
+    assert.ok(writeAt > -1 && armAt > writeAt,
+      'the re-arm must follow the write, or it reads the old file');
+  });
+
+  it('the INTERVAL-driven sweeps are deliberately NOT re-armed', () => {
+    /*
+     * The other direction, and it is a real cost rather than tidiness: the TTL sweep, candidate prune and
+     * change retention read `getConfig()` on every fire, so a config change reaches them on the next tick.
+     * Restarting them would reset the phase of a six-hour timer every time somebody saves a setting, pushing
+     * the next run up to six hours away — repeatedly, if an operator is editing several settings.
+     */
+    const rearm = read('server/src/schedulers.ts');
+    for (const start of ['startTtlSweep', 'startCandidatePrune', 'startChangeRetention', 'startTombstonePrune']) {
+      assert.ok(!rearm.includes(`${start}(`),
+        `${start} reads its config per run; re-arming it only resets the phase of its timer`);
+    }
+  });
+});

@@ -25,6 +25,7 @@ import { globalRateLimit } from '../rate-limit/middleware.js';
 import { isMaintenanceActive, setMaintenanceActive } from '../maintenance.js';
 import { runBackupNow } from '../db/backup-scheduler.js';
 import { loadBackupConfig, BACKUP_CONFIG_PATH, BackupConfigSchema } from '../db/backup-config.js';
+import { startBackupScheduler } from '../db/backup-scheduler.js';
 import { dumpDatabase } from '../db/dump.js';
 import { restoreDatabase } from '../db/restore.js';
 import { buildSpaceVectorIndexes } from '../spaces/vector-index.js';
@@ -330,6 +331,21 @@ dataRouter.put('/backup-config', requireAdminMfa, (req, res) => {
   try {
     fs.mkdirSync(path.dirname(BACKUP_CONFIG_PATH), { recursive: true });
     fs.writeFileSync(BACKUP_CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf8');
+    /*
+     * RE-ARM, or the schedule that was just saved does not exist.
+     *
+     * `startBackupScheduler` reads `backup.json` at call time and stops its own previous task first — its own
+     * comment says "Stop any previously running task before (re-)scheduling" — and it was called exactly once,
+     * from `bootstrap.ts`. So this route wrote the file, answered `{ ok: true }`, and the instance kept running
+     * on the boot-time cron: a changed schedule was ignored, a cleared one kept firing, and an operator
+     * ENABLING scheduled backups for the first time got a success response and no backups at all until a
+     * restart. That is the worst shape this can take, because believing you have backups is worse than knowing
+     * you do not.
+     *
+     * `api/networks/crud.ts` already does exactly this for a network's sync schedule — the same pattern, done
+     * right in one place and missing here.
+     */
+    startBackupScheduler();
     res.json({ ok: true, config: cfg });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

@@ -31,6 +31,7 @@ evidence for candidate models — and is unrelated to this folder despite the na
 | path | what it holds |
 |---|---|
 | `PROTOCOL.md` | the pre-registered method. Frozen; amendments appended |
+| `INGESTION.md` | how a conversation becomes records — a PRODUCT specification, written blind to the questions, carrying the sceptic's case and the experiment that would falsify the graph claim |
 | `pins.json` | dataset sources, commits, `sha256` per file, licences, and the counts observed at pin time |
 | `configs/` | the exact configuration of every system under test, ours and every competitor's, with the doc link the competitor's config came from |
 | `prompts/` | the answering prompt and the judge prompt, verbatim — the two files that move published scores most and are published least |
@@ -84,8 +85,9 @@ measuring what its results claim.
   retrieval.
 - **No claim from a difference smaller than the run-to-run standard deviation.** On a ten-conversation dataset
   that will happen, and it will be reported in those words.
-- **Five ingestion strategies scored separately** — raw turns, session summaries, atomic facts, facts + graph,
-  facts + graph + chrono — because how a conversation becomes records is a bigger lever than any retrieval knob,
+- **Six ingestion strategies scored separately** — raw turns, **deterministic structure (free: the speakers and
+  every session's real timestamp, which the dataset already states)**, session summaries, atomic facts, facts +
+  graph, facts + graph + chrono — because how a conversation becomes records is a bigger lever than any retrieval knob,
   and it is the half a results table normally hides. The rungs are the interesting comparison: facts → graph
   should move **multi-hop** specifically, graph → chrono should move **temporal**, and if they do not, that is a
   finding about this product and it gets published as one. The ingest stage is structurally prevented from seeing

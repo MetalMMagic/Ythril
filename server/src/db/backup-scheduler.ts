@@ -26,10 +26,14 @@ import { dumpDatabase, type DumpManifest } from './dump.js';
 import { copyBackupOffsite, copyFilesOffsite, pruneBackups } from './offsite.js';
 import { loadBackupConfig } from './backup-config.js';
 import { log } from '../util/log.js';
+import { armedSchedules } from '../util/armed-schedule.js';
 
 const DEFAULT_KEEP_OFFSITE = 14;
 
 let _task: ScheduledTask | null = null;
+/** See `util/armed-schedule.ts`: this route is called on every save, most of which do not touch the cron. */
+const _armed = armedSchedules();
+const ARMED = 'the one task';
 
 function isBackupFeatureEnabled(): boolean {
   return (process.env['YTHRIL_DB_MIGRATION_ENABLED'] ?? '').trim().toLowerCase() === 'true';
@@ -129,6 +133,28 @@ export function startBackupScheduler(): void {
   if (!isBackupFeatureEnabled()) return;
 
   const cfg = loadBackupConfig();
+
+  /*
+   * ALREADY ARMED ON THIS EXPRESSION — leave it running.
+   *
+   * The route that writes `backup.json` calls this on every save, and a save that only changed
+   * `offsite.destPath` or a retention count has nothing to do with the cron. Restarting the task there would
+   * reset its phase: a nightly backup ninety seconds away goes back to a full day, and an operator adjusting
+   * three fields in a row could push it repeatedly.
+   */
+  if (cfg?.schedule && _task && _armed.isArmed(ARMED, cfg.schedule)) return;
+
+  // Stop any previously running task before (re-)scheduling — including when the schedule was CLEARED, which
+  // is how disabling scheduled backups takes effect rather than waiting for a restart.
+  //
+  // Clearing `_armedCron` here is belt to the guard's braces rather than load-bearing: the guard also requires
+  // `_task`, so a stale expression with no task behind it cannot make it return early. Kept because the two
+  // are one fact — what is armed — and letting them disagree is how the next change to this function goes
+  // wrong. Deliberately NOT gated: a test that failed on removing it would be asserting the redundancy.
+  _task?.stop();
+  _task = null;
+  _armed.forget();
+
   if (!cfg?.schedule) return;
 
   if (!validate(cfg.schedule)) {
@@ -136,13 +162,10 @@ export function startBackupScheduler(): void {
     return;
   }
 
-  // Stop any previously running task before (re-)scheduling
-  _task?.stop();
-  _task = null;
-
   _task = schedule(cfg.schedule, () => {
     runBackupNow().catch(err => log.error(`Scheduled backup error: ${err}`));
   });
+  _armed.note(ARMED, cfg.schedule);
 
   log.info(`Scheduled backup enabled (cron: "${cfg.schedule}")`);
 }
@@ -154,4 +177,5 @@ export function startBackupScheduler(): void {
 export function stopBackupScheduler(): void {
   _task?.stop();
   _task = null;
+  _armed.forget();
 }

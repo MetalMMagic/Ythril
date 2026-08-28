@@ -67,6 +67,7 @@ import { resolveSafePath } from '../files/sandbox.js';
 import { deleteFileMeta, upsertFileMeta } from '../files/file-meta.js';
 import { acceptVoteCast, getSigningPublicKey, getSigningKeyRotation, pinMemberSigningKey } from '../util/signing.js';
 import { v4 as uuidv4 } from 'uuid';
+import { armedSchedules } from '../util/armed-schedule.js';
 
 // Timeout for every outbound fetch to a peer.
 // Without this, the OS TCP timeout (~75 s on Linux) applies, which means one
@@ -90,52 +91,13 @@ const STALE_FAILURE_THRESHOLD = 10;
 export { remoteToLocal, localToRemote } from './space-map.js';
 
 // ── Cron scheduler ─────────────────────────────────────────────────────────
-
-const _scheduledTasks = new Map<string, ScheduledTask>();
-
-/** Start cron-based sync for all networks that have a syncSchedule.
- *  Call this from index.ts after spaces are initialised. */
-export function startSyncScheduler(): void {
-  const cfg = getConfig();
-  for (const net of cfg.networks) {
-    scheduleSyncForNetwork(net.id, net.syncSchedule);
-  }
-  log.debug(`Sync scheduler started (${cfg.networks.length} networks)`);
-}
-
-/** Stop all scheduled tasks */
-export function stopSyncScheduler(): void {
-  for (const [id, task] of _scheduledTasks) {
-    task.stop();
-    log.debug(`Sync scheduler stopped for network ${id}`);
-  }
-  _scheduledTasks.clear();
-}
-
-/** Schedule (or reschedule) sync for a network. `schedule` is a cron expression
- *  (the documented format) or one of the legacy shorthands; see resolveSyncCron.
- *  Uses node-cron — the same scheduler as backups and the duplicate scanner. */
-export function scheduleSyncForNetwork(networkId: string, schedule?: string): void {
-  const old = _scheduledTasks.get(networkId);
-  if (old) { old.stop(); _scheduledTasks.delete(networkId); }
-
-  if (!schedule) return;
-
-  const cronExpr = resolveSyncCron(schedule);
-  if (!cronExpr) {
-    log.warn(`Unrecognised sync schedule '${schedule}' for network ${networkId} — using manual sync only`);
-    return;
-  }
-
-  const task = cronSchedule(cronExpr, () => {
-    runSyncForNetwork(networkId).catch(err =>
-      log.error(`Scheduled sync failed for network ${networkId}: ${err}`),
-    );
-  });
-
-  _scheduledTasks.set(networkId, task);
-  log.info(`Sync scheduled for network ${networkId} (cron: "${cronExpr}")`);
-}
+// Moved to ./scheduler.ts, on the god-file gate's own instruction: "put the new behaviour beside it rather than
+// inside it."
+//
+// NOT re-exported from here, unlike `space-map.ts`. The scheduler calls `runSyncForNetwork`, so a re-export
+// would make engine and scheduler import each other — a real runtime cycle, which `no-runtime-import-cycles`
+// caught immediately. The four importers name the new module directly instead: that is four one-line changes
+// against a cycle that would have been load-order-dependent and intermittent.
 
 // ── Per-network sync ────────────────────────────────────────────────────────
 

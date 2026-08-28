@@ -42,6 +42,7 @@ import { nliConfigured, nliIsLocal } from './nli-client.js';
 import type { ContradictionScannerConfig, DupeScanStateDoc, DupeScanType } from '../config/types.js';
 import { runExclusive } from '../util/single-flight.js';
 import { summariseRecall } from './recall-shape.js';
+import { armedSchedules } from '../util/armed-schedule.js';
 
 const SCAN_STATE = 'ythril_dupe_scan_state';
 const DEFAULT_BATCH_SIZE = 200;
@@ -414,12 +415,17 @@ export async function runContradictionScanAllSpaces(): Promise<void> {
 
 const DEFAULT_SCHEDULE = '30 3 * * *';
 let _task: ScheduledTask | null = null;
+/** See `util/armed-schedule.ts`. Worse here than next door: this sweep calls an NLI model per pair,
+ *  so a restarted task can turn a pass that was about to finish into one that starts again. */
+const _armed = armedSchedules();
+const ARMED = 'the one task';
 
 export function startContradictionScanner(): void {
-  stopContradictionScanner();
   const cs = getConfig().contradictionScanner;
-  if (!cs?.enabled) return;
-  const cron = cs.schedule ?? DEFAULT_SCHEDULE;
+  const cron = cs?.enabled ? (cs.schedule ?? DEFAULT_SCHEDULE) : null;
+  if (cron !== null && _task && _armed.isArmed(ARMED, cron)) return;   // already running on exactly this expression
+  stopContradictionScanner();
+  if (cron === null) return;
   if (!validate(cron)) {
     log.warn(`Invalid contradictionScanner.schedule '${cron}' — contradiction scanner not started`);
     return;
@@ -430,10 +436,12 @@ export function startContradictionScanner(): void {
     // the same candidates collection.
     void runExclusive('Contradiction scan', () => runContradictionScanAllSpaces());
   });
+  _armed.note(ARMED, cron);
   log.info(`Contradiction scanner scheduled (${cron})`);
 }
 
 export function stopContradictionScanner(): void {
+  _armed.forget();
   _task?.stop();
   _task = null;
 }

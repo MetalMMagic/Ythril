@@ -46,7 +46,7 @@ export async function rearmCronSchedulers(): Promise<void> {
   // them statically here would pull them into the app-construction path and change that ordering.
   const jobs: Array<[string, () => Promise<void>]> = [
     ['sync scheduler', async () => {
-      const { startSyncScheduler } = await import('./sync/engine.js');
+      const { startSyncScheduler } = await import('./sync/scheduler.js');
       startSyncScheduler();
     }],
     ['duplicate scanner', async () => {

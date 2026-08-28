@@ -67,6 +67,13 @@ describe('SSRF — IPv6 ULA and link-local addresses must be blocked', () => {
     const r = await tryMemberUrl('http://[fc00::1]:3200/');
     assert.equal(r.status, 400,
       `VULNERABILITY: IPv6 ULA fc00::1 was not blocked (got ${r.status}).\n` +
+      // NOT A WINDOW. The bounded repetition below is inside a REGEX QUOTED IN A FAILURE MESSAGE — it tells a
+      // reader which pattern to add, and the digits are part of the IPv6 unique-local prefix (fc00::/7 through
+      // fdff:). There is no subject for a structural bound to bound.
+      //
+      // AND THIS COMMENT DELIBERATELY DOES NOT RE-QUOTE IT. The ratchet counts capped gaps on RAW source so a
+      // hand grep matches, which is the right trade — but it means an exception documented by repeating the
+      // pattern counts twice, and the first draft of this note took the file from 1 to 2 and failed the gate.
       `Add /^f[cd][0-9a-f]{0,2}:/i check to isSsrfSafeUrl().`);
   });
 

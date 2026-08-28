@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Two more capped windows converted, two documented as not being windows, and the ratchet falls to 43 across
+  22 files.** Continuing X-25c.
+
+  The two conversions are both objects bounded by their own brace rather than by a guessed extent. The `id`
+  declaration one is the more interesting: it capped an object literal at 400 characters, so a schema that grew
+  past the cap matched a TRUNCATED blob — and every judgement below then read a fragment, including whether the
+  id was `required`. A constrained declaration could be reported as permissive, which is the negative-assertion
+  half that fails silently rather than going red.
+
+  The two exemptions are recorded with the reason the number is the rule rather than a guess: an adjacency claim
+  on prose where `.` crosses no newline, so it asserts a flag and its disclaimer sit in ONE sentence; and a
+  bounded repetition inside a regex QUOTED IN A FAILURE MESSAGE, where the digits are part of an IPv6 prefix and
+  there is no subject to bound.
+
+  **And documenting an exception by quoting the pattern counts as another one.** The ratchet counts on raw
+  source so a hand grep matches — the right trade — but my first draft of that note repeated the regex and took
+  the file from one gap to two, failing the gate on the comment explaining the exception. The note says so now,
+  because it is the third time this session a gate has been fooled by prose ABOUT the thing it measures.
+
 ### Added
 
 - **`faceDescriptorDims` can be changed on a space that has never held a face descriptor.** It was create-only,

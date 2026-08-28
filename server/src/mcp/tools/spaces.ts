@@ -9,16 +9,27 @@ import { WIPE_COLLECTION_TYPES, type WipeCollectionType, wipeSpace } from '../..
 import { planSpaceWipe, notifyPeersOfWipe } from '../../spaces/wipe-vote.js';
 import { updateSpace, spacePurpose } from '../../spaces/spaces.js';
 import { SPACE_PURPOSE_MAX, needsReindex } from '../../spaces/_shared.js';
+import { measureSpaceUsage } from '../../spaces/space-usage.js';
 
 export const list_spacesTool: ToolHandler = {
   name: 'list_spaces',
   description: 'List every space this token can reach, with ids, labels, purposes and entry counts. CALL THIS FIRST in an unfamiliar instance: every other tool takes a space id, and the ids are not guessable from the labels.\n\n'
     + 'READ THE `purpose`. It is the space owner telling you what belongs there and how to behave in it — conventions, what to write, what not to. A space with a purpose has one because somebody needed you to follow it.\n\n'
     + 'The counts are what make this a planning tool rather than a directory: an empty space is not worth a recall, and a space with 40 000 records needs a filter rather than a broad query. A PROXY space reports its members\' totals combined and is marked as a proxy — writes to one need `targetSpace`.\n\n'
+    + 'STORAGE: `maxGiB` is the space\'s quota and `usageGiB` what its files occupy, the same figures `GET /api/spaces` reports and from the same measurement. `usageGiB` is a FLOOR whenever `usageIncomplete` is present — a directory the instance could not read contributes nothing, and an unreadable space would otherwise be indistinguishable from an empty one. A space with no `maxGiB` has no quota rather than a quota of zero.\n\n'
     + 'Accessibility is per TOKEN. A space absent here is not a space that does not exist; it is one this token holds no rung in.',
   inputSchema: (_s: ToolSchemas) => ({ type: 'object', properties: {}, required: [], additionalProperties: false }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
     const { accessibleSpaces , accessibleSpaceIds } = ctx;
+    /*
+     * Storage, through the SAME measurement REST uses.
+     *
+     * This tool returned counts and nothing else while `help()` told callers *"Call list_spaces for
+     * storage/quota details"* — so a caller who read the authoritative reference and believed it found no
+     * storage anywhere on this door. A capability present on one surface and absent from the other, arriving as
+     * an omission, and the schema description was the surface that was wrong.
+     */
+    const usageBySpaceId = await measureSpaceUsage(accessibleSpaces.map(sp => sp.id));
     const spaceCountResults = await Promise.allSettled(
       accessibleSpaces.map(async s => {
         const memberIds = memberSpacesWithin(s.id, accessibleSpaceIds);
@@ -50,6 +61,14 @@ export const list_spacesTool: ToolHandler = {
       label: s.label ?? null,
       purpose: spacePurpose(s) ?? null,
       counts: countsBySpaceId[s.id] ?? { memories: 0, entities: 0, edges: 0, chrono: 0 },
+      // `null` rather than an omission: a space with no quota is a FACT about that space, and a missing key
+      // reads as "this tool does not report quotas" — which is the misunderstanding this whole change fixes.
+      maxGiB: s.maxGiB ?? null,
+      usageGiB: usageBySpaceId.get(s.id)?.usageGiB ?? 0,
+      // Present only when the figure is a floor, exactly as on REST. An absent field means it is a total.
+      ...((usageBySpaceId.get(s.id)?.incomplete.length ?? 0) > 0
+        ? { usageIncomplete: usageBySpaceId.get(s.id)!.incomplete }
+        : {}),
     }));
     return {
       content: [{ type: 'text' as const, text: JSON.stringify(result) }],

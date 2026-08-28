@@ -1,14 +1,13 @@
 import { Router } from 'express';
 import { registerReembedRoute } from './spaces-reembed.js';
 import { registerActivityResetRoute } from './spaces-activity.js';
-import path from 'path';
 import {
   requireAuth, requireSpaceAuthScoped, requireAdmin, requireAdminMfa, requireAdminMfaScoped,
   requireAdminOrSpaceAdminMfaScoped, isInstanceAdmin,
 } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { editorScopeFor } from '../auth/editor-scope.js';
-import { getConfig, saveConfig, getSecrets, getDataRoot, getSchemaLibrary, getDocumentProcessingConfig, getMediaEmbeddingConfig, getStorageConfig } from '../config/loader.js';
+import { getConfig, saveConfig, getSecrets, getSchemaLibrary, getDocumentProcessingConfig, getMediaEmbeddingConfig, getStorageConfig } from '../config/loader.js';
 import { capDocExtractionMode } from '../files/converters/extraction-level.js';
 import { slugify, SPACE_PURPOSE_MAX, needsReindex } from '../spaces/_shared.js';
 import { createSpace, removeSpace } from '../spaces/lifecycle.js';
@@ -17,7 +16,8 @@ import { updateSpace, reorderSpaces } from '../spaces/spaces.js';
 import { checkMetaPrecondition, preconditionErrorBody } from '../spaces/meta-precondition.js';
 import { gatherCompletenessFacts, scoreCompleteness } from '../spaces/completeness.js';
 import { ensureTtlIndex } from '../brain/ttl.js';
-import { measureUsage, dirSizeBytes } from '../quota/quota.js';
+import { measureUsage, usageIsComplete } from '../quota/quota.js';
+import { measureSpaceUsage } from '../spaces/space-usage.js';
 import { col } from '../db/mongo.js';
 import { memberSpacesForRequest } from '../spaces/proxy-scoped.js';
 import { isNetworkSyncing } from '../sync/engine.js';
@@ -130,8 +130,6 @@ spacesRouter.post('/reorder', globalRateLimit, requireAdminMfa, (req, res) => {
 // GET /api/spaces
 spacesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
   const cfg = getConfig();
-  const dataRoot = getDataRoot();
-  const GiB = 1024 ** 3;
 
   /**
    * Respect token space-scope: a scoped token sees only the spaces it reaches. The MATRIX decides.
@@ -149,11 +147,17 @@ spacesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
     ? cfg.spaces.filter(s => tokenSpaces.includes(s.id))
     : cfg.spaces;
 
-  // Measure per-space file usage in parallel (non-blocking; falls back to 0 on error)
-  const usageResults = await Promise.allSettled(
-    visibleSpaces.map(s => dirSizeBytes(path.join(dataRoot, 'files', s.id))),
-  );
-  const usageGiBByIdx = usageResults.map(r => r.status === 'fulfilled' ? r.value / GiB : 0);
+  /*
+   * Per-space file usage, through the shared measurement — so MCP's `list_spaces` reports the same figures from
+   * the same code rather than not reporting them at all, which is what it did while `help()` told callers to
+   * look here for them.
+   *
+   * The old comment said "falls back to 0 on error", and that fallback was the defect: a space whose files
+   * directory the process cannot list showed 0 GiB used, which is also what an empty space shows. The Brain
+   * overview's usage bar then read 0% against a quota that was being approached. `incomplete` is what separates
+   * a total from a floor.
+   */
+  const usageBySpaceId = await measureSpaceUsage(visibleSpaces.map(sp => sp.id));
 
   // Optional per-space entity/memory/edge/chrono counts (?counts=true)
   const includeCounts = req.query['counts'] === 'true';
@@ -188,7 +192,13 @@ spacesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
     const { id, label, builtIn, folders, maxGiB, flex, proxyFor, meta, dupeRules, dupeMergeSurvivor, dupeRulesOnInsert, recordTtlDays, documentExtraction, imageAnalysis, audioAnalysis, videoAnalysis, textAnalysis, indexStatus } = space;
     return {
     id, label, builtIn, folders, maxGiB, flex,
-    usageGiB: usageGiBByIdx[idx],
+    usageGiB: usageBySpaceId.get(id)?.usageGiB ?? 0,
+    // Present only when the figure is a FLOOR. An absent field means the measurement was whole, which is the
+    // same convention the storage metric uses — a caller that ignores this field is not silently misled about
+    // a healthy space, only about an unreadable one, and that is the case worth a field.
+    ...((usageBySpaceId.get(id)?.incomplete.length ?? 0) > 0
+      ? { usageIncomplete: usageBySpaceId.get(id)!.incomplete }
+      : {}),
     ...(indexStatus ? { indexStatus } : {}),
     ...(proxyFor ? { proxyFor } : {}),
     // Network membership + status for the Brain space-chip indicator (F8).
@@ -215,11 +225,19 @@ spacesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
   let storage: {
     usageGiB?: { files: number; brain: number; total: number };
     limits?: ReturnType<typeof getStorageConfig>;
+    usageIncomplete?: { files: string[]; brain: string[] };
   } | undefined;
   if (resolvedStorage) {
     try {
       const usage = await measureUsage();
-      storage = { usageGiB: usage, limits: resolvedStorage };
+      storage = {
+        usageGiB: usage,
+        limits: resolvedStorage,
+        // The instance-wide figure carries the same distinction as the per-space one: a refused `dbStats` or an
+        // unlistable directory makes these totals a floor, and a hard limit compared against a floor can only
+        // under-report. Absent when the measurement was whole.
+        ...(usageIsComplete(usage) ? {} : { usageIncomplete: usage.incomplete }),
+      };
     } catch {
       // Non-fatal: storage summary omitted on measurement error
     }

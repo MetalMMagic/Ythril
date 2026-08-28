@@ -346,6 +346,7 @@
   "brain.overview.openTabAriaLabel": "Open tab",
   "brain.overview.storage": "Storage",
   "brain.overview.storageUnlimited": "no limit",
+  "brain.overview.storageIncomplete": "partly unreadable",
   "brain.overview.indexingTitle": "Indexing",
   "brain.overview.indexingHint": "The vector search this space's recall depends on.",
   "brain.overview.vectorIndex": "Vector index",

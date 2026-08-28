@@ -208,7 +208,9 @@ Migration is a one-way operation. Keep your old database available until you hav
 
 **Filtering:** Filter by date range, operation type, space, HTTP status, or client IP.
 
-**Table:** Each row shows the timestamp, which token or user made the request, the operation, the space, the HTTP status, and the response time. Click the **Detail** button on a row to open a structured panel with every field (timestamp, token/user, operation, method + path, status, IP, duration, space, entry ID) plus the full raw entry in a collapsible **Raw JSON** section.
+**Table:** Each row shows the timestamp, which token or user made the request, the operation, the space, the HTTP status, and the response time. Click the **Detail** button on a row to open a structured panel with every field (timestamp, token/user, operation, method + path, status, IP, duration, space, entry ID, request ID) plus the full raw entry in a collapsible **Raw JSON** section.
+
+**Request ID** is the value that ties this row to the server log. It is the same id the response returned in its `X-Request-Id` header, and every line the Server Log tab shows for that request carries it — so when somebody reports a failing call and quotes the id, the detail panel's **find this request** button narrows the table to that one row, and searching the same id in the Server Log finds everything that request did on the way. Older entries show **not recorded**: they were written before the field existed, which is not the same as there having been no request.
 
 **What changed:** for some operations the detail panel also lists the field values the request altered —
 field, from, to. Two things are worth reading carefully:

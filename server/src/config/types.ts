@@ -1046,40 +1046,10 @@ export interface DupeActionRule {
   webhookUrl?: string;
 }
 
-export interface AuditLogEntry {
-  _id: string;
-  timestamp: string;       // ISO8601
-  _expireAt?: Date;        // BSON Date for TTL index — set at write time
-  /**
-   * The `X-Request-Id` of the request that produced this entry — the value that joins this row to the server
-   * log lines the same request wrote.
-   *
-   * OPTIONAL because entries written before this field existed do not have it, and that is the only reason.
-   * Every audit entry has a request behind it, so an absent id means "this row predates the field" and never
-   * "no request" — anything rendering it has to say which, or a blank reads as an answer.
-   */
-  requestId?: string;
-  tokenId: string | null;
-  tokenLabel: string | null;
-  authMethod: 'pat' | 'oidc' | null;
-  oidcSubject: string | null;
-  ip: string;
-  method: string;          // HTTP method
-  path: string;            // request path
-  spaceId: string | null;
-  operation: string;       // structured event name
-  status: number;          // HTTP status code
-  entryId: string | null;
-  durationMs: number;
-  /**
-   * What the request actually changed, when the operation has an allowlist in `audit/audit-changes.ts`.
-   *
-   * Absent for everything else, by design: an operation with no allowlist records nothing, so a route
-   * added later is silent rather than leaking. Values are scalars only — see that module for why a
-   * denylist would be the wrong shape here.
-   */
-  changes?: { field: string; from?: string | number | boolean | null; to?: string | number | boolean | null }[];
-}
+// `AuditLogEntry` moved to `audit/entry.ts`. An audit row is not configuration — it was here only
+// because this file was where types went, which is the god-file failure the ratchet describes: every
+// change lands in the same place because that is where the code already is.
+
 
 export interface Config {
   instanceId: string;

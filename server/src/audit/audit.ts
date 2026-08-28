@@ -12,7 +12,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '../db/mongo.js';
 import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
-import type { AuditLogEntry } from '../config/types.js';
+import type { AuditLogEntry } from './entry.js';
 import type { AuditChange } from './audit-changes.js';
 import type { Collection, Filter, Sort } from 'mongodb';
 

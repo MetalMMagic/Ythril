@@ -818,6 +818,15 @@ export interface LocalAgentBootstrapResult {
 export interface AuditLogEntry {
   _id: string;
   timestamp: string;
+  /**
+   * The `X-Request-Id` of the request that produced this entry — the value that joins this row to the server log
+   * lines the same request wrote.
+   *
+   * **Absent means "written before this field existed", never "no request"** — every audit entry has a request
+   * behind it, so the UI has to say which rather than rendering a blank that reads as an answer. Same rule as
+   * `changes` below.
+   */
+  requestId?: string;
   tokenId: string | null;
   tokenLabel: string | null;
   authMethod: 'pat' | 'oidc' | null;
@@ -850,6 +859,8 @@ export interface AuditLogResponse {
 export interface AuditLogParams {
   after?: string;
   before?: string;
+  /** Exact request id — one row, matched exactly. A partial match would return somebody else's request. */
+  requestId?: string;
   tokenId?: string;
   oidcSubject?: string;
   spaceId?: string;

@@ -167,7 +167,15 @@ export function helpSections(
     title: 'Spaces accessible to this token',
     body: '',
     preamble: 'Most tools take a "space" parameter; recall and list_chrono search across all your spaces when it is '
-      + 'omitted. Call list_spaces for storage/quota details.\n\n'
+      /*
+       * This used to read "Call list_spaces for storage/quota details" while `list_spaces` returned counts and
+       * nothing else. A caller who read the authoritative reference and believed it found no storage anywhere
+       * on this door — the capability was REST-only, and the drift was invisible because nobody reports a
+       * capability they were told they did not have. `list_spaces` reports it now, and this names the fields.
+       */
+      + 'omitted. Call list_spaces for each space\'s quota (`maxGiB`) and what its files occupy (`usageGiB`) — '
+      + 'and read `usageIncomplete` beside them, because a directory the instance could not read makes that '
+      + 'figure a floor rather than a total.\n\n'
       /*
        * NAMING THE SPACE-ADMIN RUNG, and marking the spaces where this token holds it.
        *

@@ -346,6 +346,7 @@
   "brain.overview.openTabAriaLabel": "Tab öffnen",
   "brain.overview.storage": "Speicher",
   "brain.overview.storageUnlimited": "kein Limit",
+  "brain.overview.storageIncomplete": "teilweise nicht lesbar",
   "brain.overview.indexingTitle": "Indexierung",
   "brain.overview.indexingHint": "Die Vektorsuche, von der die Trefferqualität dieses Bereichs abhängt.",
   "brain.overview.vectorIndex": "Vektorindex",

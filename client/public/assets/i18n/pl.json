@@ -346,6 +346,7 @@
   "brain.overview.openTabAriaLabel": "Otworz zakladke",
   "brain.overview.storage": "Pamięć",
   "brain.overview.storageUnlimited": "bez limitu",
+  "brain.overview.storageIncomplete": "częściowo nieczytelne",
   "brain.overview.indexingTitle": "Indeksowanie",
   "brain.overview.indexingHint": "Wyszukiwanie wektorowe, od którego zależy trafność tej przestrzeni.",
   "brain.overview.vectorIndex": "Indeks wektorowy",

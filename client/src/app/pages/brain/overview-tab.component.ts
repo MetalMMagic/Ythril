@@ -99,6 +99,11 @@ interface StatCard { key: CollectionTab; icon: string; label: string; value: num
     .store-row { display: flex; align-items: baseline; justify-content: space-between; font-size: 12.5px; }
     .store-row .cap { color: var(--text-secondary); }
     .store-row .num { font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; color: var(--text-primary); }
+    /* A qualified figure, not an error state: the number is still the best available, and the icon is what
+       says it is a lower bound. Sits on its own line when the row runs out of width rather than pushing the
+       number out of view. */
+    .store-row .usage-floor { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px;
+      color: var(--warn, #b26a00); font-size: 11.5px; white-space: nowrap; cursor: help; }
     .bar { height: 7px; border-radius: 4px; background: var(--bg-elevated); margin-top: 7px; overflow: hidden; border: 1px solid var(--border-muted); }
     .bar > span { display: block; height: 100%; border-radius: 4px; background: var(--accent); }
     .bar > span.warn { background: var(--warning); } .bar > span.err { background: var(--error); }
@@ -309,9 +314,17 @@ interface StatCard { key: CollectionTab; icon: string; label: string; value: num
             <div class="store-row">
               <span class="cap">{{ 'brain.overview.storage' | transloco }}</span>
               @if (space().maxGiB) {
-                <span class="num">{{ used() }} / {{ space().maxGiB }} GiB</span>
+                <span class="num">{{ usageIsFloor() ? '≥ ' : '' }}{{ used() }} / {{ space().maxGiB }} GiB</span>
               } @else {
-                <span class="num">{{ used() }} GiB · {{ 'brain.overview.storageUnlimited' | transloco }}</span>
+                <span class="num">{{ usageIsFloor() ? '≥ ' : '' }}{{ used() }} GiB · {{ 'brain.overview.storageUnlimited' | transloco }}</span>
+              }
+              <!-- The figure is a floor, and saying which paths could not be read is what an operator acts on.
+                   A warning icon rather than a hidden number: the number is still the best available. -->
+              @if (usageIsFloor()) {
+                <span class="usage-floor" [title]="usageIncompleteReason()">
+                  <ph-icon name="warning" [size]="14"></ph-icon>
+                  {{ 'brain.overview.storageIncomplete' | transloco }}
+                </span>
               }
             </div>
             @if (usagePct(); as pct) {
@@ -709,6 +722,18 @@ export class OverviewTabComponent {
 
   /** Two decimals of GiB, without trailing noise. */
   used(): string { return (this.space().usageGiB ?? 0).toFixed(2); }
+
+  /**
+   * True when the server said the usage figure is a FLOOR — a directory it could not read.
+   *
+   * Shown rather than hidden because the alternative is worse than a missing number: an unreadable space
+   * reported 0 GiB, which is what an empty space reports, so the bar sat at 0% while the quota was being
+   * approached. A figure qualified as "at least" is usable; one silently short is not.
+   */
+  usageIsFloor = computed(() => (this.space().usageIncomplete?.length ?? 0) > 0);
+
+  /** What the server could not read, for the tooltip — the operator's actual next step. */
+  usageIncompleteReason = computed(() => this.space().usageIncomplete?.join('; ') ?? '');
 
   usagePct(): number | null {
     const sp = this.space();

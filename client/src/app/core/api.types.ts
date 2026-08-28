@@ -47,6 +47,13 @@ export interface Space {
   folders?: string[];
   maxGiB?: number;
   usageGiB?: number;
+  /**
+   * Why `usageGiB` is a FLOOR rather than a total, absent when it is a total.
+   *
+   * A directory the instance cannot read contributes nothing to the figure, which used to make an unreadable
+   * space indistinguishable from an empty one — the bar read 0% against a quota that was being approached.
+   */
+  usageIncomplete?: string[];
   proxyFor?: string[];
   meta?: SpaceMeta;
   dupeRules?: DupeActionRule[];

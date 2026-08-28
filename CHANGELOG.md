@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A space's usage bar could read 0% while its quota was being approached**, and MCP had no storage figures at
+  all while `help()` told callers to look there for them.
+
+  Two halves of one defect, both in the field a caller actually reads.
+
+  `GET /api/spaces` measured each space's files inline, and its own comment said *"falls back to 0 on error"*.
+  A space whose files directory the instance cannot list therefore reported **0 GiB used** — which is exactly
+  what an empty space reports. The Brain overview's Storage panel drew that as 0%, so a quota being approached
+  looked untouched, and nothing anywhere said the number was short. It now reports `usageIncomplete` beside the
+  figure, and the panel prefixes it **≥** with a *partly unreadable* warning naming what could not be read.
+
+  MCP's `list_spaces` returned counts and nothing else, while `help()` said *"Call list_spaces for storage/quota
+  details"*. So a caller who read the authoritative reference and believed it found no storage on that door —
+  and would never report it, because **nobody reports a capability they were told they did not have**. That is
+  the same shape as the `recall` filter sentence aigents designed around. `list_spaces` now returns `maxGiB`,
+  `usageGiB` and `usageIncomplete` from the same measurement REST reads, and `help()` names the three fields
+  instead of pointing at data that was not there.
+
+  Both doors now call one `measureSpaceUsage`, so neither can learn something the other does not — the extract-
+  instead-of-duplicating rule, applied to the walk that was written twice and omitted once.
+
+  Six mutants, all killed by exit code, two of them the exact pre-fix shapes: MCP reporting no storage, and MCP
+  reporting the number without the qualifier.
+
+### Fixed
+
 - **A storage quota that could not tell an empty store from one it was not allowed to read.**
 
   Both halves of the usage measurement contributed zero on failure. A directory the process cannot list returned

@@ -45,6 +45,41 @@ worth querying.
 
 > **Note:** `counts` fields are only present when `?counts=true` is passed. `storage.usageGiB` is the instance total (files + brain), and `storage.limits` echoes the configured quota (`totalLimitGiB`, `warnAtPercent`); each space object also carries its own `usageGiB` number. `docExtractionCeiling` is the instance document-extraction ceiling (`off` / `ocr` / `vlm` / `repair` / `auto`) — the highest mode any space may pick; the admin UI uses it to constrain each space's extraction dropdown.
 
+#### `usageGiB` can be a FLOOR, and `usageIncomplete` is how you know
+
+A directory the instance cannot read contributes nothing to the figure. That used to be indistinguishable from
+an empty space — both report `0` — so a quota being approached could read as 0% used, and a hard limit compared
+against a floor never fires.
+
+**`usageIncomplete` is present only when the number is a lower bound**, and it names what could not be read.
+
+**Response** (trimmed to the storage fields):
+
+```json
+{
+  "spaces": [
+    { "id": "general", "usageGiB": 0.05, "usageIncomplete": ["3 path(s) unreadable, first: /data/files/general/x: EACCES"] }
+  ],
+  "storage": {
+    "usageGiB": { "files": 0.02, "brain": 0.0, "total": 0.02 },
+    "usageIncomplete": { "files": [], "brain": ["dbStats: not authorized on ythril to execute command"] }
+  }
+}
+```
+
+- **Per space** it is a flat list of strings; **instance-wide** it is split by area (`files`, `brain`), because
+  the two halves fail for unrelated reasons an operator acts on differently — a filesystem permission versus a
+  database grant.
+- An **absent** field means the measurement was whole. A caller that ignores the field is never misled about a
+  healthy space, only about an unreadable one, which is why it is a field rather than a flag on every response.
+- An **absent files directory is not incompleteness**: a space that has never held a file uses no files, and
+  reporting that as unmeasurable would put every fresh instance permanently in the degraded state.
+- The instance also publishes `ythril_storage_usage_complete{area}` for alerting — see the metrics table in
+  `11-setup-api.md`.
+
+**On MCP, `list_spaces` reports the same three fields** — `maxGiB`, `usageGiB` and `usageIncomplete` — from the
+same measurement. It previously returned counts only while `help()` told callers to look there for storage.
+
 ---
 
 ### Create a Space

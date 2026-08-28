@@ -82,11 +82,24 @@ const CLOSED_ENUMS = [
 /** Every `@for (x of EXPR; track …)` that sits inside a `<select>` element. */
 function selectOptionSources(src) {
   const out = [];
-  // A select's options live between its open tag and its close tag; `[\s\S]{0,1600}?` is bounded so a
-  // runaway match cannot swallow the next select, and `[^>]*` is never used across a `>` boundary.
-  const selects = src.matchAll(/<select\b[\s\S]{0,2400}?<\/select>/g);
+  /*
+   * A WINDOW, converted: a select runs from its open tag to its own `</select>`, and that is a structural
+   * bound rather than a length.
+   *
+   * The comment here used to justify the cap as stopping "a runaway match" swallowing the next select. The
+   * lazy `?` already does that — the first `</select>` wins. What the number actually did was the opposite of
+   * its stated purpose: a select LONGER than the cap matched nothing at all, so its options were never
+   * examined and the gate reported the file clean. The cap had also already been raised once, 1600 to 2400,
+   * which is the signature of a number nobody chooses — it gets raised until the test passes.
+   */
+  const selects = [];
+  for (const m of src.matchAll(/<select\b/g)) {
+    const close = src.indexOf('</select>', m.index);
+    assert.ok(close > -1, `a <select> at index ${m.index} is never closed`);
+    selects.push(src.slice(m.index, close + '</select>'.length));
+  }
   for (const sel of selects) {
-    for (const m of sel[0].matchAll(/@for\s*\(\s*\w+\s+of\s+([^;]+);\s*track/g)) {
+    for (const m of sel.matchAll(/@for\s*\(\s*\w+\s+of\s+([^;]+);\s*track/g)) {
       out.push(m[1].trim());
     }
   }

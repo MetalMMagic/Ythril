@@ -228,7 +228,7 @@ crudRouter.patch('/:id', globalRateLimit, requireAdmin, (req, res) => {
   if (parsed.data.syncSchedule !== undefined) {
     net.syncSchedule = parsed.data.syncSchedule || undefined;
     // Re-register cron timer for this network with the new schedule
-    import('../../sync/engine.js').then(({ scheduleSyncForNetwork }) => {
+    import('../../sync/scheduler.js').then(({ scheduleSyncForNetwork }) => {
       scheduleSyncForNetwork(net!.id, net!.syncSchedule);
     }).catch(err => log.warn(`Failed to reschedule sync for ${net!.id}: ${err}`));
   }

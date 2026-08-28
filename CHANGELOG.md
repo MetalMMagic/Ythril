@@ -31,6 +31,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Re-arming a scheduler restarted it even when its schedule had not changed, resetting the phase.**
+
+  The re-arm shipped in the previous entry is called on ANY save: a config reload triggered by an edit to an
+  unrelated setting, a backup-config save that only changed a retention count. Restarting a `node-cron` task does
+  not merely cost a stop and a start — **it resets the phase.** A network on a quarter-hour cron that was ninety
+  seconds from its next sync goes back to a full fifteen minutes, and an operator adjusting three fields in a row
+  pushes it three times.
+
+  That is the same argument used to keep the interval-driven sweeps out of the re-arm helper entirely. Applying it
+  to the sweeps and not to the cron schedulers would be the rule implemented once and skipped next door.
+
+  All four now ask before restarting, through one `util/armed-schedule.ts` rather than four copies of the
+  bookkeeping — because the half that fails CLOSED is the clear-on-stop, and four chances to forget it is four
+  ways for a scheduler to go permanently silent.
+
+### Changed
+
+- **`sync/engine.ts` gives up its cron scheduling to `sync/scheduler.ts`.** The god-file ratchet refused the
+  change with its own instruction — *"put the new behaviour beside it rather than inside it"* — and it was right:
+  the guard would have been the fifth change to land in a 966-line file because that is where the code already
+  was. Scheduling decides WHEN a sync runs; the engine decides what a sync DOES.
+
+  Deliberately **not** re-exported from `engine.ts`, unlike `space-map.ts` when it was extracted: the scheduler
+  calls `runSyncForNetwork`, so a re-export makes the two import each other. The runtime-cycle gate caught that
+  within a minute of it being written, which is worth recording — a cycle there would have been load-order
+  dependent and intermittent. Four importers name the new module directly instead.
+
+### Fixed
+
 - **The request id the caller was handed matched nothing in the log unless the failure was a crash.**
 
   `X-Request-Id` is returned on every response, and two doc pages described it as *"logged server-side"* *"for

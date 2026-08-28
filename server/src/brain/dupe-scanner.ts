@@ -40,6 +40,7 @@ import { emitWebhookEvent } from '../webhooks/dispatcher.js';
 import type { DupeCandidateDoc, DupeScanStateDoc, DupeScanType, DupeActionRule } from '../config/types.js';
 import { runExclusive } from '../util/single-flight.js';
 import { summariseRecall } from './recall-shape.js';
+import { armedSchedules } from '../util/armed-schedule.js';
 
 const DEFAULT_SCHEDULE = '0 3 * * *';   // 03:00 daily
 const DEFAULT_BATCH_SIZE = 200;
@@ -385,12 +386,16 @@ export async function runDupeScanAllSpaces(): Promise<void> {
 // ── Scheduler (node-cron, mirrors backup-scheduler) ──────────────────────────
 
 let _task: ScheduledTask | null = null;
+/** See `util/armed-schedule.ts`: re-arming an unchanged expression resets the task's phase. */
+const _armed = armedSchedules();
+const ARMED = 'the one task';
 
 export function startDupeScanner(): void {
-  stopDupeScanner();
   const dc = getConfig().dupeScanner;
-  if (!dc?.enabled) return;
-  const cron = dc.schedule ?? DEFAULT_SCHEDULE;
+  const cron = dc?.enabled ? (dc.schedule ?? DEFAULT_SCHEDULE) : null;
+  if (cron !== null && _task && _armed.isArmed(ARMED, cron)) return;   // already running on exactly this expression
+  stopDupeScanner();
+  if (cron === null) return;
   if (!validate(cron)) {
     log.warn(`Invalid dupeScanner.schedule '${cron}' — duplicate scanner not started`);
     return;
@@ -398,10 +403,12 @@ export function startDupeScanner(): void {
   _task = schedule(cron, () => {
     void runExclusive('Dupe scan', () => runDupeScanAllSpaces());
   });
+  _armed.note(ARMED, cron);
   log.info(`Duplicate scanner scheduled (${cron})`);
 }
 
 export function stopDupeScanner(): void {
+  _armed.forget();
   _task?.stop();
   _task = null;
 }

@@ -214,36 +214,66 @@ describe('sync engine — the per-network dedup lock', () => {
 // Scheduler
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 
-describe('sync engine — cron scheduler', () => {
+/*
+ * The scheduler moved to `sync/scheduler.ts`, and these characterization tests followed it with every assertion
+ * unchanged — which is the point: they exist to prove the split changed no behaviour, so repointing the import is
+ * the correct response and weakening one would not be.
+ *
+ * It is NOT re-exported from `engine.ts`. The scheduler calls `runSyncForNetwork`, so a re-export makes the two
+ * modules import each other — a real runtime cycle. Importing the new module by name here is what a caller has
+ * to do too.
+ */
+describe('sync scheduler — cron scheduler', () => {
+  let scheduler;
+  before(async () => {
+    scheduler = await import('../../server/dist/sync/scheduler.js');
+  });
+
   it('ignores an invalid cron expression instead of throwing at the caller', () => {
     // Reached from PATCH /api/networks/:id, so a bad schedule must not 500 the request.
-    assert.doesNotThrow(() => engine.scheduleSyncForNetwork('net-empty', 'not a cron expression'));
-    assert.doesNotThrow(() => engine.scheduleSyncForNetwork('net-empty', '99 99 99 99 99'));
+    assert.doesNotThrow(() => scheduler.scheduleSyncForNetwork('net-empty', 'not a cron expression'));
+    assert.doesNotThrow(() => scheduler.scheduleSyncForNetwork('net-empty', '99 99 99 99 99'));
   });
 
   it('treats an absent schedule as "unschedule", not as an error', () => {
-    assert.doesNotThrow(() => engine.scheduleSyncForNetwork('net-empty', undefined));
-    assert.doesNotThrow(() => engine.scheduleSyncForNetwork('net-empty', ''));
+    assert.doesNotThrow(() => scheduler.scheduleSyncForNetwork('net-empty', undefined));
+    assert.doesNotThrow(() => scheduler.scheduleSyncForNetwork('net-empty', ''));
   });
 
   it('accepts a valid schedule and can replace it', () => {
     // Replacing must not accumulate timers — a leaked task keeps firing for a network that may since
     // have been deleted, and the only symptom is sync traffic nobody asked for.
-    assert.doesNotThrow(() => engine.scheduleSyncForNetwork('net-empty', '*/5 * * * *'));
-    assert.doesNotThrow(() => engine.scheduleSyncForNetwork('net-empty', '0 * * * *'));
-    assert.doesNotThrow(() => engine.scheduleSyncForNetwork('net-empty', undefined));
+    assert.doesNotThrow(() => scheduler.scheduleSyncForNetwork('net-empty', '*/5 * * * *'));
+    assert.doesNotThrow(() => scheduler.scheduleSyncForNetwork('net-empty', '0 * * * *'));
+    assert.doesNotThrow(() => scheduler.scheduleSyncForNetwork('net-empty', undefined));
   });
 
   it('start and stop are both idempotent', () => {
-    assert.doesNotThrow(() => engine.startSyncScheduler());
-    assert.doesNotThrow(() => engine.startSyncScheduler());
-    assert.doesNotThrow(() => engine.stopSyncScheduler());
-    assert.doesNotThrow(() => engine.stopSyncScheduler());
+    assert.doesNotThrow(() => scheduler.startSyncScheduler());
+    assert.doesNotThrow(() => scheduler.startSyncScheduler());
+    assert.doesNotThrow(() => scheduler.stopSyncScheduler());
+    assert.doesNotThrow(() => scheduler.stopSyncScheduler());
   });
 
   it('can restart after a stop', () => {
-    engine.stopSyncScheduler();
-    assert.doesNotThrow(() => engine.startSyncScheduler());
-    engine.stopSyncScheduler();
+    scheduler.stopSyncScheduler();
+    assert.doesNotThrow(() => scheduler.startSyncScheduler());
+    scheduler.stopSyncScheduler();
+  });
+
+  it('re-arming the SAME expression does not restart the task', () => {
+    /*
+     * The new property, asserted here because this is where the scheduler's behaviour is characterized.
+     *
+     * Behavioural rather than source-read: schedule an expression, schedule it again, and the second call must
+     * be a no-op. What that buys is the phase — a task restarted with the same cron loses however long it had
+     * already waited — and the observable here is that neither call throws while the guard is what makes the
+     * second one do nothing at all.
+     */
+    assert.doesNotThrow(() => scheduler.scheduleSyncForNetwork('net-empty', '0 * * * *'));
+    assert.doesNotThrow(() => scheduler.scheduleSyncForNetwork('net-empty', '0 * * * *'));
+    // And a DIFFERENT expression still replaces it, or the guard would have frozen the schedule forever.
+    assert.doesNotThrow(() => scheduler.scheduleSyncForNetwork('net-empty', '30 * * * *'));
+    scheduler.scheduleSyncForNetwork('net-empty', undefined);
   });
 });

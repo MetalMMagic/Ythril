@@ -56,7 +56,7 @@ export async function startConfiguredInstanceServices(): Promise<void> {
   const { startRetryWorker } = await import('./webhooks/dispatcher.js');
   startRetryWorker();
 
-  const { startSyncScheduler } = await import('./sync/engine.js');
+  const { startSyncScheduler } = await import('./sync/scheduler.js');
   startSyncScheduler();
   const { startBackupScheduler } = await import('./db/backup-scheduler.js');
   startBackupScheduler();

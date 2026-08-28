@@ -116,6 +116,48 @@ const PAIRS = { '(': ')', '{': '}', '[': ']' };
  * Written once because every caller below needs the same skipping, and a walker that does not skip is how a `'}'`
  * in a message ends a window three declarations early.
  */
+/**
+ * Does the `/` at `at` open a REGEX LITERAL, or is it division?
+ *
+ * Decided by what comes BEFORE it, which is how every JavaScript lexer decides it: after a value — an identifier,
+ * a number, a closing bracket, a string — a `/` divides; after an operator, a comma, an opening bracket or a
+ * keyword, it opens a pattern. `path.basename(x).replace(/[\r\n"]/g, '')` is the shape that matters here, and the
+ * `(` before the slash is what settles it.
+ */
+function opensRegex(src, at) {
+  let j = at - 1;
+  while (j >= 0 && /\s/.test(src[j])) j--;
+  if (j < 0) return true;
+  const prev = src[j];
+  if ('=(,:[!&|?{};+-*%~^<>'.includes(prev)) return true;
+  // A keyword can also precede a pattern: `return /x/.test(s)`, `case /x/:`, `typeof`, `in`, `of`, `await`.
+  const word = /([A-Za-z_$][\w$]*)$/.exec(src.slice(Math.max(0, j - 20), j + 1));
+  return word ? ['return', 'typeof', 'case', 'in', 'of', 'new', 'delete', 'void', 'instanceof', 'do', 'else',
+    'yield', 'await', 'throw'].includes(word[1]) : false;
+}
+
+/**
+ * Skip a regex literal starting at its opening `/`, returning the index just past its flags.
+ *
+ * A character CLASS is skipped as a unit, because a `/` inside `[...]` does not end the pattern —
+ * `.replace(/[/\\]/g, '')` is real and legal.
+ */
+function skipRegex(src, at) {
+  let i = at + 1;
+  let inClass = false;
+  while (i < src.length) {
+    const c = src[i];
+    if (c === '\\') { i += 2; continue; }
+    if (c === '\n') return i;
+    if (inClass) { if (c === ']') inClass = false; i++; continue; }
+    if (c === '[') { inClass = true; i++; continue; }
+    if (c === '/') { i++; break; }
+    i++;
+  }
+  while (i < src.length && /[a-z]/.test(src[i])) i++;
+  return i;
+}
+
 function scanCode(src, i, visit) {
   let depth = 0;
   while (i < src.length) {
@@ -123,6 +165,19 @@ function scanCode(src, i, visit) {
     // Comments first: `//` and `/* */`. A `"` inside a comment must not open a string.
     if (c === '/' && src[i + 1] === '/') { i = src.indexOf('\n', i); if (i === -1) return src.length; continue; }
     if (c === '/' && src[i + 1] === '*') { const e = src.indexOf('*/', i + 2); i = e === -1 ? src.length : e + 2; continue; }
+    /*
+     * A REGEX LITERAL, skipped whole — and this was a lexing HOLE in every bound built on this walk.
+     *
+     * `path.basename(normalised).replace(/[\r\n"\\]/g, '')` in `api/files.ts` has a `"` inside a character class.
+     * Without this branch that quote opened a phantom string, which swallowed the next 350 characters including
+     * the brackets in them, and `argumentsOf` reported the route registration it was reading as never closed.
+     *
+     * It FAILED LOUDLY there, which is luck rather than design: the same phantom string in a `doesNotMatch` bound
+     * would have made the window smaller and the absence hold. The comment above says a walker that does not skip
+     * is how a `}` in a message ends a window early — a regex is the third language in these files, after
+     * TypeScript and the markup inside template literals, and it had been read as neither.
+     */
+    if (c === '/' && opensRegex(src, i)) { i = skipRegex(src, i); continue; }
     if (c === '"' || c === "'" || c === '`') {
       const quote = c;
       i++;
@@ -159,6 +214,40 @@ export function balancedFrom(src, at, label = 'balancedFrom') {
   const close = scanCode(src, open, (c, i, depth) => (depth === 1 && c === wanted ? i : undefined));
   assert.ok(close > open, `${label}: the group opened at ${open} is never closed — re-anchor this gate`);
   return src.slice(open, close + 1);
+}
+
+/**
+ * The ARGUMENTS of the call whose bracket is at or after `at`, split at the commas that belong to that call.
+ *
+ * The bound for "which argument is which" — a route's middleware chain, a helper's field-set argument, the options
+ * object of a fetch. `balancedFrom` gives the whole list; this gives its PARTS, so a claim about the second
+ * argument cannot be satisfied by text in the fourth.
+ *
+ * Commas are taken at the call's own depth only, through `scanCode`, so a comma inside a nested object, an array,
+ * a type parameter, or a string is not a boundary. Without that, `router.get('/x', requireAuth, async (req, res) =>
+ * …)` splits into five, and the two halves of the handler's own parameter list read as separate middleware.
+ *
+ * It replaced a 400-character cap in `route-guard-coverage`, which is worth recording because of what the cap had
+ * been doing: to find the middleware chain it matched from the path string up to the handler, and 13 of the 209
+ * route registrations in `server/src/api` put their handler further away than that. Those routes were not reported
+ * as unguarded — they were never in the analysis. `POST /api/data/backups` sits 1 105 characters in and
+ * `GET /api/tokens/rights-catalog` 6 429.
+ */
+export function argumentsOf(src, at, label = 'argumentsOf') {
+  const list = balancedFrom(src, at, label);
+  const inner = list.slice(1, -1);
+  const parts = [];
+  let from = 0;
+  let i = 0;
+  while (i < inner.length) {
+    const comma = scanCode(inner, i, (c, j, depth) => (depth === 0 && c === ',' ? j : undefined));
+    if (comma === -1) break;
+    parts.push(inner.slice(from, comma));
+    from = comma + 1;
+    i = comma + 1;
+  }
+  parts.push(inner.slice(from));
+  return parts.map(p => p.trim()).filter(p => p.length > 0);
 }
 
 /**

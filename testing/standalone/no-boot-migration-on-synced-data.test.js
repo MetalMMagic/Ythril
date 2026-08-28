@@ -38,6 +38,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { balancedFrom, statementFrom } from './_structural-window.mjs';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -82,13 +83,41 @@ function functions(src) {
   return out;
 }
 
-/** Does this function body write to a synced collection? Returns the offending fragment, or null. */
+/**
+ * Does this function body write to a synced collection? Returns the offending fragment, or null.
+ *
+ * A WINDOW, converted, and the bound is the VARIABLE the open declares rather than 80 characters of proximity.
+ * The old pattern found `_memories\`` and looked 80 characters ahead for a mutating call, which reaches a write
+ * on a DIFFERENT collection opened just after it, and misses the ordinary two-statement shape entirely:
+ *
+ *     const memoryColl = col<MemoryDoc>(`${spaceId}_memories`);
+ *     …
+ *     await memoryColl.updateMany(filter, patch);
+ *
+ * A boot migration written that way was invisible to this gate — and a gate whose whole job is refusing boot
+ * migrations on synced data does not get to see only the one-line spelling of them.
+ */
 function writesSynced(body) {
+  const writeCall = new RegExp(`\\.(${WRITES.join('|')})\\b`);
   for (const coll of SYNCED) {
-    // `col(...)` / `col<T>(...)` naming a synced collection, followed by a mutating call.
-    const re = new RegExp(`_${coll}\`\\s*\\)?\\s*[\\s\\S]{0,80}?\\.(${WRITES.join('|')})\\b`);
-    const m = re.exec(body);
-    if (m) return `${coll}: .${m[1]}()`;
+    for (const m of body.matchAll(/\bcol\s*(?:<[^>]*>)?\s*\(/g)) {
+      const open = body.indexOf('(', m.index);
+      if (!new RegExp(`_${coll}\``).test(balancedFrom(body, open, 'the col() arguments'))) continue;
+
+      // Chained on the open itself: `col(...).updateOne(...)`, one statement.
+      const stmt = statementFrom(body, m.index, `the ${coll} open`);
+      const chained = writeCall.exec(stmt);
+      if (chained) return `${coll}: .${chained[1]}()`;
+
+      // Or bound to a name, and written through later. Follow the NAME, not the distance.
+      const varName = /(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*$/.exec(body.slice(0, m.index))?.[1];
+      if (!varName) continue;
+      const after = body.slice(m.index + stmt.length);
+      for (const u of after.matchAll(new RegExp(`\\b${varName}\\b`, 'g'))) {
+        const used = writeCall.exec(statementFrom(after, u.index, `a use of ${varName}`));
+        if (used) return `${coll}: ${varName}.${used[1]}()`;
+      }
+    }
   }
   return null;
 }
@@ -130,6 +159,25 @@ describe('the sweep works before it is trusted', () => {
     const safeRead = 'function migrateSomething() {\n'
       + '  const n = await col(`${space.id}_files`).countDocuments({});\n}';
     assert.equal(writesSynced(safeRead), null, 'the detector flags a READ, which reverts nothing');
+
+    /*
+     * AND THE TWO-STATEMENT SPELLING, which the 80-character gap this detector used to carry could not see.
+     *
+     * Measured: with the write reached through the variable rather than chained onto the open, the old pattern
+     * MISSED it at 80 and would have found it at 200 — so the number decided, not the shape. A boot migration
+     * written this ordinary way was invisible to the gate whose whole job is refusing one.
+     */
+    const viaVariable = 'function migrateSomething() {\n'
+      + '  const fileColl = col(`${space.id}_files`);\n'
+      + '  const stale = await fileColl.find({ legacy: true }).toArray();\n'
+      + '  await fileColl.updateMany({ legacy: true }, { $unset: { legacy: 1 } });\n}';
+    assert.ok(writesSynced(viaVariable),
+      'a write reached through the variable the open declares is the same violation, however far away it is');
+
+    const readViaVariable = 'function migrateSomething() {\n'
+      + '  const fileColl = col(`${space.id}_files`);\n'
+      + '  const n = await fileColl.countDocuments({});\n}';
+    assert.equal(writesSynced(readViaVariable), null, 'following the variable must not turn a READ into a write');
   });
 });
 

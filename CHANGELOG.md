@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A regex literal was read as neither code nor a string, so a quote inside one opened a phantom string.**
+
+  `_structural-window.mjs` is the shared bracket walk every structural bound is built on, and it skipped comments
+  and strings but not patterns. `api/files.ts` writes `path.basename(normalised).replace(/[\r\n"\\]/g, '')`, and
+  that `"` inside the character class opened a string that swallowed the next 350 characters and every bracket in
+  them — so the route registration being read reported as never closed. It failed loudly there, which is luck
+  rather than design: the same phantom string inside a `doesNotMatch` bound makes the window smaller and the
+  absence hold. A regex is the third language in these files, after TypeScript and the markup inside template
+  literals, and it had been read as neither. Division is still division, pinned in both directions.
+
+### Changed
+
+- **X-25c is done: no capped gap in this suite is a window any more.** Three left, and each was hiding work.
+
+  `route-guard-coverage` found every route's middleware chain by matching from the path string across
+  `[\s\S]{0,400}?` to the handler. **13 of the 209 route registrations in `server/src/api` put their handler
+  further away than that** — `POST /api/data/backups` 1 105 characters in, `GET /api/tokens/rights-catalog` 6 429,
+  four `schema-library` routes between 489 and 1 870. Those routes were not reported as unguarded; they were never
+  in the analysis. Three more were skipped by the handler-SHAPE guess beside it, which required the chain to end at
+  `async (` or `(req`. Both guesses are gone: the last argument is the handler because it is the last argument, and
+  a new `argumentsOf` bound splits a call at its own commas. All 209 are analysed now, and all 209 are guarded.
+
+  `no-boot-migration-on-synced-data` looked 80 characters past a collection open for a mutating call. The ordinary
+  two-statement spelling — open it, bind it to a name, write through the name later — was **missed at 80 and would
+  have been found at 200**, so the number decided rather than the shape. A boot migration written that way was
+  invisible to the gate whose whole job is refusing one. It follows the variable now, and both spellings are pinned
+  in the detector's own self-test.
+
+  `reembed-backfill` bounded an audit table row at 80 characters, which reaches the NEXT row's `operation` — under
+  which a route carrying no audit operation of its own would have borrowed its neighbour's.
+
+  **And the frozen list is split in two, because it had bottomed out.** `[\s\S]{0,400}` and `[^.]{0,80}` are one
+  syntax wearing two meanings: a guessed extent, which is the defect, and an adjacency claim, where the number IS
+  the rule. Counted together, "may only shrink" could never reach zero — whatever it stopped at was
+  indistinguishable from remaining debt, and a comment documenting a cap that had been REMOVED counted against the
+  file that removed it. So `GRANDFATHERED_GAP` is now the debt and is **empty**, and `NOT_A_WINDOW` carries the
+  twenty sites whose number is a rule, each with a reason a reader can check.
+
 ### Changed
 
 - **Four more capped windows converted; the frozen list reaches 30 across 17 files, from 66/36.** X-25c.

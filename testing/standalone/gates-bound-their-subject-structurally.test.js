@@ -163,7 +163,7 @@ const GRANDFATHERED = new Map([
 /**
  * A CAPPED GAP inside a regex: `/marker[\s\S]{0,400}?other/`. Files still allowed to carry one, with how many.
  *
- * **23 occurrences across 12 files**, down from 66/36 when this was first measured — and the tracker had recorded
+ * **0 windows left; 20 sites remain across 9 files whose number IS the rule**, down from 66/36 when this was first measured — and the tracker had recorded
  * 30, which is why the number lives in the gate now rather than in a markdown file that drifts.
  *
  * The nine that left were the ones whose subject is a NAMED FUNCTION or a BRANCH, where the structural bound is
@@ -230,13 +230,19 @@ const GRANDFATHERED = new Map([
  *
  * **This list may only shrink.**
  */
-const GRANDFATHERED_GAP = new Map([
-  /*
-   * ── NOT WINDOWS. The number IS the rule, and every one of these has now been read. ──────────────────────────
-   *
-   * The doc above says a site left here without a reason has not been read yet. These have their reason.
-   */
-
+/**
+ * Capped gaps whose number is NOT a window — a permanent list, with the reason on each entry.
+ *
+ * This map exists because the ratchet above bottomed out. `[\s\S]{0,400}` and `[^.]{0,80}` are one syntax wearing
+ * two meanings, and while both were counted together "the list may only shrink" could never reach zero: whatever
+ * number it stopped at was indistinguishable from remaining debt. Nine sites are adjacency claims, a regex quoted
+ * inside a failure message, or comments recording the caps that were REMOVED — the last of which is the ratchet
+ * penalising its own documentation.
+ *
+ * So they are separated. **`GRANDFATHERED_GAP` is the debt and must reach zero; this one is a vocabulary note.**
+ * A new entry here needs a reason a reader can check, not a number somebody raised.
+ */
+const NOT_A_WINDOW = new Map([
   // `[0-9a-f]{0,2}` inside a failure MESSAGE — the regex it suggests somebody ADD. Nothing is asserted with it.
   ['testing/red-team-tests/ssrf-ipv6.test.js', 1],
 
@@ -261,22 +267,32 @@ const GRANDFATHERED_GAP = new Map([
   // Three `[^.]{0,N}` — two things in ONE SENTENCE, which is what a schema description has to do to be read.
   ['testing/standalone/search-tool-schemas-document-their-response.test.js', 3],
 
-  // `(?:[^\n]*\n){0,6}?` — a LINE adjacency claim: the wait must follow the trigger within six lines.
-  ['testing/standalone/sync-waits-retrigger-and-diagnose.test.js', 1],
-
-  /*
-   * ── STILL WINDOWS. These three are the whole remaining debt. ────────────────────────────────────────────────
-   */
-
-  // `_${coll}\`\s*\)?\s*[\s\S]{0,80}?\.(WRITES)` — bind by the VARIABLE the open declares, as `merge-relinks` does.
-  ['testing/standalone/no-boot-migration-on-synced-data.test.js', 1],
-
-  // `reembed$/[\s\S]{0,80}space.embeddings.reembed` — the subject is the audit table ROW, so bound it to the row.
-  ['testing/standalone/reembed-backfill.test.js', 1],
-
-  // `([\s\S]{0,400}?)` capturing a route's middleware list — the subject is the call's ARGUMENT LIST.
+  // A COMMENT quoting the `[\s\S]{0,400}?` that hid 13 route registrations from the analysis. Documentation.
   ['testing/standalone/route-guard-coverage.test.js', 1],
 
+  // `(?:[^\n]*\n){0,6}?` — a LINE adjacency claim: the wait must follow the trigger within six lines.
+  ['testing/standalone/sync-waits-retrigger-and-diagnose.test.js', 1],
+]);
+
+const GRANDFATHERED_GAP = new Map([
+  /*
+   * EMPTY — every capped gap that was a WINDOW is converted, and the list stays here for the same reason the
+   * backwards one does: an empty ratchet is what keeps it empty. Delete the map and the check goes with it.
+   *
+   * The last three were the ones that showed what a cap costs when nothing fails:
+   *
+   * - `route-guard-coverage` found each route's middleware chain by matching from the path string across
+   *   `[\s\S]{0,400}?` to the handler. **13 of the 209 registrations in `server/src/api` put their handler
+   *   further away**, so those routes were not reported as unguarded — they were never in the analysis.
+   *   `POST /api/data/backups` sits 1 105 characters in, `GET /api/tokens/rights-catalog` 6 429. Three more were
+   *   skipped by the handler-SHAPE guess beside it. The last argument is the handler because it is the last
+   *   argument, so `argumentsOf` replaced both guesses.
+   * - `no-boot-migration-on-synced-data` looked 80 characters past a collection open for a mutating call. The
+   *   ordinary two-statement spelling — open, bound to a name, written through later — was MISSED at 80 and would
+   *   have been found at 200, so the number decided rather than the shape. It now follows the variable.
+   * - `reembed-backfill` bounded an audit table row at 80 characters, which reaches the NEXT row's `operation` —
+   *   under which a route with no audit operation of its own borrows its neighbour's.
+   */
 ]);
 
 const GRANDFATHERED_BACK = new Map([
@@ -432,12 +448,14 @@ describe('no NEW magic window', () => {
      * not need each site read first.
      */
     const problems = [];
+    const allowance = f => (GRANDFATHERED_GAP.get(f) ?? 0) + (NOT_A_WINDOW.get(f) ?? 0);
     for (const [file, n] of foundGap) {
-      const allowed = GRANDFATHERED_GAP.get(file) ?? 0;
+      const allowed = allowance(file);
       if (n > allowed) problems.push(`${file}: ${n} capped gap(s), allowed ${allowed}`);
     }
-    for (const [file, allowed] of GRANDFATHERED_GAP) {
+    for (const file of new Set([...GRANDFATHERED_GAP.keys(), ...NOT_A_WINDOW.keys()])) {
       const actual = foundGap.get(file) ?? 0;
+      const allowed = allowance(file);
       if (actual < allowed) problems.push(`${file}: allowed ${allowed} gaps, now has ${actual} — lower it`);
     }
     assert.deepEqual(problems, [],

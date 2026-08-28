@@ -110,10 +110,23 @@ export class MediaProcessingStateService {
   /** Live handle to the editable face block, lazily initialised so the template can bind fields. */
   get face(): FaceRecognitionCfg { return (this.form.faceRecognition ??= {}); }
   faceLocked(field: string): boolean { return this.isLocked(`faceRecognition.${field}`); }
-  /** What face recognition was set to at load — the disable confirmation fires on the transition. */
-  private faceEnabledBaseline = false;
-  /** True when this save turns face recognition OFF, which is the direction with consequences. */
-  faceBeingDisabled(): boolean { return this.faceEnabledBaseline && this.face.enabled === false; }
+  /*
+   * THE DISABLE CONFIRMATION IS GONE, because the transition it guarded cannot be made here.
+   *
+   * `faceBeingDisabled()` compared a load-time baseline against `face.enabled`, and no control on this page
+   * binds that field — the enable switch was removed when the image ladder became the single gate, and the
+   * card's template says so. So the guard was permanently false: a consent dialog that could not fire,
+   * feeding a payload field that could not be accepted, for a switch that was no longer there.
+   *
+   * Three artefacts of one removed control, and the middle one is what broke every save on the page. Left in
+   * place with a comment they would have gone on looking like working safeguards; a guard that cannot fire
+   * protects nothing, and this repo has paid before for an unreachable component making four other things
+   * wrong around it.
+   *
+   * **The question it was asking is real and has moved, not vanished.** Lowering the IMAGE ceiling below its
+   * recognition rung is now the act that turns faces off, so that is where a confirmation belongs. Recorded
+   * in `UX-TODO.md` → U-11 rather than approximated here on a field nobody can reach.
+   */
 
   // ── external face model (biometric egress) ──
   /** Live handle to the editable endpoint block, lazily created so the template can bind its fields. */
@@ -318,7 +331,6 @@ export class MediaProcessingStateService {
             ? { externalModel: { ...cfg.faceRecognition.externalModel, apiKey: undefined } }
             : {}),
         };
-        this.faceEnabledBaseline = cfg.faceRecognition?.enabled === true;
         this.embeddingReindexBaseline = this.reindexKey();
         this.assistApiKeyInput = '';
         this.embeddingApiKeyInput = '';
@@ -584,9 +596,23 @@ export class MediaProcessingStateService {
         mode: dp.mode, renderDpi: dp.renderDpi, maxPages: dp.maxPages, pageTimeoutMs: dp.pageTimeoutMs,
         concurrency: dp.concurrency, ocrTimeoutMs: dp.ocrTimeoutMs,
       },
-      // Only the PATCH-writable face fields. modelPath / reprocessSyncedImages are env-only.
+      /*
+       * Only the PATCH-writable face fields.
+       *
+       * `enabled` IS NOT ONE, and sending it broke every save on this page — the whole body, not just the
+       * face block, because the PATCH schema is `.strict()`:
+       *
+       *     {"error":"Invalid request body","details":[{"code":"unrecognized_keys","keys":["enabled"],
+       *       "path":["faceRecognition"],"message":"Unrecognized key: \"enabled\""}]}
+       *
+       * Reported by breituai-platform 2026-08-20 after their owner spent an afternoon behind it. The comment
+       * above this list was already correct and the list did not match it: `enabled` became an infra/env pin
+       * when the face switch was removed, `modelPath` and `reprocessSyncedImages` were correctly dropped from
+       * here at the same time, and this one was left behind. The card's own template says so in as many words —
+       * *"No enable switch... deliberately not editable here"* — so nothing in the UI could even change it.
+       * It was pure echo of the GET, and it cost the page.
+       */
       faceRecognition: {
-        enabled: this.face.enabled,
         confidenceThreshold: this.face.confidenceThreshold,
         minFaceSizeFraction: this.face.minFaceSizeFraction,
         personEntityTypes: this.face.personEntityTypes,
@@ -642,16 +668,6 @@ export class MediaProcessingStateService {
       if (!ok) return;
       this.faceExternal.acknowledgedHost = host;
     }
-    if (card === 'face' && this.faceBeingDisabled()) {
-      const ok = await this.confirmDialog.confirm({
-        title: this.transloco.translate('mediaProcessing.confirm.faceOffTitle'),
-        message: this.transloco.translate('mediaProcessing.confirm.faceOffMessage'),
-        confirmLabel: this.transloco.translate('mediaProcessing.confirm.faceOffConfirm'),
-        cancelLabel: this.transloco.translate('common.cancel'),
-        danger: true,
-      });
-      if (!ok) return;
-    }
     if (card === 'embedding' && this.embeddingNeedsReindex()) {
       const ok = await this.confirmDialog.confirm({
         title: this.transloco.translate('mediaProcessing.confirm.reindexTitle'),
@@ -695,7 +711,7 @@ export class MediaProcessingStateService {
         else if (card === 'embedding') { this.embeddingApiKeyInput = ''; this.embeddingReindexBaseline = this.reindexKey(); }
         else if (card === 'rerank') { this.rerankApiKeyInput = ''; }
         else if (card === 'nli') { this.nliApiKeyInput = ''; }
-        if (card === 'face') { this.faceEnabledBaseline = this.face.enabled === true; this.faceApiKeyInput = ''; }
+        if (card === 'face') { this.faceApiKeyInput = ''; }
         this.rebaseline([card]);
         this.saving.set(false);
         setTimeout(() => this.saveOk.set(''), 3000);
@@ -739,16 +755,6 @@ export class MediaProcessingStateService {
       });
       if (!ok) return;
       this.faceExternal.acknowledgedHost = fHost;
-    }
-    if (this.faceBeingDisabled()) {
-      const ok = await this.confirmDialog.confirm({
-        title: this.transloco.translate('mediaProcessing.confirm.faceOffTitle'),
-        message: this.transloco.translate('mediaProcessing.confirm.faceOffMessage'),
-        confirmLabel: this.transloco.translate('mediaProcessing.confirm.faceOffConfirm'),
-        cancelLabel: this.transloco.translate('common.cancel'),
-        danger: true,
-      });
-      if (!ok) return;
     }
 
     // Reindex confirmation: changing the embedding model / dimensions / similarity re-embeds EVERY
@@ -796,7 +802,6 @@ export class MediaProcessingStateService {
         this.faceApiKeyInput = '';
         this.embeddingReindexBaseline = this.reindexKey(); // re-baseline so a second save won't re-prompt
         this.rebaseline(ALL_SECTIONS);
-        this.faceEnabledBaseline = this.face.enabled === true;
         this.touched.set(false);
         this.saving.set(false);
         setTimeout(() => this.saveOk.set(''), 3000);

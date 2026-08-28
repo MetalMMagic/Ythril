@@ -307,52 +307,66 @@ describe('MediaProcessingStateService — the two confirmations', () => {
  * decoration: someone switching this off is acting on a privacy decision, and the one thing the
  * product must not do is let them believe the stored face vectors went away with it.
  */
-describe('MediaProcessingStateService — turning face recognition off', () => {
+/**
+ * The face block this page may send, and the guard that used to sit beside it.
+ *
+ * ## What changed here, and why the four deleted tests were not deletable lightly
+ *
+ * This describe block was titled *"turning face recognition off"* and four of its six tests exercised a
+ * confirmation dialog on that transition. **The transition cannot be made from this page.** The enable switch
+ * was removed when the image ladder became the single gate — the card's template says so in as many words — so
+ * `face.enabled` is hydrated from the GET and bound by nothing. The guard compared a load-time baseline
+ * against a field no control touches, and was therefore permanently false.
+ *
+ * Those four tests passed by setting `c.face.enabled` DIRECTLY, which is a thing only a test can do. That is
+ * the shape worth naming: a spec that reaches past the UI to create a state the UI cannot produce will keep a
+ * dead branch looking alive indefinitely, and it kept this one alive across the release where the switch was
+ * removed.
+ *
+ * The question the guard asked is real and has MOVED, not vanished: lowering the image ceiling below its
+ * recognition rung is now the act that turns faces off, and that is where a confirmation belongs. Recorded in
+ * `UX-TODO.md` → U-11 rather than approximated here.
+ *
+ * ## And the fifth test is the release defect
+ *
+ * *"sends only the PATCH-writable face fields"* asserted that `enabled` IS sent. It is not PATCH-writable, so
+ * the assertion pinned the defect: the API refuses the key, `.strict()` refuses the whole body with it, and
+ * both Settings pages saved nothing at all on 3.2.0. Its own comment stated the rule correctly while its
+ * expectation contradicted it.
+ */
+describe('MediaProcessingStateService — the face block it may send', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   const withFace = (enabled: boolean) => cfgFixture({ faceRecognition: { enabled, confidenceThreshold: 0.6, minFaceSizeFraction: 0.05, personEntityTypes: ['person'] } });
 
-  it('prompts when it was on and is being turned off, and aborts the WHOLE save if declined', async () => {
-    const { c, confirm, patch } = make(withFace(true), false);
-    c.face.enabled = false;
-    expect(c.faceBeingDisabled()).toBe(true);
-    await c.save();
-    expect(confirm).toHaveBeenCalledOnce();
-    expect(patch).not.toHaveBeenCalled();
-  });
-
-  it('does NOT prompt when turning it on — that direction collects nothing retroactively', async () => {
-    const { c, confirm } = make(withFace(false));
-    c.face.enabled = true;
-    expect(c.faceBeingDisabled()).toBe(false);
-    await c.save();
-    expect(confirm).not.toHaveBeenCalled();
-  });
-
-  it('does not prompt when it was already off', async () => {
-    const { c, confirm } = make(withFace(false));
-    c.face.enabled = false;
-    await c.save();
-    expect(confirm).not.toHaveBeenCalled();
-  });
-
-  it('re-baselines after saving, so a second save does not prompt again', async () => {
-    const { c, confirm } = make(withFace(true));
-    c.face.enabled = false;
-    await c.save();
-    expect(confirm).toHaveBeenCalledOnce();
-    await c.save();
-    expect(confirm).toHaveBeenCalledOnce(); // still once
-  });
-
-  it('sends only the PATCH-writable face fields', async () => {
-    // modelPath selects which files the process loads and reprocessSyncedImages decides whether a
-    // peer's images are re-analysed locally — both stay env/config-only, so neither may appear here.
-    // `externalModel` IS writable (it is the endpoint the operator configures), so it is expected.
+  it('sends only the PATCH-writable face fields — and `enabled` is not one', async () => {
+    // `enabled` is an infra pin set by FACE_RECOGNITION_ENABLED; whether faces RUN is the image ladder's
+    // recognition rung. modelPath selects which files the process loads and reprocessSyncedImages decides
+    // whether a peer's images are re-analysed locally — both env/config-only. `externalModel` IS writable (it
+    // is the endpoint the operator configures), so it is expected.
+    //
+    // Sending any of the four refuses the ENTIRE body, because the patch schema is `.strict()`.
     const { c, patch } = make(withFace(true));
     await c.save();
     const face = sent(patch)['faceRecognition'] as Record<string, unknown>;
-    expect(Object.keys(face).sort()).toEqual(['confidenceThreshold', 'enabled', 'externalModel', 'minFaceSizeFraction', 'personEntityTypes']);
+    expect(Object.keys(face).sort()).toEqual(['confidenceThreshold', 'externalModel', 'minFaceSizeFraction', 'personEntityTypes']);
+  });
+
+  it('and it is not sent even when the GET says the pin is ON', async () => {
+    // The reported case. Their instances pin the flag, so the GET returns `enabled: true`, the form hydrates
+    // it, and the old payload echoed it straight back. Asserted separately from the key list because a list
+    // comparison on a fixture where the field happened to be absent would prove nothing.
+    const { c, patch } = make(withFace(true));
+    await c.save();
+    expect(sent(patch)['faceRecognition']).not.toHaveProperty('enabled');
+  });
+
+  it('saving the face card asks NO confirmation, because nothing on it turns faces off', async () => {
+    // What replaces the four deleted tests. The old guard fired on a transition this page cannot express, so
+    // the honest assertion is that a face save is unremarkable.
+    const { c, confirm } = make(withFace(true));
+    await c.saveCard('face');
+    expect(confirm).not.toHaveBeenCalled();
   });
 
   it('reports env-pinned face fields as locked', () => {

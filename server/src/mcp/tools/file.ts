@@ -349,7 +349,7 @@ export const move_fileTool: ToolHandler = {
  *
  * ## Why this is a tool now
  *
- * breituai-platform, 2026-08-11T1722Z, listed it among five capabilities a token could HOLD and not exercise:
+ * The canary operator, 2026-08-11T1722Z, listed it among five capabilities a token could HOLD and not exercise:
  * *"The rights matrix decides what a token may do; the surface should not also decide whether it can."* This one
  * is the sharpest of the five, because it is the documented recovery path for a failed embedding — so the surface
  * that could see the failure was the surface that could not act on it.

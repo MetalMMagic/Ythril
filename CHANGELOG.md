@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **No customer's name appears in this repository any more. It is PUBLIC.** Owner's rule, 2026-08-28.
+
+  Two party names had reached **231 occurrences across 106 tracked files** — 46 in this file, which is
+  republished verbatim as the GitHub Release notes, six in the integration guide, which ships inside the Docker
+  image, and the rest in source comments and test titles. All public.
+
+  They got there honestly: this codebase records WHO reported a defect and WHAT they measured, because a finding
+  with a source behind it is worth more than an assertion. **The evidence is kept and the identity is dropped** —
+  each party is now the role that made the observation matter: the operator who runs the instances, the
+  integrator who consumes the API. *"22.150 s, measured by the canary operator"* carries the weight it always
+  did. Example domains became `example.com`.
+
+  A **gate** refuses a new one, because a one-time sweep is undone by the next commit that says "reported by …"
+  — and there is every reason to keep writing that sentence. The gate holds the names base64-encoded and decodes
+  them at run time: a gate carrying the literal it forbids would be the last remaining leak.
+
+  **What this cannot reach**, stated rather than implied: 66 commit messages and three published release-note
+  bodies also carry the names. The release notes are editable and are being corrected; commit messages are not,
+  short of a history rewrite that would invalidate every clone.
+
 ### Fixed
 
 - **The request id the caller was handed matched nothing in the log unless the failure was a crash.**
@@ -87,7 +109,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   MCP's `list_spaces` returned counts and nothing else, while `help()` said *"Call list_spaces for storage/quota
   details"*. So a caller who read the authoritative reference and believed it found no storage on that door —
   and would never report it, because **nobody reports a capability they were told they did not have**. That is
-  the same shape as the `recall` filter sentence aigents designed around. `list_spaces` now returns `maxGiB`,
+  the same shape as the `recall` filter sentence the fleet integrator designed around. `list_spaces` now returns `maxGiB`,
   `usageGiB` and `usageIncomplete` from the same measurement REST reads, and `help()` names the three fields
   instead of pointing at data that was not there.
 
@@ -231,7 +253,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the width would leave every existing descriptor unmatchable."* Every word of that is true of a gallery that
   holds descriptors, and none of it bites on one that never has.
 
-  breituai-platform asked the question nobody had, 2026-08-20, and framed it usefully: *"we are asking whether
+  The canary operator asked the question nobody had, 2026-08-20, and framed it usefully: *"we are asking whether
   the guard is 'no stored faces may be invalidated' or 'no, categorically'."* **It was the first, and the API
   was enforcing the second.** `ensureVectorSearchIndex` refuses on `existing && !dimsMatch &&
   refuseWidthChange` — index-and-descriptor based. The absolute rule lived in the API surface, which was
@@ -383,7 +405,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   because it is the third time this session a gate has been fooled by prose ABOUT the thing it measures.
 
 - **The ER diagram's unlinked shelf now spreads across the card's width, not the diagram's own.** The third of
-  breituai-platform's three rules, and the one where their diagnosis was a step off in a way worth recording:
+  the canary operator's three rules, and the one where their diagnosis was a step off in a way worth recording:
   *"use the whole row for the unlinked listings"* — it wraps after four entries however wide the viewport is.
 
   The shelf already flowed to a width rather than to a fixed column count. That width was
@@ -418,7 +440,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 - **An unacknowledged external endpoint is now STORED AND UNUSED instead of refusing every write to the media
-  route.** breituai-platform, 2026-08-20T1155Z, arguing a principle rather than reporting a bug:
+  route.** The canary operator, 2026-08-20T1155Z, arguing a principle rather than reporting a bug:
   *"the acknowledgement should gate USE of the endpoint, not VALIDITY of the config."* Their owner met the
   consequence trying to raise an image level to "Caption + face recognition" and could not save; his summary of
   the flow was *"not even i understand it"*, having built the face service on the other end of it.
@@ -482,14 +504,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 - **The embedding guide's `postMessage` snippet derives its target origin from the iframe instead of offering a
-  placeholder.** breituai-platform found this in the console on 2026-08-20, embedding Ythril in a page on
-  `www.breituai.com`:
+  placeholder.** The canary operator found this in the console on 2026-08-20, embedding Ythril in a page on
+  `www.example.com`:
 
       "postMessage" could not be executed on 'DOMWindow': the specified target origin
-      ("https://ythril.www.breituai.com") does not match the recipient window's origin
-      ("https://www.breituai.com").
+      ("https://ythril.www.example.com") does not match the recipient window's origin
+      ("https://www.example.com").
 
-  `ythril.www.breituai.com` is not a host anybody has. It is `"ythril." + location.hostname` — the shape you
+  `ythril.www.example.com` is not a host anybody has. It is `"ythril." + location.hostname` — the shape you
   get from assuming Ythril lives at a `ythril.` subdomain of the embedding page's domain, which holds right up
   until that page is on `www`. Every such message is refused by the browser, so the theme silently never
   arrives and **nothing in Ythril reports a problem, because nothing in Ythril was reached.**
@@ -507,7 +529,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `cssUrl` on `/api/theme` is the path that cannot race.
 
 
-- **The ER diagram's boxes now take one of three heights, and a row of them is a band.** breituai-platform's
+- **The ER diagram's boxes now take one of three heights, and a row of them is a band.** The canary operator's
   owner, at a browser on a live 3.2.0 instance, 2026-08-20. His word for the diagram was *"salad"*, and two of
   his three complaints were heights: *"non-uniform height entities"*, and boxes side by side in a row having
   different heights so *"a row has no top line and no bottom line"*. Their post is a specification rather than
@@ -562,7 +584,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 - **The MCP door's default recall byte budget is now 25 000, against REST's 100 000 — the one place the two
-  doors deliberately differ.** Reported by breituai-platform, 2026-08-20, and the number in it is theirs: a
+  doors deliberately differ.** Reported by the canary operator, 2026-08-20, and the number in it is theirs: a
   recall answered `bytesReturned: 98356` against `budgetBytes: 100000`, correct, in budget, fully specified —
   and **their MCP client refused it outright and spilled it to a local file.** A caller reading over MCP got
   nothing usable from a call the server answered perfectly.
@@ -641,7 +663,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 - **The per-pipeline Save on Media Processing now asks for egress consent instead of showing the refusal.**
-  breituai-platform's owner, 2026-08-20, in his own sequence: *"Settings → Media Processing → set images to
+  The canary operator's owner, 2026-08-20, in his own sequence: *"Settings → Media Processing → set images to
   'Caption + face recognition' → Save → nothing saves."* The Models card asked. The page-bar Save asked. The
   per-pipeline Save — the button beside the control he had just changed — sent the PATCH straight out and
   rendered whatever came back, which was a refusal naming a host, on a page that never mentions the endpoint.
@@ -665,7 +687,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The face card no longer claims infra owns the whole of it.** It passed `faceLocked('enabled')` as its
   whole-card infra flag, so pinning `FACE_RECOGNITION_ENABLED` dimmed the entire card to 62% and labelled it
   "Set by infra" — while every control inside stayed operable and governed by a different variable. That is
-  what breituai-platform saw before reporting the endpoint as unconfigurable, and they were reading it
+  what the canary operator saw before reporting the endpoint as unconfigurable, and they were reading it
   correctly. Owner's ruling P-12 (A): *"may this instance use faces"* belongs to infra, *"may crops leave for
   this host"* belongs to the operator, so the two are now labelled separately and the dimming follows the
   endpoint lock. The assist card — the direct analogue — has never claimed whole-card ownership from a field
@@ -693,7 +715,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 - **RELEASE DEFECT: media settings could not be saved at all, on any instance.** Reported by
-  breituai-platform, 2026-08-20, from a browser on 3.2.0 and corroborated server-side by them — their pod had
+  the canary operator, 2026-08-20, from a browser on 3.2.0 and corroborated server-side by them — their pod had
   logged no `config.json changed on disk` since provisioning, so every save attempt had persisted nothing.
 
       {"error":"Invalid request body","details":[{"code":"unrecognized_keys","keys":["enabled"],
@@ -751,7 +773,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   saying the token **is still valid** and that retrying will not help, because an operator told "something went
   wrong" assumes a blip and moves on.
 
-  Found while investigating a failed revoke reported by breituai-platform on 2026-08-20. **It is not their
+  Found while investigating a failed revoke reported by the canary operator on 2026-08-20. **It is not their
   cause** — and that is itself worth recording: a handler that always answered `204` on a token it found cannot
   be the source of a failure toast, so whatever they hit came from the guard or from before the handler. They
   were careful to say they had not read the status code and would not guess it, so the investigation stops here
@@ -761,12 +783,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`topK`'s MCP description still promised a record cap the byte budget replaced.** It said *"past roughly 25
   results the answer spills and `truncated` is set"* — true before 3.2.0 and wrong after it, on the surface
   `help()` tells callers is the authoritative reference. This is the failure `CLAUDE.md` records at cost:
-  aigents read *"filter applied after vector search"* there, believed it, and built a skill that deliberately
+  The fleet integrator read *"filter applied after vector search"* there, believed it, and built a skill that deliberately
   avoided filtered recall. Nobody reports a limit they were told they had.
 
 
 - **A route deliberately outside the rights grid stopped being logged as an oversight — and the log can now
-  actually become clean.** Reported by breituai-platform, 2026-08-20, read off a live pod's stdout: two routes
+  actually become clean.** Reported by the canary operator, 2026-08-20, read off a live pod's stdout: two routes
   warned on **every request** that they had *"no inventory entry — reach enforced, area not. Add it to
   ROUTE_RIGHTS; misses become refusals once the log is clean."* Both are on `NOT_AREA_SCOPED`, the list that
   records — with a written reason each — that a route is not a view of a space's DATA. Renaming a space is
@@ -790,7 +812,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 - **The face gallery's readiness probe asked about the wrong field, so its answer carried no information.**
-  Reported indirectly by breituai-platform, 2026-08-20 — they quoted the log line as evidence that no face
+  Reported indirectly by the canary operator, 2026-08-20 — they quoted the log line as evidence that no face
   index had ever been built on any of fourteen spaces, and stopped a configuration change on it:
 
       Vector search index infrastructure_files_faceEmbedding: gave up after 600s
@@ -854,7 +876,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   result, on **both** doors, each present only when that stage ran. `includeDiagnostics` no longer governs
   them — it covers `matchedText`, `embeddingModel` and `seq`, which is what it was for.
 
-  breituai-platform 2026-08-17T1549Z, correcting their own 1540Z, and the argument is ours turned around
+  The canary operator 2026-08-17T1549Z, correcting their own 1540Z, and the argument is ours turned around
   correctly: we said the six bundled fields are not where a large response comes from — the bodies are. **Three
   floats per result are not a cost.** Bundling a passage-sized field with three numbers under one switch was
   the actual error.
@@ -883,11 +905,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `retryable`.** Two parties reported the same defect from opposite sides within thirty hours, and the second
   report is what priced it.
 
-  breituai-platform 2026-08-17T1912Z, from the operator's side: after any restart mongot re-initialises
+  The canary operator 2026-08-17T1912Z, from the operator's side: after any restart mongot re-initialises
   hundreds of indexes, and for HOURS a recall can fail with `Executor error during aggregate command on
   namespace: … :: caused by ::` — nothing after `caused by ::`. The location, and not the reason.
 
-  aigents 2026-08-18T2145Z, from the caller's side: the same error on **6 of 36 calls (17%)**, rate-sensitive.
+  The fleet integrator 2026-08-18T2145Z, from the caller's side: the same error on **6 of 36 calls (17%)**, rate-sensitive.
   Every recall node in their fleet carries `onError: continueRegularOutput`, because a persona should not die
   when a context read fails. **A 4xx is not retried and not reported**, so the persona ran with no context and
   produced something plausible and uninformed — one call in six, silently, across fourteen personas.
@@ -900,7 +922,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   true or false, so a client branches on a boolean instead of matching our prose. The store's `code` and
   `codeName` come through when it supplied them. A message that ended at `caused by ::` is completed rather
   than passed on: with the driver's cause where there is one, and otherwise with **"the store reported no
-  cause"**, which answers the question breituai-platform opened with and could not answer from outside.
+  cause"**, which answers the question the canary operator opened with and could not answer from outside.
 
   **An ALLOWLIST, and everything unrecognised still answers `400` with an unchanged message.** The unsafe
   direction here is calling a caller's mistake retryable, so a failure becomes a `503` only when something
@@ -922,7 +944,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Every read stopped returning the embedding vector, and it had never stopped: the list routes sent it on
   every record.** `GET /api/brain/spaces/:spaceId/entities?limit=500` answered **11.19 MB** for one space where
-  `POST /query` answered the same 100 records in **0.145 MB** — reported by aigents 2026-08-19 after it killed
+  `POST /query` answered the same 100 records in **0.145 MB** — reported by the fleet integrator 2026-08-19 after it killed
   their n8n with an out-of-memory failure, took its database down with it for a stretch, and blocked deploys.
   They tried twelve parameter spellings looking for a switch; there was none, because the route accepted no
   projection at all.
@@ -951,7 +973,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `?includeDiagnostics=true` — no flag can ask for the vector back, which is what the four sentences promise.
 
 - **The brain list routes withhold `matchedText` and `embeddingModel` by default; `seq` still comes back.**
-  breituai-platform asked for this by name, taking up an offer in the 3.1.0 notes: *"matchedText is the passage
+  The canary operator asked for this by name, taking up an offer in the 3.1.0 notes: *"matchedText is the passage
   a second time, and a list route is the call most likely to be made in bulk."* `?includeDiagnostics=true`
   restores both, the same parameter name `recall` uses.
 
@@ -963,7 +985,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so there is nothing there to withhold or restore.
 
 - **The 25-record spill cliff is replaced by a byte budget, and every returned record is whole.** Owner-commissioned;
-  specified by breituai-platform on request. Past 25 records a recall used to collapse to **three** inline
+  specified by the canary operator on request. Past 25 records a recall used to collapse to **three** inline
   results plus a download of the WHOLE set — including the three already sent. Their measurement: a real
   overflow dump of 209,339 bytes, ~51 records, so a caller got 3 records plus ~52k tokens of file where 25
   whole records would have been ~100 KB. **The collapse did not reduce the caller's cost, it roughly doubled
@@ -1016,7 +1038,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     shrinking as you advance — the slice happens inside `budgetedEnvelope`, so no route can shorten its own
     array and quietly redefine it.
   - **`remainderDump`** — default **`false`**, and until now the dump was unconditional. Writing the remainder
-    to `_tmp/` is a **write on a read path**: it counts against space storage, and on breituai-platform's
+    to `_tmp/` is a **write on a read path**: it counts against space storage, and on the canary operator's
     instance those land in a store whose `storage_used_bytes` collector already takes ~22 s to walk, so a read
     that overflowed made an operator's metrics slower. The common caller wants the next page, not an artifact.
 
@@ -1053,7 +1075,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Who may embed this instance is now editable in the admin UI — Settings → Embedding.** `embed.allowedOrigins` has
   worked since embedding shipped and lived only in `config.json`, so granting a portal permission to frame a brain
-  meant shell access to the server. Asked for by breituai-platform on 2026-08-19T1046Z, and the reason is theirs:
+  meant shell access to the server. Asked for by the canary operator on 2026-08-19T1046Z, and the reason is theirs:
   *someone runs a brain, someone else wants to use it inside a portal, and the person who must act has to be talked
   through editing a JSON file on a server* — which in practice means it does not happen and the brain stays in a
   browser tab. `GET`/`PATCH /api/admin/embed-config`, admin plus MFA on the write, because listing an origin grants
@@ -1063,7 +1085,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   caller gets told a change worked when it did not. `GET` also reports `invalid`, the stored entries the validator
   drops, which is the answer when a portal will not frame and the list looks right. No restart, by either route.
 - **The embedded client wears the host portal's decoration, when the host supplies it.** Owner ruled **A** on
-  2026-08-19 (was P-11), on breituai-platform's ask of 2026-08-18T1806Z — which they framed as an ask and not a
+  2026-08-19 (was P-11), on the canary operator's ask of 2026-08-18T1806Z — which they framed as an ask and not a
   request: *"Nothing here is urgent, nothing is blocked on you, and 'not our aesthetic' is a complete answer that
   we will not raise again."*
 
@@ -1134,7 +1156,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Six keys across `en`/`de`/`pl`.
 
 - **`YTHRIL_PINNED_FIELDS` — fix a field at whatever it resolves to, including NOTHING.** Owner ruled this on
-  2026-08-19 (was P-7); breituai-platform asked for it twice, and their framing is the requirement: *"once the URL
+  2026-08-19 (was P-7); the canary operator asked for it twice, and their framing is the requirement: *"once the URL
   is infra-pinned to an in-cluster unauthenticated endpoint, an editable key field is a control with nothing behind
   it. Empty is the CORRECT value, and we would like to pin the correct value."*
 
@@ -1177,7 +1199,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   both drift directions.
 
 
-- **`recall` and `find-similar` take a `projection`, on both doors.** Asked for by breituai-platform with a
+- **`recall` and `find-similar` take a `projection`, on both doors.** Asked for by the canary operator with a
   measurement rather than an estimate: a board sweep wanting fifteen names, a `from`, a `kind` and a `status`
   returned **100,547 characters** where the data was about 1.5 KB, and their client refused the response and
   spilled it to disk. `includeContent: false` reads like the answer and is not — it is scoped to file chunks,
@@ -1423,7 +1445,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   *"Index build failed"*, then `live: "missing"` on the admin health panel, the whole Tools tab `down`, and the
   drift flag this codebase calls the silent-loss signature. On an instance whose search worked normally.
 
-  Reported by breituai-platform 2026-08-17T1540Z §8 as three red badges and eleven *"Preparing indexes…"* on one
+  Reported by the canary operator 2026-08-17T1540Z §8 as three red badges and eleven *"Preparing indexes…"* on one
   screen. **The three and the eleven were one number:** `FINALIZE_CONCURRENCY` is 3, so those were the first
   batch to run out a 600 s window while the other eleven waited for a worker. Their argument is the one that
   matters — *"a red badge that is always red on a working system trains an operator to stop reading red
@@ -1454,7 +1476,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The create-token dialog could not grant the two instance-level rights, so an instance admin had to be
   created and then edited.** `draftRights` initialised `instanceAdmin` and `createSpaces` to `false` and no
   control could change them — while `CreateTokenBody` has accepted both throughout. The edit dialog grew these
-  controls in #908 and nothing brought them to create; reported by breituai-platform 2026-08-17 §9 as the two
+  controls in #908 and nothing brought them to create; reported by the canary operator 2026-08-17 §9 as the two
   forms presenting different rights surfaces. It was one missing block, not a diverged surface: both forms
   already shared the same per-space matrix, and all four translation keys already existed in en/de/pl.
 
@@ -1489,7 +1511,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   check they had it.** A token with all four areas at `admin` for one space has administered that space since
   3.0 (`isSpaceAdminFor`), with both containment rules red-teamed. Measured 2026-08-19: that predicate appeared
   in **three server files and zero client files** — the matrix showed four independent rungs and nothing said
-  the all-four state had a meaning. breituai-platform asked twice, both times about the surface rather than the
+  the all-four state had a meaning. The canary operator asked twice, both times about the surface rather than the
   capability.
 
   Now named on the three surfaces that were blind:
@@ -1554,7 +1576,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `additionalProperties: false`. **The dispatcher validates arguments before the handler runs**, so that was a
   hard refusal the resolver never got to answer.
 
-  Measured on one instance, one space, the same instant, with breituai-platform's own filter from
+  Measured on one instance, one space, the same instant, with the canary operator's own filter from
   2026-08-17 §10:
 
   ```
@@ -1586,7 +1608,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`help`'s `structuredContent` was an index with no guide in it, so a client that reads that field found the
   discovery tool empty.** It now carries `guide`, byte-identical to `content[0].text`.
 
-  breituai-platform reported this on 2026-08-17 as *"the section index plus `matched` and no bodies, in both
+  The canary operator reported this on 2026-08-17 as *"the section index plus `matched` and no bodies, in both
   modes"* and it was filed as `help()` returning no section bodies. **It never did that.** Measured on
   2026-08-19 against the same unchanged code: `content[0].text` is **76,754 characters** with all six section
   bodies, while `structuredContent` was **599**. Their own report identifies where they read — `matched`
@@ -1632,7 +1654,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`includeContent` read as a general size lever and is file-chunks-only, and now says so.** Its own
   description made the right general argument — every field a result carries is multiplied by `topK` — while
   the parameter touches nothing but file-passage bodies, so on a search returning entities, memories, edges
-  or chrono entries it changes nothing at all. breituai-platform: *"that gap between what the parameter
+  or chrono entries it changes nothing at all. The canary operator: *"that gap between what the parameter
   sounds like and what it covers cost us a call to find out."*
 
   Both tools and the REST reference now state the limit and point at `projection`, which is the lever that
@@ -2404,7 +2426,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **A schema violation the record already had no longer refuses an unrelated edit.** Reported by
-  breituai-platform as *"freezes records"*, and reproduced exactly: write a record whose `status` the enum
+  the canary operator as *"freezes records"*, and reproduced exactly: write a record whose `status` the enum
   allows, remove that value from the enum, then patch the record's **description** — `422`, naming a field the
   edit never touched. The record stayed uneditable until `status` was repaired in the same request, and any
   schema tightening did that retroactively to every record that no longer fitted. In `strict` mode a write is
@@ -2837,7 +2859,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     parameter (`registerReembedRoute(spacesRouter)`); attribution is by router identifier now, with mounts
     followed transitively through `use()`.
 
-- **BREAKING — graph-augmented recall nests what it reached under the match that reached it.** aigents
+- **BREAKING — graph-augmented recall nests what it reached under the match that reached it.** The fleet integrator
   2026-08-13T1035Z §3 and 1100Z. `traverse > 0` used to append every traversed record beside the matches with
   `score: null`, and three things followed from that flat list:
   - **With more than one match, nothing said WHICH match reached a node.** It was recoverable from the old
@@ -2928,7 +2950,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   capped at 8 per node and the node says so with `pathsTruncated: true`. A cap a caller cannot see is how
   "these are all the routes" becomes a false conclusion.
 
-- **`recall`'s filter accepts the same grammar `query`'s does.** aigents, 2026-08-13T1035Z §2: recall took one operator
+- **`recall`'s filter accepts the same grammar `query`'s does.** The fleet integrator, 2026-08-13T1035Z §2: recall took one operator
   object per key, ANDed — no `$or`, no nesting — while `query` took the full allowlisted MongoDB grammar to depth 8. Same
   store, same policy, **two grammars**, so a caller wanting meaning-ranking *and* a real predicate ran `query` first and fed
   ids into something else. Their case is the mailbox filter in their own board's usage notes, which was not expressible in
@@ -3090,7 +3112,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reference told integrators a working parameter would be rejected. The table is now compared against the enforced sets
   by the same gate.
 
-- **The brain LIST endpoints report a `total`, refuse `offset`, and page a proxy space correctly.** aigents, 2026-08-13T1020Z
+- **The brain LIST endpoints report a `total`, refuse `offset`, and page a proxy space correctly.** The fleet integrator, 2026-08-13T1020Z
   (corrected 1036Z): they paged `/memories?limit=300&offset=N` in a loop and it never came back short. `offset` is not a
   parameter we have — the routes read `skip` — so it was accepted and ignored, every page was the same newest-300, and **67
   identical pages summed to 10,184 matching records in a space holding 300 with 152 matches**. They were about to delete
@@ -3132,7 +3154,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The embed-job listing takes `skip`, so a reported failure is always reachable.** `getEmbedJobCounts` aggregates every
   job while the listing returned one capped page, so a space reporting `failed: 500` had no way to reach failure #201 — an
   accurate total beside an unreachable tail, on the one surface whose justification is that its failures are actionable.
-  - Same asymmetry that cost aigents a fabricated number on `/query`, found by auditing the surface in the same pass that
+  - Same asymmetry that cost the fleet integrator a fabricated number on `/query`, found by auditing the surface in the same pass that
     found the deep-skip defect.
   - **Both listings now page through ONE function**, `spaces/page-across-members.ts`, rather than the same shape written
     twice: a single space pushes `skip` to MongoDB, and only a multi-member proxy merges, bounded, with an explicit refusal
@@ -3141,7 +3163,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     same defect shipped on `/query` behind tests that paged 12 and 25 rows. Mutation-tested by removing the `skip`.
 
 - **`recall`'s filter description said the filter was applied AFTER vector search. It is not, and a customer designed
-  around the wrong sentence.** aigents, 2026-08-13T1035Z: they read it, believed it, and built a skill that deliberately
+  around the wrong sentence.** The fleet integrator, 2026-08-13T1035Z: they read it, believed it, and built a skill that deliberately
   avoided filtered recall — on the sound reasoning that a record which does not rank inside `topK` would never reach a
   post-filter, so an inbox built on recall could silently miss a message.
   - **`help()` described the behaviour correctly at the same time.** Two of our surfaces stated opposite semantics, and the
@@ -3183,7 +3205,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.8.0] — 2026-08-13
 ### Added
-- **`POST /query` takes `sort`/`dir` and reports a match `total`.** aigents asked for both alongside the `skip` finding
+- **`POST /query` takes `sort`/`dir` and reports a match `total`.** The fleet integrator asked for both alongside the `skip` finding
   (2026-08-11T1045Z); #863 honoured `skip` and turned `sort` from silently ignored into an explicit `400`, which was the
   right direction and still not what they asked for.
   - **`total` is the more important half.** `count` is the page length, so a caller sweeping with `skip` could not tell a
@@ -3222,7 +3244,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `structuredContent` now always carries `sections` (ids + titles), and `matched` when a query was given — so a caller
     can distinguish "these matched" from "nothing matched, here is the index" without parsing English.
 - **`skip` on `POST /api/brain/spaces/:id/query` — and the four brain read routes now REFUSE a body key they cannot
-  honour.** aigents, 2026-08-12T1410Z: `skip` was accepted at `200` and silently ignored, so a paged sweep re-read page
+  honour.** The fleet integrator, 2026-08-12T1410Z: `skip` was accepted at `200` and silently ignored, so a paged sweep re-read page
   one every time and was counted as if it had advanced — *"it cost us a fabricated number"*.
   - **Two defects, two fixes.** Honouring `skip` is a feature; refusing an unhonourable key is the bug fix, and it is the
     one that would have saved them the number. `/query`, `/recall`, `/traverse` and `/find-similar` now answer `400` with
@@ -3242,7 +3264,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     unknown keys, returns the refusal it computed (the proxy-lens near-miss: compute and discard), and — after this fix
     got it wrong — that every key a handler actually READS is in its allowed set.
 - **A record's own timestamp is now checked against the server's, and a disagreement is recorded on the record.**
-  breituai-platform corrected three board posts whose `postedAt` was **eight hours** early — not clock drift, but one
+  The canary operator corrected three board posts whose `postedAt` was **eight hours** early — not clock drift, but one
   measured stamp followed by three EXTRAPOLATED from how long they thought their work had taken. Their sentence for why
   nothing caught it is the requirement: *"an estimated timestamp looks exactly like a measured one once it is written
   down."* And their suggestion is why it is ours to build: the comparison is available to the store, which holds a number
@@ -3276,7 +3298,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     interrupted), `404 not_found`. Audited as `brain.retry_embedding`, because a successful retry clears `lastError` and
     the audit snapshot is then the only place the original failure survives.
   - New MCP tools `list_embed_jobs` and `retry_record_embedding`, shipped **in the same commit as the routes**. The five
-    REST-only capabilities breituai-platform reported were all REST-only for the same reason — a route shipped and its
+    REST-only capabilities the canary operator reported were all REST-only for the same reason — a route shipped and its
     tool never followed, five times — so `REST_ONLY_CAPABILITIES` does not gain a sixth row.
   - Per record rather than "retry all failed" (the media queue's shape): a brain record's failure is usually about *that
     record*, where a media failure is usually about the worker. For a whole space, `POST /reindex` already exists.
@@ -3320,7 +3342,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     documented, so nothing had to be excused.
 - **`env-var-docs-coverage` now asserts a variable is documented on the page that owns its FEATURE, not merely somewhere
   under `docs/`.** The gate was green while `FACE_RECOGNITION_EXTERNAL_MODEL` sat in `02-hosting.md`'s egress matrix and
-  was absent from `05c-face-recognition.md` — so breituai-platform, reading the face-recognition page while configuring
+  was absent from `05c-face-recognition.md` — so the canary operator, reading the face-recognition page while configuring
   face recognition, reported the variable as nonexistent and we agreed with them. A variable on a page nobody has reason
   to open is as good as absent, and "documented" and "findable where it is needed" are different properties.
   - A small prefix→owner-pages map covers the families where a wrong page is a real discoverability failure. A prefix that
@@ -3346,7 +3368,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `pending` jobs are retired too rather than left to the worker. One rule beats "eagerly for failed, lazily for
     pending", which is the kind of split nobody remembers.
 - **`docs/integration-guide/05c-face-recognition.md` described a pipeline that is only half of what ships.** Reported by
-  breituai-platform, 2026-08-12: the page opened by saying face recognition runs *"entirely in-process — no GPU, no
+  the canary operator, 2026-08-12: the page opened by saying face recognition runs *"entirely in-process — no GPU, no
   sidecar, no Python"* and its ISO note said *"No face data is transmitted to any external service"* — while the same file
   documented behaviour that exists only for the **external** path. The external face endpoint is a real, shipped feature
   and it was **absent from its own configuration reference**, which is why they asked two questions that should have been
@@ -3377,7 +3399,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Found by driving the UI, not by reading it.** The browser sent `{"type":"note", …}`, the request succeeded, and the
     stored record still said `decision`. Adding the control is what made a server gap visible — the reason a UI change
     was worth verifying end to end rather than at the component boundary.
-  - Same shape as the `skip` parameter aigents reported on `POST /query`: a permissive body, a success status, and a
+  - Same shape as the `skip` parameter the fleet integrator reported on `POST /query`: a permissive body, a success status, and a
     silently dropped field. Now covered at the API level, because the client is not where it broke — including that an
     absent `type` leaves the stored one alone, so the clear path cannot wipe it by accident.
 
@@ -3416,7 +3438,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **The schema editor's enum chips were completely unstyled — the remove button rendered as a browser-default
-  `<button>`.** Reported by breituai-platform (2026-08-12T2230Z) as *"oversized and clip their own labels"*, and that is
+  `<button>`.** Reported by the canary operator (2026-08-12T2230Z) as *"oversized and clip their own labels"*, and that is
   exactly what an unstyled `<button>` inside an unstyled `<span>` looks like.
   - **Nothing was wrong with the CSS.** `schema-type-editor.component.ts` renders `.chip-wrap`, `.chip`, `.chip-rm` and
     `.chip-field`; its only stylesheet was `SCHEMA_MD_STYLES`, which defines none of them; and `styles.scss` has no
@@ -3441,7 +3463,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The guide promised that a pre-existing schema violation never blocks an unrelated patch. It does block.** Corrected
   in `16-mcp.md`, because the code is deliberate and the sentence was simply false — on both surfaces, which share
   `classifyUpdateViolations`.
-  - Reproduced while investigating breituai-platform's *"a mis-click freezes records"* report: write a record with
+  - Reproduced while investigating the canary operator's *"a mis-click freezes records"* report: write a record with
     `properties.status = "retired"`, remove `"retired"` from the enum, then `PATCH` only that record's `description` →
     **422** with `introduced: []` and `preExisting: [properties.status]`. The record is uneditable until the unrelated
     field is repaired in the same request.
@@ -3456,7 +3478,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 - **Three space read routes served a space's schema, purpose and usage notes to any authenticated token, regardless of
   its scope.** A token scoped to one space could read another's `meta`, its completeness report and any individual type
-  schema. Found while verifying a `404`/`403` asymmetry breituai-platform reported from a token-scoping proof run — the
+  schema. Found while verifying a `404`/`403` asymmetry the canary operator reported from a token-scoping proof run — the
   asymmetry was something else entirely, and this was underneath it.
   - `GET /api/spaces/:id/meta` · `GET /api/spaces/:id/completeness` ·
     `GET /api/spaces/:id/meta/typeSchemas/:knowledgeType/:typeName` were mounted behind `requireAuth`, which
@@ -3485,7 +3507,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     carries no permission information and nobody documents an asymmetry that is not there.
 
 ### Added
-- **`reindex` is an MCP tool, and the REST-only capability map is now EMPTY.** Last of the five breituai-platform
+- **`reindex` is an MCP tool, and the REST-only capability map is now EMPTY.** Last of the five the canary operator
   reported, and the one their workaround measured best: they reindexed 14 spaces plus 5 personal ones by curl in a
   shell loop, because the agent that planned their embedder migration could not run it. The surface that plans a
   migration was the surface that could not execute it.
@@ -3524,7 +3546,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Calls `planSpaceCreate` + `applySpaceCreate`, so every refusal is the route's: both proxy checks, `422` for a
     missing schema-library `$ref`, the `faceDescriptorDims` bounds, and the strict-posture seeding — including that a
     `proxyFor` space is left un-seeded, because it stores nothing of its own to validate.
-  - **`faceDescriptorDims` is on the tool deliberately.** It is the parameter breituai-platform was blocked on, and it
+  - **`faceDescriptorDims` is on the tool deliberately.** It is the parameter the canary operator was blocked on, and it
     is create-only by design: a populated gallery cannot be re-dimensioned. Leaving it off would have meant an agent
     could create a space but never one that works with a 512-float recogniser — the exact shape of their complaint.
   - **A taken id is reported as a `conflict`**, machine-readably, rather than as a generic failure. It is often a
@@ -3573,7 +3595,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Not audited, matching REST: `GET /api/tokens` is a read, and the acts worth a log entry — the mint, the edit,
     the revoke — are all audited already.
   - Three rows left in the capability map: `reindex`, `update_space_schema` and `create_space`.
-- **`retry_embedding` is an MCP tool.** First of the five REST-only capabilities breituai-platform reported, and
+- **`retry_embedding` is an MCP tool.** First of the five REST-only capabilities the canary operator reported, and
   the sharpest one: it is the documented recovery path for a failed file embedding, so the surface that could SEE
   the failure was the surface that could not act on it.
   - A wrapper over the same `retryJob` the REST route calls. Reimplementing the reset — status, attempts,
@@ -3586,7 +3608,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     retry however it arrived.
   - **It landed by DELETING its row from the capability map**, which is the lifecycle that map is built around:
     `help` now lists four REST-only capabilities instead of five, with no separate changelog needed to say so.
-- **`help` now reports which capabilities exist over REST and not over MCP, and why.** breituai-platform,
+- **`help` now reports which capabilities exist over REST and not over MCP, and why.** The canary operator,
   2026-08-11T1722Z, whose principle is the right one: *"The rights matrix decides what a token may do; the
   surface should not also decide whether it can."*
   - The sharp part of their report was not the five capabilities they hit. It was that they **could not tell
@@ -3714,7 +3736,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     its reasoning is what made the extraction necessary"*. That is always the argument, which is why this is a gate
     now and not a reminder.
 - **`deleteFields` could never remove a whole field from an entity or an edge — it answered 500.** Reported by
-  breituai-platform (2026-08-12T2140Z) against `deleteFields: ["tags"]`, which the integration guide documents.
+  the canary operator (2026-08-12T2140Z) against `deleteFields: ["tags"]`, which the integration guide documents.
   Confirmed by reading the write paths, because the cause is total rather than conditional.
   - The guard meant to suppress the `$set` was `!$unset['tags']`, and `$unset` entries are written as
     `$unset['tags'] = ''` — Mongo's own convention. **The empty string is falsy**, so the test was always true, the
@@ -3749,7 +3771,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     appeared anywhere in it, so `2 wrappers shipped (#842, #843)` — three fifths remaining — dropped out of the
     queue. The marker now has to be the entire cell.
 - **A token stored with `spaces: null` came out of the 2.6 rights migration reaching NOTHING.** Reported from a
-  live instance (aigents, 2026-08-12T1620Z) with the evidence attached: an unscoped persona token kept answering
+  live instance (the fleet integrator, 2026-08-12T1620Z) with the evidence attached: an unscoped persona token kept answering
   reads and was refused every write, so nothing alerted and it lost writes quietly for two days.
   - `spaces` was typed `string[] | undefined`, so the compiler agreed `null` was impossible. The migration then
     tested `=== undefined`, a stored `null` fell through to the loop that iterates the allowlist, and iterating
@@ -3863,7 +3885,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Behaviour-preserving by construction: the code moved verbatim, and the 11-assertion contract suite that landed
     against the unmoved route passes unchanged against the extracted one.
 - **The space update's refusal chain is now a function both surfaces can call, and the router lost 195 lines.**
-  Three of the five REST-only capabilities breituai-platform reported are not wrappers: `updateSpace()` exists, but
+  Three of the five REST-only capabilities the canary operator reported are not wrappers: `updateSpace()` exists, but
   `PATCH /api/spaces/:id` wrapped it in a chain of refusals, and a tool calling `updateSpace()` directly would skip
   every one. That is *two surfaces, one rule, one weaker* — the defect being reintroduced by the fix for it.
   - `spaces/meta-update.ts` owns the decisions: existence, the `If-Match` precondition, the strict parse, the
@@ -4479,7 +4501,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Internal: the rule for narrowing a proxy space to the members a token may see.** Nothing consults it yet — the
   guard change and the read-path narrowing must land together, and this is the rule on its own.
-  - Asked for by aigents with probes: today a proxy space cannot be granted to a non-admin token at all, because
+  - Asked for by the fleet integrator with probes: today a proxy space cannot be granted to a non-admin token at all, because
     the guard requires the token to reach **every** member. They proved it was not specific to one proxy by
     building their own over 15 spaces and getting the same 403.
   - **The result can only ever narrow.** `narrowsOnly()` asserts that independently, because the failure it guards

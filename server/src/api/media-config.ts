@@ -230,7 +230,7 @@ const MediaConfigPatchSchema = z.object({
  *       "path":["faceRecognition"],"message":"Unrecognized key: \"enabled\""}]}
  *
  * and nothing saves — not the field they changed, not anything else on the page, because the whole body is
- * refused at validation. breituai-platform hit it through our own Settings UI on 2026-08-20 and corroborated
+ * refused at validation. The canary operator hit it through our own Settings UI on 2026-08-20 and corroborated
  * it server-side: their pod had logged no config reload since provisioning.
  *
  * Our UI is fixed not to send `enabled`. **That fixes our client and not the defect**, because the shape is
@@ -447,7 +447,7 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
    *
    * The condition was `if (effBaseUrl)` — the endpoint resolved from patch-or-stored. So once a face endpoint
    * was stored without an acknowledgement, EVERY subsequent patch to this route was refused, whatever it
-   * touched. breituai-platform's owner met that trying to raise an image level to "Caption + face
+   * touched. The canary operator's owner met that trying to raise an image level to "Caption + face
    * recognition", which has nothing to do with face egress:
    *
    *     Settings -> Media Processing -> set images to "Caption + face recognition" -> Save -> nothing saves.
@@ -836,7 +836,7 @@ mediaConfigRouter.post('/test-connection', requireAdminMfa, async (req, res) => 
  *     assist:  if (repairReachable && effBaseUrl)     ...and the rung that uses it is reachable
  *
  * So once either endpoint was stored without an acknowledgement, **every subsequent patch to this route was
- * refused, whatever it touched.** breituai-platform's owner met the face one raising an image level, which has
+ * refused, whatever it touched.** The canary operator's owner met the face one raising an image level, which has
  * nothing to do with face egress, and described the resulting flow as *"not even i understand it"* — having
  * built the service on the other end of it.
  *

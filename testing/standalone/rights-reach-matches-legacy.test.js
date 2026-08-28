@@ -92,7 +92,7 @@ describe('rights-based reach agrees with the legacy allowlist', () => {
 /**
  * `spaces: null` — reported from a live instance, and the case every test here was blind to.
  *
- * aigents, 2026-08-12: a token stored with `spaces: null` (unscoped in the legacy model) came out of the
+ * The fleet integrator, 2026-08-12: a token stored with `spaces: null` (unscoped in the legacy model) came out of the
  * migration reaching NOTHING. It kept answering reads and refused every write, so nothing alerted and it lost
  * writes quietly for two days — a silent downgrade rather than a refusal.
  *

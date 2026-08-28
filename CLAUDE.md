@@ -6,7 +6,7 @@
 
 Not "eventually", not "the tool wraps the route later" — the same commit. This is the single most expensive lesson this
 codebase has: five capabilities shipped REST-only because a route was written and its tool "would follow", and
-breituai-platform had to report all five from the outside before anyone noticed. `mcp-rest-parity.test.js` gates the
+the canary operator had to report all five from the outside before anyone noticed. `mcp-rest-parity.test.js` gates the
 capability half and `REST_ONLY_CAPABILITIES` is EMPTY — a row added there is a regression, not a plan.
 
 **Parameters count too, and this is the half that hides.** A capability present on both surfaces still violates the rule
@@ -14,7 +14,7 @@ if one door accepts less:
 
 - `recall`'s `filter` accepts one operator object per key, ANDed. `query`'s accepts `$or`/`$and`/`$not`/`$regex`/
   `$elemMatch` nested to depth 8. Same store, same policy, two grammars — so a caller who wants meaning-ranking *and* a
-  real predicate has to make two calls. Reported by aigents 2026-08-13T1035Z §2, and it is a parity defect rather than a
+  real predicate has to make two calls. Reported by the fleet integrator 2026-08-13T1035Z §2, and it is a parity defect rather than a
   feature request.
 - A parameter added to one surface alone is the same defect arriving as an omission. When `/query` gained `skip`, `sort`,
   `dir` and `total`, the MCP tool gained them in the same commit.
@@ -42,8 +42,8 @@ agree:
    fail silently
 
 The failure this prevents is not "documentation drift". It is that **each of these is somebody's authoritative source**,
-and the one that is wrong is invisible to whoever reads it: aigents designed around a stale sentence in an MCP schema;
-breituai-platform could not find an env var that was documented on the wrong page; a user reading the Search page cannot
+and the one that is wrong is invisible to whoever reads it: The fleet integrator designed around a stale sentence in an MCP schema;
+the canary operator could not find an env var that was documented on the wrong page; a user reading the Search page cannot
 discover a `skip` that only the API has.
 
 **Check all five when you change any one.** If one genuinely does not apply, say which and why in the commit — not in your
@@ -54,7 +54,7 @@ head.
 An MCP tool's `inputSchema` description is what a caller reads *while constructing arguments*, and `help()` says so in as
 many words. A stale sentence there is invisible: nobody reports a capability they were told they did not have.
 
-aigents read *"filter applied after vector search"* on `recall`, believed it, and built a skill that deliberately avoided
+The fleet integrator read *"filter applied after vector search"* on `recall`, believed it, and built a skill that deliberately avoided
 filtered recall — because a post-filter behind `topK` could silently drop results. The filter is a **pre**-filter. Our own
 `help()` said so correctly at the same time. Two surfaces describing one behaviour, and the wrong one was the one being
 read.

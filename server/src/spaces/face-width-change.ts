@@ -8,7 +8,7 @@
  * re-declaring the width would leave every existing descriptor unmatchable."* Every word of that is true of a
  * gallery that HOLDS descriptors.
  *
- * breituai-platform, 2026-08-20T1012Z, asked the question nobody had: does it bind when there is nothing
+ * The canary operator, 2026-08-20T1012Z, asked the question nobody had: does it bind when there is nothing
  * stored to strand? They had fourteen spaces, three images between them — two of which are page renders our
  * own pipeline extracted from a scanned invoice — and not one face descriptor at any width. Their words:
  * *"we are asking whether the guard is 'no stored faces may be invalidated' or 'no, categorically'."*

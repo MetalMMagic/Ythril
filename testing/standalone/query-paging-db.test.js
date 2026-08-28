@@ -3,7 +3,7 @@
  *
  * ## The report
  *
- * aigents, 2026-08-12T1410Z: `skip` was accepted at 200 and silently ignored, and *"it cost us a fabricated number"* —
+ * The fleet integrator, 2026-08-12T1410Z: `skip` was accepted at 200 and silently ignored, and *"it cost us a fabricated number"* —
  * a paged sweep re-read page one every time and was counted as if it had advanced. A wrong number that looks right.
  *
  * ## What only a DB test can check here

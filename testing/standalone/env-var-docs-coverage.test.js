@@ -209,7 +209,7 @@ function collectDocumented(used) {
  *
  * `FACE_RECOGNITION_EXTERNAL_MODEL` was in `02-hosting.md`'s egress matrix and absent from `05c-face-recognition.md`.
  * This gate was green throughout, and it was right to be — it asked whether the variable was documented, and it was.
- * breituai-platform, reading the face-recognition page while configuring face recognition, could not find it, told us it
+ * The canary operator, reading the face-recognition page while configuring face recognition, could not find it, told us it
  * did not exist, and we agreed with them. A variable on a page nobody has reason to open is as good as absent.
  *
  * So the prefix decides the page. The map is small on purpose: it covers the families where a wrong page is a real

@@ -303,7 +303,7 @@ export async function recall(
   // spaces and every one of those calls would otherwise embed the identical string again — N spaces, N calls,
   // N times the cost, the concurrency footprint and the failure surface, for a byte-identical vector.
   //
-  // breituai-platform found this from the outside while a reindex saturated their shared embedder: every
+  // The canary operator found this from the outside while a reindex saturated their shared embedder: every
   // recall produced exactly five `POST /v1/embeddings`, all five 429'd, and the query died. They read the five
   // as one per knowledge type; it is one per SPACE, which is why the fix lives at the fan-out and not in the
   // per-type search. A 1-wide request fits where an N-wide burst does not.

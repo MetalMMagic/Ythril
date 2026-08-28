@@ -11,7 +11,7 @@
  * `schema-type-editor.component.ts` was extracted out of `space-schema-tab.component.ts` and left behind:
  *
  *  - `CHIP_STYLES` — the enum remove button rendered as an oversized browser control. Reported by
- *    breituai-platform, fixed, and a comment was added to the styles array saying why it mattered.
+ *    the canary operator, fixed, and a comment was added to the styles array saying why it mattered.
  *  - `PROP_TABLE_STYLES` — the SAME extraction, undetected for longer. The owner reported it on 2026-08-15
  *    with a screenshot: the Required pill rendered as a raw checkbox with its label wrapped underneath, and
  *    the property detail card lost its column grid and its padding, so every field ran the full width of the

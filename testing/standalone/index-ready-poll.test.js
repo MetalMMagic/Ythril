@@ -190,7 +190,7 @@ describe('search-index listing is never name-filtered', () => {
  *     Vector search index <space>_files_faceEmbedding: gave up after 600s
  *       — probe did not serve: ... :: caused by :: embedding is not indexed as vector
  *
- * **The probe could not succeed, so its answer carried no information.** breituai-platform read those lines
+ * **The probe could not succeed, so its answer carried no information.** The canary operator read those lines
  * off a live pod on 2026-08-20, concluded no face index had ever been built, and stopped a configuration
  * change on it. The index may have been READY the whole time.
  *

@@ -16,7 +16,7 @@
  *
  * **`help` had it too, and survived that fix because a COMMENT claimed the problem was unique.** Beside
  * `query`'s repair someone wrote *"It is also the only tool with that shape — every other structuredContent in
- * this layer carries its own payload."* True of the eight it described; false of the ninth. breituai-platform
+ * this layer carries its own payload."* True of the eight it described; false of the ninth. The canary operator
  * then reported the guide as unreachable, filed it as `help()` returning no section bodies (it never did —
  * 76,754 characters of them, measured), and two further items were raised downstream because the discovery
  * surface read as blind.

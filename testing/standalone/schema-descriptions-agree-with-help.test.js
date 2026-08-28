@@ -3,7 +3,7 @@
  *
  * ## What this is for
  *
- * aigents, 2026-08-13T1035Z §1: `recall`'s filter description said *"applied after vector search"*. It is not a
+ * The fleet integrator, 2026-08-13T1035Z §1: `recall`'s filter description said *"applied after vector search"*. It is not a
  * post-filter. They read that sentence, believed it, and **built a skill that deliberately avoided filtered recall** — on
  * the sound reasoning that a record which does not rank inside `topK` would never reach a post-filter, so an inbox built
  * on recall could silently miss a message.
@@ -60,7 +60,7 @@ describe('no tool schema repeats a claim we have already been corrected on', () 
     {
       phrase: 'applied after vector search',
       tool: 'recall',
-      why: 'aigents 2026-08-13T1035Z: the filter is NOT a post-filter. `topK` is filled from records that satisfy the '
+      why: 'the fleet integrator 2026-08-13T1035Z: the filter is NOT a post-filter. `topK` is filled from records that satisfy the '
         + 'filter — either via a native index pre-filter or by scoring the whole space and filtering after — so nothing '
         + 'is dropped by `topK`. They avoided filtered recall entirely on the strength of this sentence.',
     },

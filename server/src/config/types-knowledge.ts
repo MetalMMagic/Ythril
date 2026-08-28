@@ -140,7 +140,7 @@ export type KnowledgeType = 'entity' | 'memory' | 'edge' | 'chrono';
  * A recorded disagreement between a record's own timestamp and the server's write time.
  *
  * Present on a record ONLY when the disagreement exceeded the space's threshold, which is what makes
- * `{ stampSkew: { $exists: true } }` the cheap integrity query breituai-platform asked for rather than a report that
+ * `{ stampSkew: { $exists: true } }` the cheap integrity query the canary operator asked for rather than a report that
  * matches everything. See `brain/stamp-skew.ts` for the eight-hour incident behind it.
  */
 export interface StampSkew {
@@ -208,7 +208,7 @@ export interface SpaceMeta {
    * Stamp-integrity check: compare a record's OWN timestamp property against the server's `createdAt` on write, and
    * warn when they disagree beyond `warnMinutes`.
    *
-   * breituai-platform corrected three board posts whose `postedAt` was eight hours early — not clock drift, but a
+   * The canary operator corrected three board posts whose `postedAt` was eight hours early — not clock drift, but a
    * measured stamp followed by three EXTRAPOLATED ones. Their sentence for why nothing caught it: *"an estimated
    * timestamp looks exactly like a measured one once it is written down."* The comparison is available to the store and
    * not to the author, which is what makes it ours.

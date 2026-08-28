@@ -103,7 +103,7 @@ export const helpTool: ToolHandler = {
       text = `${header}\n\n${renderHelp(sections)}`;
     }
 
-    // The gap, machine-readable, beside the prose. breituai-platform asked for a capability map because their
+    // The gap, machine-readable, beside the prose. The canary operator asked for a capability map because their
     // agents BRANCH on it, and because a hole they can read is an afternoon they do not spend discovering it.
     //
     // `sections` is always present so a caller can discover what to search for without a second call, and `matched`
@@ -116,7 +116,7 @@ export const helpTool: ToolHandler = {
     // surfacing `structuredContent` in preference to `content` received six `{id, title}` pairs, `matched`, and no
     // guide at all.
     //
-    // breituai-platform reported exactly that on 2026-08-17 as *"the section index plus `matched` and no bodies,
+    // The canary operator reported exactly that on 2026-08-17 as *"the section index plus `matched` and no bodies,
     // in both modes"* — and filed it as `help()` returning no section bodies, which it never did: measured
     // 2026-08-19, `content[0].text` is 76,754 characters with every body, and `structuredContent` was 599. Their
     // own report identifies where they read, because **`matched` exists nowhere in the prose.**

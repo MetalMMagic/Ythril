@@ -416,7 +416,7 @@ export function deriveLiveIndexState(collections: CollectionIndexStatus[], listi
    * OPTIONAL INDEXES DO NOT DECIDE THIS, and that is the third view of one failure.
    *
    * `missing` drives a red pill per space, sets the whole Tools tab to `down`, and — because `stored` is
-   * `ready` — trips `isDrifted`, which this file calls "the silent-loss signature". breituai-platform ran
+   * `ready` — trips `isDrifted`, which this file calls "the silent-loss signature". The canary operator ran
    * `FACE_RECOGNITION_ENABLED=true` fleet-wide with nothing able to write a face vector, so all three fired on
    * fourteen working spaces at once, permanently.
    *

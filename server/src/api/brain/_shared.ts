@@ -209,7 +209,7 @@ export function preconditionFailedBody(record: string, currentSeq?: number): Rec
  * A caller who learned `includeDiagnostics` on `recall` must not have to learn a second name for the same
  * intent, so the NAME is shared deliberately. What it restores differs by one field, because `seq` is the
  * `If-Match` value on a list route and withholding it would take away conditional writes. That difference is
- * a decision breituai-platform asked for by name, not drift.
+ * a decision the canary operator asked for by name, not drift.
  *
  * ## Why absence and a bad value behave the same, unlike the body flags on recall
  *

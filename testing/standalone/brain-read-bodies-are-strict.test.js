@@ -3,7 +3,7 @@
  *
  * ## Why a gate and not four tests
  *
- * aigents reported `skip` being accepted at 200 and silently ignored on `POST /query` — *"it cost us a fabricated
+ * The fleet integrator reported `skip` being accepted at 200 and silently ignored on `POST /query` — *"it cost us a fabricated
  * number"*. The reported key is not the defect. The defect is a body that accepts anything and honours some of it, and
  * `/query` was simply the route they happened to be paging. `traverse`, `recall` and `find-similar` had it too.
  *
@@ -117,7 +117,7 @@ describe('brain read routes refuse unknown body keys', () => {
     }
     assert.deepEqual(offenders, [],
       'these POST routes read a body without refusing unknown keys, so a mistyped parameter is dropped and the '
-      + 'request still answers 200 — the defect aigents reported on /query, which cost them a fabricated number');
+      + 'request still answers 200 — the defect the fleet integrator reported on /query, which cost them a fabricated number');
   });
 
   it('a refusing route actually returns 400 with the offending keys, not just a computed value', () => {

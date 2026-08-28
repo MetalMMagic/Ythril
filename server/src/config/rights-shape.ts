@@ -72,7 +72,7 @@ export type AreaRungs = Record<SpaceArea, Rung>;
  *
  * **But it had no NAME on any surface.** `isSpaceAdminFor` appears in three server files and zero client
  * files, so the matrix showed four independent rungs and nothing said that all four at `admin` IS being that
- * space's administrator. breituai-platform asked for it twice — 2026-08-17T1910Z and a 1916Z narrowing — and
+ * space's administrator. The canary operator asked for it twice — 2026-08-17T1910Z and a 1916Z narrowing — and
  * their words were about the surface, not the capability: *"there is still no SPACE ADMIN rung in the rights
  * matrix"*. An operator could not find it, grant it in one action, or verify they held it.
  *
@@ -102,7 +102,7 @@ export const DERIVED_RUNGS = [
     grants: 'That space’s own tokens (listing, minting and editing) and that space’s own settings, schema '
       + 'and index rebuilds.',
     /**
-     * The two containment rules, stated because breituai-platform asked for them to be part of the
+     * The two containment rules, stated because the canary operator asked for them to be part of the
      * DEFINITION rather than inferred. Both are enforced today and red-teamed.
      */
     excludes: 'Nothing instance-shaped: it cannot grant `instanceAdmin` or `createSpaces`, cannot set a floor, '

@@ -621,7 +621,7 @@ tokensRouter.post('/:id/regenerate', authRateLimit, requireAdminOrSpaceAdminMfa,
  *
  * ## Two things this route was missing, both found while investigating a revoke failure
  *
- * breituai-platform reported a failed revoke on 2026-08-20 and were careful to say they had not read the
+ * The canary operator reported a failed revoke on 2026-08-20 and were careful to say they had not read the
  * status code and would not guess it. Neither defect below is provably their cause — see the board reply — but
  * both are real and one is a privilege gap.
  *

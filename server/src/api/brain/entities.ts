@@ -125,7 +125,7 @@ entitiesRouter.get('/spaces/:spaceId/entities', globalRateLimit, requireSpaceAut
     return;
   }
   const limit = parseLimit(req.query['limit'], 50, 500);
-  // A pagination name we do not have is a 400 naming the one we do — aigents paged with `offset`, which was accepted
+  // A pagination name we do not have is a 400 naming the one we do — the fleet integrator paged with `offset`, which was accepted
   // and ignored, and summed 67 identical pages into a count 67x the truth.
   const badParam = unsupportedPageParam(req.query as Record<string, unknown>);
   if (badParam) { res.status(400).json(badParam); return; }

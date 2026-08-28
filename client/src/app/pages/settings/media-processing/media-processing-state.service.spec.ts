@@ -880,7 +880,7 @@ describe('MediaProcessingStateService — external face model', () => {
  *
  * ## The report
  *
- * breituai-platform, 2026-08-20. Their owner's sequence, verbatim:
+ * The canary operator, 2026-08-20. Their owner's sequence, verbatim:
  *
  *     Settings -> Media Processing -> set images to "Caption + face recognition" -> Save
  *     -> nothing saves.

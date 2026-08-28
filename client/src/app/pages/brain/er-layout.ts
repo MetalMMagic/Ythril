@@ -119,7 +119,7 @@ const naturalHeight = (t: ErEntityType): number => HEAD_H + Math.max(2, t.proper
  *
  * ## Why, in the words of the person looking at it
  *
- * breituai-platform's owner, at a browser on a live instance, 2026-08-20: *"a salad of edges"*, *"non-uniform
+ * The canary operator's owner, at a browser on a live instance, 2026-08-20: *"a salad of edges"*, *"non-uniform
  * height entities"*, and the whole thing *"salad"*. Their post is a specification rather than a defect list,
  * and this is its first rule: not a height per entity, but three buckets chosen once for the whole diagram,
  * with a box taking its bucket's height and padding.
@@ -259,7 +259,7 @@ export function layoutErModel(
    *
    * ## Why this parameter exists, and why it is optional
    *
-   * breituai-platform's owner, 2026-08-20: *"use the whole row for the unlinked listings"* — the shelf wraps
+   * The canary operator's owner, 2026-08-20: *"use the whole row for the unlinked listings"* — the shelf wraps
    * after four entries however wide the viewport is. His diagnosis was one step off in a way that matters:
    * the shelf ALREADY flows to a width rather than to a fixed column count, but that width is the DIAGRAM's
    * own (three columns plus their gaps), so widening the window cannot help. It is not a four-column grid; it
@@ -408,7 +408,7 @@ export function layoutErModel(
   /**
    * NEVER TWO HEIGHTS IN ONE ROW — the two columns advance in LOCKSTEP.
    *
-   * breituai-platform's second rule, and the one they said matters most: *"Within a row, every box takes the
+   * The canary operator's second rule, and the one they said matters most: *"Within a row, every box takes the
    * height of the tallest bucket present in that row. A row then has a single top edge and a single bottom
    * edge. This is the rule that turns a ragged field into bands, and it is worth stating separately because
    * rule 1 alone still permits a short box beside a tall one."*

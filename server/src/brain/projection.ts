@@ -4,7 +4,7 @@
  * ## Why this is a leaf module
  *
  * `query` has had a `projection` since it shipped, and it is a MONGO projection — handed to the driver,
- * applied in the database. `recall` had none, and breituai-platform measured what that costs
+ * applied in the database. `recall` had none, and the canary operator measured what that costs
  * (2026-08-16T1358Z): a board sweep asking for fifteen names, a `from`, a `kind` and a `status` returned
  * **100,547 characters** where the data they wanted was about 1.5 KB. Their client refused the response and
  * spilled it to disk.

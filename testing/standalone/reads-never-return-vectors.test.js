@@ -8,7 +8,7 @@
  * and five fetch sites had no projection at all — `listEntities`, `findEntitiesByName`, `findEntitiesByIds`,
  * `listEdges`, `listChrono`, plus three single-record getters and `findEdgeByTriplet`.
  *
- * aigents measured the consequence: **11.19 MB from `GET /entities?limit=500`** where `POST /query` answered
+ * The fleet integrator measured the consequence: **11.19 MB from `GET /entities?limit=500`** where `POST /query` answered
  * the same 100 records in 0.145 MB. It crashed their n8n with an out-of-memory failure and took their
  * database down with it for a stretch, and they found it by running out of memory rather than by reading a
  * response — because we publish, in three places, that the vector can never come back.
@@ -187,7 +187,7 @@ describe('the vector never leaves the database', () => {
     // this list is not a reuse of RECALL_RECORD_DIAGNOSTICS even though it looks like a subset of it.
     assert.deepEqual([...LIST_WITHHELD_FIELDS], ['matchedText', 'embeddingModel']);
     assert.ok(!LIST_WITHHELD_FIELDS.includes('seq'),
-      'seq must stay — breituai-platform asked for it by name, and it is the conditional-write token');
+      'seq must stay — the canary operator asked for it by name, and it is the conditional-write token');
   });
 
   it('all four list routes apply the strip, and none of them forgot the flag', () => {

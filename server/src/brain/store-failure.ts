@@ -7,7 +7,7 @@
  * `res.status(400).json({ error: msg })` for EVERY throw. So a malformed filter and a failed aggregation were
  * indistinguishable to a caller, by construction rather than by accident.
  *
- * **breituai-platform, 2026-08-17T1912Z**, from the operator's side: after any restart, mongot re-initialises
+ * **the canary operator, 2026-08-17T1912Z**, from the operator's side: after any restart, mongot re-initialises
  * hundreds of indexes, and for HOURS a recall can fail with
  *
  *     Executor error during aggregate command on namespace: ythril.{space}_entities :: caused by ::
@@ -15,7 +15,7 @@
  * — nothing after `caused by ::`. The operator gets the location and not the reason. Three occurrences in a
  * day, two retried with a byte-identical call seconds later and both succeeded.
  *
- * **aigents, 2026-08-18T2145Z**, from the caller's side, and this is the half that priced it: the same error,
+ * **the fleet integrator, 2026-08-18T2145Z**, from the caller's side, and this is the half that priced it: the same error,
  * **6 of 36 calls (17%)**, rate-sensitive. Every recall node in their fleet carries
  * `onError: continueRegularOutput`, because a persona should not die when a context read fails. **A 4xx is not
  * retried and not reported**, so the persona simply ran with no context and produced something plausible and
@@ -44,7 +44,7 @@
  *
  * ## What this does NOT do, on purpose
  *
- * It does not retry. breituai-platform's third option was to retry internally with backoff as the startup
+ * It does not retry. The canary operator's third option was to retry internally with backoff as the startup
  * probe does, and on 2026-08-19 the cause turned out to be a **dead mongot process** under a degraded array.
  * A retry loop would have turned that into slow successes and hidden a process death from the only two
  * parties who could see it. Say what happened, say it can be retried, and let the caller decide.
@@ -137,7 +137,7 @@ const text = (v: unknown): string | undefined => (typeof v === 'string' && v.tri
  * When MongoDB reports an executor error with an empty cause and the driver attached nothing either, the
  * message ends mid-sentence — and a caller reads that as a truncated complaint about their request. So the
  * fragment is closed with the fact itself: **the store reported no cause.** An operator then knows the gap is
- * the store's and not our logging, which is exactly the question breituai-platform opened with and could not
+ * the store's and not our logging, which is exactly the question the canary operator opened with and could not
  * answer from outside.
  */
 export function classifyReadFailure(err: unknown): ReadFailure {

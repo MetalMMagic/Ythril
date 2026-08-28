@@ -364,7 +364,7 @@ async function runSpaceMetaUpdate(
  *
  * ## The report
  *
- * breituai-platform listed it among five capabilities a token could HOLD and not exercise, and gave the case that
+ * The canary operator listed it among five capabilities a token could HOLD and not exercise, and gave the case that
  * makes it more than ergonomics: they designed an 11-entity / 7-memory / 13-edge / 10-chrono research model with an
  * agent, and the agent could not apply it. `get_space_meta` reads the schema; nothing wrote it. A sixth instance
  * arrived on 2026-08-12 with the sharper consequence — under `validationMode: 'strict'` a stale enum makes every
@@ -458,7 +458,7 @@ export const update_space_schemaTool: ToolHandler = {
  *
  * ## `faceDescriptorDims` is on the tool deliberately
  *
- * It is the parameter breituai-platform was blocked on for a week. Leaving it off the tool would mean an agent could
+ * It is the parameter the canary operator was blocked on for a week. Leaving it off the tool would mean an agent could
  * create a space but never one that works with a 512-float recogniser — the exact shape of their complaint.
  *
  * It used to be described here as **create-only by design**, on the grounds that a populated gallery cannot be
@@ -733,7 +733,7 @@ export const wipe_spaceTool: ToolHandler = {
  *
  * ## Why this is a tool
  *
- * breituai-platform, 2026-08-11T1722Z, third of five: *"The rights matrix decides what a token may do; the
+ * The canary operator, 2026-08-11T1722Z, third of five: *"The rights matrix decides what a token may do; the
  * surface should not also decide whether it can."* Their workaround was a Kubernetes CronJob that curls
  * `GET /api/tokens` and posts the result into a space as a chrono entry so an agent can read it — a scheduler
  * standing in for a tool call. That workaround also means the inventory an agent reads is as stale as the last

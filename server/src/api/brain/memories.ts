@@ -164,7 +164,7 @@ memoriesRouter.get('/spaces/:spaceId/memories', globalRateLimit, requireSpaceAut
     res.status(404).json({ error: `Space '${spaceId}' not found` });
     return;
   }
-  // A pagination name we do not have is a 400 naming the one we do. aigents paged this endpoint with `offset`, which was
+  // A pagination name we do not have is a 400 naming the one we do. The fleet integrator paged this endpoint with `offset`, which was
   // accepted and ignored, and summed 67 identical pages into a count 67x the truth.
   const badParam = unsupportedPageParam(req.query as Record<string, unknown>);
   if (badParam) { res.status(400).json(badParam); return; }
@@ -198,7 +198,7 @@ memoriesRouter.get('/spaces/:spaceId/memories', globalRateLimit, requireSpaceAut
   });
   if (!page.ok) { res.status(400).json({ error: page.error }); return; }
 
-  // `total` is the whole match, and it is the ONE thing aigents said they would take if we only did one: a caller
+  // `total` is the whole match, and it is the ONE thing the fleet integrator said they would take if we only did one: a caller
   // compares what it summed against what the server counted and stops. Without it, 67 identical pages summed to a
   // plausible number with nothing in any response contradicting it.
   let total = 0;

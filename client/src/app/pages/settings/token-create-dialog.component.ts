@@ -123,7 +123,7 @@ import type { Space, TokenRecord } from '../../core/api.types';
                  draftRights hardcoded instanceAdmin and createSpaces to false with no control, so a token
                  that should hold either had to be created and then EDITED — while the create API has always
                  accepted both (CreateTokenBody declares them). The edit dialog grew these controls in #908
-                 and nothing brought them here. Reported by breituai-platform 2026-08-17 §9 as the two forms
+                 and nothing brought them here. Reported by the canary operator 2026-08-17 §9 as the two forms
                  presenting different rights surfaces; it is one missing block, not a diverged surface.
 
                  OUTSIDE the spaces check above, deliberately. That branch renders nothing when the instance

@@ -17,7 +17,7 @@
  * of records with no error anywhere. Three flows in the fleet were doing exactly that.
  *
  * `help()` tells callers the tool schema IS the authoritative reference, and CLAUDE.md records what a stale
- * sentence there already cost: aigents read *"filter applied after vector search"*, believed it, and built a
+ * sentence there already cost: The fleet integrator read *"filter applied after vector search"*, believed it, and built a
  * skill that avoided filtered recall.
  *
  * ## What is asserted
@@ -93,7 +93,7 @@ describe('query says what it is FOR and what comes back', () => {
   });
 
   it('warns that a count with no rows means a pre-3.1 instance', () => {
-    // The defect breituai-platform reported and I reproduced: rows in `content` only, so a client preferring
+    // The defect the canary operator reported and I reproduced: rows in `content` only, so a client preferring
     // `structuredContent` saw the metadata and no results. Fixed in #911 — but an agent talking to an older
     // instance needs to recognise the shape rather than conclude the space is empty.
     assert.match(QUERY, /count with no rows is a BUG/i,
@@ -156,7 +156,7 @@ describe('the parameters carry their traps', () => {
 
   it('topK: it is filled from records that SATISFY the filter', () => {
     assert.match(RECALL, /SATISFY/,
-      'a filtered recall cannot silently miss a match — the opposite belief is what made aigents avoid filters');
+      'a filtered recall cannot silently miss a match — the opposite belief is what made the fleet integrator avoid filters');
   });
 
   it('minScore: it gates on the vector score only, before the reranker', () => {

@@ -4,8 +4,8 @@
  * ## What this pins, and why the unsafe direction is the one to test hardest
  *
  * `/query`, `/recall` and `/find-similar` each answered `400` for every throw. Two parties reported the same
- * consequence from opposite sides within thirty hours — breituai-platform as an unreadable operator message,
- * aigents as **6 of 36 recalls (17%)** silently producing uninformed output, because `onError:
+ * consequence from opposite sides within thirty hours — the canary operator as an unreadable operator message,
+ * the fleet integrator as **6 of 36 recalls (17%)** silently producing uninformed output, because `onError:
  * continueRegularOutput` plus a 4xx means "do not retry, the fault is yours".
  *
  * The fix's own risk runs the other way: calling a genuine client error retryable would have a caller retry a
@@ -30,7 +30,7 @@ describe('the reported condition, verbatim from both reports', () => {
    * matches on a message at all — neither failing instance is ours to probe for a code.
    */
   const REPORTED = 'Executor error during aggregate command on namespace: '
-    + 'ythril_aigents.orchestrator_memories :: caused by :: ';
+    + 'ythril_the fleet integrator.orchestrator_memories :: caused by :: ';
 
   it('is a 503, is retryable, and stops reading as a complaint about the request', () => {
     const f = classifyReadFailure(mongoErr('MongoServerError', { message: REPORTED }));
@@ -194,7 +194,7 @@ describe('both doors, and all three routes', () => {
   });
 
   it('does NOT retry internally — that hid a dead process from the only parties who could see it', () => {
-    // breituai-platform's third option was a transparent retry with backoff. On 2026-08-19 the cause turned
+    // the canary operator's third option was a transparent retry with backoff. On 2026-08-19 the cause turned
     // out to be a dead mongot under a degraded array; a retry loop would have turned that into slow successes.
     const src = stripComments(readFileSync('server/src/brain/store-failure.ts', 'utf8'));
     assert.doesNotMatch(src, /setTimeout|await new Promise|for \(let attempt/,

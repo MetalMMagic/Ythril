@@ -3,7 +3,7 @@
  *
  * ## Both surfaces from the first commit
  *
- * The five capabilities breituai-platform reported were all REST-only, each for the same reason: a route was written
+ * The five capabilities the canary operator reported were all REST-only, each for the same reason: a route was written
  * first and a tool was going to follow. It never did, five times. So this pair ships WITH `embedding-queue/records`
  * rather than after it, and `REST_ONLY_CAPABILITIES` never gains a sixth row.
  *

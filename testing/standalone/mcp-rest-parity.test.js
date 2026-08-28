@@ -3,7 +3,7 @@
  *
  * ## The report
  *
- * breituai-platform, 2026-08-11T1722Z: *"The rights matrix decides what a token may do; the surface should not
+ * The canary operator, 2026-08-11T1722Z: *"The rights matrix decides what a token may do; the surface should not
  * also decide whether it can."* They hit five REST-only capabilities in one day of ordinary work, none of them
  * from auditing the API — reindex, schema write, token listing, `retry_embedding`, space creation.
  *

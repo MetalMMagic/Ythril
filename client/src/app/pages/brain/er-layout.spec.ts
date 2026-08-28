@@ -464,7 +464,7 @@ describe('kind boxes', () => {
  *
  * ## Whose rules these are
  *
- * breituai-platform's owner, at a browser on a live 3.2.0 instance, 2026-08-20. His word for the diagram was
+ * The canary operator's owner, at a browser on a live 3.2.0 instance, 2026-08-20. His word for the diagram was
  * "salad", and two of his three complaints were about heights: *"non-uniform height entities"*, and boxes side
  * by side in a row having different heights so *"a row has no top line and no bottom line"*.
  *
@@ -577,7 +577,7 @@ describe('er-layout box heights are bucketed, and rows are bands', () => {
  *
  * ## The report, and the correction to it
  *
- * breituai-platform's owner, 2026-08-20: *"use the whole row for the unlinked listings"* — the shelf wraps
+ * The canary operator's owner, 2026-08-20: *"use the whole row for the unlinked listings"* — the shelf wraps
  * after four entries however wide the viewport is.
  *
  * His diagnosis was one step off in a way worth keeping, because "make it flow" was already done. The shelf

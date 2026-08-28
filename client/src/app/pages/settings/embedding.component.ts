@@ -11,7 +11,7 @@ import { SettingsCardComponent } from '../../shared/settings-card.component';
  * ## Why this page exists
  *
  * `embed.allowedOrigins` has worked since embedding shipped, and it lived only in `config.json` — so granting a
- * portal permission to frame a brain meant shell access to the server and a text editor. breituai-platform asked
+ * portal permission to frame a brain meant shell access to the server and a text editor. The canary operator asked
  * for this on 2026-08-19, and their case is the one that shape does not serve: **someone runs a brain, someone else
  * wants to use it inside a portal, and the person who must act has to be talked through editing JSON on a server.**
  * In practice that does not happen and the brain stays in a browser tab.

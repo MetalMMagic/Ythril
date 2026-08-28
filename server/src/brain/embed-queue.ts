@@ -447,7 +447,7 @@ export function isEmbedRecordType(v: unknown): v is BrainEmbedRecordType {
 /**
  * The queue state, READABLE from outside — the surface B-3 is about.
  *
- * breituai-platform, 2026-08-11T1200Z, read our 2.5.1 note and concluded that a brain record written while the embedder
+ * The canary operator, 2026-08-11T1200Z, read our 2.5.1 note and concluded that a brain record written while the embedder
  * was unreachable is silently dropped. Half wrong, and better than they feared: the record is stored and a persisted job
  * records the failure per record, with `attempts`, `lastError` and a terminal `failed` status. It is unfindable until the
  * vector lands, but it is not invisible.
@@ -472,7 +472,7 @@ export async function listEmbedJobs(
   const filter = opts.status ? { status: opts.status } : {};
   // `skip` before `limit`, pushed to MongoDB. Without it a caller could be told `counts.failed: 500` and never reach
   // failure #201 — an accurate total beside an unreachable tail, on the one surface whose justification is that its
-  // failures are actionable. Same asymmetry that cost aigents a fabricated number on `/query`.
+  // failures are actionable. Same asymmetry that cost the fleet integrator a fabricated number on `/query`.
   const askedSkip = Number(opts.skip);
   const skip = Number.isFinite(askedSkip) && askedSkip >= 1 ? Math.floor(askedSkip) : 0;
   return await jobs(spaceId)

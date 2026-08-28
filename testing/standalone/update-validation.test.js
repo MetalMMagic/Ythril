@@ -122,7 +122,7 @@ describe('update validation', () => {
     });
 
     it('blocks on what the patch INTRODUCED, never on what the record already had', () => {
-      // Owner ruling P-6 = B, 2026-08-15, on the report breituai-platform called "freezes records":
+      // Owner ruling P-6 = B, 2026-08-15, on the report the canary operator called "freezes records":
       //
       //   write an entity with properties.status = "retired"   (the enum allows it)  -> 201
       //   remove "retired" from the enum                                             -> 200

@@ -10,7 +10,7 @@
  * > violates the rule if one door accepts less.
  *
  * And it names this exact defect as the example. It was real. Measured on one instance, one space, the same
- * instant, with breituai-platform's own filter from 2026-08-17 §10:
+ * instant, with the canary operator's own filter from 2026-08-17 §10:
  *
  *     filter { type: 'message', 'properties.readBy': { $not: { $regex: 'ythril' } } }
  *
@@ -52,7 +52,7 @@ before(async () => {
     name: `parity-note-${RUN}`,
     type: 'message',
     description: 'A board note about retrieval, for the parity filter to match.',
-    properties: { readBy: 'breituai-platform', status: 'open' },
+    properties: { readBy: 'the canary operator', status: 'open' },
     tags: ['parity'],
     waitForEmbedding: true,
   });
@@ -97,7 +97,7 @@ async function viaMcp(filter) {
  */
 const CASES = [
   {
-    what: "breituai-platform's own filter — the reported case, verbatim",
+    what: "the canary operator's own filter — the reported case, verbatim",
     filter: { type: 'message', 'properties.readBy': { $not: { $regex: 'ythril' } } },
     expected: true,
   },
@@ -143,7 +143,7 @@ describe('recall filter: both doors accept and refuse the same things', () => {
     if (!seeded) return t.skip('seed write unavailable');
     // A filter that is accepted and matches nothing would satisfy every assertion above while proving the
     // grammar reaches no records. `$not` on a value that is present is the reported shape, and the seeded
-    // record's `readBy` is "breituai-platform" — so `$not /ythril/` must return it.
+    // record's `readBy` is "the canary operator" — so `$not /ythril/` must return it.
     const r = await post(INSTANCES.a, token, `/api/brain/spaces/${SPACE}/recall`, {
       query: 'board note about retrieval', includeFreshWrites: true, topK: 10,
       filter: { type: 'message', 'properties.readBy': { $not: { $regex: 'ythril' } } },

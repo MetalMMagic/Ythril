@@ -47,7 +47,7 @@ export interface LegacyToken {
    * This shape comes from `config.json`, so anything JSON can hold, it can hold — and a stored `spaces: null`
    * is exactly as real as an absent key. Typing it `string[] | undefined` let the compiler agree that `null`
    * was impossible, and the migration below then tested `=== undefined` and fell through on it. Reported from
-   * a live instance (aigents, 2026-08-12): an unscoped token stored as `null` lost every space it had.
+   * a live instance (the fleet integrator, 2026-08-12): an unscoped token stored as `null` lost every space it had.
    */
   spaces?: string[] | null;
   schemaLibrary?: boolean;

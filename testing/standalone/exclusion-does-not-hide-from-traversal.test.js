@@ -19,7 +19,7 @@
  * reader has to already know there are two before the word tells them anything.
  *
  * `help()` says the tool schema is the authoritative reference, and CLAUDE.md records what a stale sentence
- * there already cost: aigents read *"filter applied after vector search"*, believed it, and built a skill
+ * there already cost: The fleet integrator read *"filter applied after vector search"*, believed it, and built a skill
  * that avoided filtered recall. An ambiguous sentence is cheaper than a wrong one and not by much.
  *
  * ## What is gated

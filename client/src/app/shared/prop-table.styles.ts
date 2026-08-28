@@ -8,7 +8,7 @@
  * exact table:
  *
  *  - when `schema-type-editor` was extracted out of the schema tab it left `CHIP_STYLES` behind, and the enum
- *    remove button rendered as an oversized browser control (reported by breituai-platform);
+ *    remove button rendered as an oversized browser control (reported by the canary operator);
  *  - and it left THESE behind at the same time, which nobody noticed until the owner sent a screenshot on
  *    2026-08-15: the Required pill rendered as a raw checkbox with its label wrapped underneath, and the
  *    detail card lost its three-column grid AND its padding, so every field ran the full width of the dialog

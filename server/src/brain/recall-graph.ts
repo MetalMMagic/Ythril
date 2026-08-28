@@ -1,7 +1,7 @@
 /**
  * The graph-augmented recall SHAPE: traversal nested under the seed that reached it.
  *
- * aigents 2026-08-13T1035Z §3–§4 and 1100Z. The flat list this replaces appended every neighbour beside the
+ * The fleet integrator 2026-08-13T1035Z §3–§4 and 1100Z. The flat list this replaces appended every neighbour beside the
  * seeds with `score: null`, and three things followed from that:
  *
  * 1. **With more than one seed, nothing said WHICH seed reached a node.** It was recoverable from the old

@@ -470,7 +470,7 @@ Both `tag` and `entity` can be combined (AND logic). Results are sorted newest-f
 | `total` | Every record the filter matches, ignoring `limit` and `skip`. Summed across members on a proxy space |
 | `truncated` | `true` when this page is not the end of the match set — i.e. `skip + returned < total` |
 
-**Compare your running sum against `total` and stop.** That is what `total` is for. aigents paged this endpoint with
+**Compare your running sum against `total` and stop.** That is what `total` is for. The fleet integrator paged this endpoint with
 `offset`, which was not a parameter we had: it was accepted and ignored, every page was the same newest-300, and 67
 identical pages summed to 10,184 matching records in a space holding 300 with 152 matches. They were about to delete
 records on that number, and what caught it was a *different* endpoint disagreeing — not anything the paging response said.

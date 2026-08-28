@@ -3,7 +3,7 @@
  *
  * ## Why the record cap had to go, in one measurement
  *
- * breituai-platform, 2026-08-17T1904Z, designed on the owner's instruction rather than proposed. The one
+ * The canary operator, 2026-08-17T1904Z, designed on the owner's instruction rather than proposed. The one
  * real overflow dump in their board space is 209,339 bytes; at their measured ~4 KB per record that is ~51
  * records. So a caller received **3 records inline plus a 204 KB file** — roughly 52k tokens to read in one
  * piece, because `read_file` takes no offset or limit. Twenty-five whole records inline would have been
@@ -38,7 +38,7 @@
  * body lands in a buffer the caller allocated. So the same response is fine on one door and unusable on the
  * other, and a single default cannot be right for both.
  *
- * ## The measurement, and it is breituai-platform's own
+ * ## The measurement, and it is the canary operator's own
  *
  * 2026-08-20T0925Z, from the canary. A recall answered in-budget and fully specified:
  *
@@ -86,7 +86,7 @@ export const MAX_MAX_BYTES = 5_000_000;
  * graph-heavy responses — the calls this budget exists to make usable. Undershooting a budget costs one
  * page; overshooting costs a blown context, and those are not symmetric.
  *
- * Figures are breituai-platform's, established BPE ratios applied to a field inventory read off real
+ * Figures are the canary operator's, established BPE ratios applied to a field inventory read off real
  * responses rather than a measured tokenisation, and flagged as such by them.
  */
 export const DEFAULT_CHARS_PER_TOKEN = 3.5;
@@ -281,7 +281,7 @@ export async function budgetedEnvelope<T, S>(opts: {
    * WRITE THE REMAINDER TO THE SPACE? Default NO — clause 6b, and the reason is that it is a WRITE ON A READ
    * PATH.
    *
-   * Every truncated recall used to write a file whether anyone wanted it or not. On breituai-platform's
+   * Every truncated recall used to write a file whether anyone wanted it or not. On the canary operator's
    * instance those land in a store whose `storage_used_bytes` collector already takes ~22 s to walk, so a
    * read that overflows made an operator's metrics slower. And the common caller does not want the file at
    * all — it wants the next page, which `skip` now gives.

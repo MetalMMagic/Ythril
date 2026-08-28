@@ -3,7 +3,7 @@
  *
  * ## The defect
  *
- * breituai-platform, 2026-08-20, from a browser on 3.2.0 — and corroborated server-side by them: their pod had
+ * The canary operator, 2026-08-20, from a browser on 3.2.0 — and corroborated server-side by them: their pod had
  * logged no `config.json changed on disk` since provisioning, so every save attempt had persisted nothing.
  *
  *     {"error":"Invalid request body","details":[{"code":"unrecognized_keys","keys":["enabled"],

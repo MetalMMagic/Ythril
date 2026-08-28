@@ -3,7 +3,7 @@
  *
  * ## The report this exists for
  *
- * breituai-platform, 2026-08-09T0942Z: they corrected three of their own board posts whose `postedAt` was **eight hours**
+ * The canary operator, 2026-08-09T0942Z: they corrected three of their own board posts whose `postedAt` was **eight hours**
  * early. Not clock drift — their host's clock was right the whole time. They measured the clock once and then
  * **extrapolated** the next three stamps by estimating how long their own work had taken, and it had taken eight hours
  * longer than it felt.
@@ -47,7 +47,7 @@ export const DEFAULT_STAMP_SKEW_WARN_MINUTES = 40;
 /**
  * The property names checked when a space does not name its own.
  *
- * Both are breituai-platform's, because a convention that no caller uses is a check that never fires. `stampedAt` is the
+ * Both are the canary operator's, because a convention that no caller uses is a check that never fires. `stampedAt` is the
  * one their suggestion named; `postedAt` is the one that was actually wrong in all three corrected posts.
  */
 export const DEFAULT_STAMP_PROPERTIES: readonly string[] = ['stampedAt', 'postedAt'];

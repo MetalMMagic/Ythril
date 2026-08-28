@@ -63,7 +63,7 @@ describe('the space guard', () => {
     assert.match(body, /resolveMemberSpaces\(/, 'proxy members are no longer resolved');
 
     // This assertion used to demand the opposite: `missing.length > 0`, i.e. EVERY member must be reachable. That
-    // rule meant a proxy could not be granted to a scoped token at all, which is what aigents reported. It is now
+    // rule meant a proxy could not be granted to a scoped token at all, which is what the fleet integrator reported. It is now
     // deliberately "at least one", and the read paths serve only the members the caller reaches.
     //
     // The old comment here argued that ANY-member access "would unlock a proxy over spaces the token cannot see".

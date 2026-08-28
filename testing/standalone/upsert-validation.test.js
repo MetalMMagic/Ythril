@@ -120,7 +120,7 @@ describe('upsert validation', () => {
       assert.deepEqual(out.introduced, [], 'the caller touched `rack`, not `owner`');
       assert.match(out.message, /already non-compliant/);
       // Owner ruling P-6 = B, 2026-08-15. This asserted `blocked: true` — "the merged record is still what
-      // gets stored" — and that WAS the freeze breituai-platform reported: tightening a schema made every
+      // gets stored" — and that WAS the freeze the canary operator reported: tightening a schema made every
       // record that no longer fit uneditable until an unrelated field was repaired in the same request.
       // The violation is already stored, so refusing the patch does not improve the data; it only blocks
       // maintenance. Reported, not refused.

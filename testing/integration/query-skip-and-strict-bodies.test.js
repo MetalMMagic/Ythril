@@ -3,7 +3,7 @@
  *
  * ## The report
  *
- * aigents, 2026-08-12T1410Z: `skip` was accepted at 200 and silently ignored, and *"it cost us a fabricated number"* —
+ * The fleet integrator, 2026-08-12T1410Z: `skip` was accepted at 200 and silently ignored, and *"it cost us a fabricated number"* —
  * a paged sweep re-read page one every time and was counted as if it had advanced.
  *
  * Two defects, and they need different fixes. Honouring `skip` is a feature; **refusing a key the route cannot honour is
@@ -224,7 +224,7 @@ describe('MCP: query offers skip too, rather than it becoming REST-only', () => 
 
 describe('the match TOTAL and a caller-chosen order, on both surfaces', () => {
   it('REST reports total separately from the page count', async () => {
-    // The number aigents had to fabricate: `count` is the page, `total` is the match. Without the second one a sweep
+    // The number the fleet integrator had to fabricate: `count` is the page, `total` is the match. Without the second one a sweep
     // cannot tell a short last page from a truncated one except by making a request that returns nothing.
     const r = await query({ collection: 'memories', filter: {}, limit: 5 });
     assert.equal(r.status, 200, JSON.stringify(r.body));

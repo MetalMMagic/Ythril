@@ -410,12 +410,33 @@ export function angularTemplateOf(src, label = 'angularTemplateOf') {
  * `{{ … }}` interpolations and quoted attribute values, because a brace in either is not control flow — an
  * `[ngModel]="{a: 1}"` would otherwise push a level that never closes and put every later control inside a
  * phantom block.
+ *
+ * ## AND IT SKIPS `<!-- … -->` COMMENTS, which took a false failure to find
+ *
+ * Attribute quoting is lexed with a rule that suits code: a `'` opens a string and runs to the next `'`. Markup
+ * comments are PROSE, and prose is full of apostrophes — *"the card's own flag"*, *"the operator's decision"*.
+ * Each one opened a phantom string that swallowed the text up to the next apostrophe, braces included.
+ *
+ * That made the walk depend on the parity of every apostrophe earlier in the template. It was not merely fragile,
+ * it was fragile in the worst direction: editing a comment ANYWHERE above a control could silently change what
+ * the walk believed contained it. Measured on 2026-08-28 — replacing `[infra]="s.faceLocked('enabled')"` with a
+ * call taking no string argument removed two apostrophes, re-paired every apostrophe after it, and
+ * `infra-managed-locks-every-field` lost both `@if` guards around a control it had always seen guarded. It then
+ * reported that control as a defect. Nothing about the control had changed.
+ *
+ * Comments are stripped FIRST, before either quote or brace handling, because a comment is not code in any of the
+ * three languages that meet in this file.
  */
 export function enclosingMarkupBlocksMatching(text, at, opener) {
   const open = [];
   let i = 0;
   while (i < at) {
     const c = text[i];
+    if (c === '<' && text.startsWith('<!--', i)) { // PROSE. Not code in any language — skip it whole.
+      const end = text.indexOf('-->', i + 4);
+      i = end === -1 ? at : end + 3;
+      continue;
+    }
     if (c === '"' || c === "'") {                  // an attribute value: braces in it are data, not structure
       const quote = c;
       i++;

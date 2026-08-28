@@ -1794,6 +1794,8 @@
   "mediaProcessing.face.personTypesEmpty": "No entity types in your Schema Library yet — define some there to select them here.",
   "spaces.schema.propertySchemasHint": "— the properties this type declares; how strictly they are enforced follows the validation setting above",
   "mediaProcessing.face.gatedByPipeline": "Face recognition follows the Images pipeline: raise it to \"Caption + face recognition\" to detect and embed faces. Requires the local model files to be present.",
+  "mediaProcessing.face.enabledPinned": "Your infrastructure has pinned whether face recognition may run at all (FACE_RECOGNITION_ENABLED). The endpoint below, and your acknowledgement of it, are still yours to set — they are a different decision.",
+  "mediaProcessing.face.awaitingAck": "This endpoint is saved but NOT in use: egress to {{host}} has not been acknowledged, so faces are handled by the built-in model instead. Save this card, or raise the Images pipeline to face recognition, to be asked.",
   "mediaProcessing.assist.gatedByPipeline": "Used for the document repair pass. Raise Document extraction to \"Repair\" (or Auto) to route repairs through it; you will be asked to acknowledge the egress.",
   "schemaLib.field.schema": "Schema (JSON)",
   "schemaLib.field.schemaHint": "The property definitions for this type, as a JSON object. Invalid JSON is rejected on save.",

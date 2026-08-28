@@ -28,19 +28,20 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   balancedFrom,
-  statementFrom,
-  enclosingBlockFrom,
-  openTagAt,
-  markdownSectionFrom,
-  yamlItemAt,
   bodyOf,
-  statementUpTo,
-  statementAround,
-  enclosingBlockAround,
-  enclosingBlocksMatching,
-  lineBefore,
   docCommentBefore,
+  enclosingBlockAround,
+  enclosingBlockFrom,
+  enclosingBlocksMatching,
+  enclosingMarkupBlocksMatching,
+  lineBefore,
   markdownSectionAround,
+  markdownSectionFrom,
+  openTagAt,
+  statementAround,
+  statementFrom,
+  statementUpTo,
+  yamlItemAt,
 } from './_structural-window.mjs';
 
 describe('balancedFrom — the bound is the matching bracket', () => {
@@ -432,5 +433,103 @@ describe('bodyOf still behaves, since the new code shares its module', () => {
     const got = bodyOf(src, 'a');
     assert.ok(got.includes('return 1'));
     assert.ok(!got.includes('return 2'));
+  });
+});
+
+/**
+ * enclosingMarkupBlocksMatching — and the apostrophe in a comment that shifted every quote after it.
+ *
+ * The walk lexes attribute values with a code rule: `'` opens a string and runs to the next `'`. Markup comments
+ * are PROSE, and prose is full of apostrophes. Each one opened a phantom string that swallowed everything to the
+ * next apostrophe, braces included — so the walk depended on the PARITY of every apostrophe earlier in the
+ * template.
+ *
+ * Fragile in the worst direction: editing a comment anywhere above a control could silently change what the walk
+ * believed contained it. Measured 2026-08-28 — a change that removed two apostrophes from an attribute re-paired
+ * every apostrophe after it, and `infra-managed-locks-every-field` lost both `@if` guards around a control it had
+ * always seen guarded, then reported that control as a defect. Nothing about the control had changed.
+ */
+describe('enclosingMarkupBlocksMatching — prose in a comment is not a string', () => {
+  const withComment = (comment) => [
+    '@if (!(s.locked() || s.managed)) {',
+    `  <!-- ${comment} -->`,
+    '  <select [ngModel]="x" id="target"></select>',
+    '}',
+  ].join('\n');
+
+  /** Shared, so the cases below cannot drift on the opener they are asking about. */
+  const OPENER = /@if\s*\(/;
+  const guardsAt = (tpl) => enclosingMarkupBlocksMatching(tpl, tpl.indexOf('id="target"'), OPENER);
+
+  it('finds the guard when the comment has NO apostrophe', () => {
+    // The baseline. If this ever fails the walk is broken for a reason that has nothing to do with quoting.
+    assert.equal(guardsAt(withComment('a plain comment')).length, 1);
+  });
+
+  it('and still finds it with ONE apostrophe', () => {
+    assert.equal(guardsAt(withComment('the card\'s own flag')).length, 1,
+      'an unpaired apostrophe in prose must not consume the markup after it');
+  });
+
+  it('TWO apostrophes STRADDLING A BRACE — the shape that actually reproduces it', () => {
+    /*
+     * My first fixtures did NOT reproduce the failure, and mutation testing said so: removing the comment skip
+     * left them green. An unpaired apostrophe swallows text to the end of the walk, and if that text holds no
+     * braces the depth is unchanged — so the bug never showed.
+     *
+     * What breaks the walk is a phantom string that eats an ODD number of braces. Two apostrophes in two
+     * comments with exactly one brace between them does it: the pair spans that brace, so the level is never
+     * pushed and a control inside it reports one guard fewer than encloses it.
+     */
+    const tpl = [
+      '@if (s.outer()) {',
+      '  <!-- the card\'s flag -->',
+      '  @if (s.inner()) {',
+      '  <!-- the operator\'s note -->',
+      '    <select [ngModel]="x" id="target"></select>',
+      '  }',
+      '}',
+    ].join('\n');
+    const guards = enclosingMarkupBlocksMatching(tpl, tpl.indexOf('id="target"'), OPENER);
+    assert.equal(guards.length, 2, 'both blocks are open at the target');
+    assert.match(guards[0], /s\.outer\(\)/, 'outermost first');
+    assert.match(guards[1], /s\.inner\(\)/);
+  });
+
+  it('and the same shape must not LOSE the only guard there is', () => {
+    // The consumer gate's failure, reduced: the swallowed brace is the OPENING of the block the control sits
+    // in, so the walk reports zero guards for a control that is plainly guarded — and the gate then calls it
+    // a defect.
+    const tpl = [
+      '  <!-- the card\'s flag -->',
+      '@if (s.outer()) {',
+      '  <!-- the operator\'s note -->',
+      '  <select [ngModel]="x" id="target"></select>',
+      '}',
+    ].join('\n');
+    const guards = enclosingMarkupBlocksMatching(tpl, tpl.indexOf('id="target"'), OPENER);
+    assert.equal(guards.length, 1, 'the guard opens between the two apostrophes and must still be seen');
+  });
+
+  it('a brace inside the comment is not structure either', () => {
+    // The stronger claim: a comment is skipped WHOLE, so even a stray brace in prose cannot push a level.
+    assert.equal(guardsAt(withComment('see the {a: 1} shape and the operator\'s note')).length, 1);
+  });
+
+  it('an UNCLOSED comment does not hang or swallow the guard silently', () => {
+    // Malformed input must degrade, not loop. The walk stops at `at` when it finds no terminator.
+    const tpl = '@if (s.x()) {\n  <!-- never closed\n  <select [ngModel]="x" id="target"></select>\n}';
+    assert.doesNotThrow(() => guardsAt(tpl));
+  });
+
+  it('a real attribute value is STILL treated as a string', () => {
+    // The behaviour the comment skip must not have broken: a brace in an attribute is data, and counting it
+    // would push a level that never closes and put every later control inside a phantom block.
+    const tpl = [
+      '@if (s.guard()) {',
+      '  <input [ngModel]="{a: 1}" id="target" />',
+      '}',
+    ].join('\n');
+    assert.equal(guardsAt(tpl).length, 1, 'a brace in an attribute value must not push a level');
   });
 });

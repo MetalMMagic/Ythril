@@ -1794,6 +1794,8 @@
   "mediaProcessing.face.personTypesEmpty": "Noch keine Entitätstypen in Ihrer Schema-Bibliothek — legen Sie dort welche an, um sie hier auszuwählen.",
   "spaces.schema.propertySchemasHint": "— die Eigenschaften, die dieser Typ deklariert; wie streng sie durchgesetzt werden, richtet sich nach der Validierungseinstellung oben",
   "mediaProcessing.face.gatedByPipeline": "Die Gesichtserkennung folgt der Bilder-Pipeline: Stelle sie auf \"Beschreibung + Gesichtserkennung\", um Gesichter zu erkennen und einzubetten. Setzt voraus, dass die lokalen Modelldateien vorhanden sind.",
+  "mediaProcessing.face.enabledPinned": "Ihre Infrastruktur legt fest, ob Gesichtserkennung überhaupt laufen darf (FACE_RECOGNITION_ENABLED). Der Endpunkt unten und Ihre Bestätigung dafür bleiben Ihre Entscheidung — das ist eine andere Frage.",
+  "mediaProcessing.face.awaitingAck": "Dieser Endpunkt ist gespeichert, wird aber NICHT verwendet: die Übertragung an {{host}} ist nicht bestätigt, daher übernimmt das eingebaute Modell. Speichern Sie diese Karte oder heben Sie die Bilder-Pipeline auf Gesichtserkennung, um gefragt zu werden.",
   "mediaProcessing.assist.gatedByPipeline": "Wird für den Dokumenten-Reparaturlauf verwendet. Stelle die Dokumentenextraktion auf \"Reparatur\" (oder Auto), um Reparaturen darüber zu leiten; die Datenübermittlung muss dabei bestätigt werden.",
   "schemaLib.field.schema": "Schema (JSON)",
   "schemaLib.field.schemaHint": "Die Eigenschaftsdefinitionen für diesen Typ als JSON-Objekt. Ungültiges JSON wird beim Speichern abgelehnt.",

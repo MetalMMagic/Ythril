@@ -39,6 +39,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   already is"* — and it was right: an audit row is not configuration, and it was in the config types only
   because that file was where types went. Moving it took **34 lines out** of a frozen file rather than adding
   one to it, against a single importer and a single gate to repoint.
+### Fixed
+
+- **An instance joining a network left no audit entry, and neither did the admin who invited it.**
+
+  `POST /api/invite/finalize` calls `saveConfig` — it is the moment another instance BECOMES A MEMBER of a
+  network on this one, or is held for a join vote. `POST /api/invite/generate` is an instance admin producing the
+  material that makes that possible. Both were exempt from auditing, under one entry covering the whole
+  `/api/invite` prefix whose reason read *"network invite handshake — peer-facing"*.
+
+  **That reason is true about who CALLS them and irrelevant to what they CHANGE** — and the carve-out that says
+  so was already in the same file: `/api/notify/trigger` is audited despite being peer-triggered, because a sync
+  cycle writes peer records locally. The same argument, not applied one entry along. They are
+  `network.invite.generate` and `network.member.join` now, and the exemption is narrowed to
+  `/api/invite/apply`, which registers an in-memory session and writes nothing.
+
+- **Two audit exemptions whose stated reason was false or stale.** Found by reading the list line by line rather
+  than trusting it, which is how the invite hole surfaced.
+
+  `/api/oidc` read *"covered by auth events"* — the identical wording already disproved for `/api/mfa`, where the
+  map holds exactly one auth event and so covered nothing. The exemption was right for a different reason: it is
+  a GET of the IdP's discovery data that mutates nothing, and OIDC is bearer validation rather than a login
+  route. **A false reason on a correct decision is worse than it sounds** — it is what the next person reads
+  before exempting something real on the same basis, which is exactly how enabling and disabling MFA came to be
+  silent.
+
+  `/api/theme` is removed: it exposes one GET and no mutating verb, so the entry never matched the sweep and
+  could only mislead a reader into thinking a theme WRITE existed and was exempt. Same stale-exemption shape as
+  `/api/spaces/:id/token-access`, which named a deleted route.
 
 ### Changed
 

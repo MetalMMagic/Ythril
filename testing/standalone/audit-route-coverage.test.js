@@ -57,10 +57,32 @@ const EXEMPT = new Map([
   // exactly one auth event (`auth.failed`), so enabling and disabling the second factor were both silent.
   // They are audited now (`mfa.enable` / `mfa.disable`); only the read-only code check stays exempt.
   ['/api/mfa/verify', 'checks a TOTP code and returns valid/invalid — mutates nothing'],
-  ['/api/oidc', 'OIDC login callbacks — covered by auth events'],
-  ['/api/invite', 'network invite handshake — peer-facing'],
+  /*
+   * `/api/auth/oidc-info` — the reason here USED to read "covered by auth events", which is the identical
+   * wording that was disproved next door for `/api/mfa`: the map holds exactly one auth event, `auth.failed`, so
+   * nothing was covering anything. The exemption itself was right for a different reason, and a false reason on a
+   * correct decision is worse than it sounds — it is what the next person reads before exempting something real
+   * on the same basis, which is precisely how enabling and disabling MFA came to be silent.
+   *
+   * What is actually true: this is a GET that returns the issuer's discovery data and mutates nothing. OIDC is
+   * bearer-JWT validation in `auth/middleware.ts`, not a login route, so there is no session event to record —
+   * and every audited action already names its actor, `oidcSubject` included.
+   */
+  ['/api/oidc', 'GET of the IdP discovery data — mutates nothing; OIDC is bearer validation, not a login route'],
+  /*
+   * NARROWED from the whole `/api/invite` prefix, which read "peer-facing" and hid two things that are not.
+   * `generate` is an instance admin producing join material; `finalize` calls `saveConfig` and is the moment
+   * another instance becomes a member. Both are audited now — see `network.invite.generate` and
+   * `network.member.join` in the rule map. Only the session registration stays exempt.
+   */
+  ['/api/invite/apply', 'registers an in-memory handshake session — writes nothing, and the handshakeId is the credential'],
   ['/api/local-agent', 'workstation connector handshake — not a brain mutation'],
-  ['/api/theme', 'public, unauthenticated theme endpoint'],
+  /*
+   * `/api/theme` is GONE from this list: it exposes a single GET and no mutating verb, so it never matched the
+   * sweep and the entry could only ever mislead a reader into thinking a theme WRITE existed and was exempt.
+   * That is the same stale-exemption shape as `/api/spaces/:id/token-access`, which named a route that had been
+   * deleted. An exemption is a claim about a route that exists.
+   */
   ['/api/metrics', 'Prometheus scrape endpoint'],
   ['/mcp', 'MCP has its own tool-level audit path'],
   // Read-only diagnostic: lists a provider endpoint's models to report reachability. POST only because it
@@ -174,8 +196,14 @@ describe('Audit coverage — every mutating route must resolve to an operation',
 
   it('the specific routes that had drifted are now audited', () => {
     // Pin the exact regressions, so a future "cleanup" of the rules cannot quietly undo them.
+    //
+    // The invite pair is here because their exemption's REASON was what hid them: "peer-facing" is true
+    // about who calls them and irrelevant to what they change. `finalize` calls `saveConfig` and is the
+    // moment another instance becomes a member of a network on this one.
     const mustAudit = [
       ['POST', '/api/files/sample', 'file upload'],
+      ['POST', '/api/invite/generate', 'an admin producing join material'],
+      ['POST', '/api/invite/finalize', 'another instance becoming a member — writes config'],
       ['DELETE', '/api/files/sample', 'file delete'],
       ['PATCH', '/api/files/sample', 'file move/rename'],
       ['PATCH', '/api/spaces/sample/rename', 'space rename'],

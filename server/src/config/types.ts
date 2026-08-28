@@ -1050,6 +1050,15 @@ export interface AuditLogEntry {
   _id: string;
   timestamp: string;       // ISO8601
   _expireAt?: Date;        // BSON Date for TTL index — set at write time
+  /**
+   * The `X-Request-Id` of the request that produced this entry — the value that joins this row to the server
+   * log lines the same request wrote.
+   *
+   * OPTIONAL because entries written before this field existed do not have it, and that is the only reason.
+   * Every audit entry has a request behind it, so an absent id means "this row predates the field" and never
+   * "no request" — anything rendering it has to say which, or a blank reads as an answer.
+   */
+  requestId?: string;
   tokenId: string | null;
   tokenLabel: string | null;
   authMethod: 'pat' | 'oidc' | null;

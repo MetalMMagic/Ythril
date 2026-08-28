@@ -9,7 +9,7 @@ import {
 import { createHash } from 'node:crypto';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { getConfig } from '../config/loader.js';
-import { log } from '../util/log.js';
+import { log, currentRequestId } from '../util/log.js';
 import { reachesSpace } from '../auth/space-reach.js';
 import { toolRightsRefusal, spaceAdminRefusal } from './tool-rights-guard.js';
 import { legacySpacesOf } from '../auth/legacy-spaces.js';
@@ -168,6 +168,14 @@ function createGlobalMcpServer(tokenSpaces?: string[], tokenId?: string, tokenLa
     if (!operation) return;                       // deliberately not an audited operation — see audit-map.ts
     if (isMcpReadOperation(operation) && !getConfig().audit?.logReads) return;
     logAuditEntry({
+      /*
+       * The id of the HTTP request carrying this tool call — which is the right one even over SSE, where the
+       * response leaves on a long-lived stream: the call arrived on a POST, and that POST is the request whose
+       * log lines describe this work.
+       *
+       * Read directly rather than captured, because this runs inside the dispatch that the request awaits.
+       */
+      requestId: currentRequestId() ?? null,
       tokenId: tokenId ?? null,
       tokenLabel: tokenLabel ?? null,
       authMethod: audit?.authMethod ?? null,

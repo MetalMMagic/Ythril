@@ -91,6 +91,15 @@ export async function initAuditCollection(): Promise<void> {
 // ── Write ──────────────────────────────────────────────────────────────────
 
 export interface AuditEntryInput {
+  /**
+   * The `X-Request-Id` of the request that produced this entry, so the audit log and the server log can be
+   * joined on one value.
+   *
+   * ABSENT means "written before this field existed", never "no request". Every entry has a request behind it —
+   * that is what the audit log is — so an absent id is a fact about the RECORD's age and the UI has to say so
+   * rather than showing a blank that reads as "none".
+   */
+  requestId?: string | null;
   tokenId?: string | null;
   tokenLabel?: string | null;
   authMethod?: 'pat' | 'oidc' | null;
@@ -135,6 +144,13 @@ export function logAuditEntry(input: AuditEntryInput): void {
     status: input.status,
     entryId: input.entryId ?? null,
     durationMs: input.durationMs,
+    /*
+     * Omitted rather than written as null when there is no id, which is the same rule `changes` follows above
+     * and for the same reason: absent means "not recorded", and a stored `null` would claim the request had no
+     * id — which cannot happen, since every request is given one. The only entries without it are the ones
+     * written before the field existed, and an absent key is exactly how a reader tells them apart.
+     */
+    ...(input.requestId ? { requestId: input.requestId } : {}),
     // Omitted entirely when there is nothing allowlisted to say, so an entry never carries an empty array
     // that reads as "we looked and nothing changed" when in fact we never looked.
     ...(input.changes && input.changes.length > 0 ? { changes: input.changes } : {}),
@@ -150,6 +166,14 @@ export function logAuditEntry(input: AuditEntryInput): void {
 export interface AuditQueryParams {
   after?: string;
   before?: string;
+  /**
+   * Exact `X-Request-Id`. The whole point of storing it: an operator holding an id from a bug report asks for
+   * one row rather than paging a filtered log looking for it.
+   *
+   * Exact match, not a prefix or a regex — a UUID is either the one you were given or it is not, and a partial
+   * match here would return somebody else's request while looking like a helpful search.
+   */
+  requestId?: string;
   tokenId?: string;
   oidcSubject?: string;
   spaceId?: string;
@@ -183,6 +207,7 @@ export function buildAuditFilter(params: AuditQueryParams): Filter<AuditLogEntry
     filter.timestamp = ts as Filter<AuditLogEntry>['timestamp'];
   }
 
+  if (params.requestId) filter.requestId = params.requestId;
   if (params.tokenId) filter.tokenId = params.tokenId;
   if (params.oidcSubject) filter.oidcSubject = params.oidcSubject;
   if (params.spaceId) filter.spaceId = params.spaceId;

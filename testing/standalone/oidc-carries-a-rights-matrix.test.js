@@ -23,6 +23,7 @@
  */
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
+import { balancedFrom } from './_structural-window.mjs';
 import { readFileSync } from 'node:fs';
 
 let migrateToken, toolRightsRefusal;
@@ -78,8 +79,19 @@ describe('the record actually carries it', () => {
     assert.match(src, /rights: TokenRights;/, 'the record type must carry the matrix');
     assert.match(src, /rights: migrateToken\(\{/,
       'and it must be DERIVED — a hand-rolled second mapping is the thing this avoids');
-    assert.match(src, /admin: perms\.admin,[\s\S]{0,400}?readOnly: perms\.readOnly \?\? false/,
-      'derived from the mapped claims, not from the raw payload');
+    /*
+     * A WINDOW, converted, and it was pointing at the wrong object. `admin: perms.admin` appears TWICE — once on
+     * the record itself and once inside the `migrateToken({ … })` call the assertion is actually about — so the
+     * match started on the OUTER one and reached the inner `readOnly` 400 characters later. Two different objects
+     * satisfying one claim about a single object is how a hand-rolled second mapping would have passed here, which
+     * is precisely what the assertion exists to refuse. The bound is the CALL's argument list.
+     */
+    const derivedAt = src.indexOf('rights: migrateToken(');
+    assert.ok(derivedAt > -1, 'the derived rights call is gone — re-anchor this gate');
+    const derived = balancedFrom(src, src.indexOf('(', derivedAt), 'the migrateToken argument');
+    assert.match(derived, /admin: perms\.admin/, 'derived from the mapped claims, not from the raw payload');
+    assert.match(derived, /readOnly: perms\.readOnly \?\? false/,
+      'and `readOnly` defaulted inside the same call, or an absent claim reads as undefined');
   });
 
   it('the spaces key is omitted rather than passed as undefined', () => {

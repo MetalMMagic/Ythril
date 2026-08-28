@@ -21,6 +21,7 @@
  */
 import { describe, it, before, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { balancedFrom } from './_structural-window.mjs';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -152,9 +153,18 @@ describe('outbound calls carry a deadline', () => {
         const rel = p.slice(SERVER_SRC.length + 1).replace(/\\/g, '/');
         if (rel === 'util/ssrf.ts' || PASS_THROUGH_WRAPPERS.includes(rel)) continue;
         const src = readFileSync(p, 'utf8');
-        // Each call site plus the object literal that follows it, up to the closing of that argument.
-        for (const m of src.matchAll(/ssrfSafeFetch\(([\s\S]{0,700}?)\n\s*\}?\s*\)?;/g)) {
-          if (!/signal\s*:/.test(m[1])) {
+        /*
+         * Each call site's OWN argument list, bounded by its closing paren.
+         *
+         * A WINDOW, converted, and this one was the dangerous polarity. The check is an ABSENCE — no `signal:` in
+         * the arguments — so a call site the pattern failed to match was not reported as unguarded, it was not
+         * examined at all. Both halves of the old pattern could fail to match a perfectly ordinary call: an
+         * argument list longer than 700 characters, or one that does not end on the guessed
+         * `\n  })` / `\n  );` shape. A single-line call with a long URL expression matched nothing and passed.
+         */
+        for (const m of src.matchAll(/ssrfSafeFetch\(/g)) {
+          const argsList = balancedFrom(src, src.indexOf('(', m.index), `${rel}: the ssrfSafeFetch arguments`);
+          if (!/signal\s*:/.test(argsList)) {
             offenders.push(`${rel}: ssrfSafeFetch with no signal`);
           }
         }

@@ -34,7 +34,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { bodyOf, statementUpTo, enclosingBlockAround } from './_structural-window.mjs';
+import { bodyOf, enclosingBlockAround, statementUpTo } from './_structural-window.mjs';
 
 const ENDPOINT_SRC = 'server/src/files/converters/vlm-endpoint.ts';
 const CLIENT_SRC = 'server/src/files/converters/vlm-client.ts';
@@ -117,7 +117,18 @@ describe('egress is guarded whenever the endpoint is not the bundled model', () 
   const client = strip(readFileSync(CLIENT_SRC, 'utf8'));
 
   it('postChat routes external through ssrfSafeFetch', () => {
-    assert.match(client, /endpoint\.external[\s\S]{0,200}ssrfSafeFetch\(url, init/);
+    /*
+     * A WINDOW, converted: the subject is what CHOOSES this fetch, so the bound runs from the start of its
+     * statement up to the call — the shape `statementUpTo` exists for.
+     *
+     * The two are a ternary's condition and one of its arms, and 200 characters between them is satisfied by any
+     * `endpoint.external` sitting above any guarded fetch, in either order and in unrelated statements. What has
+     * to hold is that THIS fetch is the arm the locality test picks.
+     */
+    const at = client.indexOf('ssrfSafeFetch(url, init');
+    assert.ok(at > -1, 'the guarded fetch is gone — re-anchor this gate');
+    assert.match(statementUpTo(client, at, 'what chooses the guarded fetch'), /endpoint\.external/,
+      'the guarded fetch must be the arm the external test selects');
   });
 
   it('and passes the private-address opt-in, so a self-hosted model still works', () => {

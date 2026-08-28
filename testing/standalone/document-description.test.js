@@ -27,7 +27,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { enclosingBlockFrom } from './_structural-window.mjs';
+import { between, blockAfter, enclosingBlockFrom } from './_structural-window.mjs';
 import { readFileSync } from 'node:fs';
 
 const { sanitiseDescription } = await import('../../server/dist/files/converters/describe.js');
@@ -142,8 +142,22 @@ describe('provenance is recorded, not assumed', () => {
     // path applies, because config.json can be hand-edited.
     const describeSrc = src('server/src/files/converters/describe.ts');
     assert.match(describeSrc, /acknowledgedHost === new URL\(assist\.baseUrl\)\.host/);
-    // And the fall-through has to be the LOCAL model, not "send it anyway".
-    assert.match(describeSrc, /if \(acknowledged\)[\s\S]{0,400}?resolveVlmEndpoint\('repair'\)/);
+    /*
+     * And the fall-through has to be the LOCAL model, not "send it anyway".
+     *
+     * A WINDOW, converted, and the conversion changes what is claimed. `if (acknowledged) … 400 characters …
+     * resolveVlmEndpoint('repair')` says the two are NEAR each other, which is true whether the local model is
+     * reached by falling out of the branch or by sitting inside it. Only one of those is the security property:
+     * the local endpoint must be what runs when the host was NOT acknowledged. So the branch is bounded by its
+     * own brace, and the claim is stated on both sides of it.
+     */
+    const ackAt = describeSrc.indexOf('if (acknowledged) {');
+    assert.ok(ackAt > -1, 'the acknowledged branch is gone — re-anchor this gate');
+    const branch = blockAfter(describeSrc, ackAt, 'the acknowledged branch');
+    assert.doesNotMatch(branch, /resolveVlmEndpoint\('repair'\)/,
+      'the local model inside the acknowledged branch means an unacknowledged host reaches neither');
+    assert.match(describeSrc.slice(ackAt + branch.length), /resolveVlmEndpoint\('repair'\)/,
+      'an unacknowledged host must fall through to the local document model');
   });
 
   it('a description a person writes drops the provenance rather than inheriting it', () => {
@@ -168,7 +182,19 @@ describe('provenance is recorded, not assumed', () => {
 
   it('an image caption is labelled generated too — it always was model output', () => {
     const workerSrc = src('server/src/files/media/worker.ts');
-    assert.match(workerSrc, /embedImage[\s\S]{0,400}?derivedSource = 'generated'/);
+    /*
+     * A WINDOW, converted: the subject is the switch ARM that captions an image, and the claim is that the same arm
+     * labels what it produced. 400 characters could not tell "this arm labels its own output" from "some later arm
+     * sets the label" — and a caption written in one arm while the label is set in another is precisely the record
+     * that claims a model wrote what nobody did.
+     *
+     * The ARM, not `enclosingBlockFrom`. A `case` label carries no braces of its own, so the nearest enclosing
+     * brace is the SWITCH — under which `derivedSource = 'generated'` in the audio arm would have answered for the
+     * image arm, and the bound would be LOOSER than the number it replaced. Structural is only tighter when the
+     * structure chosen is the subject; here that is `case` to `break`.
+     */
+    assert.match(between(workerSrc, "case 'image':", 'break;', 'the image arm'), /derivedSource = 'generated'/,
+      'the arm that captions an image must label that caption generated');
   });
 
   it('a reindex re-embeds the excerpt instead of dropping it', () => {

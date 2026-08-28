@@ -163,7 +163,7 @@ const GRANDFATHERED = new Map([
 /**
  * A CAPPED GAP inside a regex: `/marker[\s\S]{0,400}?other/`. Files still allowed to carry one, with how many.
  *
- * **30 occurrences across 17 files**, down from 66/36 when this was first measured — and the tracker had recorded
+ * **23 occurrences across 12 files**, down from 66/36 when this was first measured — and the tracker had recorded
  * 30, which is why the number lives in the gate now rather than in a markdown file that drifts.
  *
  * The nine that left were the ones whose subject is a NAMED FUNCTION or a BRANCH, where the structural bound is
@@ -184,6 +184,19 @@ const GRANDFATHERED = new Map([
  *   satisfied by the flag sitting on the other branch — the opposite behaviour, and a paid model call. The bound
  *   that holds is the ARGUMENT LIST of the call the branch makes. Structural is not automatically tighter than a
  *   character count: it is tighter only when the structure chosen is the subject.
+ *
+ * - **A capped gap can make a gate check almost nothing and still pass.** `single-flight` asserted that every
+ *   outbound `ssrfSafeFetch` carries a deadline, by matching each call plus `[\s\S]{0,700}?` up to a guessed
+ *   `
+  })` tail. In scope it saw **4 of 10 call sites**. The other six — the webhook dispatcher and the external
+ *   face endpoint among them, both of which leave the instance — were not reported as unguarded, they were never
+ *   examined: the check is an ABSENCE, so a call the pattern missed passes by not existing. All ten do carry a
+ *   signal, which is the only reason this is a lesson about measurement rather than an incident.
+ * - **A window can point at the WRONG instance of its subject.** `oidc-carries-a-rights-matrix` asserted
+ *   `admin: perms.admin, … readOnly: perms.readOnly ?? false` within 400 characters. `admin: perms.admin` appears
+ *   twice — once on the record and once inside the `migrateToken({ … })` call the assertion is about — so the match
+ *   started on the outer one and reached the inner field. Two objects satisfying one claim about a single object is
+ *   exactly how the hand-rolled second mapping it exists to refuse would have passed.
  *
  * **And what remains is now SORTED, not merely counted.** The prose sites carry a one-line comment saying
  * the number IS the rule — `[^.]` and `[^.
@@ -218,23 +231,52 @@ const GRANDFATHERED = new Map([
  * **This list may only shrink.**
  */
 const GRANDFATHERED_GAP = new Map([
+  /*
+   * ── NOT WINDOWS. The number IS the rule, and every one of these has now been read. ──────────────────────────
+   *
+   * The doc above says a site left here without a reason has not been read yet. These have their reason.
+   */
+
+  // `[0-9a-f]{0,2}` inside a failure MESSAGE — the regex it suggests somebody ADD. Nothing is asserted with it.
   ['testing/red-team-tests/ssrf-ipv6.test.js', 1],
+
+  // `.{0,40}` — an adjacency claim. `.` does not cross a newline, so this asserts ONE LINE of prose says it.
   ['testing/standalone/backups-are-not-world-readable.test.js', 1],
+
+  // Nine adjacency claims, documented in that file: `[^.\n]` crosses neither a full stop nor a line.
   ['testing/standalone/chrono-status-descriptions-match-the-derivation.test.js', 9],
-  ['testing/standalone/document-description.test.js', 2],
-  ['testing/standalone/infra-managed-locks-every-field.test.js', 2],
-      ['testing/standalone/meta-precondition.test.js', 1],
-  ['testing/standalone/no-boot-migration-on-synced-data.test.js', 1],
+
+  // A COMMENT quoting the `[\s\S]{0,120}?` this file's markup walk replaced. Documentation, not a pattern.
+  ['testing/standalone/infra-managed-locks-every-field.test.js', 1],
+
+  // `updateSpace([^)]*{[\s\S]{0,120}?\bmeta\b` — `[^)]*` already bounds it to the call's own arguments.
+  ['testing/standalone/meta-precondition.test.js', 1],
+
+  // One adjacency claim in prose, plus the comment that explains why it stays.
   ['testing/standalone/notice-coverage.test.js', 2],
-  ['testing/standalone/oidc-carries-a-rights-matrix.test.js', 1],
-    ['testing/standalone/reembed-backfill.test.js', 1],
+
+  // A COMMENT quoting the `[\s\S]{0,1400}?` that failed on a fifth table column. That is the lesson itself.
   ['testing/standalone/rights-are-explained.test.js', 1],
-  ['testing/standalone/route-guard-coverage.test.js', 1],
-    ['testing/standalone/search-tool-schemas-document-their-response.test.js', 3],
-  ['testing/standalone/single-flight.test.js', 1],
-  ['testing/standalone/space-admin-reaches-its-own-space-settings.test.js', 1],
+
+  // Three `[^.]{0,N}` — two things in ONE SENTENCE, which is what a schema description has to do to be read.
+  ['testing/standalone/search-tool-schemas-document-their-response.test.js', 3],
+
+  // `(?:[^\n]*\n){0,6}?` — a LINE adjacency claim: the wait must follow the trigger within six lines.
   ['testing/standalone/sync-waits-retrigger-and-diagnose.test.js', 1],
-  ['testing/standalone/vlm-endpoint-egress.test.js', 1],
+
+  /*
+   * ── STILL WINDOWS. These three are the whole remaining debt. ────────────────────────────────────────────────
+   */
+
+  // `_${coll}\`\s*\)?\s*[\s\S]{0,80}?\.(WRITES)` — bind by the VARIABLE the open declares, as `merge-relinks` does.
+  ['testing/standalone/no-boot-migration-on-synced-data.test.js', 1],
+
+  // `reembed$/[\s\S]{0,80}space.embeddings.reembed` — the subject is the audit table ROW, so bound it to the row.
+  ['testing/standalone/reembed-backfill.test.js', 1],
+
+  // `([\s\S]{0,400}?)` capturing a route's middleware list — the subject is the call's ARGUMENT LIST.
+  ['testing/standalone/route-guard-coverage.test.js', 1],
+
 ]);
 
 const GRANDFATHERED_BACK = new Map([

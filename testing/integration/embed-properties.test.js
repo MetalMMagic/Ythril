@@ -140,12 +140,47 @@ describe('Property keys are embedded (B4)', () => {
       `chrono embed text must include the property key: ${hit.matchedText}`);
   });
 
+  /**
+   * ## Why this one drains its prerequisites first, and the two occurrences that led here
+   *
+   * This is the only case in the file that must CREATE records before its own. An edge needs two entities, so
+   * by the time it is enqueued there are two entity embed jobs ahead of it — plus everything the three earlier
+   * cases left in the queue. `workerConcurrency` defaults to 2, so the edge is structurally the last job behind
+   * the most work, every run.
+   *
+   * That made it the only case whose 30 s budget was mostly spent on OTHER records' embeddings. It timed out on
+   * 2026-08-08 with its three siblings green in ~0.5 s, and again on 2026-08-28 — same shape both times, and the
+   * instrumentation added after the first occurrence is what identified it:
+   *
+   *     after 118 polls over 30000ms: HTTP 200, record EXISTS, matchedText absent
+   *
+   * `record EXISTS` with `matchedText absent` is the queue not having reached it — not a write that failed and
+   * not a read that failed. The enqueue path is symmetric with `entities.ts`, so there is nothing edge-specific
+   * about the product here; what is edge-specific is the position in the queue.
+   *
+   * **So the prerequisites are awaited on their OWN budget, and the edge gets its full 30 s for its own job.**
+   * That is a smaller and more honest change than raising the timeout: a bigger number would have hidden the
+   * same pile-up until the runner was slower still, and it would have made every future failure here ambiguous
+   * between "slow queue" and "broken edge embedding". The subject of this test is the edge's embed TEXT, not the
+   * queue's throughput.
+   */
   it('edge embedding text includes the property key (previously omitted entirely)', async (t) => {
     if (!embeddingAvailable) return t.skip('Embedding not available');
     const from = `EdgeFrom-${RUN}`;
     const to = `EdgeTo-${RUN}`;
-    await post(INSTANCES.a, token, `/api/brain/spaces/${SPACE}/entities`, { name: from, type: 'concept' });
-    await post(INSTANCES.a, token, `/api/brain/spaces/${SPACE}/entities`, { name: to, type: 'concept' });
+    const a = await post(INSTANCES.a, token, `/api/brain/spaces/${SPACE}/entities`, { name: from, type: 'concept' });
+    const b = await post(INSTANCES.a, token, `/api/brain/spaces/${SPACE}/entities`, { name: to, type: 'concept' });
+    assert.equal(a.status, 201, JSON.stringify(a.body));
+    assert.equal(b.status, 201, JSON.stringify(b.body));
+
+    // Drain the two endpoint embeds on their own budget, so the edge's window covers the edge's job alone.
+    // Asserted rather than awaited-and-ignored: if an ENTITY embed is what is broken, this says so here instead
+    // of surfacing as a mysterious edge timeout thirty seconds later.
+    for (const [label, created] of [['from', a], ['to', b]]) {
+      assert.ok(await embedTextOf('entity', created.body._id),
+        `the edge's ${label} endpoint never embedded, so the edge could not be reached — ${lastProbe}`);
+    }
+
     const r = await post(INSTANCES.a, token, `/api/brain/spaces/${SPACE}/edges`, {
       from, to, label: `edgePropKey${RUN}`, properties: { medium: 'email' },
     });

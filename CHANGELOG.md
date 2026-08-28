@@ -27,6 +27,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   source so a hand grep matches — the right trade — but my first draft of that note repeated the regex and took
   the file from one gap to two, failing the gate on the comment explaining the exception. The note says so now,
   because it is the third time this session a gate has been fooled by prose ABOUT the thing it measures.
+### Fixed
+
+- **The edge case in `embed-properties.test.js` no longer spends its own budget on other records' embeddings.**
+  Second occurrence in CI, 2026-08-28, on a branch whose diff was client-only — so not caused by the change it
+  failed on. The instrumentation left after the first occurrence (2026-08-08) is what named it:
+
+      edge should have its embed text stored — after 118 polls over 30000ms:
+        HTTP 200, record EXISTS, matchedText absent
+
+  `record EXISTS` with `matchedText absent` distinguishes three causes that a bare `null` could not: the write
+  failed, the read failed, or the queue never reached it. It was the third.
+
+  **Structural rather than a flake.** That case is the only one in the file which must CREATE records before its
+  own — an edge needs two entities — so two entity embed jobs sit ahead of it, plus whatever the three earlier
+  cases left queued, and `workerConcurrency` defaults to 2. It is the last job behind the most work, every run,
+  and both occurrences were this case alone with its three siblings green in ~0.5 s. A re-run passed, which is
+  what confirmed timing rather than a stuck path; the enqueue call is symmetric with the entity one, so there
+  was never anything edge-specific about the product.
+
+  The two endpoint embeds are now awaited on their own budget, and asserted rather than ignored — if an ENTITY
+  embed is what is broken, it says so there instead of surfacing as a mysterious edge timeout thirty seconds
+  later. **Deliberately not a bigger timeout:** a larger number hides the same pile-up until the runner is
+  slower still, and makes every future failure here ambiguous between "slow queue" and "broken edge embedding".
 
 ### Added
 

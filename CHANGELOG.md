@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.3.0] — 2026-08-28
+
 ### Fixed
 
 - **A regex literal was read as neither code nor a string, so a quote inside one opened a phantom string.**

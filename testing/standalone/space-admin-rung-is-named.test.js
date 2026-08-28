@@ -10,7 +10,7 @@
  *
  * **It had no name on any surface.** Measured 2026-08-19: `isSpaceAdminFor` appeared in three server files and
  * **zero** client files. The rights matrix showed four independent rungs and nothing said that all four at
- * `admin` IS administering that space. breituai-platform asked twice — 2026-08-17T1910Z and a 1916Z narrowing
+ * `admin` IS administering that space. The canary operator asked twice — 2026-08-17T1910Z and a 1916Z narrowing
  * — and both times about the surface: *"there is still no SPACE ADMIN rung in the rights matrix"*. An operator
  * could not **find** it, **grant** it in one action, or **verify** they held it.
  *
@@ -44,7 +44,7 @@ describe('the published definition IS the enforced predicate', () => {
   it('publishes a spaceAdmin entry at all', () => {
     assert.ok(spaceAdmin, 'DERIVED_RUNGS must carry `spaceAdmin` — without it the rung has no name again');
     assert.ok(spaceAdmin.grants, 'and say what it unlocks');
-    assert.ok(spaceAdmin.excludes, 'and what it does not, which is what breituai-platform asked to be explicit');
+    assert.ok(spaceAdmin.excludes, 'and what it does not, which is what the canary operator asked to be explicit');
   });
 
   it('a token built from `requires` PASSES isSpaceAdminFor', () => {
@@ -107,7 +107,7 @@ describe('the surfaces that were blind now name it', () => {
 
   it('help() names the rung AND marks where the caller holds it', () => {
     // Naming it in prose answers "find it". Marking the spaces answers "verify I have it", which is the part a
-    // sentence cannot do and the third of breituai-platform's three complaints.
+    // sentence cannot do and the third of the canary operator's three complaints.
     const src = stripComments(readFileSync('server/src/mcp/tools/help-sections.ts', 'utf8'));
     assert.match(src, /ADMINISTERING A SPACE/, 'help must name the rung');
     assert.match(src, /isSpaceAdminFor\(ctx\.rights, s\.id\)/,

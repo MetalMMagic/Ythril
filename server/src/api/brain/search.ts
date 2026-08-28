@@ -257,7 +257,7 @@ searchRouter.post('/spaces/:spaceId/traverse', globalRateLimit, requireSpaceAuth
 //
 // ## Two defects, one shape
 //
-// aigents, 2026-08-12T1410Z: `skip` was accepted at 200 and silently ignored, and *"it cost us a fabricated number"* —
+// The fleet integrator, 2026-08-12T1410Z: `skip` was accepted at 200 and silently ignored, and *"it cost us a fabricated number"* —
 // a paged sweep re-read page one every time and was counted as if it had advanced. Their report names `skip`; the defect
 // is the PERMISSIVE BODY. Honouring one key would have left every other unknown key doing the same thing.
 //
@@ -523,7 +523,7 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
     const safeIncludeDiagnostics = includeDiagRaw === true;
 
     // `projection`, the same grammar `/query` takes and the same reading of it — see `brain/projection.ts`.
-    // breituai-platform measured the cost of its absence: 100,547 characters for ~1.5 KB of wanted data.
+    // The canary operator measured the cost of its absence: 100,547 characters for ~1.5 KB of wanted data.
     const projParse = projectionFromBody(req.body);
     if (!projParse.ok) { res.status(400).json({ error: projParse.error }); return; }
     const safeProjection = projParse.norm;

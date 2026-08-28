@@ -7,7 +7,7 @@
  * not rest on one projection being remembered at every fetch site."* It then rested on exactly that, and
  * five fetch sites did not remember it.
  *
- * aigents, 2026-08-19T0015Z §4: `GET /api/brain/spaces/<space>/entities?limit=500` returned every record's
+ * The fleet integrator, 2026-08-19T0015Z §4: `GET /api/brain/spaces/<space>/entities?limit=500` returned every record's
  * embedding vector. **One read of their orchestrator space was 11.19 MB**, against 0.145 MB for the same 100
  * records through `POST /query`, which strips it by contract. They tried twelve parameter spellings looking
  * for the switch — `projection`, `fields`, `select`, `exclude`, `omit`, `includeEmbedding=false`,
@@ -41,7 +41,7 @@ import { NEVER_RETURNED_FIELDS } from './recall-shape.js';
 /**
  * The record diagnostics a LIST route withholds by default — and `seq` is deliberately not among them.
  *
- * breituai-platform 2026-08-17T1540Z §4, taking up an offer in the 3.1.0 notes: *"for exactly the reason
+ * The canary operator 2026-08-17T1540Z §4, taking up an offer in the 3.1.0 notes: *"for exactly the reason
  * 3.1.0 withheld them on the retrieval door: matchedText is the passage a second time, and a list route is
  * the call most likely to be made in bulk."*
  *

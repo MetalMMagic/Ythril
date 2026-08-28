@@ -430,7 +430,7 @@ button:disabled, .btn:disabled {
    declarations at all, nothing extra to compute and nothing extra to composite. That is the property worth
    protecting, and the verify line for this change checks the flat path FIRST.
 
-   breituai-platform asked for this (2026-08-18T1806Z); the owner ruled A on 2026-08-19. Their portal already
+   The canary operator asked for this (2026-08-18T1806Z); the owner ruled A on 2026-08-19. Their portal already
    declares eleven decoration inks on `:root` and their ABSENCE is the signal to stay flat. They cannot do it
    from their side: a parent stylesheet does not cross an iframe boundary, and our document paints its own
    background over anything behind the frame. They tried raising their layer in front of the frame, saw traces

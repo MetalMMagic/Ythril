@@ -4,7 +4,7 @@
  * ## Why this gate exists
  *
  * `/query`, `/recall`, `/traverse` and `/find-similar` were made strict because a silently dropped key
- * produces a *wrong answer with a 200* — aigents sent `skip`, got page one, and it cost them a fabricated
+ * produces a *wrong answer with a 200* — the fleet integrator sent `skip`, got page one, and it cost them a fabricated
  * number. Strictness fixed the lying, but it moved the failure: a client key that is not in the server's
  * allowed set is now a **400 in the UI**, and nothing checked that our own client stays inside those sets.
  *

@@ -97,7 +97,7 @@ export function classifyUpdateViolations(
   //
   // ## Why blocking on the full list was wrong
   //
-  // Reported by breituai-platform as *"freezes records"*, and reproduced:
+  // Reported by the canary operator as *"freezes records"*, and reproduced:
   //
   //     write an entity with properties.status = "retired"   (the enum allows it)  -> 201
   //     remove "retired" from the enum                                             -> 200

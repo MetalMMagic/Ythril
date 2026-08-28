@@ -1,9 +1,9 @@
 /**
- * `recall`'s filter accepts the same grammar `query`'s does — including the filter aigents could not express at all.
+ * `recall`'s filter accepts the same grammar `query`'s does — including the filter the fleet integrator could not express at all.
  *
  * ## The report
  *
- * aigents, 2026-08-13T1035Z §2. `recall`'s filter was one operator object per key, ANDed: `eq`, `ne`, `in`, `exists`,
+ * The fleet integrator, 2026-08-13T1035Z §2. `recall`'s filter was one operator object per key, ANDed: `eq`, `ne`, `in`, `exists`,
  * `gt`, `gte`, `lt`, `lte`. `query`'s takes `$or`, `$and`, `$not`, `$nor`, `$regex`, `$elemMatch` nested to depth 8. Same
  * store, same policy, **two grammars** — so a caller wanting meaning-ranking AND a real predicate ran `query` first and
  * fed ids into something else.
@@ -31,19 +31,19 @@ before(async () => {
   ({ resolveRecallFilter } = await import('../../server/dist/brain/recall-filter.js'));
 });
 
-describe('the grammar aigents asked for', () => {
+describe('the grammar the fleet integrator asked for', () => {
   it('accepts their mailbox filter, which the old grammar could not express', () => {
-    // Copied from this board's `usageNotes`, with `aigents` as the party. This is the whole ask.
+    // Copied from this board's `usageNotes`, with `the fleet integrator` as the party. This is the whole ask.
     const mailbox = {
       type: 'message',
       $or: [
         {
-          'properties.from': { $ne: 'aigents' },
-          'properties.readBy': { $ne: 'aigents' },
-          $or: [{ 'properties.to': 'aigents' }, { 'properties.alsoFor': 'aigents' }],
+          'properties.from': { $ne: 'the fleet integrator' },
+          'properties.readBy': { $ne: 'the fleet integrator' },
+          $or: [{ 'properties.to': 'the fleet integrator' }, { 'properties.alsoFor': 'the fleet integrator' }],
         },
         {
-          'properties.from': 'aigents',
+          'properties.from': 'the fleet integrator',
           'properties.status': 'open',
           'properties.kind': { $in: ['ask', 'request', 'proposal'] },
         },

@@ -18,7 +18,7 @@
  *
  * ## The measurement behind it
  *
- * breituai-platform, 2026-08-20T0925Z: a recall answered `bytesReturned: 98356` against `budgetBytes: 100000`,
+ * The canary operator, 2026-08-20T0925Z: a recall answered `bytesReturned: 98356` against `budgetBytes: 100000`,
  * correct and fully specified, and their MCP client refused it outright and spilled it to a local file. Their
  * own diagnosis is why the answer is a lower default rather than better docs: *"the old 25-record cap had been
  * acting as the de facto size guard on the MCP door, and removing it removed that guard along with the cliff
@@ -109,7 +109,7 @@ describe('both doors say so, in the surface a caller reads', () => {
   it('the MCP schema names its own default AND the other door\'s', () => {
     /*
      * `help()` tells callers the tool schema IS the authoritative reference, and CLAUDE.md records what a
-     * stale sentence there cost: aigents read "filter applied after vector search", believed it, and built a
+     * stale sentence there cost: The fleet integrator read "filter applied after vector search", believed it, and built a
      * skill that avoided filtered recall. A default that differs per door and is stated on neither is the same
      * failure waiting — a caller measures 25000, concludes it is the product's limit, and designs around it.
      */

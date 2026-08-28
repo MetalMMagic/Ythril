@@ -3,7 +3,7 @@
  *
  * ## What is being protected
  *
- * breituai-platform's portal declares eleven decoration inks on `:root`, and **their absence is the signal** to
+ * The canary operator's portal declares eleven decoration inks on `:root`, and **their absence is the signal** to
  * render flat. Owner ruled A on 2026-08-19 (was P-11): take the CSS.
  *
  * The half that can hurt somebody is the undecorated one. Every Ythril instance that is not inside their portal

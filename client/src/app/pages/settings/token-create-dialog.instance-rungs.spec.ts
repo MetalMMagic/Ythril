@@ -6,7 +6,7 @@
  * `draftRights` initialised `instanceAdmin` and `createSpaces` to `false` and **no control could change
  * them** — so a token that should hold either had to be created and then EDITED. The create API accepted both
  * throughout (`CreateTokenBody` declares them); the edit dialog grew the controls in #908 and nothing brought
- * them here. Reported by breituai-platform 2026-08-17 §9 as the two forms presenting different rights
+ * them here. Reported by the canary operator 2026-08-17 §9 as the two forms presenting different rights
  * surfaces. It is one missing block, not a diverged surface.
  *
  * ## And the second half, which no existing test could have caught

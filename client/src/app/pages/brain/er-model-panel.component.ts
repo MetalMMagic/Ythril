@@ -224,7 +224,7 @@ export class ErModelPanelComponent {
    * ## Why measured rather than derived
    *
    * The unlinked shelf spreads across the width it is given, and the layout is a pure function of the model, so
-   * it cannot know how much room the card has. Reported by breituai-platform's owner, 2026-08-20: the shelf
+   * it cannot know how much room the card has. Reported by the canary operator's owner, 2026-08-20: the shelf
    * wraps after four boxes however wide the window is. The cause is the fallback — the joined picture's own
    * width, which three columns fix — so it was never a four-column grid, just a width that fits four.
    *

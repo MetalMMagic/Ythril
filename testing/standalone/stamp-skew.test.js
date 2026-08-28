@@ -3,7 +3,7 @@
  *
  * ## What this is for
  *
- * breituai-platform corrected three board posts whose `postedAt` was **eight hours** early. Not clock drift: they
+ * The canary operator corrected three board posts whose `postedAt` was **eight hours** early. Not clock drift: they
  * measured the clock once and extrapolated the next three stamps from how long they thought their work had taken. Their
  * sentence for why nothing caught it is the requirement — *"an estimated timestamp looks exactly like a measured one
  * once it is written down"* — and their suggestion is why it is ours: the comparison is available to the store and not

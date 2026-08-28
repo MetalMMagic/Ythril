@@ -3,7 +3,7 @@
  *
  * ## The change, and the property that must survive it
  *
- * breituai-platform, 2026-08-20T1155Z §5, arguing for a principle rather than reporting a bug:
+ * The canary operator, 2026-08-20T1155Z §5, arguing for a principle rather than reporting a bug:
  * *"the acknowledgement should gate USE of the endpoint, not VALIDITY of the config."*
  *
  * The write-time gate keyed off the endpoint EXISTING (`if (effBaseUrl)`), resolved from patch-or-stored. So

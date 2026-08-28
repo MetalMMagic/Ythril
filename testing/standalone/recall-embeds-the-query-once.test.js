@@ -3,7 +3,7 @@
  *
  * ## How this was found, and why the reported mechanism was wrong
  *
- * breituai-platform moved their text embedder onto a shared GPU endpoint and reindexed six instances. With the
+ * The canary operator moved their text embedder onto a shared GPU endpoint and reindexed six instances. With the
  * endpoint saturated, every `recall` from their platform instance failed, and their access log showed the shape
  * exactly:
  *

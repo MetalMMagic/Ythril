@@ -3,7 +3,7 @@
  *
  * ## The report, and why it was believed on sight
  *
- * breituai-platform, 2026-08-12T2140Z: `deleteFields: ["tags"]` is documented and fails with a Mongo path
+ * The canary operator, 2026-08-12T2140Z: `deleteFields: ["tags"]` is documented and fails with a Mongo path
  * conflict. Confirmed by reading `entities.ts` and `edges.ts` rather than by reproducing, because the cause is
  * total: the guard meant to suppress the `$set` was
  *

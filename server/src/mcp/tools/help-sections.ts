@@ -181,7 +181,7 @@ export function helpSections(
        *
        * The capability has been enforced since #937 as `isSpaceAdminFor` — every one of the four areas at
        * `admin`, for ONE space. It had no name on any surface: the rights matrix shows four independent rungs
-       * and nothing said that all four at admin IS administering that space. breituai-platform asked twice
+       * and nothing said that all four at admin IS administering that space. The canary operator asked twice
        * (2026-08-17T1910Z, narrowed 1916Z) and their complaint was about the surface rather than the
        * capability — an operator could not find it, grant it in one action, or verify they held it.
        *

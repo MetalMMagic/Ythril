@@ -446,7 +446,7 @@ function enforceSpaceScope(
   // member, and the read paths then serve only the members it reaches.
   //
   // This used to require ALL members, which meant a proxy could not be granted to a scoped token at all — listing it
-  // in `spaces` did nothing and every call 403'd. aigents proved it was not specific to one proxy by building their
+  // in `spaces` did nothing and every call 403'd. The fleet integrator proved it was not specific to one proxy by building their
   // own over 15 spaces and getting the same refusal (Q-6).
   //
   // **This is the ONLY behaviour change in Q-6**, and it is safe now because all 29 read fan-outs were narrowed

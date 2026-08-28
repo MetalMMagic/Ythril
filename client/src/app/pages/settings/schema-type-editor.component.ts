@@ -60,7 +60,7 @@ import { mergeFnsFor, mergeFnAfterTypeChange } from '../../shared/merge-fns';
   // defaults — with no error, in a component that still works perfectly.
   //
   // CHIP_STYLES: `.chip-wrap`/`.chip`/`.chip-rm`/`.chip-field`, the oversized enum remove button
-  // breituai-platform reported.
+  // the canary operator reported.
   //
   // PROP_TABLE_STYLES: `.prop-table`/`.prop-row`/`.prop-caret`/`.pdet`/`.pdet-fields`/`.req-toggle`. Missing
   // for longer and reported by the owner on 2026-08-15 with a screenshot — the Required pill rendered as a

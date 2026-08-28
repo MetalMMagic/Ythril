@@ -3,7 +3,7 @@
  *
  * ## The ask
  *
- * From aigents (2026-08-09), with probes: today a proxy space cannot be granted to a non-admin token at all.
+ * From the fleet integrator (2026-08-09), with probes: today a proxy space cannot be granted to a non-admin token at all.
  * Listing the proxy in `spaces` does nothing and every call `403`s, because `enforceSpaceScope` requires the token
  * to reach **every** member. They proved it was not specific to one proxy by building their own over 15 spaces and
  * getting the same refusal.

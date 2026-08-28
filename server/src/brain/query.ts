@@ -22,7 +22,7 @@ const VALID_OPTIONS_RE = /^[imsx]+$/;
 /**
  * Exported so `recall` can validate a raw-Mongo filter with the SAME parser, allowlist and depth cap `query` uses.
  *
- * aigents, 2026-08-13T1035Z §2: recall's filter is one operator object per key, ANDed, while query's takes
+ * The fleet integrator, 2026-08-13T1035Z §2: recall's filter is one operator object per key, ANDed, while query's takes
  * `$or`/`$and`/`$not`/`$regex`/`$elemMatch` nested to depth 8 — so a caller wanting meaning-ranking AND a real predicate
  * had to make two calls. Two filter languages against one store is a fork of the same policy, and the narrower one keeps
  * being the reason a caller reaches for the wrong tool.
@@ -74,7 +74,7 @@ const ALLOWED_COLLECTIONS = new Set(['memories', 'entities', 'edges', 'chrono', 
 /**
  * The body keys `POST /api/brain/spaces/:id/query` accepts, as a VALUE so the route can refuse everything else.
  *
- * aigents sent `skip`, got a 200, and got page one back — *"it cost us a fabricated number"*. A permissive body is the
+ * The fleet integrator sent `skip`, got a 200, and got page one back — *"it cost us a fabricated number"*. A permissive body is the
  * defect; `skip` was only how they found it. This set lives beside `queryBrain` rather than in the router so that adding
  * a parameter to the query and forgetting to allow it in the body is one edit rather than two.
  */
@@ -84,7 +84,7 @@ export const QUERY_BODY_FIELDS: ReadonlySet<string> = new Set([
 
 /**
  * The other three brain READ routes that take a body, and had the same permissive-body defect `/query` was reported
- * for. aigents found it on `/query` because that is the one they were paging; `traverse`, `recall` and `find-similar`
+ * for. The fleet integrator found it on `/query` because that is the one they were paging; `traverse`, `recall` and `find-similar`
  * dropped unknown keys just as silently, and a mistyped `topK` or `minScore` there produces a wrong answer with a 200
  * exactly the same way.
  *
@@ -202,7 +202,7 @@ export async function queryBrain(
   limit = 20,
   maxTimeMS = 5000,
   /**
-   * Rows to discard before the page. aigents reported `skip` being accepted at 200 and silently ignored on
+   * Rows to discard before the page. The fleet integrator reported `skip` being accepted at 200 and silently ignored on
    * `POST /query`, which cost them a fabricated number: a paged sweep re-read page one every time and was counted as
    * if it had advanced. A wrong number that looks right is worse than an error, so this parameter is honoured here
    * rather than validated at the door and dropped.
@@ -252,7 +252,7 @@ export async function queryBrain(
 /**
  * How many documents the filter matches, ignoring `limit` and `skip`.
  *
- * aigents had to fabricate a number because `count` on the response is the PAGE length: a caller sweeping with `skip`
+ * The fleet integrator had to fabricate a number because `count` on the response is the PAGE length: a caller sweeping with `skip`
  * cannot tell a short last page from a truncated one without an extra request that returns nothing. This is the number
  * they were computing by hand.
  *

@@ -135,15 +135,15 @@ Only `--`-prefixed CSS custom properties are accepted. Standard CSS properties (
 > **The `targetOrigin` must be Ythril's origin, and the safest way to get it is from `iframe.src`.**
 > An earlier version of this snippet ended `}, 'https://your-ythril-host');` — a placeholder, which reads as
 > an invitation to construct the value. An operator reported this in the console on 2026-08-20, embedding
-> Ythril in a page on `www.breituai.com`:
+> Ythril in a page on `www.example.com`:
 >
 > ```text
 > "postMessage" could not be executed on 'DOMWindow': the specified target origin
-> ("https://ythril.www.breituai.com") does not match the recipient window's origin
-> ("https://www.breituai.com").
+> ("https://ythril.www.example.com") does not match the recipient window's origin
+> ("https://www.example.com").
 > ```
 >
-> `ythril.www.breituai.com` is not a host anybody has. It is `"ythril." + location.hostname` — the shape you
+> `ythril.www.example.com` is not a host anybody has. It is `"ythril." + location.hostname` — the shape you
 > get from assuming Ythril lives at a `ythril.` subdomain of the embedding page's domain, which is true right
 > up until the embedding page is on `www`. **Every one of those messages is refused by the browser**, so the
 > theme silently never arrives and nothing in Ythril reports a problem, because nothing in Ythril was reached.
@@ -230,7 +230,7 @@ By default Ythril may only be framed and themed by its own origin. There are two
 
 #### From the admin UI — Settings → Embedding
 
-An instance admin can manage the list at **Settings → Embedding** without shell access. This is the route to point an operator at when the brain is theirs and the portal is yours: added 3.2.0, after breituai-platform reported that talking somebody through editing JSON on their own server means, in practice, that it does not happen.
+An instance admin can manage the list at **Settings → Embedding** without shell access. This is the route to point an operator at when the brain is theirs and the portal is yours: added 3.2.0, after the canary operator reported that talking somebody through editing JSON on their own server means, in practice, that it does not happen.
 
 | | admin UI | `config.json` |
 |---|---|---|

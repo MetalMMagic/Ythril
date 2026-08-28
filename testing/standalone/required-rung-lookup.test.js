@@ -17,7 +17,7 @@
  * event. `enforceAreaRung` logged every request to an exempt route as a miss, advising the operator to add it
  * to `ROUTE_RIGHTS` -- which would have undone the decision the exemption records -- and the message's own
  * plan ("misses become refusals once the log is clean") could never fire, because four routes were guaranteed
- * to warn forever. breituai-platform read those two log lines off a live pod on 2026-08-20 and reported them.
+ * to warn forever. The canary operator read those two log lines off a live pod on 2026-08-20 and reported them.
  *
  * The build-time gate makes `unclassified` unreachable in practice. This file assumes it happens anyway,
  * because "unreachable in practice" is how the last three silent failures in this codebase described

@@ -4,7 +4,7 @@
  * ## What was asked for, and what the risk in answering it is
  *
  * `embed.allowedOrigins` worked and lived only in `config.json`, so granting a portal permission to frame a brain
- * meant shell access. breituai-platform asked for it in the admin UI on 2026-08-19T1046Z; the reason it is worth
+ * meant shell access. The canary operator asked for it in the admin UI on 2026-08-19T1046Z; the reason it is worth
  * doing is theirs: *someone runs a brain, someone else wants to use it inside a portal, and the person who must act
  * has to be talked through editing a JSON file on a server.*
  *
@@ -168,7 +168,7 @@ describe('what the operator is told, since the UI is now the surface', () => {
 describe('no restart is implied anywhere, because none is needed', () => {
   it('the resolved list is read per request on both surfaces', () => {
     /*
-     * The claim made to breituai-platform in answer to their sub-question, pinned so it cannot quietly stop being
+     * The claim made to the canary operator in answer to their sub-question, pinned so it cannot quietly stop being
      * true. If either of these captured the value once at startup, an operator would save a change in the UI, see
      * nothing happen, and be told by the docs that no restart was needed.
      */

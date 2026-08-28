@@ -291,7 +291,7 @@ export const TOOL_RIGHTS: readonly ToolRight[] = [
  *     Space rights: no inventory entry for 'GET /api/brain/spaces/:spaceId/activity'
  *       — reach enforced, area not. Add it to ROUTE_RIGHTS; misses become refusals once the log is clean.
  *
- * on every single request. breituai-platform read that off their pod's stdout on 2026-08-20 and reported it,
+ * on every single request. The canary operator read that off their pod's stdout on 2026-08-20 and reported it,
  * correctly, as two routes in the rights subsystem that are reach-enforced but not area-enforced.
  *
  * Two things were wrong, and the second is worse than the first:

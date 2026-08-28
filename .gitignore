@@ -100,7 +100,7 @@ bench-data/
 **/.claude/settings.local.json
 
 # The rule the note above DESCRIBES but did not add. `.mcp.json` names a live instance
-# (`https://ythril.breituai.com/mcp`) and the env var holding its bearer token, and it was still
+# (`https://ythril.example.com/mcp`) and the env var holding its bearer token, and it was still
 # covered only by `.git/info/exclude`. The paragraph above explaining why that is not protection
 # was committed without the line that fixes it — so the explanation travelled and the protection
 # did not. It holds no literal secret today; the point is that it is one paste away from holding

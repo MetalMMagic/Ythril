@@ -3,7 +3,7 @@
  *
  * ## Why one file rather than two
  *
- * The five capabilities breituai-platform reported were all REST-only for the same reason: a route shipped, a tool was
+ * The five capabilities the canary operator reported were all REST-only for the same reason: a route shipped, a tool was
  * going to follow, and it did not — five times. B-3's verify line is therefore not "the endpoint works" but *"any new
  * endpoint exists on BOTH surfaces from the first commit"*, and the only way to test THAT is to ask the same question
  * through both doors in the same run and compare the answers. Two files, each green on its own, is exactly the shape
@@ -91,7 +91,7 @@ describe('REST: the record half of the embedding queue', () => {
   });
 
   it('REFUSES an unknown status instead of ignoring it', async () => {
-    // The `skip` defect aigents reported on POST /query, and the memory `type` defect on PATCH, were both this shape:
+    // The `skip` defect the fleet integrator reported on POST /query, and the memory `type` defect on PATCH, were both this shape:
     // a permissive body, a success status, and a silently dropped field. A caller who mistypes `failed` must not be
     // told the queue is fine.
     const r = await listRest('?status=broken');

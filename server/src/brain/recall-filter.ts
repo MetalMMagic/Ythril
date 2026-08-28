@@ -1,7 +1,7 @@
 /**
  * One entry point for a recall filter, in EITHER grammar.
  *
- * aigents, 2026-08-13T1035Z §2: `recall`'s filter is one operator object per key, ANDed — no `$or`, no `$regex`, no
+ * The fleet integrator, 2026-08-13T1035Z §2: `recall`'s filter is one operator object per key, ANDed — no `$or`, no `$regex`, no
  * nesting — while `query`'s takes the full allowlisted Mongo grammar to depth 8. Their case is the mailbox query in this
  * very board's usage notes: *a message is ours if `from`, `to` or `alsoFor` names us, and separately our own asks are live
  * while `status` is open.* One `query` filter expresses it; in recall's filter it is not expressible at any length. So they

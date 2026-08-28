@@ -20,7 +20,7 @@
  * deliberately-exempt route as an oversight, advising the operator to add it to `ROUTE_RIGHTS` — advice that
  * would have undone the recorded decision. Worse, the message's own plan (*"misses become refusals once the
  * log is clean"*) could never fire, because four routes were guaranteed to keep warning forever. Reported
- * from a live pod's stdout by breituai-platform, 2026-08-20; see the long note on `NOT_AREA_SCOPED`.
+ * from a live pod's stdout by the canary operator, 2026-08-20; see the long note on `NOT_AREA_SCOPED`.
  *
  * ## Matching, and the one thing that must never happen
  *

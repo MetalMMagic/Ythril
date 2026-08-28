@@ -3,7 +3,7 @@
  *
  * ## Why this exists at all
  *
- * breituai-platform read our 2.5.1 note and concluded that a brain record written while the embedder was unreachable is
+ * The canary operator read our 2.5.1 note and concluded that a brain record written while the embedder was unreachable is
  * **silently dropped**. That was half wrong, and the reality is better than they feared: the record is stored, and a
  * persisted job carries the failure per record — `attempts`, `lastError`, and a terminal `failed` status after
  * `MAX_EMBED_ATTEMPTS`. The record is unfindable by `recall` until its vector lands, but it is not lost.
@@ -119,7 +119,7 @@ embedJobsRouter.get('/spaces/:spaceId/embedding-queue/records', globalRateLimit,
 
   // `counts` aggregates EVERY job while the listing returns a page, so without `skip` a caller could be told
   // `failed: 500` and never reach failure #201 — an accurate total beside an unreachable tail, on the one surface whose
-  // justification is that its failures are actionable. Same asymmetry that cost aigents a fabricated number on `/query`,
+  // justification is that its failures are actionable. Same asymmetry that cost the fleet integrator a fabricated number on `/query`,
   // and paged here by the same function rather than by the same shape written twice.
   const effectiveLimit = limit ?? DEFAULT_JOB_PAGE;
   const page = await pageAcrossMembers<ReturnType<typeof toWire>>({

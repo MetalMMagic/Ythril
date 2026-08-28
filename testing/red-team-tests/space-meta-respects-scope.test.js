@@ -8,7 +8,7 @@
  * space's meta, its completeness report and any individual type schema — while the same instance correctly filtered
  * that space out of `GET /api/spaces` for the same token.
  *
- * Found while verifying a 404/403 asymmetry breituai-platform reported from a scoping proof run. The asymmetry they
+ * Found while verifying a 404/403 asymmetry the canary operator reported from a scoping proof run. The asymmetry they
  * described turned out to be a nonexistent endpoint (`GET /api/spaces/:id` does not exist, so the app's catch-all
  * answers `{"error":"Not found"}` for every id). This was underneath it, and their run passed within one request of it.
  *
@@ -125,7 +125,7 @@ describe('a scoped token is REFUSED on a space it is not scoped to', () => {
 
 describe('the reported 404 is a missing ROUTE, not a mask', () => {
   it('GET /api/spaces/:id does not exist, so it 404s for a space the token CAN reach', async () => {
-    // breituai-platform read `GET /api/spaces/adrs -> 404 {"error":"Not found"}` as the read path masking a
+    // the canary operator read `GET /api/spaces/adrs -> 404 {"error":"Not found"}` as the read path masking a
     // permission failure, and concluded reads mask while writes refuse. Asserted here against the space the token IS
     // scoped to: still 404, so the status carries no information about permission at all. The tell is the body — the
     // real routes answer `Space 'x' not found`, this one answers the app's catch-all `Not found`.

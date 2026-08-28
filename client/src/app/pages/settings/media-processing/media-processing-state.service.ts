@@ -737,7 +737,7 @@ export class MediaProcessingStateService {
        *     {"error":"Invalid request body","details":[{"code":"unrecognized_keys","keys":["enabled"],
        *       "path":["faceRecognition"],"message":"Unrecognized key: \"enabled\""}]}
        *
-       * Reported by breituai-platform 2026-08-20 after their owner spent an afternoon behind it. The comment
+       * Reported by the canary operator 2026-08-20 after their owner spent an afternoon behind it. The comment
        * above this list was already correct and the list did not match it: `enabled` became an infra/env pin
        * when the face switch was removed, `modelPath` and `reprocessSyncedImages` were correctly dropped from
        * here at the same time, and this one was left behind. The card's own template says so in as many words —

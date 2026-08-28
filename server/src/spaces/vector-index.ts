@@ -377,7 +377,7 @@ export const PROBE_NUM_CANDIDATES = 10;
  *       — probe did not serve: Executor error during aggregate command ...
  *         :: caused by :: embedding is not indexed as vector
  *
- * **The probe could never succeed, so its answer carried no information at all.** breituai-platform read
+ * **The probe could never succeed, so its answer carried no information at all.** The canary operator read
  * those lines off a live pod on 2026-08-20, concluded from them that no face index had ever been built, and
  * stopped a configuration change on the strength of it. The index may well have been READY throughout; the
  * only instrument that could have said was the broken one.
@@ -659,7 +659,7 @@ export async function buildSpaceVectorIndexes(
  *
  * ## The face gallery is polled and does NOT get a vote
  *
- * breituai-platform 2026-08-17T1540Z §8: fourteen spaces, three showing a red *"Index build failed"* and
+ * The canary operator 2026-08-17T1540Z §8: fourteen spaces, three showing a red *"Index build failed"* and
  * eleven *"Preparing indexes…"*, on an instance whose search worked normally. The three and the eleven are one
  * number — `FINALIZE_CONCURRENCY` is 3, so those were simply the first batch to reach the end of a 600 s
  * window while the rest were still queued behind it.

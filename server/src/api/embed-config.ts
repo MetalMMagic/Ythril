@@ -5,7 +5,7 @@
  * ## Why this route exists
  *
  * `embed.allowedOrigins` has worked since the embedding feature shipped, and it lived only in `config.json`. Asked
- * for by breituai-platform 2026-08-19T1046Z, whose case is the one the file-only shape does not serve:
+ * for by the canary operator 2026-08-19T1046Z, whose case is the one the file-only shape does not serve:
  *
  *   > someone runs a brain, someone else wants to use it inside a portal, and the person who must act has to be
  *   > talked through editing a JSON file on a server.

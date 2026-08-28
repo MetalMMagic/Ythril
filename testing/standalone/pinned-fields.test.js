@@ -3,7 +3,7 @@
  *
  * ## The request
  *
- * breituai-platform, twice, 2026-08-12T1238Z (Q3): *"once the URL is infra-pinned to an in-cluster unauthenticated
+ * The canary operator, twice, 2026-08-12T1238Z (Q3): *"once the URL is infra-pinned to an in-cluster unauthenticated
  * endpoint, an editable key field is a control with nothing behind it. Empty is the CORRECT value, and we would
  * like to pin the correct value."* Owner ruled **A** — an explicit list — on 2026-08-19.
  *

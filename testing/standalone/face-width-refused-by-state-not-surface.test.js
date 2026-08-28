@@ -7,7 +7,7 @@
  * stored vectors: *"a populated gallery cannot be re-dimensioned: its stored vectors have not moved, so
  * re-declaring the width would leave every existing descriptor unmatchable."*
  *
- * breituai-platform, 2026-08-20T1012Z, asked whether that binds when there is nothing stored to strand. They
+ * The canary operator, 2026-08-20T1012Z, asked whether that binds when there is nothing stored to strand. They
  * had fourteen spaces, three images between them — two of which are page renders our own conversion pipeline
  * extracted from a scanned invoice — and not one face descriptor at any width. Their framing was the useful
  * part: *"we are asking whether the guard is 'no stored faces may be invalidated' or 'no, categorically'."*

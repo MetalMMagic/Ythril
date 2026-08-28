@@ -53,7 +53,7 @@ export const RECALL_RECORD_DIAGNOSTICS = ['matchedText', 'embeddingModel', 'seq'
  *
  * ## Why they left the `includeDiagnostics` bundle
  *
- * breituai-platform 2026-08-17T1549Z, correcting their own 1540Z, and the argument is mine turned around
+ * The canary operator 2026-08-17T1549Z, correcting their own 1540Z, and the argument is mine turned around
  * correctly. I wrote that the six bundled fields are not where a large response comes from — the bodies are.
  * **Three floats per result are not a cost, so they do not belong behind a flag whose purpose is removing
  * cost.** Bundling a passage-sized field with three numbers under one switch was the actual error.

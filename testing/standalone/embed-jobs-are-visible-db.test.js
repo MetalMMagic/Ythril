@@ -3,7 +3,7 @@
  *
  * ## What was actually wrong
  *
- * breituai-platform read our 2.5.1 note and concluded a brain record written while the embedder was unreachable is
+ * The canary operator read our 2.5.1 note and concluded a brain record written while the embedder was unreachable is
  * silently dropped. `embed-queue-db.test.js` already proves that is not what happens: the record is stored, a job is
  * enqueued, it retries with backoff, and it ends `failed` with its `lastError` after the attempt budget.
  *

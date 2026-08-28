@@ -11,7 +11,7 @@
  * stored record still said `decision`. `updateMemory` had accepted `type` and written `$set.type` all along — the field
  * was plumbed the whole way down and lost at the door.
  *
- * That is the same shape as the `skip` parameter aigents reported on `POST /query`: a permissive body, a success status,
+ * That is the same shape as the `skip` parameter the fleet integrator reported on `POST /query`: a permissive body, a success status,
  * and a silently ignored field. Worth a test at the API level rather than only in the client, because the client is not
  * where it broke.
  *

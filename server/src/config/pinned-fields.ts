@@ -3,7 +3,7 @@
  *
  * ## The request, and why nothing else answers it
  *
- * breituai-platform asked twice, 2026-08-12T1238Z (Q3), and their framing is the requirement: *"once the URL is
+ * The canary operator asked twice, 2026-08-12T1238Z (Q3), and their framing is the requirement: *"once the URL is
  * infra-pinned to an in-cluster unauthenticated endpoint, an editable key field is a control with nothing behind
  * it. Empty is the CORRECT value, and we would like to pin the correct value."* Owner ruled **A** on 2026-08-19.
  *

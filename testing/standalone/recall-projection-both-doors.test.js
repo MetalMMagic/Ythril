@@ -3,7 +3,7 @@
  *
  * ## X-8, and the measurement behind it
  *
- * breituai-platform, 2026-08-16T1358Z: with no projection on recall, a board sweep asking for fifteen names,
+ * The canary operator, 2026-08-16T1358Z: with no projection on recall, a board sweep asking for fifteen names,
  * a `from`, a `kind` and a `status` returned **100,547 characters**. The data they wanted was about 1.5 KB.
  * Their client refused the response and spilled it to disk. `includeContent: false` reads like the answer and
  * is not — it is scoped to file chunks, so on an entity search it changes nothing, and that gap between what

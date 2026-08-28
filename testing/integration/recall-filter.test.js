@@ -437,9 +437,9 @@ describe('Recall filter — eq filter on properties.status', () => {
     assert.ok(!ids.includes(rejectedId), `Rejected entity (${rejectedId}) must NOT be in filtered results`);
   });
 
-  it('RAW MongoDB $or reaches both — the filter aigents could not express at all', async (t) => {
+  it('RAW MongoDB $or reaches both — the filter the fleet integrator could not express at all', async (t) => {
     if (!embeddingAvailable) return t.skip('Embedding not available');
-    // aigents 2026-08-13T1035Z §2: recall's grammar was one operator object per key, ANDed, so a predicate with an OR was
+    // the fleet integrator 2026-08-13T1035Z §2: recall's grammar was one operator object per key, ANDed, so a predicate with an OR was
     // not expressible at any length and they ran `query` first and fed ids into something else.
     //
     // Both fixtures share an identical description, so similarity cannot distinguish them — only the filter can. An `$or`

@@ -635,7 +635,7 @@ keys:
 ```
 
 **This is a deliberate break with the previous behaviour, and it is the point.** These bodies used to accept any key and
-honour the ones they recognised. aigents paged a sweep with `skip` before it was implemented, got `200` every time, and
+honour the ones they recognised. The fleet integrator paged a sweep with `skip` before it was implemented, got `200` every time, and
 counted page one repeatedly as if it had advanced — *"it cost us a fabricated number"*. A parameter the server cannot
 honour is now an error rather than a wrong answer that looks right.
 

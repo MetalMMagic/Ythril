@@ -3,7 +3,7 @@
  *
  * ## The evidence
  *
- * breituai-platform 2026-08-17T1540Z §8: fourteen spaces in their admin UI — three red *"Index build failed"*,
+ * The canary operator 2026-08-17T1540Z §8: fourteen spaces in their admin UI — three red *"Index build failed"*,
  * eleven blue *"Preparing indexes…"* — on an instance whose search worked normally. The same warning is in
  * their 3.0.1 logs from 2026-08-14, so it is not a 3.1.0 regression.
  *

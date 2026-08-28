@@ -3,7 +3,7 @@
  *
  * ## Why this file exists
  *
- * breituai-platform, 2026-08-11T1722Z, and the principle is theirs: *"The rights matrix decides what a token may
+ * The canary operator, 2026-08-11T1722Z, and the principle is theirs: *"The rights matrix decides what a token may
  * do; the surface should not also decide whether it can."* They hit five of these in one day of ordinary work —
  * none from auditing the API — and the worst part of the report is not the five. It is that they could not tell
  * **absent** from **gated**: a capability hidden behind a right they lacked and a capability that was never
@@ -59,7 +59,7 @@ export interface RestOnlyCapability {
 export const REST_ONLY_CAPABILITIES: readonly RestOnlyCapability[] = [
   // EMPTY, and that is the finished state rather than an oversight.
   //
-  // All five capabilities breituai-platform reported now exist as MCP tools. Each left this list by being BUILT —
+  // All five capabilities the canary operator reported now exist as MCP tools. Each left this list by being BUILT —
   // `mcp-rest-parity.test.js` asserts both halves of every row, so a row cannot be deleted to quiet the gate: the day
   // a tool of that name exists the row must go, and the day the REST route is renamed the row must be corrected.
   //

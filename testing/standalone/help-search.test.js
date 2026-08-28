@@ -66,7 +66,7 @@ describe('help still answers with the whole guide when asked for nothing', () =>
   });
 
   it('keeps the REST-only capability map it already carried', async () => {
-    // #841 put it there and breituai's agents branch on it. A refactor of this tool must not drop it.
+    // #841 put it there and the fleet integrator's agents branch on it. A refactor of this tool must not drop it.
     const r = await helpTool.handle(ctx());
     assert.ok(r.structuredContent.restOnly, 'restOnly must survive the search refactor');
     assert.ok(Array.isArray(r.structuredContent.restOnly.capabilities));

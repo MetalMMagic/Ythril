@@ -7,7 +7,7 @@
  * else — while `help()` told callers *"Call list_spaces for storage/quota details"*. So a caller who read the
  * authoritative reference and believed it found no storage anywhere on that door, and would not report it,
  * because **nobody reports a capability they were told they did not have**. That is the same shape as the
- * `recall` filter sentence aigents designed around: the schema description is code, and this one had drifted.
+ * `recall` filter sentence the fleet integrator designed around: the schema description is code, and this one had drifted.
  *
  * It is also the repo's most frequent defect arriving as an omission — one rule, two implementations, the weaker
  * one silent. `mcp-rest-parity.test.js` gates the CAPABILITY half; this gates the FIELD half for one capability

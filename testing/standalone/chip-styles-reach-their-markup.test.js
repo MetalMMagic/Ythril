@@ -3,7 +3,7 @@
  *
  * ## The defect
  *
- * breituai-platform, 2026-08-12T2230Z: *"the schema editor's enum-value remove buttons are oversized and clip their own
+ * The canary operator, 2026-08-12T2230Z: *"the schema editor's enum-value remove buttons are oversized and clip their own
  * labels"*. They were unstyled. `schema-type-editor.component.ts` renders `.chip-wrap`, `.chip`, `.chip-rm` and
  * `.chip-field`; its only stylesheet was `SCHEMA_MD_STYLES`, which defines none of them; and `styles.scss` has no global
  * chip rules to fall back on. So `.chip-rm` — a `<button>` — rendered with the browser's own border, background, padding

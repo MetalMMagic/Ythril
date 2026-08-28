@@ -1274,7 +1274,7 @@ const FACE_RECOGNITION_ENV: Record<keyof Required<FaceRecognitionConfig>, string
   // report controls the operator cannot use and could not explain. `face-recognition-env.test.js` pins that reasoning.
   //
   // To forbid the egress, pin the value that forbids it: `FACE_RECOGNITION_ENABLED=false`. There is currently no way to
-  // express "fixed, and fixed at nothing" for a field whose empty value is meaningful — breituai-platform asked for
+  // express "fixed, and fixed at nothing" for a field whose empty value is meaningful — the canary operator asked for
   // exactly that on 2026-08-12 and it needs a mechanism that cannot be confused with a Compose default.
   externalModel: 'FACE_RECOGNITION_EXTERNAL_MODEL',
   enabled: 'FACE_RECOGNITION_ENABLED',

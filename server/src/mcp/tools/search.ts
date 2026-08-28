@@ -164,7 +164,7 @@ export const recallTool: ToolHandler = {
                * LEGACY grammar and nothing else — while the description two lines above promised raw MongoDB,
                * and REST delivers it.
                *
-               * Measured on one instance, one space, the same instant, with breituai-platform's own filter
+               * Measured on one instance, one space, the same instant, with the canary operator's own filter
                * `{type: 'message', 'properties.readBy': {$not: {$regex: 'ythril'}}}`:
                *
                *     REST  POST /recall  ->  200, returns the record
@@ -589,7 +589,7 @@ export const queryTool: ToolHandler = {
     + '• `results` — the matching documents, `embedding` always stripped. Ordered seq/updatedAt/createdAt descending unless you pass `sort`.\n'
     + '• `count` — how many rows are in THIS page. `total` — how many satisfy the filter overall. They differ whenever `limit` bit, and that difference is the only signal that there is more to page through.\n'
     + '• `limit`, `skip` — echoed back, so a pager can carry on without keeping its own state.\n\n'
-    + 'A count with no rows is a BUG, not an empty page: `results` is carried in both `content` and `structuredContent`, and a client that reads only one of them gets the whole answer either way. Before 3.1 the rows were in `content` alone, so a client preferring `structuredContent` saw {"count":15,"total":40} and not a single row — reported independently by breituai-platform and reproduced here. If you ever see a positive `count` with nothing in it, the instance predates that fix.',
+    + 'A count with no rows is a BUG, not an empty page: `results` is carried in both `content` and `structuredContent`, and a client that reads only one of them gets the whole answer either way. Before 3.1 the rows were in `content` alone, so a client preferring `structuredContent` saw {"count":15,"total":40} and not a single row — reported independently by the canary operator and reproduced here. If you ever see a positive `count` with nothing in it, the instance predates that fix.',
   spaceRequired: true,
   inputSchema: (s: ToolSchemas) => ({
           type: 'object',
@@ -668,7 +668,7 @@ export const queryTool: ToolHandler = {
     for (const mid of members) total += await countBrain(mid, coll, filter, maxTimeMS);
 
     // `content` stays the bare array it has always been, so a client parsing the text is unaffected. Without `total`
-    // a caller sweeping with `skip` cannot tell a short last page from a truncated one, which is the number aigents
+    // a caller sweeping with `skip` cannot tell a short last page from a truncated one, which is the number the fleet integrator
     // ended up fabricating.
     //
     // **`results` is in `structuredContent` too, and that is not redundancy.** This block used to carry the paging
@@ -684,7 +684,7 @@ export const queryTool: ToolHandler = {
     //
     // **THIS COMMENT USED TO CLAIM IT WAS "the only tool with that shape — every other structuredContent in this
     // layer carries its own payload". THAT WAS FALSE, and the claim is why nobody checked.** `help` had the
-    // identical shape: an index plus a capability map, with the entire guide in `content` alone. breituai-platform
+    // identical shape: an index plus a capability map, with the entire guide in `content` alone. The canary operator
     // then reported the guide as unreachable and filed it as `help()` returning no bodies — which it never did.
     //
     // A universal claim cannot live in a comment. `mcp-structured-content-carries-its-payload.test.js` now sweeps

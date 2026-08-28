@@ -57,7 +57,7 @@ describe('the area check', () => {
 
   it('a DELIBERATELY exempt route is silent — it is decided, not missed', () => {
     /*
-     * The defect breituai-platform read off a live pod on 2026-08-20. `NOT_AREA_SCOPED` records, with a
+     * The defect the canary operator read off a live pod on 2026-08-20. `NOT_AREA_SCOPED` records, with a
      * written reason each, that four routes are not views of a space's DATA. The runtime knew only
      * `ROUTE_RIGHTS`, so every request to one of them logged
      *

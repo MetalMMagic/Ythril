@@ -11,7 +11,7 @@
  * which reads as "unless we are removing it" and means nothing of the kind: `!''` is `true`, always. So the `$set`
  * was always written, the update named one path in both `$set` and `$unset`, and Mongo rejected the whole write
  * with *"Updating the path 'tags' would create a conflict"*. `deleteFields` on a whole field could not work on
- * either record type, and the failure was a 500. Reported by breituai-platform 2026-08-12.
+ * either record type, and the failure was a 500. Reported by the canary operator 2026-08-12.
  *
  * Nested paths were unaffected — deleting `properties.region` leaves `properties` present, so no `$unset` is
  * written for it — which is why every documented example worked and the feature looked fine.

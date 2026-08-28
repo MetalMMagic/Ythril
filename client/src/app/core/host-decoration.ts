@@ -3,7 +3,7 @@
  *
  * ## What this is answering
  *
- * breituai-platform, 2026-08-18T1806Z (board record `2023b882`), as an explicit ask rather than a request:
+ * The canary operator, 2026-08-18T1806Z (board record `2023b882`), as an explicit ask rather than a request:
  * *"Nothing here is urgent, nothing is blocked on you, and 'not our aesthetic' is a complete answer that we will
  * not raise again."* Owner ruled **A** — take the CSS — on 2026-08-19 (was P-11).
  *

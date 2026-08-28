@@ -115,7 +115,7 @@ export function applyDeleteFields(
  * `!$unset['tags']` was always true, `$set['tags']` was always written, and the update reached Mongo naming one
  * path in both `$set` and `$unset`. Mongo rejects that outright — *"Updating the path 'tags' would create a
  * conflict at 'tags'"* — so `deleteFields` on a whole field could never work on either record type. Reported by
- * breituai-platform 2026-08-12 against `deleteFields: ["tags"]`, which returned a 500.
+ * the canary operator 2026-08-12 against `deleteFields: ["tags"]`, which returned a 500.
  *
  * **Nested paths were unaffected**, which is why it survived: deleting `properties.region` leaves `properties`
  * present, so no `$unset` is written for it and the guard never mattered. Every documented example used a nested

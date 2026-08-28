@@ -3,7 +3,7 @@
  *
  * ## The ask
  *
- * aigents, 2026-08-11T1045Z, alongside the `skip` finding: `sort` on `/query`, and an explicit way to fetch everything.
+ * The fleet integrator, 2026-08-11T1045Z, alongside the `skip` finding: `sort` on `/query`, and an explicit way to fetch everything.
  * #863 honoured `skip` and turned `sort` from silently ignored into an explicit `400` naming it — the right direction, and
  * still not the thing they asked for.
  *

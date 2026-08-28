@@ -251,7 +251,31 @@ function degree(rels: ErRelationship[], type: string): number {
  * Deterministic for a given model: the same input produces the same picture, so a re-render does not shuffle
  * the diagram under someone's cursor.
  */
-export function layoutErModel(realTypes: ErEntityType[], realRels: ErRelationship[]): ErLayout {
+export function layoutErModel(
+  realTypes: ErEntityType[],
+  realRels: ErRelationship[],
+  /**
+   * How much width the diagram may USE, in CSS pixels — the stage's inner width, not the window's.
+   *
+   * ## Why this parameter exists, and why it is optional
+   *
+   * breituai-platform's owner, 2026-08-20: *"use the whole row for the unlinked listings"* — the shelf wraps
+   * after four entries however wide the viewport is. His diagnosis was one step off in a way that matters:
+   * the shelf ALREADY flows to a width rather than to a fixed column count, but that width is the DIAGRAM's
+   * own (three columns plus their gaps), so widening the window cannot help. It is not a four-column grid; it
+   * is a width that happens to fit four.
+   *
+   * A pure function cannot know how much room it has been given, so the caller measures and passes it. That
+   * makes this the one input to the layout that is not a fact about the MODEL, which is why it is optional and
+   * why absence means "use the joined picture's own width" — the previous behaviour exactly. Every existing
+   * caller and every spec keeps working, and a caller with no element to measure (a test, a server-side
+   * render) is not forced to invent a number.
+   *
+   * It only ever WIDENS the shelf. The joined columns are unaffected: their width is what the lanes and labels
+   * need, and stretching them would push the hub away from its neighbours to fill space.
+   */
+  availableWidth?: number,
+): ErLayout {
   if (realTypes.length === 0) return { boxes: [], paths: [], width: 0, height: 0 };
 
   // Memories, chrono and files join the picture as boxes of their own — see `syntheticKinds`. From here down
@@ -533,8 +557,17 @@ export function layoutErModel(realTypes: ErEntityType[], realRels: ErRelationshi
    */
   const joinedBottom = boxes.length > 0 ? Math.max(...boxes.map(b => b.y + b.h)) : PAD;
   let shelfBottom = joinedBottom;
+  /**
+   * The width the SHELF may spread across — the container's when we were told it, else the diagram's own.
+   *
+   * `Math.max` rather than a straight swap: a container NARROWER than the joined picture must not squeeze the
+   * shelf below what the columns already occupy, because the stage scrolls horizontally anyway. Taking the
+   * minimum would make a narrow window reflow the shelf into a tall stack while the part of the diagram that
+   * has meaning stayed exactly as wide as before — the failure this whole shelf exists to have fixed.
+   */
+  const shelfWidth = Math.max(width, availableWidth ?? 0);
   if (shelf.length > 0) {
-    const perRow = Math.max(1, Math.floor((width - PAD * 2 + GAP_X) / (BOX_W + GAP_X)));
+    const perRow = Math.max(1, Math.floor((shelfWidth - PAD * 2 + GAP_X) / (BOX_W + GAP_X)));
     let y = joinedBottom + SHELF_GAP;
     for (let i = 0; i < shelf.length; i += perRow) {
       const row = shelf.slice(i, i + perRow);
@@ -551,5 +584,17 @@ export function layoutErModel(realTypes: ErEntityType[], realRels: ErRelationshi
   }
 
   const height = Math.max(joinedBottom, shelfBottom) + PAD;
-  return { boxes, paths, width, height };
+  /*
+   * The reported width has to cover the SHELF as well, or the SVG clips it.
+   *
+   * `width` is what the joined columns need. Once the shelf can be wider than that, returning `width` would
+   * size the viewBox to the columns and cut the shelf off at the right — visible only as boxes that are
+   * simply not drawn, with nothing to say why. So the answer is the widest row actually laid out.
+   *
+   * Computed from the boxes rather than from `shelfWidth`: a shelf of two boxes in a 2000-pixel container
+   * occupies what two boxes occupy, and reporting the container would leave a lake of empty canvas that the
+   * stage would then offer to scroll.
+   */
+  const occupied = boxes.length > 0 ? Math.max(...boxes.map(b => b.x + b.w)) : 0;
+  return { boxes, paths, width: Math.max(width, occupied + PAD), height };
 }

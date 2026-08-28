@@ -80,6 +80,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The ER diagram's unlinked shelf now spreads across the card's width, not the diagram's own.** The third of
+  breituai-platform's three rules, and the one where their diagnosis was a step off in a way worth recording:
+  *"use the whole row for the unlinked listings"* — it wraps after four entries however wide the viewport is.
+
+  The shelf already flowed to a width rather than to a fixed column count. That width was
+  `colX[2] + BOX_W + PAD` — the joined picture's own, three columns plus their gaps — so it was never a
+  four-column grid, just a width that happens to fit four, and widening the window could not help because
+  nothing in the calculation read the window.
+
+  `layoutErModel` takes an optional `availableWidth`, which makes it the one input to the layout that is not a
+  fact about the model — hence optional, with absence meaning the previous behaviour exactly, so every existing
+  caller and spec is unchanged. The panel measures its own `.stage` with a `ResizeObserver` rather than a window
+  listener, because the stage narrows when the sidebar collapses or a neighbouring panel appears and neither
+  resizes the window. Guarded for jsdom, which has no `ResizeObserver`: with none, the width stays 0 and the
+  layout falls back, so the component specs assert the geometry they always did.
+
+  **`Math.max`, not a swap.** A container NARROWER than the joined columns must not squeeze the shelf: the stage
+  scrolls horizontally, so taking the minimum would reflow the shelf into a tall stack while the part of the
+  diagram that has meaning stayed exactly as wide as before — which is the failure the shelf was introduced to
+  fix. And the reported `width` now covers the widest row actually laid out, computed from the boxes rather than
+  from the container: reporting the columns' width would clip the shelf at the right edge with nothing to say
+  why, and reporting the container would leave empty canvas the stage offers to scroll.
+
+  Seven property-based specs including monotonicity — more room never means fewer per row — and four mutants
+  killed. My first attempt at the component used a `(window:resize)` binding, which never fires on first render;
+  the stage lives behind three `@if` branches, so it needs a signal `viewChild`.
+
+
 - **One more capped window converted** — `infra-managed-locks-every-field` bounded a control at 400 characters
   of whatever followed its tag, and that cap FAILED ON CORRECT CODE: two conditional blocks added above one
   control pushed its closing token out of range, the regex matched a truncated block, and the gate invented a

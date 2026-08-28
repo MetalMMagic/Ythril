@@ -80,6 +80,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **An unacknowledged external endpoint is now STORED AND UNUSED instead of refusing every write to the media
+  route.** breituai-platform, 2026-08-20T1155Z, arguing a principle rather than reporting a bug:
+  *"the acknowledgement should gate USE of the endpoint, not VALIDITY of the config."* Their owner met the
+  consequence trying to raise an image level to "Caption + face recognition" and could not save; his summary of
+  the flow was *"not even i understand it"*, having built the face service on the other end of it.
+
+  Both egress gates keyed the refusal on the endpoint EXISTING, resolved from patch-or-stored. So one endpoint
+  stored without an acknowledgement refused **every** subsequent patch to this route, whatever it touched.
+
+  **Relaxing it was safe because the send site already enforced consent, and always had.**
+  `detectFacesExternal` returns null unless `faceEndpointConsented` matches the host it would send to, and that
+  function's own comment says why it is checked there too: *"a config edited on disk (bypassing the API) still
+  cannot silently egress biometric data."* The write-time refusal protected nothing the use-time one does not.
+  That is what turned their principle from defensible into obvious, and it is why the new gate asserts the send
+  site FIRST — it is now the only thing between a stored endpoint and a crop on the wire.
+
+  **But "gate the use" is not the whole answer, and the assist model's own comment is why.** It read: the
+  trigger is the pipeline rung *"whether that happened by configuring the endpoint or by raising the extraction
+  mode in the same or an EARLIER save"*. Those last three words are the defect; the rest is right. Consent is
+  owed at ACTIVATION, so the question is not *is this endpoint configured* but **does this patch turn it on** —
+  by pointing it somewhere, or by raising the rung that uses it. Which is also the owner's P-12 ruling (A + C):
+  consent is accepted, and therefore demanded, from the pipeline entry point as well as the endpoint's control.
+
+  **Activation turns out to be TWO conditions, and collapsing them into one broke a different contract.** The
+  first attempt at this fix made "the caller touched the endpoint" sufficient, and three integration tests went
+  red — one of them named after the behaviour it broke: *"configuring the endpoint BELOW the repair rung is
+  allowed (not reachable yet) and round-trips"*. Setting an endpoint up while the rung that uses it is off has
+  always been permitted, deliberately: nothing can be sent at that rung, so there is nothing to consent to yet,
+  and demanding it asks the operator to approve a transfer that cannot happen.
+
+  So the refusal requires both, and they answer different questions from different sources:
+
+  | | read from | question |
+  | --- | --- | --- |
+  | **reachable after this patch** | the EFFECTIVE state (patch ?? stored) | is the endpoint set, behind a rung that is on? |
+  | **caused by this patch** | the REQUEST only | did this caller point it somewhere, or raise the rung? |
+
+  Reachable-but-not-caused is somebody else's earlier decision — refusing it is the original defect.
+  Caused-but-not-reachable is a transfer that cannot occur — refusing it was the first attempt's defect. Both
+  have now shipped as bugs, which is why the conjunction is asserted as one expression rather than as two
+  facts about the file.
+
+  `auto` counts as an active rung on both endpoints — it resolves to `recognition` for images and to `repair`
+  for extraction, so a check for the explicit rung alone would let `auto` switch on a biometric pipeline
+  unasked. The GET reports `faceEndpointAwaitingAcknowledgment` so a UI can say "configured, not in use"
+  rather than leaving it to be discovered by a failure: quiet fallback is right for an *unreachable* endpoint,
+  a runtime condition nobody chose, and wrong for an *unacknowledged* one, which is a decision waiting on a
+  person.
+
+  **The same defect was on the assist endpoint and is fixed with it** — same page, same failure, document
+  content instead of face crops. One helper, called twice, rather than the two inline copies of a consent rule
+  that were there before. The refusals keep naming the exact host and what would be sent there, because they
+  asked us not to weaken that and it had already caught a real mistake of theirs within minutes.
+
+  **The gate was the real failure here and is now a different kind of test.** Every assertion in it read
+  `media-config.ts` and checked the SHAPE of the decision — and all of them passed on the version that broke
+  three integration tests, because the shape was right and the rule was wrong. Preflight cannot run the Docker
+  suites, so the rule itself is now exercised against the exported helper as a truth table, one row per
+  scenario those tests cover plus the one this change exists for, with an anti-vacuity check that both truth
+  values of both flags appear. Twelve mutants killed across both rounds, including the exact mutation that
+  reached CI and two earlier ones that found the gate counting a variable NAME rather than checking what it
+  meant.
+
+
 - **The embedding guide's `postMessage` snippet derives its target origin from the iframe instead of offering a
   placeholder.** breituai-platform found this in the console on 2026-08-20, embedding Ythril in a page on
   `www.breituai.com`:

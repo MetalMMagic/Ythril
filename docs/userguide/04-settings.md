@@ -513,6 +513,24 @@ These are set in `config.json` under `mediaEmbedding.faceRecognition`, or pinned
 | `personEntityTypes` | `["person"]` | Entity types considered as people. Only entities of these types can enter the face gallery. In the admin UI (**Settings → Media Processing → Face recognition**) these are **picked from your Schema Library's entity types**, shown as removable chips; any value already stored stays selectable even if it's no longer in the library. |
 | `reprocessSyncedImages` | `true` | When true, images received from other instances via sync are queued for face recognition automatically. |
 
+#### Configuring an external face service asks you to confirm it — once, at the right moment
+
+Pointing Ythril at your own face-recognition service means face crops leave this machine, so it asks you to
+confirm the exact destination before using it. Two moments raise that question, and they are the two moments
+you are actually deciding:
+
+- **Setting or changing the endpoint**, on **Settings → Media Processing → Models**.
+- **Raising the image level to “Caption + face recognition”**, on **Settings → Media Processing** — because
+  that is equally an act of switching faces on.
+
+Until you confirm, the endpoint is **saved and not used**: faces are handled by the built-in model instead,
+exactly as they would be if your service were unreachable. Nothing is lost and nothing leaves.
+
+**What changed, in case you met the old behaviour.** An unconfirmed endpoint used to make the whole page
+refuse to save — any setting, on either page, whether or not it had anything to do with faces. If you have
+seen a Save fail with a message about acknowledging a host while you were editing something unrelated, that
+was this.
+
 #### If face recognition finds nobody, check the descriptor width first
 
 **This is the one failure here that is silent and, until it is fixed, permanent.** A face gallery is built at

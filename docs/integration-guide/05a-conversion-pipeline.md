@@ -431,9 +431,20 @@ data leaves the instance. You can optionally point at an external recogniser und
 
 Three properties worth knowing before enabling it:
 
-- **Consent is mandatory and host-scoped.** Face crops are biometric data. The API rejects a save whose
-  `acknowledgedHost` does not match, and the runtime re-checks it — so a config edited on disk cannot
-  egress faces either. Re-pointing `baseUrl` at a different host revokes consent by construction.
+- **Consent is mandatory and host-scoped, and it is demanded at ACTIVATION.** Face crops are biometric
+  data. The API rejects a save that *switches the endpoint on* without a matching `acknowledgedHost` —
+  either by setting or repointing `baseUrl`, or by raising `levels.images` to `recognition` or `auto`,
+  since `auto` resolves to the recognition rung. Host comparison **includes the port**.
+  
+  An unacknowledged endpoint is otherwise **stored and unused**: it does not block unrelated writes to
+  this route, and `GET /api/admin/media-config` reports `faceEndpointAwaitingAcknowledgment: true`. It
+  used to refuse every subsequent patch, which meant one stored endpoint could brick the whole page.
+  
+  **The runtime re-checks consent regardless**, so a config edited on disk cannot egress faces either —
+  which is why the write-time gate could be narrowed without changing what may leave the instance.
+  Re-pointing `baseUrl` at a different host revokes consent by construction.
+  
+  `documentProcessing.assistModel` follows the identical rule, with `repair`/`auto` as its activating rung.
 - **A failing provider does NOT fall back to the bundled model unless you ask it to.** This changed: the
   fallback used to be unconditional. Both embedders emit the same descriptor width, so falling back wrote a
   *different embedder's* vectors into the same gallery and nothing could detect it — the vectors were the

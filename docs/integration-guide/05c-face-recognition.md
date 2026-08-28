@@ -126,6 +126,31 @@ The matcher reads the width from **the space's own index**, not from an instance
 
 When the face recognition feature is first enabled, any existing `initSpace` call will create the required index. If you add the feature after spaces already exist, re-run `initSpace` for each space or create the index manually via the Atlas UI / MongoDB admin API.
 
+#### An unacknowledged endpoint is stored and UNUSED — it does not block anything else
+
+`faceRecognition.externalModel` sends face crops off the instance, so it needs an explicit acknowledgement:
+`acknowledgedHost` must equal the endpoint's host **including its port**. Until it does, the endpoint is
+**stored and not used** — faces fall back to the in-process model exactly as they do for an unreachable one —
+and `GET /api/admin/media-config` reports `faceEndpointAwaitingAcknowledgment: true` so a UI can say so.
+
+**The acknowledgement is demanded when a patch ACTIVATES the endpoint**, which is two things:
+
+| This patch… | Consent demanded |
+| --- | --- |
+| sets or repoints `faceRecognition.externalModel` | yes — you are configuring the destination |
+| raises `levels.images` to `recognition` or `auto` | yes — `auto` resolves to the recognition rung, so this switches faces on |
+| anything else, while an unacknowledged endpoint happens to be stored | **no** |
+
+That last row is the one that changed. The gate used to fire whenever an unacknowledged endpoint *existed*, so
+one stored endpoint refused **every** subsequent write to this route — including raising an image level, which
+has nothing to do with face egress. An operator reported it on 2026-08-20 after an afternoon behind it.
+
+**Nothing about what may leave the instance changed.** `detectFacesExternal` refuses an unconsented endpoint
+before it opens a connection, and did so before this — which is why relaxing the write was safe. The guarantee
+lives at the send site, where it also covers a `config.json` edited by hand.
+
+`documentProcessing.assistModel` follows the identical rule, with `repair`/`auto` as its activating rung.
+
 #### Reading the gallery's readiness log
 
 At boot, each space's face index is polled and its outcome logged by name. The line to know:

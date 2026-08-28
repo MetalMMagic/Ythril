@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A storage quota that could not tell an empty store from one it was not allowed to read.**
+
+  Both halves of the usage measurement contributed zero on failure. A directory the process cannot list returned
+  early, a file it cannot stat was skipped, and a `dbStats` the database user is not permitted to run returned 0
+  bytes of brain data — all silently. So the usage came back LOWER than reality, and **a hard limit compared
+  against a number that is only a floor never fires**: an operator who configured a quota sees a quota that
+  simply never triggers, which from the outside is indistinguishable from being under it.
+
+  `metrics/registry.ts` had already reasoned exactly this out one layer up, for the same quantity — the storage
+  gauge emits NO series rather than a zero, because *"an absent series says 'not measured yet' where a zero
+  would have claimed 'empty'"*. That rule was right and it stopped at the gauge; the measurement it reads from
+  was still claiming empty. One rule, two implementations, and the weaker one was the one the quota consulted.
+
+  Now every measurement reports what it could not read, per area, and says so in a `WARN` line naming the path
+  and the error code. **It still fails OPEN** — a transient `EIO` on one subdirectory must not refuse writes on
+  an otherwise healthy instance, which would trade a reporting gap for an outage — but the allow is loud instead
+  of silent, and `checkQuota`'s result carries `measurementIncomplete` so a caller reporting "within quota" can
+  qualify it.
+
+  An ABSENT files directory is deliberately still a complete answer of zero: a space that has never held a file
+  uses no files, and calling that unmeasurable would put every fresh instance permanently in the degraded state
+  and get the alert switched off. Both directions are pinned.
+
+### Added
+
+- **`ythril_storage_usage_complete{area}`** — `1` when the last storage measurement read everything for that
+  area, `0` when that area's `ythril_storage_used_bytes` is a lower bound. **Alert on `== 0`.** Nothing in the
+  storage series could express this: 0.4 GiB reads identically whether it is the whole store or the readable
+  part of it.
+
+  Labelled by area rather than a single series for two reasons. The two halves fail for unrelated reasons an
+  operator acts on differently — a filesystem permission versus a database grant. And an unlabelled prom-client
+  gauge is initialised to `0` on construction, so it could never be ABSENT; since `0` is the alerting state, the
+  unlabelled version would report "the figures are a floor" on every instance from the moment it booted. The
+  reason is not a label, because a filesystem path is not a label value — it is in the WARN line.
+
 ## [3.3.0] — 2026-08-28
 
 ### Fixed

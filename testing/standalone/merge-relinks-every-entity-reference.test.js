@@ -36,6 +36,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { statementFrom } from './_structural-window.mjs';
 import { readFileSync } from 'node:fs';
 
 const TYPES = 'server/src/config/types.ts';
@@ -103,12 +104,42 @@ describe('executeMerge relinks every collection that can reference an entity', (
       assert.match(merge, new RegExp(`col<[^>]*>\\(\`\\$\\{spaceId\\}_${suffix}\`\\)`),
         `the merge never opens the ${suffix} collection — records there keep pointing at the absorbed entity, `
         + 'which phase 5 deletes');
-      // ...and queried for the absorbed id, which is what proves it is looking for references rather than
-      // touching the collection for some other reason.
-      assert.ok(
-        new RegExp(`${suffix}\`\\)[\\s\\S]{0,600}?entityIds: absorbed\\._id`).test(merge)
-        || new RegExp(`entityIds: absorbed\\._id[\\s\\S]{0,600}?${suffix}\``).test(merge),
-        `the merge opens ${suffix} but never searches it for \`entityIds: absorbed._id\``);
+      /*
+       * ...and queried for the absorbed id — bound by the VARIABLE the open declares, not by proximity.
+       *
+       * TWO WINDOWS CONVERTED INTO ONE STRONGER CLAIM. This was a 600-character gap tried in both directions,
+       * which asks "are these two strings near each other". The question is "is the query aimed at the
+       * collection that was opened", and the code answers it by name:
+       *
+       *     const memoryColl = col<MemoryDoc>(`${spaceId}_memories`);
+       *     const affected  = await memoryColl.find(asFilter({ spaceId, entityIds: absorbed._id }), …)
+       *
+       * So the open declares a variable and the query uses it. Following that link proves what the window
+       * only approximated: a `find` on some OTHER collection 600 characters away satisfied the old check, and
+       * a legitimate one pushed past 600 by an added comment would have failed it.
+       */
+      /*
+       * The DECLARATION matched whole, with the name captured — no gap of any size.
+       *
+       * My first attempt anchored on the `col<…>(` call and asked `statementAround` for its statement. That
+       * index sits INSIDE a template literal, and the walk skips template literals whole, so it returned a
+       * span reaching forty lines further on and the captured name was a variable declared long after. The
+       * failure said "opens memories as `newFrom`", which is the only reason it cost one run rather than
+       * an afternoon — a window failure would have said nothing at all.
+       */
+      const decl = new RegExp(
+        '(?:const|let)\\s+(\\w+)\\s*=\\s*col<[^>]*>\\(`\\$\\{spaceId\\}_' + suffix + '`',
+      ).exec(merge);
+      assert.ok(decl, `${suffix}: the collection is not opened into a named variable — re-anchor this gate`);
+      const varName = decl[1];
+
+      // Every statement that uses that variable AFTER the declaration, and one must be the reference search.
+      const uses = [...merge.matchAll(new RegExp(`\\b${varName}\\b`, 'g'))]
+        .filter(u => u.index > decl.index + decl[0].length)
+        .map(u => statementFrom(merge, u.index, `a use of ${varName}`));
+      assert.ok(uses.some(u => /entityIds: absorbed\._id/.test(u)),
+        `the merge opens ${suffix} as \`${varName}\` and never searches THAT collection for `
+        + '`entityIds: absorbed._id` — so records there keep pointing at the entity phase 5 deletes');
     });
   }
 

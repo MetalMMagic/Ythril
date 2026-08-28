@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Three more capped windows converted, and one of them became a stronger claim than any window could be.**
+  X-25c continues; `GRANDFATHERED_GAP` falls to **40 across 21 files**.
+
+  The interesting one is `merge-relinks-every-entity-reference`. It had a 600-character gap tried in BOTH
+  directions, which asks *"are these two strings near each other"*. The real question is *"is the query aimed at
+  the collection that was opened"* — and the code answers it by name:
+
+      const memoryColl = col<MemoryDoc>(`${spaceId}_memories`);
+      const affected  = await memoryColl.find(asFilter({ spaceId, entityIds: absorbed._id }), …)
+
+  So the gate now captures the variable the open declares and requires one of its later uses to be the
+  reference search. That proves what the window only approximated: a `find` on some OTHER collection within
+  600 characters satisfied the old check, and a legitimate one pushed past 600 by an added comment would have
+  failed it. Mutation-tested by pointing the memories query at the entities collection — killed.
+
+  **And the first attempt at it found a trap in the helper.** Anchoring on the `col<…>(` call and asking
+  `statementAround` for its statement returns nonsense, because that index sits INSIDE a template literal and
+  the walk skips template literals whole — it returned a span forty lines long and captured a variable declared
+  far below. The failure said *"opens memories as `newFrom`"*, which is why it cost one run: a window failure
+  would have said nothing at all. The declaration is matched whole now, with no gap of any size.
+
+  The other two are objects bounded by their own brace — a returned description object where 80 characters
+  could not tell "the excerpt is in this object" from "the word appears 80 characters later".
+
+### Changed
+
+- **Two more capped windows converted, two documented as not being windows, and the ratchet falls to 43 across
+  22 files.** Continuing X-25c.
+
+  The two conversions are both objects bounded by their own brace rather than by a guessed extent. The `id`
+  declaration one is the more interesting: it capped an object literal at 400 characters, so a schema that grew
+  past the cap matched a TRUNCATED blob — and every judgement below then read a fragment, including whether the
+  id was `required`. A constrained declaration could be reported as permissive, which is the negative-assertion
+  half that fails silently rather than going red.
+
+  The two exemptions are recorded with the reason the number is the rule rather than a guess: an adjacency claim
+  on prose where `.` crosses no newline, so it asserts a flag and its disclaimer sit in ONE sentence; and a
+  bounded repetition inside a regex QUOTED IN A FAILURE MESSAGE, where the digits are part of an IPv6 prefix and
+  there is no subject to bound.
+
+  **And documenting an exception by quoting the pattern counts as another one.** The ratchet counts on raw
+  source so a hand grep matches — the right trade — but my first draft of that note repeated the regex and took
+  the file from one gap to two, failing the gate on the comment explaining the exception. The note says so now,
+  because it is the third time this session a gate has been fooled by prose ABOUT the thing it measures.
+
 ### Added
 
 - **`faceDescriptorDims` can be changed on a space that has never held a face descriptor.** It was create-only,

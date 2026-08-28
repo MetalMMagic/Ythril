@@ -27,6 +27,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { enclosingBlockFrom } from './_structural-window.mjs';
 import { readFileSync } from 'node:fs';
 
 const { sanitiseDescription } = await import('../../server/dist/files/converters/describe.js');
@@ -124,7 +125,13 @@ describe('provenance is recorded, not assumed', () => {
     const describeSrc = src('server/src/files/converters/describe.ts');
     // Every place a source is chosen: `extracted` must accompany the excerpt fallback, and `generated`
     // must only follow a model answer that survived sanitising.
-    assert.match(describeSrc, /source: 'generated'[\s\S]{0,80}excerpt/, 'a generated description keeps the excerpt too');
+    // A WINDOW, converted: the subject is the object that CARRIES both fields, bounded by its own brace. 80
+    // characters could not tell "the excerpt is in the same returned object" from "the word excerpt appears
+    // 80 characters later" — and the claim is precisely about one object holding both.
+    const genAt = describeSrc.indexOf("source: 'generated'");
+    assert.ok(genAt > -1, 'the generated-source branch is gone — re-anchor this gate');
+    assert.match(enclosingBlockFrom(describeSrc, genAt, 'the generated description object'), /excerpt/,
+      'a generated description keeps the excerpt too');
     assert.ok(!/source: 'generated'\s*,\s*excerpt\s*}\s*;?\s*}\s*$/.test(describeSrc));
     assert.match(describeSrc, /text: excerpt, source: 'extracted'/,
       'the no-model path must label the extractive text as extracted');

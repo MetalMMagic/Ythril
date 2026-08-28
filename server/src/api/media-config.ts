@@ -197,8 +197,121 @@ const MediaConfigPatchSchema = z.object({
   stalledJobTimeoutMs: z.number().int().min(30_000).max(3_600_000).optional(),
 }).strict();
 
+/**
+ * Paths the GET emits that the PATCH cannot accept — stripped when echoed back, refused when CHANGED.
+ *
+ * ## The defect, and why the client fix alone was not enough
+ *
+ * `GET /api/admin/media-config` returns the RESOLVED config. `getFaceRecognitionConfig()` returns
+ * `Required<FaceRecognitionConfig>`, so `enabled`, `modelPath` and `reprocessSyncedImages` are on every
+ * response — and none of the three is on the patch schema, which is `.strict()`. So a caller who reads the
+ * config, edits one number and sends it back gets:
+ *
+ *     {"error":"Invalid request body","details":[{"code":"unrecognized_keys","keys":["enabled"],
+ *       "path":["faceRecognition"],"message":"Unrecognized key: \"enabled\""}]}
+ *
+ * and nothing saves — not the field they changed, not anything else on the page, because the whole body is
+ * refused at validation. breituai-platform hit it through our own Settings UI on 2026-08-20 and corroborated
+ * it server-side: their pod had logged no config reload since provisioning.
+ *
+ * Our UI is fixed not to send `enabled`. **That fixes our client and not the defect**, because the shape is
+ * "read the config, send it back" and that is what an integrator's script does too — it is the documented way
+ * to make a partial edit. A 400 for echoing a field we ourselves emitted is our bug at either end.
+ *
+ * ## Strip on a MATCH, refuse on a CHANGE
+ *
+ * `strip-server-owned-then-be-strict`, the pattern `SERVER_OWNED_SPACE_FIELDS` already uses one module over:
+ * `.strict()` alone 400s a round-trip, and a bare strip lets a real attempt to change something vanish into a
+ * 200. So the value decides:
+ *
+ *   equal to the resolved value   a round-trip. Strip it and carry on — the caller changed nothing.
+ *   different                     a real attempt. Refuse, naming the field and how it IS set.
+ *
+ * The refusal is **403 and not 400**: the body is well-formed and the field is real, and what is wrong is that
+ * this route is not where it lives. A 400 sends the caller looking at their JSON.
+ *
+ * ## Why the list is checked against the SHAPES, not maintained by hand
+ *
+ * `media-config-round-trips.test.js` derives the same class from the response shape and the patch schema and
+ * fails if a member is missing from here. Without that, the next field added to `MediaEmbeddingConfig` reopens
+ * this exactly as `enabled` did — the list would look complete because nothing contradicted it.
+ */
+const SERVER_OWNED_MEDIA_PATHS = [
+  // Face recognition: an infra pin, plus two fields the schema's own comment already calls env-only.
+  'faceRecognition.enabled',
+  'faceRecognition.modelPath',
+  'faceRecognition.reprocessSyncedImages',
+] as const;
+
+/** How each stripped path is actually set, for the refusal message. Prose because each one differs. */
+const SERVER_OWNED_MEDIA_HOW: Record<string, string> = {
+  'faceRecognition.enabled':
+    'it is an infra pin set by FACE_RECOGNITION_ENABLED only, and whether faces RUN is decided by the image '
+    + "pipeline's recognition rung rather than by this field",
+  'faceRecognition.modelPath':
+    'it selects which files the process loads, so it stays env/config-only — an admin API that could repoint '
+    + 'it could load arbitrary model files',
+  'faceRecognition.reprocessSyncedImages':
+    "it decides whether a network peer's images are re-analysed locally, which is an infra-shaped choice",
+};
+
+/** The value at a dotted path, or `undefined`. One level deep, which is every path in the list above. */
+function atPath(obj: unknown, path: string): unknown {
+  const [block, field] = path.split('.');
+  if (!field) return (obj as Record<string, unknown> | null)?.[block!];
+  const inner = (obj as Record<string, unknown> | null)?.[block!];
+  return inner && typeof inner === 'object' ? (inner as Record<string, unknown>)[field] : undefined;
+}
+
+/** Remove a dotted path from a body, and the block with it if that emptied it. */
+function deletePath(body: Record<string, unknown>, path: string): void {
+  const [block, field] = path.split('.');
+  if (!field) { delete body[block!]; return; }
+  const inner = body[block!];
+  if (!inner || typeof inner !== 'object') return;
+  delete (inner as Record<string, unknown>)[field];
+  // An emptied block is not the same as an absent one to every downstream check, so drop it as well: a
+  // `faceRecognition: {}` left behind would read as "the caller touched the face block" and did not.
+  if (Object.keys(inner as Record<string, unknown>).length === 0) delete body[block!];
+}
+
+/**
+ * Strip the server-owned paths a caller echoed back, or name the one they tried to change.
+ *
+ * Exported for unit testing — this rule is the reason the function exists.
+ */
+export function stripServerOwnedMedia(
+  body: unknown,
+  resolved: unknown,
+): { body: unknown; refusal?: { field: string; how: string } } {
+  if (body == null || typeof body !== 'object' || Array.isArray(body)) return { body };
+  const copy = structuredClone(body) as Record<string, unknown>;
+  for (const path of SERVER_OWNED_MEDIA_PATHS) {
+    const sent = atPath(copy, path);
+    if (sent === undefined) continue;
+    // Deep-equal on purpose: `personEntityTypes` is an array, and a future path may be an object. A
+    // reference comparison would call every round-tripped array a change.
+    if (JSON.stringify(sent) !== JSON.stringify(atPath(resolved, path))) {
+      return { body: copy, refusal: { field: path, how: SERVER_OWNED_MEDIA_HOW[path] ?? 'it is not settable here' } };
+    }
+    deletePath(copy, path);
+  }
+  return { body: copy };
+}
+
 mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
-  const parsed = MediaConfigPatchSchema.safeParse(req.body);
+  // BEFORE validation, deliberately. `.strict()` would refuse the whole body over a field we ourselves put in
+  // the response the caller is echoing — see the note on SERVER_OWNED_MEDIA_PATHS.
+  const stripped = stripServerOwnedMedia(req.body, getMediaEmbeddingConfig());
+  if (stripped.refusal) {
+    res.status(403).json({
+      error: `'${stripped.refusal.field}' cannot be set through this route: ${stripped.refusal.how}.`,
+      field: stripped.refusal.field,
+    });
+    return;
+  }
+
+  const parsed = MediaConfigPatchSchema.safeParse(stripped.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Invalid request body', details: parsed.error.issues });
     return;

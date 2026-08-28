@@ -190,6 +190,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **RELEASE DEFECT: media settings could not be saved at all, on any instance.** Reported by
+  breituai-platform, 2026-08-20, from a browser on 3.2.0 and corroborated server-side by them — their pod had
+  logged no `config.json changed on disk` since provisioning, so every save attempt had persisted nothing.
+
+      {"error":"Invalid request body","details":[{"code":"unrecognized_keys","keys":["enabled"],
+        "path":["faceRecognition"],"message":"Unrecognized key: \"enabled\""}]}
+
+  Both Settings pages that PATCH `/api/admin/media-config` were dead — Models and Media Processing — because
+  the whole body is refused at validation rather than the one field. Their owner spent an afternoon behind it,
+  through two mistakes of their own that each hid the next, before reaching a bug that was never his to fix.
+
+  **They asked the one thing they could not test and the answer is the worse branch.** They pin
+  `FACE_RECOGNITION_ENABLED` on every instance they run and would not unpin a biometric switch to test a form,
+  so they could not tell whether this only bit pinned deployments. It bites everyone: `GET` returns the
+  RESOLVED config, `getFaceRecognitionConfig()` returns `Required<FaceRecognitionConfig>`, so `enabled` is on
+  every response whatever the environment says, and the form echoed it straight back.
+
+  **Three artefacts of one removed control, and the middle one broke the page.** The face enable switch was
+  removed when the image ladder became the single gate. What stayed behind: the payload still sent `enabled`;
+  a spec still asserted that it did; and a "turn off face recognition?" confirmation still guarded a
+  transition no control on the page can make. The card's own template said *"No enable switch… deliberately
+  not editable here"*, and the payload's own comment said *"only the PATCH-writable face fields"* — both
+  correct, neither matching the list beneath it.
+
+  Fixed at both ends, and the second is the one that matters for anyone who is not us:
+
+  - **The client stops sending it.** One line, and the comment above that list was already right.
+  - **The server strips the fields it owns BEFORE validating.** `strip-server-owned-then-be-strict`, the
+    pattern `SERVER_OWNED_SPACE_FIELDS` already uses one module over. Read-the-config-and-send-it-back is the
+    documented way to make a partial edit, so a 400 over a field we ourselves emitted is our bug at either
+    end — a fixed client does not fix an integrator's script.
+
+  **Strip on a match, refuse on a change.** A bare strip would let a genuine attempt to change an env-only
+  field vanish into a 200, which is worse than any error. So an echoed value is stripped and a different value
+  is refused with a **403** naming the field and how it actually is set — 403 rather than 400 because the body
+  is well-formed and the field is real; what is wrong is that this route is not where it lives.
+
+  **And a third thing they could not see:** on a pinned instance the design intends a 403 from the infra-lock
+  check, naming the pinned path. The strict 400 fired first, so the refusal this route was built to give has
+  never been reachable.
+
+  Gated by deriving the CLASS rather than listing the fields — every field the response type emits must be
+  either on the patch schema or on the strip list, so the next field added to the config cannot reopen this the
+  way `enabled` did. Eight mutants killed, and one of them found a fault in the gate: the array-comparison test
+  passed `personEntityTypes`, which is not on the strip list, so no stripped path held an array and the
+  assertion proved nothing. It exercises the comparator through the real function now.
+
+  Also corrected: `05c-face-recognition.md`'s Configuration Reference listed `enabled` as settable through this
+  route, which was the third leg of the three-way disagreement they identified — the UI sent it, the API
+  refused it, the docs promised it. All three are now the same answer. The round-trip contract is documented
+  in `05a` and `05c`, and the userguide says plainly that a Save which appeared to work and changed nothing
+  was this.
+
+
 - **`topK`'s MCP description still promised a record cap the byte budget replaced.** It said *"past roughly 25
   results the answer spills and `truncated` is set"* — true before 3.2.0 and wrong after it, on the surface
   `help()` tells callers is the authoritative reference. This is the failure `CLAUDE.md` records at cost:

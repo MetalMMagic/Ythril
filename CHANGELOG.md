@@ -7,50 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-
-- **Two more capped windows converted, two documented as not being windows, and the ratchet falls to 43 across
-  22 files.** Continuing X-25c.
-
-  The two conversions are both objects bounded by their own brace rather than by a guessed extent. The `id`
-  declaration one is the more interesting: it capped an object literal at 400 characters, so a schema that grew
-  past the cap matched a TRUNCATED blob — and every judgement below then read a fragment, including whether the
-  id was `required`. A constrained declaration could be reported as permissive, which is the negative-assertion
-  half that fails silently rather than going red.
-
-  The two exemptions are recorded with the reason the number is the rule rather than a guess: an adjacency claim
-  on prose where `.` crosses no newline, so it asserts a flag and its disclaimer sit in ONE sentence; and a
-  bounded repetition inside a regex QUOTED IN A FAILURE MESSAGE, where the digits are part of an IPv6 prefix and
-  there is no subject to bound.
-
-  **And documenting an exception by quoting the pattern counts as another one.** The ratchet counts on raw
-  source so a hand grep matches — the right trade — but my first draft of that note repeated the regex and took
-  the file from one gap to two, failing the gate on the comment explaining the exception. The note says so now,
-  because it is the third time this session a gate has been fooled by prose ABOUT the thing it measures.
-### Fixed
-
-- **The edge case in `embed-properties.test.js` no longer spends its own budget on other records' embeddings.**
-  Second occurrence in CI, 2026-08-28, on a branch whose diff was client-only — so not caused by the change it
-  failed on. The instrumentation left after the first occurrence (2026-08-08) is what named it:
-
-      edge should have its embed text stored — after 118 polls over 30000ms:
-        HTTP 200, record EXISTS, matchedText absent
-
-  `record EXISTS` with `matchedText absent` distinguishes three causes that a bare `null` could not: the write
-  failed, the read failed, or the queue never reached it. It was the third.
-
-  **Structural rather than a flake.** That case is the only one in the file which must CREATE records before its
-  own — an edge needs two entities — so two entity embed jobs sit ahead of it, plus whatever the three earlier
-  cases left queued, and `workerConcurrency` defaults to 2. It is the last job behind the most work, every run,
-  and both occurrences were this case alone with its three siblings green in ~0.5 s. A re-run passed, which is
-  what confirmed timing rather than a stuck path; the enqueue call is symmetric with the entity one, so there
-  was never anything edge-specific about the product.
-
-  The two endpoint embeds are now awaited on their own budget, and asserted rather than ignored — if an ENTITY
-  embed is what is broken, it says so there instead of surfacing as a mysterious edge timeout thirty seconds
-  later. **Deliberately not a bigger timeout:** a larger number hides the same pile-up until the runner is
-  slower still, and makes every future failure here ambiguous between "slow queue" and "broken edge embedding".
-
 ### Added
 
 - **`faceDescriptorDims` can be changed on a space that has never held a face descriptor.** It was create-only,
@@ -123,6 +79,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without metering it.
 
 ### Changed
+
+- **Two more capped windows converted, two documented as not being windows, and the ratchet falls to 43 across
+  22 files.** Continuing X-25c.
+
+  The two conversions are both objects bounded by their own brace rather than by a guessed extent. The `id`
+  declaration one is the more interesting: it capped an object literal at 400 characters, so a schema that grew
+  past the cap matched a TRUNCATED blob — and every judgement below then read a fragment, including whether the
+  id was `required`. A constrained declaration could be reported as permissive, which is the negative-assertion
+  half that fails silently rather than going red.
+
+  The two exemptions are recorded with the reason the number is the rule rather than a guess: an adjacency claim
+  on prose where `.` crosses no newline, so it asserts a flag and its disclaimer sit in ONE sentence; and a
+  bounded repetition inside a regex QUOTED IN A FAILURE MESSAGE, where the digits are part of an IPv6 prefix and
+  there is no subject to bound.
+
+  **And documenting an exception by quoting the pattern counts as another one.** The ratchet counts on raw
+  source so a hand grep matches — the right trade — but my first draft of that note repeated the regex and took
+  the file from one gap to two, failing the gate on the comment explaining the exception. The note says so now,
+  because it is the third time this session a gate has been fooled by prose ABOUT the thing it measures.
 
 - **The ER diagram's unlinked shelf now spreads across the card's width, not the diagram's own.** The third of
   breituai-platform's three rules, and the one where their diagnosis was a step off in a way worth recording:
@@ -358,6 +333,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on reading the gallery's readiness log, including that the line meant nothing before the probe fix above.
 
 ### Fixed
+
+- **The edge case in `embed-properties.test.js` no longer spends its own budget on other records' embeddings.**
+  Second occurrence in CI, 2026-08-28, on a branch whose diff was client-only — so not caused by the change it
+  failed on. The instrumentation left after the first occurrence (2026-08-08) is what named it:
+
+      edge should have its embed text stored — after 118 polls over 30000ms:
+        HTTP 200, record EXISTS, matchedText absent
+
+  `record EXISTS` with `matchedText absent` distinguishes three causes that a bare `null` could not: the write
+  failed, the read failed, or the queue never reached it. It was the third.
+
+  **Structural rather than a flake.** That case is the only one in the file which must CREATE records before its
+  own — an edge needs two entities — so two entity embed jobs sit ahead of it, plus whatever the three earlier
+  cases left queued, and `workerConcurrency` defaults to 2. It is the last job behind the most work, every run,
+  and both occurrences were this case alone with its three siblings green in ~0.5 s. A re-run passed, which is
+  what confirmed timing rather than a stuck path; the enqueue call is symmetric with the entity one, so there
+  was never anything edge-specific about the product.
+
+  The two endpoint embeds are now awaited on their own budget, and asserted rather than ignored — if an ENTITY
+  embed is what is broken, it says so there instead of surfacing as a mysterious edge timeout thirty seconds
+  later. **Deliberately not a bigger timeout:** a larger number hides the same pile-up until the runner is
+  slower still, and makes every future failure here ambiguous between "slow queue" and "broken edge embedding".
+
 
 - **The per-pipeline Save on Media Processing now asks for egress consent instead of showing the refusal.**
   breituai-platform's owner, 2026-08-20, in his own sequence: *"Settings → Media Processing → set images to

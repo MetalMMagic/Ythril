@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`benchmarks/` — a pre-registered protocol for LoCoMo and LongMemEval, committed before any run.**
+
+  Memory benchmarking has a credibility problem: published comparisons drop the category they do worst on, grade
+  with an unpublished judge prompt, and run competitors on defaults while their own system is tuned. So the
+  method is fixed first and the ordering is checkable —
+  `git log --diff-filter=A -- benchmarks/PROTOCOL.md` predates every result file, each of which records the
+  commit it was produced at.
+
+  What it binds us to: every category reported including the ones we lose; two metrics side by side (the
+  dataset's own lexical metric and a **blind** LLM judge whose prompt is in the repo and whose agreement with a
+  human grader is measured); cost and latency in the same table as accuracy; and a **contamination-excluded**
+  score beside the headline, since both datasets are public and part of any score is the answerer recognising
+  the text rather than retrieving it.
+
+  **Seven retrieval methods are scored separately** — vector only, lexical only, hybrid RRF, +rerank, +traverse,
+  everything, and the deterministic `query` path — across a grid of `topK`, traverse depth, `minScore`, byte
+  budget and rerank. **The whole grid is published, not its winner.** Reporting the best of forty cells measured
+  on ten conversations is reporting noise; the head-to-head number against a competitor uses the shipped
+  defaults, declared in the protocol before the first run, and any configuration chosen from the grid is chosen
+  on named development conversations and reported on the untouched ones.
+
+  **Five ingestion strategies are scored separately too** — raw turns, session summaries, atomic facts, facts +
+  graph, facts + graph + chrono — because how a conversation becomes records is a bigger lever than any retrieval
+  knob, and it is the half a results table normally hides. The rungs are the finding: facts → graph should move
+  **multi-hop** specifically, graph → chrono should move **temporal**, and if they do not then the graph is not
+  paying for itself on this workload and the results say so. Where a competitor's ingestion can be driven with
+  facts we supply, the same fact set is written into both systems, so the storage model is compared rather than
+  the extraction prompt.
+
+  **The ingest stage is structurally prevented from seeing the questions**, not asked nicely: shaping extraction
+  around the answer key is the strongest way to overfit a memory benchmark and is invisible from outside, so a
+  gate refuses any ingest module that names the question set — proven in both directions, and it also fails if
+  the protocol's commitment is deleted rather than satisfied.
+
+  Separate from `testing/` deliberately: that folder holds gates that must pass before a change ships. A
+  benchmark is a measurement that gets published, costs real money in model calls, and is allowed to produce a
+  bad number without blocking anything. Mixing them makes one of them worse.
 ## [3.4.0] — 2026-08-28
 
 ### Changed

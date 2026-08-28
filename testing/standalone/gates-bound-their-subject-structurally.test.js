@@ -163,7 +163,7 @@ const GRANDFATHERED = new Map([
 /**
  * A CAPPED GAP inside a regex: `/marker[\s\S]{0,400}?other/`. Files still allowed to carry one, with how many.
  *
- * **40 occurrences across 21 files**, down from 66/36 when this was first measured — and the tracker had recorded
+ * **34 occurrences across 19 files**, down from 66/36 when this was first measured — and the tracker had recorded
  * 30, which is why the number lives in the gate now rather than in a markdown file that drifts.
  *
  * The nine that left were the ones whose subject is a NAMED FUNCTION or a BRANCH, where the structural bound is
@@ -220,8 +220,7 @@ const GRANDFATHERED = new Map([
 const GRANDFATHERED_GAP = new Map([
   ['testing/red-team-tests/ssrf-ipv6.test.js', 1],
   ['testing/standalone/backups-are-not-world-readable.test.js', 1],
-  ['testing/standalone/brain-read-bodies-are-strict.test.js', 2],
-      ['testing/standalone/chrono-status-descriptions-match-the-derivation.test.js', 9],
+  ['testing/standalone/chrono-status-descriptions-match-the-derivation.test.js', 9],
   ['testing/standalone/document-description.test.js', 2],
   ['testing/standalone/infra-managed-locks-every-field.test.js', 2],
   ['testing/standalone/mcp-tool-rights.test.js', 2],
@@ -229,9 +228,8 @@ const GRANDFATHERED_GAP = new Map([
   ['testing/standalone/no-boot-migration-on-synced-data.test.js', 1],
   ['testing/standalone/notice-coverage.test.js', 2],
   ['testing/standalone/oidc-carries-a-rights-matrix.test.js', 1],
-  ['testing/standalone/recall-params-reach-the-ui.test.js', 2],
-  ['testing/standalone/reembed-backfill.test.js', 1],
-  ['testing/standalone/rights-are-explained.test.js', 3],
+    ['testing/standalone/reembed-backfill.test.js', 1],
+  ['testing/standalone/rights-are-explained.test.js', 1],
   ['testing/standalone/route-guard-coverage.test.js', 1],
   ['testing/standalone/schema-derived-type-controls.test.js', 2],
   ['testing/standalone/search-tool-schemas-document-their-response.test.js', 3],

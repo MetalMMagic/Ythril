@@ -34,6 +34,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { balancedFrom } from './_structural-window.mjs';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -105,7 +106,13 @@ describe('brain read routes refuse unknown body keys', () => {
       // version of this gate required a comma-free first argument and so flagged two routes that pass
       // `(req.body ?? {}) as Record<string, unknown>`, whose type parameter contains a comma. A gate that reports
       // correct code is worse than no gate: it gets relaxed under pressure, and the relaxation is what ships.
-      const refuses = /unknownBodyFields\([\s\S]{0,200}?[A-Z_]+_BODY_FIELDS\s*\)/.test(body);
+      // A WINDOW, converted: the subject is the call's ARGUMENT LIST, bounded by its own paren. The comment
+      // above explains why the argument text must not be constrained — and a 200-character cap is a
+      // constraint on it, just expressed as a length. `balancedFrom` reads the whole list however long, and
+      // however many commas or type parameters it contains.
+      const callAt = body.indexOf('unknownBodyFields(');
+      const refuses = callAt > -1
+        && /[A-Z_]+_BODY_FIELDS/.test(balancedFrom(body, body.indexOf('(', callAt), 'the unknownBodyFields call'));
       if (!refuses) offenders.push(path);
     }
     assert.deepEqual(offenders, [],
@@ -145,7 +152,12 @@ describe('brain read routes refuse unknown body keys', () => {
 
     for (const { path, body } of postRoutes()) {
       if (path in EXEMPT) continue;
-      const setName = body.match(/unknownBodyFields\([\s\S]{0,200}?([A-Z_]+_BODY_FIELDS)\s*\)/)?.[1];
+      // Same conversion, and the same reason: the field-set name is an ARGUMENT, so the argument list is
+      // the bound.
+      const nameAt = body.indexOf('unknownBodyFields(');
+      const setName = nameAt > -1
+        ? /([A-Z_]+_BODY_FIELDS)/.exec(balancedFrom(body, body.indexOf('(', nameAt), 'the unknownBodyFields call'))?.[1]
+        : undefined;
       assert.ok(setName, `${path}: no named field set`);
 
       // The set's members, read from query.ts rather than imported: this gate reads source everywhere else, and

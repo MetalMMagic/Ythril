@@ -28,6 +28,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { balancedFrom } from './_structural-window.mjs';
 import { readFileSync } from 'node:fs';
 
 const ROUTE = 'server/src/api/brain/search.ts';
@@ -102,9 +103,12 @@ describe('recall parameters reach the UI', () => {
 
   it('the recall panel actually sends every one of them', () => {
     const src = stripComments(readFileSync(PANEL, 'utf8'));
-    const call = /recallBrain\(this\.spaceId\(\), \{([\s\S]{0,2000}?)\n    \}\)\.subscribe/.exec(src);
-    assert.ok(call, `the recall submit call not found in ${PANEL}`);
-    const sentBody = call[1];
+    // A WINDOW, converted: the subject is the OBJECT the call sends, bounded by its own brace. 2000
+    // characters plus a hard-coded four-space `\n    })` was two guesses — how long the body is, and how deep
+    // it is indented. A panel reformatted by a prettier run would have failed this on unchanged behaviour.
+    const at = src.indexOf('recallBrain(this.spaceId(), {');
+    assert.ok(at > -1, `the recall submit call not found in ${PANEL}`);
+    const sentBody = balancedFrom(src, src.indexOf('{', at), 'the recall request body');
 
     const unsent = params.filter(p => !new RegExp(`\\b${p}\\b`).test(sentBody));
     assert.deepEqual(unsent, [],
@@ -122,9 +126,11 @@ describe('recall parameters reach the UI', () => {
     }
 
     const api = stripComments(readFileSync(API, 'utf8'));
-    const body = /traverseGraph\(spaceId: string, body: \{([\s\S]{0,700}?)\}\): Observable<TraverseResult>/.exec(api);
-    assert.ok(body, `traverseGraph's request body type not found in ${API}`);
-    const declared = new Set([...body[1].matchAll(/(\w+)\??:/g)].map(m => m[1]));
+    // Same conversion: the subject is the request body TYPE, bounded by its own brace.
+    const bodyAt = api.indexOf('traverseGraph(spaceId: string, body: {');
+    assert.ok(bodyAt > -1, `traverseGraph's request body type not found in ${API}`);
+    const bodyType = balancedFrom(api, api.indexOf('{', bodyAt), 'the traverseGraph body type');
+    const declared = new Set([...bodyType.matchAll(/(\w+)\??:/g)].map(m => m[1]));
     const missing = params.filter(p => !declared.has(p));
     assert.deepEqual(missing, [],
       `the traverse route accepts ${missing.join(', ')} and the client body type does not declare it`);

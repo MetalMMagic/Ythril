@@ -170,7 +170,14 @@ const FROZEN = {
   // What is left is the import of `isRawFilter` and its type. A file cannot use a guard without importing it, so this line
   // is the irreducible cost of the feature reaching the code that runs it.
   'server/src/brain/recall.ts': 690,
-  'client/src/app/pages/settings/media-processing/models-tab.component.ts': 678,
+  // 678 -> 687: two conditional notices on the face card — the enable pin stating what it does NOT reach, and
+  // "configured but not in use" for a stored endpoint awaiting acknowledgement. Nine lines of markup, and the
+  // first attempt wanted THIRTY because the reasoning was written as HTML comments inside the template. That
+  // was the signal: prose in an Angular template is counted as code AND lexed as markup, and the lexing part
+  // had just blinded `infra-managed-locks-every-field` to two enclosing guards. The reasoning moved to a JS
+  // doc comment above the class (`FACE_CARD_NOTES`), which is where it was always safer, and what is left is
+  // the two blocks a reader has to see to know the notices exist.
+  'client/src/app/pages/settings/media-processing/models-tab.component.ts': 687,
   // 675 -> 677: `rights` on TokenRecord, plus its import. FOURTH raise of this file in one session, and the
   // first attempt wanted SIX lines because the shape was written inline. That was the signal, so the shape
   // moved to `config/rights-shape.ts` — a leaf both this file and `auth/` can import without a cycle — and

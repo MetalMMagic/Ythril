@@ -617,16 +617,27 @@ import { TestTarget } from './media-processing.types';
         [heading]="'mediaProcessing.face.title' | transloco"
         [purpose]="'mediaProcessing.face.purpose' | transloco"
         [health]="faceState()"
-        [infra]="s.faceLocked('enabled')" envVar="FACE_RECOGNITION_ENABLED">
+        [infra]="s.faceExternalLocked()" envVar="FACE_RECOGNITION_EXTERNAL_MODEL">
 
-        <!-- Not wrapped in .field: that rule styles a direct child label as a small-caps field
-             caption, which turned the checkbox's own label into what looked like a section header
-             floating above an unlabelled box. -->
+        <!-- Two decisions, labelled separately. See FACE_CARD_NOTES above the class. -->
         <!-- No enable switch: face recognition is turned on by raising the IMAGE pipeline to its
              recognition rung (instance ceiling here, then per space), so the ladder is the single
              control. faceRecognition.enabled still exists as an infra/env pin, deliberately not
              editable here. -->
         <div class="hint" style="margin-bottom:12px;">{{ 'mediaProcessing.face.gatedByPipeline' | transloco }}</div>
+
+        @if (s.faceLocked('enabled')) {
+          <div class="hint" style="margin-bottom:12px;">
+            {{ 'mediaProcessing.face.enabledPinned' | transloco }}
+          </div>
+        }
+
+        @if (s.faceAwaitingAcknowledgment()) {
+          <div class="warnline">
+            <ph-icon name="warning" [size]="15"/>
+            <span>{{ 'mediaProcessing.face.awaitingAck' | transloco: { host: s.faceExternalHost() } }}</span>
+          </div>
+        }
 
         <!-- Optional external provider. In-process (BlazeFace + FaceRes) stays the default and the
              fallback, so leaving this empty changes nothing. -->
@@ -716,6 +727,40 @@ import { TestTarget } from './media-processing.types';
     </div>
   `,
 })
+/**
+ * FACE_CARD_NOTES — why the face card labels two things separately, and the two prose rules above it.
+ *
+ * ## PROSE RULES INSIDE THE TEMPLATE, both load-bearing
+ *
+ * **No backtick.** The inline template is a template literal, so one backtick ends the string and the error
+ * lands on `@Component`, nowhere near the line that caused it.
+ *
+ * **No apostrophe.** The markup walk in `_structural-window.mjs` lexes quotes, so a stray `'` in a comment
+ * opened a phantom string that swallowed the braces after it. That is how a comment edit here silently blinded
+ * `infra-managed-locks-every-field` to two enclosing `@if` guards, after which it reported a correctly guarded
+ * control as a defect. The walk now skips comments, so the hazard is gone — but long prose belongs in a JS
+ * comment like this one regardless, where it is neither lexed as markup nor counted as code.
+ *
+ * ## The card names what it EDITS, which is the endpoint
+ *
+ * It used to pass `faceLocked('enabled')` as its whole-card infra flag, so pinning `FACE_RECOGNITION_ENABLED`
+ * dimmed the entire card to 62% and labelled it "Set by infra" while every control inside stayed operable and
+ * governed by a different variable. An operator read that as "none of this is mine" and reported the endpoint
+ * as unconfigurable. The assist card — the direct analogue — has never claimed whole-card ownership from a
+ * field it does not edit.
+ *
+ * Owner ruling P-12 (A), 2026-08-20: *"may this instance use faces"* belongs to infra, *"may crops leave for
+ * this host"* belongs to the operator. So the enable pin gets its own line saying what it does and does not
+ * reach, and the card's dimming follows the endpoint lock.
+ *
+ * ## And the awaiting-acknowledgement notice
+ *
+ * Configured, stored, and NOT IN USE — a state that became reachable when consent moved to gating USE rather
+ * than the validity of the config. It is silent by nature: faces fall back to the in-process model exactly as
+ * they would for an unreachable endpoint. Quiet is right for *unreachable*, which nobody chose, and wrong for
+ * *unacknowledged*, which is a decision waiting on a person. So the card says so rather than letting it be met
+ * as a refusal.
+ */
 export class ModelsTabComponent implements OnInit {
   readonly s = inject(MediaProcessingStateService);
   readonly pipeline = inject(PipelineStatusService);

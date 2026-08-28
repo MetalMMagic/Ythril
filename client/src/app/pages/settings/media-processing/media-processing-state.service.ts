@@ -135,11 +135,44 @@ export class MediaProcessingStateService {
   faceExternalHost(): string { try { return this.faceExternal.baseUrl ? new URL(this.faceExternal.baseUrl).host : ''; } catch { return ''; } }
   /** Configured at all — a base URL is the only thing that makes the endpoint reachable. */
   faceExternalConfigured(): boolean { return !!this.faceExternal.baseUrl?.trim(); }
+  /** Read-only state the server reports about the STORED config. Never sent back — see `load()`. */
+  private serverFlags: Record<string, boolean> = {};
+
+  /**
+   * Is a stored face endpoint configured but not consented to — so stored and NOT IN USE?
+   *
+   * Read from the server, never derived here. The server computes it from the same predicate the send site
+   * uses, and a second derivation in the client could disagree with the thing that actually decides. Absent
+   * on an older server, which reads as false — the state simply was not reachable there.
+   *
+   * NOT the same question as `faceExternalNeedsAck()`. That one is about the form in front of the operator
+   * and drives the dialog; this one is about what is stored and drives a notice.
+   */
+  faceAwaitingAcknowledgment(): boolean {
+    return this.serverFlags['faceEndpointAwaitingAcknowledgment'] === true;
+  }
+
   /**
    * Consent is due whenever a host is set and not yet acknowledged.
    *
-   * Unlike the assist model — where the trigger is the extraction RUNG becoming reachable — a face
-   * endpoint is reachable the moment it is configured, so there is no second condition to wait for.
+   * ## Why this does NOT also require the recognition rung, though the server's refusal does
+   *
+   * I changed it to require the rung, mirroring the server, and three specs went red — correctly. The client
+   * and the server are answering different questions, and conflating them is a UX regression dressed as
+   * consistency:
+   *
+   *   the SERVER refuses when consent is REQUIRED and missing — endpoint reachable, and this patch caused it
+   *   the CLIENT asks when consent CAN BE RECORDED and is not — which is a wider, earlier window
+   *
+   * The server stores an acknowledgement happily at any rung. So asking while the operator is configuring
+   * the endpoint front-loads the decision: they are right there, they have just typed the host, and raising
+   * the rung later is then frictionless rather than a second interruption. Deferring the question to the rung
+   * raise would be correct and worse.
+   *
+   * What must never happen is asking MORE often than consent can be recorded — that trains an operator to
+   * click through a biometric dialog. This is bounded by "a host is set and unacknowledged", which is
+   * exactly once per host.
+   *
    * Re-pointing the URL revokes consent by construction, since the acknowledgment is host-scoped.
    */
   faceExternalNeedsAck(): boolean {
@@ -313,6 +346,18 @@ export class MediaProcessingStateService {
       next: cfg => {
         this.lockedByInfra = cfg.lockedByInfra ?? [];
         this.pinnedUnknown = cfg.pinnedUnknown ?? [];
+        /*
+         * Read-only STATE the server reports, kept apart from `form`.
+         *
+         * `form` is what the operator edits and what gets sent back; these are facts about the stored config
+         * that no control owns. Keeping them out of `form` is the same rule that made the media-config save
+         * break in the first place — a server-owned field sitting in the editable object is one echo away
+         * from a 400.
+         */
+        this.serverFlags = {
+          faceEndpointAwaitingAcknowledgment:
+            (cfg as Record<string, unknown>)['faceEndpointAwaitingAcknowledgment'] === true,
+        };
         const dp: DocProcCfg = { mode: 'auto', renderDpi: 150, maxPages: 50, pageTimeoutMs: 60000, concurrency: 2, ocrTimeoutMs: 120000, ...cfg.documentProcessing };
         // F11-b — the masked apiKey stays
         // only so the UI can show "key set" — it is never sent back (assistApiKeyInput carries changes).
@@ -406,7 +451,70 @@ export class MediaProcessingStateService {
       return { documentProcessing: dp };
     }
     const cls = PIPE_CLASS[id];
-    return { levels: { [cls]: (this.form.levels ?? {})[cls] ?? 'auto' } };
+    const block: Record<string, unknown> = { levels: { [cls]: (this.form.levels ?? {})[cls] ?? 'auto' } };
+    /*
+     * The acknowledgement travels WITH the level that needs it.
+     *
+     * Two patches would be two chances to fail between them: the level applied and the consent lost, or the
+     * consent stored against a level that never landed. One request is atomic on the server, so the operator
+     * either switched faces on with consent recorded or changed nothing.
+     *
+     * Only the host, never the endpoint: this Save owns the image ceiling, not the Models card's URL. Sending
+     * `baseUrl` from here would let the Images pipeline quietly rewrite a credentialled endpoint it does not
+     * own — the same reason the Documents pipeline deletes `assistModel` from its own block.
+     */
+    /*
+     * The condition is "we HAVE an acknowledgement for the configured host", not "we still need one".
+     *
+     * The first version read `faceExternalNeedsAck()` and sent nothing: `confirmEgressForPipe` sets
+     * `acknowledgedHost` before this runs, which makes `needsAck` false — so the guard excluded the very
+     * value it had just obtained. Caught by its own spec, which is why that spec asserts the BODY rather
+     * than that the dialog appeared.
+     */
+    const ack = this.faceExternal.acknowledgedHost;
+    if (id === 'pipe-images' && !!ack && ack === this.faceExternalHost()) {
+      block['faceRecognition'] = { externalModel: { acknowledgedHost: ack } };
+    }
+    return block;
+  }
+
+  /**
+   * Ask for egress consent when THIS pipeline's save is what activates an endpoint.
+   *
+   * Returns false when the operator declined, in which case nothing is sent — the level stays unsaved rather
+   * than being applied with the endpoint left unconsented, because a half-applied privacy decision is the
+   * worst of the three outcomes.
+   *
+   * Mirrors the server's rule rather than approximating it: the endpoint must be set, unacknowledged, and
+   * behind a rung that this form has ON. Asking more often than the server refuses would train an operator
+   * to click through a biometric consent dialog, which is worse than not asking.
+   */
+  private async confirmEgressForPipe(id: PipeId): Promise<boolean> {
+    if (id === 'pipe-images' && !this.faceExternalLocked() && this.faceExternalNeedsAck()) {
+      const host = this.faceExternalHost();
+      const ok = await this.confirmDialog.confirm({
+        title: this.transloco.translate('mediaProcessing.confirm.faceEgressTitle'),
+        message: this.transloco.translate('mediaProcessing.confirm.faceEgressMessage', { host }),
+        confirmLabel: this.transloco.translate('mediaProcessing.confirm.faceEgressConfirm'),
+        cancelLabel: this.transloco.translate('common.cancel'),
+        danger: true,
+      });
+      if (!ok) return false;
+      this.faceExternal.acknowledgedHost = host;
+    }
+    if (id === 'pipe-documents' && !this.assistLocked() && this.assistNeedsAck()) {
+      const host = this.assistHost();
+      const ok = await this.confirmDialog.confirm({
+        title: this.transloco.translate('mediaProcessing.confirm.egressTitle'),
+        message: this.transloco.translate('mediaProcessing.confirm.egressMessage', { host }),
+        confirmLabel: this.transloco.translate('mediaProcessing.confirm.egressConfirm'),
+        cancelLabel: this.transloco.translate('common.cancel'),
+        danger: true,
+      });
+      if (!ok) return false;
+      this.assist.acknowledgedHost = host;
+    }
+    return true;
   }
 
   private sectionSnapshot(section: CfgSection): string {
@@ -423,9 +531,33 @@ export class MediaProcessingStateService {
     return this.touched() && this.sectionSnapshot(id) !== (this.savedSnapshots[id] ?? '');
   }
 
-  /** Save one pipeline's block, leaving every other pipeline and card untouched. */
-  savePipe(id: PipeId): void {
+  /**
+   * Save one pipeline's block, leaving every other pipeline and card untouched.
+   *
+   * ## Why this asks for consent, when it used to just send
+   *
+   * This is the path an operator takes to switch faces on, and it was the one path with no dialog. Their
+   * sequence, reported 2026-08-20:
+   *
+   *     Settings -> Media Processing -> set images to "Caption + face recognition" -> Save
+   *     -> nothing saves, and eventually a raw API object appears.
+   *
+   * The Models card asked, and the page-bar Save asked. The per-pipeline Save — the button next to the
+   * control they had just changed — sent the PATCH straight out and rendered whatever came back. So the
+   * refusal was correct, arrived at the right moment, and reached the user as machine output on a page that
+   * never mentioned the endpoint it was about. Their owner's summary: *"not even i understand it"*.
+   *
+   * Raising the image ceiling to a recognition rung IS an act of switching faces on, so it is a place to
+   * GIVE consent rather than a place to be refused for lacking it — owner's ruling P-12 (C), 2026-08-20. The
+   * server accepts the acknowledgement from this patch; this is the half that offers it.
+   */
+  async savePipe(id: PipeId): Promise<void> {
     if (this.managed || this.saving()) return;
+
+    // BEFORE the request. The server would refuse this exact patch, so asking here turns a refusal the
+    // operator cannot act on into the decision they are already making.
+    if (!(await this.confirmEgressForPipe(id))) return;
+
     this.saving.set(true);
     this.saveOk.set('');
     this.saveError.set('');

@@ -874,3 +874,116 @@ describe('MediaProcessingStateService — external face model', () => {
     expect(c.pipeDirty('pipe-images')).toBe(true);
   });
 });
+
+/**
+ * The PER-PIPELINE Save asks for egress consent — the path that did not.
+ *
+ * ## The report
+ *
+ * breituai-platform, 2026-08-20. Their owner's sequence, verbatim:
+ *
+ *     Settings -> Media Processing -> set images to "Caption + face recognition" -> Save
+ *     -> nothing saves.
+ *
+ * The Models card asked. The page-bar Save asked. The per-pipeline Save — the button beside the control he
+ * had just changed — sent the PATCH straight out and rendered whatever came back, which was a refusal about
+ * a host on a page that never mentions the endpoint. His summary: *"not even i understand it"*.
+ *
+ * Raising the image ceiling to a recognition rung IS an act of switching faces on, so it is a place to GIVE
+ * consent rather than a place to be refused for lacking it — the owner's P-12 (C) ruling. The server accepts
+ * the acknowledgement from this patch; these tests pin the half that offers it.
+ */
+describe('MediaProcessingStateService — the per-pipeline Save and egress consent', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const withFaceEndpoint = () => cfgFixture({
+    levels: { images: 'caption', audio: 'auto', video: 'auto', text: 'auto' },
+    faceRecognition: { externalModel: { baseUrl: 'https://faces.example.com/embed' } },
+  });
+
+  it('asks before saving the Images pipeline when the endpoint is unacknowledged', async () => {
+    const { c, confirm, patch } = make(withFaceEndpoint());
+    c.form.levels = { ...c.form.levels, images: 'recognition' };
+    c.touched.set(true);
+
+    await c.savePipe('pipe-images');
+
+    expect(confirm, 'raising the rung must ask, not fail').toHaveBeenCalled();
+    expect(patch).toHaveBeenCalled();
+  });
+
+  it('and the acknowledgement travels WITH the level, in one request', async () => {
+    // Two patches would be two chances to fail between them — the level applied with consent lost, or
+    // consent stored against a level that never landed. One request is atomic on the server.
+    const { c, patch } = make(withFaceEndpoint());
+    c.form.levels = { ...c.form.levels, images: 'recognition' };
+    c.touched.set(true);
+
+    await c.savePipe('pipe-images');
+
+    const body = sent(patch);
+    expect((body['levels'] as Record<string, unknown>)['images']).toBe('recognition');
+    const face = body['faceRecognition'] as Record<string, any> | undefined;
+    expect(face?.['externalModel']?.acknowledgedHost, 'consent must ride along').toBe('faces.example.com');
+  });
+
+  it('sends NOTHING when the operator declines', async () => {
+    // The level stays unsaved rather than being applied with the endpoint unconsented. A half-applied
+    // privacy decision is the worst of the three outcomes.
+    const { c, patch } = make(withFaceEndpoint(), false);
+    c.form.levels = { ...c.form.levels, images: 'recognition' };
+    c.touched.set(true);
+
+    await c.savePipe('pipe-images');
+
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it('never sends the endpoint URL from this Save — only the acknowledgement', async () => {
+    // This Save owns the image ceiling, not the Models card's endpoint. Sending `baseUrl` from here would
+    // let the Images pipeline quietly rewrite a credentialled endpoint it does not own, which is the same
+    // reason the Documents pipeline deletes `assistModel` from its own block.
+    const { c, patch } = make(withFaceEndpoint());
+    c.form.levels = { ...c.form.levels, images: 'recognition' };
+    c.touched.set(true);
+
+    await c.savePipe('pipe-images');
+
+    const face = sent(patch)['faceRecognition'] as Record<string, any>;
+    expect(Object.keys(face['externalModel'])).toEqual(['acknowledgedHost']);
+  });
+
+  it('does not ask when there is no endpoint to consent to', async () => {
+    const { c, confirm, patch } = make();
+    c.form.levels = { ...c.form.levels, images: 'recognition' };
+    c.touched.set(true);
+
+    await c.savePipe('pipe-images');
+
+    expect(confirm, 'nothing egresses, so nothing to confirm').not.toHaveBeenCalled();
+    expect(patch).toHaveBeenCalled();
+  });
+
+  it('does not ask on an UNRELATED pipeline', async () => {
+    // The Audio pipeline cannot activate a face endpoint. Asking there would be the over-asking that
+    // teaches an operator to click through a biometric dialog.
+    const { c, confirm, patch } = make(withFaceEndpoint());
+    c.form.levels = { ...c.form.levels, audio: 'off' };
+    c.touched.set(true);
+
+    await c.savePipe('pipe-audio');
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(patch).toHaveBeenCalled();
+    expect(sent(patch)['faceRecognition'], 'and no face block rides along').toBeUndefined();
+  });
+
+  it('reports the stored unacknowledged state from the SERVER, not from a second derivation', async () => {
+    // A client-side re-derivation could disagree with the thing that actually decides whether a crop is
+    // sent. Absent on an older server reads as false, because the state was not reachable there.
+    const { c } = make(cfgFixture({ faceEndpointAwaitingAcknowledgment: true } as never));
+    expect(c.faceAwaitingAcknowledgment()).toBe(true);
+    const { c: c2 } = make();
+    expect(c2.faceAwaitingAcknowledgment(), 'absent is not awaiting').toBe(false);
+  });
+});

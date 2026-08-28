@@ -1794,6 +1794,8 @@
   "mediaProcessing.face.personTypesEmpty": "Brak typów encji w Bibliotece schematów — zdefiniuj je tam, aby wybrać je tutaj.",
   "spaces.schema.propertySchemasHint": "— właściwości deklarowane przez ten typ; to, jak rygorystycznie są egzekwowane, zależy od ustawienia walidacji powyżej",
   "mediaProcessing.face.gatedByPipeline": "Rozpoznawanie twarzy podąża za potokiem Obrazy: ustaw go na \"Opis + rozpoznawanie twarzy\", aby wykrywać i osadzać twarze. Wymaga obecności lokalnych plików modelu.",
+  "mediaProcessing.face.enabledPinned": "Twoja infrastruktura ustala, czy rozpoznawanie twarzy może w ogóle działać (FACE_RECOGNITION_ENABLED). Punkt końcowy poniżej i Twoja zgoda na niego nadal należą do Ciebie — to inna decyzja.",
+  "mediaProcessing.face.awaitingAck": "Ten punkt końcowy jest zapisany, ale NIE jest używany: transfer do {{host}} nie został potwierdzony, więc twarze obsługuje model wbudowany. Zapisz tę kartę lub podnieś potok Obrazy do rozpoznawania twarzy, aby zostać zapytanym.",
   "mediaProcessing.assist.gatedByPipeline": "Używany do przebiegu naprawy dokumentów. Ustaw ekstrakcję dokumentów na \"Naprawa\" (lub Auto), aby kierować naprawy przez ten model; konieczne będzie potwierdzenie transferu danych.",
   "schemaLib.field.schema": "Schemat (JSON)",
   "schemaLib.field.schemaHint": "Definicje właściwości dla tego typu jako obiekt JSON. Nieprawidłowy JSON zostanie odrzucony przy zapisie.",

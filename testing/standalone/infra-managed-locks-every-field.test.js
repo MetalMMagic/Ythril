@@ -30,7 +30,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
-import { angularTemplateOf, enclosingMarkupBlocksMatching } from './_structural-window.mjs';
+import { angularTemplateOf, enclosingMarkupBlocksMatching, openTagAt } from './_structural-window.mjs';
 
 const files = execSync('git ls-files "client/src/app/pages/settings/media-processing/*.component.ts"',
   { encoding: 'utf8' }).trim().split('\n').filter(f => f && !f.endsWith('.spec.ts'));
@@ -43,8 +43,22 @@ function boundControls(componentSrc) {
    */
   const src = angularTemplateOf(componentSrc);
   const out = [];
-  for (const m of src.matchAll(/<(input|select|textarea)\b[\s\S]{0,400}?(?:\/>|<\/(?:select|textarea)>)/g)) {
-    const block = m[0];
+  /*
+   * THE CONTROL'S OWN OPENING TAG, bounded by its `>` — not 400 characters of whatever follows.
+   *
+   * The cap was the last magic window in this gate and it FAILED ON CORRECT CODE, which is the whole reason
+   * `gates-bound-their-subject-structurally` exists. Two `@if` blocks were added to the face card above one of
+   * these controls; that pushed its closing token past 400 characters, the regex matched a truncated block,
+   * and the gate reported an `(unnamed)` control with no `[disabled]` binding — a defect it had invented. A
+   * cap that falls short does not merely check less; on a POSITIVE assertion it turns the gate red.
+   *
+   * `openTagAt` reads to the tag's own `>`, which is where every attribute of a control lives: `ngModel`,
+   * `[disabled]`, `id`. A self-closing `<input … />` and a `<select>…</select>` both put their bindings in the
+   * opening tag, so nothing is lost by stopping there — the option list a `<select>` wraps has never been part
+   * of what this gate asks about.
+   */
+  for (const m of src.matchAll(/<(input|select|textarea)\b/g)) {
+    const block = openTagAt(src, m.index, `the ${m[1]} at ${m.index}`);
     if (!block.includes('ngModel')) continue;
     // A control can be locked two ways, and only one of them lives on the control. The person-types picker sits
     // inside `@if (!(s.faceLocked('personEntityTypes') || s.managed))` — it does not RENDER when managed, which

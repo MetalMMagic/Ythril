@@ -80,6 +80,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **One more capped window converted** — `infra-managed-locks-every-field` bounded a control at 400 characters
+  of whatever followed its tag, and that cap FAILED ON CORRECT CODE: two conditional blocks added above one
+  control pushed its closing token out of range, the regex matched a truncated block, and the gate invented a
+  defect. `openTagAt` reads to the tag's own `>`, which is where every binding lives. `GRANDFATHERED_GAP`
+  falls to **45**.
+
+
 - **An unacknowledged external endpoint is now STORED AND UNUSED instead of refusing every write to the media
   route.** breituai-platform, 2026-08-20T1155Z, arguing a principle rather than reporting a bug:
   *"the acknowledgement should gate USE of the endpoint, not VALIDITY of the config."* Their owner met the
@@ -279,6 +286,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on reading the gallery's readiness log, including that the line meant nothing before the probe fix above.
 
 ### Fixed
+
+- **The per-pipeline Save on Media Processing now asks for egress consent instead of showing the refusal.**
+  breituai-platform's owner, 2026-08-20, in his own sequence: *"Settings → Media Processing → set images to
+  'Caption + face recognition' → Save → nothing saves."* The Models card asked. The page-bar Save asked. The
+  per-pipeline Save — the button beside the control he had just changed — sent the PATCH straight out and
+  rendered whatever came back, which was a refusal naming a host, on a page that never mentions the endpoint.
+  His summary of the whole flow was *"not even i understand it"*, and he built the face service on the other
+  end of it.
+
+  Raising the image ceiling to a recognition rung IS an act of switching faces on, so it is a place to GIVE
+  consent rather than a place to be refused for lacking it — owner's ruling P-12 (C). The acknowledgement
+  travels in the SAME request as the level: two patches would be two chances to fail between them, leaving
+  either the level applied with consent lost or consent stored against a level that never landed. Only the
+  host rides along, never the endpoint URL — this Save owns the image ceiling, not the Models card's
+  credentialled endpoint.
+
+  **The client asks in a WIDER window than the server refuses in, deliberately.** I first made the client
+  mirror the server's rule exactly and three specs went red, correctly: the server refuses when consent is
+  *required and missing*, while the client should ask when consent *can be recorded and is not*. The server
+  stores an acknowledgement at any rung, so asking while the operator is configuring the endpoint front-loads
+  the decision instead of interrupting them again later. What must never happen is asking more often than it
+  can be recorded, which would train someone to click through a biometric dialog.
+
+- **The face card no longer claims infra owns the whole of it.** It passed `faceLocked('enabled')` as its
+  whole-card infra flag, so pinning `FACE_RECOGNITION_ENABLED` dimmed the entire card to 62% and labelled it
+  "Set by infra" — while every control inside stayed operable and governed by a different variable. That is
+  what breituai-platform saw before reporting the endpoint as unconfigurable, and they were reading it
+  correctly. Owner's ruling P-12 (A): *"may this instance use faces"* belongs to infra, *"may crops leave for
+  this host"* belongs to the operator, so the two are now labelled separately and the dimming follows the
+  endpoint lock. The assist card — the direct analogue — has never claimed whole-card ownership from a field
+  it does not edit.
+
+  The card also shows `faceEndpointAwaitingAcknowledgment` from the server: configured, stored, and NOT in
+  use. Read from the server rather than re-derived, because a second derivation could disagree with the thing
+  that actually decides whether a crop is sent.
+
+- **`enclosingMarkupBlocksMatching` treated an apostrophe in a template COMMENT as a string delimiter.**
+  Found by a false failure and worth recording as its own defect. Markup comments are prose, and prose is full
+  of apostrophes — so each one opened a phantom string that swallowed the braces after it, and the walk
+  depended on the PARITY of every apostrophe earlier in the template.
+
+  Fragile in the worst direction: editing a comment anywhere above a control could silently change what the
+  walk believed contained it. Measured — replacing `[infra]="s.faceLocked('enabled')"` with a call taking no
+  string argument removed two apostrophes, re-paired every apostrophe after it, and
+  `infra-managed-locks-every-field` lost both `@if` guards around a control it had always seen guarded, then
+  reported that control as a defect. Nothing about the control had changed. Comments are stripped first now.
+
+  Its spec needed correcting too, and mutation testing is what said so: the first fixtures used one and two
+  apostrophes and stayed green with the fix removed, because an unpaired apostrophe that swallows no braces
+  changes no depth. The reproducing shape is two apostrophes STRADDLING a brace, and that is what the spec
+  uses.
+
 
 - **RELEASE DEFECT: media settings could not be saved at all, on any instance.** Reported by
   breituai-platform, 2026-08-20, from a browser on 3.2.0 and corroborated server-side by them — their pod had

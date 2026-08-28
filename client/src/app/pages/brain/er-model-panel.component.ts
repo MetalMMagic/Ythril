@@ -35,7 +35,8 @@
  * opens this panel on. The Overview's own doc comment was corrected in the same change rather than left
  * saying the tab adds no fetch of its own.
  */
-import { ChangeDetectionStrategy, Component, computed, effect, inject, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, computed, effect, inject, input, output, signal,
+  viewChild } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { TranslocoPipe } from '@jsverse/transloco';
 import { PhIconComponent } from '../../shared/ph-icon.component';
@@ -105,7 +106,7 @@ import { layoutErModel } from './er-layout';
       @if (m.entityTypes.length === 0) {
         <div class="note">{{ 'brain.overview.er.empty' | transloco }}</div>
       } @else {
-        <div class="stage">
+        <div class="stage" #stage>
           <svg [attr.viewBox]="'0 0 ' + view().width + ' ' + view().height"
                [attr.width]="view().width" [attr.height]="view().height" role="img"
                [attr.aria-label]="'brain.overview.er.diagramLabel' | transloco">
@@ -217,9 +218,64 @@ export class ErModelPanelComponent {
   readonly loading = signal(false);
   readonly error = signal('');
 
+  /**
+   * The stage's inner width, in CSS pixels — 0 until measured, which the layout reads as "use your own width".
+   *
+   * ## Why measured rather than derived
+   *
+   * The unlinked shelf spreads across the width it is given, and the layout is a pure function of the model, so
+   * it cannot know how much room the card has. Reported by breituai-platform's owner, 2026-08-20: the shelf
+   * wraps after four boxes however wide the window is. The cause is the fallback — the joined picture's own
+   * width, which three columns fix — so it was never a four-column grid, just a width that fits four.
+   *
+   * The STAGE, not the window: the SVG sits in a horizontally scrolling `.stage`, inside a card, inside a page
+   * with a sidebar. The window's width is not an amount of room anybody has.
+   */
+  private readonly stageWidth = signal(0);
+
+  /**
+   * The stage element, once it exists.
+   *
+   * A signal `viewChild` rather than a template event. The stage lives behind three `@if` branches (error,
+   * loading, empty model), so it appears LATER than the component — a `(window:resize)` binding, which was my
+   * first attempt, never fires on first render and would leave the shelf on the fallback width until somebody
+   * dragged the window.
+   */
+  private readonly stage = viewChild<ElementRef<HTMLElement>>('stage');
+
+  /**
+   * Measure the stage when it appears, and keep measuring it.
+   *
+   * `ResizeObserver` rather than a window listener: the stage's width changes when the SIDEBAR collapses or a
+   * neighbouring panel appears, and neither of those resizes the window. A window listener misses both and
+   * leaves the shelf laid out for a width the card no longer has.
+   *
+   * **Guarded because jsdom has no `ResizeObserver`.** Constructing one under the component specs throws, and
+   * every test in that file would fail on a feature none of them is about. With no observer the width stays 0,
+   * which the layout treats as absent — exactly the behaviour before this change, so those specs assert the
+   * same geometry they always did.
+   */
+  private readonly measureStage = effect(onCleanup => {
+    const el = this.stage()?.nativeElement;
+    if (!el) return;
+    // `clientWidth` minus the stage's own 16px padding each side. Laying out into the padded width clips the
+    // last box of a row by exactly that, and a clipped box is not an error — it is simply not drawn.
+    const apply = (): void => this.stageWidth.set(Math.max(0, Math.floor(el.clientWidth - 32)));
+    apply();
+    const RO = (globalThis as { ResizeObserver?: typeof ResizeObserver }).ResizeObserver;
+    if (!RO) return;
+    const ro = new RO(() => apply());
+    ro.observe(el);
+    onCleanup(() => ro.disconnect());
+  });
+
   readonly view = computed(() => {
     const m = this.model();
-    return m ? layoutErModel(m.entityTypes, m.relationships) : { boxes: [], paths: [], width: 0, height: 0 };
+    // `stageWidth()` is read INSIDE the computed so a resize recomputes the layout. Passing it in from outside
+    // would capture it once, and the shelf would keep the column count it had when the panel first rendered.
+    return m
+      ? layoutErModel(m.entityTypes, m.relationships, this.stageWidth() || undefined)
+      : { boxes: [], paths: [], width: 0, height: 0 };
   });
 
   /**

@@ -571,3 +571,88 @@ describe('er-layout box heights are bucketed, and rows are bands', () => {
     expect(new Set(flatOut.boxes.map(b => b.h)).size).toBe(1);
   });
 });
+
+/**
+ * The unlinked shelf spreads across the width it is GIVEN, not the width the columns needed.
+ *
+ * ## The report, and the correction to it
+ *
+ * breituai-platform's owner, 2026-08-20: *"use the whole row for the unlinked listings"* — the shelf wraps
+ * after four entries however wide the viewport is.
+ *
+ * His diagnosis was one step off in a way worth keeping, because "make it flow" was already done. The shelf
+ * computes `perRow` from a width; that width was the DIAGRAM's own — three columns plus their gaps — so it was
+ * never a four-column grid, just a width that happens to fit four. Widening the window could not help, because
+ * nothing in the calculation read the window.
+ *
+ * ## What is asserted, and why the fixture is built the way it is
+ *
+ * Twelve isolated types, so a change in `perRow` is unmistakable rather than a one-box difference. And the
+ * cases include a NARROWER container: the stage scrolls horizontally, so a narrow window must not squeeze the
+ * shelf below what the joined columns already occupy — taking the minimum would reflow the shelf into a tall
+ * stack while the part of the diagram that has meaning stayed exactly as wide as before, which is the failure
+ * the shelf exists to have fixed.
+ */
+describe('er-layout — the shelf uses the available width', () => {
+  const isolated = Array.from({ length: 12 }, (_, i) => type(`iso${i}`));
+  const joined = [type('hub'), type('spoke')];
+  const rels = [rel('spoke', 'hub')];
+  const model = [...joined, ...isolated];
+
+  /** How many shelf boxes share the topmost shelf row — i.e. `perRow`, observed. */
+  const perRow = (availableWidth?: number): number => {
+    const out = layoutErModel(model, rels, availableWidth);
+    const shelf = out.boxes.filter(b => b.col === 3);
+    expect(shelf.length, 'the fixture must produce a shelf').toBe(12);
+    const top = Math.min(...shelf.map(b => b.y));
+    return shelf.filter(b => b.y === top).length;
+  };
+
+  it('lays out the same as before when no width is given', () => {
+    // The compatibility claim. Every existing caller and every spec above passes two arguments, so absence has
+    // to mean "the previous behaviour" rather than "zero width".
+    const fallback = perRow(undefined);
+    expect(fallback).toBeGreaterThan(0);
+    expect(perRow(0), 'zero is treated as absent, not as no room').toBe(fallback);
+  });
+
+  it('fits MORE per row when the container is wider', () => {
+    const narrow = perRow(undefined);
+    const wide = perRow(4000);
+    expect(wide, `4000px must fit more than the diagram's own width did (${narrow})`).toBeGreaterThan(narrow);
+  });
+
+  it('and the reported width covers the shelf, or the SVG clips it', () => {
+    // `width` sizes the viewBox. Once the shelf can be wider than the joined columns, reporting the columns'
+    // width would cut the shelf off at the right edge — visible only as boxes that are not drawn.
+    const out = layoutErModel(model, rels, 4000);
+    const rightmost = Math.max(...out.boxes.map(b => b.x + b.w));
+    expect(out.width).toBeGreaterThanOrEqual(rightmost);
+  });
+
+  it('but does not report the whole container when the shelf does not fill it', () => {
+    // A shelf of two boxes in a 4000px container occupies what two boxes occupy. Reporting the container would
+    // leave a lake of empty canvas that the stage would then offer to scroll.
+    const twoOnly = [...joined, type('isoA'), type('isoB')];
+    const out = layoutErModel(twoOnly, rels, 4000);
+    expect(out.width).toBeLessThan(4000);
+  });
+
+  it('a NARROWER container never squeezes the shelf below the joined width', () => {
+    // The stage scrolls, so a narrow window must not reflow the shelf into a tall stack while the joined part
+    // stays as wide as it was. `Math.max`, not a straight swap.
+    const fallback = perRow(undefined);
+    expect(perRow(100), 'a 100px container must not narrow the shelf').toBe(fallback);
+  });
+
+  it('is monotonic in the width — more room never means fewer per row', () => {
+    // A property rather than three points: any arithmetic slip in the fitting calculation shows up here even
+    // where a single comparison would pass.
+    const widths = [undefined, 600, 900, 1200, 1800, 2400, 3600];
+    const counts = widths.map(w => perRow(w));
+    for (let i = 1; i < counts.length; i++) {
+      expect(counts[i]!, `width ${widths[i]} fits fewer than ${widths[i - 1]}`)
+        .toBeGreaterThanOrEqual(counts[i - 1]!);
+    }
+  });
+});

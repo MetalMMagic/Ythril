@@ -96,6 +96,7 @@ on almost any question, and that difference has nothing to do with the store und
 | # | strategy | what is written | what it costs at write |
 |---|---|---|---|
 | **S0** | raw turns | one memory per dialogue turn, verbatim | nothing — no model call |
+| **S0+** | deterministic structure | S0, plus **everything the source already states**: the two speakers as entities, one `chrono` per session carrying its real timestamp, and an edge from each turn to its speaker | **nothing — no model call** |
 | **S1** | session summaries | one memory per session | one call per session |
 | **S2** | atomic facts | model-extracted facts as memories, the shape competing systems use | one call per session |
 | **S3** | facts + graph | S2, plus entities (people, places, organisations, objects) with typed edges between them | S2 plus one extraction pass |
@@ -104,6 +105,13 @@ on almost any question, and that difference has nothing to do with the store und
 The ladder is the point. **S0 is the floor that costs nothing**, and if S4 does not beat it by more than its
 token cost is worth, that is a finding about this product and it gets published as one. The interesting
 comparisons are the rungs, not the totals:
+
+- **S0 → S0+** is the one nobody thinks to run, and it is free. LoCoMo already carries `speaker_a`/`speaker_b`
+  and a real `session_N_date_time` per session, so speakers become entities and every session becomes a `chrono`
+  record with a genuine `startsAt` **without a model reading anything**. If a measurable part of the temporal
+  gain is available for zero tokens, that is a stronger claim than any comparison against a competitor: it says
+  the structure earns its keep before the extraction does. And if S0+ does not move temporal at all, then chrono
+  is not reaching retrieval and the S3 → S4 result needs re-reading.
 
 - **S2 → S3** answers *does the knowledge graph earn its keep?* — and the answer should show up in the
   **multi-hop** category specifically, because that is what edges are for. If multi-hop does not move, the graph
@@ -123,16 +131,35 @@ into both systems** and the retrieval is compared on that. Where it cannot, the 
 comparison is labelled end-to-end rather than architectural. This is one run more than anybody else does and it
 is the difference between a leaderboard position and an explanation.
 
-### Ingestion never sees the questions
+### Ingestion never sees the questions — at run time OR at design time
 
-The strongest way to overfit a memory benchmark is to shape the extraction around the questions being graded, and
-it is invisible from the outside — nobody can tell from a results table that an extraction prompt was iterated
-thirty times against the answer key.
+Two separate rules, and the second is the stronger one.
 
-**So it is prevented structurally rather than promised.** The ingest stage is given the conversation and nothing
-else: the QA file is not passed to it, not reachable from it, and a gate asserts that the ingest module cannot
-import or read the question set at all. The extraction prompts live in `benchmarks/prompts/` and are published
-with everything else.
+**At run time, prevented structurally rather than promised.** The ingest stage is given the conversation and
+nothing else: the QA file is not passed to it, not reachable from it, and a gate asserts that the ingest module
+cannot import or read the question set at all. The extraction prompts live in `benchmarks/prompts/` and are
+published with everything else.
+
+**At design time, the ingestion model is a PRODUCT decision and may not be derived from this dataset's
+questions — including their aggregate statistics.** Owner's ruling, 2026-08-29, and it corrects a weaker line
+this document originally took.
+
+The weaker line said structural statistics were fair game: how many turns an answer typically cites, how often
+evidence crosses sessions. They are not, and the reason is not benchmark hygiene — it is that **a record model
+calibrated to one corpus's shape is a worse product.** A user might have two sessions or two hundred, dense
+relationships or almost none, and mostly *"what did I say about X"* or mostly *"when did Y happen"*. A design
+fitted to this dataset's proportions would look good here and worse everywhere real, which is exactly the pattern
+that has made vendor benchmarks untrustworthy.
+
+So the design is justified in general terms or it is cut. The test applied to every element, and recorded with
+the specification: **would this still be right for a user whose conversations look nothing like this dataset?**
+
+What the dataset's own structure may legitimately be used for:
+
+- **parsing** — mapping the source format into records is not design;
+- **sizing** — how many calls a run costs;
+- **interpretation, only after results exist** — *"this corpus is N% cross-session, which is why that rung helped
+  here"*. That is a statement about the dataset, made afterwards, and it is the opposite of designing around it.
 
 Iterating an extraction prompt is legitimate work. Iterating it against the conversations we then report on is
 not, which is why any such iteration happens on the development conversations named in
@@ -359,7 +386,7 @@ than a smoke test.
 |---|---|
 | dataset | LoCoMo only |
 | questions | a **stratified subsample**, fixed seed, proportional across categories including adversarial. The same subsample for every system — that is what keeps it fair — and its size and seed are recorded in the results |
-| ingestion | **S0 and S4 only** — the free floor and the full graph-plus-chrono shape. The most informative pair there is, because together they answer whether any of the modelling earns its keep |
+| ingestion | **S0, S0+ and S4** — the free floor, the free structured rung, and the full graph-plus-chrono shape. S0+ adds no model calls, so the extra rung costs only its answering pass |
 | retrieval | shipped defaults only, no grid |
 | systems | Ythril, the no-memory floor, the full-context ceiling |
 | grading | lexical for all; judge once per question over all candidates blind |
@@ -430,6 +457,48 @@ Raw model outputs — every question, every candidate answer, every judge verdic
 
 Append here, dated, with the reason and what was re-run. A silent edit elsewhere in this file invalidates the
 runs it covers; this section is how a change stays legitimate.
+
+### Amendment 3 — the DESIGN is question-blind too, not just the run
+
+**2026-08-29, before any run.**
+
+The protocol originally allowed the ingestion design to use aggregate, structural statistics about the questions
+— evidence counts, cross-session rates — while forbidding the ingest code from reading them at run time. The
+owner rejected that, and the argument is better than the one it replaced: *"I prefer the actual usage experience
+to be great and therefore work for every dataset the user might have."*
+
+He is right. Fitting a record model to one corpus's proportions is not merely benchmark-adjacent cheating; it
+produces a worse product, and it produces exactly the kind of number that collapses when somebody runs it on
+their own data.
+
+Changed: the design phase and its synthesis are given **nothing derived from the questions** — not content, not
+counts, not category distributions. Every element of the specification carries a justification that a user with
+entirely different data would accept, and the design work was re-run under that rule rather than filtered
+afterwards. Question-derived statistics survive only as a dataset characterisation, used after results exist to
+explain why a rung helped here.
+
+**Nothing re-run in the benchmark sense — nothing has been run.** The design exploration was re-run, which is the
+point: the rule was applied before the specification existed rather than to a specification already shaped.
+
+### Amendment 2 — a free rung, S0+, between raw turns and summaries
+
+**2026-08-29, before any run.**
+
+Added `S0+`: raw turns plus the structure the dataset already states — speakers as entities, one `chrono` per
+session with its real timestamp, turn-to-speaker edges. **No model call**, so it costs nothing to run and nothing
+to re-run.
+
+The prompt was the owner asking why filling Ythril needs model calls at all, which it does not — writing records
+is deterministic HTTP, and only *deciding what to write* needs a model. That question exposed a rung the ladder
+was missing: between "store the text" and "have a model read it" there is "use what the source already tells
+you", and on this dataset that includes every session's date. Verified against `locomo10.json` before adding it:
+`speaker_a`, `speaker_b` and `session_N_date_time` are all present and parseable, and turns carry a `dia_id` the
+QA pairs reference as evidence.
+
+Numbering: inserted as **S0+** rather than renumbering S1–S4, because renumbering a pre-registered ladder makes
+every earlier reference ambiguous for the sake of tidiness.
+
+**Nothing re-run — nothing has been run.**
 
 ### Amendment 1 — the grid is one axis at a time, and the run is tiered
 

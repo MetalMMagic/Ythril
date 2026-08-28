@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`benchmarks/INGESTION.md` — how a conversation becomes records, written blind to the questions.**
+
+  A product specification, not a benchmark entry: every element carries a justification a user with entirely
+  different data would accept, and it was produced without the design phase seeing anything derived from the
+  question set — not content, not counts, not category distribution.
+
+  Its spine is one invariant — **one claim, one embedded record** — which is mechanism-driven rather than
+  aesthetic: edges are independently embedded and compete with memories for `topK` slots, so a memory plus a
+  mirroring edge is the same sentence twice in one ranked list. `suppressEmbeddings` is what makes structure
+  affordable, because it decouples graph density from ranked-list pollution: a suppressed record is invisible to
+  both the vector and lexical channels while `query`, `traverse` and recall's own expansion still reach it in
+  full. Record type is decided by the SHAPE of a claim — attribute, event, relation — never by its topic, because
+  shape is stable across domains and topic is a fact about one corpus.
+
+  **The sceptic's case is in the specification rather than argued away**, including the prediction that the
+  minimal design may win outright, and the experiment that would falsify the graph claim is written down with
+  its four arms before any number exists.
+
 ## [3.4.0] — 2026-08-28
 
 ### Changed

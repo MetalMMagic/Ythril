@@ -18,6 +18,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { enclosingBlockFrom } from './_structural-window.mjs';
 import { readFileSync } from 'node:fs';
 
 const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
@@ -133,7 +134,13 @@ describe('the route stays thin, and out of the god-file', () => {
 
   it('is audited, because it changes what a space is findable by', () => {
     const AUDIT = read('../../server/src/audit/middleware.ts');
-    assert.match(AUDIT, /reembed\$\/[\s\S]{0,80}space\.embeddings\.reembed/);
+    // A WINDOW, converted: the subject is the audit table's ROW, bounded by its own brace. The claim is that
+    // THIS route's row names that operation, and 80 characters is enough to reach the NEXT row's `operation` —
+    // under which a route with no audit operation of its own would have borrowed its neighbour's.
+    const at = AUDIT.indexOf('reembed$/');
+    assert.ok(at > -1, 'the reembed audit row is gone — re-anchor this gate');
+    assert.match(enclosingBlockFrom(AUDIT, at, 'the reembed audit row'), /space\.embeddings\.reembed/,
+      'the reembed route must carry its own audit operation');
   });
 });
 

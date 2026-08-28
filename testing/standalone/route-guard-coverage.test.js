@@ -24,6 +24,7 @@
 
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
+import { argumentsOf } from './_structural-window.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'url';
@@ -199,13 +200,28 @@ describe('Route guards — every mutating route must be protected', () => {
         routerLevelGuards.set(u[1], prev + ',' + u[2]);
       }
 
-      // Capture the middleware chain: everything between the path string and the handler.
-      // Handles both single-line and the multi-line registration style used in files.ts.
-      const re = /(\w+Router)\s*\.\s*(get|post|put|patch|delete)\s*\(\s*'([^']+)'\s*,([\s\S]{0,400}?)(?:async\s*\(|\(\s*req\b)/g;
+      /*
+       * The middleware chain is the ARGUMENTS between the path and the handler — split at the call's own commas.
+       *
+       * A WINDOW, converted, and this is what the cap was costing. To find the chain the pattern matched from the
+       * path string up to the handler across `[\s\S]{0,400}?`, and **13 of the 209 route registrations in
+       * `server/src/api` put their handler further away than that**. Those routes were not reported as unguarded;
+       * they were never in the analysis at all — `POST /api/data/backups` sits 1 105 characters in,
+       * `GET /api/tokens/rights-catalog` 6 429, and four `schema-library` routes between 489 and 1 870. Raising
+       * the number would have moved the line rather than removed it.
+       *
+       * The handler-SHAPE guess goes with it. Requiring the chain to end at `async (` or `(req` skipped three more
+       * registrations whose handler is named or destructures its request differently. The last argument is the
+       * handler because it is the last argument, whatever it looks like.
+       */
+      const re = /(\w+Router)\s*\.\s*(get|post|put|patch|delete)\s*\(\s*'([^']+)'/g;
       let m;
       while ((m = re.exec(src)) !== null) {
-        const [, router, method, routePath, chain] = m;
+        const [, router, method, routePath] = m;
         if (!mounted.has(router)) continue;
+        const args = argumentsOf(src, src.indexOf('(', m.index), `${routePath}: the route registration`);
+        // Argument 0 is the path and the last is the handler; everything between them is the chain.
+        const chain = args.slice(1, -1).join(',');
         routes.push({ router, method, routePath, chain, file });
       }
     }

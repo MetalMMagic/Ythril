@@ -30,7 +30,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
-import { angularTemplateOf, enclosingMarkupBlocksMatching, openTagAt } from './_structural-window.mjs';
+import { angularTemplateOf, balancedFrom, enclosingMarkupBlocksMatching, openTagAt } from './_structural-window.mjs';
 
 const files = execSync('git ls-files "client/src/app/pages/settings/media-processing/*.component.ts"',
   { encoding: 'utf8' }).trim().split('\n').filter(f => f && !f.endsWith('.spec.ts'));
@@ -126,7 +126,12 @@ describe('the media-processing page locks every field when infra-managed', () =>
     // The other half of the wiring: a load that picked fields by name instead of spreading would drop
     // `infraManaged` silently, and every control would unlock while the server still refused every save.
     const svc = readFileSync('client/src/app/pages/settings/media-processing/media-processing-state.service.ts', 'utf8');
-    assert.match(svc, /this\.form = \{[\s\S]{0,80}?\.\.\.cfg/,
+    // A WINDOW, converted: the subject is the object ASSIGNED to the form, bounded by its own brace. At 80
+    // characters a spread pushed past that by two named fields ahead of it would have failed on correct code —
+    // and the assertion is about what the object contains, not where in it the spread appears.
+    const formAt = svc.indexOf('this.form = {');
+    assert.ok(formAt > -1, 'the form assignment is gone — re-anchor this gate');
+    assert.match(balancedFrom(svc, svc.indexOf('{', formAt), 'the object assigned to the form'), /\.\.\.cfg/,
       'the response must be spread onto the form, or infraManaged never arrives');
   });
 

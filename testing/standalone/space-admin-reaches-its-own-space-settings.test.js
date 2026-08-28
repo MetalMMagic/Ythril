@@ -30,6 +30,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { statementFrom } from './_structural-window.mjs';
 import { readFileSync } from 'node:fs';
 import { stripComments } from './_strip-comments.mjs';
 
@@ -172,7 +173,13 @@ describe('the MCP door widens with the REST one', () => {
   });
 
   it('visibility admits on ANY space, because tools/list runs before one is named', () => {
-    assert.match(VIS, /tool\.spaceAdmin[\s\S]{0,160}spaceAdminSpacesFor/,
+    // A WINDOW, converted: the subject is the STATEMENT that decides visibility, and the claim is that the
+    // any-space predicate is what it returns. 160 characters could not tell "this branch uses it" from "some
+    // later branch does" — and a coarse check answered by the wrong predicate is a tool listed to somebody who
+    // cannot call it, or hidden from somebody who can.
+    const at = VIS.indexOf('if (tool.spaceAdmin)');
+    assert.ok(at > -1, 'the spaceAdmin visibility branch is gone — re-anchor this gate');
+    assert.match(statementFrom(VIS, at, 'the spaceAdmin visibility branch'), /spaceAdminSpacesFor/,
       'the coarse half must use the any-space predicate — there is no space to check yet');
   });
 

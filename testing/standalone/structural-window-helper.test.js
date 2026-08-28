@@ -27,6 +27,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  argumentsOf,
   balancedFrom,
   bodyOf,
   docCommentBefore,
@@ -94,6 +95,105 @@ describe('balancedFrom — the bound is the matching bracket', () => {
     // The whole point. An unbounded window must be an error, never a silently smaller subject.
     assert.throws(() => balancedFrom('fn(a, b', 0), /never closed/);
     assert.throws(() => balancedFrom('no brackets here', 0), /no bracket/);
+  });
+});
+
+describe('a regex literal is not code and not a string — it is skipped whole', () => {
+  /*
+   * The lexing hole that produced this: `api/files.ts` writes
+   *
+   *     path.basename(normalised).replace(/[\r\n"\\]/g, '')
+   *
+   * and the `"` inside that character class opened a phantom string. It swallowed the next 350 characters and the
+   * brackets in them, so `argumentsOf` reported the route registration it was reading as never closed.
+   *
+   * It failed loudly there, which is luck: the same phantom string inside a `doesNotMatch` bound makes the window
+   * SMALLER and the absence hold. So these are pinned per shape rather than as one case.
+   */
+  it('a quote inside a character class does not open a string', () => {
+    const s = String.raw`f(a.replace(/["']/g, ''), guard, h)`;
+    assert.deepEqual(argumentsOf(s, 1), ["a.replace(/[\"']/g, '')", 'guard', 'h']);
+  });
+
+  it('a bracket inside a regex does not change the depth', () => {
+    const s = 'f(x.split(/[({[]/), last)';
+    assert.deepEqual(argumentsOf(s, 1), ['x.split(/[({[]/)', 'last']);
+  });
+
+  it('a slash inside a character class does not end the pattern', () => {
+    // A `/` is a legal ClassChar, so `[/x]` does not close the pattern. Read as closing it, the walk resumes
+    // mid-pattern and every bracket after it counts at the wrong depth.
+    const s = "f(p.replace(/[/x]/g, '_'), h)";
+    const args = argumentsOf(s, 1);
+    assert.equal(args.length, 2, `the pattern ended early: ${JSON.stringify(args)}`);
+    assert.equal(args[1], 'h');
+  });
+
+  it('DIVISION is still division — a `/` after a value must not eat the rest of the line', () => {
+    // The other direction, and the one a naive fix breaks: treating every `/` as a pattern start makes
+    // `(a + b) / 2, next` one argument, silently.
+    const s = 'f((a + b) / 2, next)';
+    assert.deepEqual(argumentsOf(s, 1), ['(a + b) / 2', 'next']);
+  });
+
+  it('a regex after `return` or `case` is a pattern, not division', () => {
+    const s = 'f(() => { return /,/.test(x); }, after)';
+    assert.deepEqual(argumentsOf(s, 1), ['() => { return /,/.test(x); }', 'after']);
+  });
+
+  it('an unterminated regex stops at the newline rather than running to the end of the file', () => {
+    // A `/` this heuristic mis-reads as a pattern must cost one line, never the rest of the source.
+    const s = 'f(a, b)\ng(c, d)';
+    assert.deepEqual(argumentsOf(s, 1), ['a', 'b']);
+  });
+
+  it('the statement bound sees a statement that follows a regex', () => {
+    const src = 'const clean = raw.replace(/[")}]/g, "");\nconst next = other(1, 2);\n';
+    assert.match(statementFrom(src, src.indexOf('const next'), 'the next statement'), /^const next = other\(1, 2\);$/);
+  });
+});
+
+describe('argumentsOf — a claim about one argument cannot be answered by another', () => {
+  const ROUTE = "router.get('/x', requireAuth, requireRights({ a: 1, b: [2, 3] }), async (req, res) => { ok(); });";
+
+  it('splits at the call\'s OWN commas and nowhere else', () => {
+    assert.deepEqual(argumentsOf(ROUTE, ROUTE.indexOf('(')), [
+      "'/x'",
+      'requireAuth',
+      'requireRights({ a: 1, b: [2, 3] })',
+      'async (req, res) => { ok(); }',
+    ]);
+  });
+
+  it('a comma inside an object, an array, a string or the handler is not a boundary', () => {
+    // Every one of these would split the list further if the walk ignored depth — and the middleware chain
+    // would then include the two halves of the handler's own parameter list as separate entries.
+    const args = argumentsOf(ROUTE, ROUTE.indexOf('('));
+    assert.equal(args.length, 4, `depth-blind splitting: ${JSON.stringify(args)}`);
+    assert.match(args[3], /^async \(req, res\)/, 'the handler must arrive whole');
+  });
+
+  it("a comma in a string argument doesn't split it", () => {
+    const s = "t('a, b', guard, h)";
+    assert.deepEqual(argumentsOf(s, s.indexOf('(')), ["'a, b'", 'guard', 'h']);
+  });
+
+  it('a single argument is one part, and an empty list is none', () => {
+    assert.deepEqual(argumentsOf('f(only)', 1), ['only']);
+    assert.deepEqual(argumentsOf('f()', 1), []);
+  });
+
+  it('a trailing comma does not produce an empty argument', () => {
+    assert.deepEqual(argumentsOf('f(a, b,)', 1), ['a', 'b']);
+  });
+
+  it('the whole list is still bounded by the matching bracket, however long it is', () => {
+    // The property the cap it replaced did not have: 6 429 characters between the path and the handler is
+    // not a reason to stop reading. `GET /api/tokens/rights-catalog` is that route.
+    const long = `f('/p', guard, async (req, res) => { ${'// pad\n'.repeat(400)} });`;
+    const args = argumentsOf(long, 1);
+    assert.equal(args.length, 3);
+    assert.match(args[2], /^async \(req, res\)/);
   });
 });
 

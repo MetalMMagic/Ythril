@@ -603,7 +603,7 @@ Ythril sets the following headers on every response:
 | `X-Content-Type-Options` | `nosniff` | Prevents MIME-type sniffing |
 | `Content-Security-Policy` | `frame-ancestors 'self'; object-src 'none'; base-uri 'self'; font-src 'self'` | Blocks cross-origin embedding, plugin injection, base-tag hijacking, and any font fetched from a third party — the UI serves its own, so an air-gapped instance renders correctly and no operator's IP reaches a font CDN. Cross-origin embedding is possible only by explicitly allowlisting origins under `embed.allowedOrigins` — see [Theme API](15-about-and-embedding.md#enabling-cross-origin-embedding-opt-in) |
 | `Referrer-Policy` | `no-referrer` | Strips referrer on outbound requests |
-| `X-Request-Id` | UUID | Unique per-request ID for tracing (logged server-side) |
+| `X-Request-Id` | UUID | Unique per-request ID. **Every log line the request's own work produces carries it**, so this value is what you grep the server log for. |
 
 **Compression**: Ythril compresses its own responses (gzip/deflate, negotiated per request) — you do not
 need to configure it on a proxy, and enabling it there as well only re-compresses what is already

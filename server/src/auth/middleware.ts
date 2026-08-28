@@ -30,7 +30,6 @@ declare global {
     interface Request {
       authToken?: Omit<TokenRecord, 'hash'> | OidcTokenRecord;
       resolvedSpaceId?: string;
-      requestId?: string;
       /** Bearer exchanged from a single-use SSE ticket, cached so multiple auth middlewares in the same
        *  request (e.g. a router-level requireAuth + a route-level requireAdmin) don't each try to consume
        *  it. `null` means the ticket was invalid; `undefined` means not yet exchanged. */

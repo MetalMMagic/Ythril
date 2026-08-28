@@ -177,11 +177,24 @@ ythril_http_requests_total{method="GET",route="/health",status_code="200"} 42
 
 Default Node.js process metrics (`nodejs_*`, `process_*`) are also included via [prom-client](https://github.com/siimon/prom-client)'s `collectDefaultMetrics()`.
 
-**Correlating a failure with its log line.** Every response carries an `X-Request-Id` header, and the server
-logs that id with any unhandled error (`Unhandled error [<id>]: …`). The admin UI now **shows the id in the
-message** for a server-side failure (5xx, or a request that got no answer at all), so a bug report can quote
-it and an operator can grep for it. It is deliberately not appended to a 4xx: a validation message explains
-itself, and an id on every one of them trains people to ignore the id when it matters.
+**Correlating a failure with its log line.** Every response carries an `X-Request-Id` header, and **every log
+line the request's own work produces carries the same id** — the 4xx it answered with, the WARN a background step
+logged mid-request, the 507 a quota refused with, not only an unhandled crash. Grep the id.
+
+The id is ambient for the request's call tree, so it does not reach a line logged from an event callback that
+fires after the handler returned — a connection close, a child-process error. Both of those are debug-level
+today. It is stated because an EventEmitter listener does not inherit the context it was registered in, which is
+measured behaviour and not an implementation detail that will quietly change.
+
+This used to be true of one line only, the unhandled-error handler, which meant an id could be correlated
+exactly when the failure was a crash and not when it was handled — and the handled ones are what get reported.
+Lines written outside a request (boot, the TTL sweep, the background storage walk) carry no id, deliberately: a
+placeholder there would make a search for a real id match them.
+
+The admin UI **shows the id in the message** for a server-side failure (5xx, or a request that got no answer at
+all), so a bug report can quote it. It is deliberately not appended to a 4xx *in the response*: a validation
+message explains itself, and an id on every one of them trains people to ignore the id when it matters. The log
+line for that 4xx carries the id regardless.
 
 **Kubernetes example** (Prometheus Operator `ServiceMonitor`):
 

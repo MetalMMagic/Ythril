@@ -209,6 +209,10 @@ two things it could not before:
 
 - **Manage that space's tokens** — create them, edit their rights, rotate and revoke them. It only ever sees
   and edits tokens whose own reach sits inside the spaces it administers.
+  - **That last sentence was true of listing and editing, and is now true of rotating and revoking too.**
+    Until this release those two verbs checked only that you were an administrator of *something*, so an
+    administrator of one space could revoke or rotate any token on the instance — including tokens for
+    spaces it cannot see. Both now refuse with a message naming which spaces put the token out of reach.
 - **Change that space's settings** — its name, its schema and types, and a re-index of its own search
   indexes.
 

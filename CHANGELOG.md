@@ -242,6 +242,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   refused it, the docs promised it. All three are now the same answer. The round-trip contract is documented
   in `05a` and `05c`, and the userguide says plainly that a Save which appeared to work and changed nothing
   was this.
+- **A revoke that removed nothing reported success.** `revokeToken` filters the stored tokens by id and returns
+  false when the filter matched nothing; the route discarded that boolean and answered `204` unconditionally.
+  So a caller could be told a credential was gone while it still authenticated — the
+  "assert on the identity the operation returns" failure this codebase keeps paying for. It now answers `500`
+  saying the token **is still valid** and that retrying will not help, because an operator told "something went
+  wrong" assumes a blip and moves on.
+
+  Found while investigating a failed revoke reported by breituai-platform on 2026-08-20. **It is not their
+  cause** — and that is itself worth recording: a handler that always answered `204` on a token it found cannot
+  be the source of a failure toast, so whatever they hit came from the guard or from before the handler. They
+  were careful to say they had not read the status code and would not guess it, so the investigation stops here
+  rather than changing code to chase a symptom nobody can name yet.
 
 
 - **`topK`'s MCP description still promised a record cap the byte budget replaced.** It said *"past roughly 25
@@ -306,6 +318,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `$vectorSearch`, against the named index, cheap. All three were true of a probe that could never answer. It
   now asserts the field and the width, per call site rather than in total, and refuses a caller that does not
   name its target — five mutants killed against the pre-fix shape.
+
+### Security
+
+- **A space-restricted administrator could revoke or rotate ANY token on the instance.**
+  `requireAdminOrSpaceAdminMfa` admits a token holding `admin` on all four areas of one space. Three of the
+  token routes then narrowed what it may touch — the list filters by `editorScopeFor`, the mint route refuses
+  an out-of-scope grant, and `PATCH` runs `refusalsOutsideEditorScope`, whose own comment records that without
+  it *"such a token could rename any token on the instance and write `rights.instanceAdmin` onto it"*.
+  `DELETE` and `POST /:id/regenerate` resolved no scope at all.
+
+  Revoking is strictly more destructive than renaming, and rotation is worse still: the old secret stops
+  working instantly and the only party who learns the new one is the caller. So an administrator of one space
+  could invalidate any credential on the instance — instance-admin tokens included — for spaces it cannot see,
+  and walk away holding the replacement.
+
+  One rule, four implementations, and the two missing ones on the most destructive verbs. Both now call the
+  shared guard rather than reimplementing the comparison, and the scope refusal is answered **before** the
+  last-admin check, because the other order tells a caller whether a token it may not touch is the instance's
+  only administrator.
+
+  **The rotation route was found by the gate, not by the report.** `token-routes-narrow-by-one-rule.test.js`
+  asserts the PROPERTY — the set of routes a space admin can reach and the set that narrows are the same set,
+  both derived from source — rather than naming the route somebody complained about. A test naming `DELETE`
+  would have passed here for as long as rotation has existed.
 
 ## [3.2.0] — 2026-08-20
 

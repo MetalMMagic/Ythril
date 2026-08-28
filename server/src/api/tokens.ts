@@ -564,9 +564,51 @@ tokensRouter.patch('/:id', requireAdminOrSpaceAdminMfa, (req, res) => {
 });
 
 // POST /api/tokens/:id/regenerate — rotate a token's secret — admin + MFA
+/**
+ * POST /api/tokens/:id/regenerate — rotate a token's secret.
+ *
+ * ## It did not narrow by editor scope either, and the gate is what found that
+ *
+ * The DELETE route below was the reported one. `token-routes-narrow-by-one-rule.test.js` asserts the PROPERTY
+ * — every route a space-restricted administrator can reach resolves its scope — rather than naming the route
+ * somebody complained about, and it immediately flagged this one too.
+ *
+ * Rotation is as destructive as revocation and quieter about it: the old secret stops working instantly, and
+ * the only party who learns the new one is the caller. So an administrator of one space could invalidate any
+ * credential on the instance, for spaces it cannot see, and walk away holding the replacement.
+ *
+ * That is the argument for gating the set instead of the instance. A test naming DELETE would have passed here
+ * for as long as this route has existed.
+ *
+ * The 404 stays where it is on purpose: the scope refusal has to come FIRST, or a caller learns whether an id
+ * it may not touch exists.
+ */
 tokensRouter.post('/:id/regenerate', authRateLimit, requireAdminOrSpaceAdminMfa, async (req, res) => {
-  const plaintext = await regenerateToken(req.params['id'] as string);
+  const id = req.params['id'] as string;
+  const target = listTokens().find(t => t.id === id);
+  if (!target) {
+    res.status(404).json({ error: 'Token not found' });
+    return;
+  }
+
+  // The shared rule, same call as PATCH and DELETE. `rights: undefined` because a rotation changes no rights,
+  // so only the guard's TARGET half applies.
+  const scopeRefusals = refusalsOutsideEditorScope({
+    editorSpaces: editorScopeFor(req.authToken),
+    target,
+    rights: undefined,
+  });
+  if (scopeRefusals.length > 0) {
+    res.status(403).json({
+      error: `A space-restricted administrator cannot rotate this token — ${scopeRefusals.join('; ')}.`,
+      refusals: scopeRefusals,
+    });
+    return;
+  }
+
+  const plaintext = await regenerateToken(id);
   if (!plaintext) {
+    // Reachable only if the token was deleted between the read above and this write.
     res.status(404).json({ error: 'Token not found' });
     return;
   }
@@ -574,6 +616,37 @@ tokensRouter.post('/:id/regenerate', authRateLimit, requireAdminOrSpaceAdminMfa,
 });
 
 // DELETE /api/tokens/:id — revoke a token — admin + MFA
+/**
+ * DELETE /api/tokens/:id — revoke a token.
+ *
+ * ## Two things this route was missing, both found while investigating a revoke failure
+ *
+ * breituai-platform reported a failed revoke on 2026-08-20 and were careful to say they had not read the
+ * status code and would not guess it. Neither defect below is provably their cause — see the board reply — but
+ * both are real and one is a privilege gap.
+ *
+ * **1. It did not narrow by editor scope, and the other three token routes do.** `requireAdminOrSpaceAdminMfa`
+ * admits a space-restricted administrator. The LIST route filters by `editorScopeFor`, the MINT route refuses
+ * out-of-scope grants, and PATCH runs `refusalsOutsideEditorScope` — with a comment recording that without it
+ * "such a token could rename any token on the instance and write `rights.instanceAdmin` onto it". This route
+ * resolved no scope at all, so an administrator of one space could revoke ANY token on the instance,
+ * instance-admin tokens included. Revoking is strictly more destructive than renaming.
+ *
+ * One rule, four implementations, and the missing one on the most destructive verb. `refusalsOutsideEditorScope`
+ * is called here rather than reimplemented, so the four cannot drift about what "outside your scope" means.
+ *
+ * `rights: undefined` is passed deliberately: a revoke changes no rights, so only the guard's TARGET half
+ * applies. The guard is built for that — it returns early with just the target refusals.
+ *
+ * **2. It discarded `revokeToken`'s return value and always answered 204.** That boolean is the only report of
+ * whether anything was actually removed; `revokeToken` filters `config.tokens` by id and returns false when the
+ * filter matched nothing. Answering 204 to a revoke that removed nothing is the
+ * "assert on the identity the operation returns" failure this codebase keeps paying for — a caller is told the
+ * credential is gone while it still authenticates.
+ *
+ * It also means this handler cannot be the source of a *failure* on a token it found, which is evidence about
+ * the report rather than about the code: whatever they hit came from the guard or from before the handler.
+ */
 tokensRouter.delete('/:id', requireAdminOrSpaceAdminMfa, async (req, res) => {
   const id = req.params['id'] as string;
   const all = listTokens();
@@ -582,12 +655,37 @@ tokensRouter.delete('/:id', requireAdminOrSpaceAdminMfa, async (req, res) => {
     res.status(404).json({ error: 'Token not found' });
     return;
   }
+
+  // The same guard PATCH and the mint route use, on the verb that needed it most. See the note above.
+  const scopeRefusals = refusalsOutsideEditorScope({
+    editorSpaces: editorScopeFor(req.authToken),
+    target,
+    rights: undefined,
+  });
+  if (scopeRefusals.length > 0) {
+    res.status(403).json({
+      error: `A space-restricted administrator cannot revoke this token — ${scopeRefusals.join('; ')}.`,
+      refusals: scopeRefusals,
+    });
+    return;
+  }
+
   // Prevent locking out all admin access
   if (isInstanceAdmin(target) && all.filter(t => isInstanceAdmin(t)).length === 1) {
     res.status(409).json({ error: 'Cannot revoke the last admin token' });
     return;
   }
-  await revokeToken(id);
+
+  // The boolean is the only report of whether anything was removed. Discarding it answered 204 for a revoke
+  // that deleted nothing — the caller believing a live credential is gone.
+  const removed = await revokeToken(id);
+  if (!removed) {
+    res.status(500).json({
+      error: `Token '${id}' was listed but could not be removed. It is still valid. This is a server-side `
+        + 'inconsistency between the token list and the stored config, not something to retry.',
+    });
+    return;
+  }
   res.status(204).end();
 });
 

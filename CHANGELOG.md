@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Four more capped windows converted; the frozen list reaches 30 across 17 files, from 66/36.** X-25c.
+
+  `mcp-tool-rights` held two windows in ONE pattern —
+  `if (rightsRefusal) {[\s\S]{0,160}?return {[\s\S]{0,120}?text: rightsRefusal` — and the claim is that the
+  refusal is RETURNED from inside the branch. Neither cap could tell "inside the branch" from "160 characters
+  after it", and that is exactly the difference between *computed and dropped* and *computed and returned* —
+  the defect the test's own comment names as this repo's signature, which happened on three routes at once.
+  Both mutants killed: the branch neutered, and the returned object dropping the refusal text.
+
+  `schema-derived-type-controls` bounded a `<select>` element at 2400 characters, and its comment justified the
+  number as stopping "a runaway match" from swallowing the next select. **The lazy `?` already does that** — the
+  first `</select>` wins. What the number actually did was the opposite of its stated purpose: a select LONGER
+  than the cap matched nothing, so its options were never examined and the gate reported the file clean. It had
+  already been raised once, 1600 to 2400 — the signature of a number nobody chooses, but raises until the test
+  passes. Killed by pointing a real component's select at a bare property, which is the hardcoded-list
+  regression the gate exists to refuse.
+
 ### Added
 
 - **`faceDescriptorDims` can be changed on a space that has never held a face descriptor.** It was create-only,

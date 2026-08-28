@@ -9,6 +9,7 @@ Base path: `/api/tokens`.
 - `GET /api/tokens/me` requires any valid token.
 - The read-only list `GET /api/tokens` requires an **admin** token (but not MFA).
 - All **mutating** token routes (create/rename/delete/regenerate) require admin scope **and** MFA where enabled.
+- A **space-restricted administrator** is admitted by those guards and then narrowed: every one of them resolves the caller's scope and refuses a token that reaches spaces outside it. That holds for reading the list (fewer rows), minting (an out-of-scope grant is refused), editing, **rotating** and **revoking** — the last two only from this release.
 
 ### Current Token Context
 
@@ -397,5 +398,24 @@ DELETE /api/tokens/:id
 ```
 
 **Response** `204`.
+
+| Refusal | Meaning |
+| --- | --- |
+| `404` | no token with that id |
+| `403` | you are a **space-restricted administrator** and this token reaches spaces outside your scope. The body carries `refusals` naming which — the same shape `PATCH` answers with |
+| `409` | it is the instance's last administrator token |
+| `500` | the token was listed but could not be removed, and **is still valid**. A server-side inconsistency between the token list and the stored config; retrying will not help |
+
+**The `403` and the `500` are both new.** Until this release the route resolved no scope at all, so an
+administrator of one space could revoke any token on the instance — including instance-admin tokens and tokens
+for spaces it cannot see. And it discarded the outcome of the removal, answering `204` even when nothing was
+deleted, which told a caller a live credential was gone.
+
+**The scope refusal is answered before the last-admin check**, deliberately: the other order would tell a
+caller whether a token it may not touch is the instance's only administrator.
+
+`POST /api/tokens/:id/regenerate` narrows the same way and for the same reason — rotation invalidates the old
+secret instantly and hands the replacement only to the caller, so it is as destructive as revocation and
+quieter about it.
 
 ---

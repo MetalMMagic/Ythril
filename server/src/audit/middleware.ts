@@ -165,6 +165,24 @@ const ROUTE_RULES: RouteRule[] = [
   { method: 'DELETE', pattern: /^\/api\/networks\/([^/]+)$/,                        operation: 'network.delete' },
   { method: 'POST',   pattern: /^\/api\/networks\/([^/]+)\/members$/,               operation: 'network.member.add' },
   { method: 'DELETE', pattern: /^\/api\/networks\/([^/]+)\/members\/([^/]+)$/,      operation: 'network.member.remove' },
+
+  // ── The invite handshake ──────────────────────────────────────────────────
+  //
+  // Both of these were unaudited, exempted by an entry in `audit-route-coverage` reading "network invite
+  // handshake — peer-facing". That reason is true about WHO CALLS them and irrelevant to WHAT THEY CHANGE, which
+  // is the distinction the `/api/notify/trigger` carve-out above already makes: a sync cycle writes peer records
+  // locally, so it is audited even though a peer triggers it.
+  //
+  // `finalize` calls `saveConfig` — it is the moment another instance BECOMES A MEMBER of a network on this
+  // instance, or is held for a join vote. That is the most consequential local mutation in the whole flow, and it
+  // left no trace. `generate` is an instance admin producing the material that makes it possible, which is a user
+  // action with a security consequence by any reading.
+  //
+  // `apply` stays exempt and its narrowed reason says why: it registers an in-memory handshake session and
+  // writes nothing. The exemption is now on that path rather than the whole prefix, so a fourth route added here
+  // is unaudited-and-refused rather than silently covered.
+  { method: 'POST',   pattern: /^\/api\/invite\/generate$/,                          operation: 'network.invite.generate' },
+  { method: 'POST',   pattern: /^\/api\/invite\/finalize$/,                          operation: 'network.member.join' },
   { method: 'POST',   pattern: /^\/api\/networks\/([^/]+)\/members\/([^/]+)\/adopt$/, operation: 'network.member.adopt' },
   { method: 'POST',   pattern: /^\/api\/networks\/([^/]+)\/members\/([^/]+)\/revert-parent$/, operation: 'network.member.revert_parent' },
   { method: 'PUT',    pattern: /^\/api\/networks\/([^/]+)\/members\/([^/]+)\/signing-key$/, operation: 'network.member.signing_key' },

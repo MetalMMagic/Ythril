@@ -347,6 +347,8 @@ Click **Create Network**. Enter a label, choose a type, enter the space IDs to i
 
 The invite expires after 1 hour.
 
+**Both ends are recorded in the audit log.** Generating an invite appears as `network.invite.generate`, and the moment the other brain actually becomes a member — or is held for a join vote — appears as `network.member.join`. Until 2026-08-28 neither did: the whole invite path was exempt from auditing as "peer-facing", which was true about who calls it and beside the point about what it changes.
+
 ### Joining a network
 
 1. Click **Join Network**.

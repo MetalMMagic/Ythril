@@ -80,6 +80,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The embedding guide's `postMessage` snippet derives its target origin from the iframe instead of offering a
+  placeholder.** breituai-platform found this in the console on 2026-08-20, embedding Ythril in a page on
+  `www.breituai.com`:
+
+      "postMessage" could not be executed on 'DOMWindow': the specified target origin
+      ("https://ythril.www.breituai.com") does not match the recipient window's origin
+      ("https://www.breituai.com").
+
+  `ythril.www.breituai.com` is not a host anybody has. It is `"ythril." + location.hostname` — the shape you
+  get from assuming Ythril lives at a `ythril.` subdomain of the embedding page's domain, which holds right up
+  until that page is on `www`. Every such message is refused by the browser, so the theme silently never
+  arrives and **nothing in Ythril reports a problem, because nothing in Ythril was reached.**
+
+  **Not our code, and we said so before changing anything:** the shipped bundle contains exactly one
+  window-targeted `postMessage` — the OIDC silent-refresh callback, targeting `location.origin` — which cannot
+  produce that string. But the snippet we publish ended `}, 'https://your-ythril-host');`, and a placeholder in
+  the one argument that must be exact reads as an invitation to construct it. The value is already in the
+  embedder's hand: `new URL(iframe.src).origin`.
+
+  Two further traps documented with it, both easy to misread: the "recipient window's origin" in that error is
+  the PARENT's, not the frame's, so the same message also appears when the iframe has not navigated yet — and
+  waiting for `load` is necessary but not sufficient, because the SPA registers its listener after its own
+  theme fetch settles, so a token pushed in the same tick is lost with no queue and no error. For first paint,
+  `cssUrl` on `/api/theme` is the path that cannot race.
+
+
 - **The ER diagram's boxes now take one of three heights, and a row of them is a band.** breituai-platform's
   owner, at a browser on a live 3.2.0 instance, 2026-08-20. His word for the diagram was *"salad"*, and two of
   his three complaints were heights: *"non-uniform height entities"*, and boxes side by side in a row having

@@ -117,16 +117,54 @@ The `cssUrl` must be a valid HTTPS URL (HTTP is allowed only for `localhost` dur
 2. **Runtime tokens via `postMessage`** — the embedding page can send CSS custom property overrides to the Ythril iframe:
 
 ```js
+// DERIVE the target origin from the iframe you already have. Do not build it from your own
+// hostname — see the warning below.
+const ythrilOrigin = new URL(iframe.src).origin;
+
 iframe.contentWindow.postMessage({
   type: 'ythril:theme',
   tokens: {
     '--primary': '#0066cc',
     '--background': '#f5f5f5'
   }
-}, 'https://your-ythril-host');
+}, ythrilOrigin);
 ```
 
 Only `--`-prefixed CSS custom properties are accepted. Standard CSS properties (e.g. `color`, `background`) are silently filtered out to prevent injection.
+
+> **The `targetOrigin` must be Ythril's origin, and the safest way to get it is from `iframe.src`.**
+> An earlier version of this snippet ended `}, 'https://your-ythril-host');` — a placeholder, which reads as
+> an invitation to construct the value. An operator reported this in the console on 2026-08-20, embedding
+> Ythril in a page on `www.breituai.com`:
+>
+> ```text
+> "postMessage" could not be executed on 'DOMWindow': the specified target origin
+> ("https://ythril.www.breituai.com") does not match the recipient window's origin
+> ("https://www.breituai.com").
+> ```
+>
+> `ythril.www.breituai.com` is not a host anybody has. It is `"ythril." + location.hostname` — the shape you
+> get from assuming Ythril lives at a `ythril.` subdomain of the embedding page's domain, which is true right
+> up until the embedding page is on `www`. **Every one of those messages is refused by the browser**, so the
+> theme silently never arrives and nothing in Ythril reports a problem, because nothing in Ythril was reached.
+>
+> Two further notes on that error, because it is easy to misread:
+>
+> - **It is thrown in the EMBEDDER's page, by the embedder's own call.** Ythril's bundle contains exactly one
+>   window-targeted `postMessage`, in the OIDC silent-refresh callback, and it targets `location.origin`. If
+>   you see this error, the sender is your page.
+> - **The "recipient window's origin" it names is the PARENT's, not the frame's**, which makes the message
+>   look as though it is complaining about the wrong window. It is not: `postMessage` compares your stated
+>   target against the origin of the window you called it on, and calling it on `iframe.contentWindow` before
+>   the frame has navigated gives you a window still at the parent's origin. So this error can ALSO mean the
+>   frame had not loaded yet — wait for the iframe's `load` event before posting.
+>
+> **And `load` is necessary but not sufficient.** The SPA registers its `message` listener after its own
+> `/api/theme` fetch settles, so a token pushed in the same tick as `load` can arrive before anything is
+> listening and is simply lost — there is no queue and no error. `postMessage` is the RUNTIME-UPDATE path;
+> for the first paint use `cssUrl` on `/api/theme`, which the SPA fetches itself and applies before
+> rendering. If you must push the initial tokens this way, send them again a moment later rather than
+> assuming the first one landed.
 
 The `postMessage` handler validates `event.origin`. **Same-origin messages are always accepted. A cross-origin embedder — which is what portal-style embedding actually is — is accepted only if the operator has explicitly allowlisted its origin** (see below). Without that opt-in, a cross-origin `postMessage` is ignored *and* the browser will refuse to frame Ythril at all.
 

@@ -487,21 +487,21 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
     const effAck = facePatch?.acknowledgedHost ?? existingFace.acknowledgedHost;
 
     /*
-     * Does THIS PATCH switch faces on? Two ways, and the second is the owner's C ruling.
+     * REACHABLE, and CAUSED BY THIS PATCH. See the note on `refuseUnacknowledgedEgress` for why both.
      *
-     *   the ENDPOINT   the caller pointed it somewhere or acknowledged it — `facePatch !== undefined`
-     *   the RUNG       the caller raised the image ceiling to a rung that runs recognition
+     * Faces only run at the image ladder's `recognition` rung, and `auto` resolves to it — which is why
+     * images default to `caption`: nobody should acquire a biometric store by leaving the defaults alone. A
+     * check for `'recognition'` alone would let `auto` switch on a biometric pipeline unasked.
      *
-     * `auto` counts: it resolves to the recognition rung, which is why images default to `caption` rather
-     * than `auto` in the first place — nobody should acquire a biometric store by leaving the defaults alone.
-     *
-     * Read off THIS patch's `levels.images`, never off the stored value. Reading the stored one is what made
-     * an unrelated save fail: a ceiling raised in an earlier request is not this caller's act, and asking them
-     * to consent to it is asking the wrong person at the wrong time.
+     * Reachability reads the EFFECTIVE level (patch ?? stored), because whether a crop can leave is a fact
+     * about the resulting config. Causation reads only the PATCHED level, because a ceiling raised in an
+     * earlier request is not this caller's act.
      */
+    const effImageLevel = parsed.data.levels?.images ?? activeCfg.levels?.images;
     const patchedImageLevel = parsed.data.levels?.images;
-    const rungActivatesFaces = patchedImageLevel === 'recognition' || patchedImageLevel === 'auto';
-    const activatedByThisPatch = facePatch !== undefined || rungActivatesFaces;
+    const facesRunAt = (lvl: string | undefined): boolean => lvl === 'recognition' || lvl === 'auto';
+    const reachableAfterThisPatch = facesRunAt(effImageLevel) && !!effBaseUrl;
+    const causedByThisPatch = facePatch !== undefined || facesRunAt(patchedImageLevel);
 
     // SSRF is checked whenever the caller TOUCHES the endpoint, independently of consent: a private-address
     // endpoint is refused even by a caller who has acknowledged it, because that is a different rule.
@@ -513,7 +513,7 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
     const refusal = refuseUnacknowledgedEgress({
       what: 'external face model',
       sends: 'face crops (biometric data)',
-      effBaseUrl, effAck, activatedByThisPatch,
+      effBaseUrl, effAck, reachableAfterThisPatch, causedByThisPatch,
     });
     if (refusal) { res.status(refusal.status).json(refusal.body); return; }
   }
@@ -539,18 +539,22 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
     const effAck = assistPatch?.acknowledgedHost ?? existingAssist.acknowledgedHost;
 
     /*
-     * The same activation question, and this endpoint is where the right idea was already written down.
+     * The same two questions, and this endpoint is where the right idea was already half written down.
      *
-     * The old comment here said the trigger is the pipeline rung *"whether that happened by configuring the
-     * endpoint or by raising the extraction mode in the same or an EARLIER save"* — and those last three words
-     * are the defect the face endpoint had too. A rung raised in an earlier request is not this caller's act.
+     * The old comment said the trigger is the pipeline rung *"whether that happened by configuring the
+     * endpoint or by raising the extraction mode in the same or an EARLIER save"*. The last three words were
+     * the defect — a rung raised earlier is not this caller's act — and the rest is exactly right, including
+     * the part the first draft of this fix threw away: **the rung has to be ON at all.** Configuring the
+     * endpoint below the repair rung is permitted, and `media-config.test.js` has a test named after it.
      *
      * `repair` uses the assist model outright; `auto` resolves to repair whenever a repair capability exists,
-     * and a configured assist model IS one. Read off THIS patch's mode only.
+     * and a configured assist model IS one.
      */
+    const effMode = parsed.data.documentProcessing?.mode ?? activeCfg.documentProcessing?.mode ?? 'vlm';
     const patchedMode = parsed.data.documentProcessing?.mode;
-    const rungActivatesAssist = patchedMode === 'repair' || patchedMode === 'auto';
-    const activatedByThisPatch = assistPatch !== undefined || rungActivatesAssist;
+    const repairRunsAt = (m: string | undefined): boolean => m === 'repair' || m === 'auto';
+    const reachableAfterThisPatch = repairRunsAt(effMode) && !!effBaseUrl;
+    const causedByThisPatch = assistPatch !== undefined || repairRunsAt(patchedMode);
 
     if (assistPatch !== undefined && effBaseUrl && !isSsrfSafeUrl(effBaseUrl, allowPrivateForSlot('assist'))) {
       res.status(400).json({ error: 'assistModel.baseUrl rejected: must be a public http(s) URL (no private/loopback/metadata addresses)' + privateAddressHint('assist') });
@@ -560,7 +564,7 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
     const refusal = refuseUnacknowledgedEgress({
       what: 'external assist model',
       sends: 'document content (OCR text, and page images for image-based uses)',
-      effBaseUrl, effAck, activatedByThisPatch,
+      effBaseUrl, effAck, reachableAfterThisPatch, causedByThisPatch,
     });
     if (refusal) { res.status(refusal.status).json(refusal.body); return; }
   }
@@ -852,9 +856,23 @@ mediaConfigRouter.post('/test-connection', requireAdminMfa, async (req, res) => 
  * becomes reachable — whether that happened by configuring the endpoint or by raising the extraction mode in
  * the same or an earlier save."* The words "or an earlier save" are the defect; the rest is the right idea.
  *
- * Consent is owed at ACTIVATION. So the question is not "is this endpoint configured" but **"does this patch
- * turn it on"** — by pointing it somewhere, or by raising the rung that uses it. Anything else leaves an
- * endpoint stored and unused, which is a state the GET now reports so nobody has to discover it by failing.
+ * Consent is owed at ACTIVATION, which is TWO conditions and not one. The first draft of this fix collapsed
+ * them and CI caught it — a test whose name is the contract: *"configuring the endpoint BELOW the repair rung
+ * is allowed (not reachable yet) and round-trips"*. Setting up an endpoint while the rung that uses it is off
+ * has always been permitted, deliberately: nothing can be sent at that rung, so there is nothing to consent to
+ * yet. Demanding it there asks the operator to consent to a transfer that cannot happen.
+ *
+ * So both halves are required:
+ *
+ *   REACHABLE AFTER THIS PATCH   the endpoint is set AND the rung that uses it is on. Read from the EFFECTIVE
+ *                                state — patch ?? stored — because reachability is a fact about the config
+ *                                that results, not about who caused it.
+ *   CAUSED BY THIS PATCH         this request touched the endpoint, or raised the rung. Read from the REQUEST
+ *                                only, because a rung raised in an earlier save is not this caller's act.
+ *
+ * The old gate had the first and not the second, so one stored endpoint refused every later write. The first
+ * draft of the fix had the second and not the first, so setting up an endpoint became impossible without
+ * consenting to a transfer that could not occur. Both are needed and they answer different questions.
  *
  * That is also the owner's ruling of 2026-08-20 (P-12, A + C): consent is accepted — and therefore demanded —
  * from the PIPELINE entry point as well as from the endpoint's own control, because raising an image level to
@@ -878,14 +896,24 @@ export function refuseUnacknowledgedEgress(input: {
   /** The acknowledgement after this patch. */
   effAck: string | undefined;
   /**
-   * Does THIS PATCH turn the endpoint on — by touching it, or by raising the rung that uses it?
+   * Is the endpoint REACHABLE after this patch — set, and behind a rung that is on?
    *
-   * The whole fix is in this flag being about the REQUEST rather than about the stored config.
+   * From the EFFECTIVE state (patch ?? stored). An endpoint configured below its rung is not reachable and
+   * needs no consent yet, which is a deliberate behaviour with a test named after it.
    */
-  activatedByThisPatch: boolean;
+  reachableAfterThisPatch: boolean;
+  /**
+   * Did THIS REQUEST cause it — by touching the endpoint, or by raising the rung?
+   *
+   * From the request only. A rung raised in an earlier save is not this caller's act, and asking them to
+   * consent to it is what made one stored endpoint refuse every unrelated write.
+   */
+  causedByThisPatch: boolean;
 }): { status: 400; body: { error: string; needsAcknowledgment: string } } | { status: 400; body: { error: string } } | null {
-  const { what, sends, effBaseUrl, effAck, activatedByThisPatch } = input;
-  if (!activatedByThisPatch || !effBaseUrl) return null;
+  const { what, sends, effBaseUrl, effAck, reachableAfterThisPatch, causedByThisPatch } = input;
+  // BOTH, and the `&&` is the whole rule: reachable but not caused by this caller is somebody else's decision;
+  // caused but not reachable is a transfer that cannot happen yet.
+  if (!reachableAfterThisPatch || !causedByThisPatch || !effBaseUrl) return null;
   let host: string;
   try { host = new URL(effBaseUrl).host; } catch {
     return { status: 400, body: { error: `${what} baseUrl is not a valid URL` } };

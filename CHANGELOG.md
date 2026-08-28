@@ -103,12 +103,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   by pointing it somewhere, or by raising the rung that uses it. Which is also the owner's P-12 ruling (A + C):
   consent is accepted, and therefore demanded, from the pipeline entry point as well as the endpoint's control.
 
-  So a patch is refused when it sets or repoints the endpoint, or raises `levels.images` to `recognition` or
-  `auto` (`auto` resolves to the recognition rung — a check for `recognition` alone would let it switch on a
-  biometric pipeline unasked). Anything else, while an unacknowledged endpoint happens to be stored, is
-  allowed — and the GET reports `faceEndpointAwaitingAcknowledgment` so a UI can say "configured, not in use"
-  rather than leaving it to be discovered by a failure. Quiet fallback is right for an *unreachable* endpoint,
-  a runtime condition nobody chose; it is wrong for an *unacknowledged* one, which is a decision waiting on a
+  **Activation turns out to be TWO conditions, and collapsing them into one broke a different contract.** The
+  first attempt at this fix made "the caller touched the endpoint" sufficient, and three integration tests went
+  red — one of them named after the behaviour it broke: *"configuring the endpoint BELOW the repair rung is
+  allowed (not reachable yet) and round-trips"*. Setting an endpoint up while the rung that uses it is off has
+  always been permitted, deliberately: nothing can be sent at that rung, so there is nothing to consent to yet,
+  and demanding it asks the operator to approve a transfer that cannot happen.
+
+  So the refusal requires both, and they answer different questions from different sources:
+
+  | | read from | question |
+  | --- | --- | --- |
+  | **reachable after this patch** | the EFFECTIVE state (patch ?? stored) | is the endpoint set, behind a rung that is on? |
+  | **caused by this patch** | the REQUEST only | did this caller point it somewhere, or raise the rung? |
+
+  Reachable-but-not-caused is somebody else's earlier decision — refusing it is the original defect.
+  Caused-but-not-reachable is a transfer that cannot occur — refusing it was the first attempt's defect. Both
+  have now shipped as bugs, which is why the conjunction is asserted as one expression rather than as two
+  facts about the file.
+
+  `auto` counts as an active rung on both endpoints — it resolves to `recognition` for images and to `repair`
+  for extraction, so a check for the explicit rung alone would let `auto` switch on a biometric pipeline
+  unasked. The GET reports `faceEndpointAwaitingAcknowledgment` so a UI can say "configured, not in use"
+  rather than leaving it to be discovered by a failure: quiet fallback is right for an *unreachable* endpoint,
+  a runtime condition nobody chose, and wrong for an *unacknowledged* one, which is a decision waiting on a
   person.
 
   **The same defect was on the assist endpoint and is fixed with it** — same page, same failure, document
@@ -116,9 +134,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that were there before. The refusals keep naming the exact host and what would be sent there, because they
   asked us not to weaken that and it had already caught a real mistake of theirs within minutes.
 
-  Eight mutants killed, one of which found a fault in the gate: the activation assertion counted a variable
-  name and survived rewriting one endpoint back to the defective shape. Counting a variable proves it exists,
-  not that it means anything — it asserts the property now.
+  **The gate was the real failure here and is now a different kind of test.** Every assertion in it read
+  `media-config.ts` and checked the SHAPE of the decision — and all of them passed on the version that broke
+  three integration tests, because the shape was right and the rule was wrong. Preflight cannot run the Docker
+  suites, so the rule itself is now exercised against the exported helper as a truth table, one row per
+  scenario those tests cover plus the one this change exists for, with an anti-vacuity check that both truth
+  values of both flags appear. Twelve mutants killed across both rounds, including the exact mutation that
+  reached CI and two earlier ones that found the gate counting a variable NAME rather than checking what it
+  meant.
 
 
 - **The embedding guide's `postMessage` snippet derives its target origin from the iframe instead of offering a

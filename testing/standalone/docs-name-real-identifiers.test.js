@@ -73,6 +73,8 @@ const git = (args) => execFileSync('git', args, { encoding: 'utf8', maxBuffer: 2
  */
 const NOT_OURS = [
   { id: 'podPidsLimit', why: 'a kubelet configuration flag, set on the cluster and not in our manifests' },
+  { id: 'targetOrigin', why: "the second parameter of the DOM's window.postMessage, named in the embedding "
+    + 'guide because an embedder has to pass it correctly — the guide exists to stop them constructing it' },
 ];
 
 /** This file's own path, excluded below. */

@@ -26,6 +26,7 @@ import { providerSignature, getActiveProviderSignature } from '../files/media/wo
 import { MIN_CANDIDATE_MULTIPLIER, MAX_CANDIDATE_MULTIPLIER } from '../brain/rerank-client.js';
 import { MAX_EMBED_CONCURRENCY } from '../files/converters/embed-concurrency.js';
 import { mergeEmbeddingPatch } from '../config/embedding-patch.js';
+import { faceEndpointConsented } from '../files/media/face-external.js';
 
 export const mediaConfigRouter = Router();
 
@@ -45,6 +46,24 @@ mediaConfigRouter.get('/', requireAdmin, (req, res) => {
   // restart. Surfacing it lets the UI show "applying…" instead of leaving the
   // operator guessing whether their provider switch is live yet.
   masked['providerReloadPending'] = getActiveProviderSignature() !== providerSignature(cfg);
+  /*
+   * Is a stored face endpoint configured but NOT consented to — and therefore stored and unused?
+   *
+   * Reported because that state is now reachable and silent. It used to be unreachable through this API: the
+   * PATCH refused any write that would leave it, which is what made an optional endpoint able to brick this
+   * page. Now the endpoint is stored, `detectFacesExternal` declines to use it, and faces fall back in-process
+   * exactly as they do for an unreachable one.
+   *
+   * "Falls back silently" is fine for UNREACHABLE — that is a runtime condition nobody chose. It is not fine
+   * for UNACKNOWLEDGED, which is a decision waiting on a person. So the state is on the wire, and the UI can
+   * say "configured, not in use, one confirmation away" instead of leaving it to be discovered.
+   *
+   * Derived, never stored: it is a comparison between two fields that are both already here, and a stored
+   * boolean would be a third copy able to disagree with them.
+   */
+  masked['faceEndpointAwaitingAcknowledgment'] =
+    !!cfg.faceRecognition?.externalModel?.baseUrl?.trim()
+    && !faceEndpointConsented(cfg.faceRecognition?.externalModel);
   // Text embedding lives at top-level config.embedding but is surfaced here so it's on the Models page.
   const emb = getEmbeddingConfig();
   masked['embedding'] = { ...emb, apiKey: emb.apiKey ? '••••••••' : undefined };
@@ -421,28 +440,82 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
     });
     return;
   }
+  /*
+   * BIOMETRIC EGRESS CONSENT — gated on the PATCH TOUCHING THE ENDPOINT, not on the endpoint existing.
+   *
+   * ## What this used to do, and what it cost
+   *
+   * The condition was `if (effBaseUrl)` — the endpoint resolved from patch-or-stored. So once a face endpoint
+   * was stored without an acknowledgement, EVERY subsequent patch to this route was refused, whatever it
+   * touched. breituai-platform's owner met that trying to raise an image level to "Caption + face
+   * recognition", which has nothing to do with face egress:
+   *
+   *     Settings -> Media Processing -> set images to "Caption + face recognition" -> Save -> nothing saves.
+   *
+   * His summary of the flow was *"not even i understand it"*, and he had built the service on the other end.
+   * Four separate points, all theirs, and the second is the one with operational cost: the blocked page never
+   * mentions the blocker; an unacknowledged endpoint invalidates the WHOLE media-config rather than the face
+   * slot; the promise "saving will ask you to confirm" is made on the Models page while the failure happens on
+   * Media Processing; and the raw `needsAcknowledgment` object reached the user as a JSON wall.
+   *
+   * ## Their principle, and why it is not merely defensible but already implemented
+   *
+   * Their words: *"the acknowledgement should gate USE of the endpoint, not VALIDITY of the config."*
+   *
+   * **The USE side already enforces it, independently, and by design.** `detectFacesExternal` returns null
+   * unless `faceEndpointConsented` matches `acknowledgedHost` against the host it would send to, and that
+   * function's own comment says why it is checked there as well: *"a config edited on disk (bypassing the API)
+   * still cannot silently egress biometric data."* So the guarantee that matters — no crop leaves without
+   * consent — never depended on this write-time refusal. Refusing the write protected nothing that refusing
+   * the use does not, and the collateral was an optional endpoint bricking a settings page.
+   *
+   * ## What is still refused, and why that is the half worth keeping
+   *
+   * A patch that TOUCHES `externalModel` without a matching acknowledgement. That is the moment the operator
+   * is present and deciding, which is exactly where consent belongs — and it is the behaviour they praised and
+   * asked us not to weaken: *"it names the exact host:port, it says WHY in plain language a lawyer would
+   * recognise, and it fails closed."* It caught a real mistake of theirs within minutes.
+   *
+   * The difference is one condition: `facePatch !== undefined` (the caller is configuring the endpoint) rather
+   * than `effBaseUrl` (an endpoint exists at all). An unacknowledged endpoint is now STORED and UNUSED, which
+   * is the state their post asked for, and reported as such on the GET so the UI can say so rather than
+   * leaving it to be discovered by a failure.
+   */
   {
-    // Biometric egress consent. Same rule as the assist model and for a stronger reason: face crops are
-    // biometric data. Keyed off the endpoint being USABLE (a base URL is set) rather than off a tick, so
-    // consent cannot be side-stepped by configuring the endpoint and acknowledging nothing.
     const existingFace = activeCfg.faceRecognition?.externalModel ?? {};
     const effBaseUrl = facePatch?.baseUrl ?? existingFace.baseUrl;
     const effAck = facePatch?.acknowledgedHost ?? existingFace.acknowledgedHost;
-    if (effBaseUrl) {
-      if (!isSsrfSafeUrl(effBaseUrl, allowPrivateForSlot('faceExternal'))) {
-        res.status(400).json({ error: 'faceRecognition.externalModel.baseUrl rejected: must be a public http(s) URL (no private/loopback/metadata addresses)' + privateAddressHint('faceExternal') });
-        return;
-      }
-      let host: string;
-      try { host = new URL(effBaseUrl).host; } catch { res.status(400).json({ error: 'faceRecognition.externalModel.baseUrl is not a valid URL' }); return; }
-      if (effAck !== host) {
-        res.status(400).json({
-          error: `Egress to ${host} must be acknowledged before the external face model can be used: face crops (biometric data) would be sent there.`,
-          needsAcknowledgment: host,
-        });
-        return;
-      }
+
+    /*
+     * Does THIS PATCH switch faces on? Two ways, and the second is the owner's C ruling.
+     *
+     *   the ENDPOINT   the caller pointed it somewhere or acknowledged it — `facePatch !== undefined`
+     *   the RUNG       the caller raised the image ceiling to a rung that runs recognition
+     *
+     * `auto` counts: it resolves to the recognition rung, which is why images default to `caption` rather
+     * than `auto` in the first place — nobody should acquire a biometric store by leaving the defaults alone.
+     *
+     * Read off THIS patch's `levels.images`, never off the stored value. Reading the stored one is what made
+     * an unrelated save fail: a ceiling raised in an earlier request is not this caller's act, and asking them
+     * to consent to it is asking the wrong person at the wrong time.
+     */
+    const patchedImageLevel = parsed.data.levels?.images;
+    const rungActivatesFaces = patchedImageLevel === 'recognition' || patchedImageLevel === 'auto';
+    const activatedByThisPatch = facePatch !== undefined || rungActivatesFaces;
+
+    // SSRF is checked whenever the caller TOUCHES the endpoint, independently of consent: a private-address
+    // endpoint is refused even by a caller who has acknowledged it, because that is a different rule.
+    if (facePatch !== undefined && effBaseUrl && !isSsrfSafeUrl(effBaseUrl, allowPrivateForSlot('faceExternal'))) {
+      res.status(400).json({ error: 'faceRecognition.externalModel.baseUrl rejected: must be a public http(s) URL (no private/loopback/metadata addresses)' + privateAddressHint('faceExternal') });
+      return;
     }
+
+    const refusal = refuseUnacknowledgedEgress({
+      what: 'external face model',
+      sends: 'face crops (biometric data)',
+      effBaseUrl, effAck, activatedByThisPatch,
+    });
+    if (refusal) { res.status(refusal.status).json(refusal.body); return; }
   }
 
   // ── F11-b: external assist model — locked check + SSRF + egress-acknowledgment enforcement ──
@@ -464,25 +537,32 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
     const existingAssist = activeCfg.documentProcessing?.assistModel ?? {};
     const effBaseUrl = assistPatch?.baseUrl ?? existingAssist.baseUrl;
     const effAck = assistPatch?.acknowledgedHost ?? existingAssist.acknowledgedHost;
-    // Effective extraction rung after this patch. `repair` uses the assist model outright; `auto` resolves
-    // to repair whenever a repair capability exists — and a configured assist model IS one.
-    const effMode = parsed.data.documentProcessing?.mode ?? activeCfg.documentProcessing?.mode ?? 'vlm';
-    const repairReachable = effMode === 'repair' || effMode === 'auto';
-    if (repairReachable && effBaseUrl) {
-      if (!isSsrfSafeUrl(effBaseUrl, allowPrivateForSlot('assist'))) {
-        res.status(400).json({ error: 'assistModel.baseUrl rejected: must be a public http(s) URL (no private/loopback/metadata addresses)' + privateAddressHint('assist') });
-        return;
-      }
-      let host: string;
-      try { host = new URL(effBaseUrl).host; } catch { res.status(400).json({ error: 'assistModel.baseUrl is not a valid URL' }); return; }
-      if (effAck !== host) {
-        res.status(400).json({
-          error: `Egress to ${host} must be acknowledged before the external assist model can be used: document content (OCR text, and page images for image-based uses) would be sent there.`,
-          needsAcknowledgment: host,
-        });
-        return;
-      }
+
+    /*
+     * The same activation question, and this endpoint is where the right idea was already written down.
+     *
+     * The old comment here said the trigger is the pipeline rung *"whether that happened by configuring the
+     * endpoint or by raising the extraction mode in the same or an EARLIER save"* — and those last three words
+     * are the defect the face endpoint had too. A rung raised in an earlier request is not this caller's act.
+     *
+     * `repair` uses the assist model outright; `auto` resolves to repair whenever a repair capability exists,
+     * and a configured assist model IS one. Read off THIS patch's mode only.
+     */
+    const patchedMode = parsed.data.documentProcessing?.mode;
+    const rungActivatesAssist = patchedMode === 'repair' || patchedMode === 'auto';
+    const activatedByThisPatch = assistPatch !== undefined || rungActivatesAssist;
+
+    if (assistPatch !== undefined && effBaseUrl && !isSsrfSafeUrl(effBaseUrl, allowPrivateForSlot('assist'))) {
+      res.status(400).json({ error: 'assistModel.baseUrl rejected: must be a public http(s) URL (no private/loopback/metadata addresses)' + privateAddressHint('assist') });
+      return;
     }
+
+    const refusal = refuseUnacknowledgedEgress({
+      what: 'external assist model',
+      sends: 'document content (OCR text, and page images for image-based uses)',
+      effBaseUrl, effAck, activatedByThisPatch,
+    });
+    if (refusal) { res.status(refusal.status).json(refusal.body); return; }
   }
 
   try {
@@ -740,6 +820,88 @@ mediaConfigRouter.post('/test-connection', requireAdminMfa, async (req, res) => 
  *
  * Exported for unit testing.
  */
+/**
+ * Does THIS PATCH activate an external endpoint that has not been consented to?
+ *
+ * ## One rule for two endpoints, because they had two copies of it and one bug each
+ *
+ * Face crops (biometric) and document content (OCR text and page images) are the two things that leave the
+ * instance, and each had its own inline consent gate. Both keyed the refusal on the STORED STATE:
+ *
+ *     face:    if (effBaseUrl)                       an endpoint is configured
+ *     assist:  if (repairReachable && effBaseUrl)     ...and the rung that uses it is reachable
+ *
+ * So once either endpoint was stored without an acknowledgement, **every subsequent patch to this route was
+ * refused, whatever it touched.** breituai-platform's owner met the face one raising an image level, which has
+ * nothing to do with face egress, and described the resulting flow as *"not even i understand it"* — having
+ * built the service on the other end of it.
+ *
+ * ## Their principle, and the reason it is safe
+ *
+ * *"The acknowledgement should gate USE of the endpoint, not VALIDITY of the config."*
+ *
+ * The USE side already enforces it and always has. `detectFacesExternal` returns null unless
+ * `faceEndpointConsented` matches the host it would send to, and that function's comment says why it is
+ * checked there as well: *"a config edited on disk (bypassing the API) still cannot silently egress biometric
+ * data."* Refusing the WRITE protected nothing that refusing the USE does not — and the collateral was an
+ * optional endpoint bricking a settings page.
+ *
+ * ## But "gate the use" is not the whole answer, and the assist model's own comment is why
+ *
+ * It reads: *"the trigger is the PIPELINE RUNG, not a separate tick... consent is demanded exactly when repair
+ * becomes reachable — whether that happened by configuring the endpoint or by raising the extraction mode in
+ * the same or an earlier save."* The words "or an earlier save" are the defect; the rest is the right idea.
+ *
+ * Consent is owed at ACTIVATION. So the question is not "is this endpoint configured" but **"does this patch
+ * turn it on"** — by pointing it somewhere, or by raising the rung that uses it. Anything else leaves an
+ * endpoint stored and unused, which is a state the GET now reports so nobody has to discover it by failing.
+ *
+ * That is also the owner's ruling of 2026-08-20 (P-12, A + C): consent is accepted — and therefore demanded —
+ * from the PIPELINE entry point as well as from the endpoint's own control, because raising an image level to
+ * its recognition rung is equally an act of switching faces on.
+ *
+ * ## What is deliberately NOT relaxed
+ *
+ * A patch that activates an unacknowledged endpoint is still refused, with the host named and the reason in
+ * plain language. They asked us not to weaken that and were right to: it caught a real mistake of theirs
+ * within minutes, when they had written the acknowledgement as a bare host without its port.
+ *
+ * Exported for unit testing — this rule is the reason the function exists.
+ */
+export function refuseUnacknowledgedEgress(input: {
+  /** Names the slot in the refusal, e.g. `external face model`. */
+  what: string;
+  /** What leaves the instance, in words an operator recognises. */
+  sends: string;
+  /** The endpoint after this patch: `patch.baseUrl ?? stored.baseUrl`. */
+  effBaseUrl: string | undefined;
+  /** The acknowledgement after this patch. */
+  effAck: string | undefined;
+  /**
+   * Does THIS PATCH turn the endpoint on — by touching it, or by raising the rung that uses it?
+   *
+   * The whole fix is in this flag being about the REQUEST rather than about the stored config.
+   */
+  activatedByThisPatch: boolean;
+}): { status: 400; body: { error: string; needsAcknowledgment: string } } | { status: 400; body: { error: string } } | null {
+  const { what, sends, effBaseUrl, effAck, activatedByThisPatch } = input;
+  if (!activatedByThisPatch || !effBaseUrl) return null;
+  let host: string;
+  try { host = new URL(effBaseUrl).host; } catch {
+    return { status: 400, body: { error: `${what} baseUrl is not a valid URL` } };
+  }
+  // Host INCLUDING port, deliberately: `face-embed.svc` and `face-embed.svc:3120` are different destinations,
+  // and accepting the bare name would let an acknowledgement cover an endpoint nobody consented to.
+  if (effAck === host) return null;
+  return {
+    status: 400,
+    body: {
+      error: `Egress to ${host} must be acknowledged before the ${what} can be used: ${sends} would be sent there.`,
+      needsAcknowledgment: host,
+    },
+  };
+}
+
 export function blockedByInfra(patch: Record<string, unknown>, locked: Set<string>): string[] {
   const blocked = Object.keys(patch).filter(k => locked.has(k));
   for (const [block, value] of Object.entries(patch)) {

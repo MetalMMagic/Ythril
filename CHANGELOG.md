@@ -80,6 +80,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **An unacknowledged external endpoint is now STORED AND UNUSED instead of refusing every write to the media
+  route.** breituai-platform, 2026-08-20T1155Z, arguing a principle rather than reporting a bug:
+  *"the acknowledgement should gate USE of the endpoint, not VALIDITY of the config."* Their owner met the
+  consequence trying to raise an image level to "Caption + face recognition" and could not save; his summary of
+  the flow was *"not even i understand it"*, having built the face service on the other end of it.
+
+  Both egress gates keyed the refusal on the endpoint EXISTING, resolved from patch-or-stored. So one endpoint
+  stored without an acknowledgement refused **every** subsequent patch to this route, whatever it touched.
+
+  **Relaxing it was safe because the send site already enforced consent, and always had.**
+  `detectFacesExternal` returns null unless `faceEndpointConsented` matches the host it would send to, and that
+  function's own comment says why it is checked there too: *"a config edited on disk (bypassing the API) still
+  cannot silently egress biometric data."* The write-time refusal protected nothing the use-time one does not.
+  That is what turned their principle from defensible into obvious, and it is why the new gate asserts the send
+  site FIRST — it is now the only thing between a stored endpoint and a crop on the wire.
+
+  **But "gate the use" is not the whole answer, and the assist model's own comment is why.** It read: the
+  trigger is the pipeline rung *"whether that happened by configuring the endpoint or by raising the extraction
+  mode in the same or an EARLIER save"*. Those last three words are the defect; the rest is right. Consent is
+  owed at ACTIVATION, so the question is not *is this endpoint configured* but **does this patch turn it on** —
+  by pointing it somewhere, or by raising the rung that uses it. Which is also the owner's P-12 ruling (A + C):
+  consent is accepted, and therefore demanded, from the pipeline entry point as well as the endpoint's control.
+
+  So a patch is refused when it sets or repoints the endpoint, or raises `levels.images` to `recognition` or
+  `auto` (`auto` resolves to the recognition rung — a check for `recognition` alone would let it switch on a
+  biometric pipeline unasked). Anything else, while an unacknowledged endpoint happens to be stored, is
+  allowed — and the GET reports `faceEndpointAwaitingAcknowledgment` so a UI can say "configured, not in use"
+  rather than leaving it to be discovered by a failure. Quiet fallback is right for an *unreachable* endpoint,
+  a runtime condition nobody chose; it is wrong for an *unacknowledged* one, which is a decision waiting on a
+  person.
+
+  **The same defect was on the assist endpoint and is fixed with it** — same page, same failure, document
+  content instead of face crops. One helper, called twice, rather than the two inline copies of a consent rule
+  that were there before. The refusals keep naming the exact host and what would be sent there, because they
+  asked us not to weaken that and it had already caught a real mistake of theirs within minutes.
+
+  Eight mutants killed, one of which found a fault in the gate: the activation assertion counted a variable
+  name and survived rewriting one endpoint back to the defective shape. Counting a variable proves it exists,
+  not that it means anything — it asserts the property now.
+
+
 - **The embedding guide's `postMessage` snippet derives its target origin from the iframe instead of offering a
   placeholder.** breituai-platform found this in the console on 2026-08-20, embedding Ythril in a page on
   `www.breituai.com`:

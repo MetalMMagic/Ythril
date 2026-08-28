@@ -195,6 +195,10 @@ RateLimit-Policy: 300;w=60
 Retry-After: 42
 ```
 
-Every response includes an `X-Request-Id` header (UUID) for log correlation.
+Every response includes an `X-Request-Id` header (UUID), and **every server log line the request's own work
+produces carries the same id** — so a failing call can be quoted by id and its log lines found by grep. Lines
+written outside a request (boot, the TTL sweep, the background storage walk) carry no id, which is what stops a
+search for a real one from matching them. The one exception is a line logged from an event callback that fires
+after the handler returns (a connection close, a child-process error); today those are debug-level only.
 
 ---

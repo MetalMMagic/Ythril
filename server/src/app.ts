@@ -48,7 +48,7 @@ import { clearTokenCache } from './auth/tokens.js';
 import { clearOidcCache } from './auth/oidc.js';
 import { initSpace, ensureGeneralSpace, wipeSpace, reconcilePendingSpaceOp, WIPE_COLLECTION_TYPES, type WipeCollectionType } from './spaces/lifecycle.js';
 import { col, asFilter, asDoc } from './db/mongo.js';
-import { log } from './util/log.js';
+import { log, runWithRequestId } from './util/log.js';
 import { getReadiness, classifyCheckError } from './ready.js';
 import { isShuttingDown } from './lifecycle.js';
 import {
@@ -155,11 +155,24 @@ export function createApp() {
   });
 
   // ── Request ID ───────────────────────────────────────────────────────────
-  app.use((req, res, next) => {
+  app.use((_req, res, next) => {
     const id = crypto.randomUUID();
-    req.requestId = id;
     res.setHeader('X-Request-Id', id);
-    next();
+    /*
+     * `next()` inside the async context, so every log line written while handling this request carries the id
+     * the caller was given. It used to reach exactly one line — the unhandled-error handler — which meant an
+     * operator handed a request id could only find it if the failure was an unhandled exception. Every HANDLED
+     * failure, which is most of them, logged with nothing to join on.
+     *
+     * Mounted here, above every route, so it covers REST and `/mcp` alike: MCP is an express router on this
+     * same app, and an MCP call is exactly the case where "which request produced this line" is hardest to
+     * answer by eye, because a model makes many of them quickly.
+     *
+     * The id is no longer also parked on `req`. Nothing read it — the response carries the header and the log
+     * carries the ambient value — and a property with one writer and no reader is the shape that gets
+     * re-implemented by whoever needs it next, because a grep for it finds only its own assignment.
+     */
+    runWithRequestId(id, next);
   });
 
   // ── Health ───────────────────────────────────────────────────────────────
@@ -661,7 +674,11 @@ export function createApp() {
       return;
     }
     const message = err instanceof Error ? err.message : String(err);
-    log.error(`Unhandled error [${req.requestId ?? '-'}]: ${message}`);
+    /*
+     * The id is no longer spelled out here: every line emitted during a request carries it now, so writing it
+     * again produced it twice on the one line that already had it.
+     */
+    log.error(`Unhandled error: ${message}`);
     res.status(500).json({ error: 'Internal server error' });
   });
 

@@ -9,6 +9,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The request id the caller was handed matched nothing in the log unless the failure was a crash.**
+
+  `X-Request-Id` is returned on every response, and two doc pages described it as *"logged server-side"* *"for
+  log correlation"*. It reached exactly ONE log line: the unhandled-error handler. So every failure that is
+  HANDLED — which is most of them — logged with nothing to join on: the 4xx a route answered with, the 507 a
+  quota refused with, the 503 a readiness check returned, a WARN a background step wrote mid-request. **Those
+  are the lines an operator goes looking for**, and they were the ones with no id.
+
+  Every line the request's own work produces carries the id now, via `AsyncLocalStorage` — so lines written by
+  code that has never heard of requests are correlated too, rather than only the call sites somebody remembered
+  to thread an id through. Lines outside a request (boot, the TTL sweep, the background storage walk) carry no
+  id, deliberately: a placeholder there would make a search for a real one match them.
+
+  **One limit, measured and written down rather than discovered later:** an EventEmitter listener is not bound to
+  the async context it was registered in — `emit` runs it in the emitter's context — so a line logged from
+  `res.on('finish')`, a socket `'error'` or a child-process `'close'` carries no id. Probed directly rather than
+  assumed. Two such lines exist, both `log.debug` and neither a failure worth correlating, so they are left
+  alone; the point is that the next person adding a log line inside a listener knows it will not be correlated,
+  and that anything extending this cannot read `currentRequestId()` there.
+
+  The leak direction is pinned as hard as the presence: a module-level variable would stamp the NEXT request's
+  lines with the previous id, which sends a reader to the wrong request confidently, and that mutant survives a
+  test that only ever runs one request. Two concurrent requests each seeing their own id is asserted directly.
+
+  `req.requestId` is gone with it. Nothing read it — the response carries the header and the log carries the
+  ambient value — and a property with one writer and no reader is what gets re-implemented by whoever needs it
+  next, because a grep for it finds only its own assignment.
+
+  Five mutants, all killed by exit code: no id at all, a module variable that leaks, stamping that bypasses
+  redaction, a placeholder on non-request lines, and `next()` called outside the context.
+
+### Changed
+
+- **Three doc pages now say the same thing about `X-Request-Id`, and it is true of all of them.** Two overstated
+  it (`02-hosting`, `03-auth-and-limits`), one described the old behaviour exactly (`11-setup-api`) — so the
+  reader who happened to open the accurate page was the only one who knew the id was useless for a handled
+  failure. `userguide/05-storage-data-and-audit` says what the Server Log tab now shows.
+
+### Fixed
+
 - **A space's usage bar could read 0% while its quota was being approached**, and MCP had no storage figures at
   all while `help()` told callers to look there for them.
 

@@ -1,6 +1,9 @@
 // Centralised logger — redacts Authorization header from all output.
 // Maintains an in-memory ring buffer for the /api/about/logs endpoint.
 // Supports SSE subscribers for real-time log streaming.
+// Stamps every line emitted during a request with that request's id — see `runWithRequestId`.
+
+import { AsyncLocalStorage } from 'node:async_hooks';
 
 const REDACTED = 'Bearer [redacted]';
 const REDACTED_TOKEN = '[redacted]';
@@ -9,6 +12,60 @@ const _ring: string[] = [];
 
 type LogSubscriber = (line: string) => void;
 const _subscribers = new Set<LogSubscriber>();
+
+/**
+ * The id of the request whose work is currently running, so every log line can carry it.
+ *
+ * ## Why this exists
+ *
+ * `X-Request-Id` is returned on every response, and two doc pages described it as being "logged server-side"
+ * "for log correlation". It reached exactly ONE log line: the unhandled-error handler. So a caller reporting a
+ * failure handed over an id that matched nothing in the log unless the failure happened to be an unhandled
+ * exception — and every failure that is HANDLED, which is most of them, logged without it: a 507 quota refusal,
+ * a 503 readiness answer, a WARN from the media worker mid-request. Those are the lines an operator actually
+ * needs to find, and they were the ones with no id.
+ *
+ * ## Why AsyncLocalStorage rather than a parameter
+ *
+ * Threading an id through every function that might log would be a change to hundreds of call sites, most of
+ * which do not know they are inside a request — and any one of them missed would leave a silent hole exactly
+ * where the old behaviour already was. This makes the id ambient for the duration of the request, so lines
+ * written by code that has never heard of requests are still correlated.
+ *
+ * Losing the context is harmless by construction: `store` is undefined, and the line is emitted without an id,
+ * which is the behaviour every line had before. There is no path where this can throw or block.
+ *
+ * ## THE ONE PLACE IT DOES NOT REACH, measured rather than assumed
+ *
+ * An EventEmitter listener is NOT bound to the async context it was registered in — `emit` runs it in the
+ * emitter's context. Probed directly: a listener registered inside `AsyncLocalStorage.run` and fired on a later
+ * tick from outside reads `undefined`. So a line logged from `res.on('finish')`, a socket `'error'`, or a child
+ * process `'close'` carries no id even though the request is still nominally in progress.
+ *
+ * Two such lines exist today, both `log.debug` and neither a failure an operator would correlate: an MCP session
+ * close and a spawned-connector error. They are left alone rather than plumbed, because capturing the id into a
+ * local and re-entering the context at each listener is real complexity for two debug lines. **What matters is
+ * that the limit is written down here** — the next person to add a log line inside a listener should know it will
+ * not be correlated, and anyone extending this should know `currentRequestId()` returns undefined there. The
+ * audit writer, which runs in exactly such a callback, has to capture the id at middleware time instead.
+ */
+const requestContext = new AsyncLocalStorage<{ requestId: string }>();
+
+/**
+ * Run `fn` with `requestId` attached to every log line it and its descendants emit.
+ *
+ * Called once, by the request-id middleware, so it wraps the whole request including everything awaited inside
+ * it. Deliberately NOT exported as a setter: a set-and-forget id would leak into the next request handled on
+ * the same tick, and a log line stamped with somebody else's request id is worse than one with none.
+ */
+export function runWithRequestId<T>(requestId: string, fn: () => T): T {
+  return requestContext.run({ requestId }, fn);
+}
+
+/** The current request's id, or undefined outside a request. Exported for the audit path and for tests. */
+export function currentRequestId(): string | undefined {
+  return requestContext.getStore()?.requestId;
+}
 
 /**
  * Credential-bearing query parameters.
@@ -55,7 +112,13 @@ function redact(msg: string): string {
 
 function fmt(level: string, msg: string, meta?: unknown): string {
   const ts = new Date().toISOString();
-  const base = `[${ts}] [${level}] ${redact(msg)}`;
+  /*
+   * The id goes BEFORE the message and after the level, so a grep for the id finds the line whatever the
+   * message is, and the existing shape `[ts] [LEVEL] …` is unchanged for a line emitted outside a request —
+   * which is every boot line, every scheduled sweep, and everything the log viewer already renders.
+   */
+  const rid = currentRequestId();
+  const base = `[${ts}] [${level}]${rid ? ` [${rid}]` : ''} ${redact(msg)}`;
   if (meta === undefined) return base;
   if (meta instanceof Error) return `${base} ${redact(meta.stack ?? meta.message)}`;
   return `${base} ${redact(JSON.stringify(meta))}`;

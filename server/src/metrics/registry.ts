@@ -18,7 +18,7 @@ import {
 } from 'prom-client';
 import { col } from '../db/mongo.js';
 import { getConfig, getStorageConfig } from '../config/loader.js';
-import { peekUsage, refreshUsageInBackground, usageMeasurementCount } from '../quota/quota.js';
+import { peekUsage, refreshUsageInBackground, usageMeasurementCount, usageIsComplete, USAGE_AREAS } from '../quota/quota.js';
 
 export const register = new Registry();
 
@@ -533,6 +533,35 @@ export const storageUsedBytes = new Gauge({
       // says "not measured yet" where a zero would have claimed "empty".
       if (!peek || peek.ageMs > STORAGE_USAGE_MAX_AGE_MS) refreshUsageInBackground();
     }, () => this.reset());
+  },
+});
+
+/**
+ * Whether the last storage measurement could read everything it was asked to.
+ *
+ * ## Why a quota needs its own health signal
+ *
+ * `ythril_storage_used_bytes` is a floor whenever a directory could not be listed or `dbStats` was refused, and
+ * a floor compared against a hard limit can only under-report — so a quota an operator configured silently
+ * stops firing. Nothing in the storage series can express that: 0.4 GiB reads identically whether it is the
+ * whole store or the part of it that was readable.
+ *
+ * **1 means the figures are whole; 0 means every storage series is a lower bound.** Alert on `== 0`. The reason
+ * is not in the metric because a path is not a label value — it is in the WARN line the measurement logs, which
+ * names what it could not read.
+ *
+ * Absent, like the storage series, until something has been measured. `reset()` is deliberately NOT used for
+ * "unknown" here: a gauge reset reads as 0, and 0 is the alerting state.
+ */
+export const storageUsageComplete = new Gauge({
+  name: 'ythril_storage_usage_complete',
+  help: '1 when the last storage measurement read everything for this area; 0 when its figures are a floor',
+  labelNames: ['area'] as const,
+  registers: [register],
+  collect() {
+    const peek = peekUsage();
+    if (!peek) return;
+    for (const area of USAGE_AREAS) this.set({ area }, usageIsComplete(peek.usage, area) ? 1 : 0);
   },
 });
 

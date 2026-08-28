@@ -13,12 +13,29 @@
  * Usage measurement:
  *   files  — recursive stat-sum of /data/files/
  *   brain  — MongoDB dbStats (dataSize + indexSize)
+ *
+ * ## A MEASUREMENT THAT COULD NOT READ EVERYTHING SAYS SO
+ *
+ * Both halves used to contribute 0 on failure. An unreadable directory under `/data/files` returned early and
+ * a refused `dbStats` returned 0, so the usage came back LOWER than reality with nothing logged — and a hard
+ * limit compared against a number that is only a floor never fires. An operator who set a quota then sees a
+ * quota that simply never triggers, which is indistinguishable from being under it.
+ *
+ * `metrics/registry.ts` had already reasoned this out one layer up, for the same quantity: the storage gauge
+ * emits NO series rather than a zero, because *"an absent series says 'not measured yet' where a zero would
+ * have claimed 'empty'"*. That rule was right and it stopped at the gauge; the measurement it reads from was
+ * still claiming empty. One rule, two implementations, the weaker one winning silently.
+ *
+ * So `UsageGiB` carries `incomplete`, every measurement that skips part of its subject records WHY, and
+ * `checkQuota` says it in the result. **It still fails OPEN** — a transient `EIO` on one subdirectory must not
+ * refuse writes on an otherwise healthy instance — but it can no longer do so quietly.
  */
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { getDataRoot, getStorageConfig } from '../config/loader.js';
 import { getDb } from '../db/mongo.js';
+import { log } from '../util/log.js';
 
 const GiB = 1024 ** 3;
 
@@ -28,6 +45,36 @@ export interface UsageGiB {
   files: number;  // GiB used by /data/files/
   brain: number;  // GiB used by MongoDB (dataSize + indexSize)
   total: number;  // files + brain
+  /**
+   * What this measurement could NOT read, per area, one entry per reason. Both empty on a complete measurement.
+   *
+   * Present so a caller can tell "0.4 GiB used" from "at least 0.4 GiB used" — the whole difference between a
+   * quota that is satisfied and one that could not be evaluated. The corresponding number above is a FLOOR
+   * whenever its list is non-empty.
+   *
+   * PER AREA rather than one flat list, because the two halves fail for unrelated reasons and an operator acts
+   * on them differently: an unlistable directory is a filesystem or permission problem, a refused `dbStats` is a
+   * database-user grant. A single list would have forced the metric to parse a prefix out of a message to say
+   * which half was affected, and a metric that parses prose is a metric that will one day be wrong quietly.
+   */
+  incomplete: { files: string[]; brain: string[] };
+}
+
+/** Every area a storage measurement covers. Exported so the metric cannot drift from the measurement. */
+export const USAGE_AREAS = ['files', 'brain'] as const;
+export type UsageArea = (typeof USAGE_AREAS)[number];
+
+/** True when nothing in this measurement fell short. */
+export function usageIsComplete(usage: UsageGiB, area?: UsageArea): boolean {
+  if (area) return usage.incomplete[area].length === 0;
+  return USAGE_AREAS.every(a => usage.incomplete[a].length === 0);
+}
+
+/** What a directory walk read, and what it could not. */
+export interface DirSize {
+  bytes: number;
+  /** Paths the walk could not read, so `bytes` is a floor rather than a total. */
+  unreadable: string[];
 }
 
 /** Thrown by checkQuota() when a hard limit is exceeded. */
@@ -54,35 +101,72 @@ export interface QuotaCheckResult {
   softBreached: boolean;
   /** Human-readable soft-limit warning message, if softBreached. */
   warning?: string;
+  /**
+   * True when the usage behind this verdict could not be measured completely — so "not breached" means "not
+   * breached by what we could read".
+   *
+   * Separate from `softBreached` on purpose. A soft breach is a fact about the store; this is a fact about the
+   * MEASUREMENT, and conflating them would let a caller report a healthy quota as a warning or, worse, an
+   * unmeasurable one as healthy.
+   */
+  measurementIncomplete: boolean;
 }
 
 // ── Usage measurement ──────────────────────────────────────────────────────
 
-/** Recursively sum file sizes under a directory. Returns 0 if directory absent. */
-export async function dirSizeBytes(dirPath: string): Promise<number> {
+/**
+ * Recursively sum file sizes under a directory, reporting what it could not read.
+ *
+ * An ABSENT root is not incompleteness — a space with no files directory yet uses no files, and reporting that
+ * as unmeasurable would put every fresh instance permanently in the degraded state. Anything else that fails
+ * IS: a directory the process cannot list, or a file it cannot stat, means the total below it is missing and
+ * the sum is a floor.
+ */
+export async function measureDirSize(dirPath: string): Promise<DirSize> {
   let total = 0;
+  const unreadable: string[] = [];
 
-  async function walk(p: string): Promise<void> {
+  async function walk(p: string, isRoot: boolean): Promise<void> {
     let entries;
     try {
       entries = await fs.readdir(p, { withFileTypes: true });
-    } catch {
-      return; // directory doesn't exist or unreadable
+    } catch (err) {
+      // ENOENT on the ROOT is "nothing stored here yet", which is a complete answer of zero. ENOENT deeper in
+      // means something vanished mid-walk; any other code means we were refused.
+      const code = (err as { code?: string }).code;
+      if (!(isRoot && code === 'ENOENT')) unreadable.push(`${p}: ${code ?? String(err)}`);
+      return;
     }
     for (const e of entries) {
       const full = path.join(p, e.name);
       if (e.isSymbolicLink()) {
         continue; // Skip symlinks to prevent quota inflation via external targets
       } else if (e.isDirectory()) {
-        await walk(full);
+        await walk(full, false);
       } else {
-        try { total += (await fs.stat(full)).size; } catch { /* skip */ }
+        try {
+          total += (await fs.stat(full)).size;
+        } catch (err) {
+          // A file listed and then not stattable is either a race with a delete or a permission problem, and
+          // the walk cannot tell which. Either way its bytes are missing from the sum.
+          unreadable.push(`${full}: ${(err as { code?: string }).code ?? String(err)}`);
+        }
       }
     }
   }
 
-  await walk(dirPath);
-  return total;
+  await walk(dirPath, true);
+  return { bytes: total, unreadable };
+}
+
+/**
+ * The byte total alone, for callers that report a size and nothing else.
+ *
+ * Kept as its own function rather than making every caller destructure, and deliberately NOT the primary: a
+ * caller that only wants a number should have to reach past the one that tells it whether the number is whole.
+ */
+export async function dirSizeBytes(dirPath: string): Promise<number> {
+  return (await measureDirSize(dirPath)).bytes;
 }
 
 // ── Usage cache ──────────────────────────────────────────────────────────────
@@ -190,7 +274,13 @@ export async function measureUsage(maxAgeMs = 0): Promise<UsageGiB> {
   return usage;
 }
 
-/** Measure current storage usage synchronously (uncached). */
+/**
+ * Measure current storage usage synchronously (uncached).
+ *
+ * Each half reports its own completeness. A half that could not be read fully contributes what it did read and
+ * names what it did not, so the caller can tell a total from a floor — see the module header for why a zero was
+ * the wrong answer to "I could not look".
+ */
 async function measureUsageUncached(): Promise<UsageGiB> {
   const dataRoot = getDataRoot();
   const filesDir = path.join(dataRoot, 'files');
@@ -198,26 +288,45 @@ async function measureUsageUncached(): Promise<UsageGiB> {
   // files quota so partial uploads cannot fill the disk invisibly.
   const chunksDir = path.join(dataRoot, '.chunks');
 
-  const [fileBytes, brainBytes] = await Promise.all([
-    Promise.all([dirSizeBytes(filesDir), dirSizeBytes(chunksDir)])
-      .then(([a, b]) => a + b),
-    (async () => {
+  const [files, brain] = await Promise.all([
+    Promise.all([measureDirSize(filesDir), measureDirSize(chunksDir)])
+      .then(([a, b]) => ({ bytes: a.bytes + b.bytes, unreadable: [...a.unreadable, ...b.unreadable] })),
+    (async (): Promise<DirSize> => {
       try {
         const db = getDb();
         const stats = await db.command({ dbStats: 1 }) as {
           dataSize?: number;
           indexSize?: number;
         };
-        return (stats.dataSize ?? 0) + (stats.indexSize ?? 0);
-      } catch {
-        return 0;
+        return { bytes: (stats.dataSize ?? 0) + (stats.indexSize ?? 0), unreadable: [] };
+      } catch (err) {
+        // A refused or unreachable `dbStats` used to read as 0 GiB of brain data, which is what a genuinely
+        // empty instance also reads as. A restricted database user without the command, or a transient driver
+        // error, then disabled the brain half of the quota for the life of the process with nothing logged.
+        return { bytes: 0, unreadable: [`dbStats: ${err instanceof Error ? err.message : String(err)}`] };
       }
     })(),
   ]);
 
-  const filesGiB = fileBytes / GiB;
-  const brainGiB = brainBytes / GiB;
-  return { files: filesGiB, brain: brainGiB, total: filesGiB + brainGiB };
+  const incomplete = {
+    // Summarised, and the COUNT kept, because an unreadable tree can produce thousands of entries and neither a
+    // log line nor an API response is a place to put them. The count is the part an operator acts on; the first
+    // path is what they act on it with.
+    files: files.unreadable.length > 0
+      ? [`${files.unreadable.length} path(s) unreadable, first: ${files.unreadable[0]}`]
+      : [],
+    brain: brain.unreadable,
+  };
+
+  const reasons = [...incomplete.files.map(r => `files: ${r}`), ...incomplete.brain.map(r => `brain: ${r}`)];
+  if (reasons.length > 0) {
+    log.warn('Storage usage measurement is INCOMPLETE, so every figure below is a floor and a quota compared '
+      + `against it can only under-report: ${reasons.join('; ')}`);
+  }
+
+  const filesGiB = files.bytes / GiB;
+  const brainGiB = brain.bytes / GiB;
+  return { files: filesGiB, brain: brainGiB, total: filesGiB + brainGiB, incomplete };
 }
 
 // ── Quota check ────────────────────────────────────────────────────────────
@@ -243,9 +352,14 @@ export async function checkQuota(
   // getStorageConfig(), not cfg.storage: an env pin must actually bind here or it is decoration.
   const storage = getStorageConfig();
 
-  // No storage config → quota disabled, always allow.
+  // No storage config → quota disabled, always allow. The zeros here are not a measurement at all, and
+  // `incomplete` stays empty because nothing was attempted: there is no limit for a floor to fall short of.
   if (!storage) {
-    return { usage: { files: 0, brain: 0, total: 0 }, softBreached: false };
+    return {
+      usage: { files: 0, brain: 0, total: 0, incomplete: { files: [], brain: [] } },
+      softBreached: false,
+      measurementIncomplete: false,
+    };
   }
 
   const usage = await measureUsage(opts.maxAgeMs ?? 0);
@@ -290,9 +404,26 @@ export async function checkQuota(
     );
   }
 
+  /*
+   * A measurement that could not read everything still ALLOWS the write — and says so.
+   *
+   * Failing closed here would turn one unreadable subdirectory, or a transient driver error on `dbStats`, into
+   * a refusal of every write on an instance that is otherwise healthy. That trades a reporting gap for an
+   * outage. But it is now a loud allow rather than a silent one: the measurement logged what it could not read,
+   * and this flag travels with the verdict so a caller reporting "within quota" can qualify it.
+   */
+  if (!usageIsComplete(usage)) {
+    const reasons = [
+      ...usage.incomplete.files.map(r => `files: ${r}`),
+      ...usage.incomplete.brain.map(r => `brain: ${r}`),
+    ];
+    warnings.push(`storage usage could not be measured completely, so this figure is a floor: ${reasons.join('; ')}`);
+  }
+
   return {
     usage,
     softBreached,
     warning: warnings.length > 0 ? warnings.join('; ') : undefined,
+    measurementIncomplete: !usageIsComplete(usage),
   };
 }

@@ -26,6 +26,9 @@ function paramsFrom(query: Record<string, unknown>): AuditQueryParams {
   return {
     after: str('after'),
     before: str('before'),
+    // Applies to the paged endpoint AND the export, because both build their filter from this — an operator
+    // who wants one request's row and one who wants it out of a script are asking the same question.
+    requestId: str('requestId'),
     tokenId: str('tokenId'),
     oidcSubject: str('oidcSubject'),
     spaceId: str('spaceId'),

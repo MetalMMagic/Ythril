@@ -175,6 +175,7 @@ All query params are optional:
 |-----------|------|-------------|
 | `after` | `string` | ISO-8601 timestamp — entries from this time onward |
 | `before` | `string` | ISO-8601 timestamp — entries up to this time |
+| `requestId` | `string` | Exact `X-Request-Id` — the one row that request produced. Matched exactly, never as a prefix: a partial match would return somebody else's request while looking like a helpful search. Applies to the export below too |
 | `tokenId` | `string` | Filter by token ID |
 | `oidcSubject` | `string` | Filter by OIDC subject claim |
 | `spaceId` | `string` | Filter by space ID |
@@ -184,6 +185,16 @@ All query params are optional:
 | `limit` | `number` | Results per page (1–1000, default 100) |
 | `offset` | `number` | Pagination offset (default 0) |
 
+#### `requestId` joins this row to the server log
+
+Every log line a request's own work produces carries the same `X-Request-Id` the response returned — see
+[Correlating a failure with its log line](11-setup-api.md). So an operator holding an id from a bug report can
+ask for the audit row *and* grep the log with one value, instead of two searches that cannot be joined.
+
+**An absent `requestId` means the entry was written before the field existed — never that there was no request.**
+Every audit entry has a request behind it; that is what the audit log is. The admin UI says so explicitly rather
+than rendering a blank, and an integration should do the same.
+
 **Response** `200`:
 
 ```json
@@ -192,6 +203,7 @@ All query params are optional:
     {
       "_id": "a1b2c3d4-...",
       "timestamp": "2026-04-12T14:32:10.123Z",
+      "requestId": "6f1c2d3e-...",
       "tokenId": "tok_abc123",
       "tokenLabel": "mcp-bridge",
       "authMethod": "pat",

@@ -12,6 +12,7 @@ import { logAuditEntry } from './audit.js';
 import { auditChanges } from './audit-changes.js';
 import { getConfig } from '../config/loader.js';
 import { classifyOperation, recordSpaceCall } from '../metrics/space-activity.js';
+import { currentRequestId } from '../util/log.js';
 import type { OidcTokenRecord } from '../auth/oidc.js';
 
 // ── Operation mapping ──────────────────────────────────────────────────────
@@ -297,6 +298,16 @@ export function isOidc(token: unknown): token is OidcTokenRecord {
 
 export function auditMiddleware(req: Request, res: Response, next: NextFunction): void {
   const start = process.hrtime.bigint();
+  /*
+   * CAPTURED HERE, not inside the callback below, and that is not a style choice.
+   *
+   * An EventEmitter listener is NOT bound to the async context it was registered in — `emit` runs it in the
+   * emitter's context. Probed directly: a listener registered inside `AsyncLocalStorage.run` and fired on a
+   * later tick reads `undefined`. So `currentRequestId()` called inside `res.on('finish')` would store `null` on
+   * every entry while looking exactly like this line does. This middleware itself runs inside the request
+   * context — it is mounted after the request-id middleware — so at THIS point the id is there.
+   */
+  const requestId = currentRequestId() ?? null;
 
   res.on('finish', () => {
     // Use originalUrl (strip query string) — req.path inside the 'finish'
@@ -362,6 +373,7 @@ export function auditMiddleware(req: Request, res: Response, next: NextFunction)
     const durationMs = Number(process.hrtime.bigint() - start) / 1e6;
 
     logAuditEntry({
+      requestId,
       tokenId: token && 'id' in token ? token.id : null,
       tokenLabel: token?.name ?? null,
       authMethod,
@@ -389,6 +401,10 @@ export function auditMiddleware(req: Request, res: Response, next: NextFunction)
 export function logAuthFailure(req: Request): void {
   const fullPath = (req.originalUrl || req.url).split('?')[0];
   logAuditEntry({
+    // Read directly, not captured: this runs synchronously inside the request rather than in a listener, so
+    // the context is live here. It is also the entry where the id matters most — a rejected credential is the
+    // one thing an operator wants to trace back through the log line by line.
+    requestId: currentRequestId() ?? null,
     tokenId: null,
     tokenLabel: null,
     authMethod: null,

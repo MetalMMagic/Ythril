@@ -360,6 +360,21 @@ import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
               <dt>{{ 'auditLog.detail.entryId' | transloco }}</dt>
               <dd class="mono">{{ e.entryId }}</dd>
             }
+            <!-- The request id, and the only row here whose ABSENCE has to be spelled out. Every audited action
+                 had a request behind it, so a blank would read as "none" when it means "this row predates the
+                 field" — the same trap the changes note below describes. (No backticks in here: this template
+                 is a template literal, and one would end it.) -->
+            <dt>{{ 'auditLog.detail.requestId' | transloco }}</dt>
+            @if (e.requestId) {
+              <dd class="mono">
+                {{ e.requestId }}
+                <button type="button" class="link-btn" (click)="filterByRequestId(e.requestId!)">
+                  {{ 'auditLog.detail.requestIdFilter' | transloco }}
+                </button>
+              </dd>
+            } @else {
+              <dd style="color:var(--text-muted)">{{ 'auditLog.detail.requestIdAbsent' | transloco }}</dd>
+            }
           </dl>
           <!-- What the request actually changed. Only allowlisted operations record this, so its ABSENCE
                means "not recorded for this operation" — never "nothing changed". Saying so explicitly
@@ -450,6 +465,14 @@ export class AuditLogComponent implements OnInit, OnDestroy {
   filterSpaceId = '';
   filterStatus = '';
   filterIp = '';
+  /**
+   * Exact request id, set by the detail panel's "find this request" button rather than typed.
+   *
+   * No input of its own on the filter bar: nobody types a UUID from memory, and a text box for one would be a
+   * control that only ever gets pasted into. It arrives from a bug report through the detail panel, which is
+   * where somebody actually holds one.
+   */
+  filterRequestId = '';
 
   readonly pageSize = 100;
 
@@ -500,7 +523,28 @@ export class AuditLogComponent implements OnInit, OnDestroy {
     this.load();
   }
 
+  /**
+   * Show only this request's row, from the detail panel.
+   *
+   * Clears the other filters, because a request id identifies ONE row and combining it with a date range or a
+   * status that happens to be set would return nothing and read as "there is no such request" — which is the
+   * one wrong answer this control can give.
+   */
+  filterByRequestId(requestId: string): void {
+    this.filterAfter = '';
+    this.filterBefore = '';
+    this.filterOperation = '';
+    this.filterSpaceId = '';
+    this.filterStatus = '';
+    this.filterIp = '';
+    this.filterRequestId = requestId;
+    this.selectedEntry.set(null);
+    this.offset.set(0);
+    this.load();
+  }
+
   resetFilters(): void {
+    this.filterRequestId = '';
     this.filterAfter = '';
     this.filterBefore = '';
     this.filterOperation = '';
@@ -533,6 +577,7 @@ export class AuditLogComponent implements OnInit, OnDestroy {
     if (this.filterSpaceId) p.spaceId = this.filterSpaceId;
     if (this.filterStatus) p.status = parseInt(this.filterStatus, 10);
     if (this.filterIp) p.ip = this.filterIp;
+    if (this.filterRequestId) p.requestId = this.filterRequestId;
     return p;
   }
 
@@ -625,7 +670,10 @@ export class AuditLogComponent implements OnInit, OnDestroy {
   }
 
   exportCsv(): void {
-    const headers = ['timestamp', 'tokenId', 'tokenLabel', 'authMethod', 'oidcSubject', 'ip', 'method', 'path', 'spaceId', 'operation', 'status', 'entryId', 'durationMs'];
+    // `requestId` included: a CSV of an activity record is exactly where somebody correlates a row with the
+    // server log afterwards, and a column that exists in the API but not the export is one the reader of the
+    // file cannot know to ask for.
+    const headers = ['timestamp', 'requestId', 'tokenId', 'tokenLabel', 'authMethod', 'oidcSubject', 'ip', 'method', 'path', 'spaceId', 'operation', 'status', 'entryId', 'durationMs'];
     const rows = this.entries().map(e =>
       headers.map(h => {
         const v = (e as unknown as Record<string, unknown>)[h];

@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **An audit entry carries the request id, so the audit log and the server log join on one value.**
+
+  Every log line a request's own work produces already carried its `X-Request-Id`. The audit entry for the same
+  request carried the actor, the operation, the status and the duration — and nothing that connected it to those
+  lines. So *"show me everything about this request"* was two searches that could not be joined: the row says
+  WHAT was done and by whom, the log lines say what happened on the way.
+
+  **`requestId` is filterable**, on the paged endpoint and the NDJSON export both, matched exactly. Storing an id
+  nobody can query by would leave an operator holding a bug report paging a filtered log looking for one row. The
+  admin UI's detail panel shows the id with a **find this request** button that narrows the table to it, and the
+  CSV export carries the column.
+
+  **An absent value means "written before this field existed", never "no request"** — every audit entry has a
+  request behind it. The key is omitted rather than stored as null, the same rule `changes` follows, and the UI
+  says *not recorded* rather than rendering a blank that reads as an answer.
+
+  Captured at middleware ENTRY rather than inside `res.on('finish')`, and that was measured rather than assumed:
+  an EventEmitter listener is not bound to the async context it was registered in, so `currentRequestId()` called
+  in the finish callback returns undefined and would have stored nothing on every entry **while looking exactly
+  like the correct line**. The gate asserts WHERE the read happens for that reason. All three writers carry it —
+  the request middleware, the auth-failure entry (where it matters most: a rejected credential is what an
+  operator most wants to trace) and the MCP tool-call recorder.
+
+  Five mutants, all killed by exit code, including the capture moved into the callback and the write storing null.
+
+  **`AuditLogEntry` moved out of `config/types.ts` into `audit/entry.ts`.** The god-file ratchet refused the
+  one-line addition with its own reason — *"every change lands in the same place because that is where the code
+  already is"* — and it was right: an audit row is not configuration, and it was in the config types only
+  because that file was where types went. Moving it took **34 lines out** of a frozen file rather than adding
+  one to it, against a single importer and a single gate to repoint.
+
 ### Changed
 
 - **No customer's name appears in this repository any more. It is PUBLIC.** Owner's rule, 2026-08-28.

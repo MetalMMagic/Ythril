@@ -25,6 +25,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { blockAfter, statementFrom } from './_structural-window.mjs';
 import { readFileSync } from 'node:fs';
 
 const SHAPE = 'server/src/config/rights-shape.ts';
@@ -84,8 +85,12 @@ describe('the rights grid explains itself', () => {
 
   it('the server serves the enforcing table, to any authenticated caller', () => {
     const src = stripComments(read(TOKENS_API));
-    const route = /tokensRouter\.get\('\/rights-catalog'[\s\S]{0,600}?\}\);/.exec(src);
-    assert.ok(route, 'GET /api/tokens/rights-catalog not found');
+    // A WINDOW, converted: the subject is the route REGISTRATION, bounded by the `;` that ends it. 600
+    // characters could stop inside the handler — and the three checks below are `doesNotMatch`-shaped, so a
+    // short window asserts an ABSENCE over less text than intended and passes.
+    const at = src.indexOf("tokensRouter.get('/rights-catalog'");
+    assert.ok(at > -1, 'GET /api/tokens/rights-catalog not found');
+    const route = [statementFrom(src, at, 'the rights-catalog registration')];
     assert.match(route[0], /ROUTE_RIGHTS/, 'the catalog must be built from ROUTE_RIGHTS, not from a literal');
     assert.match(route[0], /requireAuth/, 'the catalog must be readable by an authenticated caller');
     assert.ok(!/requireAdmin/.test(route[0]),
@@ -107,8 +112,11 @@ describe('the rights grid explains itself', () => {
     // Listing only what a rung adds would understate the grant. On a permissions screen the safe direction to
     // be wrong in is to overstate, so this pins the comparison rather than an equality.
     const src = stripComments(read(CATALOG));
-    const fn = /routesFor\([\s\S]{0,700}?\n  \}/.exec(src);
-    assert.ok(fn, 'routesFor() not found');
+    // A WINDOW, converted: the subject is `routesFor`'s body, bounded by its own brace rather than by the
+    // first two-space `}` within 700 characters — which is a guess about indentation as well as about length.
+    const fnAt = src.indexOf('routesFor(');
+    assert.ok(fnAt > -1, 'routesFor() not found');
+    const fn = [blockAfter(src, src.indexOf(')', fnAt), 'routesFor')];
     assert.match(fn[0], /indexOf\(r\.needs\)\s*<=\s*order/,
       'routesFor must include every rung at or BELOW the one asked for');
     assert.ok(!/r\.needs === rung/.test(fn[0]),

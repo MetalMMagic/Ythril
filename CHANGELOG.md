@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Six more capped windows converted across three gates.** X-25c continues; the frozen list falls to **34
+  across 19 files**.
+
+  All six were the same shape underneath — a call's argument list, an object literal, or a function body — and
+  two of them carried a second guess on top of the length:
+
+  | Gate | The cap, and the extra guess in it |
+  | --- | --- |
+  | `rights-are-explained` | a route registration at 600, and `routesFor`'s body ended at the first two-space `}` — an assumption about INDENTATION as well as length |
+  | `recall-params-reach-the-ui` | the submit call's body at 2000, terminated by a hard-coded four-space `
+    })` — a prettier run would have failed it on unchanged behaviour |
+  | `brain-read-bodies-are-strict` | `unknownBodyFields(`'s arguments at 200, whose own comment explains that the argument text must NOT be constrained — a length cap is that constraint, expressed differently |
+
+  The route-registration one mattered most: its three assertions are `doesNotMatch`-shaped, so a window that
+  stopped short of the handler asserted an ABSENCE over less text than intended and PASSED. Killed by
+  admin-gating the catalog, which is exactly the regression it exists to refuse.
+
+  Four mutants killed in total, all in the SOURCE the gates read rather than in the gates: the catalog
+  admin-gated, `routesFor` narrowed to an equality that understates the grant, the recall panel dropping a
+  parameter, and the traverse body type dropping one.
+
 ### Added
 
 - **`faceDescriptorDims` can be changed on a space that has never held a face descriptor.** It was create-only,

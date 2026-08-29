@@ -131,6 +131,9 @@ export const MAX_FORK_DEPTH = 10;
 
 // ── Incoming document schemas (Zod validation for peer-submitted docs) ─────
 
+import { validateEntity, validateEdge, validateChrono, validateMemory, getSpaceMeta, type SchemaViolation }
+  from '../../spaces/schema-validation.js';
+
 export const AuthorRefSchema = z.object({
   instanceId: z.string().min(1),
   instanceLabel: z.string().min(1),
@@ -468,3 +471,48 @@ export function isDirectionalWriteBlocked(spaceId: string, authToken: Record<str
  * Returns paginated stubs by default.  Add ?full=true to return complete docs
  * in a single pass (eliminates the N per-document fetches on the pull side).
  */
+
+/**
+ * Validate an incoming record against the LOCAL space's schema, and never refuse it.
+ *
+ * ## Why sync validates at all, and why it does not refuse
+ *
+ * Owner's ruling, 2026-08-29 (P-21 = C): import, restore and sync **check, let everything in, and hand back a
+ * list of what broke the rules**. Refusing is the option that hurts most here — a peer validated these records
+ * against ITS schema, which may differ from yours, so a refusal discards data the sender believes it delivered
+ * and no operator asked for that.
+ *
+ * ## What it replaces
+ *
+ * Across the five ingest paths in `docs.ts` there was exactly ONE validation check: the chrono type allowlist,
+ * on the single-record path, which returned a 400. `batch-upsert` — the path a real peer uses, because that is
+ * how a sync cycle ships more than one record — checked nothing at all. So the only check lived where the
+ * traffic is not, and it did the one thing the ruling says not to do.
+ *
+ * ## The count is the point
+ *
+ * The ruling's stated cost was that a report nobody reads is the do-nothing option with extra steps, so this
+ * returns violations to the caller rather than writing a log line. `batch-upsert` carries them in its per-type
+ * stats; the single-record routes return them beside the stored document.
+ */
+export function violationsAgainstLocalSchema(
+  spaceId: string,
+  kind: 'memory' | 'entity' | 'edge' | 'chrono',
+  doc: Record<string, unknown>,
+): SchemaViolation[] {
+  const meta = getSpaceMeta(spaceId);
+  if (!meta) return [];
+  const properties = doc['properties'] as Record<string, unknown> | undefined;
+  const tags = Array.isArray(doc['tags']) ? doc['tags'] as string[] : undefined;
+  const type = typeof doc['type'] === 'string' ? doc['type'] : undefined;
+  switch (kind) {
+    case 'entity':
+      return validateEntity(meta, { name: doc['name'] as string, type, properties, tags });
+    case 'edge':
+      return validateEdge(meta, { label: doc['label'] as string, properties, tags });
+    case 'chrono':
+      return validateChrono(meta, { type, properties, tags });
+    case 'memory':
+      return validateMemory(meta, { type, properties, tags });
+  }
+}

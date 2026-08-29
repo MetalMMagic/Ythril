@@ -8,14 +8,14 @@ import { v4 as uuidv4 } from 'uuid';
 import { col, asFilter, asDoc, asUpdate } from '../../db/mongo.js';
 import { enqueueIngestedRecord } from '../../brain/embed-queue.js';
 import { syncRateLimit } from '../../rate-limit/middleware.js';
+import { getAllowedChronoTypes } from '../../spaces/schema-validation.js';
 import { getConfig } from '../../config/loader.js';
 import { listTombstones } from '../../brain/tombstones.js';
 import { requireAuth, denyReadOnly } from '../../auth/middleware.js';
 import { log } from '../../util/log.js';
 import { nextSeq, bumpSeq, isSeqImplausible, MAX_INGEST_SEQ } from '../../util/seq.js';
-import { getAllowedChronoTypes } from '../../spaces/schema-validation.js';
 import type { MemoryDoc, EntityDoc, EdgeDoc, ChronoEntry, TombstoneDoc } from '../../config/types.js';
-import { checkEdgeLinkViolations, checkEntityIdLinkViolations, MAX_FORK_DEPTH, IncomingMemoryDoc, IncomingEntityDoc, IncomingEdgeDoc, IncomingChronoDoc, encodeCursor, decodeCursor, forkChainDepth, rejectImplausibleSeq, callerPeerId, spaceAllowed, isNonPeerSyncWrite, NON_PEER_WRITE_MESSAGE, isDirectionalWriteBlocked } from './_shared.js';
+import { checkEdgeLinkViolations, checkEntityIdLinkViolations, MAX_FORK_DEPTH, IncomingMemoryDoc, IncomingEntityDoc, IncomingEdgeDoc, IncomingChronoDoc, encodeCursor, decodeCursor, forkChainDepth, rejectImplausibleSeq, callerPeerId, spaceAllowed, isNonPeerSyncWrite, NON_PEER_WRITE_MESSAGE, isDirectionalWriteBlocked, violationsAgainstLocalSchema } from './_shared.js';
 
 export const syncDocsRouter = Router();
 
@@ -466,11 +466,36 @@ syncDocsRouter.post('/chrono', syncRateLimit, requireAuth, denyReadOnly, async (
     }
     const incoming = parsed.data as ChronoEntry;
     if (rejectImplausibleSeq(spaceId, incoming.seq, res, callerPeerId(req.authToken as Record<string, unknown>))) return;
-    const allowedChronoTypes = getAllowedChronoTypes(getConfig().spaces.find(s => s.id === spaceId)?.meta);
-    if (!allowedChronoTypes.has(incoming.type)) {
-      res.status(400).json({ error: `\`type\` must be one of: ${[...allowedChronoTypes].join(', ')}` });
+    /*
+     * REPORTED, NOT REFUSED — owner's ruling P-21 = C, 2026-08-29.
+     *
+     * This 400 was the only schema check anywhere in sync's five ingest paths, and it did the one thing the
+     * ruling says not to do: a peer validated this record against ITS schema, which may differ from ours, so
+     * rejecting it discards data the sender believes it delivered. The batch path — which is what a real peer
+     * uses — never checked at all, so the single check also sat where the traffic is not.
+     *
+     * Relaxing it is safe from the sender's side: a record that was rejected is now accepted, so nothing
+     * breaks and more data flows. The violations travel back in the response so the receiving operator can see
+     * what arrived out of shape.
+     */
+    /*
+     * A TYPE NOBODY UNDERSTANDS IS REFUSED; a schema mismatch is reported. Those are different things, and
+     * collapsing them was a real over-correction — CI caught it.
+     *
+     * P-21 = C says a schema violation is reported rather than refused, because a peer validated the record
+     * against ITS schema and discarding data over a disagreement is not the receiver's call. That reasoning
+     * does not reach a chrono whose `type` is outside the product's own vocabulary AND outside anything this
+     * space declared: such a record is not *non-conforming*, it is **meaningless to every reader**, and
+     * `IncomingChronoDoc` types the field as any non-empty string so nothing else would catch it.
+     *
+     * So the vocabulary check stays a refusal — on BOTH paths now, which is what W-4 was about — and the
+     * property check reports.
+     */
+    if (!getAllowedChronoTypes(getConfig().spaces.find(sp => sp.id === spaceId)?.meta).has(incoming.type)) {
+      res.status(400).json({ error: `\`type\` must be one of: ${[...getAllowedChronoTypes(getConfig().spaces.find(sp => sp.id === spaceId)?.meta)].join(', ')}` });
       return;
     }
+    const chronoViolations = violationsAgainstLocalSchema(spaceId, 'chrono', incoming as unknown as Record<string, unknown>);
 
     const tombstone = await col<TombstoneDoc>(`${spaceId}_tombstones`)
       .findOne(asFilter<TombstoneDoc>({ _id: incoming._id, type: 'chrono' })) as TombstoneDoc | null;
@@ -498,7 +523,9 @@ syncDocsRouter.post('/chrono', syncRateLimit, requireAuth, denyReadOnly, async (
     const peerInst = (req.authToken as Record<string, unknown>)?.['peerInstanceId'] as string ?? 'unknown';
     checkEntityIdLinkViolations(spaceId, incoming._id, 'chrono', incoming.entityIds, peerInst).catch(() => {});
 
-    res.status(200).json({ status: 'ok' });
+    // The violations travel back so the receiving operator can see what arrived out of shape. Absent when
+    // there are none, so a clean ingest keeps its existing response byte for byte.
+    res.status(200).json({ status: 'ok', ...(chronoViolations.length > 0 ? { schemaViolations: chronoViolations } : {}) });
   } catch (err) {
     log.error(`sync POST chrono: ${err}`);
     res.status(500).json({ error: 'Internal error' });
@@ -580,8 +607,21 @@ syncDocsRouter.post('/batch-upsert', syncRateLimit, requireAuth, denyReadOnly, a
     // ── Memories ─────────────────────────────────────────────────────────
     // `skipped` = the peer is already current (benign). `forkDepthRefused` = a record was DROPPED. They were
     // one counter until 2026-08-19, which is why the lossy one had never been seen.
-    const memStats = { inserted: 0, updated: 0, forked: 0, skipped: 0, forkDepthRefused: 0, tombstoned: 0 };
+    const memStats = { inserted: 0, updated: 0, forked: 0, skipped: 0, forkDepthRefused: 0, tombstoned: 0, schemaViolations: 0 };
+    /*
+     * VALIDATED, COUNTED, AND LET IN — owner's ruling P-21 = C, 2026-08-29.
+     *
+     * Sync used to have exactly one check across five ingest paths: the chrono type allowlist on the
+     * single-record route, which returned a 400. This path — the one a real peer uses, because a sync cycle
+     * ships records in batches — checked nothing at all. So the only check lived where the traffic is not, and
+     * it refused, which is the one thing the ruling says not to do: a peer validated these records against ITS
+     * schema, and discarding data the sender believes it delivered is not ours to decide.
+     *
+     * The count goes back in the response rather than into a log line. That was the ruling's stated cost —
+     * a report nobody reads is the do-nothing option with extra steps.
+     */
     for (const incoming of memories) {
+      if (violationsAgainstLocalSchema(spaceId, 'memory', incoming as unknown as Record<string, unknown>).length > 0) memStats.schemaViolations++;
       const tomb = await col<TombstoneDoc>(`${spaceId}_tombstones`)
         .findOne(asFilter<TombstoneDoc>({ _id: incoming._id, type: 'memory' })) as TombstoneDoc | null;
       if (tomb && tomb.seq >= incoming.seq) { memStats.tombstoned++; continue; }
@@ -642,8 +682,9 @@ syncDocsRouter.post('/batch-upsert', syncRateLimit, requireAuth, denyReadOnly, a
     }
 
     // ── Entities ─────────────────────────────────────────────────────────
-    const entStats = { upserted: 0, skipped: 0, tombstoned: 0 };
+    const entStats = { upserted: 0, skipped: 0, tombstoned: 0, schemaViolations: 0 };
     for (const incoming of entities) {
+      if (violationsAgainstLocalSchema(spaceId, 'entity', incoming as unknown as Record<string, unknown>).length > 0) entStats.schemaViolations++;
       const tomb = await col<TombstoneDoc>(`${spaceId}_tombstones`)
         .findOne(asFilter<TombstoneDoc>({ _id: incoming._id, type: 'entity' })) as TombstoneDoc | null;
       if (tomb && tomb.seq >= incoming.seq) { entStats.tombstoned++; continue; }
@@ -665,8 +706,9 @@ syncDocsRouter.post('/batch-upsert', syncRateLimit, requireAuth, denyReadOnly, a
     }
 
     // ── Edges ─────────────────────────────────────────────────────────────
-    const edgeStats = { upserted: 0, skipped: 0, tombstoned: 0 };
+    const edgeStats = { upserted: 0, skipped: 0, tombstoned: 0, schemaViolations: 0 };
     for (const incoming of edges) {
+      if (violationsAgainstLocalSchema(spaceId, 'edge', incoming as unknown as Record<string, unknown>).length > 0) edgeStats.schemaViolations++;
       const tomb = await col<TombstoneDoc>(`${spaceId}_tombstones`)
         .findOne(asFilter<TombstoneDoc>({ _id: incoming._id, type: 'edge' })) as TombstoneDoc | null;
       if (tomb && tomb.seq >= incoming.seq) { edgeStats.tombstoned++; continue; }
@@ -688,8 +730,16 @@ syncDocsRouter.post('/batch-upsert', syncRateLimit, requireAuth, denyReadOnly, a
     }
 
     // ── Chrono ─────────────────────────────────────────────────────────────────
-    const chronoStats = { upserted: 0, skipped: 0, tombstoned: 0 };
+    const chronoStats = { upserted: 0, skipped: 0, tombstoned: 0, schemaViolations: 0, unknownType: 0 };
+    const allowedChronoTypes = getAllowedChronoTypes(getConfig().spaces.find(sp => sp.id === spaceId)?.meta);
     for (const incoming of chrono) {
+      if (violationsAgainstLocalSchema(spaceId, 'chrono', incoming as unknown as Record<string, unknown>).length > 0) chronoStats.schemaViolations++;
+      /*
+       * The vocabulary check the single-record path has always had, now here too — this is the W-4 defect:
+       * the same rule applied on one path and not the other, with the batch path being the one a real peer
+       * uses. Skipped rather than 400d, because one bad record must not abandon the rest of a batch.
+       */
+      if (!allowedChronoTypes.has(incoming.type)) { chronoStats.unknownType++; continue; }
       const tomb = await col<TombstoneDoc>(`${spaceId}_tombstones`)
         .findOne(asFilter<TombstoneDoc>({ _id: incoming._id, type: 'chrono' })) as TombstoneDoc | null;
       if (tomb && tomb.seq >= incoming.seq) { chronoStats.tombstoned++; continue; }

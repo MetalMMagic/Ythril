@@ -48,6 +48,21 @@ const SPACE_ROUTERS = [
   { glob: 'server/src/api/duplicates.ts', mount: '/api/duplicates' },
   { glob: 'server/src/api/contradictions.ts', mount: '/api/contradictions' },
   { glob: 'server/src/api/conflicts.ts', mount: '/api/conflicts' },
+  /*
+   * THE SPACES ROUTER, added 2026-08-29 after it was found ungoverned in production logs.
+   *
+   * It was left out because it is "not wholly space-scoped" — some of its routes address the COLLECTION
+   * (`GET /api/spaces`, `POST /api/spaces`, `POST /api/spaces/reorder`) rather than one space. That reason was
+   * true and the conclusion did not follow: a router with a few collection routes needs those three EXEMPTED,
+   * not the other eleven left unasked. Excluding the file meant the completeness question was never put to it,
+   * and nine space-scoped routes sat unclassified — `DELETE /api/spaces/:id` among them, warning on every call
+   * that its area was unenforced while this gate reported the surface clean.
+   *
+   * The glob is a pattern rather than the one filename because `spaces-activity.ts` and `spaces-reembed.ts`
+   * register routes onto the SAME router from other files. Two of the nine were theirs, and a sweep of
+   * `spaces.ts` alone cannot see them — which is the same blind spot one level down.
+   */
+  { glob: 'server/src/api/spaces*.ts', mount: '/api/spaces' },
 ];
 
 function filesUnder(p) {
@@ -92,20 +107,18 @@ function exemptRoutes() {
  * Does this route exist on the real surface? Takes `METHOD path` or a bare path.
  *
  * Extracted because the two staleness checks below need the identical question, and this repo's most-produced
- * defect is one rule with two implementations where the weaker one wins. The spaces router needs the special
- * case: it is not wholly space-scoped, so it is not in SPACE_ROUTERS and its entries are checked against the
- * file directly.
+ * defect is one rule with two implementations where the weaker one wins.
+ *
+ * It used to have a second implementation anyway. Routes under `/api/spaces/` took a branch that concatenated
+ * three source files and asked `code.includes("'/:id'")` — **a substring search that discarded the METHOD**. So
+ * `GET /api/spaces/:id` was reported to exist because some other verb was registered on that path, and the
+ * inventory carried a row for a route that has never existed. The branch was written to compensate for the
+ * spaces router being absent from `SPACE_ROUTERS`; now that it is present, one implementation answers for
+ * every router and the weaker copy is gone.
  */
 function routeExists(methodAndPath) {
   const space = methodAndPath.indexOf(' ');
   const bare = space === -1 ? methodAndPath : methodAndPath.slice(space + 1);
-  if (bare.startsWith('/api/spaces/')) {
-    const code = withoutComments(read('server/src/api/spaces.ts'))
-      + withoutComments(read('server/src/api/spaces-activity.ts'))
-      + withoutComments(read('server/src/api/spaces-reembed.ts'));
-    const path = bare.replace('/api/spaces', '') || '/';
-    return code.includes(`'${path}'`);
-  }
   const found = discoveredRoutes();
   // A bare path matches any verb registered on it, which is what a method-less exemption means.
   return space === -1

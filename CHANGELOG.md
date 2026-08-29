@@ -23,6 +23,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   accuracy, an unretrieved fact may still be answerable from another turn, and a rung that retrieves more is not
   thereby better if it retrieves more of everything.
 
+- **`benchmarks/INGESTION.md` — how a conversation becomes records, written blind to the questions.**
+
+  A product specification, not a benchmark entry: every element carries a justification a user with entirely
+  different data would accept, and it was produced without the design phase seeing anything derived from the
+  question set — not content, not counts, not category distribution.
+
+  Its spine is one invariant — **one claim, one embedded record** — which is mechanism-driven rather than
+  aesthetic: edges are independently embedded and compete with memories for `topK` slots, so a memory plus a
+  mirroring edge is the same sentence twice in one ranked list. `suppressEmbeddings` is what makes structure
+  affordable, because it decouples graph density from ranked-list pollution: a suppressed record is invisible to
+  both the vector and lexical channels while `query`, `traverse` and recall's own expansion still reach it in
+  full. Record type is decided by the SHAPE of a claim — attribute, event, relation — never by its topic, because
+  shape is stable across domains and topic is a fact about one corpus.
+
+  **The sceptic's case is in the specification rather than argued away**, including the prediction that the
+  minimal design may win outright, and the experiment that would falsify the graph claim is written down with
+  its four arms before any number exists.
+
 ### Changed
 
 - **`recall`'s graph expansion is now the real traverse: it narrows by edge label and direction.** Owner's
@@ -52,25 +70,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Found while designing the benchmark's ingestion, and fixed BEFORE any measurement: repairing it after seeing
   "the graph does not help" would be indistinguishable from tuning to the benchmark.
 
-### Added
+### Fixed
 
-- **`benchmarks/INGESTION.md` — how a conversation becomes records, written blind to the questions.**
+- **Ten routes in the spaces router had no rights classification, and the gate that exists to catch that could
+  not see them.** Found from a live instance's own stdout: `Space rights: no inventory entry for
+  'DELETE /api/spaces/:id' — reach enforced, area not`, logged on every call while
+  `every-space-route-has-an-area` reported the surface clean.
 
-  A product specification, not a benchmark entry: every element carries a justification a user with entirely
-  different data would accept, and it was produced without the design phase seeing anything derived from the
-  question set — not content, not counts, not category distribution.
+  The gate discovers routes from a list of routers, and `spaces.ts` was deliberately left off it because the
+  router "is not wholly space-scoped" — three of its routes address the collection rather than one space. True,
+  and the conclusion did not follow: those three needed **exempting**, not the other eleven left unasked. Nine
+  space-scoped routes were ungoverned by area, including `DELETE /api/spaces/:id` and `PATCH /api/spaces/:id`.
+  Two of the nine were registered onto the same router from `spaces-activity.ts` and `spaces-reembed.ts`, which
+  a sweep of the one file cannot see — the same blind spot one level down.
 
-  Its spine is one invariant — **one claim, one embedded record** — which is mechanism-driven rather than
-  aesthetic: edges are independently embedded and compete with memories for `topK` slots, so a memory plus a
-  mirroring edge is the same sentence twice in one ranked list. `suppressEmbeddings` is what makes structure
-  affordable, because it decouples graph density from ranked-list pollution: a suppressed record is invisible to
-  both the vector and lexical channels while `query`, `traverse` and recall's own expansion still reach it in
-  full. Record type is decided by the SHAPE of a claim — attribute, event, relation — never by its topic, because
-  shape is stable across domains and topic is a fact about one corpus.
+  To compensate for the exclusion, `routeExists` had a second implementation for `/api/spaces/`: concatenate
+  three files and ask `code.includes("'/:id'")` — **a substring search that discarded the method**. So the
+  inventory's staleness check passed on `GET /api/spaces/:id` and `GET /api/spaces/:id/schema`, two rows for
+  routes that have never existed. One rule, two implementations, the weaker one winning silently, inside the
+  gate written to prevent exactly that.
 
-  **The sceptic's case is in the specification rather than argued away**, including the prediction that the
-  minimal design may win outright, and the experiment that would falsify the graph claim is written down with
-  its four arms before any number exists.
+  Now: the spaces routers are discovered like every other router (by pattern, so sibling files are included),
+  the collection routes are exempt **with their reasons**, the nine are classified, the two dead rows are gone,
+  and one `routeExists` answers for everything. Five mutants — the removed `DELETE` row, the sibling-file route,
+  each dead row re-added, and the glob narrowed back to one file — each fail the gate by exit code.
 
 ## [3.4.0] — 2026-08-28
 

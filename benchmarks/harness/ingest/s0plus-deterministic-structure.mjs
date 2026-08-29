@@ -39,7 +39,12 @@
  * Conversation in, records out. No import can reach the question set, and a gate enforces it.
  */
 
+import * as s0 from './s0-raw-turns.mjs';
+
 export const rung = 's0+';
+
+/** Its turns are memories, exactly as S0's are — see `recallTypes` in `s0-raw-turns.mjs`. */
+export const recallTypes = ['memory'];
 export const needsModel = false;
 
 /*
@@ -65,6 +70,19 @@ export const needsModel = false;
  * @returns {Promise<{records: number, modelCalls: number}>}
  */
 export async function ingest({ conversation, ythril, space }) {
+  /*
+   * S0+ IS S0 PLUS STRUCTURE, and for one run it was only the structure.
+   *
+   * This rung wrote the participants, the sessions, the chrono records and the edges — and never wrote the
+   * turns. Its spaces held 78 records where S0's held 419, so there was no transcript to retrieve and every
+   * evidence-recall score for the rung would have been near zero. Not because structure fails to help: because
+   * nothing was there to help find.
+   *
+   * It would have been reported as a measurement. The comparison the whole rung exists for is S0 versus S0 with
+   * structure on top, which is only a comparison if the S0 half is present in both. Caught by a record count
+   * that did not add up — 78 against 419 — and not by any assertion, which is why `run-tier0r.mjs` now prints
+   * the count for every space as it goes.
+   */
   let records = 0;
 
   // ── The participants ──────────────────────────────────────────────────────
@@ -87,6 +105,8 @@ export async function ingest({ conversation, ythril, space }) {
   }
 
   // ── The sessions ──────────────────────────────────────────────────────────
+  // Keyed by the session's own index, because that is what a turn carries and what the linker below looks up.
+  const sessionIds = new Map();
   for (const session of conversation.sessions) {
     const day = session.startsAt.slice(0, 10);
 
@@ -113,6 +133,7 @@ export async function ingest({ conversation, ythril, space }) {
       suppressEmbeddings: true,
     });
     const sid = sessionEntity.id ?? sessionEntity._id;
+    sessionIds.set(session.index, sid);
     records++;
 
     await ythril.writeChrono(space, {
@@ -153,5 +174,42 @@ export async function ingest({ conversation, ythril, space }) {
     }
   }
 
-  return { records, modelCalls: 0 };
+  /*
+   * The turns go in LAST, and joined to the structure above them.
+   *
+   * Last because a memory's `entityIds` must RESOLVE — the session and speaker entities have to exist before a
+   * turn can name them — and joined because an unjoined turn makes the whole graph unreachable from search.
+   * Recall matches a turn; traversal expands from what recall matched; so if the matched record names no
+   * entity, expansion has nowhere to go and the session, the date and the sibling turns are all invisible.
+   *
+   * That is what "the mixture of graph and semantic recall" actually requires: the semantic hit must be a node
+   * in the graph, not a document beside it.
+   */
+  /*
+   * The turns go in as MEMORIES, with no `entityIds`, and therefore with EXACTLY the embedding S0 gives them.
+   *
+   * That is deliberate and it is what makes this rung a control. Two things were tried here and both are
+   * recorded because each was wrong in an instructive way:
+   *
+   * 1. **`entityIds` linking each turn to its session and speaker.** It changes the ranking — `memoryEmbedText`
+   *    prepends the linked entities' NAMES to the fact — and measured -1.5 points of strict evidence recall.
+   *    It buys nothing back: **graph traversal never reads `entityIds`.**
+   * 2. **An edge from each turn to its session.** Refused by the store, and correctly:
+   *    `assertRefsResolve` validates an edge's `from`/`to` against the `_entities` collection, so **a memory
+   *    cannot be an edge endpoint at all.** Edges are entity-to-entity.
+   *
+   * Together those two facts are why recall's `traverse` cannot expand from a matched memory: the seeds are the
+   * matched records' own ids, and a memory id is the endpoint of no edge. That is a property of the product,
+   * not of this benchmark, and testing it is what rung `s0g` is for — it models the turns AS entities so they
+   * can be edge endpoints, which is the only shape in which the graph and the ranked search meet.
+   *
+   * So this rung answers one question cleanly: **does adding structure alongside the turns cost anything?** It
+   * should score identically to S0 at every traverse depth, and if it does not, the structure is interfering.
+   */
+  const base = await s0.ingest({ conversation, ythril, space });
+  records += base.records;
+
+  // Summed rather than written as 0: this rung adds no model call, and the claim it makes is "whatever the
+  // base rung cost, plus nothing" — which stays true if the base rung ever stops being free.
+  return { records, modelCalls: base.modelCalls };
 }

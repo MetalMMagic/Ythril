@@ -28,8 +28,9 @@ import { loadConversations, loadQuestions } from './dataset/locomo.mjs';
 import { makeYthril } from './ythril.mjs';
 import * as s0 from './ingest/s0-raw-turns.mjs';
 import * as s0plus from './ingest/s0plus-deterministic-structure.mjs';
+import * as s0g from './ingest/s0g-turns-as-graph-nodes.mjs';
 
-const RUNGS = [s0, s0plus];
+const RUNGS = [s0, s0plus, s0g];
 
 function arg(name, fallback) {
   const i = process.argv.indexOf(`--${name}`);
@@ -103,8 +104,24 @@ async function main() {
     + `(${excludedNoEvidence} excluded: no evidence cited)`);
   console.log(`  rungs           ${RUNGS.map(r => r.rung).join(', ')}`);
 
+  /*
+   * `--rungs s0+` re-runs one rung without redoing the others.
+   *
+   * Not a convenience. The rungs are independent measurements over independent spaces, and a defect found in
+   * one of them should cost that rung's ingestion time and no more — the first run of this file lost nothing
+   * only because the intact rung had already finished. A results file assembled from separate invocations
+   * carries each rung's own commit, which the reporter prints, so a mixed file is legible rather than silently
+   * pooled.
+   */
+  const traverseDepth = Number(arg('traverse', '0'));
+  const only = arg('rungs', '').split(',').filter(Boolean);
+  const selected = only.length === 0 ? RUNGS : RUNGS.filter(r => only.includes(r.rung));
+  if (selected.length === 0) {
+    throw new Error(`--rungs '${only.join(',')}' matched none of: ${RUNGS.map(r => r.rung).join(', ')}`);
+  }
+
   const rows = [];
-  for (const rung of RUNGS) {
+  for (const rung of selected) {
     for (const conv of conversations) {
       const space = `bench-${rung.rung.replace('+', 'plus')}-${conv.id}`.toLowerCase();
       process.stdout.write(`\n[${rung.rung}] ${conv.id}: `);
@@ -123,7 +140,13 @@ async function main() {
         // The default configuration only, at this stage: the grid multiplies this by 14 and the point of the
         // first run is to prove the pipeline end to end and MEASURE what a cell costs before ordering 14 of them.
         const started = Date.now();
-        const res = await ythril.recall(space, { query: q.question, topK: 20 });
+        const res = await ythril.recall(space, {
+          query: q.question,
+          topK: 20,
+          // The rung says which record types carry its content; see `recallTypes` on each ingest module.
+          ...(rung.recallTypes ? { types: rung.recallTypes } : {}),
+          ...(traverseDepth > 0 ? { traverse: { depth: traverseDepth } } : {}),
+        });
         const got = retrievedTurnIds(res.results);
         const want = q.evidence;
         const hit = want.filter(e => got.has(e));
@@ -136,6 +159,15 @@ async function main() {
           anyEvidence: hit.length > 0,
           retrieved: got.size,
           ms: Date.now() - started,
+          /*
+           * The scores of the records that actually came back, which is what PROTOCOL.md Amendment 5 pins
+           * `minScore` from: the 25th percentile of this, pooled across conversations and rungs.
+           *
+           * Recorded HERE rather than derived later because this cell applies no threshold, and that is the
+           * property that makes the pin honest — the distribution cannot be selected by how well a threshold
+           * performs on it. A run that filtered first could not be used, so the unfiltered run has to carry it.
+           */
+          scores: (res.results ?? []).map(r => r.score).filter(s => typeof s === 'number'),
         });
         asked++;
       }
@@ -144,7 +176,7 @@ async function main() {
   }
 
   const stamp = new Date().toISOString().slice(0, 10);
-  const dir = join('benchmarks', 'results', `${stamp}-tier0r`);
+  const dir = join(arg("out", join("benchmarks", "results")), `${stamp}-tier0r${only.length ? "-" + only.join("_").replace("+", "plus") : ""}`);
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'rows.json'), JSON.stringify(rows, null, 2));
   console.log(`\n\nwrote ${rows.length} rows to ${dir}`);

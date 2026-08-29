@@ -35,16 +35,23 @@ evidence for candidate models — and is unrelated to this folder despite the na
 | `pins.json` | dataset sources, commits, `sha256` per file, licences, and the counts observed at pin time |
 | `configs/` | the exact configuration of every system under test, ours and every competitor's, with the doc link the competitor's config came from |
 | `prompts/` | the answering prompt and the judge prompt, verbatim — the two files that move published scores most and are published least |
-| `harness/` | the runner: ingest, retrieve, answer, grade |
+| `harness/` | the runner: ingest, retrieve, answer, grade. `run-tier0r.mjs` is the model-free tier; `run-tier0r-grid.mjs` sweeps it across methods and cells |
 | `results/<date>-<commit>/` | scores, per-conversation breakdowns, and **every raw model output** |
 
 ## Cost, and the tier you are running
 
-A benchmark nobody can afford to re-run is not reproducible, whatever the harness claims. The run is tiered, each
-tier a superset of the last, and **the floor is a complete publishable result** rather than a smoke test:
+A benchmark nobody can afford to re-run is not reproducible, whatever the harness claims. The run is tiered and
+**the floor is a complete publishable result** rather than a smoke test.
+
+Tiers 0 through 2 are supersets of each other. **Tier 0-R is not one of that chain** — it is a different
+measurement that happens to be cheaper than all of them: it grades whether the right records were RETRIEVED, not
+whether a model then answered correctly, so it needs an embedder and nothing else. It exists because the
+alternative was reporting nothing until somebody buys credits, and it is the tier that has actually run. Read
+Amendment 4 in `PROTOCOL.md` for the four things it explicitly cannot tell you.
 
 | tier | scope | order of magnitude |
 |---|---|---|
+| **0-R — retrieval only** | LoCoMo, a stratified question subsample, the model-free ingestion rungs, shipped-default retrieval. Scores *evidence recall*: did the turns the gold answer cites come back? | **no model calls at all** |
 | **0 — floor** | LoCoMo, a stratified question subsample, ingestion S0 and S4 only, shipped-default retrieval, no grid, one seed | **~1,000 model calls** |
 | **1 — reportable** | adds the S2 rung, the 14-cell one-axis-at-a-time grid on lexical grading, three seeds on the head-to-head, one competitor | single-digit thousands |
 | **2 — complete** | adds LongMemEval, the remaining ingestion rungs, the full question set, the same-facts-into-both-stores isolation run | tens of thousands |

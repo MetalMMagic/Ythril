@@ -545,9 +545,9 @@ export async function traverseGraph(
   const resultNodes: TraverseNode[] = [];
   const resultEdges: TraverseEdge[] = [];
 
-  const labelFilter = edgeLabels && edgeLabels.length > 0
-    ? { label: { $in: edgeLabels } }
-    : {};
+  // The label filter itself moved into `frontierEdgeQuery`, which both traversals now share. What stays here is
+  // the CONSEQUENCE of an explicit filter for the link labels below, which is a different question.
+  //
   // An explicit label filter excludes the chrono link unless it names it — otherwise asking for `depends_on`
   // would quietly return chrono entries too, and a filter that cannot exclude something is not a filter.
   const wantsChronoLabel = !edgeLabels || edgeLabels.length === 0 || edgeLabels.includes(CHRONO_LINK_LABEL);
@@ -563,14 +563,8 @@ export async function traverseGraph(
     // Batch-fetch all edges for the current frontier across all member spaces
     const adjacentEdges: EdgeDoc[] = [];
     for (const mid of memberIds) {
-      let q: Record<string, unknown>;
-      if (direction === 'outbound') {
-        q = { spaceId: mid, from: { $in: frontier }, ...labelFilter };
-      } else if (direction === 'inbound') {
-        q = { spaceId: mid, to: { $in: frontier }, ...labelFilter };
-      } else {
-        q = { spaceId: mid, $or: [{ from: { $in: frontier } }, { to: { $in: frontier } }], ...labelFilter };
-      }
+      // Through the shared builder, so this path and recall's cannot drift apart again.
+      const q = frontierEdgeQuery(mid, frontier, { edgeLabels, direction });
       const edges = await col<EdgeDoc>(`${mid}_edges`)
         .find(asFilter<EdgeDoc>(q), { projection: NEVER_RETURNED_PROJECTION }).toArray() as EdgeDoc[];
       adjacentEdges.push(...edges);
@@ -787,11 +781,47 @@ export interface SeedTraverseNeighbor {
  * space the caller can't see) yields no neighbour and is silently skipped.
  * Batched `$in` lookups keep this to ~2 queries per hop regardless of fan-out.
  */
+/**
+ * How a traversal narrows: which edge labels it follows and which way.
+ *
+ * One shape, shared by the standalone `traverse` and by recall's expansion, because they were two
+ * implementations of one rule and recall had the weaker — it followed EVERY edge in BOTH directions, with no
+ * way for a caller to say otherwise. On a corpus where a few nodes hold most of the edges, that is the
+ * difference between a deliberate neighbourhood and whichever neighbours the node cap happened to keep.
+ */
+export interface TraverseNarrowing {
+  /** Follow only these labels. Absent or empty means every label, which is what it meant before. */
+  edgeLabels?: string[] | undefined;
+  /** Which way to walk. Defaults to `both`, which is what recall's expansion always did. */
+  direction?: 'outbound' | 'inbound' | 'both' | undefined;
+}
+
+/**
+ * The Mongo predicate for "edges touching this frontier, narrowed".
+ *
+ * Extracted because it was written twice and the copies disagreed: the standalone path applied a label filter
+ * and honoured direction, recall's did neither. Writing the rule once is the only fix that cannot drift again —
+ * `CLAUDE.md` names this exact shape as the defect this repo produces most.
+ */
+export function frontierEdgeQuery(
+  spaceId: string,
+  frontier: string[],
+  narrowing?: TraverseNarrowing,
+): Record<string, unknown> {
+  const labels = narrowing?.edgeLabels;
+  const labelFilter = labels && labels.length > 0 ? { label: { $in: labels } } : {};
+  const direction = narrowing?.direction ?? 'both';
+  if (direction === 'outbound') return { spaceId, from: { $in: frontier }, ...labelFilter };
+  if (direction === 'inbound') return { spaceId, to: { $in: frontier }, ...labelFilter };
+  return { spaceId, $or: [{ from: { $in: frontier } }, { to: { $in: frontier } }], ...labelFilter };
+}
+
 export async function traverseFromSeeds(
   spaceId: string,
   seedIds: string[],
   maxDepth: number,
   limit: number,
+  narrowing?: TraverseNarrowing,
 ): Promise<SeedTraverseNeighbor[]> {
   if (seedIds.length === 0 || maxDepth < 1 || limit < 1) return [];
 
@@ -826,7 +856,16 @@ export async function traverseFromSeeds(
       // `GET /entities?limit=500` where `/query` answered 0.145 MB. All of them now share
       // `NEVER_RETURNED_PROJECTION`, so the sentence is true; do not restate universality here again, because
       // the constant is what makes it true and a comment cannot.
-      .find(asFilter<EdgeDoc>({ $or: [{ from: { $in: frontier } }, { to: { $in: frontier } }] }))
+      //
+      // NARROWED, since 3.5: `edgeLabels` and `direction` reach here now. They did not before, so recall's
+      // expansion followed every edge both ways while the standalone `traverse` tool — building the same
+      // query twenty lines away — applied both. One rule, two implementations, and this was the weaker one.
+      //
+      // The `spaceId` field is in the predicate because `frontierEdgeQuery` is shared with the standalone
+      // path, which queries across member spaces by name and needs it. Here the collection name already scopes
+      // it, so the extra clause is redundant rather than wrong — see the note below on why filtering the
+      // ENTITY read on a redundant spaceId was actively harmful.
+      .find(asFilter<EdgeDoc>(frontierEdgeQuery(spaceId, frontier, narrowing)))
       .project(NEVER_RETURNED_PROJECTION)
       .toArray() as EdgeDoc[];
 
@@ -926,6 +965,7 @@ export async function traverseRecallSeeds(
   seeds: { _id: string; spaceId: string }[],
   maxDepth: number,
   limit: number,
+  narrowing?: TraverseNarrowing,
 ): Promise<SeedTraverseNeighbor[]> {
   if (seeds.length === 0 || maxDepth < 1 || limit < 1) return [];
   const allowed = new Set(memberIds);
@@ -939,7 +979,7 @@ export async function traverseRecallSeeds(
 
   const collected: SeedTraverseNeighbor[] = [];
   for (const [sid, ids] of bySpace) {
-    collected.push(...await traverseFromSeeds(sid, ids, maxDepth, limit));
+    collected.push(...await traverseFromSeeds(sid, ids, maxDepth, limit, narrowing));
   }
   collected.sort((a, b) => a.hops - b.hops); // prefer lower-hop neighbours when truncating
   return collected.slice(0, limit);

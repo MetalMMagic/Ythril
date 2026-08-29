@@ -31,7 +31,7 @@ Available as both:
 | `minPerType` | — | none | Object mapping knowledge type → minimum hits, e.g. `{ "entity": 2 }`. Guarantees at least that many results of the type; each value is clamped to `topK` |
 | `maxPerType` | — | none | Object mapping knowledge type → **maximum** hits, e.g. `{ "file": 2 }` — the ceiling to `minPerType`'s floor. A slot the cap frees goes to another type. Each value must be at least `1` and is clamped to `topK`; a value below `minPerType` for the same type is a `400` (see below) |
 | `maxTimeMS` | — | the instance budget | Deadline for this recall, in ms. **Can only lower the instance's `RECALL_BUDGET_MS`, never raise it** — a larger value is clamped to it, and a very small one is clamped up to a 250 ms floor. On expiry you get a **partial** answer with a `degraded` field, not an error and not a hang |
-| `traverse` | — | `0` | Graph-expansion depth (integer 0–5). `0` = classic recall; > 0 follows edges from each match (see [Graph-Augmented Recall](#graph-augmented-recall-traverse-parameter)) |
+| `traverse` | — | `0` | Graph expansion: an integer depth `0`–`5`, **or an object `{depth, edgeLabels, direction}`** — a `traverse` call without its start node, because the matches *are* the start nodes. `0` = classic recall. See [Graph-Augmented Recall](#graph-augmented-recall-traverse-parameter) |
 | `includeFreshWrites` | — | `false` | Also scan the newest records straight from each collection, so a record written seconds ago is findable before the vector index has ingested it. See below. A non-boolean is a `400`, never coerced |
 | `includeContent` | — | `true` | Whether file-chunk results carry `content` — the passage body. `false` returns locations and metadata only (path, heading, chunk index, tags, properties). **File chunks ONLY** — it does nothing on a search returning entities, memories, edges or chrono entries; use `projection` to trim those. A non-boolean is a `400`, never coerced |
 | `includeDiagnostics` | — | `false` | Add back the fields a result carries for the SYSTEM rather than for you: `matchedText` (the exact pre-embedding source string — for a file chunk, the passage a SECOND time), `embeddingModel`, `seq`, and the per-stage `lexicalScore`/`fusedScore`/`rerankScore`. **Applies recursively**, so a `traverse` answer's `_graph` nodes and edges follow it at every depth. Off by default since 3.1.0 — before then this door sent all six unconditionally while MCP sent none. The embedding VECTOR is not among them and is never returned by anything. A non-boolean is a `400`, never coerced |
@@ -240,7 +240,7 @@ Read in the order the server applies them:
 | `maxPerType` | The ceiling to that floor, and the other half of the same problem: one long file passage that scores well can take slots several one-line records would have answered more cheaply. A candidate whose type is already at its cap is **skipped and the walk continues**, so the freed slot goes to another type rather than shortening the list. |
 | `minScore` | Applied **last**, on the vector score, and it can drop a `minPerType`-guaranteed result — a floor is a request for coverage, not a licence to return matches you called too weak. |
 | `topK` | The final cut. |
-| `traverse` | After the cut, follows knowledge-graph edges outward from every match (both directions) and nests the connected entities **under the match that reached them**. |
+| `traverse` | After the cut, follows knowledge-graph edges outward from every match — every label in both directions by default, or narrowed by `edgeLabels`/`direction` — and nests the connected entities **under the match that reached them**. |
 
 **`traverse > 0` adds `_graph` to each match** — this is the one thing worth knowing before using it. The
 results stay the matches, in rank order, exactly as `traverse: 0` returns them; what the graph reached hangs
@@ -319,7 +319,42 @@ spaces. `traverse` above 2 on a dense graph is slow; narrow the seed set with `t
 
 #### Graph-Augmented Recall (`traverse` parameter)
 
-By default `recall` returns matches in isolation — the knowledge-graph edges between records are not consulted. Set `traverse` to an integer between `1` and `5` to follow the graph outward from every match: for each seed, the server walks edges (in **both** directions) up to `traverse` hops and returns the connected entities alongside the matches. This turns semantic search into context-aware retrieval — "recall the Vault service **and everything connected to it**" in one call, instead of a recall followed by manual `traverse`/`query` calls.
+By default `recall` returns matches in isolation — the knowledge-graph edges between records are not consulted. Set `traverse` to an integer between `1` and `5` to follow the graph outward from every match: for each seed, the server walks edges up to `traverse` hops and returns the connected entities alongside the matches. This turns semantic search into context-aware retrieval — "recall the Vault service **and everything connected to it**" in one call, instead of a recall followed by manual `traverse`/`query` calls.
+
+##### Narrowing the walk: `traverse` as an object
+
+A bare number follows **every edge label in both directions**, which is what this parameter did and all it could
+do. Pass an object instead to walk the graph the way `POST /traverse` always could:
+
+```json
+{
+  "query": "the vault service",
+  "traverse": { "depth": 2, "edgeLabels": ["depends_on", "owned_by"], "direction": "outbound" }
+}
+```
+
+| field | required | default | meaning |
+|---|---|---|---|
+| `depth` | yes | — | Hops, `0`–`5`. `traverse: 2` and `{"depth": 2}` are the same request |
+| `edgeLabels` | no | every label | Follow only these. An empty array means no narrowing, not "match nothing" — the same reading `POST /traverse` takes |
+| `direction` | no | `both` | `outbound`, `inbound` or `both`. A bare number means `both` |
+
+**Why this matters more than it sounds.** On any graph where a few nodes hold most of the edges — a person, a
+project, a recurring topic — one unnarrowed hop off such a node returns whichever neighbours the node cap
+happened to keep, and nothing in the response distinguishes that from a deliberate answer. Narrowing is how you
+ask for the neighbourhood you meant.
+
+**`limit` is deliberately not accepted here.** In a standalone traverse the caller sets it; in a recall the node
+cap comes from `topK` and the byte budget, and a `traverse.limit` would let one parameter overrule the budget
+governing the rest of the answer. An unknown field inside the object is a `400`, not an ignored key.
+
+**The response echoes what was applied** as `traverse` — a number when nothing was narrowed, so an existing
+caller's assertion still holds, and the object when it was, so a narrowing you sent is one you can confirm took
+effect.
+
+**Same parameter, same parser, both doors, and on `find_similar` too.** Until 3.5 the expansion reachable from a
+search could not narrow while the standalone tool could — one rule with two implementations, and the one people
+actually reached was the weaker.
 
 `traverse: 0` (the default) is behaviourally identical to classic recall and returns the classic response shape above. When `traverse > 0` the results are unchanged and each one gains a `_graph` array holding what the walk reached from it, plus `traverseDepth` and `graphNodes` on the envelope.
 

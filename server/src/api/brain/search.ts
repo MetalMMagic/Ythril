@@ -24,6 +24,7 @@ import { type FilterExpression } from '../../brain/filter.js';
 import { resolveRecallFilter } from '../../brain/recall-filter.js';
 import { traverseGraph, MAX_RECALL_TRAVERSE, resolveEdgeEntityNames } from '../../brain/edges.js';
 import { buildGraphWithSpill, spillResultSet } from '../../brain/graph-spill.js';
+import { parseTraverseOption, echoTraverse } from '../../brain/traverse-option.js';
 import { embed } from '../../brain/embedding.js';
 import { getConfig } from '../../config/loader.js';
 import { col, asFilter } from '../../db/mongo.js';
@@ -450,16 +451,20 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
     }
   }
 
-  // Graph-traversal expansion depth. 0 (default) = classic recall, unchanged.
-  // Rejected rather than clamped past the cap so an obviously-wrong depth surfaces.
-  let safeTraverse = 0;
-  if (traverse != null) {
-    if (typeof traverse !== 'number' || !Number.isInteger(traverse) || traverse < 0 || traverse > MAX_RECALL_TRAVERSE) {
-      res.status(400).json({ error: `traverse must be an integer between 0 and ${MAX_RECALL_TRAVERSE}` });
-      return;
-    }
-    safeTraverse = traverse;
+  // Graph-traversal expansion: a depth, or a whole traversal minus its start node — the results ARE the start
+  // nodes. `traverse: 2` still means what it always meant; `{ depth, edgeLabels, direction }` narrows it the way
+  // the standalone `/traverse` route always could and this one could not. See `brain/traverse-option.ts`.
+  //
+  // Rejected rather than clamped or coerced, in every direction: a depth past the cap, a string where a number
+  // belongs, an unknown key inside the object. Each of those silently downgraded returns a SHALLOWER OR WIDER
+  // GRAPH WITH A 200, which is the defect shape `/traverse` and `/query` already refuse unknown fields for.
+  const parsedTraverse = parseTraverseOption(traverse, MAX_RECALL_TRAVERSE);
+  if (!parsedTraverse.ok) {
+    res.status(400).json({ error: parsedTraverse.error });
+    return;
   }
+  const traverseOpt = parsedTraverse.value;
+  const safeTraverse = traverseOpt.depth;
 
   // EITHER grammar. The operator-object form is passed through untouched so it keeps the native pre-filter path; a raw
   // MongoDB filter is validated with the same parser `query` uses and goes down the exhaustive path.
@@ -612,6 +617,7 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
       seeds.map(s => ({ _id: s._id, spaceId: s.spaceId })),
       safeTraverse,
       Math.max(0, totalCap - seeds.length),
+      traverseOpt,
     );
     // The flag applies here too. A caller who asked not to be sent passage bodies did not stop meaning it
     // because they also asked for graph expansion — and an option that silently lapses on one code path is
@@ -647,6 +653,10 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
       results: budgeted.results,
       ...budgeted.fields,
       traverseDepth: safeTraverse,
+      // What the server actually walked. A number when nothing was narrowed — so an existing caller's assertion
+      // still holds — and the object when it was, because a narrowing the response does not mention is one the
+      // caller cannot verify was applied.
+      traverse: echoTraverse(traverseOpt),
       graphNodes: graph.nodes,
       ...(spill ? { graphTruncated: true, graphComplete: spill } : {}),
       ...(degraded.length > 0 ? { degraded } : {}),
@@ -692,15 +702,16 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
   // Strictness is what made it visible: before the body was strict, sending `traverse: 2` here returned an unexpanded
   // answer with a 200. It is a 400 now, which is better and still wrong — the parameter is supposed to work.
   //
-  // Validated exactly as recall validates them, refusing rather than coercing, so the two routes cannot disagree
-  // about what a bad value is.
-  const traverseRaw = body['traverse'];
-  if (traverseRaw !== undefined
-    && (typeof traverseRaw !== 'number' || !Number.isInteger(traverseRaw) || traverseRaw < 0 || traverseRaw > MAX_RECALL_TRAVERSE)) {
-    res.status(400).json({ error: `traverse must be an integer between 0 and ${MAX_RECALL_TRAVERSE}` });
+  // Validated by the SAME parser recall uses, so the two routes cannot disagree about what a bad value is —
+  // and so `find_similar` gained the object form in the same commit rather than a release later. A parameter
+  // that means one thing on one search and another on the next is the asymmetry this comment is about.
+  const parsedFsTraverse = parseTraverseOption(body['traverse'], MAX_RECALL_TRAVERSE);
+  if (!parsedFsTraverse.ok) {
+    res.status(400).json({ error: parsedFsTraverse.error });
     return;
   }
-  const safeTraverse = typeof traverseRaw === 'number' ? traverseRaw : 0;
+  const fsTraverseOpt = parsedFsTraverse.value;
+  const safeTraverse = fsTraverseOpt.depth;
   const includeContentRaw = body['includeContent'];
   if (includeContentRaw !== undefined && typeof includeContentRaw !== 'boolean') {
     res.status(400).json({ error: '`includeContent` must be a boolean' });
@@ -804,6 +815,7 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
       result.results.map(r => ({ _id: r._id, spaceId: r.spaceId })),
       safeTraverse,
       Math.max(0, totalCap - result.results.length),
+      fsTraverseOpt,
     );
     const itemsWithGraph = withoutDiagnostics(
       stripContentIfAsked(result.results, safeIncludeContent), safeIncludeDiagnostics)

@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`recall`'s graph expansion is now the real traverse: it narrows by edge label and direction.** Owner's
+  ruling, 2026-08-29 — *"recall's traverse must be the same as the real thing"*.
+
+  `recall(traverse: n)` followed EVERY edge in BOTH directions with no way to say otherwise, while the standalone
+  `traverse` tool — building the same Mongo query twenty lines away in the same file — applied an `edgeLabels`
+  filter and honoured `direction`. One rule, two implementations, and the one reachable from a search had the
+  weaker. On any graph where a few nodes hold most of the edges, an unnarrowed hop off one of them returns
+  whichever neighbours the node cap happened to keep, and nothing distinguishes that from a deliberate answer.
+
+  `traverse` now takes **a depth or an object** — `{depth, edgeLabels, direction}`, a traverse call without its
+  start node, because in a recall the matches ARE the start nodes. The number still means exactly what it meant.
+  On **both doors**, on **`recall` and `find_similar`**, through **one parser and one query builder** — a second
+  copy is the whole defect, so `frontierEdgeQuery` is written once and both traversals call it.
+
+  `limit` is deliberately refused inside the object, with the refusal saying why: in a recall the node cap comes
+  from `topK` and the byte budget, and a `traverse.limit` would let one parameter overrule the budget governing
+  the rest of the answer. The response echoes what was applied — a number when nothing was narrowed, so existing
+  assertions still hold, the object when it was, because a narrowing the response does not mention is one the
+  caller cannot confirm.
+
+  Eight mutants, all killed. Two are worth naming: the pre-fix shape (recall building its own unnarrowed
+  predicate), and one expansion call site left un-threaded — which looks identical to the others in review and
+  silently ignores the caller's narrowing on exactly one path.
+
+  Found while designing the benchmark's ingestion, and fixed BEFORE any measurement: repairing it after seeing
+  "the graph does not help" would be indistinguishable from tuning to the benchmark.
+
 ### Added
 
 - **`benchmarks/INGESTION.md` — how a conversation becomes records, written blind to the questions.**

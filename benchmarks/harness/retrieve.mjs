@@ -284,7 +284,9 @@ export function gridCells(defaults) {
  * — an invented cell is how a head-to-head ends up run on something that is not the shipped default.
  */
 export function defaultCell(defaults) {
-  const d = validatedDefaults(defaults);
+  // No sweep: this cell varies no axis, so the pin-time threshold and tight budget are not read here. See the
+  // note on `validatedDefaults` for why sharing the stricter check made the no-grid run impossible.
+  const d = validatedDefaults(defaults, { requireSweep: false, caller: 'defaultCell' });
   return {
     id: 'shipped-defaults',
     // No axis is varied, so no cell/method conflict is possible — see `cellApplies`.
@@ -930,19 +932,36 @@ function assertEnvelope(response, what) {
  *   protocol's third budget; a number equal to or above a default is a duplicate wearing the word "tight", and
  *   the axis would then measure two points instead of three.
  */
-function validatedDefaults(defaults) {
+/**
+ * @param defaults     the parsed pinned configuration
+ * @param requireSweep whether the two pin-time sweep values must be present
+ * @param caller       the exported function the user actually called, so the message names it
+ *
+ * ## Why `requireSweep` exists
+ *
+ * `defaultCell` is documented as the cell "for the runs that use no grid at all", and it was unusable for
+ * exactly those runs: it shares this validator with `gridCells`, so it demanded `sweep.minScore` — a threshold
+ * it never reads, for cells it never builds. A Tier 0 run at shipped defaults was blocked by a pin that is
+ * only meaningful to the sweep, and the error it got named `gridCells`, a function it had not called.
+ *
+ * The sweep check itself is right and stays exactly as strict for the caller that uses those values. It is the
+ * SHARING that was wrong: one validator answering two different questions, and the stricter answer winning
+ * where it did not apply.
+ */
+function validatedDefaults(defaults, { requireSweep = true, caller = 'gridCells' } = {}) {
   if (defaults === null || typeof defaults !== 'object' || Array.isArray(defaults)) {
-    throw new TypeError('gridCells(defaults): expected the parsed benchmarks/configs/ythril.json.');
+    throw new TypeError(`${caller}(defaults): expected the parsed benchmarks/configs/ythril.json.`);
   }
   for (const axis of AXES) {
     if (!(axis in defaults)) {
       throw new Error(
-        `gridCells: defaults.${axis} is missing. The protocol requires every retrieval knob to be pinned in `
+        `${caller}: defaults.${axis} is missing. The protocol requires every retrieval knob to be pinned in `
         + 'configs/ythril.json with its value written out, so that "default" cannot change underneath a '
         + 'published number. It is not defaulted here.');
     }
   }
   assertKnobs(defaults, 'defaults');
+  if (!requireSweep) return defaults;
 
   const sweep = defaults.sweep;
   if (sweep === null || typeof sweep !== 'object') {

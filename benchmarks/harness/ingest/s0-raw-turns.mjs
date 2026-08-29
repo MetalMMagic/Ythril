@@ -26,6 +26,17 @@
  */
 
 export const rung = 's0';
+
+/**
+ * The knowledge types that carry this rung's content, passed to `recall` as `types`.
+ *
+ * Declared per rung rather than fixed in the runner because the rungs MODEL the same turns differently, and a
+ * search that ignores that is not a fairer comparison — it is a worse one. Leaving it unset lets a rung's own
+ * navigational records (its edges, its chrono) take ranked slots that the rung deliberately created them to
+ * stay out of, so the measured difference between two rungs would partly be a difference in how much structure
+ * each one had to elbow past.
+ */
+export const recallTypes = ['memory'];
 export const needsModel = false;
 
 /**
@@ -35,7 +46,7 @@ export const needsModel = false;
  * @param {string}   args.space         the space id, one per conversation
  * @returns {Promise<{records: number, modelCalls: number}>}
  */
-export async function ingest({ conversation, ythril, space }) {
+export async function ingest({ conversation, ythril, space, entityIdsFor = null, onWritten = null }) {
   let records = 0;
 
   for (const session of conversation.sessions) {
@@ -51,9 +62,31 @@ export async function ingest({ conversation, ythril, space }) {
        * date inside prose is a string a retriever has to parse back out. Rung S0+ is where the date becomes a
        * record in its own right.
        */
-      await ythril.writeMemory(space, {
+      /*
+       * TWO HOOKS, AND THE DIFFERENCE BETWEEN THEM IS THE WHOLE GRAPH RESULT.
+       *
+       * `entityIdsFor` puts entity ids on the memory. `onWritten` hands the created record to the rung above so
+       * it can write real EDGES. They sound interchangeable and are not:
+       *
+       *   - `entityIds` is read by `memoryEmbedText`, which prepends the linked entities' NAMES to the fact
+       *     before embedding. So it changes the ranking — measured at -1.5 points of strict evidence recall,
+       *     because "Session 2 Caroline" in front of every turn dilutes it.
+       *   - **Graph traversal does not read `entityIds` at all.** `traverseFromSeeds` queries the `_edges`
+       *     collection; a memory that is not the `from` or `to` of an edge document has an empty frontier and
+       *     produces no neighbours, whatever its `entityIds` say.
+       *
+       * The first version of S0+ used only `entityIdsFor`, so it paid the entire embedding cost and got none of
+       * the traversal benefit. It was not a small effect either way: recall at traverse depth 0, 1 and 2
+       * returned byte-identical results, and `graphNodes` was 0. A graph that nothing can walk into is not a
+       * weak graph, it is an absent one, and only a sweep that ran all three depths could tell the difference.
+       *
+       * So S0+ now passes `onWritten` and NOT `entityIdsFor`: its turns embed exactly as S0's do, which makes
+       * traverse-0 a clean control, and any difference at depth 2 is the graph and nothing else.
+       */
+      const created = await ythril.writeMemory(space, {
         fact: `${turn.speaker}: ${turn.text}`,
         type: 'utterance',
+        ...(entityIdsFor ? { entityIds: entityIdsFor(turn, session) } : {}),
         properties: {
           session: session.index,
           turn: turn.id,
@@ -65,6 +98,7 @@ export async function ingest({ conversation, ythril, space }) {
         },
       });
       records++;
+      if (onWritten) records += await onWritten(created, turn, session);
     }
   }
 

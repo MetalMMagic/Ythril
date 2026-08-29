@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Tier 0-R ran on real infrastructure, and the graph arm is measurable for the first time.** Three model-free
+  ingestion rungs over LoCoMo, 199 stratified questions, zero model calls:
+  S0 (raw turns) **66.8%** strict evidence recall, S0+ (turns plus deterministic structure) 65.3%, S0G (the same
+  turns modelled as entities so they can be edge endpoints) 66.3%.
+
+  **The multi-hop cliff is the finding.** Strict recall runs 74.4% / 57.1% / 12.5% / 0.0% as a question's cited
+  evidence goes from one turn to four, while *any*-evidence stays high — flat text finds some of a multi-hop
+  question's evidence almost always and all of it almost never.
+
+  Two mechanisms came out of it, both verified against source and neither specific to benchmarking. Linking a
+  memory changes its **ranking**, because `memoryEmbedText` prepends the linked entities' names to the fact
+  before embedding — the same turn scored 0.8528 unlinked and 0.8369 linked. And graph expansion **evicts the
+  matches it decorates**: at `traverse: 2` the response reached 99,307 bytes of a 100,000 budget and the result
+  list was truncated from 20 matches to 6, with every one of the 193 graph nodes an entity. Both are recorded in
+  `benchmarks/results/2026-08-29-tier0r/FINDINGS.md`.
+
+  New in the harness: the `s0g` rung, `report-tier0r.mjs`, a grid runner, per-rung `recallTypes`, `--rungs` so
+  one rung can be re-run without redoing the others, and score capture for the `minScore` pin.
+
+
 - **The benchmark harness runs, and the first tier needs no model at all.** `benchmarks/harness/` — the runnable
   half of the pre-registered protocol, in twelve modules with no third-party dependency: pinned dataset fetch
   with sha256 verification, the LoCoMo loader, two model-free ingestion rungs, the retrieval grid, lexical and

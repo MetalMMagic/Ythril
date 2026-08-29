@@ -23,6 +23,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   The defaulted document is also the one **stored**, not merely the one validated — filling defaults and then
   writing the caller's untouched input is the same shape as the memory-upsert defect, so a gate pins it.
+- **Sync had one schema check across five ingest paths, and it was in the wrong place doing the wrong thing.**
+  Records arriving from a peer went into `memories`, `entities` and `edges` with **no validation at all**, on
+  either the single-record or the batch path. The only check anywhere was the chrono type allowlist, on the
+  single-record route — so it covered one field of one record type, sat on the path a peer barely uses (a sync
+  cycle ships records in batches), and **refused** with a `400`.
+
+  Owner's ruling (P-21): import, restore and sync **validate, let everything in, and hand back a list**.
+  Refusing is worst here, because a peer validated those records against ITS schema, which may differ from
+  yours — discarding data the sender believes it delivered is not the receiver's call.
+
+  So all four types are now checked on both paths, nothing is refused, and the count comes back in the
+  response: `schemaViolations` on each per-type stat from `batch-upsert`, and beside the stored document on the
+  single-record routes. **The count is the point** — the ruling's own stated cost was that a report nobody
+  reads is the do-nothing option with extra steps.
+
+  Relaxing the `400` is safe from the sender's side: a record that was rejected is now accepted, so no peer
+  breaks and more data flows. A clean ingest's response is unchanged byte for byte, since the field is absent
+  when there are no violations.
 
 
 - **A space that declared an edge-label allowlist would have lost its contradiction machinery.** Now that

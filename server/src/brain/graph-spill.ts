@@ -49,7 +49,7 @@
 import { randomUUID } from 'node:crypto';
 import { writeFile } from '../files/files.js';
 import { upsertFileMeta } from '../files/file-meta.js';
-import { traverseRecallSeeds } from './edges.js';
+import { traverseRecallSeeds, type TraverseNarrowing } from './edges.js';
 import { nestNeighbours, type RecallGraph } from './recall-graph.js';
 import { SPILL_DIR } from './spill-path.js';
 
@@ -97,6 +97,11 @@ export async function buildGraphWithSpill(
   seeds: { _id: string; spaceId: string }[],
   maxDepth: number,
   inlineCap: number,
+  /**
+   * Which labels to follow and which way — a recall's expansion narrows exactly as the standalone `traverse`
+   * does. Absent means every label, both directions, which is what this always did.
+   */
+  narrowing?: TraverseNarrowing,
 ): Promise<GraphWithSpill> {
   const seedIds = seeds.map(s => s._id);
   if (inlineCap < 1 || maxDepth < 1 || seeds.length === 0) {
@@ -104,7 +109,7 @@ export async function buildGraphWithSpill(
   }
 
   const ceiling = inlineCap * SPILL_CEILING_MULTIPLE;
-  const flat = await traverseRecallSeeds(memberIds, seeds, maxDepth, ceiling);
+  const flat = await traverseRecallSeeds(memberIds, seeds, maxDepth, ceiling, narrowing);
 
   if (flat.length <= inlineCap) {
     // The whole neighbourhood fits. No file, no flag, and `graphNodes` is the complete count.

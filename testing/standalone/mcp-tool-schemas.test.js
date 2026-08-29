@@ -18,6 +18,23 @@ const schemas = {
 };
 const schemaOf = (name) => ALL_TOOLS.find(t => t.name === name).inputSchema(schemas);
 
+/**
+ * The depth bound on a `traverse` property, wherever the schema keeps it.
+ *
+ * It was a plain `{type: 'number', minimum, maximum}` until `traverse` grew its object form; the bound now lives
+ * on each `oneOf` branch — the number itself, and the object's `depth`. Reading it through one helper is what
+ * lets the assertions below keep asking the question they were always asking (*is the range advertised, so a
+ * caller sees it without reading prose*) rather than being weakened to fit the new shape.
+ *
+ * Returns every place a bound is declared, so a branch that quietly lost one fails rather than being averaged
+ * away by a sibling that kept it.
+ */
+function traverseBounds(prop) {
+  const branches = prop.oneOf ?? [prop];
+  return branches.map(b => (b.type === 'object' ? b.properties?.depth : b))
+    .map(b => ({ minimum: b?.minimum, maximum: b?.maximum }));
+}
+
 describe('MCP tool schemas — universal invariants', () => {
   it('exposes exactly 39 tools', () => {
     // A deliberate tripwire, not a fact worth asserting for its own sake: the number changing means a tool
@@ -109,8 +126,15 @@ describe('MCP tool schemas — high-value enrichments', () => {
     assert.match(filter.description, /RAW MONGODB is accepted/,
       'and the description must keep saying so, since it is what a caller reads while building arguments');
 
-    assert.equal(recall.properties.traverse.minimum, 0);
-    assert.equal(recall.properties.traverse.maximum, 5);
+    // BOTH forms carry the bound — the bare depth and the object's `depth`. Asserting every branch rather
+    // than the property is stricter than the check it replaced: a `oneOf` where one arm forgot its range would
+    // advertise an unbounded depth on exactly the form a caller reaches for when they want control.
+    const recallBounds = traverseBounds(recall.properties.traverse);
+    assert.ok(recallBounds.length >= 2, 'traverse should offer both a depth and an object form');
+    for (const b of recallBounds) {
+      assert.equal(b.minimum, 0, 'a traverse branch lost its lower bound');
+      assert.equal(b.maximum, 5, 'a traverse branch lost its upper bound');
+    }
     assert.equal(recall.properties.minScore.minimum, 0);
     assert.equal(recall.properties.minScore.maximum, 1);
   });
@@ -127,7 +151,15 @@ describe('MCP tool schemas — high-value enrichments', () => {
     assert.ok(!fs.required.includes('space'), 'space must be optional (omit → all accessible spaces)');
     assert.deepEqual(fs.required, ['entryId', 'entryType']);
     assert.ok(fs.properties.traverse, 'find_similar must expose traverse (parity with recall)');
-    assert.equal(fs.properties.traverse.maximum, 5);
+    // Same shape as recall's, in the same release — the parity this test is named for extends to the form
+    // the parameter takes, not only to its presence.
+    for (const b of traverseBounds(fs.properties.traverse)) {
+      assert.equal(b.maximum, 5, 'a find_similar traverse branch lost its upper bound');
+    }
+    assert.equal(traverseBounds(fs.properties.traverse).length,
+      traverseBounds(schemaOf('recall').properties.traverse).length,
+      'find_similar and recall must offer the SAME traverse forms — a narrowing valid on one search and '
+      + 'refused on the other is the asymmetry this tool already carries a comment about');
     assert.equal(ALL_TOOLS.find(t => t.name === 'find_similar').spaceRequired, false);
 
     // THIS ASSERTION WAS REVERSED IN 3.0, and the reason is worth more than the line it replaces.

@@ -37,7 +37,7 @@ import type { SpaceMeta } from '../config/types.js';
 import { resolveMemberSpaces } from '../spaces/proxy.js';
 import { applyValidation, getSpaceMeta } from '../spaces/schema-validation.js';
 import { getEntityById } from './entities.js';
-import { findEdgeByTriplet } from './edges.js';
+import { findEdgeByTriplet } from './edge-lookup.js';
 import { mergeTagsAndProperties, mergePropertiesOrKeep } from './merge-fields.js';
 
 /**

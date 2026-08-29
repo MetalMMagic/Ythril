@@ -7,7 +7,7 @@ import { Router } from 'express';
 import { assertRefsResolve } from '../../brain/entity-refs.js';
 import { requireSpaceAuth, denyReadOnly } from '../../auth/middleware.js';
 import { globalRateLimit, bulkWipeRateLimit } from '../../rate-limit/middleware.js';
-import { listEdges, deleteEdge, upsertEdge, getEdgeById, updateEdgeById, bulkDeleteEdges } from '../../brain/edges.js';
+import { listEdges, deleteEdge, upsertEdge, getEdgeById, updateEdgeById, bulkDeleteEdges, EdgeSchemaViolation } from '../../brain/edges.js';
 import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } from '../../brain/delete-fields.js';
 import { getConfig } from '../../config/loader.js';
 import { col, asFilter } from '../../db/mongo.js';
@@ -19,7 +19,7 @@ import { parseSortParam, SORTABLE_FIELDS, toMongoSort } from '../../brain/list-s
 import { resolveMemberSpaces, resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { validateEdge } from '../../spaces/schema-validation.js';
 import { UUID_V4_RE, webhookToken, getSpaceMeta, ttlDaysFromBody, ttlDaysError, ifMatchFromRequest, preconditionFailedBody } from './_shared.js';
-import { classifyEdgeUpsert, classifyUpdateViolations } from '../../brain/write-validation.js';
+import { classifyUpdateViolations, type UpdateValidation } from '../../brain/write-validation.js';
 import { resolveEntityIdsByName } from '../../brain/entities.js';
 import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
 import { parseRecordSuppression } from '../../brain/suppress-embeddings.js';
@@ -85,13 +85,6 @@ edgesRouter.post('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, de
       : undefined;
   const safeTags: string[] | undefined = Array.isArray(tags) ? tags : undefined;
 
-  // Schema validation of the record this upsert will PRODUCE. (from, to, label) IS an edge's identity,
-  // so a repeat POST merges into the stored edge — there is no id in the request to signal it.
-  const check = await classifyEdgeUpsert(wt.target, { from: from.trim(), to: to.trim(), label: label.trim(), properties: safeProps });
-  if (check.blocked) {
-    res.status(400).json({ error: 'schema_violation', message: check.message, violations: check.all, introduced: check.introduced, preExisting: check.preExisting });
-    return;
-  }
   const ttlErr = ttlDaysError(req.body);
   if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
 
@@ -103,14 +96,33 @@ edgesRouter.post('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, de
     res.status(400).json({ error: '`waitForEmbedding` must be a boolean' });
     return;
   }
-  const embedOpts = waitForEmbedding === true ? { waitForEmbedding: true } : undefined;
-  const edge = await upsertEdge(
-    wt.target, from.trim(), to.trim(), label.trim(), weight, type?.trim(),
-    typeof description === 'string' ? description : undefined, safeProps, safeTags,
-    webhookToken(req), ttlDaysFromBody(req.body), embedOpts,
-  );
+  /*
+   * The schema check lives in `upsertEdge` now, not here.
+   *
+   * It sat at this route and at the MCP tool — one rule written twice, and reachable around both:
+   * `api/contradictions.ts` and `brain/bulk.ts` called `upsertEdge` directly and were never checked. Owner's
+   * ruling, 2026-08-29: the write function validates. `onValidation` hands the classification back so this
+   * response keeps its exact shape without a second `findEdgeByTriplet`.
+   */
+  let check: UpdateValidation | undefined;
+  let edge;
+  try {
+    edge = await upsertEdge(
+      wt.target, from.trim(), to.trim(), label.trim(), weight, type?.trim(),
+      typeof description === 'string' ? description : undefined, safeProps, safeTags,
+      webhookToken(req), ttlDaysFromBody(req.body),
+      { ...(waitForEmbedding === true ? { waitForEmbedding: true } : {}), onValidation: c => { check = c; } },
+    );
+  } catch (err) {
+    if (err instanceof EdgeSchemaViolation) {
+      const c = err.check;
+      res.status(400).json({ error: 'schema_violation', message: c.message, violations: c.all, introduced: c.introduced, preExisting: c.preExisting });
+      return;
+    }
+    throw err;
+  }
   const result: Record<string, unknown> = { ...edge };
-  if (check.warnings.length > 0) result['warnings'] = check.warnings;
+  if (check && check.warnings.length > 0) result['warnings'] = check.warnings;
   res.status(201).json(result);
 });
 

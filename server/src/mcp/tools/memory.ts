@@ -209,6 +209,11 @@ export const update_memoryTool: ToolHandler = {
                 + 'Required. An id that names nothing is an ERROR, not a silent no-op — so a failed update '
                 + 'is something you find out about rather than something you assume worked.',
             },
+            type: {
+              type: 'string',
+              description: 'New memory type. An empty string clears it. Omit to leave unchanged — the store '
+                + 'distinguishes absent (leave alone) from empty (write empty), and so does this parameter.',
+            },
             fact: {
               type: 'string',
               description: 'Replaces the stored fact. Write it as a SENTENCE carrying its own context: it is '
@@ -257,13 +262,24 @@ export const update_memoryTool: ToolHandler = {
     if (!dfResult.ok) throw new Error(dfResult.error);
     const dfPaths: string[] | undefined = Array.isArray(a['deleteFields']) && (a['deleteFields'] as string[]).length > 0 ? a['deleteFields'] as string[] : undefined;
 
-    const updates: { fact?: string; tags?: string[]; entityIds?: string[]; description?: string; properties?: Record<string, string | number | boolean>; suppressEmbeddings?: boolean } = {};
+    const updates: { type?: string; fact?: string; tags?: string[]; entityIds?: string[]; description?: string; properties?: Record<string, string | number | boolean>; suppressEmbeddings?: boolean } = {};
     const sup = parseRecordSuppression(a);
     if (!sup.ok) throw new Error(sup.error);
     if (sup.value !== undefined) updates.suppressEmbeddings = sup.value;
     if (typeof a['fact'] === 'string') {
       if (!a['fact'].trim()) throw new Error('fact must not be empty');
       updates.fact = a['fact'] as string;
+    }
+    /*
+     * `type` was declared by REST's PATCH and not by this tool, under `additionalProperties: false` — so the
+     * MCP door HARD-REFUSED a parameter the REST door accepted and applied. One capability, two doors, one of
+     * them offering less, which is the parity rule's central case.
+     *
+     * An empty string clears the type, matching REST: the store distinguishes `undefined` (leave alone) from
+     * `''` (write empty), and a door that collapsed the two would make the field unclearable.
+     */
+    if (typeof a['type'] === 'string') {
+      updates.type = (a['type'] as string).trim();
     }
     if (Array.isArray(a['tags'])) updates.tags = a['tags'] as string[];
     if (Array.isArray(a['entityIds'])) {
@@ -294,7 +310,9 @@ export const update_memoryTool: ToolHandler = {
       assertUpdateAllowed(classifyUpdateViolations(
         found.meta,
         validateMemory(found.meta ?? {}, { type: found.record.type, properties: priorProps }),
-        validateMemory(found.meta ?? {}, { type: found.record.type, properties: (sim['properties'] ?? {}) as Record<string, unknown> }),
+        // The type the memory will HAVE. Both sides used to pass the stored type, so re-typing never consulted
+        // the destination schema — see the note on the REST route, which had the identical defect.
+        validateMemory(found.meta ?? {}, { type: updates.type ?? found.record.type, properties: (sim['properties'] ?? {}) as Record<string, unknown> }),
       ));
     }
 

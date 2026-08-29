@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Changing a memory's type never validated against the new type, and one door could not change it at all.**
+  `type` selects which `typeSchemas.memory[type]` applies, so re-typing a record changes the rules it must
+  satisfy. Both doors validated the after-state against the type the memory ALREADY had, so the destination
+  schema's allowlist, required properties and enums were never consulted and the write succeeded regardless.
+
+  The entity route had it right the whole time, twenty files away — `const resultType = updates.type ??
+  existing.type`. One rule, two implementations, and the weaker one silent, on a field whose entire job is to
+  select the rules.
+
+  The before-state deliberately still reads the stored type: that is what lets `classifyUpdateViolations` tell a
+  violation this patch *introduced* from one it merely inherited, and the gate asserts it so it is not
+  "corrected" later.
+
+  **`update_memory` also did not declare `type` at all.** Under `additionalProperties: false` that is a hard
+  refusal at the dispatcher, so the MCP door rejected a parameter the REST door accepted and applied — one
+  capability, two doors, one offering less. It accepts it now, with the same empty-string-clears semantics.
+
+
 - **`upsertEdge` validates the record it will produce, so no caller can reach the collection around the
   schema.** Owner's ruling, 2026-08-29: *"upsertEdge should validate of course."*
 

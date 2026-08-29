@@ -17,7 +17,7 @@ import { getEntityById } from './entities.js';
 import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
 import { mergeTags } from './merge-fields.js';
-import { validateEntity, getSpaceMeta } from '../spaces/schema-validation.js';
+import { validateEntity, getSpaceMeta, applyValidation, type SchemaViolation } from '../spaces/schema-validation.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { EntityDoc, EdgeDoc, MemoryDoc, ChronoEntry, FileMetaDoc, TombstoneDoc, SpaceMeta, PropertySchema } from '../config/types.js';
 
@@ -326,6 +326,28 @@ function edgesIdentical(a: EdgeDoc, b: EdgeDoc): boolean {
  *
  * Precondition: all property conflicts must be resolved before calling this.
  */
+/**
+ * A merge refused because the survivor would violate its own space's schema.
+ *
+ * Typed rather than a bare `Error` so a caller can tell "this merge is not allowed" from "the merge broke".
+ * `dupe-scanner.ts` runs `automerge` unattended and must be able to count refusals without parsing prose — a
+ * refusal it cannot see is the do-nothing option wearing the strict option's name.
+ */
+export class MergeSchemaViolation extends Error {
+  constructor(
+    readonly survivorId: string,
+    readonly absorbedId: string,
+    readonly spaceId: string,
+    readonly violations: SchemaViolation[],
+  ) {
+    super(
+      `merge refused: the survivor '${survivorId}' would violate the schema of space '${spaceId}' after `
+      + `absorbing '${absorbedId}' — ${violations.map(v => `${v.field}: ${v.reason}`).join('; ')}`,
+    );
+    this.name = 'MergeSchemaViolation';
+  }
+}
+
 export async function executeMerge(
   spaceId: string,
   survivor: EntityDoc,
@@ -498,12 +520,29 @@ export async function executeMerge(
       const violations = validateEntity(getSpaceMeta(spaceId) ?? {}, {
         name: survivor.name, type: survivor.type, properties: mergedProperties, tags: mergedTags,
       });
-      if (violations.length > 0) {
+      const verdict = applyValidation(getSpaceMeta(spaceId), violations);
+      if (verdict.blocked) {
+        /*
+         * A `strict` space refuses this merge, exactly as it refuses the equivalent direct write.
+         *
+         * Owner's ruling, 2026-08-29: a space set to strict has said it wants refusals, and this was the one
+         * write path that ignored it. It shipped as report-and-proceed first, deliberately, because the trade
+         * is real — `automerge` runs unattended, so refusing leaves the duplicates it exists to resolve. That
+         * was the owner's call and he made it.
+         *
+         * Throwing HERE is why the check sits at this point: everything above runs inside
+         * `session.withTransaction`, so the relinked edges, the rewritten references and the survivor's own
+         * update roll back together. A refusal that left half a merge applied would be worse than the
+         * violation it prevented.
+         */
+        throw new MergeSchemaViolation(survivor._id, absorbed._id, spaceId, violations);
+      }
+      if (verdict.warnings.length > 0) {
         log.warn(
           `merge: the survivor '${survivor._id}' in space '${spaceId}' violates its own schema after merging `
-          + `'${absorbed._id}' — the merged properties are a value neither input had. The merge PROCEEDED; `
-          + `these would have been refused on a direct write: `
-          + violations.map(v => `${v.field}: ${v.reason}`).join('; '),
+          + `'${absorbed._id}' — the merged properties are a value neither input had. The space is in 'warn' `
+          + `mode so the merge PROCEEDED; these would have been refused on a direct write: `
+          + verdict.warnings.map(v => `${v.field}: ${v.reason}`).join('; '),
         );
       }
 

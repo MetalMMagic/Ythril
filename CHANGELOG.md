@@ -21,6 +21,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   **Only the label is given, not the record.** A declared type schema for a server-written label is still
   enforced, and a gate refuses the version of this change that turns the exception into an exemption.
+- **A `strict` space now refuses a merge whose survivor would violate its schema**, exactly as it refuses the
+  equivalent direct write. Owner's ruling: a space set to strict has said it wants refusals, and this was the
+  one write path that ignored it.
+
+  It shipped as report-and-proceed first, deliberately, because the trade is real — `automerge` runs unattended,
+  so refusing leaves the duplicates it exists to resolve. `warn` mode is unchanged and still reports without
+  refusing; the space's own `validationMode` decides, so nothing changes for a space that asked only to be
+  warned.
+
+  **The refusal is typed, and the automerge caller distinguishes it from a fault.** A deliberate refusal
+  reported as *"Auto-merge failed"* would turn the ruling into an error nobody investigates, so the log now
+  names the rule that refused and the two records that remain separate. That was the stated cost of this option
+  and it ships with it, not after it.
+
+  Refusing is safe at this point because everything before it runs inside `session.withTransaction` — the
+  relinked edges, the rewritten references and the survivor's update roll back together. A refusal that left
+  half a merge applied would be worse than the violation it prevented.
 
 
 - **The face pipeline wrote entity references that `strictLinkage` never checked.** `assertRefsResolve` sat

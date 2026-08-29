@@ -140,7 +140,22 @@ export const IncomingMemoryDoc = z.object({
   _id: z.string().min(1),
   spaceId: z.string().min(1),
   fact: z.string(),
-  embedding: z.array(z.number()),
+  /*
+   * OPTIONAL, because `MemoryDoc.embedding` is optional and requiring it here deleted records.
+   *
+   * A memory has no vector in two ordinary situations: its type or space suppresses embeddings, in which case
+   * `embedStoredRecord` `$unset`s both this and `embeddingModel`; or its embed job has not run yet. Both are
+   * valid stored documents. Requiring them here made `safeParse` reject them, and the rejection is a `flatMap`
+   * returning `[]` — so the document was removed from the batch, counted in no statistic, and the receiver
+   * still answered 200. The sender then advanced its watermark, and `embedStoredRecord` deliberately does not
+   * bump `seq` when the vector finally lands, so the record was never offered again. Permanent, silent, and
+   * one-directional.
+   *
+   * `IncomingEntityDoc`, `IncomingEdgeDoc` and `IncomingChronoDoc` never declared `embedding` at all — zod
+   * strips unlisted keys, so their vector is discarded and the document survives. Memories were the only type
+   * that required it, which is why they were the only type that vanished.
+   */
+  embedding: z.array(z.number()).optional(),
   tags: z.array(z.string()).max(100),
   entityIds: z.array(z.string()).max(500),
   description: z.string().optional(),
@@ -149,7 +164,8 @@ export const IncomingMemoryDoc = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   seq: z.number().int().nonnegative().max(MAX_SYNC_SEQ),
-  embeddingModel: z.string(),
+  /** Optional for the same reason as `embedding` above — the two are set and unset together. */
+  embeddingModel: z.string().optional(),
   forkOf: z.string().optional(),
 });
 

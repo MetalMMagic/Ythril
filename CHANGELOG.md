@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The face pipeline wrote entity references that `strictLinkage` never checked.** `assertRefsResolve` sat
+  only at the two API doors, so the promise that a stored reference resolves held for callers who remembered it
+  and not otherwise. `files/media/face-embedder.ts` calls `updateFileMeta` directly to write an auto-labelled
+  face's `entityIds`, and was never checked — the id comes from a live match so it resolves in practice, but the
+  guarantee was structural in name only.
+
+  `updateFileMeta` now validates `entityIds`, `memoryIds` and `chronoIds` itself, still gated on
+  `isStrictLinkage` exactly as the doors were — the opt-out exists for staged imports where targets resolve in a
+  later pass, and relocating a check is precisely when such a thing gets withdrawn by accident. The gate pins
+  both the check and the gate on it.
+
+  Third instance of one shape in this release, after `upsertEdge` and `brain/merge.ts`.
+
+
 - **Changing a memory's type never validated against the new type, and one door could not change it at all.**
   `type` selects which `typeSchemas.memory[type]` applies, so re-typing a record changes the rules it must
   satisfy. Both doors validated the after-state against the type the memory ALREADY had, so the destination

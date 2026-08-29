@@ -24,6 +24,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, sep } from 'node:path';
+import { stripComments } from './_strip-comments.mjs';
 
 const HARNESS = join('benchmarks', 'harness');
 
@@ -87,10 +88,34 @@ describe('no ingest module can reach the question set', () => {
   it('none of them names the question set', () => {
     const offenders = [];
     for (const file of ingestModules()) {
-      const src = readFileSync(file, 'utf8');
+      /*
+       * COMMENTS STRIPPED FIRST, and that is not a loosening.
+       *
+       * A word in a comment cannot reach the question set — only an import or a runtime reference can. What a
+       * comment CAN do is explain the rule, and the first two ingest modules written under it were refused for
+       * saying "does not import loadQuestions" and "the questions this edge answers". A gate that punishes the
+       * prose explaining it teaches people to delete the prose, which this repo has already paid for once:
+       * `gates-must-strip-comments` is a recorded lesson and this is the same shape.
+       */
+      const src = stripComments(readFileSync(file, 'utf8'));
+      /*
+       * TOKENISED, not word-bounded, and this is the hole the first version had.
+       *
+       * `\b` + `questions` + `\b` cannot match inside `loadQuestions` — `d` and `Q` are both word characters,
+       * so there is no boundary between them. The single most likely real reference, `import { loadQuestions }`,
+       * sailed straight through a gate whose entire purpose is to refuse it. Found only by mutation-testing the
+       * gate with the exact import it exists to prevent, which is the argument for doing that to every gate.
+       *
+       * Splitting identifiers on camelCase and punctuation and comparing whole TOKENS catches `loadQuestions`,
+       * `questionSet` and `QA_PAIRS` alike, without the false positives a bare substring match would produce
+       * from a two-letter name like `qa`.
+       */
+      const tokens = new Set(
+        src.replace(/([a-z0-9])([A-Z])/g, '$1 $2').split(/[^A-Za-z0-9]+/).map(t => t.toLowerCase()));
       for (const name of QUESTION_SET) {
-        const re = new RegExp(`\\b${name}\\b`, 'i');
-        if (re.test(src)) offenders.push(`${file.split(sep).join('/')}: names "${name}"`);
+        const wanted = name.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+          .split(/[^A-Za-z0-9]+/).filter(Boolean).map(t => t.toLowerCase());
+        if (wanted.every(t => tokens.has(t))) offenders.push(`${file.split(sep).join('/')}: names "${name}"`);
       }
     }
     assert.deepEqual(offenders, [],

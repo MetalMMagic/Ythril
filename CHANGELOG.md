@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The benchmark harness runs, and the first tier needs no model at all.** `benchmarks/harness/` — the runnable
+  half of the pre-registered protocol, in twelve modules with no third-party dependency: pinned dataset fetch
+  with sha256 verification, the LoCoMo loader, two model-free ingestion rungs, the retrieval grid, lexical and
+  judge grading, and the reporter.
+
+  **Tier 0-R is the part worth knowing about.** It measures *evidence recall* — did the turns the gold answer is
+  evidenced by come back? — which needs an embedder and nothing else. No answerer, no judge, no API key, no
+  money. It exists because the alternative was reporting nothing until somebody bought credits, and a retrieval
+  system's retrieval is the half a memory product is actually selling.
+
+  What it deliberately cannot say is written down next to what it can (`PROTOCOL.md`, Amendment 4): recall is not
+  accuracy, an unretrieved fact may still be answerable from another turn, and a rung that retrieves more is not
+  thereby better if it retrieves more of everything.
+
 ### Changed
 
 - **`recall`'s graph expansion is now the real traverse: it narrows by edge label and direction.** Owner's

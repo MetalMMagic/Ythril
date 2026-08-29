@@ -8,6 +8,7 @@ import { syncRateLimit } from '../../rate-limit/middleware.js';
 import { getConfig, loadConfig, saveConfig } from '../../config/loader.js';
 import { requireAuth, denyReadOnly } from '../../auth/middleware.js';
 import { log } from '../../util/log.js';
+import { reportServerFailure } from '../../util/report-failure.js';
 import { applyWipeRoundIfPassed } from '../../spaces/apply-wipe-round.js';
 import { acceptVoteCast } from '../../util/signing.js';
 import { concludeRoundIfReady, sendMemberRemovedNotify } from '../../sync/governance.js';
@@ -38,6 +39,7 @@ syncVotesRouter.get('/networks/:networkId/votes', syncRateLimit, requireAuth, as
       });
     res.json({ rounds: open });
   } catch (err) {
+    reportServerFailure('sync GET /networks/:networkId/votes', err);
     res.status(500).json({ error: 'Internal error' });
   }
 });

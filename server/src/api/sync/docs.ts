@@ -13,6 +13,7 @@ import { getConfig } from '../../config/loader.js';
 import { listTombstones } from '../../brain/tombstones.js';
 import { requireAuth, denyReadOnly } from '../../auth/middleware.js';
 import { log } from '../../util/log.js';
+import { reportServerFailure } from '../../util/report-failure.js';
 import { nextSeq, bumpSeq, isSeqImplausible, MAX_INGEST_SEQ } from '../../util/seq.js';
 import type { MemoryDoc, EntityDoc, EdgeDoc, ChronoEntry, TombstoneDoc } from '../../config/types.js';
 import { checkEdgeLinkViolations, checkEntityIdLinkViolations, MAX_FORK_DEPTH, IncomingMemoryDoc, IncomingEntityDoc, IncomingEdgeDoc, IncomingChronoDoc, encodeCursor, decodeCursor, forkChainDepth, rejectImplausibleSeq, callerPeerId, spaceAllowed, isNonPeerSyncWrite, NON_PEER_WRITE_MESSAGE, isDirectionalWriteBlocked, violationsAgainstLocalSchema } from './_shared.js';
@@ -233,6 +234,7 @@ syncDocsRouter.get('/entities/:id', syncRateLimit, requireAuth, async (req, res)
     if (!doc) { res.status(404).json({ error: 'Not found' }); return; }
     res.json(doc);
   } catch (err) {
+    reportServerFailure('sync GET /entities/:id', err);
     res.status(500).json({ error: 'Internal error' });
   }
 });
@@ -339,6 +341,7 @@ syncDocsRouter.get('/edges/:id', syncRateLimit, requireAuth, async (req, res) =>
     if (!doc) { res.status(404).json({ error: 'Not found' }); return; }
     res.json(doc);
   } catch (err) {
+    reportServerFailure('sync GET /edges/:id', err);
     res.status(500).json({ error: 'Internal error' });
   }
 });
@@ -446,6 +449,7 @@ syncDocsRouter.get('/chrono/:id', syncRateLimit, requireAuth, async (req, res) =
     if (!doc) { res.status(404).json({ error: 'Not found' }); return; }
     res.json(doc);
   } catch (err) {
+    reportServerFailure('sync GET /chrono/:id', err);
     res.status(500).json({ error: 'Internal error' });
   }
 });

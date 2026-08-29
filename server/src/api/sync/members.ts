@@ -8,6 +8,7 @@ import { syncRateLimit } from '../../rate-limit/middleware.js';
 import { getConfig, loadConfig, saveConfig } from '../../config/loader.js';
 import { requireAuth, denyReadOnly } from '../../auth/middleware.js';
 import { log } from '../../util/log.js';
+import { reportServerFailure } from '../../util/report-failure.js';
 import { isPeerUrlAllowed } from '../../sync/peer-fetch.js';
 import { getSigningPublicKey, getSigningKeyRotation, pinMemberSigningKey, type SigningKeyRotation } from '../../util/signing.js';
 import type { NetworkMember } from '../../config/types.js';
@@ -47,6 +48,7 @@ syncMembersRouter.get('/networks/:networkId/members', syncRateLimit, requireAuth
     });
     res.json({ members: safeMembers, updatedAt: new Date().toISOString() });
   } catch (err) {
+    reportServerFailure('sync GET /networks/:networkId/members', err);
     res.status(500).json({ error: 'Internal error' });
   }
 });

@@ -5,6 +5,7 @@
  */
 import { Router } from 'express';
 import { escapeRegex } from '../../util/redos.js';
+import { reportServerFailure } from '../../util/report-failure.js';
 import { requireSpaceAuth, denyReadOnly } from '../../auth/middleware.js';
 import { globalRateLimit, bulkWipeRateLimit } from '../../rate-limit/middleware.js';
 import { listEntities, deleteEntity, upsertEntity, getEntityById, updateEntityById, bulkDeleteEntities, findEntityBacklinks } from '../../brain/entities.js';
@@ -111,6 +112,9 @@ entitiesRouter.post('/spaces/:spaceId/entities', globalRateLimit, requireSpaceAu
     if (contradicts && contradicts.length > 0) result['contradicts'] = contradicts;
     res.status(201).json(result);
   } catch (err) {
+    // The body stays flat and generic — `public-probes-leak-nothing.test.js` pins that, and a write route is
+    // the last place to start echoing an exception back. The operator gets the cause; the caller gets a code.
+    reportServerFailure('brain POST /spaces/:spaceId/entities', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

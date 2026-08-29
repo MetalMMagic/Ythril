@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Seven routes answered `5xx` and threw away the exception that caused it.** The shape was always the same —
+  `} catch (err) { res.status(500).json({ error: 'Internal error' }); }` — an error caught, named, and never
+  read. The response body is generic on purpose, and the global handler in `app.ts` never sees an exception a
+  route already caught, so **the failure existed only as a status code**: nothing in the caller's response and
+  nothing in the server log. `POST /api/brain/spaces/:spaceId/entities` was among them, so an entity write could
+  fail and leave no trace anywhere.
+
+  Found from the outside. The canary operator got `HTTP 500` in 6 ms from `DELETE /api/tokens/:id`, asked for
+  the cause twice over ten days, and when they finally captured the pod log for that exact second it held three
+  unrelated OIDC warnings and nothing else. They built a hypothesis on the only evidence present — that an
+  expired session answers 500 where 401 belongs — and it was wrong. **They were reasoning correctly from an
+  empty log; producing the empty log was ours.**
+
+  Each of those routes now reports the operation and the stack to the operator, while the response body stays
+  byte-identical — a flat body is a leak-prevention property, not an oversight. The revoke route's own
+  should-be-unreachable `500` reports too, and names the token id: a branch that cannot fire and fires anyway is
+  the most valuable line a log can carry.
+
+  A gate pins the class rather than the seven sites. Its rule is *reads its binding*, not *calls the logger*,
+  because both discharges are legitimate — report it to the operator, or return it to the caller as
+  `{ error: err.message, storageExceeded: true }` does — and a gate demanding a log call would push quota
+  refusals into the error log. It also reads the enclosing **catch**, not the innermost block: a `504` written
+  inside `catch (err) { if (err === SENTINEL) { … } }` would otherwise be reported as discarding an error it
+  reads one line up.
 - **The tracker gate reported "all open items indexed" while twenty-five were not.** Its own docstring has
   always said an item is *"a `### N. Title` heading or a `- [ ]` checkbox"* — and **only the checkbox half was
   ever implemented**. Two trackers written in heading style therefore contributed zero items, so the gate passed
@@ -21,8 +45,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   Both were found by asking whether a tracker was up to date, which the gate had been answering "yes" to for
   eleven days.
-
-
 - **A property `default` did nothing at all.** It was declared in the schema interface, documented in the
   integration guide, and editable in the settings UI — and **read by nothing in the entire server**. An operator
   could set one, save it, and it silently never applied, with no hint that it had not taken.

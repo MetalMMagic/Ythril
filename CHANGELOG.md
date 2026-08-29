@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A property `default` did nothing at all.** It was declared in the schema interface, documented in the
+  integration guide, and editable in the settings UI — and **read by nothing in the entire server**. An operator
+  could set one, save it, and it silently never applied, with no hint that it had not taken.
+
+  A declared default now fills a property the caller omitted, **before** validation — a property that is
+  `required` *and* defaulted must not be a violation, since the default is what satisfies the requirement. It
+  never overrides what the caller sent, including a falsy value, and `0` and `false` are applied like any other
+  default rather than being dropped by a truthiness check.
+
+  **On insert, not on update**, deliberately: on an update an absent property may be one `deleteFields` has just
+  removed, and filling it from the default would silently undo a deliberate deletion.
+
+  The defaulted document is also the one **stored**, not merely the one validated — filling defaults and then
+  writing the caller's untouched input is the same shape as the memory-upsert defect, so a gate pins it.
+
+
 - **A space that declared an edge-label allowlist would have lost its contradiction machinery.** Now that
   `upsertEdge` validates, no caller reaches the collection around the schema — including `api/contradictions.ts`,
   which writes `supersedes` when a reviewer resolves a contradiction. A space whose allowlist did not happen to

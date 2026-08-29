@@ -299,6 +299,48 @@ function checkUnresolvedRef(typeSchema: TypeSchema | undefined): SchemaViolation
  * Validate required properties and property value schemas against a TypeSchema.
  * Returns an empty array when typeSchema is undefined (no constraints).
  */
+/**
+ * Fill in properties the caller omitted, from the type schema's declared defaults.
+ *
+ * ## Why this exists at all
+ *
+ * `PropertySchema.default` was declared in the interface, documented in the integration guide, and editable in
+ * the settings UI — and **read by nothing in the entire server**. An operator could set it, save it, and it did
+ * nothing, for ever, with no hint that it had not taken. Owner, 2026-08-29: *"thats not a decicion, thats a
+ * bugfix"* — the product already promised the behaviour, so the only question was where to put it.
+ *
+ * ## Applied on INSERT, not on update, and that is deliberate
+ *
+ * "On write when the property is absent" reads either way, and one reading is dangerous: on an update, a
+ * property the caller has just removed with `deleteFields` is *absent*, so filling it from the default would
+ * resurrect what somebody deliberately deleted. Silently undoing a deletion is worse than a default that does
+ * not apply, so a default seeds a record when it is created and never fights an edit afterwards.
+ *
+ * ## It runs BEFORE validation, which is the whole point
+ *
+ * A property that is `required` and has a `default` must not be a violation — the default is what satisfies the
+ * requirement. Running this after validation would refuse writes the schema was designed to accept.
+ */
+export function applyPropertyDefaults(
+  typeSchema: TypeSchema | undefined,
+  properties: Record<string, string | number | boolean> | undefined,
+): Record<string, string | number | boolean> | undefined {
+  const declared = typeSchema?.propertySchemas;
+  if (!declared) return properties;
+
+  const withDefaults = { ...(properties ?? {}) };
+  let filled = false;
+  for (const [key, schema] of Object.entries(declared)) {
+    if (schema.default === undefined) continue;
+    if (withDefaults[key] !== undefined) continue;   // the caller said something; never override it
+    withDefaults[key] = schema.default;
+    filled = true;
+  }
+  // Returning the original when nothing was filled keeps `undefined` meaning "no properties at all", which
+  // several write paths distinguish from an empty object.
+  return filled ? withDefaults : properties;
+}
+
 function validatePropertiesAgainstSchema(
   typeSchema: TypeSchema | undefined,
   properties?: Record<string, unknown>,

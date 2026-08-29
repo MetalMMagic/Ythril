@@ -8,6 +8,7 @@ import { toMongoSort, type SortSpec } from './list-sort.js';
 import { NEVER_RETURNED_PROJECTION, withoutVector } from './read-projection.js';
 import { findEdgeByTriplet } from './edge-lookup.js';
 import { classifyEdgeUpsertAgainst, type UpdateValidation } from './write-validation.js';
+import { applyPropertyDefaults } from '../spaces/schema-validation.js';
 import { textSearchOr, SEARCHABLE_FIELDS } from './text-search.js';
 import { embed } from './embedding.js';
 import { edgeEmbedText } from './embed-text.js';
@@ -152,7 +153,20 @@ export async function upsertEdge(
    * route. The routes keep their response shapes by catching `EdgeSchemaViolation` — which carries the whole
    * classification, not just a message, precisely so neither door has to re-derive it.
    */
-  const check = classifyEdgeUpsertAgainst(getSpaceMeta(spaceId), existing, { label, properties });
+  /*
+   * Declared defaults fill in what the caller omitted, before validation and only on an INSERT.
+   *
+   * Before validation because a property that is `required` and has a `default` must not be a violation — the
+   * default is what satisfies the requirement. Only on insert because on an update an absent property may be
+   * one the caller has just removed, and resurrecting a deliberate deletion is worse than a default that does
+   * not apply. See `applyPropertyDefaults`.
+   */
+  const meta = getSpaceMeta(spaceId);
+  const withDefaults = existing
+    ? properties
+    : applyPropertyDefaults(meta?.typeSchemas?.edge?.[label], properties);
+
+  const check = classifyEdgeUpsertAgainst(meta, existing, { label, properties: withDefaults });
   if (check.blocked) throw new EdgeSchemaViolation(check);
   opts?.onValidation?.(check);
 
@@ -162,7 +176,9 @@ export async function upsertEdge(
   const effectiveDesc = description ?? (existing as EdgeDoc | null)?.description;
   const effectiveType = type ?? (existing as EdgeDoc | null)?.type;
   const effectiveTags = mergeTagsOrKeep((existing as EdgeDoc | null)?.tags, tags);
-  const effectiveProps = mergePropertiesOrKeep((existing as EdgeDoc | null)?.properties, properties);
+  // `withDefaults`, not `properties` — the defaults were validated above and must be the values STORED.
+  // Validating one document and writing another is the shape that produced the memory-upsert defect.
+  const effectiveProps = mergePropertiesOrKeep((existing as EdgeDoc | null)?.properties, withDefaults);
 
   // Embed the edge text (best-effort) — resolve entity names so the vector captures semantics
   // Queued by default — see the note in `upsertEntity`. Resolving the endpoint NAMES is a database read,

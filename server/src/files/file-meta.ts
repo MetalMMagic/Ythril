@@ -17,6 +17,8 @@ import { toDocId } from '../util/paths.js';
 import { escapeRegex } from '../util/redos.js';
 import { authorRef } from '../config/author.js';
 import { col, asFilter, asDoc, asUpdate } from '../db/mongo.js';
+import { assertRefsResolve } from '../brain/entity-refs.js';
+import { isStrictLinkage } from '../spaces/proxy.js';
 import { expiryForCreate } from '../brain/ttl.js';
 import { enqueueEmbedJob } from '../brain/embed-queue.js';
 import { mergePropertiesOrKeep } from '../brain/merge-fields.js';
@@ -192,6 +194,28 @@ export async function updateFileMeta(
   /** Dot-notation paths to remove, applied AFTER the merge — the only way to unset. See the block below. */
   deleteFieldsPaths?: string[],
 ): Promise<FileMetaDoc | null> {
+  /*
+   * REFERENCES ARE VALIDATED HERE, so a caller cannot reach the collection around the check.
+   *
+   * `assertRefsResolve` sat only at the two API doors (`api/brain/file-meta.ts:444-446` and
+   * `mcp/tools/file.ts`), which meant `strictLinkage`'s promise — that a stored reference resolves — held only
+   * for callers who remembered it. `files/media/face-embedder.ts` calls this function directly to write the
+   * `entityIds` of an auto-labelled face, and was never checked. The id comes from a live match so it resolves
+   * in practice, but the guarantee was structural in name only.
+   *
+   * Owner's ruling, 2026-08-29: *"all upsert/update/insert things must validate."* Same shape as the
+   * `upsertEdge` fix, one record type over.
+   *
+   * Gated on `isStrictLinkage` exactly as the doors were, so a space that opted out is unaffected — the setting
+   * exists for staged imports where targets are resolved in a later pass, and moving the check must not
+   * quietly withdraw that.
+   */
+  if (isStrictLinkage(spaceId)) {
+    await assertRefsResolve(spaceId, 'entityIds', 'entity', opts.entityIds);
+    await assertRefsResolve(spaceId, 'memoryIds', 'memory', opts.memoryIds);
+    await assertRefsResolve(spaceId, 'chronoIds', 'chrono', opts.chronoIds);
+  }
+
   const normalised = toDocId(filePath);
   const existing = await col<FileMetaDoc>(`${spaceId}_files`).findOne(asFilter<FileMetaDoc>({ _id: normalised })) as FileMetaDoc | null;
   if (!existing) return null;

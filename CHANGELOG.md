@@ -115,6 +115,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **One duplicate key stopped a member syncing permanently, and reported it as an unreachable peer.** `_edges`
+  carries a unique index on `(from, to, label)`, new edges get a `uuidv4()` id, and sync ingest is keyed on `_id`
+  alone — so two peers that independently create the same relationship hold two ids for one unique key, and the
+  first to cross the wire raises `E11000`.
+
+  `batchUpsertBySeq` called `bulkWrite` with **no `ordered: false` and no try/catch**, and the consequences were
+  wildly out of proportion to the cause. Ordered meant every later document in the page was abandoned. Unguarded
+  meant the error escaped `pullType` before `deliveredThrough` was written, escaped `pullFromPeer` before the
+  watermark persisted, escaped the space loop — **taking every remaining space with it, including files** — and
+  landed in the member-level catch, which increments the failure count and eventually prints `PEER UNREACHABLE`.
+  `lastSyncAt` was never written, so the next cycle pulled the identical page and threw identically.
+
+  Now the page is written unordered and duplicate-key rejections are reported as the records they are, naming
+  the ids. **Only duplicate keys are absorbed** — any other write fault still throws, because swallowing those
+  would turn real corruption into a warning nobody reads, which is the opposite defect.
+
 - **Ten routes in the spaces router had no rights classification, and the gate that exists to catch that could
   not see them.** Found from a live instance's own stdout: `Space rights: no inventory entry for
   'DELETE /api/spaces/:id' — reach enforced, area not`, logged on every call while

@@ -1307,10 +1307,46 @@ async function batchUpsertBySeq<T extends { _id: string; seq: number }>(
   const existingSeq = new Map(existing.map(e => [e._id, e.seq]));
 
   const toWrite = planSeqUpserts(docs, existingSeq);
-  if (toWrite.length > 0) {
+  if (toWrite.length === 0) return;
+
+  /*
+   * UNORDERED, AND A DUPLICATE KEY IS A RECORD-LEVEL FAULT.
+   *
+   * `_edges` carries a unique index on `(from, to, label)` and new edges get a `uuidv4()` `_id`, while ingest
+   * is keyed on `_id` alone and never consults the triplet. So two peers that independently create the same
+   * relationship hold two ids for one unique key, and the first to cross the wire raises `E11000`.
+   *
+   * This used to be an unguarded, ORDERED `bulkWrite`, and the consequences were entirely out of proportion to
+   * the cause. Ordered meant every later document in the page was abandoned. Unguarded meant the error escaped
+   * `pullType` before `deliveredThrough` was written, escaped `pullFromPeer` before the watermark persisted,
+   * escaped the space loop — **taking every remaining space with it, including files** — and landed in the
+   * member-level catch, which increments the failure count and eventually prints `PEER UNREACHABLE`.
+   * `lastSyncAt` was never written, so the next cycle pulled the identical page and threw identically: one
+   * duplicate edge stopped a member syncing permanently, and pointed the operator at the network.
+   *
+   * Now: `ordered: false` so the rest of the page applies, and the duplicates are reported as the records they
+   * are. Only duplicate-key errors are absorbed — any other write fault still throws, because swallowing those
+   * would hide genuine corruption, which is the opposite defect.
+   */
+  try {
     await collection.bulkWrite(asBulk<T>(
       toWrite.map(doc => ({ replaceOne: { filter: { _id: doc._id }, replacement: doc, upsert: true } })),
-    ));
+    ), { ordered: false });
+  } catch (err) {
+    const writeErrors = (err as { writeErrors?: Array<{ code?: number; err?: { code?: number; op?: unknown } }> })?.writeErrors;
+    if (!Array.isArray(writeErrors) || writeErrors.length === 0) throw err;
+    const codeOf = (w: { code?: number; err?: { code?: number } }) => w.code ?? w.err?.code;
+    const nonDuplicate = writeErrors.filter(w => codeOf(w) !== 11000);
+    if (nonDuplicate.length > 0) throw err;
+    log.warn(
+      `sync: ${writeErrors.length} duplicate-key rejection(s) applying '${collName}' for space `
+      + `'${localSpaceId}'. Every other document in the page was applied. A duplicate means two peers created `
+      + `the same uniquely-indexed record independently; the local copy is kept and the incoming one is not `
+      + `applied. Ids: ${writeErrors.map(w => {
+        const op = (w.err as { op?: { _id?: unknown } } | undefined)?.op;
+        return typeof op?._id === 'string' ? op._id : '(unknown)';
+      }).slice(0, 10).join(', ')}`,
+    );
   }
 }
 

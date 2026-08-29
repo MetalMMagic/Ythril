@@ -25,6 +25,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `config/types.ts`, the same way the merge path is already guarded: a new record type carrying an entity
   reference fails it on the day it is declared. The `409` documentation was stale in the same direction and now
   lists every type it can return.
+- **A merge could write an entity its own space would have refused.** `mergeProperties` applies each
+  property's `mergeFn`, so a survivor's properties are a value **neither input necessarily had** — a `sum` can
+  exceed a `maximum`, a `concat` can break a `pattern`, a pick can land outside an `enum`. `brain/merge.ts`
+  imported nothing from `spaces/schema-validation.ts`, so a background `automerge` that nobody invoked could
+  write a survivor into a `strict` space that the same space refuses through `upsert_entity`.
+
+  The precedent is one invariant over and in the same file: *"An entity merge left every FILE linked to the
+  absorbed entity pointing at a record it had just deleted… The merge path broke the invariant the write path
+  enforces."*
+
+  The merged survivor is now validated before it is written, and any violation is reported with the rules it
+  broke. **It reports and proceeds rather than refusing** — an automerge that stops leaves the duplicates it
+  exists to resolve, and that trade is a decision rather than an omission, so it is parked. What was not in
+  question is that the violation must be visible: this codebase has twice concluded that the fix is visibility
+  rather than severity.
 
 
 - **Every suppressed memory was silently deleted by sync, permanently.** `MemoryDoc.embedding` is optional —

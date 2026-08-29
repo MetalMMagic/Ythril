@@ -17,6 +17,7 @@ import { getEntityById } from './entities.js';
 import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
 import { mergeTags } from './merge-fields.js';
+import { validateEntity, getSpaceMeta } from '../spaces/schema-validation.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { EntityDoc, EdgeDoc, MemoryDoc, ChronoEntry, FileMetaDoc, TombstoneDoc, SpaceMeta, PropertySchema } from '../config/types.js';
 
@@ -474,6 +475,37 @@ export async function executeMerge(
         ));
         embeddingFields = { embedding: embResult.vector, embeddingModel: embResult.model };
       } catch { /* embedding unavailable — keep existing embedding */ }
+
+      /*
+       * THE MERGE PATH RUNS THE VALIDATORS THE WRITE PATH RUNS. It did not, and nothing noticed.
+       *
+       * `mergeProperties` applies each property's `mergeFn`, so the survivor's properties are a value NEITHER
+       * input necessarily had — a `sum` can exceed a `maximum`, a `concat` can break a `pattern`, a pick can
+       * land outside an `enum`. This file imported nothing from `spaces/schema-validation.ts`, so a background
+       * `automerge` that nobody invoked could write a survivor into a `strict` space that the same space would
+       * have refused through `upsert_entity`.
+       *
+       * The precedent is exact, from CHANGELOG: *"An entity merge left every FILE linked to the absorbed entity
+       * pointing at a record it had just deleted… The merge path broke the invariant the write path enforces."*
+       * Same file, same shape, one invariant over.
+       *
+       * **It reports and proceeds; it does not refuse.** Refusing is a real option and a real question — an
+       * automerge that stops leaves the duplicates it was meant to resolve, which may be worse than a survivor
+       * that violates a property rule — and that trade is the owner's, parked as P-19. What is not in question
+       * is that the violation must be visible: this codebase has twice concluded that *the fix is visibility,
+       * not severity*, for the sync drop and for the media-worker swallow.
+       */
+      const violations = validateEntity(getSpaceMeta(spaceId) ?? {}, {
+        name: survivor.name, type: survivor.type, properties: mergedProperties, tags: mergedTags,
+      });
+      if (violations.length > 0) {
+        log.warn(
+          `merge: the survivor '${survivor._id}' in space '${spaceId}' violates its own schema after merging `
+          + `'${absorbed._id}' — the merged properties are a value neither input had. The merge PROCEEDED; `
+          + `these would have been refused on a direct write: `
+          + violations.map(v => `${v.field}: ${v.reason}`).join('; '),
+        );
+      }
 
       await entityColl.updateOne(
         asFilter<EntityDoc>({ _id: survivor._id }),

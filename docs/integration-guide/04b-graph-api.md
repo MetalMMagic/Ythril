@@ -110,7 +110,11 @@ DELETE /api/brain/spaces/:spaceId/entities/:id
 
 **Response** `204` when no inbound references exist (or the space has opted out with `strictLinkage: false`).
 
-**Response** `409 Conflict` when the entity still has inbound backlinks (the default; a space that opted out with `strictLinkage: false` deletes regardless) (edges, memories, or chrono entries that reference it). The caller must first delete or relink the backlinked items before the deletion is permitted. Response body:
+**Response** `409 Conflict` when the entity still has inbound backlinks (the default; a space that opted out with `strictLinkage: false` deletes regardless). The caller must first delete or relink the backlinked items before the deletion is permitted.
+
+Everything that can reference an entity is checked: **edges** on either endpoint, and the `entityIds` of **memories**, **chrono entries** and **files**. Face labels (`file.faceEntityId`) are reported too, with `type: "face"` — but they are deliberately **not blocking**, because a face label is something the system inferred rather than a link somebody wrote. So a `409` body may contain `face` rows alongside the blocking ones, and a body containing *only* `face` rows is not a refusal.
+
+Response body:
 
 ```json
 {
@@ -118,7 +122,8 @@ DELETE /api/brain/spaces/:spaceId/entities/:id
   "backlinks": [
     { "type": "edge", "_id": "e1b2c3d4-..." },
     { "type": "memory", "_id": "m5f6a7b8-..." },
-    { "type": "chrono", "_id": "c9d0e1f2-..." }
+    { "type": "chrono", "_id": "c9d0e1f2-..." },
+    { "type": "file", "_id": "f3a4b5c6-..." }
   ]
 }
 ```

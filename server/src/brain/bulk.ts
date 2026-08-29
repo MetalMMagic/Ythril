@@ -168,6 +168,14 @@ export async function bulkWrite(spaceId: string, input: BulkInput): Promise<Bulk
     const ttlDays = bulkTtlDays(item['ttlDays']);
     if (ttlDays === TTL_INVALID) { errors.push({ type: 'edge', index: i, reason: TTL_INVALID_MSG }); continue; }
     try {
+      /*
+       * `upsertEdge` validates too, since 2026-08-29 — this check is kept for REPORTING, not for enforcement.
+       *
+       * Bulk's contract is per-item: it must say which index failed and carry on with the rest. Letting the
+       * throw from `upsertEdge` do the work would report the same refusal with less structure, and the catch
+       * below would flatten it to a message. So this stays as the reporting path while the write function is
+       * the guarantee — the distinction matters, because the enforcement is no longer THIS line's job.
+       */
       const existing = await findEdgeByTriplet(spaceId, from, to, label);
       if (schemaFails('edge', i, validateEdge(meta ?? {}, { label, properties: mergePropertiesOrKeep(existing?.properties, properties) ?? {} }))) continue;
       await upsertEdge(spaceId, from, to, label,

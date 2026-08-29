@@ -6,6 +6,8 @@ import { nextSeq, reserveSeqBlock } from '../util/seq.js';
 import { parseLimit, parseSkip } from '../util/pagination.js';
 import { toMongoSort, type SortSpec } from './list-sort.js';
 import { NEVER_RETURNED_PROJECTION, withoutVector } from './read-projection.js';
+import { findEdgeByTriplet } from './edge-lookup.js';
+import { classifyEdgeUpsertAgainst, type UpdateValidation } from './write-validation.js';
 import { textSearchOr, SEARCHABLE_FIELDS } from './text-search.js';
 import { embed } from './embedding.js';
 import { edgeEmbedText } from './embed-text.js';
@@ -92,12 +94,22 @@ export async function resolveEdgeEntityNames(spaceId: string, fromId: string, to
  * Nothing needs the old vector: the upsert either recomputes it or leaves the stored field untouched, and the
  * other two callers (the bulk importer's counter and `write-validation`) read `properties`.
  */
-export async function findEdgeByTriplet(
-  spaceId: string, from: string, to: string, label: string,
-): Promise<EdgeDoc | null> {
-  return await col<EdgeDoc>(`${spaceId}_edges`)
-    .findOne(asFilter<EdgeDoc>({ spaceId, from, to, label }),
-      { projection: NEVER_RETURNED_PROJECTION }) as EdgeDoc | null;
+// Moved to `edge-lookup.ts` so `write-validation.ts` can have it without importing this file back — see the
+// note there. Re-exported because it is part of this module's published surface and callers should not care.
+export { findEdgeByTriplet } from './edge-lookup.js';
+
+/**
+ * A refused edge write, carrying the whole classification rather than a message.
+ *
+ * Both doors already answer with `{ error: 'schema_violation', message, violations, introduced, preExisting }`,
+ * and neither should have to rebuild that from prose. Carrying `UpdateValidation` means the response shape is
+ * unchanged by moving the check, which is the whole point: this is a relocation of one rule, not a new refusal.
+ */
+export class EdgeSchemaViolation extends Error {
+  constructor(readonly check: UpdateValidation) {
+    super(check.message ?? 'schema_violation');
+    this.name = 'EdgeSchemaViolation';
+  }
 }
 
 export async function upsertEdge(
@@ -116,10 +128,33 @@ export async function upsertEdge(
    * Write options. An object rather than a twelfth positional — `remember` already carries a note saying
    * its twelfth was one too many, and this is the same signature growing the same way.
    */
-  opts?: { waitForEmbedding?: boolean },
+  /**
+   * `onValidation` hands the classification back to the caller — the warnings a `warn` space wants in its 201,
+   * and the `preExisting`/`introduced` split. It exists so a door never has to run `classifyEdgeUpsert` a
+   * second time for presentation: that would be two `findEdgeByTriplet` lookups per write, and it is how the
+   * rule ended up written twice in the first place.
+   */
+  opts?: { waitForEmbedding?: boolean; onValidation?: (check: UpdateValidation) => void },
 ): Promise<EdgeDoc> {
   const collection = col<EdgeDoc>(`${spaceId}_edges`);
   const existing = await findEdgeByTriplet(spaceId, from, to, label);
+
+  /*
+   * THE SCHEMA IS ENFORCED HERE, so that no caller can reach the collection around it.
+   *
+   * It used to be enforced by the two API routes, each calling `classifyEdgeUpsert` before calling this
+   * function — one rule, written twice, and both copies reachable only if you remembered them. Two callers did
+   * not: `api/contradictions.ts` writes a `supersedes` edge straight through this function, so in a space whose
+   * `typeSchemas.edge` allowlist did not name `supersedes` the server wrote an edge that space forbids; and
+   * `brain/bulk.ts` carried its own third copy of the check.
+   *
+   * Owner's ruling, 2026-08-29: *"upsertEdge should validate of course."* So the door is the function, not the
+   * route. The routes keep their response shapes by catching `EdgeSchemaViolation` — which carries the whole
+   * classification, not just a message, precisely so neither door has to re-derive it.
+   */
+  const check = classifyEdgeUpsertAgainst(getSpaceMeta(spaceId), existing, { label, properties });
+  if (check.blocked) throw new EdgeSchemaViolation(check);
+  opts?.onValidation?.(check);
 
   const seq = await nextSeq(spaceId);
   const now = new Date().toISOString();

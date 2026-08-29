@@ -1,9 +1,9 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
 import { UUID_V4_RE, TTL_DAYS_SCHEMA, SUPPRESS_EMBEDDINGS_SCHEMA, LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA, ttlDaysFromArgs, unitScoreSchema } from './shared.js';
 import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } from '../../brain/delete-fields.js';
-import { deleteEdge, getEdgeById, traverseGraph, updateEdgeById, upsertEdge } from '../../brain/edges.js';
+import { deleteEdge, getEdgeById, traverseGraph, updateEdgeById, upsertEdge, EdgeSchemaViolation } from '../../brain/edges.js';
 // The shared write gate, imported rather than reimplemented — see the note in memory.ts.
-import { assertUpdateAllowed, classifyEdgeUpsert, classifyUpdateViolations, locateForUpdate } from '../../brain/write-validation.js';
+import { assertUpdateAllowed, classifyUpdateViolations, locateForUpdate, type UpdateValidation } from '../../brain/write-validation.js';
 import { getConfig } from '../../config/loader.js';
 import { isStrictLinkage, resolveMemberSpaces, resolveWriteTarget, findFirstAcrossMembers } from '../../spaces/proxy.js';
 import { memberSpacesWithin } from '../../spaces/proxy-scoped.js';
@@ -87,21 +87,31 @@ export const upsert_edgeTool: ToolHandler = {
     // the payload hints at it. Validating the payload alone made a one-property patch look incomplete.
     const edgeMetaRaw = getConfig().spaces.find(s => s.id === wt.target)?.meta;
     const edgeMeta = edgeMetaRaw ? resolveMetaRefs(edgeMetaRaw) : undefined;
-    const edgeCheck = await classifyEdgeUpsert(wt.target, { from, to, label: label.trim(), properties: edgeProps });
-    const edgeSchemaViolations = edgeCheck.all;
-    if (edgeCheck.blocked) {
+    /*
+     * The schema check lives in `upsertEdge` now, not here — see the note at its definition. It sat at this
+     * tool and at the REST route, one rule written twice and reachable around both.
+     * `onValidation` hands the classification back so the `warn`-mode tail below is unchanged and no second
+     * `findEdgeByTriplet` runs.
+     */
+    const edgeTtlDays = ttlDaysFromArgs(a);
+    let edgeCheck: UpdateValidation | undefined;
+    let edge;
+    try {
+      edge = await upsertEdge(wt.target, from, to, label, weight, edgeType, description, edgeProps, edgeTags, ctx.actor, edgeTtlDays,
+        { onValidation: c => { edgeCheck = c; } });
+    } catch (err) {
+      if (!(err instanceof EdgeSchemaViolation)) throw err;
+      const c = err.check;
       // The violations travel as structured data rather than a JSON tail glued to the sentence: a
       // caller had to parse the message to act on them. The prose is unchanged for a client that
       // reads only the content blocks.
       return {
-        content: [{ type: 'text' as const, text: `Error: schema_violation: ${edgeCheck.message}` }],
+        content: [{ type: 'text' as const, text: `Error: schema_violation: ${c.message}` }],
         isError: true,
-        structuredContent: { error: 'schema_violation', message: edgeCheck.message, introduced: edgeCheck.introduced, preExisting: edgeCheck.preExisting, violations: edgeSchemaViolations },
+        structuredContent: { error: 'schema_violation', message: c.message, introduced: c.introduced, preExisting: c.preExisting, violations: c.all },
       };
     }
-
-    const edgeTtlDays = ttlDaysFromArgs(a);
-    const edge = await upsertEdge(wt.target, from, to, label, weight, edgeType, description, edgeProps, edgeTags, ctx.actor, edgeTtlDays);
+    const edgeSchemaViolations = edgeCheck?.all ?? [];
     let edgeMsg = `Edge '${label}' (${from} → ${to}) upserted (ID ${edge._id}).`;
     if (edgeMeta?.validationMode === 'warn') {
       for (const v of edgeSchemaViolations) edgeMsg += `\n⚠️ Schema: ${v.field} — ${v.reason}`;

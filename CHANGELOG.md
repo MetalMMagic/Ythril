@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`upsertEdge` validates the record it will produce, so no caller can reach the collection around the
+  schema.** Owner's ruling, 2026-08-29: *"upsertEdge should validate of course."*
+
+  The check used to sit in the two API routes, each calling `classifyEdgeUpsert` before calling the write
+  function — one rule, written twice, enforced only if you remembered it. Two callers did not:
+  `api/contradictions.ts` writes a `supersedes` edge straight through `upsertEdge`, so in a space whose
+  `typeSchemas.edge` allowlist did not name `supersedes` the server wrote an edge that space forbids; and
+  `brain/bulk.ts` carried a third copy.
+
+  The write function now refuses, throwing `EdgeSchemaViolation` with the whole classification rather than a
+  message — so **both doors keep their exact response shapes**, and an `onValidation` callback hands the same
+  classification back for the `warn`-mode warnings without a second `findEdgeByTriplet`. Bulk keeps its own
+  check for per-item error granularity, now as reporting rather than as the guarantee.
+
+  Moving the check created a runtime import cycle (`brain/edges.ts` ↔ `brain/write-validation.ts`), which a
+  gate refuses: in ESM that is legal until one side reads a binding during evaluation, at which point it is
+  `undefined` and the failure lands far from its cause. `findEdgeByTriplet` — needed by both sides because
+  `(from, to, label)` is an edge's identity — moved to `brain/edge-lookup.ts`, the same reasoning that produced
+  `brain/spill-path.ts`.
+
+
 - **An entity referenced only by a file deleted cleanly, leaving the file pointing at a tombstone.** Under
   `strictLinkage` an entity delete is supposed to `409` while inbound references exist, and
   `findEntityBacklinks` scanned four things: `_edges`, `memories.entityIds`, `chrono.entityIds` and

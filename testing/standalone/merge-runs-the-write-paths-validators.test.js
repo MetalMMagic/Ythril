@@ -1,5 +1,10 @@
 /**
- * The merge path must run the validators the write path runs. It did not, and nothing noticed.
+ * The merge path must run the validators the write path runs, and a strict space must REFUSE.
+ *
+ * Updated 2026-08-29 after the owner ruled B on P-19: the fix shipped as report-and-proceed while the trade was
+ * open, and now a `strict` space refuses the merge exactly as it refuses the equivalent direct write. The
+ * assertions below gained the refusal rather than being weakened, which is the direction this file predicted.
+ *
  *
  * ## Why a merge can produce something no write would accept
  *
@@ -76,6 +81,36 @@ describe('the merge path runs the write path validators', () => {
       after, /violations/,
       'the report must carry the violations themselves — "this merge was invalid" without saying which rule '
       + 'broke sends the operator to read the schema and guess',
+    );
+  });
+
+  it('a strict space REFUSES, and the refusal is typed', () => {
+    // Typed, not a bare Error: `dupe-scanner.ts` runs automerge unattended and has to tell "not allowed" from
+    // "broke" without parsing prose. A refusal it cannot distinguish is silent inaction.
+    assert.match(
+      merge, /applyValidation\(/,
+      "the space's own validationMode must decide whether this refuses — a hardcoded 'strict' would refuse in "
+      + "spaces that asked only to be warned",
+    );
+    assert.match(merge, /throw new MergeSchemaViolation/, 'a blocked merge must refuse, not warn and proceed');
+    assert.match(
+      merge, /class MergeSchemaViolation extends Error/,
+      'the refusal must be its own type so a caller can count it',
+    );
+  });
+
+  it('warn mode still proceeds, and still says so', () => {
+    // The middle setting has to keep working: `warn` reports without refusing, which is what it means.
+    assert.match(merge, /verdict\.warnings/, 'warn mode must still surface the violations it tolerated');
+    assert.match(merge, /log\.(warn|error)/, 'and must still report them');
+  });
+
+  it('the automerge caller tells a refusal from a failure', () => {
+    const scanner = stripComments(readFileSync('server/src/brain/dupe-scanner.ts', 'utf8'));
+    assert.match(
+      scanner, /instanceof MergeSchemaViolation/,
+      'automerge runs unattended. Reporting a deliberate refusal as "Auto-merge failed" turns the strict '
+      + 'ruling into an error nobody investigates.',
     );
   });
 

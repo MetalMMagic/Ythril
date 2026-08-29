@@ -35,7 +35,7 @@ import {
   type RecallResult,
   type RecallKnowledgeType,
 } from './recall.js';
-import { computeMergePlan, applyResolutions, executeMerge } from './merge.js';
+import { computeMergePlan, applyResolutions, executeMerge, MergeSchemaViolation } from './merge.js';
 import { emitWebhookEvent } from '../webhooks/dispatcher.js';
 import type { DupeCandidateDoc, DupeScanStateDoc, DupeScanType, DupeActionRule } from '../config/types.js';
 import { runExclusive } from '../util/single-flight.js';
@@ -176,6 +176,24 @@ async function tryAutoMerge(spaceId: string, seed: RecallResult, match: RecallRe
     log.info(`Auto-merged entity ${absorbed._id} → ${survivor._id} in '${spaceId}' (score ${(match.score ?? 0).toFixed(3)})`);
     return true;
   } catch (err) {
+    /*
+     * A REFUSAL is not a failure, and reporting it as one is how the strict ruling becomes silent inaction.
+     *
+     * Since a `strict` space refuses a merge whose survivor would violate its schema, this path now sees a
+     * refusal as an ordinary outcome — the duplicates stay, deliberately, because the space said it would
+     * rather keep two valid records than hold one invalid one. Nobody is watching an automerge, so the log
+     * line has to say WHICH rule refused and WHICH records are still duplicated, or the operator sees a
+     * quiet scanner and assumes it found nothing.
+     */
+    if (err instanceof MergeSchemaViolation) {
+      log.warn(
+        `Auto-merge REFUSED in '${spaceId}': the merged survivor would violate the space's schema, so `
+        + `'${err.absorbedId}' and '${err.survivorId}' remain as separate records. `
+        + `${err.violations.map(v => `${v.field}: ${v.reason}`).join('; ')}. `
+        + 'Resolve by hand, or relax the rule the merge would have broken.',
+      );
+      return false;
+    }
     log.warn(`Auto-merge failed in '${spaceId}': ${err}`);
     return false;
   }

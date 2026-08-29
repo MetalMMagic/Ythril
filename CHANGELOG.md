@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An entity referenced only by a file deleted cleanly, leaving the file pointing at a tombstone.** Under
+  `strictLinkage` an entity delete is supposed to `409` while inbound references exist, and
+  `findEntityBacklinks` scanned four things: `_edges`, `memories.entityIds`, `chrono.entityIds` and
+  `files.faceEntityId`. **`files.entityIds` was not among them.**
+
+  The comment above the face scan is the tell — *"which is why the other three scans missed them"*. That same
+  collection had already been patched once, for `faceEntityId`, and its sibling field was not added alongside.
+
+  Files now block deletion like memories and chrono do, reported as `type: "file"`. Face labels stay
+  **non-blocking**, because a face label is something the system inferred rather than a link somebody wrote —
+  both doors already filtered on that distinction, so it keeps working by construction.
+
+  The gate **derives** the collections to scan from every record type declaring `entityIds` in
+  `config/types.ts`, the same way the merge path is already guarded: a new record type carrying an entity
+  reference fails it on the day it is declared. The `409` documentation was stale in the same direction and now
+  lists every type it can return.
+
+
 - **Every suppressed memory was silently deleted by sync, permanently.** `MemoryDoc.embedding` is optional —
   it has been since the embedding queue landed — and `embedStoredRecord` unsets both `embedding` and
   `embeddingModel` for any record whose type or space suppresses embeddings. `IncomingMemoryDoc` declared both

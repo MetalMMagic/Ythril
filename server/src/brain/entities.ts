@@ -26,7 +26,7 @@ import { mirrorLegacySuppression } from './suppress-embeddings.js';
 
 /** A backlink entry describing an item that references a given entity. */
 export interface BacklinkEntry {
-  type: 'edge' | 'memory' | 'chrono' | 'face';
+  type: 'edge' | 'memory' | 'chrono' | 'file' | 'face';
   _id: string;
 }
 
@@ -523,6 +523,22 @@ export async function findEntityBacklinks(spaceId: string, entityId: string): Pr
     .find(asFilter<ChronoEntry>({ spaceId, entityIds: entityId }), { projection: { _id: 1 } })
     .toArray() as Array<{ _id: string }>;
   for (const c of chronos) backlinks.push({ type: 'chrono', _id: c._id });
+
+  /*
+   * Files that reference this entity in `entityIds` — a modelled reference, exactly like a memory's.
+   *
+   * This was missing while the `faceEntityId` scan below was present, which is the interesting part: the same
+   * collection had already been patched once, for the other field, and its sibling was not added alongside. So
+   * an entity referenced ONLY by a file's `entityIds` deleted cleanly under `strictLinkage` and the file was
+   * left pointing at a record that no longer exists — the very outcome the setting is bought for.
+   *
+   * It blocks, unlike the face scan. Both doors filter `b.type !== 'face'`, and that exemption is deliberate
+   * and narrow: a face label is an annotation the system inferred, while `entityIds` is a link somebody wrote.
+   */
+  const linkedFiles = await col<FileMetaDoc>(`${spaceId}_files`)
+    .find(asFilter<FileMetaDoc>({ entityIds: entityId }), { projection: { _id: 1 } })
+    .toArray() as Array<{ _id: string }>;
+  for (const f of linkedFiles) backlinks.push({ type: 'file', _id: f._id });
 
   // Face records labelled with this entity. These live in `${spaceId}_files` as face-chunk filemeta
   // docs, which is why the other three scans missed them.

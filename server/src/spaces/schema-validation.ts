@@ -136,6 +136,32 @@ export function validateEntity(
 /**
  * Validate an edge write against the space meta schema.
  */
+/**
+ * Edge labels the SERVER itself writes, which an allowlist permits without naming them.
+ *
+ * Owner's ruling, 2026-08-29: an edge the server writes is subject to the allowlist like any other — but the
+ * allowlist should be correct by construction rather than by an operator remembering. Since 2026-08-29
+ * `upsertEdge` validates (no caller can reach the collection around it), so without this a space that declared
+ * an edge allowlist and did not happen to name `supersedes` would have its contradiction machinery start
+ * failing — punishing exactly the operators who took the schema seriously.
+ *
+ * **Permitted by construction rather than seeded into each space**, which was the other way to read the
+ * ruling. Seeding writes the label into new spaces' schemas and leaves every EXISTING space wrong, needing a
+ * backfill — the same gap `ensure-query-indexes.ts` already has, where an addition reaches only spaces created
+ * afterwards. This form has no migration and no space left behind.
+ *
+ * It is not an exemption from validation: a server-written edge is still checked against its type schema's
+ * `propertySchemas` like any other. Only the LABEL is taken as given, because the label is the server's, not
+ * the caller's.
+ *
+ * Keep this list minimal and keep it here rather than importing from the writers: a value that decides what a
+ * schema permits should not be reachable only through the module that happens to write it.
+ */
+export const SERVER_WRITTEN_EDGE_LABELS: ReadonlySet<string> = new Set([
+  // Written by the contradiction-resolution path when a reviewer picks a winner (`api/contradictions.ts`).
+  'supersedes',
+]);
+
 export function validateEdge(
   meta: SpaceMeta,
   edge: { label?: string; properties?: Record<string, unknown>; tags?: string[] },
@@ -147,7 +173,8 @@ export function validateEdge(
 
   // Edge label allowlist
   if (edge.label && edgeSchemas && Object.keys(edgeSchemas).length > 0) {
-    if (!Object.prototype.hasOwnProperty.call(edgeSchemas, edge.label)) {
+    if (!SERVER_WRITTEN_EDGE_LABELS.has(edge.label)
+      && !Object.prototype.hasOwnProperty.call(edgeSchemas, edge.label)) {
       violations.push({
         field: 'label',
         value: edge.label,

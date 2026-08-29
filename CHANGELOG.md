@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A space that declared an edge-label allowlist would have lost its contradiction machinery.** Now that
+  `upsertEdge` validates, no caller reaches the collection around the schema — including `api/contradictions.ts`,
+  which writes `supersedes` when a reviewer resolves a contradiction. A space whose allowlist did not happen to
+  name that label would have started refusing, **punishing exactly the operators who took the schema seriously**.
+
+  Owner's ruling: server-written labels are subject to the allowlist, and the allowlist is correct **by
+  construction**. Shipped in the form that needs no migration — `SERVER_WRITTEN_EDGE_LABELS` is permitted
+  without being named, rather than seeded into each new space, because seeding leaves every existing space wrong
+  until a backfill runs.
+
+  **Only the label is given, not the record.** A declared type schema for a server-written label is still
+  enforced, and a gate refuses the version of this change that turns the exception into an exemption.
+
+
 - **The face pipeline wrote entity references that `strictLinkage` never checked.** `assertRefsResolve` sat
   only at the two API doors, so the promise that a stored reference resolves held for callers who remembered it
   and not otherwise. `files/media/face-embedder.ts` calls `updateFileMeta` directly to write an auto-labelled

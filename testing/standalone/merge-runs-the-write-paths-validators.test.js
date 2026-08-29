@@ -1,0 +1,93 @@
+/**
+ * The merge path must run the validators the write path runs. It did not, and nothing noticed.
+ *
+ * ## Why a merge can produce something no write would accept
+ *
+ * `mergeProperties` applies each property's `mergeFn`, so the survivor's properties are a value **neither input
+ * necessarily had**: a `sum` can exceed a `maximum`, a `concat` can break a `pattern`, a pick can land outside
+ * an `enum`. `brain/merge.ts` imported nothing from `spaces/schema-validation.ts`, so a background `automerge`
+ * that nobody invoked could write a survivor into a `strict` space that the same space would have refused
+ * through `upsert_entity`.
+ *
+ * The precedent is exact and one invariant over, from the CHANGELOG: *"An entity merge left every FILE linked to
+ * the absorbed entity pointing at a record it had just deleted… The merge path broke the invariant the write
+ * path enforces."* Same file, same shape.
+ *
+ * ## What this pins, and what it deliberately does not
+ *
+ * It pins that the survivor is **validated and any violation reported**. It does **not** pin that the merge
+ * refuses — that is a genuine trade (an automerge that stops leaves the duplicates it exists to resolve) and it
+ * is parked as P-19. This codebase has twice concluded that *the fix is visibility, not severity*, for the sync
+ * drop and the media-worker swallow, and this follows both.
+ *
+ * If P-19 is later ruled "refuse", this gate keeps passing and gains an assertion. That is the right direction:
+ * it should never have to be weakened.
+ *
+ * Run: node --test testing/standalone/merge-runs-the-write-paths-validators.test.js
+ */
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { stripComments } from './_strip-comments.mjs';
+import { argumentsOf } from './_structural-window.mjs';
+
+const MERGE = 'server/src/brain/merge.ts';
+const merge = stripComments(readFileSync(MERGE, 'utf8'));
+
+describe('the merge path runs the write path validators', () => {
+  it('imports the validator at all', () => {
+    // The whole defect in one assertion: the file used to reference schema validation nowhere.
+    assert.match(
+      merge, /from '\.\.\/spaces\/schema-validation\.js'/,
+      `${MERGE} does not import the schema validators, so a merged survivor is never checked against the `
+      + 'schema its own space enforces on every direct write.',
+    );
+    assert.match(merge, /validateEntity/, 'validateEntity must be the thing imported — the survivor is an entity');
+  });
+
+  it('validates the MERGED values, not the survivor as it was', () => {
+    const at = merge.indexOf('validateEntity(');
+    assert.notEqual(at, -1, 'no validateEntity call');
+    /*
+     * The call's OWN ARGUMENTS, not the statement around it.
+     *
+     * `statementAround` was used first and the mutant walked straight through it: the window reached back over
+     * the `embed(entityEmbedText(… mergedTags … mergedProperties))` call above, so swapping the validated
+     * values for `survivor.properties` still matched. The words were in the window; they just belonged to a
+     * different call.
+     */
+    const stmt = argumentsOf(merge, at + 'validateEntity'.length, 'the validateEntity arguments').join(' ');
+    assert.match(
+      stmt, /mergedProperties/,
+      'validating `survivor.properties` would check the value that was already accepted on write and miss the '
+      + 'entire defect: it is the mergeFn OUTPUT that can violate the schema.',
+    );
+    assert.match(
+      stmt, /mergedTags/,
+      'tags are merged too, and a type schema can constrain them',
+    );
+  });
+
+  it('a violation is reported, with enough to find the record', () => {
+    const at = merge.indexOf('validateEntity(');
+    const after = merge.slice(at);
+    assert.match(after, /log\.(warn|error)/, 'a violation that is computed and discarded is the defect with extra steps');
+    assert.match(
+      after, /violations/,
+      'the report must carry the violations themselves — "this merge was invalid" without saying which rule '
+      + 'broke sends the operator to read the schema and guess',
+    );
+  });
+
+  it('the check runs BEFORE the survivor is written', () => {
+    const checkAt = merge.indexOf('validateEntity(');
+    const writeAt = merge.indexOf('entityColl.updateOne(');
+    assert.notEqual(writeAt, -1, 'no survivor write found — re-point this gate');
+    assert.ok(
+      checkAt < writeAt,
+      'validating after the write would report a violation the store already contains. The merge is multi-phase '
+      + 'and a late refusal would leave partial state, so the check belongs ahead of the write whether or not '
+      + 'P-19 later makes it refuse.',
+    );
+  });
+});

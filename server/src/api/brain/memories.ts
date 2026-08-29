@@ -305,10 +305,24 @@ memoriesRouter.patch('/spaces/:spaceId/memories/:id', globalRateLimit, requireSp
       if (dfPaths) applyDeleteFieldsPaths(sim, dfPaths);
       const simProps = (sim['properties'] ?? {}) as Record<string, unknown>;
       const meta = getSpaceMeta(mid);
+      /*
+       * The AFTER side is validated against the type the memory will HAVE, not the one it had.
+       *
+       * `updates.type` is accepted by this route and written by `updateMemory`, and both sides of this
+       * comparison used to pass `mem.type` — so re-typing a memory never consulted the destination schema at
+       * all. Its allowlist, its required properties and its enums were simply not applied, and the write
+       * succeeded. The entity route does this correctly twenty files away
+       * (`api/brain/entities.ts:305`: `const resultType = updates.type ?? existing.type`), which is what makes
+       * this one rule with two implementations and the weaker one silent.
+       *
+       * The BEFORE side keeps `mem.type` deliberately: it describes the record as stored, which is what makes
+       * `classifyUpdateViolations` able to tell a violation this patch INTRODUCED from one it inherited.
+       */
+      const resultType = updates.type ?? mem.type;
       const check = classifyUpdateViolations(
         meta,
         validateMemory(meta ?? {}, { type: mem.type, properties: priorProps }),
-        validateMemory(meta ?? {}, { type: mem.type, properties: simProps }),
+        validateMemory(meta ?? {}, { type: resultType, properties: simProps }),
       );
       if (check.blocked) {
         res.status(422).json({

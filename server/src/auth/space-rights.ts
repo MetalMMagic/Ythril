@@ -158,16 +158,31 @@ export const ROUTE_RIGHTS: readonly RouteRight[] = [
   { route: '/api/files/:spaceId/retry_embedding', method: 'POST', area: 'files', needs: 'write', scope: 'path' },
 
   // ── Schema ───────────────────────────────────────────────────────────────────────────────────────────
-  { route: '/api/spaces/:id', method: 'GET', area: 'schema', needs: 'read', scope: 'path' },
-  { route: '/api/spaces/:id/schema', method: 'GET', area: 'schema', needs: 'read', scope: 'path' },
   { route: '/api/spaces/:id/schema', method: 'PUT', area: 'schema', needs: 'write', scope: 'path' },
   { route: '/api/spaces/:id/meta', method: 'GET', area: 'schema', needs: 'read', scope: 'path' },
+  // `schema: write` to match `update_space`, which is the same capability on the other door and is already
+  // classified that way in TOOL_RIGHTS below: label and purpose are space meta, and meta is the schema area
+  // throughout this inventory. Two doors, one rule — the parity this repo keeps having to re-establish.
+  { route: '/api/spaces/:id', method: 'PATCH', area: 'schema', needs: 'write', scope: 'path' },
+  // Deleting a space destroys all four areas at once, which is why it is `admin` and not the `write` its
+  // sibling PATCH gets. `requireAdminMfaScoped` already enforces the REACH; this row is what makes the AREA
+  // enforceable too, and its absence is what the runtime was warning about on every call.
+  { route: '/api/spaces/:id', method: 'DELETE', area: 'schema', needs: 'admin', scope: 'path' },
+  // All three verbs on the type-schema path, not just the one somebody needed at the time. Read is `read`;
+  // both mutations are `write`, matching each other rather than differing by which was written first.
+  { route: '/api/spaces/:id/meta/typeSchemas/:knowledgeType/:typeName', method: 'GET', area: 'schema', needs: 'read', scope: 'path' },
   { route: '/api/spaces/:id/meta/typeSchemas/:knowledgeType/:typeName', method: 'PUT', area: 'schema', needs: 'write', scope: 'path' },
+  { route: '/api/spaces/:id/meta/typeSchemas/:knowledgeType/:typeName', method: 'DELETE', area: 'schema', needs: 'write', scope: 'path' },
   { route: '/api/spaces/:id/validate-schema', method: 'POST', area: 'schema', needs: 'read', scope: 'path' },
   { route: '/api/spaces/:id/completeness', method: 'GET', area: 'schema', needs: 'read', scope: 'path' },
   // Reindex and rebuild-indexes rewrite infrastructure the whole space depends on, and a rebuild makes
   // recall return nothing until it finishes. Structural, so admin.
   { route: '/api/spaces/:id/rebuild-indexes', method: 'POST', area: 'schema', needs: 'admin', scope: 'path' },
+  // Registered onto `spacesRouter` from `spaces-reembed.ts` rather than declared in `spaces.ts`, which is
+  // exactly why it went unclassified: a sweep of the router FILE cannot see a route another file attaches to
+  // the same router. Re-embedding rewrites every vector in the space and recall degrades until it finishes,
+  // so it sits with `rebuild-indexes` at `admin` rather than with the `write` mutations.
+  { route: '/api/spaces/:id/reembed', method: 'POST', area: 'schema', needs: 'admin', scope: 'path' },
   { route: '/api/brain/spaces/:spaceId/reindex', method: 'POST', area: 'schema', needs: 'admin', scope: 'path' },
   { route: '/api/brain/spaces/:spaceId/reindex-status', method: 'GET', area: 'schema', needs: 'read', scope: 'path' },
 
@@ -330,6 +345,23 @@ export const NOT_AREA_SCOPED: readonly { route: string; why: string }[] = [
     route: '/api/brain/spaces/:spaceId/activity',
     why: 'Per-space usage counters, served from the admin activity surface. Instance-level observability '
        + 'that happens to be keyed by space, not a view of the space\'s data.',
+  },
+  {
+    route: '/api/spaces',
+    why: 'The collection, not a space. GET lists which spaces a token reaches and POST creates one — both '
+       + 'governed by the instance-level `createSpaces` right, and neither is a view of any one space\'s '
+       + 'data. There is no `:id` to scope an area check to.',
+  },
+  {
+    route: '/api/spaces/:id/activity/reset',
+    why: 'The write half of the activity counters, and it follows the decision already recorded for '
+       + '/api/brain/spaces/:spaceId/activity above: instance-level observability keyed by space, not a view '
+       + 'of the space\'s data. Clearing a usage counter changes no knowledge, file, schema or quality record.',
+  },
+  {
+    route: '/api/spaces/reorder',
+    why: 'Display order of the space list in the UI. Instance-level presentation state that names no space '
+       + 'in its path and reads none of their data.',
   },
 ];
 

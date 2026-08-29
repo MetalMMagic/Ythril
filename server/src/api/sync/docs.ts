@@ -525,19 +525,43 @@ syncDocsRouter.post('/batch-upsert', syncRateLimit, requireAuth, denyReadOnly, a
     if (isDirectionalWriteBlocked(spaceId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Directional network: write not permitted from this peer' }); return; }
 
     const body = req.body as { memories?: unknown[]; entities?: unknown[]; edges?: unknown[]; chrono?: unknown[] };
-    const memoriesRaw = (Array.isArray(body?.memories) ? body.memories.slice(0, 500) : [])
-      .flatMap(m => { const r = IncomingMemoryDoc.safeParse(m); return r.success ? [r.data as MemoryDoc] : []; });
-    const entitiesRaw = (Array.isArray(body?.entities) ? body.entities.slice(0, 500) : [])
-      .flatMap(e => { const r = IncomingEntityDoc.safeParse(e); return r.success ? [r.data as EntityDoc] : []; });
-    const edgesRaw = (Array.isArray(body?.edges) ? body.edges.slice(0, 500) : [])
-      .flatMap(e => { const r = IncomingEdgeDoc.safeParse(e); return r.success ? [r.data as EdgeDoc] : []; });
-    const chronoRaw = (Array.isArray(body?.chrono) ? body.chrono.slice(0, 500) : [])
-      .flatMap(c => { const r = IncomingChronoDoc.safeParse(c); return r.success ? [r.data as ChronoEntry] : []; });
+    /*
+     * A document the schema rejects is REPORTED, never silently removed.
+     *
+     * This used to be a bare `flatMap` returning `[]` on a failed `safeParse`, and the comment below still says
+     * "batch ingest already skips invalid documents silently" as though that were harmless. It was not: the
+     * document left the batch, was counted in no statistic, and the receiver answered 200 — after which the
+     * sender advanced its watermark and never offered the record again. A required `embedding` on
+     * `IncomingMemoryDoc` made that the ordinary fate of every suppressed memory.
+     *
+     * The schema is fixed; the silence is fixed separately, because the next mismatch between a stored document
+     * and its `Incoming*` schema would otherwise lose records the same way and be just as invisible. Same
+     * warning shape as the implausible-seq drop below — kind, id, space, peer — so both read alike in a log.
+     */
+    const parsed = <T>(raw: unknown[], schema: { safeParse: (v: unknown) => { success: boolean; data?: unknown; error?: { issues: unknown[] } } }, kind: string): T[] =>
+      raw.flatMap(d => {
+        const r = schema.safeParse(d);
+        if (r.success) return [r.data as T];
+        const id = (d as { _id?: unknown })?._id;
+        log.warn(
+          `batch-upsert: REJECTED ${kind} '${typeof id === 'string' ? id : '(no id)'}' for space '${spaceId}' `
+          + `from peer '${callerPeerId(req.authToken as Record<string, unknown>) ?? 'unknown'}' — it did not `
+          + `match ${kind === 'memory' ? 'IncomingMemoryDoc' : `Incoming${kind[0]!.toUpperCase()}${kind.slice(1)}Doc`}. `
+          + `The sender will advance past it and not offer it again. Issues: `
+          + `${JSON.stringify(r.error?.issues ?? []).slice(0, 400)}`,
+        );
+        return [];
+      });
+
+    const memoriesRaw = parsed<MemoryDoc>(Array.isArray(body?.memories) ? body.memories.slice(0, 500) : [], IncomingMemoryDoc, 'memory');
+    const entitiesRaw = parsed<EntityDoc>(Array.isArray(body?.entities) ? body.entities.slice(0, 500) : [], IncomingEntityDoc, 'entity');
+    const edgesRaw = parsed<EdgeDoc>(Array.isArray(body?.edges) ? body.edges.slice(0, 500) : [], IncomingEdgeDoc, 'edge');
+    const chronoRaw = parsed<ChronoEntry>(Array.isArray(body?.chrono) ? body.chrono.slice(0, 500) : [], IncomingChronoDoc, 'chrono');
 
     // Drop documents whose seq is too close to the protocol ceiling — one such
     // doc would otherwise drag the counter toward it via the bumpSeq below (see
-    // util/seq.ts). Batch ingest already skips invalid documents silently, so
-    // these are dropped with a warning, not fatal.
+    // util/seq.ts). Schema-invalid documents are reported by `parsed` above, so
+    // these are dropped on the same footing — a warning naming the record, not fatal.
     const plausible = <T extends { seq: number; _id: string }>(docs: T[], kind: string): T[] =>
       docs.filter(d => {
         if (!isSeqImplausible(d.seq)) return true;

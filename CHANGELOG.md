@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Every suppressed memory was silently deleted by sync, permanently.** `MemoryDoc.embedding` is optional —
+  it has been since the embedding queue landed — and `embedStoredRecord` unsets both `embedding` and
+  `embeddingModel` for any record whose type or space suppresses embeddings. `IncomingMemoryDoc` declared both
+  **required**.
+
+  So the sender put a perfectly valid stored document on the wire and the receiver's `safeParse` rejected it.
+  The rejection was a `flatMap` returning `[]`: the document left the batch, was counted in no statistic, was
+  logged nowhere, and the receiver answered **200**. The sender then advanced its watermark, and
+  `embedStoredRecord` deliberately does not bump `seq` when the vector finally lands — so the record was never
+  offered again. The same fate met any memory pushed before its embed job had run.
+
+  Memories were the only type affected, and the reason is instructive: `IncomingEntityDoc`, `IncomingEdgeDoc`
+  and `IncomingChronoDoc` never declared `embedding` at all, so zod stripped the vector and the document
+  survived. One schema disagreed with the document it describes, and nothing compared them.
+
+  **The silence is fixed separately from the schema**, because the next mismatch between a stored document and
+  its `Incoming*` schema would lose records exactly as invisibly. A rejected document is now reported with the
+  record's kind, id, space, peer and the failing issues — the same warning shape the implausible-seq drop
+  beside it already used, whose comment had described the silent skip as harmless.
+
+
 ### Added
 
 - **Tier 0-R ran on real infrastructure, and the graph arm is measurable for the first time.** Three model-free

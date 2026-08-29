@@ -380,6 +380,45 @@ A benchmark nobody can afford to re-run is not reproducible, whatever the harnes
 tiers, each a superset of the one before, and **the floor is a complete publishable result on its own** rather
 than a smoke test.
 
+### Tier 0-R — retrieval only, and it costs nothing
+
+**No model anywhere.** Ythril's embeddings run in-process on a bundled model, so ingestion and retrieval need no
+API at all; what needs one is the answerer and the judge. This tier removes both and measures the retriever
+directly.
+
+| | |
+|---|---|
+| metric | **evidence recall@k** — of the turns the gold answer is evidenced by, how many appear in what retrieval returned |
+| ingestion | S0 and S0+ — the two model-free rungs |
+| retrieval | the seven methods and the 14-cell one-axis-at-a-time grid, in full |
+| cost | **zero**, in money and in external calls |
+
+Two numbers, because they answer different questions:
+
+- **all-evidence@k** — every cited turn retrieved. This is the one that matters, because a multi-evidence
+  question is not answerable from a subset.
+- **any-evidence@k** — at least one. Reported beside it, since the gap between the two IS the cross-session
+  difficulty: a question whose evidence spans ten sessions is where the two diverge.
+
+**This is not a consolation prize, and it is not an accuracy number.** It measures something an accuracy number
+cannot: retrieval isolated from the answerer. An end-to-end score confounds "did the retriever find it" with
+"was the model good at using it", and a weaker answerer flatters a better retriever by failing on both. Evidence
+recall has no such term.
+
+**What it cannot say**, stated so no result from it is over-read:
+
+- **Nothing about answer quality**, and nothing comparable to any published LoCoMo accuracy figure. A result
+  from this tier is never quoted alongside one from a vendor's leaderboard.
+- **Nothing about the adversarial category.** Those questions are designed so the conversation does NOT answer
+  them, and their single cited turn is the near-miss passage a retriever is meant to be lured by. Retrieving it
+  is not success and not failure; the category is reported separately with that said, never folded into a total.
+- **Nothing about questions with no evidence at all** — four of them in the release. Excluded, and the exclusion
+  is printed with the count rather than left to a reader to notice a total that does not add up.
+- **Nothing about the ingestion rungs that need a model.** S1 through S4 are absent, so the graph claim is
+  untested at this tier: S0+ carries the free structure only.
+
+Reported as **Tier 0-R** in every result file, never as Tier 0.
+
 ### Tier 0 — the floor
 
 | | |
@@ -457,6 +496,61 @@ Raw model outputs — every question, every candidate answer, every judge verdic
 
 Append here, dated, with the reason and what was re-run. A silent edit elsewhere in this file invalidates the
 runs it covers; this section is how a change stays legitimate.
+
+### Amendment 5 — the grid's axis values, pinned before the first cell ran
+
+**2026-08-29.** The grid was specified by its axes and not by its values. `topK` named four numbers, but
+`minScore` said *"off, and one threshold chosen at pin time from the score distribution"* and `budgetBytes` said
+*"the MCP default, the REST default, and one deliberately tight value"* — three placeholders that a later reader
+would have had to take on trust, and that the harness refused to invent. `gridCells` errors rather than guessing,
+which is how this gap was found: **a module that will not make up a threshold cannot be run until somebody
+commits to one.**
+
+Pinned now, before any grid cell has been executed:
+
+| axis | values | where they come from |
+|---|---|---|
+| `topK` | 5, 10, 20, 50 | unchanged from the original protocol |
+| `traverse` depth | 0, 1, 2 | unchanged |
+| `budgetBytes` | 25 000, 100 000, 8 000 | the MCP door's default, the REST door's default, and the tight value |
+| `minScore` | off, and one threshold | **a rule, not a number** — see below |
+
+**Why 8 000 is the tight value and not a rounder number.** It is roughly a third of the MCP default, which is the
+smallest budget where a `topK: 20` request can still return twenty short records rather than being truncated by
+construction. A tight budget that truncates every cell measures the truncator, not the retrieval.
+
+**`minScore` is pinned as a RULE because a number pinned today would be a number invented today.** The threshold
+has to come from the observed score distribution, and no scores have been observed yet. So the rule is committed
+instead, and it is deterministic — given the same first run, anybody re-deriving it gets the same number:
+
+> The threshold is the **25th percentile of the scores of records that were actually retrieved** in the Tier 0-R
+> default-cell run, taken across all conversations and both model-free rungs, rounded to three decimals.
+
+Two properties make this honest. It is computed from a run that **does not grade accuracy against it** — Tier 0-R
+at the default cell applies no threshold at all, so the distribution is not selected by how well the threshold
+performs. And it is fixed before the cell that uses it runs, so it cannot be tuned toward a result.
+
+**Nothing re-run.** No grid cell had executed when this was written.
+
+### Amendment 4 — a retrieval-only tier, added because there is no answerer
+
+**2026-08-29, before the run it defines.**
+
+The machine this was first run on has no model credentials and no local model: `config/secrets.json` carries only
+peer tokens and a signing key, no API key is in the environment, and no OpenAI-compatible endpoint answers on any
+of the usual local ports. Checked rather than assumed. So the answer-and-judge half of every tier is blocked on
+something only the owner can supply.
+
+What is NOT blocked is everything else: Ythril's embeddings run in-process on a bundled model, so ingestion and
+retrieval cost nothing and need no network.
+
+Added **Tier 0-R**, defined above, which measures evidence recall@k — the retriever directly, with the answerer
+removed. It was written and committed BEFORE the run, which is the same rule every other tier is held to and the
+reason this amendment exists rather than a results file appearing with a metric nobody had agreed.
+
+The temptation this forecloses: running the retrieval, seeing which numbers look good, and *then* deciding what
+to call the metric. That is the ordering this whole document exists to make impossible, and a blocked dependency
+is not a licence to suspend it.
 
 ### Amendment 3 — the DESIGN is question-blind too, not just the run
 

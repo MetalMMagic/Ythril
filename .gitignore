@@ -130,3 +130,10 @@ ideas/
 
 # Owner-facing open decisions — working document, never committed.
 XREVIEWX.md
+
+# Benchmark working state: the pinned datasets are DOWNLOADED, never redistributed.
+#
+# The dataset files are third-party releases under their own licences and run to megabytes; `pins.json` carries
+# the URL and the sha256 so a clone re-fetches the identical bytes. Committing the copy would be redistribution
+# nobody checked the terms for, and a `git add -A` after one run is all it would take.
+benchmarks/.cache/

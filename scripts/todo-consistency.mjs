@@ -144,10 +144,28 @@ console.log(`\n${YELLOW}todo/ consistency${R}  ${DIM}(owner rules 2026-08-02 and
     if (f === ORDERED || NOT_A_QUEUE.has(f)) continue;
     const src = readFileSync(join(TODO, f), 'utf8');
 
-    // IDs like S-L5-1 are the strongest handle; fall back to the first few words of an open checkbox.
-    const ids = [...src.matchAll(/^\s*[-*]\s*\[ \]\s*\**([A-Z]+-[A-Z0-9-]+)\**\.?/gim)].map(m => m[1]);
+    /*
+     * IDs like S-L5-1 are the strongest handle; fall back to the first few words of an open checkbox.
+     *
+     * HEADING-STYLE ITEMS COUNT TOO, and until 2026-08-30 they did not. The docstring above has always said
+     * *"an item is a `### N. Title` heading or a `- [ ]` checkbox"* — and only the checkbox half was ever
+     * implemented. Two trackers written in heading style therefore contributed ZERO items, so the gate reported
+     * `todo/ is consistent` while roughly twenty open rows were absent from the ordered index. A rule that is
+     * documented and not enforced is worse than one that is neither, because it is believed.
+     */
+    const ids = [
+      ...[...src.matchAll(/^\s*[-*]\s*\[ \]\s*\**([A-Z]+-[A-Z0-9-]+)\**\.?/gim)].map(m => m[1]),
+      ...[...src.matchAll(/^#{2,4}\s+\**([A-Z]+-[A-Z0-9-]+)\**\s*[—:-]/gim)].map(m => m[1]),
+    ];
     for (const id of new Set(ids)) {
-      if (!ordered.includes(id)) orphans.push(`${f} → ${id}`);
+      /*
+       * WHOLE-TOKEN, not substring. `ordered.includes(id)` reported `L-1` as indexed because the string appears
+       * inside `L-13` — so removing L-1's row entirely left the gate green, which is how a check passes by
+       * matching something adjacent to its subject. With ten or more ids in a series every single-digit one was
+       * covered by its own longer siblings.
+       */
+      const token = new RegExp(`(^|[^A-Z0-9-])${id}([^A-Z0-9-]|$)`, 'm');
+      if (!token.test(ordered)) orphans.push(`${f} → ${id}`);
     }
 
     // Checkboxes with no ID: match on a contiguous phrase from the item's own wording.

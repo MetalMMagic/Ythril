@@ -8,6 +8,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { col, asFilter, asDoc, asUpdate } from '../../db/mongo.js';
 import { enqueueIngestedRecord } from '../../brain/embed-queue.js';
 import { syncRateLimit } from '../../rate-limit/middleware.js';
+import { getAllowedChronoTypes } from '../../spaces/schema-validation.js';
 import { getConfig } from '../../config/loader.js';
 import { listTombstones } from '../../brain/tombstones.js';
 import { requireAuth, denyReadOnly } from '../../auth/middleware.js';
@@ -477,6 +478,23 @@ syncDocsRouter.post('/chrono', syncRateLimit, requireAuth, denyReadOnly, async (
      * breaks and more data flows. The violations travel back in the response so the receiving operator can see
      * what arrived out of shape.
      */
+    /*
+     * A TYPE NOBODY UNDERSTANDS IS REFUSED; a schema mismatch is reported. Those are different things, and
+     * collapsing them was a real over-correction — CI caught it.
+     *
+     * P-21 = C says a schema violation is reported rather than refused, because a peer validated the record
+     * against ITS schema and discarding data over a disagreement is not the receiver's call. That reasoning
+     * does not reach a chrono whose `type` is outside the product's own vocabulary AND outside anything this
+     * space declared: such a record is not *non-conforming*, it is **meaningless to every reader**, and
+     * `IncomingChronoDoc` types the field as any non-empty string so nothing else would catch it.
+     *
+     * So the vocabulary check stays a refusal — on BOTH paths now, which is what W-4 was about — and the
+     * property check reports.
+     */
+    if (!getAllowedChronoTypes(getConfig().spaces.find(sp => sp.id === spaceId)?.meta).has(incoming.type)) {
+      res.status(400).json({ error: `\`type\` must be one of: ${[...getAllowedChronoTypes(getConfig().spaces.find(sp => sp.id === spaceId)?.meta)].join(', ')}` });
+      return;
+    }
     const chronoViolations = violationsAgainstLocalSchema(spaceId, 'chrono', incoming as unknown as Record<string, unknown>);
 
     const tombstone = await col<TombstoneDoc>(`${spaceId}_tombstones`)
@@ -712,9 +730,16 @@ syncDocsRouter.post('/batch-upsert', syncRateLimit, requireAuth, denyReadOnly, a
     }
 
     // ── Chrono ─────────────────────────────────────────────────────────────────
-    const chronoStats = { upserted: 0, skipped: 0, tombstoned: 0, schemaViolations: 0 };
+    const chronoStats = { upserted: 0, skipped: 0, tombstoned: 0, schemaViolations: 0, unknownType: 0 };
+    const allowedChronoTypes = getAllowedChronoTypes(getConfig().spaces.find(sp => sp.id === spaceId)?.meta);
     for (const incoming of chrono) {
       if (violationsAgainstLocalSchema(spaceId, 'chrono', incoming as unknown as Record<string, unknown>).length > 0) chronoStats.schemaViolations++;
+      /*
+       * The vocabulary check the single-record path has always had, now here too — this is the W-4 defect:
+       * the same rule applied on one path and not the other, with the batch path being the one a real peer
+       * uses. Skipped rather than 400d, because one bad record must not abandon the rest of a batch.
+       */
+      if (!allowedChronoTypes.has(incoming.type)) { chronoStats.unknownType++; continue; }
       const tomb = await col<TombstoneDoc>(`${spaceId}_tombstones`)
         .findOne(asFilter<TombstoneDoc>({ _id: incoming._id, type: 'chrono' })) as TombstoneDoc | null;
       if (tomb && tomb.seq >= incoming.seq) { chronoStats.tombstoned++; continue; }

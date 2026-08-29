@@ -1,5 +1,5 @@
 /**
- * Every sync ingest path checks what arrives, none of them refuses it, and the count comes back.
+ * Sync REPORTS a schema mismatch and REFUSES a record nobody could read. Those are different things.
  *
  * ## What it was
  *
@@ -22,12 +22,13 @@
  * asserts the violations reach the CALLER, not a log line — `schemaViolations` on each per-type stat, and beside
  * the document on the single-record route.
  *
- * Run: node --test testing/standalone/sync-validates-every-type-and-refuses-none.test.js
+ * Run: node --test testing/standalone/sync-reports-schema-mismatch-and-refuses-nonsense.test.js
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripComments } from './_strip-comments.mjs';
+import { statementAround } from './_structural-window.mjs';
 
 const DOCS = 'server/src/api/sync/docs.ts';
 const SHARED = 'server/src/api/sync/_shared.ts';
@@ -36,7 +37,7 @@ const shared = stripComments(readFileSync(SHARED, 'utf8'));
 
 const TYPES = ['memory', 'entity', 'edge', 'chrono'];
 
-describe('sync validates every type and refuses none', () => {
+describe('sync reports a schema mismatch and refuses nonsense', () => {
   it('one helper answers for every record type', () => {
     // A per-type copy is how the old single check drifted into being the only one. The helper must cover all
     // four, or the next type added quietly gets nothing.
@@ -89,19 +90,60 @@ describe('sync validates every type and refuses none', () => {
     );
   });
 
-  it('nothing in sync REFUSES on a schema violation', () => {
+  it('a PROPERTY mismatch is counted, never refused', () => {
     /*
-     * The rule this file exists for. A `400` naming the chrono allowlist was the old behaviour, and bringing it
-     * back — or adding one for another type — would discard a peer's data on the receiver's opinion of rules
-     * the sender never agreed to.
+     * The distinction this file exists for, and the one I got wrong first: a property that breaks the local
+     * schema is a DISAGREEMENT between two instances' rules, and the sender validated against its own. Refusing
+     * discards data over an opinion the sender never agreed to — so it is counted and kept.
      */
-    assert.doesNotMatch(
-      docs, /must be one of: \$\{\[\.\.\.allowedChronoTypes\]/,
-      'the chrono allowlist refusal is back: sync must accept and report, not reject',
+    for (const stat of ['memStats', 'entStats', 'edgeStats', 'chronoStats']) {
+      const at = docs.indexOf(`const ${stat} = {`);
+      const decl = docs.slice(at, docs.indexOf('\n', at));
+      assert.match(decl, /schemaViolations/, `${stat} must COUNT the mismatch`);
+    }
+    /*
+     * Every 400 in the file is inspected, rather than a capped window after the helper call. A
+     * `doesNotMatch` over a fixed character budget passes by looking at LESS, which is the failure direction
+     * that makes a negative assertion worthless — and this repo has a gate refusing the shape outright.
+     */
+    let at = docs.indexOf('res.status(400)');
+    while (at !== -1) {
+      const stmt = statementAround(docs, at, 'a 400 statement');
+      assert.doesNotMatch(
+        stmt, /violationsAgainstLocalSchema|schemaViolations/,
+        "a property mismatch must never produce a 400 — that is the receiver overruling the sender's own "
+        + `schema, which the sender never agreed to.
+
+${stmt}`,
+      );
+      at = docs.indexOf('res.status(400)', at + 1);
+    }
+  });
+
+  it('a chrono type nobody understands IS refused, on BOTH paths', () => {
+    /*
+     * Not the same thing. A `type` outside the product's vocabulary AND outside anything the space declared is
+     * not non-conforming, it is meaningless to every reader — and `IncomingChronoDoc` types the field as any
+     * non-empty string, so nothing else would catch it. I removed this check with the property one and CI
+     * caught it; that over-correction is what this assertion prevents repeating.
+     *
+     * On BOTH paths is the W-4 defect: the rule existed only on the single-record route, while the batch route
+     * is what a real peer uses.
+     */
+    const single = docs.slice(docs.indexOf("syncDocsRouter.post('/chrono'"), docs.indexOf("syncDocsRouter.post('/batch-upsert'"));
+    assert.match(single, /getAllowedChronoTypes/, 'the single-record route lost its vocabulary check');
+    assert.match(single, /res\.status\(400\)/, 'an unreadable type must still be refused');
+
+    const batch = docs.slice(docs.indexOf("syncDocsRouter.post('/batch-upsert'"));
+    assert.match(
+      batch, /allowedChronoTypes/,
+      'the batch route does not check the chrono vocabulary, so the rule applies only on the path a peer '
+      + 'barely uses — which is exactly the defect W-4 recorded',
     );
-    assert.doesNotMatch(
-      docs, /getAllowedChronoTypes/,
-      'sync should no longer reach for the allowlist directly — the shared helper decides, and it never refuses',
+    assert.match(
+      batch, /unknownType/,
+      'the batch route must COUNT what it skipped rather than dropping it silently; a 400 there would abandon '
+      + 'every other record in the batch',
     );
   });
 });

@@ -33,8 +33,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Refusing is worst here, because a peer validated those records against ITS schema, which may differ from
   yours — discarding data the sender believes it delivered is not the receiver's call.
 
-  So all four types are now checked on both paths, nothing is refused, and the count comes back in the
-  response: `schemaViolations` on each per-type stat from `batch-upsert`, and beside the stored document on the
+  **A schema mismatch and an unreadable record are different things**, and the first pass conflated them: the
+  chrono vocabulary check went out with the property check, so a chrono whose `type` is outside both the
+  product's own set and anything the space declared would have been stored — meaningless to every reader, and
+  `IncomingChronoDoc` types that field as any non-empty string, so nothing else would have caught it. That check
+  is a refusal and stays one, now on **both** paths rather than only the single-record one, which was the
+  original disagreement.
+
+  So all four types are now checked on both paths, a schema mismatch is never refused, and the count comes back
+  in the response: `schemaViolations` on each per-type stat from `batch-upsert`, and beside the stored document on the
   single-record routes. **The count is the point** — the ruling's own stated cost was that a report nobody
   reads is the do-nothing option with extra steps.
 

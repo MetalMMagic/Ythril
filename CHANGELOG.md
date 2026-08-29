@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The tracker gate reported "all open items indexed" while twenty-five were not.** Its own docstring has
+  always said an item is *"a `### N. Title` heading or a `- [ ]` checkbox"* — and **only the checkbox half was
+  ever implemented**. Two trackers written in heading style therefore contributed zero items, so the gate passed
+  on files full of open work it could not see. A rule that is documented and unenforced is worse than one that
+  is neither, because it is believed.
+
+  It also matched references by **substring**, so `L-1` counted as indexed because that string appears inside
+  `L-13`. In any series of ten or more, every single-digit id was covered by its own longer siblings — deleting
+  L-1's row outright left the gate green. Matching is whole-token now.
+
+  Both were found by asking whether a tracker was up to date, which the gate had been answering "yes" to for
+  eleven days.
+
+
 - **A property `default` did nothing at all.** It was declared in the schema interface, documented in the
   integration guide, and editable in the settings UI — and **read by nothing in the entire server**. An operator
   could set one, save it, and it silently never applied, with no hint that it had not taken.

@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A per-token rate limit above 300/min could not take effect, and the API said it had.**
+  `rateLimitPerMinute` is a real per-token field with an instance ceiling, and its limiter has always been
+  mounted. What was never moved is `globalRateLimit`: a literal `max: 300` on 171 routes, keyed on a **hash of
+  the presented credential** — so it gave every token its own 300 bucket, and the real limit was
+  `min(300, whatever you set)`. Granting a token 1 000 changed nothing while `GET /api/tokens` reported
+  `rateLimitEffective: 1000`. Three different numbers for one quota.
+
+  **The global limiter now steps aside once a credential is presented**, leaving the per-token quota as the
+  only limit on an authenticated request — which is what that quota was built to be. It cannot wait for the
+  token to RESOLVE, because it runs before authentication and the limit is a property of a record that has not
+  been read yet; so the test is the credential, and both outcomes are covered: it resolves and the per-token
+  limiter governs, or it does not and auth answers 401.
+
+  **Nothing is now unbounded that was bounded before.** The global limiter never restrained a flood of
+  *invented* credentials either — it is keyed per credential, so each new string already minted a fresh
+  bucket. The per-IP flood backstop is what closes that, and it does not step aside for anything.
+
+  **And nothing moves for anyone who granted nothing:** `DEFAULT_PER_MINUTE` was deliberately kept equal to
+  the global limiter's max, so a token with no value resolves to exactly the number it used to be capped at.
+  The cap only lifts where somebody explicitly asked for more.
+
+
+### Fixed
+
+
 - **The graph side panel showed a blank name for a memory or a timeline entry.** A graph node is one of four
   kinds, and since 3.6 a chrono entry, memory or file reaches the canvas through its `entityIds` link. The
   record card had no branch on `kind` and read `name` unconditionally — a memory has a `fact` and no name, so

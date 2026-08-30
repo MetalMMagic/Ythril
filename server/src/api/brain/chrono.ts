@@ -18,7 +18,7 @@ import { validateChrono, getAllowedChronoTypes } from '../../spaces/schema-valid
 import { validateDeleteFields } from '../../brain/delete-fields.js';
 import type { ChronoStatus } from '../../config/types.js';
 import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, ttlDaysFromBody, ttlDaysError, dupeCheckOptsFromBody, ifMatchFromRequest, preconditionFailedBody } from './_shared.js';
-import { classifyUpdateViolations } from '../../brain/write-validation.js';
+import { classifyUpdateViolations, classifyChronoUpsert } from '../../brain/write-validation.js';
 import { resolveEntityIdsByName } from '../../brain/entities.js';
 import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
 import {
@@ -104,17 +104,6 @@ chronoRouter.post('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, 
       ? (properties as Record<string, string | number | boolean>)
       : undefined;
 
-  // Schema validation (meta already resolved above)
-  const violations = validateChrono(meta ?? {}, { type, properties: safeProps });
-  const validation = applyValidation(meta, violations);
-  if (validation.blocked) {
-    res.status(400).json({ error: 'schema_violation', violations: validation.warnings });
-    return;
-  }
-
-  const ttlErr = ttlDaysError(req.body);
-  if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
-
   // A caller-supplied id becomes the sync identity of a record that replicates across networks, so it is held
   // to the same shape the rest of the API uses. (The entity route accepts any string here — pre-existing, and
   // tightening it would be a breaking change, so it is filed rather than copied.)
@@ -124,6 +113,27 @@ chronoRouter.post('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, 
     return;
   }
   const safeId: string | undefined = typeof rawId === 'string' ? rawId : undefined;
+
+  // Schema validation of the record this write will PRODUCE, not of the payload.
+  //
+  // A supplied id that already names an entry CONVERGES, and the converge branch stores
+  // `mergeProperties(existing, incoming)` — so validating the payload alone checked a document that is not
+  // the one written. It failed both ways: a required key present on the stored record and absent from the
+  // request read as a violation and 400d a legitimate converge, while a violating key already stored was
+  // never re-examined. Entities and edges have validated the merged form since their upserts were written;
+  // this was the fourth path, and the id had to move above the check to make it possible.
+  const check = await classifyChronoUpsert(wt.target, { type, properties: safeProps }, safeId);
+  if (check.blocked) {
+    res.status(400).json({
+      error: 'schema_violation', message: check.message, violations: check.all,
+      introduced: check.introduced, preExisting: check.preExisting,
+    });
+    return;
+  }
+
+  const ttlErr = ttlDaysError(req.body);
+  if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
+
 
   // `waitForEmbedding` (default false): the vector is normally computed by the embedding queue
   // moments after this returns. Pass true when the caller will search for, scan, or compare what it
@@ -145,7 +155,7 @@ chronoRouter.post('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, 
     id: safeId,
   }, webhookToken(req), ttlDaysFromBody(req.body), embedOpts);
   const result: Record<string, unknown> = { ...entry };
-  if (validation.warnings.length > 0) result['warnings'] = validation.warnings;
+  if (check.warnings.length > 0) result['warnings'] = check.warnings;
   res.status(201).json(result);
 });
 

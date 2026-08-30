@@ -351,9 +351,16 @@ field is. No schema change was needed; the link already existed and simply had n
   were already parsing is unchanged. Read `kind` before following an `_id`: the two live in different
   collections, and `type` cannot tell you which (a chrono's is `event`/`deadline`/…, an entity's is whatever
   the space calls it).
-- **The synthetic edge is labelled `chrono.entityIds`** and its `_id` is the chrono's own, so looking it up
-  resolves to the chrono rather than 404ing on an invented edge. Because it is a real label, `edgeLabels`
-  filters it like any other: an explicit filter that does not name it **excludes** chrono entries.
+- **The synthetic edge is labelled `chrono.entityIds`** and carries its own id, shaped
+  `<label>:<from>:<to>` — deliberately not a UUID, because there is no stored edge behind it and an id that
+  looked like a real one would invite a lookup that cannot succeed. **Do not fetch a synthetic edge by id:**
+  `GET /edges/:id` reads the edge collection only, so any id here answers `404`. Follow the NODE instead.
+  Because the label is real, `edgeLabels` filters it like any other: an explicit filter that does not name it
+  **excludes** chrono entries.
+
+  > *Changed:* this id used to be the chrono's own `_id`, on the stated rationale that looking it up would
+  > resolve to the chrono. It never did — the edge lookup is collection-scoped — and sharing an id between a
+  > node and an edge made graph libraries drop the edge, since they keep one id namespace for both.
 - **A chrono is a leaf.** Traversal does not expand outward from one — a chrono links to entities, not to
   other chrono entries, so expanding would only walk back to entities already visited.
 - Set `includeChrono: false` for the previous entity-only behaviour.

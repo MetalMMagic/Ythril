@@ -168,6 +168,44 @@ the watermark back would stall the space instead. Both ends log it; the receiver
 A peer on an older build omits `forkDepthRefused` entirely, so treat a missing field as zero rather than as an
 error.
 
+### Schema mismatches are reported, never refused
+
+Two instances in one network may declare **different schemas for the same space**. A record the sender
+validated against its own rules can therefore break the receiver's — and discarding it is not the receiver's
+call, because the sender believes it delivered.
+
+So an ingest **stores the record and hands back what broke the rules.** Both doors report, in the shape each
+already uses:
+
+```json
+// batch-upsert — a per-type counter, beside inserted/updated/skipped
+{ "status": "ok",
+  "entities": { "upserted": 5, "skipped": 2, "tombstoned": 0, "schemaViolations": 2 } }
+```
+
+```json
+// any single-record route — the violations themselves, beside the status
+{ "status": "inserted",
+  "schemaViolations": [
+    { "field": "properties.severity", "value": "catastrophic", "reason": "must be one of: low, medium, high" }
+  ] }
+```
+
+**`schemaViolations` is absent when there are none**, so a clean ingest returns exactly what it always did and
+a present field always means something to look at. A peer on an older build omits it entirely; treat missing
+as none.
+
+**The record landed either way.** This is a report, not a refusal — reconcile the two schemas, or accept the
+divergence deliberately.
+
+| the check | what happens |
+|---|---|
+| a property, tag or type that breaks the space's declared schema | **stored**, and counted or listed |
+| a chrono `type` outside both the product's vocabulary and anything the space declares | **`400`, refused** |
+
+The second row is the one exception, and it is not about disagreement: such a record is meaningless to every
+reader rather than merely non-conforming, and nothing else in the pipeline would catch it.
+
 ### Tombstones
 
 - `GET /api/sync/tombstones?spaceId=general&sinceSeq=0` returns grouped `{ memories, entities, edges, chrono }` tombstones.

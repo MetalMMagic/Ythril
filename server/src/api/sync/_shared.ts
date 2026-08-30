@@ -493,7 +493,8 @@ export function isDirectionalWriteBlocked(spaceId: string, authToken: Record<str
  *
  * The ruling's stated cost was that a report nobody reads is the do-nothing option with extra steps, so this
  * returns violations to the caller rather than writing a log line. `batch-upsert` carries them in its per-type
- * stats; the single-record routes return them beside the stored document.
+ * stats; the single-record routes return them beside the stored document — all four of them, which the first
+ * pass claimed in this docblock while implementing only `/chrono`. See `withSchemaViolations`.
  */
 export function violationsAgainstLocalSchema(
   spaceId: string,
@@ -515,4 +516,26 @@ export function violationsAgainstLocalSchema(
     case 'memory':
       return validateMemory(meta, { type, properties, tags });
   }
+}
+
+/**
+ * Attach the violations to a single-record ingest response — the one spelling of that rule.
+ *
+ * ## Why this is a function and not four inline spreads
+ *
+ * It was four inline spreads, and only one of them was written. `/chrono` carried
+ * `...(v.length > 0 ? { schemaViolations: v } : {})` while `/memories`, `/entities` and `/edges` stored the
+ * peer's record and answered `{ status: 'ok' }` with nothing computed at all — so a peer shipping records one
+ * at a time got silent acceptance while the same records through `batch-upsert` were counted. One rule, two
+ * implementations, the weaker one winning silently, which `CLAUDE.md` names as the defect this repo produces
+ * most. The docblock above even asserted the plural.
+ *
+ * **Absent when empty, deliberately.** A clean ingest keeps its existing response byte for byte, so nothing a
+ * peer already parses changes and `schemaViolations` present always means something to look at.
+ */
+export function withSchemaViolations<T extends Record<string, unknown>>(
+  body: T,
+  violations: SchemaViolation[],
+): T & { schemaViolations?: SchemaViolation[] } {
+  return violations.length > 0 ? { ...body, schemaViolations: violations } : body;
 }

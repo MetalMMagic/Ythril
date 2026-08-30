@@ -16,7 +16,7 @@ import { log } from '../../util/log.js';
 import { reportServerFailure } from '../../util/report-failure.js';
 import { nextSeq, bumpSeq, isSeqImplausible, MAX_INGEST_SEQ } from '../../util/seq.js';
 import type { MemoryDoc, EntityDoc, EdgeDoc, ChronoEntry, TombstoneDoc } from '../../config/types.js';
-import { checkEdgeLinkViolations, checkEntityIdLinkViolations, MAX_FORK_DEPTH, IncomingMemoryDoc, IncomingEntityDoc, IncomingEdgeDoc, IncomingChronoDoc, encodeCursor, decodeCursor, forkChainDepth, rejectImplausibleSeq, callerPeerId, spaceAllowed, isNonPeerSyncWrite, NON_PEER_WRITE_MESSAGE, isDirectionalWriteBlocked, violationsAgainstLocalSchema } from './_shared.js';
+import { checkEdgeLinkViolations, checkEntityIdLinkViolations, MAX_FORK_DEPTH, IncomingMemoryDoc, IncomingEntityDoc, IncomingEdgeDoc, IncomingChronoDoc, encodeCursor, decodeCursor, forkChainDepth, rejectImplausibleSeq, callerPeerId, spaceAllowed, isNonPeerSyncWrite, NON_PEER_WRITE_MESSAGE, isDirectionalWriteBlocked, violationsAgainstLocalSchema, withSchemaViolations } from './_shared.js';
 
 export const syncDocsRouter = Router();
 
@@ -104,6 +104,10 @@ syncDocsRouter.post('/memories', syncRateLimit, requireAuth, denyReadOnly, async
     const incoming = parsed.data as MemoryDoc;
     if (rejectImplausibleSeq(spaceId, incoming.seq, res, callerPeerId(req.authToken as Record<string, unknown>))) return;
 
+    // Computed before any store, and reported on every exit that KEPT something. The `tombstoned` and
+    // `skipped` exits store nothing, so there is no accepted record for them to describe.
+    const violations = violationsAgainstLocalSchema(spaceId, 'memory', incoming as unknown as Record<string, unknown>);
+
     // Check for tombstone — if a tombstone with >= seq exists, skip
     const tombstone = await col<TombstoneDoc>(`${spaceId}_tombstones`)
       .findOne(asFilter<TombstoneDoc>({ _id: incoming._id, type: 'memory' })) as TombstoneDoc | null;
@@ -127,7 +131,7 @@ syncDocsRouter.post('/memories', syncRateLimit, requireAuth, denyReadOnly, async
       await enqueueIngestedRecord(spaceId, 'memory', incoming);
       const peerInst = (req.authToken as Record<string, unknown>)?.['peerInstanceId'] as string ?? 'unknown';
       checkEntityIdLinkViolations(spaceId, incoming._id, 'memory', incoming.entityIds, peerInst).catch(() => {});
-      res.status(200).json({ status: 'inserted' });
+      res.status(200).json(withSchemaViolations({ status: 'inserted' }, violations));
       return;
     }
 
@@ -139,7 +143,7 @@ syncDocsRouter.post('/memories', syncRateLimit, requireAuth, denyReadOnly, async
       await enqueueIngestedRecord(spaceId, 'memory', incoming);
       const peerInst = (req.authToken as Record<string, unknown>)?.['peerInstanceId'] as string ?? 'unknown';
       checkEntityIdLinkViolations(spaceId, incoming._id, 'memory', incoming.entityIds, peerInst).catch(() => {});
-      res.status(200).json({ status: 'updated' });
+      res.status(200).json(withSchemaViolations({ status: 'updated' }, violations));
       return;
     }
 
@@ -170,7 +174,7 @@ syncDocsRouter.post('/memories', syncRateLimit, requireAuth, denyReadOnly, async
       // A peer strips `embedding` before sending — it is derived, and the peer may run a
       // different model — so this record landed unsearchable. Queue it a vector.
       await enqueueIngestedRecord(spaceId, 'memory', fork);
-      res.status(200).json({ status: 'forked', forkId: fork._id });
+      res.status(200).json(withSchemaViolations({ status: 'forked', forkId: fork._id }, violations));
       return;
     }
 
@@ -256,6 +260,10 @@ syncDocsRouter.post('/entities', syncRateLimit, requireAuth, denyReadOnly, async
     const incoming = parsed.data as EntityDoc;
     if (rejectImplausibleSeq(spaceId, incoming.seq, res, callerPeerId(req.authToken as Record<string, unknown>))) return;
 
+    // Before the upsert, so the record reported on is the one the peer sent rather than whatever the
+    // store settled on. The `tombstoned` exit keeps nothing and so reports nothing.
+    const violations = violationsAgainstLocalSchema(spaceId, 'entity', incoming as unknown as Record<string, unknown>);
+
     const tombstone = await col<TombstoneDoc>(`${spaceId}_tombstones`)
       .findOne(asFilter<TombstoneDoc>({ _id: incoming._id, type: 'entity' })) as TombstoneDoc | null;
     if (tombstone && tombstone.seq >= incoming.seq) {
@@ -281,7 +289,7 @@ syncDocsRouter.post('/entities', syncRateLimit, requireAuth, denyReadOnly, async
       await enqueueIngestedRecord(spaceId, 'entity', incoming);
     }
 
-    res.status(200).json({ status: 'ok' });
+    res.status(200).json(withSchemaViolations({ status: 'ok' }, violations));
   } catch (err) {
     log.error(`sync POST entities: ${err}`);
     res.status(500).json({ error: 'Internal error' });
@@ -363,6 +371,10 @@ syncDocsRouter.post('/edges', syncRateLimit, requireAuth, denyReadOnly, async (r
     const incoming = parsed.data as EdgeDoc;
     if (rejectImplausibleSeq(spaceId, incoming.seq, res, callerPeerId(req.authToken as Record<string, unknown>))) return;
 
+    // Before the upsert, so the record reported on is the one the peer sent rather than whatever the
+    // store settled on. The `tombstoned` exit keeps nothing and so reports nothing.
+    const violations = violationsAgainstLocalSchema(spaceId, 'edge', incoming as unknown as Record<string, unknown>);
+
     const tombstone = await col<TombstoneDoc>(`${spaceId}_tombstones`)
       .findOne(asFilter<TombstoneDoc>({ _id: incoming._id, type: 'edge' })) as TombstoneDoc | null;
     if (tombstone && tombstone.seq >= incoming.seq) {
@@ -389,7 +401,7 @@ syncDocsRouter.post('/edges', syncRateLimit, requireAuth, denyReadOnly, async (r
     const peerInst = (req.authToken as Record<string, unknown>)?.['peerInstanceId'] as string ?? 'unknown';
     checkEdgeLinkViolations(spaceId, incoming, peerInst).catch(() => {});
 
-    res.status(200).json({ status: 'ok' });
+    res.status(200).json(withSchemaViolations({ status: 'ok' }, violations));
   } catch (err) {
     log.error(`sync POST edges: ${err}`);
     res.status(500).json({ error: 'Internal error' });
@@ -529,7 +541,7 @@ syncDocsRouter.post('/chrono', syncRateLimit, requireAuth, denyReadOnly, async (
 
     // The violations travel back so the receiving operator can see what arrived out of shape. Absent when
     // there are none, so a clean ingest keeps its existing response byte for byte.
-    res.status(200).json({ status: 'ok', ...(chronoViolations.length > 0 ? { schemaViolations: chronoViolations } : {}) });
+    res.status(200).json(withSchemaViolations({ status: 'ok' }, chronoViolations));
   } catch (err) {
     log.error(`sync POST chrono: ${err}`);
     res.status(500).json({ error: 'Internal error' });

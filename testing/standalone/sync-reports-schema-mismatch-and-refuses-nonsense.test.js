@@ -28,7 +28,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripComments } from './_strip-comments.mjs';
-import { statementAround } from './_structural-window.mjs';
+import { bodyOf, statementAround } from './_structural-window.mjs';
 
 const DOCS = 'server/src/api/sync/docs.ts';
 const SHARED = 'server/src/api/sync/_shared.ts';
@@ -77,17 +77,63 @@ describe('sync reports a schema mismatch and refuses nonsense', () => {
     }
   });
 
-  it('the single-record route reports what it accepted out of shape', () => {
-    // The route that used to REFUSE must now say what it let through, or relaxing the 400 traded a loud
-    // wrong answer for a silent one.
-    const at = docs.indexOf("syncDocsRouter.post('/chrono'");
-    assert.notEqual(at, -1, 'the single-record chrono route is gone — re-point this gate');
-    const route = docs.slice(at, docs.indexOf("syncDocsRouter.post('/batch-upsert'", at));
-    assert.match(
-      route, /schemaViolations/,
-      'the chrono ingest route accepts a record that violates the local schema and says nothing about it. '
-      + 'Relaxing the 400 was only safe because the violation is reported instead.',
+  it('EVERY single-record route reports what it accepted out of shape', () => {
+    /*
+     * Windowed on `/chrono` alone at first, which is how three of the four shipped without the check.
+     *
+     * The narrow window was not merely incomplete — it was **shaped like the bug**. `/chrono` was the route
+     * that used to answer 400, so it was the one on my mind while writing both the fix and the gate; the other
+     * three stored the peer's record and answered `{ status: 'ok' }` with nothing computed, and no assertion
+     * looked at them. A gate that inspects only the route you were already thinking about cannot tell you
+     * about the ones you were not.
+     *
+     * So the routes are ENUMERATED from source. A sixth ingest route added later is covered on the commit
+     * that adds it, rather than when someone remembers to widen a slice.
+     */
+    const routes = [...docs.matchAll(/syncDocsRouter\.post\('\/([\w-]+)'/g)]
+      .map(m => ({ name: m[1], at: m.index }))
+      .filter(r => r.name !== 'batch-upsert');       // the batch path is covered by the per-type stats below
+    assert.ok(
+      routes.length >= 4,
+      `expected the four single-record ingest routes, found ${routes.map(r => r.name).join(', ') || 'none'}`,
     );
+
+    const silent = [];
+    for (const [i, r] of routes.entries()) {
+      // Bounded by the NEXT route registration, whichever it is — not by one hardcoded successor, which is a
+      // fixed slice wearing a structural disguise and breaks the moment the routes are reordered.
+      const next = routes[i + 1]?.at ?? docs.indexOf("syncDocsRouter.post('/batch-upsert'");
+      const body = docs.slice(r.at, next > r.at ? next : docs.length);
+      if (!/withSchemaViolations\(/.test(body)) silent.push(`/${r.name}`);
+    }
+    assert.deepEqual(
+      silent, [],
+      'These single-record ingest routes store a peer record and say nothing about whether it fits the local '
+      + 'schema, while the SAME records through `batch-upsert` are counted. One rule, two implementations, the '
+      + 'weaker one winning silently — and a peer that ships records one at a time gets the weaker one.',
+    );
+  });
+
+  it('the report is attached by one shared helper, not spelled out per route', () => {
+    // Four inline spreads is what produced the split above: the rule existed four times and was written once.
+    // A route hand-rolling the ternary again is the regression, and it reads as perfectly reasonable code.
+    assert.doesNotMatch(
+      docs, /\.\.\.\([\w]*[Vv]iolations\.length > 0 \?/,
+      'a route is spelling out the attach-if-non-empty rule inline again — use withSchemaViolations()',
+    );
+    const shared = stripComments(readFileSync('server/src/api/sync/_shared.ts', 'utf8'));
+    assert.match(shared, /export function withSchemaViolations/, 'the helper must exist in _shared.ts');
+    // The helper's own body, not a capped gap after a marker. A character cap here would be a guess at how
+    // much of the function fits, and it can only make the check see less as the helper grows —
+    // `gates-bound-their-subject-structurally` refuses one, and counts them on the RAW source deliberately,
+    // so even naming the shape in a comment costs an allowance. Bounded by the declaration instead.
+    const body = bodyOf(shared, 'withSchemaViolations');
+    assert.match(
+      body, /violations\.length > 0 \?/,
+      'the helper must omit the field when there are no violations, so a clean ingest keeps its response '
+      + 'byte for byte and a present `schemaViolations` always means something to look at',
+    );
+    assert.match(body, /schemaViolations: violations/, 'and must attach the violations when there are some');
   });
 
   it('a PROPERTY mismatch is counted, never refused', () => {

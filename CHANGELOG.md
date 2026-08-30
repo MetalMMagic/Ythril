@@ -402,6 +402,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   Both were found by asking whether a tracker was up to date, which the gate had been answering "yes" to for
   eleven days.
+- **That fix landed on one of the two rules that needed it, and the other kept its old parser for a day.**
+  Rule 3 — *"every open item says how to verify it is still open"* — split trackers on `- [ ]` only, six lines
+  below the rule that had just learned about headings. So it covered **one item out of eleven**: its tick meant
+  "the single checkbox item in `ARCHITECTURE-TODO.md` has a verify line", and the two heading-style trackers
+  holding the other ten were exempt by formatting alone.
+
+  That is the defect this codebase produces most — one rule, two implementations, the weaker winning silently —
+  arriving inside the script whose job is to catch bookkeeping drift. Both rules now share one `openItems()`,
+  which is the extraction the repo's own convention asks for the second time you write the same rule. Rule 3
+  went from 1 item to 11 and immediately found four with no verify line at all.
+
+  **A queue row can also point at nothing, and neither end was checking.** Rule 2 runs tracker → index; nothing
+  ran index → tracker. `W-3` had sat in the ordered list naming a home file that never contained a W-3 — its
+  section was destroyed by a 2026-08-13 cleanup whose backup went to a path that did not exist, and its id was
+  later reused by an unrelated record, so grepping the folder found a hit and the row read as anchored. A
+  phantom row can never drain, which matters because the release gate is *"cut the tag when the queue is
+  empty"*. The new rule 2b resolves every row against the home it names.
+
+  **What none of this fixes, and it is the bigger half.** Every "is this done" check in the gate reads the
+  row's own status text — a vocabulary match on `SHIPPED|CLOSED|RESOLVED|DONE`, or an item that describes
+  itself as a watch. That text is written by the same pass that would have had to notice the row was finished,
+  so it can never be independent evidence. Five rows announcing completion as `✅ BUILT` and one as `- [~]`
+  passed every check, and the fix history above is four rounds of widening the word list. A green
+  `todo:check` means the folder is internally consistent — never that the statuses are true.
 - **A property `default` did nothing at all.** It was declared in the schema interface, documented in the
   integration guide, and editable in the settings UI — and **read by nothing in the entire server**. An operator
   could set one, save it, and it silently never applied, with no hint that it had not taken.

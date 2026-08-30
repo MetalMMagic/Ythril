@@ -1,9 +1,10 @@
-import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { TranslocoPipe } from '@jsverse/transloco';
-import { Entity, Edge, TraverseEdge } from '../../core/api.types';
+import { Entity, Edge, TraverseEdge, Memory, ChronoEntry } from '../../core/api.types';
 import { PropertiesViewComponent } from '../../shared/properties-view.component';
 import { GRAPH_RECORD_CARD_STYLES } from './graph.styles';
+import { memoryText, chronoText } from './graph-details';
 
 /**
  * The record cards in the graph side panel — the LEFT column, showing the record a selection resolved to.
@@ -39,11 +40,16 @@ import { GRAPH_RECORD_CARD_STYLES } from './graph.styles';
  * `<app-properties-view>` is given `[properties]` and **not** `schema`. It is the only one of five call sites
  * that omits it; passing the schema would be a behaviour change wearing a refactor's clothes.
  *
- * Three defects are carried across as they are, pinned by `graph-record-card.characterization.spec.ts` and
- * filed as G-5 and G-6: a memory or chrono node renders a blank name row because there is no branch on
- * `kind`; a file node shows the unavailable message AND the loading row, because they are two independent
- * `@if`s; and the message is styled `muted`, a class defined nowhere. Fixing any of them here would make the
- * move unverifiable, because the spec would have to change in the same commit.
+ * ## The four kinds, and the two defects still carried
+ *
+ * A graph node is one of four kinds, and since 3.6 a chrono entry, memory or file reaches the canvas through
+ * its `entityIds` link. The card reads `kind` and asks `memoryText` / `chronoText` — the same functions the
+ * linked-records list in this panel already uses — for the first row. It did not, and rendered a blank name
+ * for a memory while its `fact` appeared nowhere (G-5).
+ *
+ * Two defects ARE still carried, pinned by `graph-record-card.characterization.spec.ts` and filed as G-6: a
+ * file node shows the unavailable message AND the loading row, because they are two independent `@if`s; and
+ * that message is styled `muted`, a class declared nowhere in the graph page.
  */
 @Component({
   selector: 'app-graph-node-record-card',
@@ -65,8 +71,8 @@ import { GRAPH_RECORD_CARD_STYLES } from './graph.styles';
     }
     @if (record()) {
       <div class="drawer-field">
-        <div class="drawer-label">{{ 'brain.entities.table.name' | transloco }}</div>
-        <div class="drawer-value">{{ record()!.name }}</div>
+        <div class="drawer-label">{{ nameLabel() | transloco }}</div>
+        <div class="drawer-value">{{ displayName() }}</div>
       </div>
       @if (record()!.type) {
         <div class="drawer-field">
@@ -111,10 +117,44 @@ import { GRAPH_RECORD_CARD_STYLES } from './graph.styles';
   `,
 })
 export class GraphNodeRecordCardComponent {
-  /** The fetched record, or null while it is in flight or could not be fetched. */
-  readonly record = input<Entity | null>(null);
+  /**
+   * The fetched record, or null while it is in flight or could not be fetched.
+   *
+   * Typed as the union it has always RECEIVED. `loadNodeDetails` fetches by kind — `getRecord(space, 'memory',
+   * id)` for a memory node — and then cast the result to `Entity`, which is what let the template read a
+   * `name` that a memory does not have.
+   */
+  readonly record = input<Entity | Memory | ChronoEntry | null>(null);
+  /** Which collection the node came from. Absent for an entity, as `TraverseNode.kind` reports it. */
+  readonly kind = input<'chrono' | 'memory' | 'file' | null>(null);
   /** Why no record can be fetched, when that is a fact rather than a failure. */
   readonly unavailable = input<'file' | 'derived' | null>(null);
+
+  /**
+   * The first row's value — the thing the record actually says.
+   *
+   * An entity has a `name`; a memory has a `fact` and a chrono a `title`, and NEITHER has a name. The card
+   * read `name` unconditionally, so a memory node rendered an empty first row and its fact appeared nowhere
+   * at all. Every other field happened to share a name and rendered, which is why it went unreported.
+   *
+   * `memoryText` and `chronoText` are not new: they already decide exactly this for the linked-records list
+   * in the SAME panel, and they carry the fallback to `description` that a bare `fact` would miss. Reading
+   * them here is what makes it one rule rather than two — the divergence WAS the defect.
+   */
+  readonly displayName = computed(() => {
+    const rec = this.record();
+    if (!rec) return '';
+    if (this.kind() === 'memory') return memoryText(rec as Memory);
+    if (this.kind() === 'chrono') return chronoText(rec as ChronoEntry);
+    return (rec as Entity).name;
+  });
+
+  /** The first row's LABEL, which has to move with its value or a fact is announced as a name. */
+  readonly nameLabel = computed(() => {
+    if (this.kind() === 'memory') return 'brain.memories.table.fact';
+    if (this.kind() === 'chrono') return 'brain.chrono.table.title';
+    return 'brain.entities.table.name';
+  });
 
   /** `Object.keys` for the template's properties guard — an empty object must hide the row, not show an empty view. */
   objectKeys(obj: object): string[] { return Object.keys(obj); }

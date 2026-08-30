@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The graph side panel showed a blank name for a memory or a timeline entry.** A graph node is one of four
+  kinds, and since 3.6 a chrono entry, memory or file reaches the canvas through its `entityIds` link. The
+  record card had no branch on `kind` and read `name` unconditionally — a memory has a `fact` and no name, so
+  the first row rendered EMPTY and the fact, the only thing the record says, appeared nowhere at all. A chrono
+  entry lost its `title` the same way.
+
+  Every other field happened to share a name and rendered normally, which is why the card looked populated and
+  nobody reported it.
+
+  It now asks `memoryText` and `chronoText` — the same functions the linked-records list in the SAME panel
+  already used, including their fallback to `description`. The divergence was the defect: one rule with two
+  implementations, and the weaker one on the more prominent surface.
 - **The link scans were unbounded AND unindexed, and following links from `recall` multiplied them.**
   `linkedRecordsAtFrontier` and `entitiesLinkedFromRecords` issued `.find().toArray()` with no `.limit()` —
   once per link class, per member space, per hop. The node cap did not help: it counts records after they are

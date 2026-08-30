@@ -169,30 +169,25 @@ describe('the node card, populated', () => {
   });
 });
 
-describe('the node card, for a kind it does not handle', () => {
+describe('the node card, for every kind that reaches it', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   /*
-   * PINNING A DEFECT, ON PURPOSE.
+   * G-5, fixed. This block used to pin the DEFECT: a graph node is one of four kinds, and since 3.6 a chrono
+   * entry, memory or file reaches the canvas through its `entityIds` link. `loadNodeDetails` fetched the right
+   * record and then cast it `as Entity`; the card had no branch on `kind` and never read it. A memory has
+   * `fact` and no `name`, so the name row rendered EMPTY and the fact — the only thing the record says — was
+   * never shown. Every other field rendered, which is why nobody reported it.
    *
-   * A graph node is one of four kinds, and since 3.6 a chrono entry, memory or file reaches the canvas
-   * through its `entityIds` link. `loadNodeDetails` fetches the RIGHT record — `getRecord(space, 'memory',
-   * id)` — and then casts it `as Entity`. The card has no `@switch` on kind and never reads `kind` at all,
-   * so it renders a memory through the entity rows: a `Memory` has `fact` and no `name`, so the name row
-   * renders EMPTY and the fact — the only thing the record says — is never shown anywhere.
-   *
-   * The shared fields (`type`, `description`, `tags`, `properties`, `_id`, `createdAt`) do render, so the
-   * card looks populated apart from the one row that carries the content.
-   *
-   * The linked-records LIST beside it already handles this correctly (`buildDetailRows` reads a memory as
-   * fact-then-description), which is what makes the card's version a divergence rather than an unbuilt
-   * feature.
+   * The rewrite is deliberate, as the old comment asked for. The fix is not a new rule either: `memoryText`
+   * and `chronoText` in `graph-details.ts` already decide this for the linked-records list in the SAME panel,
+   * and the card now asks them. One rule, one implementation — the divergence was the defect.
    */
-  for (const [kind, record, content] of [
+  for (const [kind, record, shown] of [
     ['memory', { _id: 'm1', fact: 'rotate the vault quarterly', type: 'note', createdAt: '2026-08-30T09:05:00.000Z' }, 'rotate the vault quarterly'],
     ['chrono', { _id: 'c1', title: 'carrier lost the unit', type: 'event', createdAt: '2026-08-30T09:05:00.000Z' }, 'carrier lost the unit'],
   ] as const) {
-    it(`a ${kind} node renders a BLANK name row and never shows its content — today's behaviour`, () => {
+    it(`a ${kind} node shows what the record actually says`, () => {
       const f = create();
       const c = f.componentInstance as any;
       c.selectedNode.set(node({ _id: record._id, kind }));
@@ -200,13 +195,32 @@ describe('the node card, for a kind it does not handle', () => {
       f.detectChanges();
 
       const got = rows(card(f));
-      const nameRow = got.find(r => r.label && r.label !== '_id' && got.indexOf(r) === 0);
-      expect(nameRow?.value, `the name row is populated for a ${kind} — the card learned this kind, so this test must be rewritten deliberately rather than deleted`).toBe('');
-      expect(card(f)?.textContent).not.toContain(content);
-      // And the shared fields DO render, which is why the card looks fine at a glance.
+      expect(got[0]?.value, `the first row is blank for a ${kind}`).toBe(shown);
+      expect(card(f)?.textContent).toContain(shown);
+      // And the shared fields still render, which they always did.
       expect(got.map(r => r.value)).toContain(record.type);
     });
   }
+
+  it('falls back to the description when a memory has no fact', () => {
+    // `memoryText` is `fact || description || ''`. Reproducing that choice in the template would be the second
+    // implementation this fix exists to remove, so it is asserted here rather than re-derived there.
+    const f = create();
+    const c = f.componentInstance as any;
+    c.selectedNode.set(node({ _id: 'm2', kind: 'memory' }));
+    c.selectedEntityRecord.set({ _id: 'm2', description: 'only a description', createdAt: '2026-08-30T09:05:00.000Z' });
+    f.detectChanges();
+    expect(rows(card(f))[0]?.value).toBe('only a description');
+  });
+
+  it('an ENTITY still shows its name — the common case is untouched', () => {
+    const f = create();
+    const c = f.componentInstance as any;
+    c.selectedNode.set(node());
+    c.selectedEntityRecord.set({ _id: 'e1', name: 'Ada Lovelace', createdAt: '2026-08-30T09:05:00.000Z' });
+    f.detectChanges();
+    expect(rows(card(f))[0]?.value).toBe('Ada Lovelace');
+  });
 });
 
 describe('the node card, when the record cannot be fetched', () => {

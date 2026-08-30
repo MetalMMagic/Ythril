@@ -117,8 +117,14 @@ describe('the node card, populated', () => {
     expect(values).toContain('person');
     expect(values).toContain('the first programmer');
     expect(values).toContain('e-1');
-    // The only pipe-formatted value in either card, and the one a move is most likely to drop.
-    expect(values).toContain('30.08.2026 11:05');
+    /*
+     * The only pipe-formatted value in either card, and the one a move is most likely to drop — asserted as
+     * a FORMAT, not an instant. `date:` renders in the runner's LOCAL zone, so a fixed string passes here
+     * (CEST) and fails on CI (UTC) by exactly two hours. What the extraction can break is the pattern
+     * disappearing or changing, and that is what this catches.
+     */
+    const stamped = values.find(v => /^\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}$/.test(v));
+    expect(stamped, `no dd.MM.yyyy HH:mm value rendered; got ${JSON.stringify(values)}`).toBeTruthy();
   });
 
   it('renders tags as chips, one per tag, tracked by value', () => {

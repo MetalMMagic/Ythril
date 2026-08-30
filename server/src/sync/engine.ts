@@ -912,7 +912,16 @@ async function pullFromPeer(
     transfers: { memories: memR, entities: entR, edges: edgeR, chrono: chronoR, tombstones },
     warn: log.warn,
   });
-  overallMaxSeq = Math.max(memR.maxSeq, entR.maxSeq, edgeR.maxSeq, chronoR.maxSeq);
+  // TOMBSTONES ARE IN THIS MAX, and their absence was a silent record-loss bug rather than an omission.
+  //
+  // The bump below exists so local writes always sort above anything received from this peer. A tombstone IS
+  // received from this peer and carries the deleting instance's seq — so excluding it left a quiet peer's
+  // counter behind a busy peer's deletions, and a record re-created there (same id, lower seq) was refused
+  // by every peer holding the tombstone, permanently, with a 200 the sender reads as success.
+  //
+  // The watermark line above already passes all five transfers and says why an omitted one is the dangerous
+  // one. This is the same argument about the same transfer, one line down.
+  overallMaxSeq = Math.max(memR.maxSeq, entR.maxSeq, edgeR.maxSeq, chronoR.maxSeq, tombstones.maxSeq);
 
   // Bump the local seq counter so future local writes always get a seq higher
   // than any document received from this peer.  Without this, sync-upserted docs

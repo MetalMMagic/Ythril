@@ -23,6 +23,24 @@ import { log } from '../util/log.js';
 import type { NetworkMember, TombstoneDoc } from '../config/types.js';
 import type { TransferOutcome } from './watermark.js';
 
+/**
+ * What a tombstone PULL reports back, which is a `TransferOutcome` plus the clock.
+ *
+ * `maxSeq` is the highest tombstone seq received, and it exists because the local seq counter must advance
+ * past it. `bumpSeq`'s own stated purpose is that "future local writes always get a seq higher than any
+ * document received from this peer" — and a tombstone is received from a peer and carries the deleting
+ * instance's seq, so leaving it out broke that invariant precisely where it costs a record: a quiet peer
+ * re-creating a record a busy peer deleted gets a LOWER seq than the tombstone, and every future push of it
+ * is refused as `tombstoned` with a 200 the sender reads as success.
+ *
+ * `deliveredThrough` deliberately stays at `sinceSeq`: this pull is one request rather than a paged one, so
+ * it is either whole or it delivered nothing, and the field is only consulted when `truncated`.
+ */
+export interface TombstonePullOutcome extends TransferOutcome {
+  /** Highest tombstone seq received this pull, or 0 when none were. */
+  maxSeq: number;
+}
+
 /** Tombstones are paged at 500. A hard cap would silently drop deletions after a long absence, so there is none. */
 const TOMBSTONE_PAGE = 500;
 
@@ -38,9 +56,9 @@ export async function pullTombstones(opts: {
   networkId: string;
   sinceSeq: number;
   requestInit: () => RequestInit;
-}): Promise<TransferOutcome> {
+}): Promise<TombstonePullOutcome> {
   const { member, spaceId, remoteSpaceId, networkId, sinceSeq, requestInit } = opts;
-  const outcome: TransferOutcome = { deliveredThrough: sinceSeq, truncated: false };
+  const outcome: TombstonePullOutcome = { deliveredThrough: sinceSeq, truncated: false, maxSeq: 0 };
   try {
     const url = `${member.url}/api/sync/tombstones?spaceId=${encodeURIComponent(remoteSpaceId)}`
       + `&networkId=${encodeURIComponent(networkId)}&sinceSeq=${sinceSeq}`;
@@ -65,6 +83,11 @@ export async function pullTombstones(opts: {
     // authorised; a tombstone it relays on behalf of a third author is refused here and applied instead when we
     // sync directly with that author.
     for (const t of all) { await applyRemoteTombstone(t, { peerInstanceId: member.instanceId }); }
+    // Reported so the caller can advance the local seq counter past it — see `TombstonePullOutcome.maxSeq`.
+    // Taken over everything RECEIVED, not everything applied: a tombstone refused on authorship grounds still
+    // tells us where that peer's clock is, and advancing too far only skips seq numbers while not advancing
+    // far enough loses a record.
+    outcome.maxSeq = all.reduce((m, t) => Math.max(m, t.seq ?? 0), 0);
   } catch (err) {
     outcome.truncated = true;
     log.warn(`pullFromPeer tombstones from ${member.label}: ${err}`);

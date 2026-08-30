@@ -589,7 +589,8 @@ page therefore costs more on a proxy space than on a plain one, but it is the sa
 `recall` and `find-similar` bound the response by **`maxBytes`** (default **100 000 over REST, 25 000 over MCP**; `maxTokens` is the
 same ceiling in tokens, and the smaller of the two wins). What fits comes back as the longest **prefix** of the
 ranked matches, every record whole, and `nextSkip` says where to continue from — send it back as **`skip`** for
-the next prefix, with no match repeated and none missed.
+the next prefix, with no match repeated and none missed. A match is counted together with its whole `_graph`
+subtree, so a deeper or wider traversal means fewer matches fit — they are absent, not shortened.
 
 `returned`, `count`, `truncated`, `budgetBytes` and `bytesReturned` are on **every** response, whether the
 budget bit or not, so an absence never has to be interpreted; `nextSkip` is there exactly when `truncated` is.

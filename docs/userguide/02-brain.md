@@ -176,7 +176,13 @@ search you can run without writing a request by hand:
   guaranteed and they are the ones that matter: **every record you get is whole** — never half a passage, never
   a record missing part of its graph — and the results you get are the **top of the ranking**, in order, with
   nothing skipped in the middle. So a shortened answer is still the best answers, and the next request picks up
-  exactly where this one stopped. And **the page tells you when it happened** — a notice above the results says
+  exactly where this one stopped.
+
+  **What that guarantee costs, and it is the thing to know before blaming the search.** A match is counted
+  together with its whole graph, so asking for deeper or wider relationships means **fewer matches fit** — and
+  the ones that do not fit are absent, not shortened. A search for a hundred matches that comes back with
+  eleven has usually not found eleven things: it has found a hundred and spent the room on the relationships
+  around the first eleven. Turn the expansion down, or raise **Max response size**, and the rest appear. And **the page tells you when it happened** — a notice above the results says
   how many of how many came back, states both guarantees, and says what to do about it. Until 3.2.0 it did not:
   a shortened answer looked exactly like a complete one, so a hundred-match search could show a handful of
   records with nothing anywhere explaining why.

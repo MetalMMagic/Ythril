@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A provider fallback ran two model calls inside one step, and stall detection was told about only the
+  longer one.** With `fallbackToExternal` on, the media worker calls the primary provider, catches, and calls
+  the external one — in the same hop, with nothing reporting progress between them. `hopBudgets()` listed the
+  two legs as separate entries and the stall floor takes the **maximum** of what it is given, so for audio:
+
+  ```text
+  real hop   300 000 + 300 000  =  600 000 ms
+  floor      ceil(300 000 × 1.5) =  450 000 ms
+  ```
+
+  Two and a half minutes short. A long transcription reports no progress while it runs, so the sweep re-queued
+  the job mid-call, the replacement reached the same call, and it was re-queued at the same point — the loop
+  that never finishes, which the stall floor exists to prevent. Image captioning had the same shape and landed
+  *exactly* on the floor, which is the indistinguishability the 1.5× head-room is there to buy.
+
+  The budget is now composed by `providerHopMs()`, which reproduces the factory's own condition: a slot pointed
+  straight at `external` builds no chain and is unaffected, so no floor rises for a hop that cannot happen.
+
+  **The existing gate could not have caught this.** It enumerates timeout call sites and checks each budget is
+  one the floor knows about — and every leg passed that individually. The blind spot was two *known* budgets in
+  one step, which no list of names can express. The new gate asserts the composition rule instead, and fails if
+  a third fallback wrapper is ever added without composing its chain.
+
+  The integration guide's step table had the same error in prose, counting the legs as separate steps; it now
+  carries the chained figures.
 - **Seven routes answered `5xx` and threw away the exception that caused it.** The shape was always the same —
   `} catch (err) { res.status(500).json({ error: 'Internal error' }); }` — an error caught, named, and never
   read. The response body is generic on purpose, and the global handler in `app.ts` never sees an exception a

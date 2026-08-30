@@ -201,6 +201,20 @@ The worker-tuning fields — `workerConcurrency`, `workerPollIntervalMs`, `worke
 > | image caption (local / external) | 2 min / 1 min | 0.4× / 0.2× |
 > | external face recognition | 30 s | 0.1× |
 >
+> **`fallbackToExternal` makes two of those rows into one step, and the table above counts them as two.** When
+> the primary provider fails, the fallback is called inside the *same* hop with nothing reporting progress
+> between them, so the budget is the **sum**, not the larger:
+>
+> | step, with `fallbackToExternal: true` | budget | vs the 5-minute stall default |
+> |---|---|---|
+> | audio transcription, local then external | 5 min + 5 min = **10 min** | **2×** |
+> | image caption, local then external | 2 min + 1 min = **3 min** | 0.6× |
+>
+> Both legs share one constant for audio, because the external Whisper client is the local one with its egress
+> re-routed. Turning the option on therefore doubles the longest audio step, and the stall floor now accounts
+> for it — before, transcription with fallback enabled could be re-queued 2.5 minutes before it was entitled to
+> give up. Pointing a slot directly at `external` builds no chain and is unaffected.
+>
 > So on a stock install the effective stall timeout is now **30 minutes** (1.5 × the render window), not 5. That
 > is the cost of the fix, and it is the right trade: the alternative was a document large enough to need a
 > >5-minute render being re-queued mid-render, forever. **Lower `maxPages` or `pageTimeoutMs` and the floor

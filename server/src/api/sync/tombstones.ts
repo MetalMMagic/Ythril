@@ -12,6 +12,7 @@ import { getDataRoot } from '../../config/loader.js';
 import { listTombstones, applyRemoteTombstone } from '../../brain/tombstones.js';
 import { requireAuth, denyReadOnly, isInstanceAdmin } from '../../auth/middleware.js';
 import { log } from '../../util/log.js';
+import { bumpSeq } from '../../util/seq.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { TombstoneDoc, FileTombstoneDoc } from '../../config/types.js';
@@ -93,6 +94,32 @@ syncTombstonesRouter.post('/tombstones', syncRateLimit, requireAuth, denyReadOnl
     await Promise.all(parsed.data.map(t =>
       applyRemoteTombstone(t as TombstoneDoc, { peerInstanceId: callerPeerId, trustedRelay }),
     ));
+
+    /*
+     * A TOMBSTONE MUST ADVANCE THE COUNTER, exactly as a document does.
+     *
+     * The bump exists so "future local writes always get a seq higher than any document received from this
+     * peer" — its own words. A tombstone was received from this peer and carries the deleting instance's seq,
+     * and skipping it breaks that invariant in the one place it costs a record:
+     *
+     *   a busy peer (counter 5001) deletes a record         -> tombstone, seq 5001
+     *   a quiet peer (counter 300) receives it              -> counter stays 300
+     *   the quiet peer re-creates that record with the same id -> local seq 301
+     *   it pushes back                                      -> `tombstone.seq >= incoming.seq`, refused as
+     *                                                          `tombstoned` with a 200
+     *
+     * The sender reads only `resp.ok`, so it advances past the record and never offers it again. Silent,
+     * permanent, and one-directional. It is reachable today wherever a caller supplies the id — memories,
+     * entities and chrono all take one — and it is what would make a derived edge id unsafe (P-23).
+     *
+     * Bumped on everything RECEIVED rather than on what `applyRemoteTombstone` accepted. A tombstone it
+     * refuses on authorship grounds still tells us where that peer's clock is, and the two errors are not
+     * symmetric: advancing too far only skips some seq numbers, while not advancing far enough loses a
+     * record.
+     */
+    const maxTombstoneSeq = parsed.data.reduce((m, t) => Math.max(m, t.seq ?? 0), 0);
+    if (maxTombstoneSeq > 0) bumpSeq(spaceId, maxTombstoneSeq).catch(() => {});
+
     res.status(200).json({ applied: parsed.data.length });
   } catch (err) {
     log.error(`sync POST tombstones: ${err}`);

@@ -82,6 +82,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A record re-created after a peer deleted it could be refused for ever, silently.** The local seq counter is
+  bumped past everything received from a peer — that is the stated reason it exists — but tombstones were left
+  out of that bump on **both** ingest paths, while carrying the deleting instance's seq like any other record.
+
+  ```text
+  a busy peer  (counter 5001) deletes a record   →  tombstone, seq 5001
+  a quiet peer (counter  300) receives it        →  counter stays 300
+  the quiet peer re-creates it with the same id  →  local seq 301
+  it pushes back                                 →  refused as `tombstoned`, with a 200
+  ```
+
+  The sender reads only whether the response was ok, so it advances past the record and never offers it again.
+  One-directional, permanent, and invisible from either end.
+
+  **Reachable today**, not a future risk: memories, entities and chrono all accept a caller-supplied id, which
+  is exactly how a record comes back with the id it was deleted under.
+
+  Both paths now bump — the pull folds the tombstone transfer's highest seq into the same `Math.max` as the
+  four record families, and the receiving route bumps on what arrived. Over everything **received** rather
+  than everything applied: a tombstone refused on authorship grounds still says where that peer's clock is,
+  and the errors are not symmetric — advancing too far skips some numbers, not advancing far enough loses a
+  record.
+
+  The alternative was comparing the incoming `createdAt` against the tombstone's `deletedAt`. That would put a
+  second clock beside the seq one; the counter is the clock the protocol already runs on, and it was simply
+  not being wound forward by one of the five things that arrive each cycle.
+
 - **A chrono create that converges onto an existing entry was validated against the wrong document.** Supplying
   an `_id` that already names an entry does not duplicate — it converges, and it stores
   `mergeProperties(existing, incoming)`. Both doors checked the incoming properties alone, so the document

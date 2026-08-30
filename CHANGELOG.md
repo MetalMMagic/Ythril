@@ -426,6 +426,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so it can never be independent evidence. Five rows announcing completion as `✅ BUILT` and one as `- [~]`
   passed every check, and the fix history above is four rounds of widening the word list. A green
   `todo:check` means the folder is internally consistent — never that the statuses are true.
+- **A `Verify:` line is now checked, not just required.** The rule demanding one has always said its evidence
+  is *"mechanically checkable"*; nothing ever checked it. Each line now parses into `grep -c "<literal>"
+  <one file>` returns `<N>`, and the gate evaluates it: a line that DISAGREES with the tree is reported, and so
+  is one naming a file that no longer exists — never folded into "0 matches", which would let
+  `grep -c foo deleted.ts returns 0` pass for ever from the moment the file was deleted.
+
+  **Nothing is handed to a shell, and the pattern is refused rather than interpreted.** Preflight reaches this
+  through node, and Windows has no `grep` on PATH; the same line tokenizes three ways in bash, cmd and
+  PowerShell; and `todo/` is gitignored and reviewed by nobody, so executing a string out of it would make a
+  working-notes file an execution surface in the gate that runs before every push. Matching the pattern
+  literally instead has a quieter failure: measured on this tree, `grep -c "^export" server/src/brain/edges.ts`
+  answers **24** in a shell and **0** as a literal, and the divergence runs toward 0 — which is what every
+  clause in the corpus asserts. So a pattern containing `^ $ . * [ ] \` is REFUSED with the character named.
+  `( ) { } | + ?` are accepted, because they are ordinary characters in a basic regular expression and
+  rejecting them would push authors toward vaguer patterns that match their subject's neighbours. All nine
+  live clauses were cross-checked against real Git Bash `grep` and agree.
+
+  **The manual escape hatch is capped at three, dated, and lives in the tracked script** rather than beside the
+  item — `todo/` is reviewed by nobody, so a reason written there costs nothing, while a row in the script
+  lands in a diff. Entries expire on a date no more than 120 days out, and a stale one fails rather than warns.
+
+  **The tick says "its stated evidence still holds", not "it is still open"** — and that is the honest bound.
+  The two differ whenever a fix lands somewhere other than the file the row names, which here is the usual
+  shape, because the convention is to extract. `L-4` named `api/contradictions.ts`; its fix went into
+  `brain/edges.ts`, and that file is byte-identical from #1041 through HEAD, so every clause faithful to the
+  row's own words would still have said "holds" four days after it shipped. Six of the eight stale rows were
+  fix-in-place and would have been caught; two were extractions and would not.
+
+  Also: rule 4 caught its own `git log` and left the result empty, so a git failure was indistinguishable from
+  a pass — the gate's one independent check printing green having compared nothing. It fails now, and both git
+  calls carry a timeout.
 - **A property `default` did nothing at all.** It was declared in the schema interface, documented in the
   integration guide, and editable in the settings UI — and **read by nothing in the entire server**. An operator
   could set one, save it, and it silently never applied, with no hint that it had not taken.

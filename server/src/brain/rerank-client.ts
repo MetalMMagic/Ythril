@@ -17,13 +17,20 @@
  * **Failure is never fatal.** Every path returns `null`, which means "no opinion" — the caller keeps the
  * vector order. A reranker that is down must degrade search quality, never break search.
  */
-import { getMediaEmbeddingConfig } from '../config/loader.js';
+import { getMediaEmbeddingConfig, getModelSlots } from '../config/loader.js';
+import { slotTimeoutMs } from '../config/model-slots.js';
 import { boundedJson } from '../util/bounded-read.js';
 import { allowPrivateForSlot, isLocalModelEndpoint } from '../config/model-egress-policy.js';
 import { ssrfSafeFetch } from '../util/ssrf.js';
 import { log } from '../util/log.js';
 
-const TIMEOUT_MS = 20_000;
+/**
+ * The reranker's own ceiling, resolved per call.
+ *
+ * A CEILING and not a flat budget: the signal takes `min(this, the caller's remaining recall budget)`, so a
+ * value above `RECALL_BUDGET_MS` never binds and raising it only helps a caller who has budget left.
+ */
+const rerankTimeout = () => slotTimeoutMs('rerank', getModelSlots());
 
 /** Bounds on `candidateMultiplier`. Below 2 there is nothing to rescue; above 10 every search overpays. */
 // Defined in `config/setting-bounds.ts` — this module imports the loader, and the loader imports that file,
@@ -137,7 +144,7 @@ export async function rerank(
   /**
    * What is left of the caller's end-to-end budget. The reranker's own timeout is capped to it, so a
    * pass that could not finish in time is abandoned early instead of running on past the point where
-   * anyone is still listening. Omitted (or non-finite) means the full TIMEOUT_MS.
+   * anyone is still listening. Omitted (or non-finite) means the full slot budget.
    */
   budgetMs?: number,
 ): Promise<RerankScore[] | null> {
@@ -154,7 +161,7 @@ export async function rerank(
     },
     body: JSON.stringify(buildBody(dialect, cfg.model, query, passages)),
     signal: AbortSignal.timeout(
-      Number.isFinite(budgetMs) && budgetMs! > 0 ? Math.min(TIMEOUT_MS, budgetMs!) : TIMEOUT_MS,
+      Number.isFinite(budgetMs) && budgetMs! > 0 ? Math.min(rerankTimeout(), budgetMs!) : rerankTimeout(),
     ),
   };
 

@@ -36,11 +36,19 @@ export function allowPrivateModelEndpoints(): boolean {
  * Keyed by slot rather than by URL, because the same host can legitimately hold several of them and the
  * question "may THIS endpoint reach a private address" is per-endpoint.
  */
-export const EGRESS_SLOTS = [
-  'vision', 'stt', 'embedding', 'rerank', 'nli',
-  'assist', 'docVlm', 'docRepair', 'docVerify', 'faceExternal',
-] as const;
-export type EgressSlot = (typeof EGRESS_SLOTS)[number];
+/*
+ * The slot vocabulary moved to `config/model-slots.ts` and is re-exported here unchanged.
+ *
+ * That module is a leaf — it imports nothing — because the per-slot call budgets are read from the loader, the
+ * media providers and two brain clients, several of which this file's own importers already pull in. Owning
+ * the list here and importing it there would close a runtime import cycle. Re-exporting keeps all fourteen
+ * existing `EgressSlot` import sites working and, more importantly, means the egress policy and the budget
+ * table cannot come to describe different sets of slots.
+ */
+import { MODEL_SLOTS } from './model-slots.js';
+import type { ModelSlot } from './model-slots.js';
+export const EGRESS_SLOTS = MODEL_SLOTS;
+export type EgressSlot = ModelSlot;
 
 /**
  * The env var pinning each slot. Written out rather than derived from the slot name.

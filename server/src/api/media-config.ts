@@ -25,6 +25,8 @@ import { log } from '../util/log.js';
 import { providerSignature, getActiveProviderSignature } from '../files/media/worker.js';
 import { MIN_CANDIDATE_MULTIPLIER, MAX_CANDIDATE_MULTIPLIER } from '../brain/rerank-client.js';
 import { DUAL_DOOR_BOUNDS } from '../config/setting-bounds.js';
+import { MODEL_TIMEOUT_MIN_MS, MODEL_TIMEOUT_MAX_MS, MODEL_SLOTS } from '../config/model-slots.js';
+import type { ModelSlot, ModelSlotsConfig } from '../config/model-slots.js';
 
 /**
  * An integer field whose range is shared with the environment-variable door.
@@ -208,6 +210,60 @@ const FaceRecognitionPatchSchema = z.object({
   }).strict().optional(),
 }).strict();
 
+/**
+ * Per-slot model tuning.
+ *
+ * Written as an explicit `z.object` with one key per slot rather than a `z.record`, and that is load-bearing
+ * rather than stylistic: `pinnable-paths-match-the-writable-surface.test.js` parses `\w+PatchSchema` blocks and
+ * expands `field: XPatchSchema` into `field.sub` paths. A `z.record` parses as a scalar, and the gate would
+ * then demand that the whole record be pinnable as one field — which would make `YTHRIL_PINNED_FIELDS` unable
+ * to fix one slot without fixing all ten.
+ *
+ * `.strict()`, like every schema here, so an unknown slot is a 400 naming the body rather than a silent strip.
+ */
+const SlotTuningPatchSchema = z.object({
+  timeoutMs: z.number().int().min(MODEL_TIMEOUT_MIN_MS).max(MODEL_TIMEOUT_MAX_MS).optional().nullable(),
+}).strict();
+
+const ModelSlotsPatchSchema = z.object({
+  vision: SlotTuningPatchSchema.optional(),
+  stt: SlotTuningPatchSchema.optional(),
+  embedding: SlotTuningPatchSchema.optional(),
+  rerank: SlotTuningPatchSchema.optional(),
+  nli: SlotTuningPatchSchema.optional(),
+  assist: SlotTuningPatchSchema.optional(),
+  docVlm: SlotTuningPatchSchema.optional(),
+  docRepair: SlotTuningPatchSchema.optional(),
+  docVerify: SlotTuningPatchSchema.optional(),
+  faceExternal: SlotTuningPatchSchema.optional(),
+}).strict() satisfies z.ZodType<Partial<Record<ModelSlot, unknown>>>;
+
+/**
+ * Merge a per-slot patch SLOT BY SLOT.
+ *
+ * The obvious `{...existing, ...patch}` at the top level would replace the whole `modelSlots` object, so a
+ * patch naming one slot would silently clear the other nine back to their defaults. That is exactly the trap
+ * `mergeLevelCeilings` exists to document one screen down, and the client compensates for it there by always
+ * sending all four classes — a compensation that only works as long as somebody remembers it.
+ *
+ * `null` on a field clears it, which is how an operator returns a slot to its built-in default. Distinguishing
+ * that from "absent" is the whole reason the schema marks the field `.nullable()` as well as `.optional()`.
+ */
+export function mergeModelSlots(
+  existing: ModelSlotsConfig | undefined,
+  patch: Partial<Record<ModelSlot, { timeoutMs?: number | null } | undefined>>,
+): ModelSlotsConfig {
+  const out: ModelSlotsConfig = { ...(existing ?? {}) };
+  for (const slot of MODEL_SLOTS) {
+    const p = patch[slot];
+    if (p === undefined) continue;                    // this slot was not mentioned — leave it alone
+    const timeoutMs = p.timeoutMs;
+    if (timeoutMs === null || timeoutMs === undefined) delete out[slot];
+    else out[slot] = { ...out[slot], timeoutMs };
+  }
+  return out;
+}
+
 const MediaConfigPatchSchema = z.object({
   // No `enabled` — the media-embedding master switch was removed; each class is controlled via `levels`.
   levels: LevelsPatchSchema.optional(),
@@ -218,6 +274,7 @@ const MediaConfigPatchSchema = z.object({
   stt: ProviderPatchSchema.optional(),
   embedding: EmbeddingPatchSchema.optional(),
   rerank: RerankPatchSchema.optional(),
+  modelSlots: ModelSlotsPatchSchema.optional(),
   nli: NliPatchSchema.optional(),
   documentProcessing: DocumentProcessingPatchSchema.optional(),
   workerConcurrency: bounded('mediaEmbedding.workerConcurrency'),
@@ -725,6 +782,11 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       cfg.embedding = mergeEmbeddingPatch(cfg.embedding as any, parsed.data.embedding) as any;
     }
+    // Per-slot budgets live at TOP-LEVEL `config.modelSlots`, for the same reason `embedding` does: the ten
+    // slots span three config homes, so nesting them under `mediaEmbedding` would be the wrong home for
+    // `embedding` and the document slots.
+    delete merged['modelSlots'];
+    if (parsed.data.modelSlots) cfg.modelSlots = mergeModelSlots(cfg.modelSlots, parsed.data.modelSlots);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     cfg.mediaEmbedding = merged as any;
     saveConfig(cfg);

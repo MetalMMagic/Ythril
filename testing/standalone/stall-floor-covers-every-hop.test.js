@@ -65,7 +65,14 @@ const COVERED = [
   /^describeTimeoutMs\(/,                  // fed directly (via the describeTimeoutMs() resolver)
   /^renderWindowTimeoutMs\(/,              // fed as `renderWindowMs` via worstRenderWindowMs()
   /^worstRenderWindowMs\(/,
-  /^(VISION|EXTERNAL_VISION|STT|FACE)_TIMEOUT_MS$/,   // fed as visionTimeoutMs / sttTimeoutMs / …
+  // The media slots, since they became operator-settable. These used to be the bare constants
+  // `VISION_TIMEOUT_MS` / `STT_TIMEOUT_MS` / `FACE_TIMEOUT_MS`, and a name-anchored entry was fine while the
+  // number could not change. It can now, so the entry follows this file's own rule two comments up: a budget
+  // that varies has to go through a NAMED FUNCTION, and both the call site and `hopBudgets()` call that same
+  // function. Reading the constant in either place is the defect, not the spelling.
+  /^visionTimeout\(/,                       // providers.ts, both legs — one configured value covers them
+  /^sttTimeout\(/,
+  /^slotTimeoutMs\(/,                       // face-external.ts, and any slot resolved directly
 ];
 
 /**
@@ -107,8 +114,9 @@ function literalMs(expr) {
  * reaches the stall floor". Returns null for an expression that is not a recognised budget.
  */
 function budgetToken(expr) {
-  const named = expr.match(/^(VISION|EXTERNAL_VISION|STT|FACE)_TIMEOUT_MS$/);
-  if (named) return named[0];
+  // The slot resolvers, which is what a settable budget looks like. `hopBudgets()` proves it reaches the floor
+  // by calling `slotTimeoutMs` for the same slot — so the token to look for there is the resolver itself.
+  if (/^visionTimeout\(|^sttTimeout\(|^slotTimeoutMs\(/.test(expr)) return 'slotTimeoutMs';
   if (/^renderWindowTimeoutMs\(|^worstRenderWindowMs\(/.test(expr)) return 'worstRenderWindowMs';
   if (/^describeTimeoutMs\(/.test(expr)) return 'describeTimeoutMs';
   if (/^[\w.]*\bpageTimeoutMs$/.test(expr)) return 'pageTimeoutMs';

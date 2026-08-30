@@ -15,11 +15,12 @@
  * `ssrfSafeFetch` with the same private-address policy as every other model call, so a misconfigured or
  * attacker-supplied endpoint cannot be used to reach cluster-internal services.
  */
-import { getMediaEmbeddingConfig } from '../config/loader.js';
+import { getModelSlots, getMediaEmbeddingConfig } from '../config/loader.js';
 import { boundedJson } from '../util/bounded-read.js';
 import { allowPrivateForSlot, isLocalModelEndpoint as isLocalEndpoint } from '../config/model-egress-policy.js';
 import { ssrfSafeFetch } from '../util/ssrf.js';
 import { log } from '../util/log.js';
+import { slotTimeoutMs } from '../config/model-slots.js';
 
 export type NliLabel = 'entailment' | 'neutral' | 'contradiction';
 
@@ -122,7 +123,7 @@ export async function classify(premise: string, hypothesis: string): Promise<Nli
       ...(nli.apiKey ? { authorization: `Bearer ${nli.apiKey}` } : {}),
     },
     body: JSON.stringify({ model: nli.model, premise, hypothesis }),
-    signal: AbortSignal.timeout(20_000),
+    signal: AbortSignal.timeout(slotTimeoutMs('nli', getModelSlots())),
   };
 
   try {

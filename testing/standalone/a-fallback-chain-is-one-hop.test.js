@@ -36,8 +36,22 @@ import { readFileSync } from 'node:fs';
 import { stripComments } from './_strip-comments.mjs';
 import { bodyOf } from './_structural-window.mjs';
 
-const { providerHopMs, VISION_TIMEOUT_MS, EXTERNAL_VISION_TIMEOUT_MS, STT_TIMEOUT_MS } =
-  await import('../../server/dist/files/media/providers.js');
+const { providerHopMs } = await import('../../server/dist/files/media/providers.js');
+/*
+ * The per-slot defaults, from the module that owns them.
+ *
+ * These used to be `VISION_TIMEOUT_MS` / `STT_TIMEOUT_MS` constants exported from `providers.ts`. They became
+ * operator-settable, so the numbers moved to `config/model-slots.ts` and the call sites resolve them per call
+ * — a module constant would ignore a config reload and the floor would then be fed a value the calls no longer
+ * use. Importing the removed names silently yielded `undefined`, and `providerHopMs(undefined, undefined, …)`
+ * is NaN, which compares false against every assertion here rather than failing one of them.
+ */
+const { MODEL_SLOT_DEFAULT_MS } = await import('../../server/dist/config/model-slots.js');
+const VISION_TIMEOUT_MS = MODEL_SLOT_DEFAULT_MS.vision;
+const STT_TIMEOUT_MS = MODEL_SLOT_DEFAULT_MS.stt;
+// One configured value now covers both vision legs, so the external leg's default is the local one for the
+// purposes of this arithmetic — which is what `slotTimeoutMs('vision', …)` returns to both call sites.
+const EXTERNAL_VISION_TIMEOUT_MS = MODEL_SLOT_DEFAULT_MS.vision;
 const { effectiveStallTimeoutMs, STALL_FLOOR_FACTOR } =
   await import('../../server/dist/files/media/stall-floor.js');
 
@@ -59,7 +73,7 @@ describe('a fallback chain is one hop', () => {
 
   it('the STT chain no longer outruns the floor it produces — the defect, as a number', () => {
     const hop = providerHopMs(STT_TIMEOUT_MS, STT_TIMEOUT_MS, 'local', true);
-    assert.equal(hop, 600_000, 'both STT legs share one constant, so the chain is double');
+    assert.equal(hop, 600_000, 'both STT legs take one resolved value, so the chain is double');
 
     const { ms } = effectiveStallTimeoutMs(DEFAULT_STALL_MS, { sttHopMs: hop });
     assert.ok(
@@ -95,9 +109,10 @@ describe('a fallback chain is one hop', () => {
     const body = bodyOf(worker, 'hopBudgets');
     assert.match(body, /providerHopMs\(/, 'hopBudgets no longer composes the chain — re-point this gate');
     assert.doesNotMatch(
-      body, /:\s*(VISION_TIMEOUT_MS|EXTERNAL_VISION_TIMEOUT_MS|STT_TIMEOUT_MS)\s*,/,
-      'a provider constant is being fed to the stall floor as a bare leg again. Both legs of a chain run '
-      + 'inside one hop, so the floor must be told the sum — see providerHopMs().',
+      body, /:\s*(VISION_TIMEOUT_MS|EXTERNAL_VISION_TIMEOUT_MS|STT_TIMEOUT_MS|MODEL_SLOT_DEFAULT_MS\.\w+)\s*,/,
+      'a raw per-leg budget is being fed to the stall floor again. Both legs of a chain run inside one hop, so '
+      + 'the floor must be told the sum — see providerHopMs(). The default table counts too: reading it '
+      + 'directly here would feed the floor the SHIPPED value while the calls use the configured one.',
     );
   });
 

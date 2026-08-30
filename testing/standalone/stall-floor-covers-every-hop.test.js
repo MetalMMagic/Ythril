@@ -30,6 +30,8 @@ import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 
+const { DUAL_DOOR_BOUNDS } = await import('../../server/dist/config/setting-bounds.js');
+
 const ROOT = process.cwd();
 
 /** Media-path source files, from git rather than a directory walk (gitignored/untracked files are not source). */
@@ -221,12 +223,18 @@ describe('the stall floor knows every hop on the media path', () => {
   });
 
   it('the exemption threshold is derived from the real schema minimum', () => {
-    // If the API ever accepts a smaller stalledJobTimeoutMs, the threshold above stops being provable and the
-    // 3 s probes would need covering too. Read from source so the two cannot drift.
-    const schema = readFileSync(join(ROOT, 'server/src/api/media-config.ts'), 'utf8');
-    const m = schema.match(/stalledJobTimeoutMs:\s*z\.number\(\)\.int\(\)\.min\(([\d_]+)\)/);
-    assert.ok(m, 'could not find the stalledJobTimeoutMs bound in the admin schema');
-    assert.equal(Number(m[1].replace(/_/g, '')), MIN_STALL_TIMEOUT_MS);
+    /*
+     * If the API ever accepts a smaller stalledJobTimeoutMs, the threshold above stops being provable and the
+     * 3 s probes would need covering too — so the two must not drift.
+     *
+     * Read from the BUILT bounds table rather than by regex over the admin schema. The regex matched
+     * `z.number().int().min(30_000)` written inline, and the day that field started reading its range from the
+     * table both doors share — so that an environment variable could not set a range the API refuses — the
+     * gate reported the bound "not found" and failed on a change that made the number MORE authoritative, not
+     * less. A check on how a value is SPELLED rather than on what it IS fails exactly when the value gets a
+     * better home.
+     */
+    assert.equal(DUAL_DOOR_BOUNDS['mediaEmbedding.stalledJobTimeoutMs'].min, MIN_STALL_TIMEOUT_MS);
   });
 });
 

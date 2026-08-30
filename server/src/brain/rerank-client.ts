@@ -26,8 +26,10 @@ import { log } from '../util/log.js';
 const TIMEOUT_MS = 20_000;
 
 /** Bounds on `candidateMultiplier`. Below 2 there is nothing to rescue; above 10 every search overpays. */
-export const MIN_CANDIDATE_MULTIPLIER = 2;
-export const MAX_CANDIDATE_MULTIPLIER = 10;
+// Defined in `config/setting-bounds.ts` — this module imports the loader, and the loader imports that file,
+// so owning them here would close a runtime import cycle. Re-exported so every existing importer is unchanged.
+import { MIN_CANDIDATE_MULTIPLIER, MAX_CANDIDATE_MULTIPLIER } from '../config/setting-bounds.js';
+export { MIN_CANDIDATE_MULTIPLIER, MAX_CANDIDATE_MULTIPLIER };
 export const DEFAULT_CANDIDATE_MULTIPLIER = 4;
 
 /**

@@ -28,6 +28,8 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { stripComments } from './_strip-comments.mjs';
+import { enclosingBlockAround } from './_structural-window.mjs';
 
 const read = (p) => readFileSync(p, 'utf8');
 
@@ -44,6 +46,9 @@ function sources(dir = 'server/src') {
 
 const FILES = sources();
 const HELPER = read('server/src/config/env-num.ts');
+
+/** The RESOLVED registry — what the boot sweep actually iterates, not how its entries happen to be spelled. */
+const { NUMERIC_SETTINGS } = await import('../../server/dist/config/env-num.js');
 
 describe('the sweep itself works', () => {
   it('found the server sources', () => {
@@ -76,10 +81,64 @@ describe('every numeric env read goes through the validated helper', () => {
       + offenders.join('\n  '));
   });
 
+  it('nor via a variable — the spelling that let five settings through', () => {
+    /*
+     * The check above matches `Number(process.env[X])` as ONE expression. `getMediaEmbeddingConfig`'s own
+     * `pick()` did this instead:
+     *
+     *     const envRaw = process.env[envKey];
+     *     if (typeof defaultVal === 'number') return Number(envRaw) as T;
+     *
+     * One assignment between the two halves, and five media settings — WORKER_CONCURRENCY,
+     * WORKER_POLL_INTERVAL_MS, WORKER_MAX_POLL_INTERVAL_MS, MAX_FILE_SIZE_BYTES, STALLED_JOB_TIMEOUT_MS —
+     * were read with a bare `Number()` while this file's own header called the registry "exhaustive by
+     * design". `maxFileSizeBytes` is the one that bit: `input.bytes > NaN` is false, so a mistyped
+     * `MAX_FILE_SIZE_BYTES` did not raise the media size limit, it removed it.
+     *
+     * Searching for the QUESTION rather than for one way of writing it is the recorded lesson here.
+     */
+    const offenders = [];
+    for (const f of FILES) {
+      if (f.endsWith(join('config', 'env-num.ts'))) continue;
+      if (f.endsWith(join('config', 'setting-bounds.ts'))) continue;   // it IS the validator
+      const src = stripComments(read(f));
+      const fromEnv = new Set(
+        [...src.matchAll(/\b(?:const|let|var)\s+(\w+)\s*(?::[^=]+)?=\s*process\.env\b/g)].map(m => m[1]),
+      );
+      for (const m of src.matchAll(/(?:Number|parseInt|parseFloat)\(\s*(\w+)\b/g)) {
+        if (!fromEnv.has(m[1])) continue;
+        /*
+         * The scope decides it, not the file. Four call sites do exactly this and are CORRECT — they coerce and
+         * then refuse a non-finite result, falling back to a default. Reporting them would push whoever fixed
+         * the gate toward deleting a real guard to quiet it, which is how a gate makes code worse.
+         *
+         * So the window is the enclosing block, and what it must contain is a decision about the result:
+         * `Number.isFinite`, or the shared validator. A file-wide search cannot tell a guarded coercion from an
+         * unguarded one sitting next to it — which is exactly how `local-agent.ts`, whose `raw` is a URL, was
+         * reported as a numeric defect.
+         */
+        const scope = enclosingBlockAround(src, m.index, `${f} coercion of ${m[1]}`);
+        if (/Number\.isFinite|checkDualDoorValue\(|envInt(?:Opt)?\(/.test(scope)) continue;
+        const line = src.slice(0, m.index).split('\n').length;
+        offenders.push(`${f}:${line}  Number(${m[1]}) where ${m[1]} came from process.env, unguarded`);
+      }
+    }
+    assert.deepEqual(offenders, [],
+      'these coerce an environment value through a local variable, so the direct-read check above cannot see '
+      + 'them and a typo becomes NaN. Route the value through envInt/envIntOpt or checkDualDoorValue:\n  '
+      + offenders.join('\n  '));
+  });
+
   it('the registry covers every setting the helper is asked for', () => {
     // A call site that passes a name the registry does not know still gets parsed, but with no bounds and no entry
     // in the boot-time sweep — half-validated, which is the worst of both.
-    const names = new Set([...HELPER.matchAll(/name:\s*'([A-Z0-9_]+)'/g)].map(m => m[1]));
+    //
+    // The names come from the BUILT registry rather than from a `name: 'X'` regex over its source. The regex was
+    // reading one spelling of an entry, so the day four entries were written as `dual('X')` — taking their range
+    // from the table the admin PATCH also reads — the gate reported them missing while they were present and
+    // correct. A check on how a list is WRITTEN rather than on what it CONTAINS is the same defect this file
+    // exists to prevent, one level up.
+    const names = new Set(NUMERIC_SETTINGS.map(s => s.name));
     assert.ok(names.size >= 12, `the registry looks empty: ${names.size} entries`);
 
     const missing = [];

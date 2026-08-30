@@ -24,7 +24,19 @@ import { listUrlFor, type VlmWire } from '../files/converters/vlm-endpoint.js';
 import { log } from '../util/log.js';
 import { providerSignature, getActiveProviderSignature } from '../files/media/worker.js';
 import { MIN_CANDIDATE_MULTIPLIER, MAX_CANDIDATE_MULTIPLIER } from '../brain/rerank-client.js';
-import { MAX_EMBED_CONCURRENCY } from '../files/converters/embed-concurrency.js';
+import { DUAL_DOOR_BOUNDS } from '../config/setting-bounds.js';
+
+/**
+ * An integer field whose range is shared with the environment-variable door.
+ *
+ * The comment on `embedConcurrency` used to say the ceiling was *"imported rather than repeated"* — which was
+ * true of that one field and of no other, and the three that DID repeat their numbers had all drifted from the
+ * env door by the time anybody looked. This makes the import the rule rather than the exception.
+ */
+function bounded(path: keyof typeof DUAL_DOOR_BOUNDS) {
+  const b = DUAL_DOOR_BOUNDS[path];
+  return z.number().int().min(b.min).max(b.max).optional();
+}
 import { mergeEmbeddingPatch } from '../config/embedding-patch.js';
 import { faceEndpointConsented } from '../files/media/face-external.js';
 
@@ -100,10 +112,10 @@ const DocumentProcessingPatchSchema = z.object({
   maxPages: z.number().int().min(1).max(2_000).optional(),
   pageTimeoutMs: z.number().int().min(1_000).max(600_000).optional(),
   concurrency: z.number().int().min(1).max(8).optional(),
-  ocrTimeoutMs: z.number().int().min(10_000).max(1_800_000).optional(),
+  ocrTimeoutMs: bounded('documentProcessing.ocrTimeoutMs'),
   // The describe call's budget. The floor is low because failing it costs only the generated description;
   // the ceiling is generous because a single-GPU host may have to load a model before it can answer.
-  describeTimeoutMs: z.number().int().min(1_000).max(600_000).optional(),
+  describeTimeoutMs: bounded('documentProcessing.describeTimeoutMs'),
   assistModel: AssistModelPatchSchema.optional(),
 }).strict();
 
@@ -114,7 +126,7 @@ const EmbeddingPatchSchema = z.object({
   provider: z.enum(['local', 'external']).optional(),
   baseUrl: z.string().url().optional().nullable(),
   model: z.string().min(1).max(256).optional(),
-  dimensions: z.number().int().min(1).max(16_384).optional(),
+  dimensions: bounded('embedding.dimensions'),
   similarity: z.enum(['cosine', 'dotProduct', 'euclidean']).optional(),
   // Also re-indexes every vector: the prefix is part of the embedded string, so changing the scheme
   // changes the vector for identical text. Gated by the same client confirmation as model/dimensions.
@@ -122,7 +134,7 @@ const EmbeddingPatchSchema = z.object({
   // Chunk-embed concurrency. Accepted here as well as by env so an operator can tune it without a redeploy;
   // the ceiling is the one `embedConcurrency()` clamps to, imported rather than repeated. Absent means "use
   // the per-embedder default", which is why there is no value that means that — clearing it is `null`.
-  embedConcurrency: z.number().int().min(1).max(MAX_EMBED_CONCURRENCY).optional().nullable(),
+  embedConcurrency: bounded('embedding.embedConcurrency').nullable(),
   apiKey: z.string().max(512).optional().nullable(),
 }).strict();
 
@@ -134,7 +146,7 @@ const RerankPatchSchema = z.object({
   baseUrl: z.string().url().optional().nullable(),
   model: z.string().max(128).optional().nullable(),
   apiKey: z.string().max(512).optional().nullable(),
-  candidateMultiplier: z.number().int().min(MIN_CANDIDATE_MULTIPLIER).max(MAX_CANDIDATE_MULTIPLIER).optional(),
+  candidateMultiplier: bounded('mediaEmbedding.rerank.candidateMultiplier'),
 }).strict();
 
 /**
@@ -208,12 +220,12 @@ const MediaConfigPatchSchema = z.object({
   rerank: RerankPatchSchema.optional(),
   nli: NliPatchSchema.optional(),
   documentProcessing: DocumentProcessingPatchSchema.optional(),
-  workerConcurrency: z.number().int().min(1).max(16).optional(),
-  workerPollIntervalMs: z.number().int().min(100).max(60_000).optional(),
-  workerMaxPollIntervalMs: z.number().int().min(1_000).max(600_000).optional(),
+  workerConcurrency: bounded('mediaEmbedding.workerConcurrency'),
+  workerPollIntervalMs: bounded('mediaEmbedding.workerPollIntervalMs'),
+  workerMaxPollIntervalMs: bounded('mediaEmbedding.workerMaxPollIntervalMs'),
   fallbackToExternal: z.boolean().optional(),
-  maxFileSizeBytes: z.number().int().min(1).max(10_737_418_240 /* 10 GiB */).optional(),
-  stalledJobTimeoutMs: z.number().int().min(30_000).max(3_600_000).optional(),
+  maxFileSizeBytes: bounded('mediaEmbedding.maxFileSizeBytes'),
+  stalledJobTimeoutMs: bounded('mediaEmbedding.stalledJobTimeoutMs'),
 }).strict();
 
 /**

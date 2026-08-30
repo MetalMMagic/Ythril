@@ -29,6 +29,7 @@
  * about both.
  */
 import { log } from '../util/log.js';
+import { DUAL_DOOR_BOUNDS, ENV_TO_CONFIG_PATH } from './setting-bounds.js';
 
 /** A numeric setting: its name, its bounds, and what it means, for the error message. */
 interface NumericSetting {
@@ -37,6 +38,18 @@ interface NumericSetting {
   max: number;
   /** Named in the failure message so an operator knows what they have broken. */
   what: string;
+}
+
+/**
+ * An entry for a setting that is ALSO writable through the admin PATCH, taking its range from the one place
+ * both doors read.
+ *
+ * Written as a helper rather than four inline spreads so the registry still reads as a list of settings, and so
+ * that a fifth dual-door setting is one line rather than an invitation to paste numbers back in.
+ */
+function dual(name: keyof typeof ENV_TO_CONFIG_PATH): NumericSetting {
+  const b = DUAL_DOOR_BOUNDS[ENV_TO_CONFIG_PATH[name]];
+  return { name, min: b.min, max: b.max, what: b.what };
 }
 
 /**
@@ -53,11 +66,16 @@ export const NUMERIC_SETTINGS: readonly NumericSetting[] = [
   { name: 'SHUTDOWN_READY_GRACE_MS', min: 0, max: 300_000, what: 'how long to keep serving after /ready turns 503' },
   { name: 'RECALL_BUDGET_MS', min: 1_000, max: 600_000, what: 'the end-to-end budget for one recall' },
   { name: 'RERANK_MIN_BUDGET_MS', min: 0, max: 600_000, what: 'the remaining budget below which reranking is skipped' },
-  { name: 'EMBEDDING_DIMENSIONS', min: 1, max: 8_192, what: 'the embedding vector width' },
-  { name: 'EMBEDDING_CONCURRENCY', min: 1, max: 256, what: 'how many embeds run at once' },
+  // The four dual-door settings take their range from `setting-bounds.ts` rather than repeating one here.
+  // Each of these disagreed with the admin PATCH schema for the same field — `EMBEDDING_CONCURRENCY` allowed
+  // 256 while the runtime clamps to 32 and says why, so the value was accepted here and silently discarded
+  // later. A range written twice is a range that disagrees; see that file for which number won and on what
+  // grounds.
+  dual('EMBEDDING_DIMENSIONS'),
+  dual('EMBEDDING_CONCURRENCY'),
   { name: 'MODEL_VERIFY_TIMEOUT_MS', min: 1_000, max: 1_800_000, what: 'how long a model verification may take' },
-  { name: 'DOC_OCR_TIMEOUT_MS', min: 1_000, max: 3_600_000, what: 'how long an OCR extraction may take' },
-  { name: 'DOC_DESCRIBE_TIMEOUT_MS', min: 1_000, max: 3_600_000, what: 'how long a document description may take' },
+  dual('DOC_OCR_TIMEOUT_MS'),
+  dual('DOC_DESCRIBE_TIMEOUT_MS'),
   { name: 'INDEX_READY_TIMEOUT_MS', min: 0, max: 3_600_000, what: 'how long boot waits for vector indexes' },
   { name: 'MCP_OAUTH_TOKEN_TTL_DAYS', min: 0, max: 3_650, what: 'the lifetime of a connector token (0 = never expires)' },
   { name: 'YTHRIL_CONNECTOR_PORT', min: 1, max: 65535, what: "the local agent connector's listen port" },

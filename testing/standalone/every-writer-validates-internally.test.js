@@ -154,3 +154,37 @@ describe('and no door keeps its own copy of the rule', () => {
       `only ${taking.length} doors consume onValidation — a warn-mode space would stop seeing its warnings`);
   });
 });
+
+describe('applying defaults must not manufacture properties nobody sent', () => {
+  /*
+   * The regression this change actually shipped, caught by CI rather than by preflight.
+   *
+   * `applyPropertyDefaults` is careful about this and says so: *"Returning the original when nothing was
+   * filled keeps `undefined` meaning 'no properties at all', which several write paths distinguish from an
+   * empty object."* The writers then handed it `properties ?? {}` — coercing the absence away before the
+   * helper could preserve it — so a memory created with no properties came back with `properties: {}` where
+   * every caller had always seen the field absent.
+   *
+   * A response field appearing where it never used to is a contract change, and this one would have reached
+   * every integrator over both doors. Asserted here rather than only in the integration suite because that
+   * suite needs Docker and does not run in preflight: the defect was pushed, not caught.
+   */
+  const CALLS = [
+    { file: 'server/src/brain/memory.ts', fn: 'remember' },
+    { file: 'server/src/brain/chrono.ts', fn: 'createChrono' },
+    { file: 'server/src/brain/entities.ts', fn: 'upsertEntity' },
+    { file: 'server/src/brain/edges.ts', fn: 'upsertEdge' },
+  ];
+
+  for (const c of CALLS) {
+    it(`${c.fn} passes the caller's properties through untouched`, () => {
+      const body = bodyOf(src(c.file), c.fn);
+      const at = body.indexOf('applyPropertyDefaults(');
+      if (at === -1) return;   // a writer whose record kind has no property schemas
+      const call = body.slice(at, body.indexOf(')', at) + 1);
+      assert.doesNotMatch(call, /\?\?\s*\{\s*\}/,
+        `${c.fn} coerces an absent \`properties\` to {} before applyPropertyDefaults can preserve it, so the `
+        + 'stored record gains a field the caller never sent');
+    });
+  }
+});

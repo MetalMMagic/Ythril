@@ -443,6 +443,32 @@ export async function listMemories(baseUrl, token) {
  * @param apply   performs the restore; its return value is ignored
  * @param verify  re-reads and returns `true`, or `{ ok, saw }` where `saw` is quoted when it fails
  */
+/**
+ * The subset of a GET'd `documentProcessing` block that `PATCH /api/admin/media-config` will accept.
+ *
+ * ## Why this exists, and it is not a convenience
+ *
+ * The GET returns the RESOLVED block — seven keys more than the patch schema declares (`maxTotalPages`,
+ * `vlmModel`, `vlmBaseUrl`, `repairModel`, `repairBaseUrl`, `verifyModel`, `verifyBaseUrl`). That schema is
+ * `.strict()`, so PATCHing a round-tripped body is a **400 on the whole body** — the restore never lands.
+ *
+ * Two `after` hooks did exactly that. The failure is invisible whenever the value being restored happens to
+ * equal the value already there, which is why it read as an intermittent flake for two days: it fails only
+ * when the suite's last write left a DIFFERENT mode than the one the suite started with. `vlm-extraction`
+ * writes `ocr` last, so it failed whenever the instance had started on `auto`.
+ *
+ * Restoring the resolved block would be wrong even if it were accepted: it would write derived values into
+ * `config.json` as if an operator had chosen them.
+ */
+export function patchableDocumentProcessing(dp) {
+  if (!dp) return { mode: 'ocr' };
+  const ACCEPTED = ['strategy', 'extractImages', 'mode', 'renderDpi', 'maxPages',
+    'pageTimeoutMs', 'concurrency', 'ocrTimeoutMs', 'describeTimeoutMs'];
+  const out = {};
+  for (const k of ACCEPTED) if (dp[k] !== undefined) out[k] = dp[k];
+  return out;
+}
+
 export async function restoreOrFail(label, apply, verify, { attempts = 4, delayMs = 250 } = {}) {
   let last = 'never ran';
   for (let attempt = 1; attempt <= attempts; attempt++) {

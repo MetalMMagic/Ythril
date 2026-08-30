@@ -82,6 +82,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A CI hook recorded as an intermittent flake for two days was a deterministic API round-trip defect.**
+  `GET /api/admin/media-config` returns the RESOLVED `documentProcessing` block — seven keys more than the
+  patch schema declares — and that schema is `.strict()`, so PATCHing the block back is a **400 on the whole
+  body**. Two integration `after` hooks read the block and handed it back verbatim, so the restore never
+  landed and the instance kept whatever the suite's last write left.
+
+  It looked intermittent because the verify compares the read-back value against the one it wanted: when an
+  earlier suite happened to leave the instance on that same value, a failed restore was invisible. It failed
+  only when they differed, which depends on suite ordering rather than on time.
+
+  The instrumentation added after the first occurrence is what closed it — the message went from *"verify
+  still false after attempt 4"* to a re-read showing a `200` and an unchanged value, which is a different
+  fault from a PATCH that never arrived.
+
+  Both hooks now filter to the keys the schema accepts, and a gate derives that key set from the schema
+  itself, so a key added there and not to the filter is caught as well. The API-side defect — that
+  read-modify-write against this endpoint does not work for any caller — is filed separately.
+
 - **Seven of the eight brain writers did not validate; now all eight do, inside the function that touches the
   collection.** The owner ruled on 2026-08-29 that every upsert, update and insert validates. `upsertEdge` had
   been fixed for a specific caller (#1046); the other seven — `upsertEntity`, `updateEntityById`, `remember`,

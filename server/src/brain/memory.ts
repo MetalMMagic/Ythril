@@ -111,7 +111,7 @@ export async function remember(
   const meta = getSpaceMeta(spaceId);
   const withDefaults = existing
     ? properties
-    : applyPropertyDefaults(type ? meta?.typeSchemas?.memory?.[type] : undefined, properties ?? {});
+    : applyPropertyDefaults(type ? meta?.typeSchemas?.memory?.[type] : undefined, properties);
   const check = classifyMemoryUpsertAgainst(meta, existing, { type, properties: withDefaults });
   if (check.blocked) throw new SchemaViolationError(check);
   opts?.onValidation?.(check);

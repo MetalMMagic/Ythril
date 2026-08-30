@@ -135,7 +135,7 @@ export async function createChrono(
   const meta = getSpaceMeta(spaceId);
   const withDefaults = existing
     ? fields.properties
-    : applyPropertyDefaults(meta?.typeSchemas?.chrono?.[fields.type], fields.properties ?? {});
+    : applyPropertyDefaults(meta?.typeSchemas?.chrono?.[fields.type], fields.properties);
   {
     const check = classifyChronoUpsertAgainst(meta, existing, { type: fields.type, properties: withDefaults });
     if (check.blocked) throw new SchemaViolationError(check);

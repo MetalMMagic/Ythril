@@ -17,6 +17,7 @@ import { getEntityById } from './entities.js';
 import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
 import { mergeTags } from './merge-fields.js';
+import { embeddingSuppressedFor } from './suppress-embeddings.js';
 import { validateEntity, getSpaceMeta, applyValidation, type SchemaViolation } from '../spaces/schema-validation.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { EntityDoc, EdgeDoc, MemoryDoc, ChronoEntry, FileMetaDoc, TombstoneDoc, SpaceMeta, PropertySchema } from '../config/types.js';
@@ -520,13 +521,24 @@ export async function executeMerge(
       const mergedTags = mergeTags(survivor.tags, absorbed.tags);
       const entityColl = col<EntityDoc>(`${spaceId}_entities`);
 
+      /*
+       * The survivor's content changed, so its vector must be recomputed — UNLESS the type is suppressed.
+       *
+       * A fifth inline embed, found by the gate that covers the four creators rather than by looking for it.
+       * A merge in a suppressed space handed the survivor a vector nothing would remove: the merge writes the
+       * document directly and never enqueues, so the queue's check — the last place suppression takes
+       * effect — was never reached. Same shape as the creators, one path further along.
+       */
+      const suppressed = embeddingSuppressedFor(spaceId, 'entity', { type: survivor.type });
       let embeddingFields: { embedding?: number[]; embeddingModel?: string } = {};
-      try {
-        const embResult = await embed(entityEmbedText(
-          survivor.name, survivor.type, mergedTags, survivor.description, mergedProperties,
-        ));
-        embeddingFields = { embedding: embResult.vector, embeddingModel: embResult.model };
-      } catch { /* embedding unavailable — keep existing embedding */ }
+      if (!suppressed) {
+        try {
+          const embResult = await embed(entityEmbedText(
+            survivor.name, survivor.type, mergedTags, survivor.description, mergedProperties,
+          ));
+          embeddingFields = { embedding: embResult.vector, embeddingModel: embResult.model };
+        } catch { /* embedding unavailable — keep existing embedding */ }
+      }
 
       /*
        * THE MERGE PATH RUNS THE VALIDATORS THE WRITE PATH RUNS. It did not, and nothing noticed.

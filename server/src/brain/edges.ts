@@ -19,6 +19,7 @@ import { getSpaceMeta } from '../spaces/schema-validation.js';
 import { applyDeleteFields, setUnlessDeleted } from './delete-fields.js';
 import { mergePropertiesOrKeep, mergeTagsOrKeep } from './merge-fields.js';
 import { enqueueEmbedJob, retireEmbedJob } from './embed-queue.js';
+import { embeddingSuppressedFor } from './suppress-embeddings.js';
 import { getEntityById } from './entities.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { EdgeDoc, EntityDoc, TombstoneDoc, ChronoEntry, MemoryDoc, FileMetaDoc } from '../config/types.js';
@@ -184,7 +185,10 @@ export async function upsertEdge(
   // Queued by default — see the note in `upsertEntity`. Resolving the endpoint NAMES is a database read,
   // so it happens only on the inline path; the queued job resolves them itself from the stored edge.
   let embeddingFields: { embedding?: number[]; embeddingModel?: string; matchedText?: string } = {};
-  if (opts?.waitForEmbedding === true) {
+  // Suppression wins over `waitForEmbedding` — see `embeddingSuppressedFor`. An edge keys its schema on
+  // `label`, not `type`, which `schemaKeyFor` already encodes; passing `type` here would look up a schema
+  // that is never there and silently never suppress.
+  if (opts?.waitForEmbedding === true && !embeddingSuppressedFor(spaceId, 'edge', { label })) {
     const [fromName, toName] = await resolveEdgeEntityNames(spaceId, from, to);
     const embedText = edgeEmbedText(fromName, label, toName, effectiveTags, effectiveType, effectiveDesc, effectiveProps);
     const embResult = await embed(embedText);

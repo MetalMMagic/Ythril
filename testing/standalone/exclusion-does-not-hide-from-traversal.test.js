@@ -49,7 +49,11 @@ describe('the exclusion is a missing vector, never a read-time filter', () => {
 
   it('only the embed path reads it, which is what makes it a missing vector', () => {
     // One writer, no readers. The flag has meaning exactly once — when deciding whether to store a vector.
-    const embed = strip(read('server/src/brain/embed-record.ts'));
+    //
+    // Read from `suppress-embeddings.ts`, which is where the resolution moved when the record creators needed
+    // it before their inline embed. Keeping it in `embed-record.ts` would have put six brain modules in a
+    // runtime import cycle, since that file imports `edges.ts`.
+    const embed = strip(read('server/src/brain/suppress-embeddings.ts'));
     assert.match(embed, /recordSuppression\(doc\)/, 'the embed path is where the flag is honoured');
     assert.match(embed, /\$unset/, 'setting it must REMOVE the vector, not mark the record');
   });

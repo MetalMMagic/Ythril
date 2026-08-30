@@ -17,6 +17,7 @@ import { writeFilterFor, writeOutcome } from './write-precondition.js';
 import { applyDeleteFields, setUnlessDeleted } from './delete-fields.js';
 import { mergeTagsAndProperties, mergePropertiesOrKeep, mergeTagsOrKeep } from './merge-fields.js';
 import { enqueueEmbedJob, retireEmbedJob } from './embed-queue.js';
+import { embeddingSuppressedFor } from './suppress-embeddings.js';
 import { checkDuplicates, type SimilarMatch, type DupeCheckOpts } from './recall.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import { log } from '../util/log.js';
@@ -130,8 +131,12 @@ export async function upsertEntity(
   // answered later in a response that has already been sent. So they imply the wait, exactly as they do
   // in `remember`. Implied rather than rejected as an invalid combination: a caller asking "is this a
   // duplicate?" would otherwise get a silent "no".
-  const needsVectorNow = opts?.waitForEmbedding === true
-    || opts?.checkDuplicates === true || opts?.checkContradictions === true;
+  // Suppression wins over all three — see `embeddingSuppressedFor`. Computing a vector here and skipping the
+  // enqueue stored exactly what the flag forbids, with nothing to come back and remove it.
+  const suppressed = embeddingSuppressedFor(spaceId, 'entity', { type });
+  const needsVectorNow = !suppressed
+    && (opts?.waitForEmbedding === true
+      || opts?.checkDuplicates === true || opts?.checkContradictions === true);
   let embeddingFields: { embedding?: number[]; embeddingModel?: string; matchedText?: string } = { matchedText: embedText };
   if (needsVectorNow) {
     // Unguarded on purpose: the caller asked for a record searchable when this returns, so falling back

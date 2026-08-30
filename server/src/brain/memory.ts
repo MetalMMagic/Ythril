@@ -22,6 +22,7 @@ import { getSpaceMeta } from '../spaces/schema-validation.js';
 import { applyDeleteFields } from './delete-fields.js';
 import { mergeTags, mergeProperties, mergePropertiesOrKeep } from './merge-fields.js';
 import { enqueueEmbedJob, retireEmbedJob } from './embed-queue.js';
+import { embeddingSuppressedFor } from './suppress-embeddings.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { MemoryDoc, EntityDoc, TombstoneDoc } from '../config/types.js';
 import { SimilarMatch, DupeCheckOpts, checkDuplicates } from './recall.js';
@@ -98,7 +99,21 @@ export async function remember(
   // IMPLY waiting. Implied rather than rejected as an invalid combination: a caller asking "is this a
   // duplicate?" is asking a question that cannot be answered later, so refusing it would be a puzzle
   // where an answer was available.
-  const needsVectorNow = opts?.waitForEmbedding === true || opts?.checkDuplicates === true || opts?.checkContradictions === true;
+  //
+  // Suppression wins over all three. `suppressEmbeddings` IS the absence of a vector — there is no read-time
+  // filter — so computing one here and skipping the enqueue below stored exactly what the flag forbids, with
+  // nothing to come back and remove it. `checkDuplicates` defaults to `true` on the MCP tool, so this was the
+  // ORDINARY write into a suppressed space rather than an edge case.
+  //
+  // The duplicate and contradiction checks consequently do not run for a suppressed record. That is not a
+  // loss: every record of a suppressed type lacks a vector, so a neighbour search had nothing to find them
+  // with in the first place — it would have reported "no duplicates" over a space it could not see.
+  // `{ type }` only: `remember` takes no per-record suppression flag, so the top tier is simply not stated
+  // here and the decision falls through to the type schema and the space — which is what `recordSuppression`
+  // returning `undefined` means. A memory acquires its own flag later, through `updateMemory`.
+  const suppressed = embeddingSuppressedFor(spaceId, 'memory', { type });
+  const needsVectorNow = !suppressed
+    && (opts?.waitForEmbedding === true || opts?.checkDuplicates === true || opts?.checkContradictions === true);
 
   let embResult: { vector: number[]; model: string } | null = null;
   if (needsVectorNow) {

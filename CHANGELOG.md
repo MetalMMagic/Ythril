@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Neither door said that `recall`'s graph expansion cannot start from a memory, chrono entry or file.** Its
+  traversal reads the edge collection only, and edge endpoints are entity ids — so a non-entity match comes
+  back with an empty `_graph`, and raising `traverse` does not change it. A caller with a memory-heavy space
+  asked for expansion, got empty subtrees, and had nothing to tell a correct answer from a broken one.
+
+  The integration guide said *"only entities are returned by traversal … memories, chrono entries, and files
+  still appear as seeds when they match semantically"* — which states what the walk RETURNS and then invites
+  exactly the wrong inference from "seeds". The MCP schema said nothing at all.
+
+  Both now state the limit, say **why** (those records hold their links in `entityIds`, a field rather than an
+  edge), and name what does reach them: the standalone `traverse` and its `includeChrono` /
+  `includeMemories` / `includeFiles` flags, which `recall` has no equivalent of.
+
+  The gate checks the CODE as well as the words, so the warning cannot outlive the behaviour — if the seed
+  traversal ever learns to read those collections, these sentences become false and the gate says so rather
+  than continuing to enforce a stale caution.
+
 - **Chrono, memory and file links were silently missing from the graph view.** A synthetic traverse edge
   carried the same `_id` as the node it points at. A graph library keeps ONE id namespace for nodes and edges,
   so cytoscape skipped the repeat — with a bare `continue`, before the path that would have thrown. Nodes are

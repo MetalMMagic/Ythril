@@ -16,7 +16,7 @@ import { log } from '../../util/log.js';
 import { reportServerFailure } from '../../util/report-failure.js';
 import { nextSeq, bumpSeq, isSeqImplausible, MAX_INGEST_SEQ } from '../../util/seq.js';
 import type { MemoryDoc, EntityDoc, EdgeDoc, ChronoEntry, TombstoneDoc } from '../../config/types.js';
-import { checkEdgeLinkViolations, checkEntityIdLinkViolations, MAX_FORK_DEPTH, IncomingMemoryDoc, IncomingEntityDoc, IncomingEdgeDoc, IncomingChronoDoc, encodeCursor, decodeCursor, forkChainDepth, rejectImplausibleSeq, callerPeerId, spaceAllowed, isNonPeerSyncWrite, NON_PEER_WRITE_MESSAGE, isDirectionalWriteBlocked, violationsAgainstLocalSchema, withSchemaViolations } from './_shared.js';
+import { checkEdgeLinkViolations, checkEntityIdLinkViolations, MAX_FORK_DEPTH, IncomingMemoryDoc, IncomingEntityDoc, IncomingEdgeDoc, IncomingChronoDoc, encodeCursor, decodeCursor, forkChainDepth, rejectImplausibleSeq, callerPeerId, spaceAllowed, isNonPeerSyncWrite, NON_PEER_WRITE_MESSAGE, isDirectionalWriteBlocked, violationsAgainstLocalSchema, withSchemaViolations, isDuplicateKeyOnly } from './_shared.js';
 
 export const syncDocsRouter = Router();
 
@@ -386,22 +386,49 @@ syncDocsRouter.post('/edges', syncRateLimit, requireAuth, denyReadOnly, async (r
     }
 
     const existing = await col<EdgeDoc>(`${spaceId}_edges`).findOne(asFilter<EdgeDoc>({ _id: incoming._id })) as EdgeDoc | null;
+    let duplicateTriplet = false;
     if (!existing || incoming.seq > existing.seq) {
-      await col<EdgeDoc>(`${spaceId}_edges`).replaceOne(
-        asFilter<EdgeDoc>({ _id: incoming._id }),
-        asDoc<EdgeDoc>(incoming),
-        { upsert: true },
-      );
-      // A peer strips `embedding` before sending — it is derived, and the peer may run a
-      // different model — so this record landed unsearchable. Queue it a vector.
-      await enqueueIngestedRecord(spaceId, 'edge', incoming);
+      /*
+       * A duplicate TRIPLET is a 200, not a 500 — see `isDuplicateKeyOnly`.
+       *
+       * The upsert is keyed on `_id`, which this peer has never seen, so it inserts; the space's unique
+       * `{ from, to, label }` index then rejects it because the same relationship already exists locally under
+       * a different random id. Letting that reach the route's catch answers 500, and a non-ok push makes the
+       * SENDER hold its watermark and re-send the identical batch every cycle — the edges channel to that
+       * peer never advances again.
+       *
+       * Same policy as the pull side: the local copy stands, the incoming one is not applied, and the caller
+       * is told which it was rather than left to infer it from a status code.
+       */
+      try {
+        await col<EdgeDoc>(`${spaceId}_edges`).replaceOne(
+          asFilter<EdgeDoc>({ _id: incoming._id }),
+          asDoc<EdgeDoc>(incoming),
+          { upsert: true },
+        );
+        // A peer strips `embedding` before sending — it is derived, and the peer may run a
+        // different model — so this record landed unsearchable. Queue it a vector.
+        await enqueueIngestedRecord(spaceId, 'edge', incoming);
+      } catch (err) {
+        if (!isDuplicateKeyOnly(err)) throw err;
+        duplicateTriplet = true;
+        log.warn(
+          `sync POST edges: '${incoming._id}' duplicates an existing triplet `
+          + `(${incoming.from} -[${incoming.label}]-> ${incoming.to}) in space '${spaceId}'. The local copy is `
+          + 'kept and the incoming one is not applied.',
+        );
+      }
     }
 
     // Fire-and-forget: check strict linkage violations after ingest
     const peerInst = (req.authToken as Record<string, unknown>)?.['peerInstanceId'] as string ?? 'unknown';
     checkEdgeLinkViolations(spaceId, incoming, peerInst).catch(() => {});
 
-    res.status(200).json(withSchemaViolations({ status: 'ok' }, violations));
+    // `duplicate` rather than `ok`: the record did NOT land, and a sender that cannot tell the two apart
+    // advances its watermark believing it delivered something it did not.
+    res.status(200).json(withSchemaViolations(
+      { status: duplicateTriplet ? 'duplicate' : 'ok' }, violations,
+    ));
   } catch (err) {
     log.error(`sync POST edges: ${err}`);
     res.status(500).json({ error: 'Internal error' });
@@ -722,7 +749,7 @@ syncDocsRouter.post('/batch-upsert', syncRateLimit, requireAuth, denyReadOnly, a
     }
 
     // ── Edges ─────────────────────────────────────────────────────────────
-    const edgeStats = { upserted: 0, skipped: 0, tombstoned: 0, schemaViolations: 0 };
+    const edgeStats = { upserted: 0, skipped: 0, tombstoned: 0, schemaViolations: 0, duplicateTriplets: 0 };
     for (const incoming of edges) {
       if (violationsAgainstLocalSchema(spaceId, 'edge', incoming as unknown as Record<string, unknown>).length > 0) edgeStats.schemaViolations++;
       const tomb = await col<TombstoneDoc>(`${spaceId}_tombstones`)
@@ -733,13 +760,26 @@ syncDocsRouter.post('/batch-upsert', syncRateLimit, requireAuth, denyReadOnly, a
       const existing = await col<EdgeDoc>(`${spaceId}_edges`)
         .findOne(asFilter<EdgeDoc>({ _id: incoming._id })) as EdgeDoc | null;
       if (!existing || incoming.seq > existing.seq) {
-        await col<EdgeDoc>(`${spaceId}_edges`).replaceOne(
-          asFilter<EdgeDoc>({ _id: incoming._id }), asDoc<EdgeDoc>(incoming), { upsert: true },
-        );
-        // A peer strips `embedding` before sending — it is derived, and the peer may run a
-        // different model — so this record landed unsearchable. Queue it a vector.
-        await enqueueIngestedRecord(spaceId, 'edge', incoming);
-        edgeStats.upserted++;
+        // The same absorption as the single-record route above. Worse here if it were missing: one duplicate
+        // triplet anywhere in a 500-record page would 500 the WHOLE batch, so every other record in it is
+        // discarded too — and the sender re-sends that identical page for ever.
+        try {
+          await col<EdgeDoc>(`${spaceId}_edges`).replaceOne(
+            asFilter<EdgeDoc>({ _id: incoming._id }), asDoc<EdgeDoc>(incoming), { upsert: true },
+          );
+          // A peer strips `embedding` before sending — it is derived, and the peer may run a
+          // different model — so this record landed unsearchable. Queue it a vector.
+          await enqueueIngestedRecord(spaceId, 'edge', incoming);
+          edgeStats.upserted++;
+        } catch (err) {
+          if (!isDuplicateKeyOnly(err)) throw err;
+          edgeStats.duplicateTriplets++;
+          log.warn(
+            `sync batch-upsert: edge '${incoming._id}' duplicates an existing triplet `
+            + `(${incoming.from} -[${incoming.label}]-> ${incoming.to}) in space '${spaceId}'. The local copy `
+            + 'is kept and the incoming one is not applied.',
+          );
+        }
       } else {
         edgeStats.skipped++;
       }

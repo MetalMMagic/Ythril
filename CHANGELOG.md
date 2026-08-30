@@ -9,6 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **One duplicate relationship stopped a peer receiving any further edges, permanently.** An edge's identity is
+  its `(from, to, label)` triplet, which is uniquely indexed, while its `_id` is random — so two instances
+  creating the same relationship independently produce one relationship under two ids. The receiving upsert is
+  keyed on the unknown `_id`, inserts, and the unique index rejects it.
+
+  The **pull** side already absorbed that. The **push** side did not, and it is the worse half:
+
+  ```text
+  ingest lets E11000 reach the route          →  500
+  sender breaks on !resp.ok BEFORE advancing  →  cursor held
+  watermark caps at the last batch that landed
+  next cycle re-sends the identical batch     →  identical failure
+  ```
+
+  That channel never advances again. In the batch case one duplicate anywhere in a 500-record page discarded
+  the other 499 with it, every cycle.
+
+  Both ingest paths now absorb a duplicate key and answer `200` — the local copy stands, the incoming one is
+  not applied, and the caller is told which: `status: "duplicate"` on the single-record route and a
+  `duplicateTriplets` counter in the batch stats, with the triplet logged. **Only duplicates are absorbed**;
+  any other write fault still throws, because swallowing those would hide genuine corruption.
+
+  The predicate handles both error shapes deliberately — a single `replaceOne` rejects with `code: 11000` while
+  a `bulkWrite` collects them into `writeErrors` and the outer error carries no code at all, so a predicate
+  knowing only one would re-throw the very thing it exists to absorb. A mixed batch, one duplicate and one real
+  fault, still throws.
+
+  This is the collision's *symptom*, not its cause: edges still get random ids, so duplicates are still
+  produced. Making an edge's id derive from its triplet is a larger change with two open questions of its own
+  and is filed separately.
 - **Merging two people emptied the survivor's face gallery.** The merge relinked memories, chrono entries,
   edges and a file's `entityIds` — but not `faceEntityId`, the single-valued link on a face chunk. So after a
   merge those chunks still named the absorbed entity, which the merge then deleted; a label that does not

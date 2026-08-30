@@ -168,6 +168,34 @@ the watermark back would stall the space instead. Both ends log it; the receiver
 A peer on an older build omits `forkDepthRefused` entirely, so treat a missing field as zero rather than as an
 error.
 
+### A duplicate relationship is reported, not an error
+
+An edge's identity is its `(from, to, label)` triplet — that combination is uniquely indexed — while its `_id`
+is random. So when two instances create the same relationship independently there is **one relationship under
+two ids**, and the receiver cannot store the second without breaking that index.
+
+It answers `200` and says so, rather than failing:
+
+```json
+// single-record POST /api/sync/edges
+{ "status": "duplicate" }
+```
+
+```json
+// batch-upsert
+{ "edges": { "upserted": 12, "skipped": 3, "tombstoned": 0, "duplicateTriplets": 1 } }
+```
+
+**The local copy stands and the incoming one is not applied** — the same rule the pull side uses, so both
+directions resolve it identically. The receiver logs the triplet.
+
+**Why this is a 200 and not a 409.** A push that gets a non-2xx stops that collection's transfer and does not
+advance its watermark, so the next cycle re-sends the identical batch and hits the identical duplicate. An
+error here would not retry — it would stop that channel making progress for as long as the duplicate exists.
+Reporting inside a `200` is what lets the rest of the batch land and the cursor move on.
+
+Treat a missing `duplicateTriplets` as zero: a peer on an older build omits it.
+
 ### Schema mismatches are reported, never refused
 
 Two instances in one network may declare **different schemas for the same space**. A record the sender

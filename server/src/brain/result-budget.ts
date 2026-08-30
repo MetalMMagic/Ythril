@@ -167,7 +167,17 @@ export function resolvePaging(req: { skip?: unknown; remainderDump?: unknown }):
 }
 
 export interface BudgetOutcome<T> {
-  /** The prefix that fits. Every entry is WHOLE — never a partial record, never a partial subtree. */
+  /**
+   * The prefix that fits. Every entry is WHOLE — never a partial record, never a partial subtree.
+   *
+   * The unit being budgeted is therefore a match TOGETHER WITH its whole `_graph` subtree, and that is the
+   * price of the guarantee: a match with a large subtree can push later matches out of the answer
+   * entirely, so a deeper or wider expansion means fewer matches fit. They are absent rather than
+   * shortened, which is the behaviour the owner ruled for on 2026-08-30 — a record arriving with half its
+   * relationships is a worse answer than a shorter list of complete ones. Every surface that states the
+   * guarantee states this alongside it; `expansion-costs-matches-and-says-so.test.js` holds the two
+   * together.
+   */
   returned: T[];
   /** The matches that did not fit, in rank order. Empty when nothing was cut. */
   remainder: T[];

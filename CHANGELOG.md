@@ -80,6 +80,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   have been stricter than the API. Two shipped promises pointing opposite ways is a product decision, not a
   defect, so it is filed for a ruling and the code now says where.
 
+### Changed
+
+- **Everywhere the product promises whole records, it now also says what that costs.** A budgeted search
+  counts one match *together with its entire `_graph` subtree* as the unit that has to fit, and refuses to emit
+  a partial one — so a match with a large subtree can push later matches out of the answer entirely. They are
+  absent, not shortened.
+
+  The obvious alternative is to budget the bare matches first and attach subtrees to whichever survive. Ruled
+  against on 2026-08-30: the guarantee is what the product promises in nine places, including the UI in
+  English, German and Polish — *"never a record missing part of its graph"* — and a record arriving with half
+  its relationships is a worse answer than a shorter list of complete ones.
+
+  What was wrong was not the behaviour but the silence. All nine places stated the guarantee and none stated
+  its price, so an operator whose hundred-match search returned eleven records had nothing connecting that to
+  the expansion depth they had asked for. Each now says it, in the same paragraph as the promise rather than
+  elsewhere on the page, and in the reader's own language.
+
+  The gate derives its subject from the promise itself rather than from a list of nine paths — a hardcoded
+  list is a tenth place waiting to happen, and the derivation immediately found three surfaces that were not
+  in the original count (`api.types.ts`, `brain-api.service.ts` and the MCP tool description). It also caught
+  that the `maxBytes` parameter row is duplicated verbatim in `04a-recall-api.md`, so only one of the two
+  copies had been updated.
+
 ### Fixed
 
 - **Turning suppression on now removes the vectors already stored, which is what the product said it did.**

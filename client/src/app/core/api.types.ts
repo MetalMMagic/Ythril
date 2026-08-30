@@ -457,7 +457,9 @@ export interface RecallResponse {
    * ## The four fields below are on EVERY recall response, and this file used to declare none of them
    *
    * The byte budget bounds a response by size: what fits comes back as the longest PREFIX of the ranked
-   * matches, every record whole, and `nextSkip` says where to continue from. That is server behaviour the
+   * matches, every record whole, and `nextSkip` says where to continue from. A match is counted together
+   * with its whole `_graph` subtree, so a deeper expansion means fewer matches fit — they are absent, not
+   * shortened. That is server behaviour the
    * client has always received and never typed, so a component had no way to know an answer was cut — the
    * previous shape returned three records and nothing here said why.
    *

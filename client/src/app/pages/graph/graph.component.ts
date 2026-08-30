@@ -38,6 +38,7 @@ import { EntryPopupComponent } from '../../shared/entry-popup.component';
 import { EntitySearchComponent } from '../../shared/entity-search.component';
 import { PropertiesViewComponent } from '../../shared/properties-view.component';
 import { GraphLinkedRecordsComponent } from './graph-linked-records.component';
+import { GraphNodeRecordCardComponent, GraphEdgeRecordCardComponent } from './graph-record-card.component';
 import { TranslocoPipe } from '@jsverse/transloco';
 // The record drawer and its state are shared with the Brain page rather than forked here: this page
 // used to carry a copy that had drifted behind (no schema-driven properties, no confidence field, no
@@ -75,7 +76,7 @@ import { lookupForNode, lookupForEdge } from './graph-record-lookup';
   // `openBrainDrawer` alongside the `drawerRecord` signal that guards the drawer's `@if`, the same
   // load-bearing coupling pinned by the brain spec.
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ProxySpaceBadgeComponent, CommonModule, FormsModule, EntryPopupComponent, EntitySearchComponent, PropertiesViewComponent, PhIconComponent, ErrorStateComponent, TranslocoPipe, RecordDrawerComponent, GraphLinkedRecordsComponent],
+  imports: [ProxySpaceBadgeComponent, CommonModule, FormsModule, EntryPopupComponent, EntitySearchComponent, PropertiesViewComponent, PhIconComponent, ErrorStateComponent, TranslocoPipe, RecordDrawerComponent, GraphLinkedRecordsComponent, GraphNodeRecordCardComponent, GraphEdgeRecordCardComponent],
   // Its own drawer collaborators, so the standalone `/graph` route works with nothing above it. When
   // this page is embedded as Brain's Graph tab these SHADOW Brain's instances, which is deliberate:
   // the drawer then patches this page's per-node lists, exactly as the forked drawer did. The cost is
@@ -180,64 +181,11 @@ import { lookupForNode, lookupForEdge } from './graph-record-lookup';
           </div>
           <div class="side-panel-body">
 
-            <!-- Record card -->
-            <div class="record-card">
-              <!--
-                Why a record is absent, when that is a fact rather than a failure. Without it the panel is
-                simply blank, and blank reads as "this record has nothing in it" — a statement about the data
-                rather than about what could be fetched.
-              -->
-              @if (recordUnavailable(); as why) {
-                <div class="drawer-field">
-                  <div class="drawer-value muted">{{ 'graph.recordUnavailable.' + why | transloco }}</div>
-                </div>
-              }
-              @if (selectedEntityRecord()) {
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'brain.entities.table.name' | transloco }}</div>
-                  <div class="drawer-value">{{ selectedEntityRecord()!.name }}</div>
-                </div>
-                @if (selectedEntityRecord()!.type) {
-                  <div class="drawer-field">
-                    <div class="drawer-label">{{ 'common.form.type' | transloco }}</div>
-                    <div class="drawer-value">{{ selectedEntityRecord()!.type }}</div>
-                  </div>
-                }
-                @if (selectedEntityRecord()!.description) {
-                  <div class="drawer-field">
-                    <div class="drawer-label">{{ 'common.form.description' | transloco }}</div>
-                    <div class="drawer-value">{{ selectedEntityRecord()!.description }}</div>
-                  </div>
-                }
-                @if (selectedEntityRecord()!.tags?.length) {
-                  <div class="drawer-field">
-                    <div class="drawer-label">{{ 'common.form.tags' | transloco }}</div>
-                    <div>
-                      @for (t of selectedEntityRecord()!.tags!; track t) {
-                        <span class="drawer-tag">{{ t }}</span>
-                      }
-                    </div>
-                  </div>
-                }
-                @if (selectedEntityRecord()!.properties && objectKeys(selectedEntityRecord()!.properties!).length) {
-                  <div class="drawer-field">
-                    <div class="drawer-label">{{ 'common.form.properties' | transloco }}</div>
-                    <app-properties-view [properties]="selectedEntityRecord()!.properties!" />
-                  </div>
-                }
-                <hr class="drawer-hr">
-                <div class="drawer-field">
-                  <div class="drawer-label">_id</div>
-                  <div class="drawer-readonly-value" style="font-family:var(--font-mono,monospace);font-size:10px;">{{ selectedEntityRecord()!._id }}</div>
-                </div>
-                <div class="drawer-field" style="margin-bottom:0;">
-                  <div class="drawer-label">{{ 'common.createdAt' | transloco }}</div>
-                  <div class="drawer-readonly-value">{{ selectedEntityRecord()!.createdAt | date:'dd.MM.yyyy HH:mm' }}</div>
-                </div>
-              } @else {
-                <div style="font-size:12px;color:var(--text-muted);padding:8px 0;">{{ 'common.loading' | transloco }}</div>
-              }
-            </div>
+            <!-- Record card. Its 57 lines are now app-graph-node-record-card — same DOM, same classes, and
+                 the styles moved with them, because a parent's styles do not reach a child's template. -->
+            <app-graph-node-record-card
+              [record]="selectedEntityRecord()"
+              [unavailable]="recordUnavailable()" />
 
             <!-- Lists pane: memories + chrono -->
             <app-graph-linked-records
@@ -271,64 +219,11 @@ import { lookupForNode, lookupForEdge } from './graph-record-lookup';
           </div>
           <div class="side-panel-body">
 
-            <!-- Edge record card -->
-            <div class="record-card">
-              @if (selectedEdgeRecord()) {
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'brain.edges.table.relation' | transloco }}</div>
-                  <div class="drawer-value">{{ selectedEdgeRecord()!.label }}</div>
-                </div>
-                @if (selectedEdgeRecord()!.type) {
-                  <div class="drawer-field">
-                    <div class="drawer-label">{{ 'common.form.type' | transloco }}</div>
-                    <div class="drawer-value">{{ selectedEdgeRecord()!.type }}</div>
-                  </div>
-                }
-                @if (selectedEdgeRecord()!.description) {
-                  <div class="drawer-field">
-                    <div class="drawer-label">{{ 'common.form.description' | transloco }}</div>
-                    <div class="drawer-value">{{ selectedEdgeRecord()!.description }}</div>
-                  </div>
-                }
-                @if (selectedEdgeRecord()!.weight !== undefined && selectedEdgeRecord()!.weight !== null) {
-                  <div class="drawer-field">
-                    <div class="drawer-label">{{ 'common.form.weight' | transloco }}</div>
-                    <div class="drawer-value">{{ selectedEdgeRecord()!.weight }}</div>
-                  </div>
-                }
-                @if (selectedEdgeRecord()!.tags?.length) {
-                  <div class="drawer-field">
-                    <div class="drawer-label">{{ 'common.form.tags' | transloco }}</div>
-                    <div>
-                      @for (t of selectedEdgeRecord()!.tags!; track t) {
-                        <span class="drawer-tag">{{ t }}</span>
-                      }
-                    </div>
-                  </div>
-                }
-                @if (selectedEdgeRecord()!.properties && objectKeys(selectedEdgeRecord()!.properties!).length) {
-                  <div class="drawer-field">
-                    <div class="drawer-label">{{ 'common.form.properties' | transloco }}</div>
-                    <app-properties-view [properties]="selectedEdgeRecord()!.properties!" />
-                  </div>
-                }
-                <hr class="drawer-hr">
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'common.form.from' | transloco }}</div>
-                  <div class="drawer-readonly-value">{{ selectedEdgeRecord()!.fromName || selectedEdge()!.from }}</div>
-                </div>
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'common.form.to' | transloco }}</div>
-                  <div class="drawer-readonly-value">{{ selectedEdgeRecord()!.toName || selectedEdge()!.to }}</div>
-                </div>
-                <div class="drawer-field" style="margin-bottom:0;">
-                  <div class="drawer-label">_id</div>
-                  <div class="drawer-readonly-value" style="font-family:var(--font-mono,monospace);font-size:10px;">{{ selectedEdgeRecord()!._id }}</div>
-                </div>
-              } @else {
-                <div style="font-size:12px;color:var(--text-muted);padding:8px 0;">{{ 'common.loading' | transloco }}</div>
-              }
-            </div>
+            <!-- Edge record card. A SECOND component rather than a mode of the node one: it has weight,
+                 endpoint rows with a fallback, a different first label, and no unavailable branch. -->
+            <app-graph-edge-record-card
+              [record]="selectedEdgeRecord()"
+              [selected]="selectedEdge()" />
 
             <!-- Lists pane: memories + chrono for both endpoints -->
             <app-graph-linked-records

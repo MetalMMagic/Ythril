@@ -160,9 +160,19 @@ const FROZEN = {
   // This is the largest raise on the list by an order of magnitude, and it is the signal the list exists to
   // give: the component cannot absorb behaviour any more.
   //
-  // DECOMPOSE: G-2 — the side-panel record card, ~87 lines of template, into a child component. A refactor
-  // with its own characterization tests rather than a tail on a behaviour fix.
-  'client/src/app/pages/graph/graph.component.ts': 793,
+  // DECOMPOSE: G-7 — the two panel HEADERS, the next structurally parallel pair, plus the dead code the G-2
+  // inventory proved dead. G-2 named the record card and is PAID; this file is still over the ceiling, so the
+  // marker moves to what is left rather than being deleted, which would discharge an obligation nobody met.
+  //
+  // 793 -> 688. G-2 PAID. It was TWO cards, not one, and ~115 lines rather than ~87: the node card and its
+  // near-twin for edges, now `app-graph-node-record-card` and `app-graph-edge-record-card`. Their style rules
+  // moved with them — a parent's styles do not reach a child's template, and `.record-card`'s `flex: 0 0 50%`
+  // is what makes the panel two columns.
+  //
+  // The entry STAYS, lowered rather than deleted, for the reason written above `brain.component.ts`: an entry
+  // here is a ratchet, and removing it would hand this file back the 105 lines the extraction just took away.
+  // It is still over the 650 ceiling, so the next reader can see there is more to take out.
+  'client/src/app/pages/graph/graph.component.ts': 688,
   // 753 -> 764: `backfillTokenRights`. This file is where config migrations already live — the media
   // master-switch and space-description ones are both here — so a fourth belongs beside them rather than in
   // a module only the loader would ever call.

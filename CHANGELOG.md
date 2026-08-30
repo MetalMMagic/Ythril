@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **The graph side panel's record cards are their own components.** `graph.component.ts` was at its size
+  freeze and every behaviour change tripped it; this pays 793 → 688 code lines, and the cards become testable
+  without a cytoscape mock.
+
+  **Two components, not one with a mode.** It was two cards, not one, and ~115 lines rather than the ~87 the
+  task estimated: the node card and its near-twin for edges, which carries `weight`, shows endpoint rows with
+  a fallback, labels its first row `relation` rather than `name`, and has no unavailable branch. Unifying them
+  would have changed behaviour rather than moved it. They live in one file so the divergence stays visible.
+
+  **The style rules moved with the markup**, which is the half no test can see: a parent's styles are scoped
+  to the parent's own template, so markup moved into a child renders unstyled — and `.record-card`'s
+  `flex: 0 0 50%` is what makes the panel two columns. It applies to `:host` now, because the host is the
+  element the parent lays out.
+
+  Nothing about what the cards render changed: the characterization spec added just before this went through
+  **unedited**, which is the only evidence a template move can offer.
+
 - **The graph side panel's record cards are rendered by a test for the first time.** Preparation for splitting
   them out of `graph.component.ts`, which sits at its size freeze — and the repo rule is characterization
   tests first, proven against the original code, because a template move is exactly the change that silently

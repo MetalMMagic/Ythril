@@ -189,3 +189,34 @@ describe('orderedHomeRows reads what the index promises', () => {
     assert.equal(orderedHomeRows(ORDERED_FIXTURE).length, 3);
   });
 });
+
+describe('an IN-PROGRESS item is still an item', () => {
+  it('`- [~]` is parsed, because the legend says it means in progress', () => {
+    /*
+     * The parser matched `- [ ]` alone while every tracker's legend reads
+     * `Legend: [ ] open · [~] in progress`. So marking a row in-progress — the honest thing to do when its
+     * PR is in flight — silently removed it from "every open item is indexed", and the queue could name a
+     * row whose home the gate could no longer see. Found the first time a row was marked `[~]`.
+     */
+    const items = openItems([
+      '- [ ] **A-1 — an open one.**',
+      '  body',
+      '- [~] **A-2 — one that is in flight.**',
+      '  body',
+    ].join(String.fromCharCode(10)));
+    assert.deepEqual(items.map(i => i.id), ['A-1', 'A-2']);
+  });
+
+  it('and it still ends the item before it', () => {
+    // The split point matters as much as the match: if `[~]` is not a boundary, the previous item's body
+    // swallows it and any `Verify:` line inside is attributed to the wrong row.
+    const items = openItems([
+      '- [ ] **A-1 — first.**',
+      '  belongs to A-1',
+      '- [~] **A-2 — second.**',
+      '  belongs to A-2',
+    ].join(String.fromCharCode(10)));
+    assert.match(items[0].body, /belongs to A-1/);
+    assert.doesNotMatch(items[0].body, /belongs to A-2/);
+  });
+});

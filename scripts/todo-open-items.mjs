@@ -45,11 +45,21 @@ export function orderedHomeRows(ordered) {
 /** A `### L-5 — …` or `## R-3: …` item heading, capturing the id. Levels 2-4; level 1 is the document title. */
 const HEADING_ITEM = /^#{2,4}[ \t]+\**([A-Z]+-[A-Z0-9-]+)\**[ \t]*[—:-]/;
 
-/** A `- [ ] **W-2 — …` item, capturing the id when it has one. */
-const CHECKBOX_ITEM = /^[ \t]*[-*][ \t]*\[ \][ \t]*\**([A-Z]+-[A-Z0-9-]+)?\**\.?/;
+/**
+ * A `- [ ] **W-2 — …` item, capturing the id when it has one.
+ *
+ * **`[~]` counts too, and leaving it out was a real blind spot.** Every tracker's legend reads
+ * `[ ] open · [~] in progress`, so marking a row in-progress — the honest thing to do while its PR is in
+ * flight — removed it from this parser's view entirely. "Every open item is indexed" then passed over a row
+ * nobody could see, and the ordered queue could name a home the gate no longer found the item in. Found the
+ * first time a row was actually marked `[~]`.
+ *
+ * `[x]` is deliberately NOT here: a ticked box is finished work, and finished work belongs in the CHANGELOG.
+ */
+const CHECKBOX_ITEM = /^[ \t]*[-*][ \t]*\[[ ~]\][ \t]*\**([A-Z]+-[A-Z0-9-]+)?\**\.?/;
 
-/** Any open checkbox, id or not — the split point for checkbox-style bodies. */
-const CHECKBOX_ANY = /^[ \t]*[-*][ \t]*\[ \]/;
+/** Any open-or-in-progress checkbox, id or not — the split point for checkbox-style bodies. */
+const CHECKBOX_ANY = /^[ \t]*[-*][ \t]*\[[ ~]\]/;
 
 /**
  * Every open item in one tracker's source, in file order, each with the body that belongs to it.

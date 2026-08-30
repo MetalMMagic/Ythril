@@ -26,7 +26,7 @@
  *
  * Run: `npm run todo:check`
  */
-import { readdirSync, readFileSync, existsSync } from 'node:fs';
+import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -569,6 +569,44 @@ console.log(`\n${YELLOW}todo/ consistency${R}  ${DIM}(owner rules 2026-08-02 and
   console.log(clean
     ? `${GREEN}  ✓${R} the decisions page holds only what is still undecided`
     : `${RED}  ✗${R} the decisions page carries settled items`);
+}
+
+// ── the queue must be touched between commits, or it silently rots
+//
+// THE COMPLAINT THIS EXISTS FOR, owner 2026-08-30: *"i have to ask for uptodate todo-files all the time and
+// ALWAYS they are out of date."* Correct, and the reason is structural rather than forgetful: every OTHER
+// rule in this file checks a claim a row makes about the CODE, so a row that says nothing false stays green
+// while the queue as a whole drifts — a shipped bug with no row, a header naming a PR from twelve hours ago,
+// a remark quoting a line count three PRs old. Nothing was lying; nothing was current either.
+//
+// A rule that has to be remembered is worth less than a gate that fails, so this is the gate. `todo/` is
+// gitignored, so git cannot answer "was it updated with this change" — but mtime can: if HEAD has moved since
+// the ordered queue was last written, the queue predates the work and preflight refuses the push.
+//
+// It is deliberately blunt. Touching the file to satisfy it is one line, and the line worth touching is the
+// STATE header — which is exactly what went stale.
+{
+  let headTime = null;
+  try {
+    headTime = Number(execFileSync('git', ['log', '-1', '--format=%ct'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'ignore'] })
+      .toString().trim()) * 1000;
+  } catch { /* no git, no history, or a fresh repo — nothing to compare against */ }
+
+  if (headTime) {
+    const queueTime = statSync(join(TODO, ORDERED)).mtimeMs;
+    if (queueTime < headTime) {
+      const age = Math.round((headTime - queueTime) / 60000);
+      fail(`${ORDERED} was last written ${age} minute(s) BEFORE the newest commit, so it describes the work `
+        + 'as it was before this change.\n\n'
+        + '      Update the queue as part of the change, not afterwards: close what shipped, file what you '
+        + 'found,\n'
+        + '      and refresh the STATE header. If this change genuinely moved nothing in the queue, say so '
+        + 'there —\n'
+        + '      a header that names the current PR is itself the update.');
+    } else {
+      console.log(`${GREEN}  ✓${R} ${ORDERED} was written after the newest commit`);
+    }
+  }
 }
 
 // ── the exemption list must not rot

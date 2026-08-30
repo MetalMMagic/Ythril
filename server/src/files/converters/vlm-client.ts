@@ -15,6 +15,8 @@ import { ssrfSafeFetch } from '../../util/ssrf.js';
 import { boundedJson, boundedErrorText } from '../../util/bounded-read.js';
 import { allowPrivateForSlot, type EgressSlot } from '../../config/model-egress-policy.js';
 import { chatUrlFor, type VlmWire } from './vlm-endpoint.js';
+import { slotTimeoutMs } from '../../config/model-slots.js';
+import { getModelSlots } from '../../config/loader.js';
 
 export interface VlmTranscription {
   text: string;
@@ -155,7 +157,7 @@ export async function transcribePageImage(
   return postChat(
     asEndpoint(opts, 'docVlm'),
     [{ role: 'user', content: opts.prompt, images: [b64] }],
-    opts.timeoutMs ?? 60_000,
+    opts.timeoutMs ?? slotTimeoutMs('docVlm', getModelSlots()),
   );
 }
 
@@ -174,7 +176,7 @@ export async function repairMarkdown(
   return postChat(
     asEndpoint(opts, 'docRepair'),
     [{ role: 'user', content: repairContent(opts.draft, opts.evidence, opts.issues) }], // text-only — no page image
-    opts.timeoutMs ?? 60_000,
+    opts.timeoutMs ?? slotTimeoutMs('docRepair', getModelSlots()),
   );
 }
 
@@ -197,7 +199,7 @@ export async function reconcileConsensus(
     // Consensus runs on the same VLM endpoint as transcription — same slot, same policy.
     asEndpoint(opts, 'docVlm'),
     [{ role: 'user', content }], // text-only — no page image
-    opts.timeoutMs ?? 60_000,
+    opts.timeoutMs ?? slotTimeoutMs('docVlm', getModelSlots()),
   );
 }
 
@@ -224,7 +226,7 @@ export async function describeDocumentText(
   return postChat(
     asEndpoint(opts, opts.slot ?? 'docRepair'),
     [{ role: 'user', content: `${DESCRIBE_PROMPT}\n\n--- DOCUMENT ---\n${opts.text}` }],
-    opts.timeoutMs ?? 60_000,
+    opts.timeoutMs ?? slotTimeoutMs('docRepair', getModelSlots()),
   );
 }
 
@@ -261,7 +263,7 @@ export async function repairMarkdownExternal(
         max_tokens: MAX_OUTPUT_TOKENS,
         messages: [{ role: 'user', content: repairContent(opts.draft, opts.evidence, opts.issues) }],
       }),
-      signal: AbortSignal.timeout(opts.timeoutMs ?? 60_000),
+      signal: AbortSignal.timeout(opts.timeoutMs ?? slotTimeoutMs('assist', getModelSlots())),
     }, {
       // Lets a self-hosted OpenAI-compatible assist model live on a private cluster address. The guard
       // itself stays on: DNS-resolve, IP-pin and redirect re-validation all still apply — only the

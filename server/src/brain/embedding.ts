@@ -1,12 +1,13 @@
 import fs from 'node:fs';
 import { boundedJson, boundedErrorText } from '../util/bounded-read.js';
 import path from 'node:path';
-import { getDataRoot, getEmbeddingConfig } from '../config/loader.js';
+import { getDataRoot, getEmbeddingConfig, getModelSlots } from '../config/loader.js';
 import { ssrfSafeFetch } from '../util/ssrf.js';
 import { allowPrivateForSlot } from '../config/model-egress-policy.js';
 import { embeddingsUrlFor } from '../files/converters/vlm-endpoint.js';
 import { log } from '../util/log.js';
 import { embeddingDurationSeconds, embeddingQueueDepth, embeddingRetryTotal } from '../metrics/registry.js';
+import { slotTimeoutMs } from '../config/model-slots.js';
 
 export interface EmbeddingResult {
   vector: number[];
@@ -310,7 +311,7 @@ async function embedViaHttp(
         ...(cfg.apiKey ? { Authorization: `Bearer ${cfg.apiKey}` } : {}),
       },
       body: JSON.stringify({ model: cfg.model, input }),
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(slotTimeoutMs('embedding', getModelSlots())),
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

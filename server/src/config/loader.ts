@@ -793,6 +793,18 @@ export function getStorageConfig(): ResolvedStorageConfig | undefined {
   return any ? out : undefined;
 }
 
+/**
+ * The operator's per-slot call budgets, or `undefined` before setup.
+ *
+ * Returns the raw block rather than resolved numbers on purpose: `slotTimeoutMs()` is pure and lives in a leaf
+ * module that imports nothing, so every call site resolves through the same function instead of this file
+ * growing ten getters. The `catch` is the pre-setup case — a model call during first run takes its default,
+ * which is what it did before any of this was configurable.
+ */
+export function getModelSlots(): Config['modelSlots'] {
+  try { return getConfig().modelSlots; } catch { return undefined; }
+}
+
 export function getEmbeddingConfig() {
   const cfg = getConfig();
   // No baseUrl in the default = use the bundled local ONNX model.

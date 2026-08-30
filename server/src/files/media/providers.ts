@@ -17,24 +17,33 @@ import { boundedJson, boundedErrorText } from '../../util/bounded-read.js';
 import { log } from '../../util/log.js';
 import { ssrfSafeFetch } from '../../util/ssrf.js';
 import { allowPrivateForSlot, type EgressSlot } from '../../config/model-egress-policy.js';
+import { slotTimeoutMs } from '../../config/model-slots.js';
+import { getModelSlots } from '../../config/loader.js';
 import { extForMimeType, isInformativeMimeType, sniffImageMimeType } from '../mime.js';
 import { chatUrlFor, transcriptionsUrlFor } from '../converters/vlm-endpoint.js';
 
 /**
- * Per-call budgets, named and exported because the stall detector has to know them.
+ * Per-call budgets, now RESOLVED per call rather than fixed at module load.
  *
- * They were inline literals, which made them invisible to `hopBudgets()` — a hop longer than
+ * They began as inline literals, which made them invisible to `hopBudgets()` — a hop longer than
  * `stalledJobTimeoutMs` reports no progress while it runs (nothing beats from inside a single `fetch`), so the
- * sweep re-queues the job mid-call and the replacement reaches the same call again. `STT_TIMEOUT_MS` is the
- * sharp one: at **exactly** the stall default, a five-minute transcription of long audio can be re-queued in
- * the same instant it would legitimately have finished, which is the indistinguishability
- * `STALL_FLOOR_FACTOR` exists to prevent. Pinned by `stall-floor-covers-every-hop.test.js`.
+ * sweep re-queues the job mid-call and the replacement reaches the same call again. Naming them as constants
+ * fixed that half. This is the other half: the operator could see the number in the source and still not
+ * change it.
+ *
+ * Read through `slotTimeoutMs()` at the call site, never hoisted to a module constant — a resolved-once
+ * constant would ignore a config reload, and `hopBudgets()` would then feed the stall floor a number the calls
+ * no longer use. `STT` is the sharp one: at **exactly** the stall default, a five-minute transcription can be
+ * re-queued in the same instant it would legitimately have finished, which is the indistinguishability
+ * `STALL_FLOOR_FACTOR` exists to prevent. Pinned by `stall-floor-covers-every-hop.test.js` and
+ * `a-model-slot-timeout-is-settable.test.js`.
+ *
+ * The local and external vision defaults differ (120 s vs 60 s) because a cold local model is slower than a
+ * hosted API. An operator who sets `modelSlots.vision.timeoutMs` has overridden that reasoning deliberately,
+ * so both legs take their configured value.
  */
-export const VISION_TIMEOUT_MS = 120_000;
-/** External vision APIs answer faster than a cold local model, and a hung one should not hold a job. */
-export const EXTERNAL_VISION_TIMEOUT_MS = 60_000;
-/** 5 min — long audio. Equal to the default `stalledJobTimeoutMs`, hence the floor. */
-export const STT_TIMEOUT_MS = 300_000;
+const visionTimeout = () => slotTimeoutMs('vision', getModelSlots());
+const sttTimeout = () => slotTimeoutMs('stt', getModelSlots());
 
 /**
  * What ONE hop can actually cost — which is not the larger of the two legs when a fallback is configured.
@@ -161,7 +170,7 @@ export class OllamaVisionProvider implements VisionProvider {
             },
           ],
         }),
-        signal: AbortSignal.timeout(VISION_TIMEOUT_MS),
+        signal: AbortSignal.timeout(visionTimeout()),
       });
     } catch (err) {
       throw new Error(`Ollama vision unreachable (${url}): ${err instanceof Error ? err.message : String(err)}`);
@@ -227,7 +236,7 @@ export class ExternalVisionProvider implements VisionProvider {
           ],
           max_tokens: 500,
         }),
-        signal: AbortSignal.timeout(EXTERNAL_VISION_TIMEOUT_MS),
+        signal: AbortSignal.timeout(visionTimeout()),
       });
     } catch (err) {
       throw new Error(`External vision unreachable (${url}): ${err instanceof Error ? err.message : String(err)}`);
@@ -293,7 +302,7 @@ export class WhisperProvider implements SttProvider {
         method: 'POST',
         headers: this.cfg.apiKey ? { Authorization: `Bearer ${this.cfg.apiKey}` } : {},
         body: form,
-        signal: AbortSignal.timeout(STT_TIMEOUT_MS),
+        signal: AbortSignal.timeout(sttTimeout()),
       });
     } catch (err) {
       throw new Error(`Whisper unreachable (${url}): ${err instanceof Error ? err.message : String(err)}`);

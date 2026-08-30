@@ -1,4 +1,5 @@
 import type { TokenRights } from './rights-shape.js';
+import type { ModelSlotsConfig } from './model-slots.js';
 export interface TokenRecord {
   id: string;
   name: string;
@@ -1241,6 +1242,19 @@ export interface Config {
     | 'assist' | 'docVlm' | 'docRepair' | 'docVerify' | 'faceExternal',
     boolean
   >>;
+  /**
+   * Per-slot model tuning — how long ONE call to each model slot may take.
+   *
+   * Top-level, beside `allowPrivateModelEndpointsBySlot`, and for the same reason: the ten slots live in three
+   * different config homes (`mediaEmbedding.vision/stt/nli/rerank`, top-level `embedding`, and
+   * `mediaEmbedding.documentProcessing.*`), so anything nested under one of them would be the wrong home for
+   * the others. Keyed by slot, every slot is reached the same way.
+   *
+   * Absent slots, and absent fields within a slot, take the built-in default — see
+   * `config/model-slots.ts`, which owns both the vocabulary and the defaults. Settable through
+   * `PATCH /api/admin/media-config` and pinnable per slot via `YTHRIL_PINNED_FIELDS`.
+   */
+  modelSlots?: ModelSlotsConfig;
   /** Dynamically-registered OAuth clients (RFC 7591) for the MCP browser
    *  authorization flow. Populated automatically when a client registers; not
    *  meant to be hand-edited. See mcp/oauth.ts. */

@@ -4,6 +4,8 @@ import { boundedJson } from '../../util/bounded-read.js';
 import { getConfig, getSecrets } from '../../config/loader.js';
 import { allowPrivateForSlot } from '../../config/model-egress-policy.js';
 import { log } from '../../util/log.js';
+import { slotTimeoutMs } from '../../config/model-slots.js';
+import { getModelSlots } from '../../config/loader.js';
 
 /** One detected face, in exactly the shape the in-process recogniser produces. */
 export interface ExternalFace {
@@ -100,7 +102,7 @@ export async function detectFacesExternal(imageBytes: Buffer, expectedDims: numb
         ...(ext?.model ? { model: ext.model } : {}),
         image: imageBytes.toString('base64'),
       }),
-      signal: AbortSignal.timeout(FACE_TIMEOUT_MS),
+      signal: AbortSignal.timeout(slotTimeoutMs('faceExternal', getModelSlots())),
     }, {
       // Matches the assist model: a self-hosted recogniser may live on a private cluster address. The
       // guard stays on — DNS-resolve, IP-pin and redirect re-validation all still apply; only the

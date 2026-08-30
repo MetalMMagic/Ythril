@@ -57,6 +57,14 @@ export const PINNABLE_FIELD_PATHS: readonly string[] = [
   'rerank.baseUrl', 'rerank.model', 'rerank.apiKey', 'rerank.candidateMultiplier',
   'embedding.provider', 'embedding.baseUrl', 'embedding.model', 'embedding.apiKey', 'embedding.dimensions',
   'embedding.prefixScheme', 'embedding.embedConcurrency', 'embedding.similarity',
+  // Per-slot model call budgets, pinned at the SLOT rather than at `modelSlots.<slot>.timeoutMs`.
+  //
+  // Depth 2 matches how `documentProcessing.assistModel` and `faceRecognition.externalModel` pin a whole
+  // nested block, and it is what `blockedByInfra` can actually enforce — that check walks two levels. A depth-3
+  // path would be accepted here and then reported as successfully written while never taking effect.
+  'modelSlots.vision', 'modelSlots.stt', 'modelSlots.embedding', 'modelSlots.rerank', 'modelSlots.nli',
+  'modelSlots.assist', 'modelSlots.docVlm', 'modelSlots.docRepair', 'modelSlots.docVerify',
+  'modelSlots.faceExternal',
   // Document processing — the whole block, so an infra deployment can fix the extraction policy and its budgets.
   'documentProcessing.mode', 'documentProcessing.strategy', 'documentProcessing.assistModel',
   'documentProcessing.extractImages', 'documentProcessing.renderDpi', 'documentProcessing.maxPages',

@@ -68,8 +68,9 @@ import {
 } from '../../metrics/registry.js';
 import { stallTimeoutWithWarning } from './stall-floor.js';
 import { worstRenderWindowMs } from '../converters/render-budget.js';
-import { VISION_TIMEOUT_MS, EXTERNAL_VISION_TIMEOUT_MS, STT_TIMEOUT_MS, providerHopMs } from './providers.js';
-import { FACE_TIMEOUT_MS } from './face-external.js';
+import { providerHopMs } from './providers.js';
+import { slotTimeoutMs } from '../../config/model-slots.js';
+import { getModelSlots } from '../../config/loader.js';
 import { AUDIO_STEPS, VIDEO_STEPS } from './progress.js';
 
 let running = false;
@@ -95,6 +96,22 @@ function hopBudgets(): Record<string, number | undefined> {
   const visionType = media.visionProvider ?? 'local';
   const sttType = media.sttProvider ?? 'local';
   const fallback = media.fallbackToExternal ?? false;
+  /*
+   * Resolved through the same function the call sites use, never from the constants they used to carry.
+   *
+   * Fed a constant while an operator's configured value is larger, the floor would keep protecting the
+   * DEFAULT — and a call longer than the stall timeout is re-queued mid-flight, abandons its work, and reaches
+   * the same call again. That is the loop this whole list exists to prevent, re-armed by the control meant to
+   * help. Asserted by `a-model-slot-timeout-is-settable.test.js`.
+   */
+  const cfg = getModelSlots();
+  // Named `*Ms` because `stall-floor.test.js` requires every fed value to name a millisecond quantity — a hop
+  // list whose entries could be counts or flags is how a non-duration once raised the floor for no reason.
+  const slots = {
+    visionMs: slotTimeoutMs('vision', cfg),
+    sttMs: slotTimeoutMs('stt', cfg),
+    faceExternalTimeoutMs: slotTimeoutMs('faceExternal', cfg),
+  };
   return {
     pageTimeoutMs: doc.pageTimeoutMs,
     ocrTimeoutMs: doc.ocrTimeoutMs,
@@ -117,11 +134,11 @@ function hopBudgets(): Record<string, number | undefined> {
      * inherits its budget — passed twice deliberately rather than doubled here, so that if the external leg
      * ever gets its own constant this keeps saying what it means.
      */
-    visionHopMs: providerHopMs(VISION_TIMEOUT_MS, EXTERNAL_VISION_TIMEOUT_MS, visionType, fallback),
-    sttHopMs: providerHopMs(STT_TIMEOUT_MS, STT_TIMEOUT_MS, sttType, fallback),
+    visionHopMs: providerHopMs(slots.visionMs, slots.visionMs, visionType, fallback),
+    sttHopMs: providerHopMs(slots.sttMs, slots.sttMs, sttType, fallback),
     // No chain: `allowInProcessFallback` falls back to in-process detection rather than to a second HTTP
     // call, so nothing is added to the budget of the call itself.
-    faceTimeoutMs: FACE_TIMEOUT_MS,
+    faceTimeoutMs: slots.faceExternalTimeoutMs,
   };
 }
 

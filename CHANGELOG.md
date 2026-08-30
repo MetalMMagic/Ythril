@@ -80,6 +80,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   have been stricter than the API. Two shipped promises pointing opposite ways is a product decision, not a
   defect, so it is filed for a ruling and the code now says where.
 
+### Added
+
+- **Every model slot's call budget is now operator-settable.** Only the document pipeline ever was: an
+  operator could set `pageTimeoutMs`, `ocrTimeoutMs` and `describeTimeoutMs`, and nothing else. The other ten
+  model calls each carried a literal — two exported constants in the media providers, one in the face
+  detector, bare `AbortSignal.timeout(20_000)` in the NLI and rerank clients, `30_000` in the embedder, and
+  `?? 60_000` repeated **five times** in the document VLM client. Ten slots, four mechanisms, none reachable
+  without a rebuild. Reported by the canary operator, who asked why they could not configure the vision
+  deadline.
+
+  `modelSlots.<slot>.timeoutMs` sets it, for any of `vision`, `stt`, `embedding`, `rerank`, `nli`, `assist`,
+  `docVlm`, `docRepair`, `docVerify`, `faceExternal` — the same ten names the per-slot egress permissions
+  already use, reused rather than duplicated. Settable through `PATCH /api/admin/media-config` and pinnable
+  per slot with `YTHRIL_PINNED_FIELDS=modelSlots.vision`. **Every default is unchanged**, so this ships no
+  behaviour change on its own: a change that made budgets configurable *and* moved them would make any
+  resulting regression impossible to attribute to either half.
+
+  **Raising a budget raises the stall floor with it**, and that is the half that would have turned a feature
+  into a defect if it had been missed. The media stall detector re-queues a job that reports no progress, and
+  a single long call reports nothing while it runs — so it is fed the *configured* value. Fed the constant, it
+  would have kept protecting the default while the operator's larger value ran unprotected, and a call longer
+  than the stall timeout is re-queued mid-flight, abandons its work, and reaches the same call again. That is
+  the loop the stall floor exists to prevent, re-armed by the control meant to help.
+
+  **Deliberately no environment variable.** Every setting that had both an env var and an admin field turned
+  out to have two different legal ranges, and the fix for that shipped the same day; adding ten more dual-door
+  settings on top of it would be re-opening the hole. `YTHRIL_PINNED_FIELDS` already gives infrastructure what
+  it needs — it can fix a slot at whatever the config resolves to, which is the actual requirement.
+
+  One resolver, in a module that imports nothing: the budgets are read from the config loader, from two brain
+  clients, from the media providers and from the document converter, several of which the loader itself
+  imports, so anything it depended on would close a runtime import cycle.
+
 ### Fixed
 
 - **A mistyped `MAX_FILE_SIZE_BYTES` removed the media file-size limit instead of raising it.** The media

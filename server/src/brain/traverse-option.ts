@@ -157,3 +157,50 @@ export function echoTraverse(opt: TraverseOption): number | TraverseOption {
   const narrowed = TRAVERSE_OPTION_FIELDS.some(k => k !== 'depth' && opt[k] !== undefined);
   return narrowed ? opt : opt.depth;
 }
+
+/**
+ * The JSON Schema for the `traverse` parameter, DERIVED from the fields this module accepts.
+ *
+ * ## Why it lives here and not beside the tools
+ *
+ * The two MCP tools that take a traverse — `recall` and `find_similar` — each spelled this object out
+ * inline, and that is how they came to disagree with the parser: 3.6 added three flags to
+ * `TRAVERSE_OPTION_FIELDS` and the REST route accepted them the same day, while both schemas went on
+ * declaring `{depth, edgeLabels, direction}` with `additionalProperties: false`.
+ *
+ * That is not a documentation lapse. The dispatcher validates `inputSchema` with Ajv **before** the handler
+ * runs, so the object branch matched nothing and the call was refused — while the byte-identical REST body
+ * answered 200. One API, two doors, and the door with the stricter guard silently offered less.
+ *
+ * Building it from the same constant the parser refuses unknown keys against means a fourth field cannot
+ * reach one surface and not the other: there is one list, and both the acceptance and the advertisement come
+ * out of it.
+ *
+ * `additionalProperties: false` is kept deliberately. `limit` is not accepted here — in a recall the node cap
+ * comes from `topK` and the byte budget, and a traverse that could raise it would overrule the budget
+ * governing the rest of the answer — and a schema that accepted any key would let it through.
+ *
+ * @param maxDepth the ceiling this door allows, so the schema and the parser quote the same number.
+ */
+export function traverseOptionSchema(maxDepth: number): Record<string, unknown> {
+  return {
+    // `oneOf` rather than a widened type, so a caller sending a string still gets a schema refusal from the
+    // dispatcher rather than a runtime one.
+    oneOf: [
+      { type: 'number', minimum: 0, maximum: maxDepth },
+      {
+        type: 'object',
+        properties: {
+          depth: { type: 'number', minimum: 0, maximum: maxDepth },
+          edgeLabels: { type: 'array', items: { type: 'string' } },
+          direction: { type: 'string', enum: ['outbound', 'inbound', 'both'] },
+          includeChrono: { type: 'boolean' },
+          includeMemories: { type: 'boolean' },
+          includeFiles: { type: 'boolean' },
+        },
+        required: ['depth'],
+        additionalProperties: false,
+      },
+    ],
+  };
+}

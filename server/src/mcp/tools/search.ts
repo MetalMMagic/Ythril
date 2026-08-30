@@ -14,7 +14,7 @@ import { mapGraphNodes, graphNodeRecord } from '../../brain/recall-graph.js';
 import { applyProjection, normaliseProjection } from '../../brain/projection.js';
 import { resolveBudget, resolvePaging, budgetedEnvelope, type BudgetRequest, MCP_DEFAULT_MAX_BYTES } from '../../brain/result-budget.js';
 import { buildGraphWithSpill, spillResultSet, countGraphNodes } from '../../brain/graph-spill.js';
-import { parseTraverseOption } from '../../brain/traverse-option.js';
+import { parseTraverseOption, traverseOptionSchema } from '../../brain/traverse-option.js';
 import { type FilterExpression } from '../../brain/filter.js';
 import { resolveRecallFilter, type RawMongoFilter } from '../../brain/recall-filter.js';
 import {
@@ -148,21 +148,10 @@ export const recallTool: ToolHandler = {
               description: 'Also WRITE the matches that did not fit to the space as a JSON file, and report it as `remainder` (default false). Only meaningful when the answer truncates. Leave it off unless you actually want the whole set as one artifact — the file is a write on a read path, it counts against space storage, and paging with `skip`/`nextSkip` reaches the same records without creating one. It used to happen unconditionally on every truncated call, which meant a caller that only wanted the next page paid for a download it never opened.',
             },
             traverse: {
-              // A depth, or a whole traversal minus its start node. `oneOf` rather than a widened type, so a
-              // caller sending a string still gets a schema refusal from the dispatcher rather than a runtime one.
-              oneOf: [
-                { type: 'number', minimum: 0, maximum: 5 },
-                {
-                  type: 'object',
-                  properties: {
-                    depth: { type: 'number', minimum: 0, maximum: 5 },
-                    edgeLabels: { type: 'array', items: { type: 'string' } },
-                    direction: { type: 'string', enum: ['outbound', 'inbound', 'both'] },
-                  },
-                  required: ['depth'],
-                  additionalProperties: false,
-                },
-              ],
+              // A depth, or a whole traversal minus its start node. Built from `TRAVERSE_OPTION_FIELDS` rather
+              // than spelled out here — see `traverseOptionSchema`, which exists because these two tools each
+              // held their own copy and both were left behind when the parser gained three flags.
+              ...traverseOptionSchema(MAX_RECALL_TRAVERSE),
               description: 'Optional graph expansion depth (integer 0–5, default 0). When > 0, each semantic match is expanded along knowledge-graph edges up to this many hops, and what the walk reached is NESTED under the match that reached it in a `_graph` array: {edge, node, paths} per node, where `edge` is the whole edge document (description and tags included), `node` is the reached entity, and `paths` is every route to it as record ids, match first — so paths[0] is the nesting route and paths[0].length-1 is the hop count. A nested node carries its own `_graph`, so depth is a tree. `count` stays the number of MATCHES (traversed nodes are not in the ranked list and carry no score); `graphNodes` reports how many were reached. LINKS, since 3.6: a walk follows stored edges always, and the `entityIds` field a memory, chrono entry or file carries naming what it is about only when you ask — `{depth: 2, includeChrono: true, includeMemories: true, includeFiles: true}`, one flag per kind, ALL THREE DEFAULT FALSE. Off by default because you asked for matches and the answer is budgeted: a match is counted with its whole `_graph` subtree, so every record admitted by default is paid for in matches that no longer fit. Turn one on and two things change. A linked node arrives carrying `kind` (chrono|memory|file) and the fields that say what it is — the title and type of a chrono, the fact of a memory, the path/description/tags of a file, NEVER file chunk text. And a NON-ENTITY SEED stops being a dead end: a matched memory has no edges of its own, so the walk starts from the entities named by its `entityIds`, at hop 1. The reaching edge is SYNTHETIC — id `<label>:<from>:<to>`, label `chrono.entityIds`/`memory.entityIds`/`file.entityIds`, and no author/createdAt/seq because a derived edge has none; do not look one up by that id. `edgeLabels` filters them like any other label. With every flag off the behaviour is exactly what it was: a non-entity seed comes back with an empty `_graph` at any depth. If the neighbourhood is bigger than the inline cap the COMPLETE graph is written to the space as JSON and the response adds `graphTruncated: true` and `graphComplete: {nodes, path, download, expiresAt}` — an authenticated download, valid one day — so a short graph is never silent. Use with filter/tags to narrow the seed set — traverse > 2 on dense graphs can be slow. Example: recall "auth token scoping" with traverse: 1 returns the matching records, each carrying everything one edge away. NARROWING, since 3.5: pass an OBJECT instead of a number to walk the graph the way the standalone `traverse` tool does — `{depth, edgeLabels, direction}`, which is a traverse call without its start node because the matches ARE the start nodes. `edgeLabels` follows only those labels; `direction` is one of outbound, inbound or both (default both, which is what a bare number does). Before this the expansion followed EVERY edge in BOTH directions with no way to say otherwise, so one hop off a well-connected node returned whichever neighbours the cap happened to keep — narrow it and you get the neighbourhood you asked for instead. `limit` is deliberately not accepted here: in a recall the node cap comes from topK and the byte budget, and a traverse that could raise it would overrule the budget governing the rest of the answer. Example: recall "the dog" with `traverse: {depth: 2, edgeLabels: [owns, lives_in], direction: outbound}`.',
             },
             filter: {
@@ -458,21 +447,9 @@ export const find_similarTool: ToolHandler = {
             topK: { type: 'number', minimum: 1, maximum: 100, default: 10, description: 'Max results to return (clamped to 1–100). Default 10.' },
             minScore: unitScoreSchema('Minimum cosine similarity (0.0–1.0). Results below it are excluded. Unlike on `recall`, this IS the relevance gate — cosine distance is the only ranking here, so raising it narrows the answer honestly rather than cutting candidates a reranker would have rescued. For deduplication, start high: near-duplicates sit well above 0.9 and everything below that is a topic match rather than a repeat.'),
             traverse: {
-              // Same shape as `recall`'s, in the same release. A parameter that means one thing on one search
-              // and another on the next is the asymmetry this tool already carries a comment about.
-              oneOf: [
-                { type: 'number', minimum: 0, maximum: 5 },
-                {
-                  type: 'object',
-                  properties: {
-                    depth: { type: 'number', minimum: 0, maximum: 5 },
-                    edgeLabels: { type: 'array', items: { type: 'string' } },
-                    direction: { type: 'string', enum: ['outbound', 'inbound', 'both'] },
-                  },
-                  required: ['depth'],
-                  additionalProperties: false,
-                },
-              ],
+              // Literally `recall`'s, not merely the same shape: one builder, so a parameter cannot mean one
+              // thing on one search and something else on the next.
+              ...traverseOptionSchema(MAX_RECALL_TRAVERSE),
               default: 0,
               description: `Optional graph-expansion depth (integer 0–${MAX_RECALL_TRAVERSE}, default 0). When > 0, each similar match is expanded along knowledge-graph edges up to this many hops and what the walk reached is NESTED under the match that reached it in a \`_graph\` array — {edge, node, paths} per node, identical to \`recall\`'s shape: \`edge\` is the whole edge document, \`node\` the reached entity, \`paths\` every route to it as record ids with the match first. \`count\` is the number of matches and \`graphNodes\` how many nodes were reached. A neighbourhood past the inline cap is written out in full and reported as \`graphTruncated\` + \`graphComplete\` (an authenticated download, valid one day), exactly as on \`recall\`. With traverse > 0 the response is JSON instead of the plain text summary.`,
             },

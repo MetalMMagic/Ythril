@@ -101,12 +101,21 @@ describe('both doors take the same three flags', () => {
       assert.match(parser.slice(parser.indexOf('TRAVERSE_OPTION_FIELDS')), new RegExp(`'${flag}'`),
         `${flag} is missing from TRAVERSE_OPTION_FIELDS, so both doors refuse it as an unknown key`);
       /*
-       * The schema description is what a caller reads WHILE constructing arguments — a capability absent from
-       * it is one nobody reports, because they were told they did not have it.
+       * DISCOVERABILITY ONLY, and saying so is the correction this comment exists to carry.
        *
-       * Scoped to `recall`'s OWN traverse description rather than the file, and that is the whole point of
-       * this assertion: all three flag names were already in this file, inside a sentence that named them as
-       * something the standalone tool had and `recall` did not. A file-wide search passes on that sentence.
+       * The schema description is what a caller reads while constructing arguments, so a capability absent
+       * from it is one nobody reports. But a description is prose ABOUT a schema and decides nothing: this
+       * assertion passed on the day the flags shipped, while the `inputSchema` that guards them still
+       * declared three keys with `additionalProperties: false` and the dispatcher refused every call the
+       * description told a caller to make. A gate that greps the prose passes on the wrong rule.
+       *
+       * What a caller can actually SEND is pinned by
+       * `the-traverse-option-schema-is-one-schema.test.js`, which exercises the compiled schema against
+       * `TRAVERSE_OPTION_FIELDS`. Keep both: one is about being able to find the flag, the other about the
+       * flag working.
+       *
+       * Scoped to `recall`'s OWN traverse description rather than the file, because all three flag names were
+       * already present in a sentence naming them as something the standalone tool had and `recall` did not.
        */
       const tool = src('server/src/mcp/tools/search.ts');
       const at = tool.indexOf('Optional graph expansion depth');

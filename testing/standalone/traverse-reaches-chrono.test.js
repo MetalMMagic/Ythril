@@ -33,6 +33,7 @@ import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { bodyOf } from './_structural-window.mjs';
 
 const ROOT = process.cwd();
 const read = (p) => readFileSync(join(ROOT, p), 'utf8');
@@ -117,9 +118,46 @@ describe('traverse follows chrono.entityIds', () => {
       'chrono nodes must count toward `limit`, or a timeline-heavy space blows past it');
   });
 
-  it('reuses the chrono id for the synthetic edge rather than inventing one', () => {
-    // An invented edge id would 404 for anyone who looked it up. The chrono's own id resolves.
-    assert.match(code, /resultEdges\.push\(\{ _id: doc\._id/);
+  it('gives every synthetic edge an id of its own, never the target node id', () => {
+    /*
+     * REVERSED, because the rule it held was wrong in both halves.
+     *
+     * It asserted `_id: doc._id` on the rationale that "an invented edge id would 404 for anyone who looked
+     * it up — the chrono's own id resolves". It does not: `getEdgeById` reads `${spaceId}_edges` and nothing
+     * else, so the chrono's id 404s on every edge-lookup path the product has. The affordance was never
+     * delivered.
+     *
+     * What WAS delivered was a collision. A graph library keeps one id namespace for nodes and edges, so the
+     * synthetic edge and the node it points at were the same element — cytoscape drops the repeat silently,
+     * and the links vanished from the graph view with nothing in the console.
+     *
+     * ANCHORED PER BLOCK, not over the whole file. The previous version matched anywhere in `code`, so a
+     * partial fix — chrono corrected, memories and files left alone — would have kept it green. Each of the
+     * three loops is checked against its own slice.
+     */
+    for (const source of ['chronoHere', 'memoriesHere', 'filesHere']) {
+      const at = code.indexOf(`for (const { doc, via } of ${source})`);
+      assert.notEqual(at, -1, `the ${source} loop is gone — re-point this gate`);
+      const block = code.slice(at, code.indexOf('resultNodes.push', at));
+      assert.match(
+        block, /_id: syntheticEdgeId\(/,
+        `the ${source} synthetic edge must carry its own id — sharing the target node's id makes a graph `
+        + 'library drop the edge, and it resolves to nothing anyway',
+      );
+      assert.doesNotMatch(
+        block, /resultEdges\.push\(\{ _id: doc\._id/,
+        `the ${source} synthetic edge is reusing the target document id again`,
+      );
+    }
+  });
+
+  it('the synthetic id cannot be mistaken for a stored one', () => {
+    // Shaped `<label>:<from>:<to>` rather than a UUID, deliberately: there is no stored edge behind it, and
+    // an id that looked real would invite the lookup that cannot work.
+    // `bodyOf`, not a slice to the first `}` — the first one belongs to `${label}` inside the template
+    // literal, so a hand-cut window ends three characters into the thing it is checking.
+    assert.match(bodyOf(code, 'syntheticEdgeId'), /\$\{label\}:\$\{from\}:\$\{to\}/,
+      'the id must name its label and both endpoints, so two seeds linking to one target differ');
   });
 });
 

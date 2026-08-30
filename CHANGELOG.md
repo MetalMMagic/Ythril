@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Chrono, memory and file links were silently missing from the graph view.** A synthetic traverse edge
+  carried the same `_id` as the node it points at. A graph library keeps ONE id namespace for nodes and edges,
+  so cytoscape skipped the repeat — with a bare `continue`, before the path that would have thrown. Nodes are
+  added before edges, so the node always won and the edge always lost. What an operator saw was a detached
+  band of chrono bubbles floating above the graph, connected to nothing, with no console output and an edge
+  count that overreported by exactly that many.
+
+  **The rationale for sharing the id was the opposite of true.** It read: *"nothing has to invent an edge id
+  that does not exist — a caller looking it up finds the chrono, not a 404."* `getEdgeById` queries the edge
+  collection and nothing else, so that id `404`s on every edge-lookup path the product has; the one lookup
+  that resolves needs an id the caller already has from the node. The affordance was never delivered — only
+  the collision was.
+
+  Synthetic edges now carry `<label>:<from>:<to>`, deliberately not a UUID: there is no stored edge behind one,
+  and an id shaped like a real one invites the lookup that cannot work. Two seeds linking to the same target
+  now produce two distinguishable edges, which is correct — they are two relationships, and they used to be
+  one id twice.
+
+  The integration guide stated the old promise verbatim to integrators and now states what is true, including
+  that these ids are not fetchable. Two tests pinned the old id as contract and are reversed: the integration
+  one now asserts the edge id collides with **no** node in the same response, and the standalone one checks
+  each of the three loops separately — it matched anywhere in the file before, so a chrono-only fix would have
+  kept it green.
+
+  `Set` of node ids rather than inequality with one record, because the property that matters is uniqueness
+  across the response.
+
 - **`graphNodes` counted nodes the caller never received.** All four traverse-capable search endpoints —
   recall and `find_similar`, on both doors — reported the total the traversal *reached*, across every seed.
   But the byte budget then keeps only a prefix of the matches, and an evicted match takes its subtree with it,

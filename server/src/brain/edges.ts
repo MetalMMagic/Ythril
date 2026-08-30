@@ -65,6 +65,39 @@ export interface TraverseResult {
   truncated: boolean;
 }
 
+/**
+ * The id of a SYNTHETIC traverse edge — the link from an entity to a chrono entry, memory or file.
+ *
+ * ## What it replaces, and why that was wrong in both directions
+ *
+ * These edges used to carry the TARGET DOCUMENT'S OWN `_id`, on this rationale: *"nothing has to invent an
+ * edge id that does not exist — a caller looking it up finds the chrono, not a 404."*
+ *
+ * **The consumer half of that was the exact opposite of true.** `getEdgeById` queries `${spaceId}_edges` and
+ * nothing else, and a chrono lives in `_chrono`, a memory in `_memories`, a file in `_files`. So the
+ * "helpful" id 404s on every edge-lookup path the product actually has — `GET /edges/:id`, the PATCH, and
+ * `update_edge`. The one lookup that does resolve is `GET /chrono/:id`, which needs an id the caller already
+ * has from the NODE. The affordance was never delivered; only the collision was.
+ *
+ * **And it made the links disappear.** A graph library has ONE id namespace for nodes and edges — cytoscape
+ * skips a repeated id with a bare `continue` inside its `Collection` constructor, before the code path that
+ * would have thrown. Nodes are added before edges, so the node always won and the edge was always dropped,
+ * silently. What an operator saw was a detached band of chrono bubbles floating above the graph, connected
+ * to nothing, with no console output and an edge count that overreported by exactly that many.
+ *
+ * ## The shape
+ *
+ * Label-prefixed and carrying both endpoints, so it can collide with neither a stored edge `_id` (a UUID) nor
+ * any node id (also a UUID). Two seeds linking to the SAME chrono entry produce two different edges, which is
+ * correct — they are two different relationships — and under the old scheme they were one id twice.
+ *
+ * It is deliberately NOT a UUID: a synthetic edge has no stored record, and an id shaped like a real one
+ * invites exactly the lookup that cannot work. This one says what it is.
+ */
+export function syntheticEdgeId(label: string, from: string, to: string): string {
+  return `${label}:${from}:${to}`;
+}
+
 
 /** Resolve entity IDs to names for embedding. Falls back to the raw ID if the entity is not found. */
 export async function resolveEdgeEntityNames(spaceId: string, fromId: string, toId: string): Promise<[string, string]> {
@@ -542,8 +575,8 @@ export const FILE_LINK_LABEL = 'file.entityIds';
  * are unchanged down to the byte. `includeChrono: false` restores the old shape for a client that assumed
  * one collection.
  *
- * The synthetic edge is labelled `chrono.entityIds` and its `_id` is the chrono's, so nothing has to invent
- * an edge id that does not exist — a caller looking it up finds the chrono, not a 404.
+ * The synthetic edge is labelled `chrono.entityIds` and carries its OWN id — see `syntheticEdgeId`. It used
+ * to reuse the chrono's `_id`, on a rationale that was the opposite of true.
  *
  * @param memberIds  Space IDs to search for edges and entities (supports proxy spaces).
  * @param startId    UUID of the starting entity.
@@ -746,7 +779,7 @@ export async function traverseGraph(
     // Chrono nodes are emitted at this depth but do NOT join the next frontier: a chrono links to entities,
     // not to other chrono entries, so expanding from one would only walk back to entities already visited.
     for (const { doc, via } of chronoHere) {
-      resultEdges.push({ _id: doc._id, from: via, to: doc._id, label: CHRONO_LINK_LABEL });
+      resultEdges.push({ _id: syntheticEdgeId(CHRONO_LINK_LABEL, via, doc._id), from: via, to: doc._id, label: CHRONO_LINK_LABEL });
       resultNodes.push({ _id: doc._id, name: doc.title, type: doc.type, depth: currentDepth + 1, kind: 'chrono' });
       if (resultNodes.length >= limit) {
         return answer(true);
@@ -756,7 +789,7 @@ export async function traverseGraph(
     // Memories, for the same reason chrono nodes do not: a memory links to entities, never to another memory.
     // `type` is optional on a memory, so an undeclared one reports an empty type rather than borrowing `kind`.
     for (const { doc, via } of memoriesHere) {
-      resultEdges.push({ _id: doc._id, from: via, to: doc._id, label: MEMORY_LINK_LABEL });
+      resultEdges.push({ _id: syntheticEdgeId(MEMORY_LINK_LABEL, via, doc._id), from: via, to: doc._id, label: MEMORY_LINK_LABEL });
       resultNodes.push({ _id: doc._id, name: doc.fact, type: doc.type ?? '', depth: currentDepth + 1, kind: 'memory' });
       if (resultNodes.length >= limit) {
         return answer(true);
@@ -765,7 +798,7 @@ export async function traverseGraph(
 
     // Files, also leaves. `type` is empty because a file has none — borrowing `kind` for it would invent data.
     for (const { doc, via } of filesHere) {
-      resultEdges.push({ _id: doc._id, from: via, to: doc._id, label: FILE_LINK_LABEL });
+      resultEdges.push({ _id: syntheticEdgeId(FILE_LINK_LABEL, via, doc._id), from: via, to: doc._id, label: FILE_LINK_LABEL });
       resultNodes.push({
         _id: doc._id, name: doc.path, type: '', depth: currentDepth + 1, kind: 'file',
         ...(doc.description ? { description: doc.description } : {}),

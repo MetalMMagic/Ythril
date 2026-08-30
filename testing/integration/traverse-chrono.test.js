@@ -151,7 +151,25 @@ describe('traverse reaches chrono entries', () => {
     assert.ok(link, 'the synthetic link must be reported like any other edge');
     assert.equal(link.label, 'chrono.entityIds');
     assert.equal(link.from, ids.inc, 'it hangs off the entity the chrono references');
-    assert.equal(link._id, ids.chrono, 'the edge id is the chrono id — never an invented id that 404s');
+    /*
+     * The edge id must DIFFER from every node id in the same response.
+     *
+     * This used to assert the opposite — `link._id === ids.chrono` — on the rationale that the chrono's own
+     * id "resolves rather than 404ing on an invented edge". It never resolved: `GET /edges/:id` reads the
+     * edge collection only. And sharing an id between a node and an edge makes a graph library drop one of
+     * them, since they keep a single id namespace, which is how the chrono links disappeared from the graph
+     * view without a word.
+     *
+     * Asserted against the WHOLE node set rather than against the chrono alone, because the property that
+     * matters is uniqueness across the response, not inequality with one particular record.
+     */
+    const nodeIds = new Set((r.body.nodes ?? []).map(n => n._id));
+    assert.ok(
+      !nodeIds.has(link._id),
+      `the synthetic edge id ${link._id} collides with a node in the same response — a graph library keeps `
+      + 'one id namespace and will silently drop one of the two',
+    );
+    assert.match(link._id, /^chrono\.entityIds:/, 'and it names the link it stands for');
   });
 
   it('includeChrono:false restores the entity-only shape', async () => {

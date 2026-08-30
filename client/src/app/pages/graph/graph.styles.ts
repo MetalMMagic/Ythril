@@ -351,53 +351,6 @@ export const GRAPH_STYLES = `
       overflow: hidden;
     }
 
-    /* Left column: record card */
-    .record-card {
-      flex: 0 0 50%;
-      border-right: 1px solid var(--border);
-      overflow-y: auto;
-      padding: 12px 14px;
-    }
-
-    /* Drawer fields (same pattern as brain component) */
-    .drawer-field { margin-bottom: 14px; }
-    .drawer-label {
-      font-size: 10px;
-      font-weight: 600;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin-bottom: 4px;
-    }
-    .drawer-value {
-      font-size: 12px;
-      color: var(--text-primary);
-      white-space: pre-wrap;
-      word-break: break-word;
-      line-height: 1.5;
-    }
-    .drawer-muted { color: var(--text-muted); }
-    .drawer-hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
-    .drawer-readonly-value {
-      font-size: 12px;
-      color: var(--text-muted);
-      padding: 4px 8px;
-      border: 1px solid var(--border-muted, var(--border));
-      border-radius: var(--radius-sm);
-      background: var(--bg-elevated);
-      word-break: break-all;
-      line-height: 1.4;
-    }
-    .drawer-tag {
-      display: inline-block;
-      padding: 1px 7px;
-      border-radius: 10px;
-      font-size: 11px;
-      background: var(--bg-elevated);
-      color: var(--text-secondary);
-      border: 1px solid var(--border);
-      margin: 2px 3px 2px 0;
-    }
 
 
     /* ── Shared badge, button helpers ──────────────────────────────────────── */
@@ -534,4 +487,70 @@ export const GRAPH_LINKED_RECORDS_STYLES = `
   .detail-filters input { flex: 1 1 auto; }
   .detail-filters select:focus,
   .detail-filters input:focus { outline: none; border-color: var(--accent); }
+`;
+
+
+/**
+ * The record cards' own rules — the LEFT column of a side panel.
+ *
+ * They moved out of `GRAPH_STYLES` with the markup, for the reason `GRAPH_LINKED_RECORDS_STYLES` already
+ * records: the parent's styles are scoped to the parent's own template, so markup moved into a child renders
+ * UNSTYLED unless its rules move with it — and no unit test can see that.
+ *
+ * `.record-card` became `:host`, because the host is the element the parent lays out. Left on an inner
+ * wrapper it would leave the host unsized, `flex: 0 0 50%` would do nothing, and the column would collapse.
+ *
+ * `.drawer-muted` did NOT come along: it was declared in `GRAPH_STYLES` and used by nothing in the graph
+ * page. Its users are brain's own components, which carry their own copy. (The card's unavailable message
+ * asks for `.muted`, which is declared nowhere at all — filed as part of G-6, not fixed here.)
+ */
+export const GRAPH_RECORD_CARD_STYLES = `
+  /* The card itself — this component IS the left column of a side panel. */
+  :host {
+    display: block;
+    flex: 0 0 50%;
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 12px 14px;
+  }
+
+
+  /* Drawer fields (same pattern as brain component) */
+  .drawer-field { margin-bottom: 14px; }
+  .drawer-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 4px;
+  }
+  .drawer-value {
+    font-size: 12px;
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.5;
+  }
+  .drawer-hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
+  .drawer-readonly-value {
+    font-size: 12px;
+    color: var(--text-muted);
+    padding: 4px 8px;
+    border: 1px solid var(--border-muted, var(--border));
+    border-radius: var(--radius-sm);
+    background: var(--bg-elevated);
+    word-break: break-all;
+    line-height: 1.4;
+  }
+  .drawer-tag {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 10px;
+    font-size: 11px;
+    background: var(--bg-elevated);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    margin: 2px 3px 2px 0;
+  }
 `;

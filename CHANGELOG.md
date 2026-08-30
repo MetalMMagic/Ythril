@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Internal
+
+- **The graph side panel's record cards are rendered by a test for the first time.** Preparation for splitting
+  them out of `graph.component.ts`, which sits at its size freeze — and the repo rule is characterization
+  tests first, proven against the original code, because a template move is exactly the change that silently
+  loses a binding.
+
+  An inventory of the two cards found **167 rendered things and DOM coverage of none of them**: the four
+  assertions that touch the card at all are signal-level, and neither card's populated branch had ever been
+  rendered. The new spec pins the field order, the per-row guards (an empty `properties` object hides its
+  row; a `weight` of **zero** still shows), the tag chips, the untranslated `_id` label, the date format, and
+  the edge card's endpoint fallback — which reads a different signal from the rest of the card. Five mutants
+  covering the likeliest move-damage all die.
+
+  **Three assertions pin a defect on purpose**, named as such so the extraction can neither quietly fix nor
+  quietly keep them: a memory or chrono node renders a blank name row and never shows its `fact` or `title`;
+  a file node renders the unavailable message and the loading row together; and a synthetic edge shows
+  loading for ever, because only the node card reads `recordUnavailable()`. Filed as G-5 and G-6.
+
+
 ### Fixed
 
 - **`recall`'s and `find_similar`'s three link flags were refused by MCP while REST accepted them.**

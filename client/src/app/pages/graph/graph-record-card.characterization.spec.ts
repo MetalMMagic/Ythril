@@ -1,0 +1,330 @@
+/**
+ * What the graph side-panel's record cards RENDER — pinned before they are extracted (G-2).
+ *
+ * ## Why this file exists
+ *
+ * `graph.component.ts` is at its size freeze, and the cure is moving the record card into a child
+ * component. The repo rule is characterization tests first, proven against the ORIGINAL code, because a
+ * template move is exactly the change that silently loses a binding — and a binding that renders nothing
+ * looks identical to a record with no value.
+ *
+ * **An inventory of the two cards found 167 rendered things and DOM coverage of none of them.** Four
+ * assertions in the whole client touch the card at all and every one is signal-level: two read
+ * `recordUnavailable()` in a suite with no DOM, and two set `selectedEntityRecord` purely to prove it gets
+ * nulled. `graph.component.characterization.spec.ts` is 680 lines with zero `querySelector`. So neither
+ * card's populated branch had ever been rendered by a test before this file.
+ *
+ * ## There are TWO cards, and they are not the same shape
+ *
+ * The node card (`<!-- Record card -->`) and the edge card (`<!-- Edge record card -->`) share every class
+ * and the field-row idiom, and differ in four ways that matter: the edge card has `weight`, `from`/`to` with
+ * a fallback, and a `relation` label instead of `name` — and it has **no `recordUnavailable` branch at
+ * all**. Any extraction that unifies them is changing behaviour rather than moving it, so both are pinned
+ * here separately.
+ *
+ * ## Three of these pin a DEFECT, deliberately
+ *
+ * A characterization test states what the code does, not what it should. Where the current behaviour is
+ * wrong the assertion says so in its name and its comment, so the extraction cannot quietly "fix" it and
+ * cannot quietly keep it: changing it becomes a decision somebody makes on purpose.
+ *
+ *  - a memory or chrono node renders a BLANK name row and never shows its `fact` / `title`;
+ *  - a file node renders the unavailable message AND the loading row, together;
+ *  - a synthetic edge shows loading for ever, because only the node card reads `recordUnavailable()`.
+ *
+ * Run: cd client && npx vitest run src/app/pages/graph/graph-record-card.characterization.spec.ts
+ */
+import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { TestBed } from '@angular/core/testing';
+import { of } from 'rxjs';
+import { ActivatedRoute } from '@angular/router';
+
+vi.mock('cytoscape', () => {
+  const chain: any = new Proxy(() => chain, { get: () => () => chain });
+  return { default: () => chain };
+});
+
+import { SpacesApi } from '../../core/spaces-api.service';
+import { BrainApi } from '../../core/brain-api.service';
+import { AuthApi } from '../../core/auth-api.service';
+import { getTranslocoModule } from '../../testing/transloco-testing';
+import { GraphComponent } from './graph.component';
+
+function makeApi() {
+  return {
+    getMe: () => of({ readOnly: false }),
+    listSpaces: () => of({ spaces: [] }),
+    getSpaceMeta: () => of({ typeSchemas: {} }),
+  } as any;
+}
+
+function create() {
+  TestBed.configureTestingModule({
+    imports: [GraphComponent, getTranslocoModule()],
+    providers: [
+      { provide: SpacesApi, useValue: makeApi() },
+      { provide: BrainApi, useValue: makeApi() },
+      { provide: AuthApi, useValue: makeApi() },
+      { provide: ActivatedRoute, useValue: { snapshot: { queryParams: {} } } },
+    ],
+  });
+  const fixture = TestBed.createComponent(GraphComponent);
+  fixture.componentRef.setInput('embeddedSpaceId', 'work');
+  fixture.detectChanges();
+  return fixture;
+}
+
+/** A node as the traversal reports one. `type` is required and both synthesis sites default it. */
+const node = (over: Record<string, unknown> = {}) =>
+  ({ _id: 'n1', name: 'Ada', type: 'person', depth: 1, ...over }) as any;
+
+/** The two cards live in the same DOM under `.record-card`; index 0 is the node card when open. */
+function card(fixture: any, which: 0 | 1 = 0): HTMLElement | null {
+  const all = fixture.nativeElement.querySelectorAll('.record-card');
+  return (all[which] as HTMLElement) ?? null;
+}
+
+/** Every `<label, value>` pair the card rendered, in order — the shape an extraction must preserve. */
+function rows(el: HTMLElement | null): { label: string; value: string }[] {
+  if (!el) return [];
+  return [...el.querySelectorAll('.drawer-field')].map(f => ({
+    label: (f.querySelector('.drawer-label')?.textContent ?? '').trim(),
+    value: (f.querySelector('.drawer-value, .drawer-readonly-value')?.textContent ?? '').trim(),
+  }));
+}
+
+describe('the node card, populated', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  function openWith(record: Record<string, unknown>) {
+    const f = create();
+    const c = f.componentInstance as any;
+    c.selectedNode.set(node());
+    c.selectedEntityRecord.set(record);
+    f.detectChanges();
+    return { f, c };
+  }
+
+  it('renders every field an entity carries, in template order', () => {
+    // The whole point of the file: this is the first test that has ever rendered this branch.
+    const { f } = openWith({
+      _id: 'e-1', name: 'Ada Lovelace', type: 'person', description: 'the first programmer',
+      tags: ['maths', 'history'], properties: { born: 1815 }, createdAt: '2026-08-30T09:05:00.000Z',
+    });
+    const got = rows(card(f));
+    const values = got.map(r => r.value);
+    expect(values).toContain('Ada Lovelace');
+    expect(values).toContain('person');
+    expect(values).toContain('the first programmer');
+    expect(values).toContain('e-1');
+    /*
+     * The only pipe-formatted value in either card, and the one a move is most likely to drop — asserted as
+     * a FORMAT, not an instant. `date:` renders in the runner's LOCAL zone, so a fixed string passes here
+     * (CEST) and fails on CI (UTC) by exactly two hours. What the extraction can break is the pattern
+     * disappearing or changing, and that is what this catches.
+     */
+    const stamped = values.find(v => /^\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}$/.test(v));
+    expect(stamped, `no dd.MM.yyyy HH:mm value rendered; got ${JSON.stringify(values)}`).toBeTruthy();
+  });
+
+  it('renders tags as chips, one per tag, tracked by value', () => {
+    const { f } = openWith({ _id: 'e-1', name: 'Ada', tags: ['maths', 'history'], createdAt: '2026-08-30T09:05:00.000Z' });
+    const chips = [...(card(f)?.querySelectorAll('.drawer-tag') ?? [])].map(c => c.textContent?.trim());
+    expect(chips).toEqual(['maths', 'history']);
+  });
+
+  it('hides a row whose value is absent, rather than showing an empty label', () => {
+    // Each optional row is its own `@if`, and the label lives INSIDE it — so losing the guard in a move
+    // would show a bare "Description" with nothing under it, which reads as "this record has none".
+    const { f } = openWith({ _id: 'e-1', name: 'Ada', createdAt: '2026-08-30T09:05:00.000Z' });
+    const labels = rows(card(f)).map(r => r.label);
+    expect(labels).not.toContain('Description');
+    expect(labels).not.toContain('Tags');
+  });
+
+  it('hides properties for an EMPTY object, not just an absent one', () => {
+    // The guard is two-part and calls `objectKeys` from the template. A `{}` must hide the row; the
+    // simpler `@if (properties)` a refactor might reach for would show an empty properties view.
+    const { f } = openWith({ _id: 'e-1', name: 'Ada', properties: {}, createdAt: '2026-08-30T09:05:00.000Z' });
+    expect(card(f)?.querySelector('app-properties-view')).toBeNull();
+  });
+
+  it('renders the properties view when there IS a property', () => {
+    const { f } = openWith({ _id: 'e-1', name: 'Ada', properties: { born: 1815 }, createdAt: '2026-08-30T09:05:00.000Z' });
+    expect(card(f)?.querySelector('app-properties-view')).not.toBeNull();
+  });
+
+  it('labels the id `_id`, untranslated — the only such label in either card', () => {
+    // Deliberate, and easy to "tidy" into a translation key during a move.
+    const { f } = openWith({ _id: 'e-1', name: 'Ada', createdAt: '2026-08-30T09:05:00.000Z' });
+    expect(rows(card(f)).map(r => r.label)).toContain('_id');
+  });
+
+  it('shows the loading row while no record has arrived', () => {
+    const f = create();
+    (f.componentInstance as any).selectedNode.set(node());
+    f.detectChanges();
+    expect(card(f)?.textContent).toMatch(/loading/i);
+    expect(card(f)?.querySelector('.drawer-label')).toBeNull();
+  });
+});
+
+describe('the node card, for a kind it does not handle', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  /*
+   * PINNING A DEFECT, ON PURPOSE.
+   *
+   * A graph node is one of four kinds, and since 3.6 a chrono entry, memory or file reaches the canvas
+   * through its `entityIds` link. `loadNodeDetails` fetches the RIGHT record — `getRecord(space, 'memory',
+   * id)` — and then casts it `as Entity`. The card has no `@switch` on kind and never reads `kind` at all,
+   * so it renders a memory through the entity rows: a `Memory` has `fact` and no `name`, so the name row
+   * renders EMPTY and the fact — the only thing the record says — is never shown anywhere.
+   *
+   * The shared fields (`type`, `description`, `tags`, `properties`, `_id`, `createdAt`) do render, so the
+   * card looks populated apart from the one row that carries the content.
+   *
+   * The linked-records LIST beside it already handles this correctly (`buildDetailRows` reads a memory as
+   * fact-then-description), which is what makes the card's version a divergence rather than an unbuilt
+   * feature.
+   */
+  for (const [kind, record, content] of [
+    ['memory', { _id: 'm1', fact: 'rotate the vault quarterly', type: 'note', createdAt: '2026-08-30T09:05:00.000Z' }, 'rotate the vault quarterly'],
+    ['chrono', { _id: 'c1', title: 'carrier lost the unit', type: 'event', createdAt: '2026-08-30T09:05:00.000Z' }, 'carrier lost the unit'],
+  ] as const) {
+    it(`a ${kind} node renders a BLANK name row and never shows its content — today's behaviour`, () => {
+      const f = create();
+      const c = f.componentInstance as any;
+      c.selectedNode.set(node({ _id: record._id, kind }));
+      c.selectedEntityRecord.set(record);
+      f.detectChanges();
+
+      const got = rows(card(f));
+      const nameRow = got.find(r => r.label && r.label !== '_id' && got.indexOf(r) === 0);
+      expect(nameRow?.value, `the name row is populated for a ${kind} — the card learned this kind, so this test must be rewritten deliberately rather than deleted`).toBe('');
+      expect(card(f)?.textContent).not.toContain(content);
+      // And the shared fields DO render, which is why the card looks fine at a glance.
+      expect(got.map(r => r.value)).toContain(record.type);
+    });
+  }
+});
+
+describe('the node card, when the record cannot be fetched', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('says WHY, rather than leaving the panel blank', () => {
+    // A file node is addressed by path and a graph node carries an id, so there is no request to make. An
+    // empty panel and an unfetchable record look identical to a reader, and only one of them is true.
+    const f = create();
+    const c = f.componentInstance as any;
+    c.selectedNode.set(node({ _id: 'f1', kind: 'file' }));
+    c.recordUnavailable.set('file');
+    f.detectChanges();
+    expect(card(f)?.querySelector('.drawer-value.muted')).not.toBeNull();
+  });
+
+  it('AND shows the loading row at the same time — today\'s behaviour', () => {
+    /*
+     * PINNING A DEFECT. The message and the record are two independent `@if`s rather than an if/else, so a
+     * file node renders "no record can be fetched for a file node" immediately above "Loading…", which
+     * contradicts it. Extracting the card must not silently resolve this; changing it is a decision.
+     */
+    const f = create();
+    const c = f.componentInstance as any;
+    c.selectedNode.set(node({ _id: 'f1', kind: 'file' }));
+    c.recordUnavailable.set('file');
+    f.detectChanges();
+    expect(card(f)?.textContent).toMatch(/loading/i);
+  });
+});
+
+describe('the edge card', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  function openEdge(record: Record<string, unknown> | null, edge: Record<string, unknown> = { _id: 'x', from: 'a', to: 'b', label: 'knows' }) {
+    const f = create();
+    const c = f.componentInstance as any;
+    c.selectedEdge.set(edge);
+    if (record) c.selectedEdgeRecord.set(record);
+    f.detectChanges();
+    return f;
+  }
+
+  it('renders the relation, not a name — a different label from the node card', () => {
+    const f = openEdge({ _id: 'x', label: 'knows', from: 'a', to: 'b' });
+    expect(rows(card(f, 0)).map(r => r.value)).toContain('knows');
+  });
+
+  it('renders a weight of ZERO, which every other guard in the card would hide', () => {
+    // The only explicitly falsy-safe guard in either card (`!== undefined && !== null`). A move that
+    // normalised it to `@if (weight)` would silently drop every zero-weight edge's weight row.
+    const f = openEdge({ _id: 'x', label: 'knows', from: 'a', to: 'b', weight: 0 });
+    expect(rows(card(f, 0)).map(r => r.value)).toContain('0');
+  });
+
+  it('falls back to the endpoint IDS when the record carries no names', () => {
+    // `fromName || selectedEdge()!.from` — the fallback reads a DIFFERENT signal from the one the rest of
+    // the card reads, which is exactly the sort of cross-signal read an extraction drops.
+    const f = openEdge({ _id: 'x', label: 'knows', from: 'a', to: 'b' });
+    const values = rows(card(f, 0)).map(r => r.value);
+    expect(values).toContain('a');
+    expect(values).toContain('b');
+  });
+
+  it('prefers the resolved endpoint NAMES when it has them', () => {
+    const f = openEdge({ _id: 'x', label: 'knows', from: 'a', to: 'b', fromName: 'Ada', toName: 'Grace' });
+    const values = rows(card(f, 0)).map(r => r.value);
+    expect(values).toContain('Ada');
+    expect(values).toContain('Grace');
+  });
+
+  it('shows loading for a SYNTHETIC edge for ever — today\'s behaviour', () => {
+    /*
+     * PINNING A DEFECT. `loadEdgeDetails` sets `recordUnavailable('derived')` for a synthetic edge, whose
+     * id is `<label>:<from>:<to>` and which has no stored record. The string exists in all three locale
+     * files and the signal is asserted by another suite — but the ONLY render site for
+     * `recordUnavailable()` is inside the NODE card, and `onEdgeTap` nulls `selectedNode` first. So the
+     * edge panel shows "Loading…" indefinitely and the explanation is unreachable on screen.
+     */
+    const f = create();
+    const c = f.componentInstance as any;
+    c.selectedEdge.set({ _id: 'mentions:a:b', from: 'a', to: 'b', label: 'mentions' });
+    c.recordUnavailable.set('derived');
+    f.detectChanges();
+    expect(card(f, 0)?.textContent).toMatch(/loading/i);
+    expect(card(f, 0)?.querySelector('.drawer-value.muted'),
+      'the edge card gained an unavailable branch — good, but rewrite this test deliberately').toBeNull();
+  });
+});
+
+describe('the structure a move must carry with it', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('the card is a `.record-card`, and the styles that size it are the parent\'s', () => {
+    /*
+     * The silent loss. `.record-card`, `.drawer-field`, `.drawer-label`, `.drawer-value`, `.drawer-hr`,
+     * `.drawer-readonly-value` and `.drawer-tag` are all declared in `graph.styles.ts` and applied through
+     * the PARENT's `styles: [GRAPH_STYLES]`. Under emulated encapsulation the parent's content attribute
+     * does not reach a child component's template, so every one of them goes unstyled after a move —
+     * including `.record-card { flex: 0 0 50% }`, which is what makes the panel two columns.
+     *
+     * This asserts the class names are what the DOM actually carries, so the extraction has a list to move.
+     */
+    const f = create();
+    const c = f.componentInstance as any;
+    c.selectedNode.set(node());
+    c.selectedEntityRecord.set({ _id: 'e-1', name: 'Ada', tags: ['x'], createdAt: '2026-08-30T09:05:00.000Z' });
+    f.detectChanges();
+    const el = card(f)!;
+    expect(el).not.toBeNull();
+    for (const cls of ['drawer-field', 'drawer-label', 'drawer-value', 'drawer-hr', 'drawer-readonly-value', 'drawer-tag']) {
+      expect(el.querySelector(`.${cls}`), `.${cls} is gone from the rendered card`).not.toBeNull();
+    }
+  });
+
+  it('the card does not render at all with nothing selected', () => {
+    // Its gate is on the enclosing panel, not on the card. A child component would need that gate kept
+    // outside it, or it renders an empty shell on every page load.
+    expect(card(create())).toBeNull();
+  });
+});

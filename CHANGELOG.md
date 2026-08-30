@@ -30,6 +30,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The graph panel's "no record here" message could not reach the reader, three different ways.** An empty
+  panel and an unfetchable record look identical, and only one of them is true — so a file node (addressed by
+  path, not by id) and a synthetic edge (id derived at render time, no stored row) are supposed to get a
+  sentence rather than a blank.
+
+  The message and the record were two independent conditions, so a **file node rendered the explanation
+  immediately above "Loading…"** and contradicted itself — with the second line the more believable of the
+  two, because it is the one that usually means something.
+
+  The message asked for a CSS class that **is declared nowhere**, so the one sentence explaining why a panel
+  is empty rendered as ordinary body text.
+
+  And the EDGE card had no such branch at all: its message was translated into three languages and was
+  **unreachable on screen**, because the only place it rendered was inside the node card and selecting an edge
+  clears the selected node first. A synthetic edge said "Loading" indefinitely — which is not merely
+  unhelpful, it is the one message that promises something is coming.
+
+
 - **Clicking a knowledge-type tab in any space but the first jumped back to the first space.** Reported by an
   operator: entries in other spaces were only reachable by clicking the type, landing in the wrong space,
   picking the right space again, and only then clicking the type.

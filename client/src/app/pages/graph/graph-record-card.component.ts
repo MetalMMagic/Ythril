@@ -47,9 +47,18 @@ import { memoryText, chronoText } from './graph-details';
  * linked-records list in this panel already uses — for the first row. It did not, and rendered a blank name
  * for a memory while its `fact` appeared nowhere (G-5).
  *
- * Two defects ARE still carried, pinned by `graph-record-card.characterization.spec.ts` and filed as G-6: a
- * file node shows the unavailable message AND the loading row, because they are two independent `@if`s; and
- * that message is styled `muted`, a class declared nowhere in the graph page.
+ * ## Saying why a record is absent — all three cards' worth
+ *
+ * An empty panel and an unfetchable record look identical to a reader, and only one of them is true. So a
+ * file node (addressed by path, not id) and a synthetic edge (id derived at render time, no stored row) get a
+ * sentence instead of a blank.
+ *
+ * Three things were wrong with that and are fixed together (G-6): the message and the record were two
+ * independent `@if`s, so a file node rendered the explanation immediately above "Loading…" and contradicted
+ * itself; the message asked for `class="muted"`, which is declared nowhere, so it rendered as ordinary body
+ * text; and the EDGE card had no such branch at all — its `'derived'` string was translated into three
+ * languages and unreachable on screen, because the only render site was in the node card and `onEdgeTap`
+ * nulls the selected node first.
  */
 @Component({
   selector: 'app-graph-node-record-card',
@@ -66,10 +75,9 @@ import { memoryText, chronoText } from './graph-details';
     -->
     @if (unavailable(); as why) {
       <div class="drawer-field">
-        <div class="drawer-value muted">{{ 'graph.recordUnavailable.' + why | transloco }}</div>
+        <div class="drawer-value drawer-muted">{{ 'graph.recordUnavailable.' + why | transloco }}</div>
       </div>
-    }
-    @if (record()) {
+    } @else if (record()) {
       <div class="drawer-field">
         <div class="drawer-label">{{ nameLabel() | transloco }}</div>
         <div class="drawer-value">{{ displayName() }}</div>
@@ -172,7 +180,16 @@ export class GraphNodeRecordCardComponent {
   styles: [GRAPH_RECORD_CARD_STYLES],
   host: { class: 'record-card' },
   template: `
-    @if (record()) {
+    <!--
+      A synthetic edge has no stored record — its id is derived at render time — so there is nothing to fetch
+      and saying so is the answer. This branch did not exist, and the string it renders was translated into
+      three languages and unreachable on screen.
+    -->
+    @if (unavailable(); as why) {
+      <div class="drawer-field">
+        <div class="drawer-value drawer-muted">{{ 'graph.recordUnavailable.' + why | transloco }}</div>
+      </div>
+    } @else if (record()) {
       <div class="drawer-field">
         <div class="drawer-label">{{ 'brain.edges.table.relation' | transloco }}</div>
         <div class="drawer-value">{{ record()!.label }}</div>
@@ -232,6 +249,16 @@ export class GraphNodeRecordCardComponent {
 export class GraphEdgeRecordCardComponent {
   /** The fetched edge record, or null while it is in flight or has none (a synthetic edge). */
   readonly record = input<Edge | null>(null);
+  /**
+   * Why no record can be fetched — the same signal the node card reads, and the edge card had no branch for
+   * it at all.
+   *
+   * `loadEdgeDetails` sets `'derived'` for a synthetic edge, whose id is `<label>:<from>:<to>` and which has
+   * no stored row. That string shipped in three locales and could never appear: the only render site was in
+   * the NODE card, and `onEdgeTap` nulls the selected node before calling. So the panel said "Loading" for
+   * ever — which is not merely unhelpful, it is the one message that promises something is coming.
+   */
+  readonly unavailable = input<'file' | 'derived' | null>(null);
   /**
    * The edge as the TRAVERSAL reports it — read only for the `from`/`to` fallbacks.
    *

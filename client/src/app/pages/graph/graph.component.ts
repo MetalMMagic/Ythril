@@ -224,7 +224,8 @@ import { lookupForNode, lookupForEdge } from './graph-record-lookup';
                  endpoint rows with a fallback, a different first label, and no unavailable branch. -->
             <app-graph-edge-record-card
               [record]="selectedEdgeRecord()"
-              [selected]="selectedEdge()" />
+              [selected]="selectedEdge()"
+              [unavailable]="recordUnavailable()" />
 
             <!-- Lists pane: memories + chrono for both endpoints -->
             <app-graph-linked-records

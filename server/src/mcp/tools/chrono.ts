@@ -2,7 +2,7 @@ import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.
 import { UUID_V4_RE, TTL_DAYS_SCHEMA, SUPPRESS_EMBEDDINGS_SCHEMA, LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA, ttlDaysFromArgs, recurrenceSchema, unitScoreSchema, uuidSchema } from './shared.js';
 import { ChronoFilter, createChrono, deleteChrono, getChronoById, listChrono, updateChrono, parseRecurrence } from '../../brain/chrono.js';
 // The API layer's write gate, imported rather than reimplemented — see the note in memory.ts.
-import { assertUpdateAllowed, classifyUpdateViolations, locateForUpdate, SchemaViolationError, type UpdateValidation } from '../../brain/write-validation.js';
+import { SchemaViolationError, type UpdateValidation } from '../../brain/write-validation.js';
 import { getConfig } from '../../config/loader.js';
 import { checkQuota } from '../../quota/quota.js';
 import { isStrictLinkage, resolveMemberSpaces, resolveWriteTarget, findFirstAcrossMembers } from '../../spaces/proxy.js';
@@ -419,21 +419,12 @@ export const update_chronoTool: ToolHandler = {
     // Validate the entry AS IT WILL BE, against the meta of the member space it actually lives in. The
     // type allowlist above is not the whole schema: property constraints applied at `create_chrono` and
     // nowhere on this path, so an agent could write a value the same space refuses on creation.
-    const found = await locateForUpdate(wt.target, mid => getChronoById(mid, id));
-    if (found) {
-      const prior = found.record;
-      const priorProps = (prior.properties ?? {}) as Record<string, unknown>;
-      assertUpdateAllowed(classifyUpdateViolations(
-        found.meta,
-        validateChrono(found.meta ?? {}, { type: prior.type, properties: priorProps }),
-        validateChrono(found.meta ?? {}, {
-          type: (updates['type'] as string | undefined) ?? prior.type,
-          properties: mergePropertiesOrKeep(
-            prior.properties, updates['properties'] as Record<string, string | number | boolean> | undefined,
-          ) ?? {},
-        }),
-      ));
-    }
+        /*
+     * The schema check moved into the writer, which validates the record it is about to store rather than a
+     * rebuilt simulation of it. `assertUpdateAllowed` threw exactly the `SchemaViolationError` the writer now
+     * throws, so nothing about this tool's failure shape changes — the block was pure duplication, and the
+     * duplicate is the one that drifted.
+     */
 
     const entry = await updateChrono(wt.target, id, updates as Parameters<typeof updateChrono>[2], dfPaths, ctx.actor, ttlDaysFromArgs(a));
     if (!entry) throw new Error(`Chrono entry '${id}' not found`);

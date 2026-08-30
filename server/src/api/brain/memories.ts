@@ -21,7 +21,7 @@ import { resolveMemberSpaces, resolveWriteTarget, isProxySpace, isStrictLinkage,
 import { validateMemory } from '../../spaces/schema-validation.js';
 import type { MemoryDoc } from '../../config/types.js';
 import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, buildMemoryFilter, ttlDaysFromBody, ttlDaysError, dupeCheckOptsFromBody, ifMatchFromRequest, preconditionFailedBody } from './_shared.js';
-import { classifyUpdateViolations } from '../../brain/write-validation.js';
+import { SchemaViolationError } from '../../brain/write-validation.js';
 import { resolveEntityIdsByName } from '../../brain/entities.js';
 import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
 import { parseRecordSuppression } from '../../brain/suppress-embeddings.js';
@@ -297,48 +297,30 @@ memoriesRouter.patch('/spaces/:spaceId/memories/:id', globalRateLimit, requireSp
     // rather than issued twice per patch.
     const existing = await listMemories(mid, { _id: id }, 1, 0);
     if (existing.length === 0) continue;
-    {
-      const mem = existing[0]!;
-      const priorProps = mem.properties != null ? { ...mem.properties } : {};
-      const resultProps = mergePropertiesOrKeep(mem.properties, updates.properties) ?? {};
-      const sim: Record<string, unknown> = { properties: resultProps };
-      if (dfPaths) applyDeleteFieldsPaths(sim, dfPaths);
-      const simProps = (sim['properties'] ?? {}) as Record<string, unknown>;
-      const meta = getSpaceMeta(mid);
-      /*
-       * The AFTER side is validated against the type the memory will HAVE, not the one it had.
-       *
-       * `updates.type` is accepted by this route and written by `updateMemory`, and both sides of this
-       * comparison used to pass `mem.type` — so re-typing a memory never consulted the destination schema at
-       * all. Its allowlist, its required properties and its enums were simply not applied, and the write
-       * succeeded. The entity route does this correctly twenty files away
-       * (`api/brain/entities.ts:305`: `const resultType = updates.type ?? existing.type`), which is what makes
-       * this one rule with two implementations and the weaker one silent.
-       *
-       * The BEFORE side keeps `mem.type` deliberately: it describes the record as stored, which is what makes
-       * `classifyUpdateViolations` able to tell a violation this patch INTRODUCED from one it inherited.
-       */
-      const resultType = updates.type ?? mem.type;
-      const check = classifyUpdateViolations(
-        meta,
-        validateMemory(meta ?? {}, { type: mem.type, properties: priorProps }),
-        validateMemory(meta ?? {}, { type: resultType, properties: simProps }),
-      );
-      if (check.blocked) {
+    /*
+     * The schema check moved into `updateMemory`.
+     *
+     * This block SIMULATED the merge — `mergePropertiesOrKeep` plus a throwaway `applyDeleteFieldsPaths` —
+     * and validated that. Two implementations of "what will this record look like", twenty lines apart, and
+     * the simulation is the one that drifts: it was validating the wrong `type` on a re-type for months while
+     * the entity route next door did it correctly. The writer validates the record it is actually about to
+     * store, so there is nothing left here to get wrong.
+     *
+     * The 422 is preserved: this route has always answered 422 where the create answers 400.
+     */
+    let updated;
+    try {
+      updated = await updateMemory(mid, id, updates, dfPaths, webhookToken(req), ttlDaysFromBody(req.body), ifMatch.seq);
+    } catch (err) {
+      if (err instanceof SchemaViolationError) {
         res.status(422).json({
-          error: 'schema_violation',
-          message: check.message,
-          violations: check.all,
-          introduced: check.introduced,
-          preExisting: check.preExisting,
+          error: 'schema_violation', message: err.check.message, violations: err.check.all,
+          introduced: err.check.introduced, preExisting: err.check.preExisting,
         });
         return;
       }
+      throw err;
     }
-    // Snapshot for the audit change list, taken from the read above. `audit-changes.ts` reads only the
-    // allowlisted fields, so handing the whole record over cannot publish `properties` (deliberately
-    // unlisted: its keys are user-chosen and could hold a pasted credential).
-    const updated = await updateMemory(mid, id, updates, dfPaths, webhookToken(req), ttlDaysFromBody(req.body), ifMatch.seq);
     if (updated) {
       req.auditSnapshots = { before: existing[0] ?? {}, after: updated };
       res.json(updated);

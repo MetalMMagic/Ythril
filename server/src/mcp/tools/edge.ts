@@ -3,7 +3,7 @@ import { UUID_V4_RE, TTL_DAYS_SCHEMA, SUPPRESS_EMBEDDINGS_SCHEMA, LEGACY_SUPPRES
 import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } from '../../brain/delete-fields.js';
 import { deleteEdge, getEdgeById, traverseGraph, updateEdgeById, upsertEdge, EdgeSchemaViolation } from '../../brain/edges.js';
 // The shared write gate, imported rather than reimplemented — see the note in memory.ts.
-import { assertUpdateAllowed, classifyUpdateViolations, locateForUpdate, type UpdateValidation } from '../../brain/write-validation.js';
+import { type UpdateValidation } from '../../brain/write-validation.js';
 import { getConfig } from '../../config/loader.js';
 import { isStrictLinkage, resolveMemberSpaces, resolveWriteTarget, findFirstAcrossMembers } from '../../spaces/proxy.js';
 import { memberSpacesWithin } from '../../spaces/proxy-scoped.js';
@@ -237,22 +237,12 @@ export const update_edgeTool: ToolHandler = {
     // Validate the edge AS IT WILL BE, against the meta of the member space it actually lives in. This
     // path had no schema validation at all, so `label` could be moved outside the allowlist that
     // `upsert_edge` enforces on the very same record.
-    const found = await locateForUpdate(wt.target, mid => getEdgeById(mid, id));
-    if (found) {
-      const prior = found.record;
-      const sim: Record<string, unknown> = {
-        properties: mergePropertiesOrKeep(prior.properties, updates.properties) ?? {},
-      };
-      if (dfPaths) applyDeleteFieldsPaths(sim, dfPaths);
-      assertUpdateAllowed(classifyUpdateViolations(
-        found.meta,
-        validateEdge(found.meta ?? {}, { label: prior.label, properties: prior.properties ?? {} }),
-        validateEdge(found.meta ?? {}, {
-          label: updates.label ?? prior.label,
-          properties: (sim['properties'] ?? {}) as Record<string, unknown>,
-        }),
-      ));
-    }
+        /*
+     * The schema check moved into the writer, which validates the record it is about to store rather than a
+     * rebuilt simulation of it. `assertUpdateAllowed` threw exactly the `SchemaViolationError` the writer now
+     * throws, so nothing about this tool's failure shape changes — the block was pure duplication, and the
+     * duplicate is the one that drifted.
+     */
 
     const updatedEdge = await findFirstAcrossMembers(wt.target, mid => updateEdgeById(mid, id, updates, dfPaths, ctx.actor, ttlDays));
     if (!updatedEdge) throw new Error(`Edge '${id}' not found`);

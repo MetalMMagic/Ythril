@@ -137,7 +137,15 @@ describe('and no door keeps its own copy of the rule', () => {
     const offenders = [];
     for (const d of DOORS) {
       const s = src(d);
-      for (const m of s.matchAll(/classify(?:Entity|Memory|Chrono|Edge)Upsert\w*\(/g)) {
+      /*
+       * `classifyUpdateViolations` counts too, and leaving it out was how this finished half-done the first
+       * time. It is the same rule one level down — the update paths called it directly, each rebuilding the
+       * merged record itself with `mergePropertiesOrKeep` plus a throwaway `applyDeleteFieldsPaths`, twenty
+       * lines from the writer that does the real merge. That simulation is the copy that drifts: it cannot see
+       * a `deleteFields` the writer applies, and one of them validated the wrong `type` on a re-type for
+       * months while the entity route next door did it correctly.
+       */
+      for (const m of s.matchAll(/classify(?:Entity|Memory|Chrono|Edge)Upsert\w*\(|classifyUpdateViolations\(/g)) {
         offenders.push(`${d}: ${m[0]}`);
       }
     }

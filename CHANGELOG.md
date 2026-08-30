@@ -80,6 +80,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   have been stricter than the API. Two shipped promises pointing opposite ways is a product decision, not a
   defect, so it is filed for a ruling and the code now says where.
 
+### Changed
+
+- **Two peers that independently create the same relationship now agree on its id.** An edge's `_id` was
+  random (`uuidv4`), while the collection carries a unique index on `(from, to, label)` — so the relationship
+  itself could only ever be stored once, and what happened instead was that each peer stored it under a
+  *different* id. Sync then exchanged them and the receiving insert violated that index: one relationship, two
+  identities, and a duplicate key on every cycle. The id is now derived from the triplet, so both sides arrive
+  at the same `_id` without talking and the collision becomes an idempotent no-op.
+
+  **`spaceId` is deliberately not part of the key**, and this is the subtlety worth keeping. It is the obvious
+  thing to include, and the plan document still spells it that way — but `sync/space-map.ts` lets the same
+  logical space live under a different local id on each peer, so a key including it derives *differently* on
+  the two sides. That reproduces the exact defect, and reproduces it precisely on the networks that configured
+  aliasing, where it is hardest to see. The collection is per-space already: the space is in its name.
+
+  The parts are length-prefixed rather than joined with a separator. A label is operator-supplied text, so
+  `('a|b', 'c', 'd')` and `('a', 'b|c', 'd')` would otherwise produce one key for two genuinely different
+  relationships — colliding under the unique index while being distinct.
+
+  **Existing edges keep their ids and there is no migration**: a derived id only has to be agreed on by peers
+  creating an edge from now on, and rewriting stored ids would mean a tombstone and a re-insert for every edge
+  in every space to fix a collision that is already handled.
+
+  **One stated limit, pinned by a test rather than left implicit.** Mongo's `_id` is immutable, and two paths
+  mutate an edge's identity in place — a merge relinks by setting `from`/`to`, and a patch may change `label`.
+  After either, the stored id no longer equals its derivation, and that edge behaves exactly as every edge did
+  before this change: no worse, just not yet better. Re-keying it means delete-and-insert on a synced
+  natural-key collection, which has to reason about the tombstone the delete leaves behind — its own work.
+
 ### Added
 
 - **Every model slot's call budget is now operator-settable.** Only the document pipeline ever was: an

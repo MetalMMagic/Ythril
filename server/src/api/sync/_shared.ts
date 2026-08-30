@@ -533,6 +533,41 @@ export function violationsAgainstLocalSchema(
  * **Absent when empty, deliberately.** A clean ingest keeps its existing response byte for byte, so nothing a
  * peer already parses changes and `schemaViolations` present always means something to look at.
  */
+/**
+ * Is this write failure ONLY duplicate-key rejections — the shape two peers produce independently?
+ *
+ * ## The stall it removes
+ *
+ * A new edge gets a random `uuidv4()` id, and a space carries a UNIQUE index on `{ from, to, label }`. So when
+ * two peers create the same relationship independently there is one triplet under two ids, and the receiver's
+ * upsert — keyed on the unknown `_id` — inserts and hits that index.
+ *
+ * The PULL side was fixed: `sync/engine.ts` writes with `ordered: false` and absorbs 11000. **The push side
+ * was not**, and it is the worse half. `POST /api/sync/edges` and the batch loop let E11000 reach the route's
+ * catch, which answers `500`; on the sender, a non-ok push `break`s without advancing `seqCursor`, and
+ * `resolveWatermark` then caps the watermark at the last batch that DID land. The next cycle re-selects the
+ * same batch and fails identically — **the edges channel to that peer stops making progress permanently**,
+ * which is precisely the wedge the pull fix was written to remove.
+ *
+ * ## Only duplicates, deliberately
+ *
+ * Any other write fault still throws. Swallowing those would hide genuine corruption, which is the opposite
+ * defect and the harder one to find later — the same reasoning the pull side records.
+ *
+ * Both shapes, because both reach here: a single `replaceOne` rejects with `code: 11000` directly, while a
+ * `bulkWrite` collects them into `writeErrors` and the top-level error carries no code at all. A predicate
+ * that knew only one of the two would return false for the other and re-throw the very thing it exists to
+ * absorb.
+ */
+export function isDuplicateKeyOnly(err: unknown): boolean {
+  const e = err as { code?: number; writeErrors?: Array<{ code?: number; err?: { code?: number } }> };
+  const writeErrors = e?.writeErrors;
+  if (Array.isArray(writeErrors) && writeErrors.length > 0) {
+    return writeErrors.every(w => (w.code ?? w.err?.code) === 11000);
+  }
+  return e?.code === 11000;
+}
+
 export function withSchemaViolations<T extends Record<string, unknown>>(
   body: T,
   violations: SchemaViolation[],

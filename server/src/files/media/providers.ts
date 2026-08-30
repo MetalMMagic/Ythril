@@ -37,6 +37,45 @@ export const EXTERNAL_VISION_TIMEOUT_MS = 60_000;
 export const STT_TIMEOUT_MS = 300_000;
 
 /**
+ * What ONE hop can actually cost — which is not the larger of the two legs when a fallback is configured.
+ *
+ * ## The hole this closes
+ *
+ * `FallbackVisionProvider` and `FallbackSttProvider` call the primary, catch, and then call the fallback —
+ * **inside one hop, with nothing beating between them**. `hopBudgets()` reported the two legs as two separate
+ * entries and `effectiveStallTimeoutMs` takes the MAXIMUM of what it is given, so the floor was computed from
+ * one leg while a hop could cost both:
+ *
+ *     STT with fallbackToExternal on:  300 000 + 300 000  =  600 000 ms real
+ *     floor from max(300 000) x 1.5                       =  450 000 ms
+ *
+ * 150 000 ms short. The sweep re-queues the job mid-call, the replacement reaches the same call, and it is
+ * re-queued at the same point — the loop `stall-floor.ts` exists to prevent, reachable by turning on a
+ * documented, pinnable option. Vision is the same shape and lands exactly ON the floor
+ * (120 000 + 60 000 = 180 000 = 120 000 x 1.5), which is the indistinguishability `STALL_FLOOR_FACTOR` is
+ * there to buy head-room against.
+ *
+ * ## Why it is a function and not four more entries
+ *
+ * The existing gate enumerates timeout CALL SITES and checks each budget is one the floor knows. Every leg
+ * passed that check individually — the blind spot is not an unknown budget, it is **two known budgets in one
+ * step**, which no list of names can express. `createMediaProviders` is the only thing that knows whether a
+ * chain was built, so the rule has to take the same three inputs it does and stay next to it.
+ */
+export function providerHopMs(
+  localMs: number,
+  externalMs: number,
+  providerType: 'local' | 'external',
+  fallbackToExternal: boolean,
+): number {
+  // Mirrors `createMediaProviders` exactly: pointing a slot at `external` returns the external provider
+  // ALONE, so `fallbackToExternal` builds no chain there and adding the legs would raise the floor for a
+  // hop that cannot happen.
+  if (providerType === 'external') return externalMs;
+  return fallbackToExternal ? localMs + externalMs : localMs;
+}
+
+/**
  * Runtime egress guard. **External** (operator-supplied, public) provider endpoints go through
  * `ssrfSafeFetch` — DNS-resolve + IP-pin + redirect re-validation — closing the save-time-only URL check
  * against DNS-rebinding / redirect-to-internal. **Local** providers (bundled Ollama / Whisper on the trusted

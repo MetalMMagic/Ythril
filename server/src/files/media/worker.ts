@@ -68,7 +68,7 @@ import {
 } from '../../metrics/registry.js';
 import { stallTimeoutWithWarning } from './stall-floor.js';
 import { worstRenderWindowMs } from '../converters/render-budget.js';
-import { VISION_TIMEOUT_MS, EXTERNAL_VISION_TIMEOUT_MS, STT_TIMEOUT_MS } from './providers.js';
+import { VISION_TIMEOUT_MS, EXTERNAL_VISION_TIMEOUT_MS, STT_TIMEOUT_MS, providerHopMs } from './providers.js';
 import { FACE_TIMEOUT_MS } from './face-external.js';
 
 let running = false;
@@ -88,6 +88,12 @@ const PROVIDER_REFRESH_MS = 2_000;
  */
 function hopBudgets(): Record<string, number | undefined> {
   const doc = getDocumentProcessingConfig();
+  // Read the same three fields `buildProviders` reads, and default them the same way — a hop budget derived
+  // from a different reading of the config than the one that built the providers is worse than no budget.
+  const media = getMediaEmbeddingConfig();
+  const visionType = media.visionProvider ?? 'local';
+  const sttType = media.sttProvider ?? 'local';
+  const fallback = media.fallbackToExternal ?? false;
   return {
     pageTimeoutMs: doc.pageTimeoutMs,
     ocrTimeoutMs: doc.ocrTimeoutMs,
@@ -98,13 +104,22 @@ function hopBudgets(): Record<string, number | undefined> {
     // derived value, so the value now has a name (`render-budget.ts`) that both the call site and this list
     // use. `renderWindowMs` rather than a config key on purpose: it is what the detector must not fire inside.
     renderWindowMs: worstRenderWindowMs(doc),
-    // The media provider calls, which were inline literals and therefore equally invisible. STT is the sharp
-    // one: 300 000 ms is EXACTLY the stall default, so a five-minute transcription could be re-queued in the
-    // same instant it legitimately finished. These are not operator-settable, so nobody could have raised the
-    // stall timeout to compensate even knowing about them.
-    visionTimeoutMs: VISION_TIMEOUT_MS,
-    externalVisionTimeoutMs: EXTERNAL_VISION_TIMEOUT_MS,
-    sttTimeoutMs: STT_TIMEOUT_MS,
+    /*
+     * The media provider calls, as CHAINS rather than as legs.
+     *
+     * These were listed as four separate budgets, and `effectiveStallTimeoutMs` takes the maximum of what it
+     * is given — but `fallbackToExternal` makes one hop call the primary and then the fallback with nothing
+     * beating in between, so the real cost is the SUM. With fallback on, STT was 600 000 ms of hop against a
+     * 450 000 ms floor: the re-queue loop this list exists to prevent, out of reach of the list's own shape.
+     *
+     * STT's two legs are the same number because `ExternalWhisperProvider` extends `WhisperProvider` and
+     * inherits its budget — passed twice deliberately rather than doubled here, so that if the external leg
+     * ever gets its own constant this keeps saying what it means.
+     */
+    visionHopMs: providerHopMs(VISION_TIMEOUT_MS, EXTERNAL_VISION_TIMEOUT_MS, visionType, fallback),
+    sttHopMs: providerHopMs(STT_TIMEOUT_MS, STT_TIMEOUT_MS, sttType, fallback),
+    // No chain: `allowInProcessFallback` falls back to in-process detection rather than to a second HTTP
+    // call, so nothing is added to the budget of the call itself.
     faceTimeoutMs: FACE_TIMEOUT_MS,
   };
 }

@@ -194,6 +194,12 @@ export function validateEdge(
 
 /**
  * Validate a memory write against the space meta schema.
+ *
+ * **No type allowlist, unlike the other three — and that asymmetry is disputed, not settled.** See P-24 in the
+ * decisions tracker: `types-knowledge.ts` and two integration-guide pages state that the keys of
+ * `typeSchemas.memory` are the allowed values, while this function only ever uses `type` to look one up. The
+ * memories tab's free-text type control was designed on the current behaviour deliberately (#366 era), so
+ * changing it is a product decision rather than a defect fix.
  */
 export function validateMemory(
   meta: SpaceMeta,

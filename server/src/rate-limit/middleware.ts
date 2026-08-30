@@ -20,13 +20,30 @@ import { resolveLimitFor, WINDOW_MS } from './per-token.js';
  * identity they have. `ipKeyGenerator` is used for that half so IPv6 addresses are normalised to their /64
  * — an IPv6 client can otherwise trivially rotate through addresses it already owns.
  */
-export function clientRateLimitKey(req: Request): string {
+/**
+ * The credential a request presents, or `''`.
+ *
+ * ONE definition, because two things now branch on it: the key a limiter buckets by, and whether
+ * `globalRateLimit` applies at all. A second reading of the request would eventually disagree with this one,
+ * and the half it would forget is the query parameter — which would leave every MCP client capped.
+ *
+ * The MCP transport passes the token as a query parameter by design: an external agent may be unable to set
+ * headers.
+ */
+export function presentedCredential(req: Request): string {
   const header = req.get?.('authorization') ?? '';
   const bearer = /^Bearer\s+(.+)$/i.exec(header)?.[1]?.trim();
-  // The MCP transport passes the token as a query parameter by design (an external agent may be unable
-  // to set headers), so it has to be recognised here too or every MCP client shares the IP bucket.
   const query = typeof req.query?.['token'] === 'string' ? req.query['token'].trim() : '';
-  const credential = bearer || query;
+  return bearer || query;
+}
+
+/** Whether this request presents a credential at all — see `presentedCredential`. */
+export function hasCredential(req: Request): boolean {
+  return presentedCredential(req) !== '';
+}
+
+export function clientRateLimitKey(req: Request): string {
+  const credential = presentedCredential(req);
   if (credential) {
     return `c:${createHash('sha256').update(credential).digest('base64url').slice(0, 22)}`;
   }
@@ -117,7 +134,27 @@ export const ipFloodBackstop = rateLimit({
   skip: () => skipRateLimit('SKIP_GLOBAL_RATE_LIMIT'),
 });
 
-/** 300 requests/minute per CLIENT — general API and MCP endpoints */
+/**
+ * 300 requests/minute for a request that presents NO credential — and only for those.
+ *
+ * ## Why it steps aside for a credential
+ *
+ * It used to apply to everything, keyed on a hash of the credential, which made it a second cap on every
+ * authenticated caller: the effective limit was `min(300, rateLimitPerMinute)`. Granting a token 1 000 did
+ * nothing, and `GET /api/tokens` reported `rateLimitEffective: 1000` while the caller was refused at 300 —
+ * three numbers for one quota.
+ *
+ * Owner's decision, 2026-08-30: the per-token quota is what governs authenticated traffic, which is what it
+ * was built to be. This limiter is the pre-auth gate its own description always claimed.
+ *
+ * It cannot wait for the token to RESOLVE — it runs before auth by mount order, and the limit is a property
+ * of a record that does not exist yet (see `attachToken`). So the test is the credential, and both outcomes
+ * are covered: it resolves and `tokenRateLimit` governs, or it does not and `requireAuth` answers 401.
+ *
+ * **A flood of INVENTED credentials is not a hole this opens.** This limiter never bounded one: it is keyed
+ * per credential, so every distinct bearer string already minted a fresh bucket. `ipFloodBackstop` is what
+ * closes that, keyed purely on the IP, and it does not step aside for anything.
+ */
 export const globalRateLimit = rateLimit({
   windowMs: 60_000,
   max: 300,
@@ -129,10 +166,12 @@ export const globalRateLimit = rateLimit({
     log.warn(`globalRateLimit hit: ${req.ip} on ${req.method} ${req.path}`);
     res.status(options.statusCode).json(options.message);
   },
+  // A credentialed request is governed by `tokenRateLimit` instead — see the note above.
+  //
   // Allow test infrastructure to disable this limit on A/B instances so
   // parallel test suites don't exhaust the window on the same IP. Instance C
   // omits this env so rate-limit tests can exercise the real 429 behaviour.
-  skip: () => skipRateLimit('SKIP_GLOBAL_RATE_LIMIT'),
+  skip: (req: Request) => hasCredential(req) || skipRateLimit('SKIP_GLOBAL_RATE_LIMIT'),
 });
 
 /** 2000 requests/minute per CLIENT (peer) — machine-to-machine sync endpoints.

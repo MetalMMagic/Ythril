@@ -173,10 +173,20 @@ enforced. Read the effective one to answer *why is this client getting 429*.
 it is refused with a **403** naming the ceiling — never accepted and quietly reduced. If you automate token
 creation, that 403 means infra owns the number and your request asked for more than it allows.
 
-**Two limiters, not one.** The global limiter still runs BEFORE authentication and is unchanged: it has to
-throttle requests carrying no valid credential, so it keys on a hash of what you presented and cannot know
-which token that is. The per-token quota is enforced after the token is resolved. In practice you may see a
-429 from either, and the message says which.
+**The global limiter STEPS ASIDE once you present a credential.** It runs before authentication and cannot
+know which token you are — the limit is a property of a record that has not been read yet — so it applies to
+requests carrying no credential at all: login, setup, an anonymous probe. Present one and the per-token quota
+is the only limit on the request.
+
+That changed in 3.6, and it is a fix rather than a loosening. Before it, the global limiter's fixed 300/min
+keyed on a hash of your credential, so it gave every token its own 300 bucket and the real limit was
+`min(300, rateLimitPerMinute)`. Setting 1 000 granted nothing while `rateLimitEffective` reported 1 000 —
+three different numbers for one quota. **If you set a per-token limit above 300 and saw no change, that is
+why.**
+
+Nothing is now unbounded that was bounded before: the global limiter never restrained a flood of INVENTED
+credentials either, because it is keyed per credential and each new string minted a fresh bucket. The flood
+backstop below is what closes that, and it does not step aside for anything.
 
 The **flood backstop** is a per-IP ceiling in front of every route, set far above any legitimate single
 client. It exists because per-client keying alone would let a flood of random bearer strings mint an

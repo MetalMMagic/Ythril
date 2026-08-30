@@ -4,7 +4,8 @@
  * Validates write operations against a space's `meta` block using the
  * per-type `typeSchemas` structure — each entity type / edge label /
  * memory type / chrono type owns its own property schemas, naming pattern,
- * required flags, and tag suggestions.
+ * required flags. It does NOT constrain tags: `TypeSchema` has no tag field, and the space-wide
+ * suggestion list was retired in #365 — see the note further down.
  *
  * Validation is driven by `validationMode`:
  *   - "off"    → no validation (default)
@@ -91,7 +92,7 @@ export function resolveMetaRefs(meta: SpaceMeta): SpaceMeta {
  */
 export function validateEntity(
   meta: SpaceMeta,
-  entity: { name?: string; type?: string; properties?: Record<string, unknown>; tags?: string[] },
+  entity: { name?: string; type?: string; properties?: Record<string, unknown> },
 ): SchemaViolation[] {
   const violations: SchemaViolation[] = [];
   if (!meta) return violations;
@@ -164,7 +165,7 @@ export const SERVER_WRITTEN_EDGE_LABELS: ReadonlySet<string> = new Set([
 
 export function validateEdge(
   meta: SpaceMeta,
-  edge: { label?: string; properties?: Record<string, unknown>; tags?: string[] },
+  edge: { label?: string; properties?: Record<string, unknown> },
 ): SchemaViolation[] {
   const violations: SchemaViolation[] = [];
   if (!meta) return violations;
@@ -203,7 +204,7 @@ export function validateEdge(
  */
 export function validateMemory(
   meta: SpaceMeta,
-  memory: { type?: string; properties?: Record<string, unknown>; tags?: string[] },
+  memory: { type?: string; properties?: Record<string, unknown> },
 ): SchemaViolation[] {
   if (!meta) return [];
   const typeSchema = memory.type ? meta.typeSchemas?.memory?.[memory.type] : undefined;
@@ -230,7 +231,7 @@ export function getAllowedChronoTypes(meta: SpaceMeta | undefined): Set<string> 
  */
 export function validateChrono(
   meta: SpaceMeta,
-  chrono: { type?: string; properties?: Record<string, unknown>; tags?: string[] },
+  chrono: { type?: string; properties?: Record<string, unknown> },
 ): SchemaViolation[] {
   if (!meta) return [];
   const violations: SchemaViolation[] = [];

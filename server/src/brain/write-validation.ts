@@ -269,11 +269,11 @@ export function classifyEntityUpsertAgainst(
 ): UpdateValidation {
   const merged = mergeTagsAndProperties(existing, incoming);
   const after = validateEntity(meta ?? {}, {
-    name: incoming.name, type: incoming.type, properties: merged.properties, tags: merged.tags,
+    name: incoming.name, type: incoming.type, properties: merged.properties,
   });
   const before = existing
     ? validateEntity(meta ?? {}, {
-      name: existing.name, type: existing.type, properties: existing.properties ?? {}, tags: existing.tags ?? [],
+      name: existing.name, type: existing.type, properties: existing.properties ?? {},
     })
     : INSERT_HAS_NO_PRIOR;
   return classifyUpdateViolations(meta, before, after);

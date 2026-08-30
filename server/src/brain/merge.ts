@@ -560,7 +560,7 @@ export async function executeMerge(
        * not severity*, for the sync drop and for the media-worker swallow.
        */
       const violations = validateEntity(getSpaceMeta(spaceId) ?? {}, {
-        name: survivor.name, type: survivor.type, properties: mergedProperties, tags: mergedTags,
+        name: survivor.name, type: survivor.type, properties: mergedProperties,
       });
       const verdict = applyValidation(getSpaceMeta(spaceId), violations);
       if (verdict.blocked) {

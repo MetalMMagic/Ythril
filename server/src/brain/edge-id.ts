@@ -27,18 +27,27 @@
  * operator-supplied text** and nothing forbids a pipe in it. Prefixing each part with its length makes the
  * encoding injective regardless of what the parts contain.
  *
- * ## The limit: an edge whose identity CHANGES keeps its old id
+ * ## An edge whose identity CHANGES is re-keyed onto the id it now derives
  *
- * Mongo's `_id` is **immutable**, and two paths mutate an edge's identity in place — `merge.ts` relinks by
- * `$set`ting `from`/`to`, and `updateEdgeById` accepts a new `label`. After either, the stored id no longer
- * equals its derivation.
+ * Mongo's `_id` is **immutable**, and two paths change what an edge IS: `merge.ts` relinks an endpoint, and
+ * `updateEdgeById` accepts a new `label`. Both used to write in place, which left the edge under an id its own
+ * identity no longer derived — so the next peer to create that triplet derived the correct id, inserted, and
+ * hit the unique index. The defect this file removes, surviving on the two paths that matter most.
  *
- * That is a stated limit, not an oversight. Such an edge behaves exactly as every edge did before this change:
- * two peers can still disagree about its id, and the unique index still catches the duplicate. Nothing is made
- * worse; it is simply not yet made better. **Re-keying it is its own work** — delete-and-insert on a synced
- * natural-key collection has to reason about the tombstone the delete leaves behind, and about a peer that
- * pulls the tombstone before the re-insert. `renameFileMeta` does exactly that dance for the other
- * natural-key collection and is the model to follow when it happens.
+ * Both now call `rekeyEdge` (`edge-rekey.ts`), which does the delete-and-insert and owns what makes one safe
+ * on a synced collection: a real tombstone for the old id, and an insert seq taken AFTER the tombstone's, so a
+ * peer that pulls the delete and stops picks the edge up on its next pull rather than being left with neither.
+ *
+ * ## The narrowed limit: an edge this instance did not AUTHOR keeps its id
+ *
+ * A peer applies a tombstone only when the document it names was authored by the tombstone's issuer — the rule
+ * that stops one instance deleting another's content. Edges replicate carrying their original author, so a
+ * tombstone we issue for a peer-authored edge is silently dropped while the insert half propagates, leaving
+ * that peer holding both rows. `rekeyEdge` therefore declines such an edge and the caller relinks it in place,
+ * which is what happened before and which converges.
+ *
+ * Lifting that needs a delete a peer can apply without authorship — a tombstone naming its successor, applied
+ * as a MOVE. That is a change to a sync contract two other parties consume.
  *
  * Existing edges keep their v4 ids. There is no migration, because a derived id only has to be agreed on by
  * peers creating an edge from now on.

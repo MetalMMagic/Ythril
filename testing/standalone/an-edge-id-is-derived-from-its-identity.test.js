@@ -117,33 +117,47 @@ describe('the creation path uses it', () => {
   });
 });
 
-describe('the stated limit: an edge whose identity changes keeps its id', () => {
+describe('an identity change is re-keyed, and both paths do it', () => {
   /*
-   * Pinned rather than left implicit, so the follow-up is visible in the source instead of living only in a
-   * tracker. Both paths mutate an edge's identity in place, and Mongo's `_id` is immutable — so after either,
-   * the stored id no longer equals its derivation.
+   * INVERTED in 3.6, not deleted. This block pinned the opposite — that both paths mutate identity in place,
+   * so the follow-up would be visible in source rather than living only in a gitignored tracker. The same two
+   * paths are still the subject; what changed is which way they must behave.
    *
-   * That edge is then exactly as it was before this change: two peers can still disagree about its id, and the
-   * unique index still catches the duplicate. No worse, just not yet better. Re-keying means delete-and-insert
-   * on a synced natural-key collection, which has to reason about the tombstone it leaves behind — its own
-   * work, not a line in this one.
+   * `an-edge-that-is-re-keyed-converges.test.js` holds the rules of the re-key itself: the tombstone, the seq
+   * ordering, and the refusal when the target identity is taken. What stays here is the narrower claim this
+   * file is about — that an id is only ever the derivation of the identity stored beside it.
    */
-  it('merge relinks by mutating from/to, and says so', () => {
+  it('merge relinks THROUGH the re-key, and writes in place only as its fallback', () => {
+    /*
+     * The in-place `$set` is still there and must be: `rekeyEdge` declines an edge this instance did not
+     * author, because a peer refuses a tombstone whose issuer is not the document's author and would end up
+     * holding both rows. Declining has to leave the endpoint pointing at the survivor, so the fallback is
+     * the pre-3.6 write, unchanged.
+     *
+     * What this pins is the ORDER: the re-key is attempted first, and the `$set` is reached only when it
+     * returns null. A `$set` that ran unconditionally would leave every edge under an id it no longer
+     * derives, which is the limit this change removes.
+     */
     const merge = src('server/src/brain/merge.ts');
-    assert.match(merge, /\$set\['from'\]|\$set\['to'\]|from: survivor|to: survivor/,
-      'merge no longer mutates an edge endpoint — if it re-keys now, delete this limit and its docblock');
+    const loop = merge.slice(merge.indexOf('for (const edge of edgesToRelink)'));
+    const rekeyAt = loop.indexOf('rekeyEdge(');
+    const setAt = loop.search(/updates\['from'\]|updates\['to'\]/);
+    assert.ok(rekeyAt > 0, 'a relinked edge must move onto the id its new identity derives');
+    assert.ok(setAt > rekeyAt,
+      'the in-place write runs before the re-key is attempted, so no edge is ever moved');
   });
 
-  it('updateEdgeById accepts a new label, and says so', () => {
+  it('a label change re-keys rather than patching the label alone', () => {
     const edges = src('server/src/brain/edges.ts');
-    assert.match(bodyOf(edges, 'updateEdgeById'), /updates\.label/,
-      'label is no longer patchable — if so, delete this limit and its docblock');
+    const body = bodyOf(edges, 'updateEdgeById');
+    assert.match(body, /rekeyEdge\(/, 'a new label is a new identity, so it is a new id');
   });
 
-  it('the limit is written where the derivation is, not only in a tracker', () => {
-    // A limit recorded only in `todo/` is invisible to whoever next reads the code, and `todo/` is gitignored.
+  it('the derivation file says so, where whoever reads the code will see it', () => {
+    // The reverse of what this used to assert. A limit that has been lifted and is still written down is
+    // worse than one never written: nobody reports being able to do what they were told they could not.
     const raw = readFileSync('server/src/brain/edge-id.ts', 'utf8');
-    assert.match(raw, /immutable|re-key|identity changes/i,
-      'the docblock must state that an edge whose identity changes keeps its old id');
+    assert.match(raw, /rekeyEdge/, 'the docblock must point at the function that does the re-key');
+    assert.doesNotMatch(raw, /keeps its old id/i, 'the lifted limit is still stated here');
   });
 });

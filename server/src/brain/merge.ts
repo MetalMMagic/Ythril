@@ -17,6 +17,9 @@ import { getEntityById } from './entities.js';
 import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
 import { mergeTags } from './merge-fields.js';
+import { edgeIdFor } from './edge-id.js';
+import { rekeyEdge, embedQueueWorkFor } from './edge-rekey.js';
+import { enqueueEmbedJob, retireEmbedJob } from './embed-queue.js';
 import { embeddingSuppressedFor } from './suppress-embeddings.js';
 import { validateEntity, getSpaceMeta, applyValidation, type SchemaViolation } from '../spaces/schema-validation.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
@@ -206,14 +209,16 @@ async function detectDuplicateEdges(
   // Build a set of (from, to, label) triplets from survivor edges
   const survivorTriplets = new Map<string, string>(); // triplet key → edge ID
   for (const e of survivorEdges) {
-    survivorTriplets.set(`${e.from}|${e.to}|${e.label}`, e._id);
+    // Keyed on the derivation, for the reason spelled out at the relink: a joined string collides two
+    // distinct relationships the moment a label contains the separator, and reports them as duplicates.
+    survivorTriplets.set(edgeIdFor(e.from, e.to, e.label), e._id);
   }
 
   // For each absorbed edge, compute what its triplet would be after relinking
   for (const e of absorbedEdges) {
     const newFrom = e.from === absorbedId ? survivorId : e.from;
     const newTo = e.to === absorbedId ? survivorId : e.to;
-    const key = `${newFrom}|${newTo}|${e.label}`;
+    const key = edgeIdFor(newFrom, newTo, e.label);
     const survivorEdgeId = survivorTriplets.get(key);
     if (survivorEdgeId) {
       warnings.push({
@@ -356,6 +361,8 @@ export async function executeMerge(
   mergedProperties: Record<string, string | number | boolean>,
   actor?: WebhookActor,
 ): Promise<{ entity: EntityDoc; deletedDuplicateEdgeIds: string[] }> {
+  /** Embed-queue work from re-keyed edges, drained once the transaction has committed. */
+  const rekeyedEdgeJobs: { retire: string; enqueue: string }[] = [];
   const session = getMongo().startSession();
   const deletedDuplicateEdgeIds: string[] = [];
 
@@ -381,7 +388,19 @@ export async function executeMerge(
       const survivorEdges = await edgeColl
         .find(asFilter<EdgeDoc>({ spaceId, $or: [{ from: survivor._id }, { to: survivor._id }] }), { session })
         .toArray() as EdgeDoc[];
-      const survivorKeys = new Set(survivorEdges.map(e => `${e.from}|${e.to}|${e.label}`));
+      /*
+       * Keyed on the DERIVATION, not on a joined string.
+       *
+       * It was `${from}|${to}|${label}`, which is ambiguous the moment any part can contain the separator:
+       * `('a|b','c','d')` and `('a','b|c','d')` produce one key for two genuinely different relationships,
+       * which reports them as duplicates of each other. Endpoint ids are UUIDs, but a LABEL is
+       * operator-supplied text and nothing forbids a pipe in it.
+       *
+       * `edgeIdFor` length-prefixes each part for exactly that reason, and it is also the id the relink now
+       * moves the edge onto — so keying on anything else would be a second answer to the question the unique
+       * index already settles.
+       */
+      const survivorKeys = new Set(survivorEdges.map(e => edgeIdFor(e.from, e.to, e.label)));
 
       // Phase 1a: delete absorbed edges whose post-relink key collides with
       // an existing survivor edge (would violate the unique index).
@@ -389,7 +408,7 @@ export async function executeMerge(
       for (const edge of absorbedEdges) {
         const newFrom = edge.from === absorbed._id ? survivor._id : edge.from;
         const newTo = edge.to === absorbed._id ? survivor._id : edge.to;
-        const postKey = `${newFrom}|${newTo}|${edge.label}`;
+        const postKey = edgeIdFor(newFrom, newTo, edge.label);
         if (survivorKeys.has(postKey)) {
           // This absorbed edge would collide — delete it as a duplicate.
           await edgeColl.deleteOne(asFilter<EdgeDoc>({ _id: edge._id }), { session });
@@ -408,13 +427,40 @@ export async function executeMerge(
         }
       }
 
-      // Phase 1b: relink remaining absorbed edges (no collision risk).
+      /*
+       * Phase 1b: relink remaining absorbed edges (no collision risk).
+       *
+       * RE-KEYED rather than `$set`, since 3.6. Relinking an endpoint changes what the edge IS, and an edge's
+       * `_id` is derived from `(from, to, label)` — so a `$set` left the edge under an id its own identity no
+       * longer derived, and the next peer to create that triplet derived the right id, inserted, and hit the
+       * unique index instead of converging. `rekeyEdge` owns the delete-and-insert, the tombstone, and the
+       * seq ordering that makes one safe on a synced collection.
+       *
+       * Phase 1a above has already removed every absorbed edge whose post-relink identity a survivor holds,
+       * so `EdgeIdentityTaken` here would mean 1a and the derivation disagree — which is why both now key on
+       * `edgeIdFor` rather than on two spellings of the same triplet.
+       */
       for (const edge of edgesToRelink) {
-        const updates: Record<string, string> = { updatedAt: now };
+        const newFrom = edge.from === absorbed._id ? survivor._id : edge.from;
+        const newTo = edge.to === absorbed._id ? survivor._id : edge.to;
+        const moved = await rekeyEdge(spaceId, edge, { from: newFrom, to: newTo }, { updatedAt: now }, [], session);
+        if (moved) {
+          // Collected, not applied: the embed queue takes no session, so touching it here would let the
+          // worker act on an edge this transaction has not committed. Drained after `withTransaction`
+          // returns — see `embedQueueWorkFor`.
+          rekeyedEdgeJobs.push(embedQueueWorkFor(moved));
+          continue;
+        }
+        /*
+         * `rekeyEdge` returned null, so the edge stays where it is and the endpoints are written in place —
+         * which is what this loop did before 3.6 and what it must still do. Two reasons it declines, and
+         * both need this: the identity did not actually change (a self-loop already on the survivor), and
+         * the edge was authored by a PEER, whose copy would refuse our tombstone and end up holding two
+         * rows. Dropping the write here would leave the edge pointing at the entity the merge just absorbed.
+         */
+        const updates: Record<string, unknown> = { updatedAt: now, seq: await nextSeq(spaceId) };
         if (edge.from === absorbed._id) updates['from'] = survivor._id;
         if (edge.to === absorbed._id) updates['to'] = survivor._id;
-        const edgeSeq = await nextSeq(spaceId);
-        (updates as Record<string, unknown>)['seq'] = edgeSeq;
         await edgeColl.updateOne(
           asFilter<EdgeDoc>({ _id: edge._id }),
           asUpdate<EdgeDoc>({ $set: updates }),
@@ -614,6 +660,19 @@ export async function executeMerge(
     });
   } finally {
     await session.endSession();
+  }
+
+  /*
+   * Now that the transaction has committed. `enqueueEmbedJob` wakes the worker synchronously and neither it
+   * nor `retireEmbedJob` takes a session, so doing this inside `withTransaction` let the worker claim a job
+   * for an uncommitted edge, read nothing, report `gone` — which counts as success and DELETES the job —
+   * and leave a re-keyed edge permanently without a vector.
+   *
+   * Relinking changes an edge's embed text either way, because it is built from the endpoint NAMES.
+   */
+  for (const job of rekeyedEdgeJobs) {
+    await retireEmbedJob(spaceId, 'edge', job.retire);
+    await enqueueEmbedJob(spaceId, 'edge', job.enqueue);
   }
 
   // Centralised webhook emission: a merge is an update to the survivor, deletion of the

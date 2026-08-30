@@ -1,7 +1,9 @@
 import { edgeIdFor } from './edge-id.js';
+import { rekeyEdge, embedQueueWorkFor, type EdgeRekey } from './edge-rekey.js';
 import { brainWriteSeqTotal } from '../metrics/registry.js';
 import { authorRef } from '../config/author.js';
-import { col, asFilter, asDoc, asUpdate, asBulk } from '../db/mongo.js';
+import { col, getMongo, asFilter, asDoc, asUpdate, asBulk } from '../db/mongo.js';
+import type { ClientSession } from 'mongodb';
 import { nextSeq, reserveSeqBlock } from '../util/seq.js';
 import { parseLimit, parseSkip } from '../util/pagination.js';
 import { toMongoSort, type SortSpec } from './list-sort.js';
@@ -471,6 +473,77 @@ export async function updateEdgeById(
   applyExpiryToUpdate(spaceId, ttlDays, existing._expireAt != null, $set, $unset,
     { collection: 'edge', existing: existing as unknown as Record<string, unknown> }); // F10
   mirrorLegacySuppression($set, $unset); // X-1b: keep the pre-3.1.0 key in step for older peers
+
+  /*
+   * A LABEL CHANGE IS AN IDENTITY CHANGE, so the edge moves onto the id its identity derives.
+   *
+   * `_id` is immutable, so this cannot be part of the `$set` below — it is a delete-and-insert, and
+   * `rekeyEdge` owns the tombstone and the seq ordering that makes one safe on a synced collection. It
+   * returns `null` when the derived id is the one already stored, which is every patch that does not touch
+   * the label, and the ordinary update below runs unchanged.
+   *
+   * Validation has already run against the FINAL label above, so an edge cannot be re-keyed onto a label
+   * whose type schema its stored properties break. `deleteFields` has been applied to `$unset`, which the
+   * re-key must honour too, or a field the caller asked to remove would survive the move.
+   */
+  if (updates.label !== undefined && updates.label !== existing.label) {
+    /*
+     * `If-Match` is checked HERE rather than by the filter below, because there is no `findOneAndUpdate` on
+     * this branch to carry `writeFilterFor`. Skipping it would make the precondition lapse on exactly one
+     * kind of patch — an option that silently stops working on one code path is the defect this file's
+     * neighbours keep fixing.
+     */
+    if (ifMatchSeq !== undefined && existing.seq !== ifMatchSeq) {
+      brainWriteSeqTotal.labels({ collection: 'edges', outcome: writeOutcome(false, true, true) }).inc();
+      return null;
+    }
+    const carried = { ...$set };
+    delete carried['seq'];   // `rekeyEdge` takes its own, after the tombstone's — see its docblock
+    // The removals go too. Without them the re-inserted row keeps every field this patch deletes, while the
+    // response says it does not — and for `ttlDays: null` that is an edge the sweep still expires.
+    /*
+     * IN A TRANSACTION, unlike the rest of this function.
+     *
+     * Every other patch is one `findOneAndUpdate` and is atomic for free. A re-key is a delete and an
+     * insert, so a crash or a connection loss between them leaves the edge in NEITHER id — the caller's
+     * relationship simply gone, with a 500 that does not say what happened to it. `merge.ts` already runs its
+     * re-keys inside `withTransaction` for the same reason; this path had nothing.
+     */
+    const session = getMongo().startSession();
+    let moved: EdgeRekey | null;
+    try {
+      // The callback's value is the transaction's value, so the result is read out rather than assigned into
+      // an outer variable — a closure write is invisible to the type narrowing and would type as `never`.
+      moved = await session.withTransaction(
+        async () => rekeyEdge(spaceId, existing, { label: newLabel }, carried, Object.keys($unset), session),
+      );
+    } finally {
+      await session.endSession();
+    }
+    if (moved) {
+      // The queue AFTER the write, and here rather than inside `rekeyEdge` — see `embedQueueWorkFor`. There
+      // is no transaction on this path, so the write is already durable. The embed text is built from the
+      // label and the endpoint names, so a re-key always changes it.
+      const work = embedQueueWorkFor(moved);
+      await retireEmbedJob(spaceId, 'edge', work.retire);
+      await enqueueEmbedJob(spaceId, 'edge', work.enqueue);
+      brainWriteSeqTotal.labels({
+        collection: 'edges', outcome: writeOutcome(true, ifMatchSeq !== undefined, false),
+      }).inc();
+      // `rekeyEdge` has already applied the whole-field removals to the STORED document, so this copy needs
+      // only the dotted `deleteFields` paths, which reach inside `properties` rather than removing a field.
+      const out = { ...moved.edge };
+      if (deleteFieldsPaths && deleteFieldsPaths.length > 0) {
+        applyDeleteFields(out as unknown as Record<string, unknown>, deleteFieldsPaths);
+      }
+      if (actor) emitWebhookEvent({ event: 'edge.updated', spaceId, entry: { ...out, embedding: undefined }, ...actor });
+      // `rekeyEdge` already strips, and this is still not redundant: a reader here cannot see that, and the
+      // pairing of a stripped webhook with an unstripped return is exactly the shape that leaked on four
+      // record kinds. The guarantee belongs where the document leaves the function.
+      return withoutVector(out);
+    }
+  }
+
   const updateOp: Record<string, unknown> = { $set };
   if (Object.keys($unset).length > 0) updateOp['$unset'] = $unset;
   // Lost-update detection, identical to `updateMemory` and for the same reason: `returnDocument: "before"`

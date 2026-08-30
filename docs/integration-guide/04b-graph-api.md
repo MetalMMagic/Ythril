@@ -251,6 +251,47 @@ POST /api/brain/spaces/:spaceId/edges
 
 Upserts on `(spaceId, from, to, label)`.
 
+#### An edge's `_id` is DERIVED from the relationship, and moves when the relationship does
+
+Since 3.6 an edge's `_id` is `uuidv5` over `(from, to, label)`, each part length-prefixed so no part can forge
+the separator. Two peers creating the same relationship therefore arrive at the same id **without talking**,
+and the sync collision is an idempotent no-op instead of a duplicate key on every cycle. `spaceId` is
+deliberately not part of the key: space aliasing lets one logical space carry a different local id on each
+peer, so including it would derive differently on the two sides — which is the defect this removes.
+
+**This is a contract about ids, not only an implementation detail, because identity can change.** Mongo's
+`_id` is immutable, so an edge whose identity changes is deleted and re-inserted under the id it now derives.
+Two operations do that:
+
+| what you did | what moves | what you get back |
+|---|---|---|
+| `PATCH /edges/:id` with a new `label` | the whole identity | a **different `_id`** in the response; the id you sent now `404`s |
+| merging two entities | the relinked edges' endpoints | those edges come back under new ids |
+
+**Read the id back from the response rather than reusing the one you sent** — the same discipline a file
+`move` already asks for. Every other field patches in place and the id does not move; only `label` and the two
+endpoints are identity.
+
+An id you held across a merge answers `404`. To find where the relationship went, re-create the triplet with
+`POST /edges` — an edge upsert is keyed on `(from, to, label)` rather than on an id, so it lands on the stored
+row and hands you its current `_id`.
+
+A merge resolves the collision case itself, by deleting the absorbed edge whose post-relink triplet a
+survivor already holds.
+
+An identity that is **already taken** by another edge is refused with `409 edge_identity_taken` naming the
+edge in the way, rather than surfaced as an index violation.
+
+**One case does not move: an edge this instance did not author.** Deleting the old id on a peer requires a
+tombstone issued by the document's own author — that rule is what stops one instance deleting another's
+content, and it applies here too. So an edge that arrived from a peer keeps its original id when its identity
+changes, exactly as every edge did before 3.6. It is one row, it converges, and the only cost is that a third
+peer creating the same relationship derives a different id and hits the unique index, which is the behaviour
+this feature narrows rather than removes.
+
+Edges created before 3.6 keep their original random ids. There is no migration and none is needed: a derived
+id only has to be agreed on by peers creating an edge from now on.
+
 ---
 
 ### List Edges

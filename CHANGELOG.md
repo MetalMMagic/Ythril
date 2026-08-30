@@ -82,6 +82,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A mistyped `MAX_FILE_SIZE_BYTES` removed the media file-size limit instead of raising it.** The media
+  config's own reader coerced every numeric environment variable with a bare `Number(envRaw)` and checked
+  nothing, so `1O24` became `NaN` — and `dispatch.ts` asks `input.bytes > maxBytes`, where every comparison
+  against `NaN` is false. `??` cannot rescue it either, because `NaN` is not nullish. Five settings were read
+  that way: `WORKER_CONCURRENCY`, `WORKER_POLL_INTERVAL_MS`, `WORKER_MAX_POLL_INTERVAL_MS`,
+  `MAX_FILE_SIZE_BYTES` and `STALLED_JOB_TIMEOUT_MS`.
+
+  **The gate that exists to prevent exactly this could not see them.** `numeric-env-is-validated.test.js`
+  matches `Number(process.env[…])` as one expression; the reader assigns to a local first and coerces on the
+  next line. One assignment between the two halves, and a registry documented as *"exhaustive by design"* was
+  missing six settings. It now also checks the indirect spelling, scoped to the enclosing block so the four
+  call sites that coerce and then guard with `Number.isFinite` are not reported — a gate that flagged those
+  would push whoever fixed it toward deleting a real guard.
+
+- **The same setting had two different legal ranges depending on which door it arrived through.** Nine are
+  writable both by an environment variable and by `PATCH /api/admin/media-config`, and five pairs disagreed —
+  in both directions:
+
+  | setting | env door | admin door |
+  |---|---|---|
+  | `documentProcessing.ocrTimeoutMs` | 1 000 … 3 600 000 | 10 000 … 1 800 000 |
+  | `documentProcessing.describeTimeoutMs` | 1 000 … 3 600 000 | 1 000 … 600 000 |
+  | `embedding.dimensions` | 1 … 8 192 | 1 … 16 384 |
+  | `embedding.embedConcurrency` | 1 … 256 | 1 … 32 |
+  | `mediaEmbedding.rerank.candidateMultiplier` | unvalidated | 2 … 10 |
+
+  `EMBEDDING_CONCURRENCY` shows why this is not merely untidy: **256 passed validation, was reported as
+  accepted, and was then silently clamped to 32** by the code that uses it — the ceiling existing precisely so
+  *"a typo cannot turn into hundreds of parallel requests"*. Validation that accepts a value the runtime will
+  not honour answers the operator's question wrongly, which is worse than not answering it.
+
+  **The documentation was already right on both counts** — the integration guide says *"Clamped to 1…32"* and
+  *"2–10"* — so the env door disagreed with the API and with the page describing it, and only the door nobody
+  compares was wrong. No documented range changes.
+
+  Both doors now read one table, `config/setting-bounds.ts`. Whatever the runtime actually enforces wins;
+  where nothing enforces it, the admin schema does, because that is the surface with the reasons written
+  beside it. `embedding.dimensions` is recorded there as genuinely arbitrary rather than derived — nothing
+  downstream constrains it and neither ceiling appears in the docs.
+
+  `one-setting-one-range.test.js` derives the pairs from the two doors themselves rather than from the shared
+  table, so a setting the table forgets is not invisible to the check of the table.
+
 - **A record re-created after a peer deleted it could be refused for ever, silently.** The local seq counter is
   bumped past everything received from a peer — that is the stated reason it exists — but tombstones were left
   out of that bump on **both** ingest paths, while carrying the deleting instance's seq like any other record.

@@ -88,8 +88,16 @@ describe('describeTimeoutMs', () => {
     const loader = readFileSync(join(SERVER_SRC, 'config', 'loader.ts'), 'utf8');
     assert.match(loader, /DOC_DESCRIBE_TIMEOUT_MS/, 'env override missing');
     assert.match(loader, /describeTimeoutMs:\s*\d/, 'default missing from DOCUMENT_PROCESSING_DEFAULTS');
+    /*
+     * The PATCH schema half. Either spelling counts: an inline `z.number()`, or `bounded('<path>')`, which
+     * takes the range from the table the environment door also reads.
+     *
+     * Matching only the inline form made this fail on the change that gave the field ONE range across both
+     * doors — the env door had allowed six times the admin ceiling until then. A gate that pins how a schema
+     * is written blocks the fix that makes the schema agree with everything else.
+     */
     const api = readFileSync(join(SERVER_SRC, 'api', 'media-config.ts'), 'utf8');
-    assert.match(api, /describeTimeoutMs:\s*z\.number\(\)/,
+    assert.match(api, /describeTimeoutMs:\s*(?:z\.number\(\)|bounded\(')/,
       'a strict() PATCH schema without the field turns setting it into a 400');
   });
 });

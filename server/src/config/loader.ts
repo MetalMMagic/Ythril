@@ -1,6 +1,7 @@
 ﻿import fs from 'node:fs';
 import path from 'node:path';
 import { log } from '../util/log.js';
+import { numericEnvOrExit } from './setting-bounds.js';
 import { pinnedFieldsFromEnv } from './pinned-fields.js';
 import type { Config, SecretsFile, SchemaLibraryEntry, SchemaCatalog } from './types.js';
 import { normalizeDocExtractionMode } from './types.js';
@@ -978,8 +979,20 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
       // check matches — derived camelCase (e.g. `mediaEmbeddingFallbackToExternal`)
       // would silently NOT lock the UI control.
       locked.push(fieldName);
-      // numeric coercion
-      if (typeof defaultVal === 'number') return Number(envRaw) as T;
+      /*
+       * Numeric coercion, VALIDATED.
+       *
+       * This was `Number(envRaw)` and checked nothing, so a typo travelled as NaN rather than stopping the
+       * boot. `maxFileSizeBytes` shows why that is not merely untidy: `dispatch.ts` asks
+       * `input.bytes > maxBytes`, and every comparison against NaN is false — so `MAX_FILE_SIZE_BYTES=1O24`
+       * does not raise the media size limit, it removes it, for every upload, with nothing in the log.
+       * `??` cannot rescue it either, because NaN is not nullish.
+       *
+       * `env-num.ts` exists for exactly this and calls its registry "exhaustive by design". It was not: the
+       * gate asserting so greps for `Number(process.env[…])` as ONE expression, and this reads the variable
+       * into `envRaw` first. One assignment between the two halves and five settings were invisible to it.
+       */
+      if (typeof defaultVal === 'number') return numericEnvOrExit(envKey, envRaw) as T;
       // boolean coercion
       if (typeof defaultVal === 'boolean') return (envRaw === 'true' || envRaw === '1') as unknown as T;
       return envRaw as unknown as T;
@@ -1073,7 +1086,8 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
     model: rerankModelEnv ?? base.rerank?.model,
     apiKey: rerankApiKeyEnv ?? mediaSecrets.rerankApiKey,
     label: base.rerank?.label ?? 'Reranker (cross-encoder)',
-    candidateMultiplier: rerankMultEnv ? Number(rerankMultEnv) : base.rerank?.candidateMultiplier,
+    candidateMultiplier: rerankMultEnv ? numericEnvOrExit('RERANK_CANDIDATE_MULTIPLIER', rerankMultEnv)
+      : base.rerank?.candidateMultiplier,
   };
   if (rerankBaseUrlEnv) locked.push('rerank.baseUrl');
   if (rerankModelEnv) locked.push('rerank.model');

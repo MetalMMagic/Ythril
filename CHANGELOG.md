@@ -80,6 +80,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   have been stricter than the API. Two shipped promises pointing opposite ways is a product decision, not a
   defect, so it is filed for a ruling and the code now says where.
 
+### Changed
+
+- **Raising a god-file's ceiling now owes a decomposition task.** Owner's rule, 2026-08-30. The ratchet in
+  `no-new-god-files.test.js` already made growth visible; it did not make anybody answer for it, and a raise
+  with a good reason and no follow-up is how a file reaches four figures one defensible increment at a time —
+  every step justified, the total justified by nobody.
+
+  Every `RAISED a -> b` now carries either `DECOMPOSE: <ID>`, naming a queued task, or
+  `NO DECOMPOSITION: <reason>` for a file where splitting is not the answer — a type file grows with the
+  domain it types, and a 343-line page is not a god file. The reason lands in a diff a person reads, next to
+  the number it excuses.
+
+  **The check is split across two gates deliberately.** The standalone one proves a marker exists; it cannot
+  check the id, because `todo/` is gitignored and absent in CI. `todo:check` proves the named task is actually
+  open. Neither is a weaker copy of the other — a `DECOMPOSE: G-9` naming nothing would satisfy the first on
+  its own, which is exactly the shape of promise this repo keeps finding.
+
+  Applying it to the six existing raises queued two real ones: the 1 999-line file manager, and the files
+  router whose bodies are inline — the shape `api/spaces.ts` already paid down from 851 to 589 by moving two
+  route bodies out and keeping their mount points.
+
 ### Fixed
 
 - **Tapping a chrono, memory or file node in the graph no longer opens an empty panel.** Every node tap called

@@ -260,6 +260,38 @@ console.log(`\n${YELLOW}todo/ consistency${R}  ${DIM}(owner rules 2026-08-02 and
   }
 }
 
+// ── rule 2c: every god-file raise names a decomposition task that is actually open
+{
+  /**
+   * Owner's rule, 2026-08-30: *"raising is okay but raising means you also have to queue a task to decompose
+   * and modularize."*
+   *
+   * `no-new-god-files.test.js` requires every `RAISED a -> b` to carry a `DECOMPOSE: <ID>` or a
+   * `NO DECOMPOSITION: <reason>`. It cannot check the id, because `todo/` is gitignored and absent in CI —
+   * so that gate proves a marker EXISTS and this one proves the marker is TRUE.
+   *
+   * Split deliberately rather than duplicated: each half runs where it can see its own evidence, and neither
+   * is a weaker copy of the other. A `DECOMPOSE: G-9` naming nothing would satisfy the first check on its own,
+   * which is the shape of promise this repo keeps finding.
+   */
+  const GATE = join(ROOT, 'testing/standalone/no-new-god-files.test.js');
+  if (existsSync(GATE)) {
+    const named = [...readFileSync(GATE, 'utf8').matchAll(/DECOMPOSE:\s*([A-Z]+-[A-Z0-9-]+)/g)].map(m => m[1]);
+    const missing = named.filter(id => !new RegExp(`(^|[^A-Z0-9-])${id}([^A-Z0-9-]|$)`, 'm').test(ordered));
+    if (missing.length) {
+      fail(`${missing.length} god-file raise(s) name a decomposition task that is not in ${ORDERED}: `
+        + `${missing.join(', ')}.
+
+      A raise is allowed; a raise with no queued follow-up is how a file `
+        + 'reaches four figures one defensible increment at a time.');
+      console.log(`${RED}  ✗${R} a god-file raise names a task nobody queued`);
+    } else {
+      console.log(`${GREEN}  ✓${R} every god-file raise names a queued decomposition  ${DIM}(${named.length} `
+        + `named)${R}`);
+    }
+  }
+}
+
 // ── rule 3: every open item states how to verify it is still open
 {
   /**

@@ -316,8 +316,8 @@ entitiesRouter.patch('/spaces/:spaceId/entities/:id', globalRateLimit, requireSp
       const meta = getSpaceMeta(mid);
       const check = classifyUpdateViolations(
         meta,
-        validateEntity(meta ?? {}, { name: existing.name, type: existing.type, properties: existing.properties ?? {}, tags: existing.tags ?? [] }),
-        validateEntity(meta ?? {}, { name: resultName, type: resultType, properties: simProps, tags: sim['tags'] as string[] }),
+        validateEntity(meta ?? {}, { name: existing.name, type: existing.type, properties: existing.properties ?? {} }),
+        validateEntity(meta ?? {}, { name: resultName, type: resultType, properties: simProps }),
       );
       if (check.blocked) {
         res.status(422).json({

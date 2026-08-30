@@ -67,9 +67,23 @@ describe('the merge path runs the write path validators', () => {
       'validating `survivor.properties` would check the value that was already accepted on write and miss the '
       + 'entire defect: it is the mergeFn OUTPUT that can violate the schema.',
     );
-    assert.match(
+    /*
+     * `mergedTags` is NOT asserted, and its removal is the point rather than an oversight.
+     *
+     * This used to require it, with the reason "tags are merged too, and a type schema can constrain them".
+     * **A type schema cannot.** `TypeSchema` carries `namingPattern`, `propertySchemas`, `retention` and
+     * `suppressEmbeddings` — nothing about tags — and the space-wide suggestion list was retired in #365. So
+     * the four validators took a `tags` parameter that none of them read, seven callers did work to fill it,
+     * and this gate held it in place on a rationale that had never been true.
+     *
+     * That is the sharper half of the lesson: a gate can preserve a dead parameter as effectively as it
+     * preserves a live rule, and its message is the only place the reason is written down. When the reason is
+     * wrong, the gate is what stops anyone noticing.
+     */
+    assert.doesNotMatch(
       stmt, /mergedTags/,
-      'tags are merged too, and a type schema can constrain them',
+      'the validators no longer take `tags` — nothing in a type schema constrains them, so passing them was '
+      + 'work done for a parameter that was read by nothing',
     );
   });
 

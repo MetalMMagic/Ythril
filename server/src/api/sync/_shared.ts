@@ -508,13 +508,13 @@ export function violationsAgainstLocalSchema(
   const type = typeof doc['type'] === 'string' ? doc['type'] : undefined;
   switch (kind) {
     case 'entity':
-      return validateEntity(meta, { name: doc['name'] as string, type, properties, tags });
+      return validateEntity(meta, { name: doc['name'] as string, type, properties });
     case 'edge':
-      return validateEdge(meta, { label: doc['label'] as string, properties, tags });
+      return validateEdge(meta, { label: doc['label'] as string, properties });
     case 'chrono':
-      return validateChrono(meta, { type, properties, tags });
+      return validateChrono(meta, { type, properties });
     case 'memory':
-      return validateMemory(meta, { type, properties, tags });
+      return validateMemory(meta, { type, properties });
   }
 }
 

@@ -240,12 +240,11 @@ export const update_entityTool: ToolHandler = {
       if (dfPaths) applyDeleteFieldsPaths(sim, dfPaths);
       assertUpdateAllowed(classifyUpdateViolations(
         found.meta,
-        validateEntity(found.meta ?? {}, { name: prior.name, type: prior.type, properties: prior.properties ?? {}, tags: prior.tags ?? [] }),
+        validateEntity(found.meta ?? {}, { name: prior.name, type: prior.type, properties: prior.properties ?? {} }),
         validateEntity(found.meta ?? {}, {
           name: updates.name ?? prior.name,
           type: updates.type ?? prior.type,
           properties: (sim['properties'] ?? {}) as Record<string, unknown>,
-          tags: sim['tags'] as string[],
         }),
       ));
     }

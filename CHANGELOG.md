@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **All four schema validators took a `tags` parameter that none of them read.** `TypeSchema` carries
+  `namingPattern`, `propertySchemas`, `retention` and `suppressEmbeddings` — nothing about tags — and the
+  space-wide suggestion list was retired two releases ago. Seven files did work to fill the parameter anyway,
+  building and merging tag arrays on write paths so they could be passed to functions that forwarded only
+  `properties`.
+
+  Removed, and the compiler is the check: it named all twelve call sites, and an object literal carrying
+  `tags` will not typecheck again.
+
+  **A gate was holding it in place on a rationale that had never been true** — it required the merge path to
+  pass `mergedTags`, "because a type schema can constrain them". That assertion is now reversed, with the
+  reason. A gate preserves a dead parameter exactly as well as it preserves a live rule, and its message is
+  usually the only place the reason is written down; when the reason is wrong, the gate is what stops anyone
+  noticing.
+
+- **`validateMemory`'s docblock now says the type allowlist is disputed rather than silently disagreeing with
+  three documents.** The interface docblock and two integration-guide pages state that the keys of
+  `typeSchemas.memory` are the allowed type values; the code only ever uses `type` to look one up. That looked
+  like a documented-but-unimplemented feature until the reason for the asymmetry turned up: the memories tab's
+  type control is free text with suggestions *because* the server accepts any string, and a closed select would
+  have been stricter than the API. Two shipped promises pointing opposite ways is a product decision, not a
+  defect, so it is filed for a ruling and the code now says where.
+
 ### Fixed
 
 - **Neither door said that `recall`'s graph expansion cannot start from a memory, chrono entry or file.** Its
@@ -122,16 +147,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **line-initial** opener specifically: block comments do not nest, so `/*` inside a comment body is prose, and
   the first version reported four correct files whose comments mention paths like `/api/sync/*`. A gate that
   fires on ordinary prose is one somebody switches off.
-
-### Changed
-
-- **`validateMemory`'s docblock now says the type allowlist is disputed rather than silently disagreeing with
-  three documents.** The interface docblock and two integration-guide pages state that the keys of
-  `typeSchemas.memory` are the allowed type values; the code only ever uses `type` to look one up. That looked
-  like a documented-but-unimplemented feature until the reason for the asymmetry turned up: the memories tab's
-  type control is free text with suggestions *because* the server accepts any string, and a closed select would
-  have been stricter than the API. Two shipped promises pointing opposite ways is a product decision, not a
-  defect, so it is filed for a ruling and the code now says where.
 
 - **One duplicate relationship stopped a peer receiving any further edges, permanently.** An edge's identity is
   its `(from, to, label)` triplet, which is uniquely indexed, while its `_id` is random — so two instances

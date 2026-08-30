@@ -144,7 +144,7 @@ export async function bulkWrite(spaceId: string, input: BulkInput): Promise<Bulk
           { projection: NEVER_RETURNED_PROJECTION })
         : null;
       const mergedEnt = mergeTagsAndProperties(existing as EntityDoc | null, { tags: strArray(item['tags']), properties });
-      if (schemaFails('entity', i, validateEntity(meta ?? {}, { name, type, properties: mergedEnt.properties, tags: mergedEnt.tags }))) continue;
+      if (schemaFails('entity', i, validateEntity(meta ?? {}, { name, type, properties: mergedEnt.properties }))) continue;
       const result = await upsertEntity(spaceId, name, type, strArray(item['tags']), properties,
         typeof item['description'] === 'string' ? item['description'] : undefined, rawId, undefined, undefined, ttlDays);
       if (existing) updated.entities++; else inserted.entities++;

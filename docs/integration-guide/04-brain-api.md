@@ -833,7 +833,7 @@ PATCH /api/brain/spaces/:spaceId/files?path=…
 > A caller that patches a single key now keeps what it did not name, instead of losing it.
 >
 > **The lists still replace on every type**: `tags`, `entityIds`, `memoryIds` and `chronoIds` are overwritten
-> by what you send. Only `properties` merge.
+> by what you send. Only `properties` merge. And **patching an edge's `label` changes its `_id`** — see the graph API page, which owns edge identity.
 
 <!-- markdownlint-disable-next-line MD028 -->
 

@@ -274,6 +274,29 @@ const FROZEN = {
   // took away. G-2's own note said to delete it; the precedent in this file is better and wins.
   'client/src/app/pages/brain/brain.component.ts': 571,
   'client/src/app/pages/settings/networks.component.ts': 643,
+  // FIRST entry for this file: RAISED 650 -> 662 for the re-key branch in `updateEdgeById` — the If-Match
+  // check that `writeFilterFor` cannot make on a path with no `findOneAndUpdate`, the call, the deleteFields
+  // replay onto the moved document, and the metric.
+  //
+  // The re-key ITSELF is not in this number: it went to `edge-rekey.ts` as its own module, both because this
+  // file was at the ceiling and because `merge.ts` is the other caller — importing it from here would put the
+  // two largest brain modules in a runtime dependency for one function.
+  //
+  // DECOMPOSE: A-4. What is left is genuinely two files. `edges.ts` holds the edge CRUD and, appended to it,
+  // the whole recall seed traversal — `SeedTraverseNeighbor`, `frontierEdgeQuery`, `traverseFromSeeds`,
+  // `traverseRecallSeeds`, `stampTruncation` and the two hop types. That second half has one consumer
+  // (`graph-spill.ts` → recall) and no edge-write path touches it, which is what makes it a clean cut rather
+  // than a shuffle. It is queued rather than done here because a PR that re-keys edges and moves 150 lines of
+  // traversal in the same diff is two reviews wearing one hat.
+  // 662 -> 672, and RAISED for a correctness fix found in review before this shipped. The re-key on the PATCH
+  // path is a delete and an insert, and it ran outside any transaction — a failure between them left the
+  // caller's relationship in NEITHER id. `merge.ts` already wrapped its re-keys; this path had nothing. The
+  // added lines are the session, the `withTransaction` and its `finally`.
+  //
+  // Raised without argument, for the reason written above `brain.component.ts`: a ratchet that made a
+  // correctness fix negotiable would be a gate encouraging the wrong outcome. DECOMPOSE: A-4 still stands and
+  // is what pays this back.
+  'server/src/brain/edges.ts': 672,
 };
 
 describe('no file grows past what we already carry', () => {

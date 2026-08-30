@@ -30,6 +30,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Prose about a schema decides nothing; the replacement exercises the compiled schema and derives what it
   expects from the parser's own field list, so a fourth key cannot reach one surface and not the other.
 
+### Changed
+
+- **An edge whose identity changes now takes the id that identity derives, so peers converge on it.**
+  An edge's `_id` is `uuidv5` over `(from, to, label)` — two peers creating the same relationship arrive at the
+  same id without talking, and the sync collision is an idempotent no-op instead of a duplicate key. Mongo's
+  `_id` is immutable, though, and two paths change what an edge IS: an entity merge relinks an endpoint, and
+  `PATCH /edges/:id` accepts a new `label`. Both wrote in place, leaving the edge under an id its own identity
+  no longer derived — so the next peer to create that triplet derived the correct id, inserted, and hit the
+  unique index. The defect the derivation removes, surviving on the two paths that matter most.
+
+  **This changes a response.** A label patch answers with a **different `_id`**, and the id you sent 404s
+  afterwards; the same happens to an edge whose endpoint moves in a merge. Read the id back from the response
+  rather than reusing the one you sent. Every other field still patches in place. Both doors and the
+  integration guide say so — a response shape that changes with no surface stating it is the quietest kind of
+  breaking change, because the call succeeds and the caller's *next* request is the one that fails.
+
+  Delete-and-insert on a synced collection needs two things, and `rekeyEdge` (`brain/edge-rekey.ts`) owns both: a real tombstone for
+  the old id, and an insert `seq` taken **after** the tombstone's, so a peer that pulls the delete and stops
+  picks the edge up on its next cycle instead of being left with neither id. `renameFileMeta` was named in the
+  source as the model for this and is not one — it writes no tombstone and no new seq, on the stated grounds
+  that file meta is best-effort and disk is the source of truth.
+
+  An identity that is already taken is refused with `409 edge_identity_taken` on REST and the same message on
+  MCP, rather than surfaced as an index violation. Entity merge resolves that case itself, and its duplicate
+  detection now keys on the same derivation instead of a `from|to|label` string — which was ambiguous the
+  moment a label contained the separator, and would have reported two genuinely distinct relationships as
+  duplicates of each other.
+
+  **One case deliberately does not move: an edge this instance did not author.** A peer only applies a
+  tombstone issued by the document's own author — the rule that stops one instance deleting another's
+  content — so a tombstone we issue for a peer-authored edge is silently dropped while the insert propagates,
+  and the peer would hold both rows. Re-stamping the tombstone with the original author does not help either;
+  it then fails the delivering-peer check as cross-instance delete forgery. So such an edge keeps its id and
+  is relinked in place, exactly as before, and the documented limit is narrowed rather than removed. Lifting
+  it needs a tombstone that names its successor and is applied as a move, which is a change to a sync contract
+  two other parties consume and is not smuggled in behind a bug fix.
+
 ### Added
 
 - **`recall`'s graph expansion can follow links, not only edges.** Two records can be related two ways: a

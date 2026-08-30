@@ -139,7 +139,7 @@ export const update_edgeTool: ToolHandler = {
     + 'connects.\n\n'
     + 'PARAMETERS:\n'
     + '- `id` — the edge\'s `_id`, as `traverse`, `query` and `recall`\'s `_graph` report it. Required.\n'
-    + '- `label` — the relationship\'s name, replaced when sent. Re-embeds.\n'
+    + '- `label` — the relationship\'s name, replaced when sent. Re-embeds, AND CHANGES THE `_id`: since 3.6 an edge id is derived from `(from, to, label)` so two peers creating one relationship agree on its id without talking, and a label is part of that identity. The result carries the NEW `_id` and the old one 404s — read it back rather than reusing the id you sent. Every other field patches in place. The same happens to an edge whose endpoint moves in an entity merge.\n'
     + '- `type` — replaced when sent, and re-validated against the space\'s edge-type allowlist.\n'
     + '- `weight` — 0 to 1. Ranking uses it; traversal does not filter on it.\n'
     + '- `description` — replaced when sent.\n'

@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The link scans were unbounded AND unindexed, and following links from `recall` multiplied them.**
+  `linkedRecordsAtFrontier` and `entitiesLinkedFromRecords` issued `.find().toArray()` with no `.limit()` —
+  once per link class, per member space, per hop. The node cap did not help: it counts records after they are
+  hydrated, so the read had already returned everything a hub entity is mentioned by.
+
+  And `entityIds` was indexed on **memories only**. Chrono and files, whose `entityIds` the same scans read,
+  had none — so two thirds of every such scan was also a collection scan.
+
+  Latent while only the standalone `traverse` tool followed links. Live since `recall`'s expansion learned to:
+  a depth-N call with all three flags on made up to 3N of those reads, against exactly the two collections
+  with no index.
+
+  **Each scan is now bounded by the walk's own cap** — the number already derived from `topK` and the byte
+  budget — rather than by a new constant. Owner's decision: a second cap would be one rule with two numbers,
+  and nobody would tune it. The bound is applied to the CURSOR, so the database stops early rather than the
+  server discarding a tail it has already paid to fetch.
+
+  **Existing instances get the index too.** `initSpace` only ever runs for a space new to the config, so the
+  boot-time backfill widened in the same commit — an index added to space creation alone would have reached
+  nobody already running the product.
+
+
 ### Internal
 
 - **The graph side panel's record cards are their own components.** `graph.component.ts` was at its size

@@ -306,7 +306,11 @@ const FROZEN = {
   // Raised without argument, for the reason written above `brain.component.ts`: a ratchet that made a
   // correctness fix negotiable would be a gate encouraging the wrong outcome. DECOMPOSE: A-4 still stands and
   // is what pays this back.
-  'server/src/brain/edges.ts': 672,
+  // 672 -> 675: THREE LINES, and they are a bound. Each traversal now passes its own node cap into the shared
+  // link scan, which had none — one hub entity returned its whole mention set per class, per member space,
+  // per hop, and on the recall path since 3.6. Raised without argument, for the reason written above
+  // `brain.component.ts`. DECOMPOSE: A-4 still stands and is what pays it back.
+  'server/src/brain/edges.ts': 675,
 };
 
 describe('no file grows past what we already carry', () => {

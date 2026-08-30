@@ -94,6 +94,14 @@ export async function initSpace(
   await edgesColl.createIndex({ to: 1 });
   await edgesColl.createIndex({ seq: 1 });
   await edgesColl.createIndex({ type: 1 });
+  // `entityIds` on all three link-bearing collections, not just memories.
+  //
+  // It is the field every link scan reads — `linkedRecordsAtFrontier` asks "which records of this class point
+  // at the frontier" once per class, per member space, per hop. Memories had the index and chrono and files
+  // did not, so two thirds of every such scan was a collection scan. Latent while only the standalone
+  // `traverse` tool followed links; live since recall's expansion learned to (3.6), and multiplied by the
+  // migration, which turns every mention into a record.
+  await chronoColl.createIndex({ entityIds: 1 });
   await chronoColl.createIndex({ startsAt: 1 });
   await chronoColl.createIndex({ status: 1 });
   await chronoColl.createIndex({ seq: 1 });
@@ -109,6 +117,7 @@ export async function initSpace(
   await contraColl.createIndex({ status: 1, confidence: -1, detectedAt: -1 });
   // The type filter in the Review tab narrows on this, and the per-type wipe below deletes by it.
   await contraColl.createIndex({ type: 1 });
+  await filesColl.createIndex({ entityIds: 1 });   // see the note above `chronoColl`
   await filesColl.createIndex({ tags: 1 });
   await filesColl.createIndex({ updatedAt: -1 });
   // Chunk records point at their file through `parentFileId`. Both the chunk-grouping reads and

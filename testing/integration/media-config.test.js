@@ -18,7 +18,7 @@ import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { INSTANCES, get, patch, post, restoreOrFail } from '../sync/helpers.js';
+import { INSTANCES, get, patch, post, restoreOrFail, patchableDocumentProcessing } from '../sync/helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -99,9 +99,19 @@ describe('Media config — documentProcessing (F11)', () => {
   after(async () => {
     // Restore to OCR so the (inert in this PR) mode doesn't leak into other suites.
     const want = originalDp ?? { mode: 'ocr' };
+    // Filtered, and reports what it saw. This hook had the SAME defect as `vlm-extraction`'s — the GET's block
+    // carries seven keys the `.strict()` patch schema refuses, so sending it back verbatim is a 400 and the
+    // restore never lands. It was latent here rather than failing, because this suite's last write leaves the
+    // mode where the restore wants it often enough. Without a `saw`, its failure would have said only
+    // "verify still false".
     await restoreOrFail('documentProcessing',
-      () => patch(INSTANCES.a, tokenA, '/api/admin/media-config', { documentProcessing: want }),
-      async () => (await get(INSTANCES.a, tokenA, '/api/admin/media-config')).body?.documentProcessing?.mode === want.mode);
+      () => patch(INSTANCES.a, tokenA, '/api/admin/media-config',
+        { documentProcessing: patchableDocumentProcessing(want) }),
+      async () => {
+        const r = await get(INSTANCES.a, tokenA, '/api/admin/media-config');
+        const mode = r.body?.documentProcessing?.mode;
+        return { ok: mode === want.mode, saw: { status: r.status, mode, wanted: want.mode } };
+      });
   });
 
   it('accepts and round-trips a documentProcessing.mode change', async () => {

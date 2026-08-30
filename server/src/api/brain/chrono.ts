@@ -18,7 +18,7 @@ import { validateChrono, getAllowedChronoTypes } from '../../spaces/schema-valid
 import { validateDeleteFields } from '../../brain/delete-fields.js';
 import type { ChronoStatus } from '../../config/types.js';
 import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, ttlDaysFromBody, ttlDaysError, dupeCheckOptsFromBody, ifMatchFromRequest, preconditionFailedBody } from './_shared.js';
-import { classifyUpdateViolations, classifyChronoUpsert } from '../../brain/write-validation.js';
+import { SchemaViolationError, type UpdateValidation } from '../../brain/write-validation.js';
 import { resolveEntityIdsByName } from '../../brain/entities.js';
 import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
 import {
@@ -122,14 +122,9 @@ chronoRouter.post('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, 
   // request read as a violation and 400d a legitimate converge, while a violating key already stored was
   // never re-examined. Entities and edges have validated the merged form since their upserts were written;
   // this was the fourth path, and the id had to move above the check to make it possible.
-  const check = await classifyChronoUpsert(wt.target, { type, properties: safeProps }, safeId);
-  if (check.blocked) {
-    res.status(400).json({
-      error: 'schema_violation', message: check.message, violations: check.all,
-      introduced: check.introduced, preExisting: check.preExisting,
-    });
-    return;
-  }
+  // The check moved into `createChrono`, so no caller can reach the collection around it — three copies of
+  // this rule existed for create and two for update. The response shape is preserved by catching the refusal.
+  let check: UpdateValidation | undefined;
 
   const ttlErr = ttlDaysError(req.body);
   if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
@@ -149,13 +144,25 @@ chronoRouter.post('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, 
   if ('error' in dupe) { res.status(400).json({ error: dupe.error }); return; }
   const writeOpts = { ...dupe.opts, ...(waitForEmbedding === true ? { waitForEmbedding: true } : {}) };
   const embedOpts = Object.keys(writeOpts).length > 0 ? writeOpts : undefined;
-  const entry = await createChrono(wt.target, {
-    title: title.trim(), type, startsAt, endsAt, status, confidence,
-    tags, entityIds, memoryIds, description, properties: safeProps, recurrence: safeRecurrence,
-    id: safeId,
-  }, webhookToken(req), ttlDaysFromBody(req.body), embedOpts);
+  let entry;
+  try {
+    entry = await createChrono(wt.target, {
+      title: title.trim(), type, startsAt, endsAt, status, confidence,
+      tags, entityIds, memoryIds, description, properties: safeProps, recurrence: safeRecurrence,
+      id: safeId,
+    }, webhookToken(req), ttlDaysFromBody(req.body), { ...(embedOpts ?? {}), onValidation: c => { check = c; } });
+  } catch (err) {
+    if (err instanceof SchemaViolationError) {
+      res.status(400).json({
+        error: 'schema_violation', message: err.check.message, violations: err.check.all,
+        introduced: err.check.introduced, preExisting: err.check.preExisting,
+      });
+      return;
+    }
+    throw err;
+  }
   const result: Record<string, unknown> = { ...entry };
-  if (check.warnings.length > 0) result['warnings'] = check.warnings;
+  if (check && check.warnings.length > 0) result['warnings'] = check.warnings;
   res.status(201).json(result);
 });
 
@@ -264,34 +271,31 @@ chronoRouter.patch('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceA
   // above was the whole of it — so a patch could write a property the same space rejects at create time.
   // Merging first is what makes the check meaningful: a required property the patch does not mention is
   // present in the record and absent from the patch.
-  if (prior) {
-    const meta = getSpaceMeta(wt.target);
-    const priorProps = (prior.properties ?? {}) as Record<string, unknown>;
-    const check = classifyUpdateViolations(
-      meta,
-      validateChrono(meta ?? {}, { type: prior.type, properties: priorProps }),
-      validateChrono(meta ?? {}, {
-        type: type ?? prior.type,
-        properties: mergePropertiesOrKeep(prior.properties, safeProps) ?? {},
-      }),
-    );
-    if (check.blocked) {
+  /*
+   * The check moved into `updateChrono`. This block simulated the merge — `mergePropertiesOrKeep` against
+   * `prior`, twenty lines from the function that does the real one — and a simulation is the copy that
+   * drifts, because nothing fails when it stops matching. It also could not see `deleteFields`, so a patch
+   * that REMOVED a required property passed here and was written.
+   *
+   * The 422 is preserved: this route has always answered 422 where the create answers 400.
+   */
+  let updated;
+  try {
+    updated = await findFirstAcrossMembers(wt.target, mid => updateChrono(mid, id, {
+      title, type, startsAt, endsAt, status, confidence,
+      tags, entityIds, memoryIds, description, properties: safeProps, recurrence: safeRecurrence,
+      suppressEmbeddings,
+    }, dfPaths, webhookToken(req), ttlDaysFromBody(req.body), ifMatch.seq));
+  } catch (err) {
+    if (err instanceof SchemaViolationError) {
       res.status(422).json({
-        error: 'schema_violation',
-        message: check.message,
-        violations: check.all,
-        introduced: check.introduced,
-        preExisting: check.preExisting,
+        error: 'schema_violation', message: err.check.message, violations: err.check.all,
+        introduced: err.check.introduced, preExisting: err.check.preExisting,
       });
       return;
     }
+    throw err;
   }
-
-  const updated = await findFirstAcrossMembers(wt.target, mid => updateChrono(mid, id, {
-    title, type, startsAt, endsAt, status, confidence,
-    tags, entityIds, memoryIds, description, properties: safeProps, recurrence: safeRecurrence,
-    suppressEmbeddings,
-  }, dfPaths, webhookToken(req), ttlDaysFromBody(req.body), ifMatch.seq));
   if (updated) {
     req.auditSnapshots = { before: prior ?? {}, after: updated };
     res.json(updated);

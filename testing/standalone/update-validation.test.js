@@ -230,10 +230,26 @@ describe('every update path runs the gate', () => {
     'server/src/mcp/tools/chrono.ts',
   ];
 
+  /*
+   * "Reaches validation", not "calls the classifier itself".
+   *
+   * The owner ruled on 2026-08-29 that every upsert/update/insert validates, and the way to make that true for
+   * callers nobody has enumerated is to put the check inside the WRITER — `every-writer-validates-internally.
+   * test.js` asserts all eight. A surface that delegates is therefore satisfying this rule more strongly than
+   * one that calls a classifier itself, and the entity and chrono routes now do exactly that: they translate
+   * the writer's `SchemaViolationError` into their own status code instead of re-deriving the verdict.
+   *
+   * Demanding the direct call would have made this gate refuse the fix — a check pinned on HOW a rule is
+   * enforced blocks the change that enforces it better.
+   */
   for (const p of PATHS) {
-    it(`${p} calls classifyUpdateViolations`, () => {
-      assert.match(strip(readFileSync(p, 'utf8')), /classifyUpdateViolations\(/,
-        'this update surface must validate the merged record');
+    it(`${p} reaches validation`, () => {
+      const src = strip(readFileSync(p, 'utf8'));
+      const own = /classifyUpdateViolations\(/.test(src);
+      const delegates = /SchemaViolationError/.test(src);
+      assert.ok(own || delegates,
+        'this update surface neither validates the merged record nor handles the refusal the writer raises, '
+        + 'so a violating patch reaches the collection or surfaces as an internal error');
     });
   }
 

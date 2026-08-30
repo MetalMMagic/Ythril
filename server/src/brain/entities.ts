@@ -12,7 +12,8 @@ import { entityEmbedText } from './embed-text.js';
 import { getConfig } from '../config/loader.js';
 import { stampExpiryOnCreate, applyExpiryToUpdate } from './ttl.js';
 import { stampSkewOnCreate } from './stamp-skew.js';
-import { getSpaceMeta } from '../spaces/schema-validation.js';
+import { getSpaceMeta, applyPropertyDefaults } from '../spaces/schema-validation.js';
+import { classifyEntityUpsertAgainst, SchemaViolationError, type UpdateValidation } from './write-validation.js';
 import { writeFilterFor, writeOutcome } from './write-precondition.js';
 import { applyDeleteFields, setUnlessDeleted } from './delete-fields.js';
 import { mergeTagsAndProperties, mergePropertiesOrKeep, mergeTagsOrKeep } from './merge-fields.js';
@@ -107,6 +108,13 @@ export async function upsertEntity(
   opts?: DupeCheckOpts,
   actor?: WebhookActor,
   ttlDays?: number | null,
+  /**
+   * Hands the classification back to the caller — the warnings a `warn` space reports in its 201, and the
+   * `preExisting`/`introduced` split. It exists so a door never has to run `classifyEntityUpsert` a second
+   * time purely for presentation: that would be a second lookup per write, and it is how the rule ended up
+   * written in six places to begin with.
+   */
+  onValidation?: (check: UpdateValidation) => void,
 ): Promise<UpsertResult> {
   const collection = col<EntityDoc>(`${spaceId}_entities`);
 
@@ -115,6 +123,29 @@ export async function upsertEntity(
     ? (await collection.findOne(asFilter<EntityDoc>({ _id: id, spaceId }),
       { projection: NEVER_RETURNED_PROJECTION }) as EntityDoc | null)
     : null;
+
+  /*
+   * THE SCHEMA IS ENFORCED HERE, so that no caller can reach the collection around it.
+   *
+   * Owner's ruling, 2026-08-29: *"all upsert/update/insert things must validate btw — i thought that was
+   * already fact."* It was fact for `upsertEdge` alone (#1046), and for the same reason it is now fact here:
+   * the rule lived in the two API routes, the MCP tool and `bulk.ts`, and `bulk.ts` enforced a DIFFERENT one —
+   * blocking on any violation with no `preExisting`/`introduced` split, so the same upsert was refused through
+   * `/bulk` and accepted through `/entities`.
+   *
+   * Declared defaults fill in what the caller omitted BEFORE validation and only on an INSERT: a property that
+   * is `required` and has a `default` must not be a violation, because the default is what satisfies the
+   * requirement — and on an update an absent property may be one the caller has just removed, so resurrecting
+   * it would undo a deliberate deletion.
+   */
+  const meta = getSpaceMeta(spaceId);
+  const withDefaults = existing
+    ? properties
+    : applyPropertyDefaults(meta?.typeSchemas?.entity?.[type], properties);
+  const check = classifyEntityUpsertAgainst(meta, existing, { name, type, properties: withDefaults, tags });
+  if (check.blocked) throw new SchemaViolationError(check);
+  onValidation?.(check);
+  properties = withDefaults ?? properties;
 
   const seq = await nextSeq(spaceId);
   const now = new Date().toISOString();
@@ -283,6 +314,8 @@ export async function updateEntityById(
   actor?: WebhookActor,
   ttlDays?: number | null,
   ifMatchSeq?: number,
+  /** See `upsertEntity`'s: the classification, so a door never re-derives it for presentation. */
+  onValidation?: (check: UpdateValidation) => void,
 ): Promise<EntityDoc | null> {
   const collection = col<EntityDoc>(`${spaceId}_entities`);
   const existing = await collection.findOne(asFilter<EntityDoc>({ _id: id, spaceId }),
@@ -326,6 +359,20 @@ export async function updateEntityById(
       newProps = merged['properties'] as Record<string, string | number | boolean>;
     }
   }
+
+  /*
+   * Validated HERE, after `deleteFields` has been applied, so the document checked is the document written.
+   *
+   * The order matters and is the same one `updateMemory` needs: a patch that REMOVES a required property has
+   * only broken the record once the deletion is folded in, so validating before this point would check a
+   * merged record the caller is not about to store. `newType` rather than `existing.type` for the same
+   * reason — re-typing re-validates against the NEW type's schema, which is what #1047 fixed at the route and
+   * this brings inside.
+   */
+  const check = classifyEntityUpsertAgainst(getSpaceMeta(spaceId), existing,
+    { name: newName, type: newType, properties: newProps, tags: newTags });
+  if (check.blocked) throw new SchemaViolationError(check);
+  onValidation?.(check);
 
   if (updates.suppressEmbeddings !== undefined) $set['suppressEmbeddings'] = updates.suppressEmbeddings;
   if (updates.name !== undefined) $set['name'] = newName;

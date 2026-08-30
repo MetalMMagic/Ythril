@@ -236,7 +236,18 @@ describe('upsert validation', () => {
       const offenders = [];
       for (const p of WRITER_CALLERS) {
         const src = strip(readFileSync(p, 'utf8'));
-        const usesClassifier = /classify(Entity|Edge)Upsert\(/.test(src);
+        /*
+         * Delegation counts, and counts for MORE.
+         *
+         * Since the owner's 2026-08-29 ruling the writers validate internally, so a caller that translates
+         * the writer's `SchemaViolationError` is not skipping the merge check — it is relying on the one that
+         * runs against the real merged record rather than on a simulation of it. Two of these callers used to
+         * rebuild the merge here to validate it, twenty lines from the function that does the real one, and
+         * that copy is what drifts.
+         *
+         * Demanding the direct call would make this gate refuse the fix that enforces the rule better.
+         */
+        const usesClassifier = /classify(Entity|Edge)Upsert\w*\(/.test(src) || /SchemaViolationError/.test(src);
         // bulk.ts composes the merge itself (it needs the prior record for its own counters), so it is
         // allowed to call the validator directly — as long as what it hands over came from the writer's
         // merge helper and not from the request.

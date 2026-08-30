@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'url';
-import { INSTANCES, get, patch, restoreOrFail } from '../sync/helpers.js';
+import { INSTANCES, get, patch, restoreOrFail, patchableDocumentProcessing } from '../sync/helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TOKEN_FILE_A = path.join(__dirname, '..', 'sync', 'configs', 'a', 'token.txt');
@@ -46,7 +46,10 @@ describe('VLM extraction mode wiring (F11)', () => {
      * never landed, and "verify still false" cannot tell them apart.
      */
     await restoreOrFail('documentProcessing (vlm-extraction)',
-      () => patch(INSTANCES.a, tokenA, '/api/admin/media-config', { documentProcessing: want }),
+      // Filtered: the GET returns seven keys the `.strict()` patch schema refuses, so sending the block
+      // back verbatim is a 400 and the restore silently never lands. See `patchableDocumentProcessing`.
+      () => patch(INSTANCES.a, tokenA, '/api/admin/media-config',
+        { documentProcessing: patchableDocumentProcessing(want) }),
       async () => {
         const r = await get(INSTANCES.a, tokenA, '/api/admin/media-config');
         const mode = r.body?.documentProcessing?.mode;

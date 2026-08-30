@@ -2,7 +2,7 @@ import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.
 import { UUID_V4_RE, TTL_DAYS_SCHEMA, SUPPRESS_EMBEDDINGS_SCHEMA, LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA, ttlDaysFromArgs, recurrenceSchema, unitScoreSchema, uuidSchema } from './shared.js';
 import { ChronoFilter, createChrono, deleteChrono, getChronoById, listChrono, updateChrono, parseRecurrence } from '../../brain/chrono.js';
 // The API layer's write gate, imported rather than reimplemented — see the note in memory.ts.
-import { assertUpdateAllowed, classifyUpdateViolations, classifyChronoUpsert, locateForUpdate } from '../../brain/write-validation.js';
+import { assertUpdateAllowed, classifyUpdateViolations, locateForUpdate, SchemaViolationError, type UpdateValidation } from '../../brain/write-validation.js';
 import { getConfig } from '../../config/loader.js';
 import { checkQuota } from '../../quota/quota.js';
 import { isStrictLinkage, resolveMemberSpaces, resolveWriteTarget, findFirstAcrossMembers } from '../../spaces/proxy.js';
@@ -120,18 +120,8 @@ export const create_chronoTool: ToolHandler = {
     // so the payload alone is not the document being stored, and checking it refused legitimate converges
     // while letting an already-violating stored key through untouched.
     const chronoSuppliedId = typeof a['id'] === 'string' ? a['id'] : undefined;
-    const chronoCheck = await classifyChronoUpsert(wt.target, { type: chronoType, properties: chronoProps }, chronoSuppliedId);
-    const chronoSchemaViolations = chronoCheck.all;
-    if (chronoCheck.blocked) {
-      // The violations travel as structured data rather than a JSON tail glued to the sentence: a
-      // caller had to parse the message to act on them. The prose is unchanged for a client that
-      // reads only the content blocks.
-      return {
-        content: [{ type: 'text' as const, text: 'Error: schema_violation' }],
-        isError: true,
-        structuredContent: { error: 'schema_violation', violations: chronoSchemaViolations },
-      };
-    }
+    // The check runs inside `createChrono` now — three copies of it existed for create alone.
+    let chronoCheck: UpdateValidation | undefined;
 
     const remQuota = await checkQuota('brain');
 
@@ -152,7 +142,9 @@ export const create_chronoTool: ToolHandler = {
     const rec = parseRecurrence(a['recurrence']);
     if (!rec.ok) throw new Error(rec.error);
 
-    const entry = await createChrono(wt.target, {
+    let entry;
+    try {
+      entry = await createChrono(wt.target, {
       id: chronoSuppliedId,
       title,
       type: chronoType,
@@ -171,7 +163,21 @@ export const create_chronoTool: ToolHandler = {
       checkDuplicates: a['checkDuplicates'] !== false,
       checkContradictions: a['checkContradictions'] === true,
       dupeThreshold: typeof a['dupeThreshold'] === 'number' ? a['dupeThreshold'] : undefined,
-    });
+        onValidation: c => { chronoCheck = c; },
+      });
+    } catch (err) {
+      if (err instanceof SchemaViolationError) {
+        // The violations travel as structured data rather than a JSON tail glued to the sentence: a caller
+        // had to parse the message to act on them. The prose is unchanged for a client that reads only the
+        // content blocks.
+        return {
+          content: [{ type: 'text' as const, text: 'Error: schema_violation' }],
+          isError: true,
+          structuredContent: err.toStructured(),
+        };
+      }
+      throw err;
+    }
     let text = `Chrono entry '${entry.title}' (${entry.type}) created (ID ${entry._id}, seq ${entry.seq}).`
       + (remQuota.softBreached ? `\n⚠️ Storage warning: ${remQuota.warning}` : '');
     if (entry.similar && entry.similar.length > 0) {
@@ -185,7 +191,9 @@ export const create_chronoTool: ToolHandler = {
       text += `\n⚠️ Contradiction — ${entry.contradicts.length} existing entr${entry.contradicts.length === 1 ? 'y disagrees' : 'ies disagree'} with this one: ${detail}. This entry was still stored. If you are correcting an outdated entry, update or supersede the record above instead of leaving both.`;
     }
     if (chronoMeta?.validationMode === 'warn') {
-      for (const v of chronoSchemaViolations) text += `\n⚠️ Schema: ${v.field} — ${v.reason}`;
+      // From the classification the writer handed back, not re-derived — a second call would be a second
+      // lookup per write and the second copy of the rule.
+      for (const v of (chronoCheck as UpdateValidation | undefined)?.all ?? []) text += `\n⚠️ Schema: ${v.field} — ${v.reason}`;
     }
     return { content: [{ type: 'text' as const, text }] };
   },

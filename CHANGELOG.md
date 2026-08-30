@@ -80,6 +80,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   have been stricter than the API. Two shipped promises pointing opposite ways is a product decision, not a
   defect, so it is filed for a ruling and the code now says where.
 
+### Fixed
+
+- **A CI hook recorded as an intermittent flake for two days was a deterministic API round-trip defect.**
+  `GET /api/admin/media-config` returns the RESOLVED `documentProcessing` block — seven keys more than the
+  patch schema declares — and that schema is `.strict()`, so PATCHing the block back is a **400 on the whole
+  body**. Two integration `after` hooks read the block and handed it back verbatim, so the restore never
+  landed and the instance kept whatever the suite's last write left.
+
+  It looked intermittent because the verify compares the read-back value against the one it wanted: when an
+  earlier suite happened to leave the instance on that same value, a failed restore was invisible. It failed
+  only when they differed, which depends on suite ordering rather than on time.
+
+  The instrumentation added after the first occurrence is what closed it — the message went from *"verify
+  still false after attempt 4"* to a re-read showing a `200` and an unchanged value, which is a different
+  fault from a PATCH that never arrived.
+
+  Both hooks now filter to the keys the schema accepts, and a gate derives that key set from the schema
+  itself, so a key added there and not to the filter is caught as well. The API-side defect — that
+  read-modify-write against this endpoint does not work for any caller — is filed separately.
+
+- **Seven of the eight brain writers did not validate; now all eight do, inside the function that touches the
+  collection.** The owner ruled on 2026-08-29 that every upsert, update and insert validates. `upsertEdge` had
+  been fixed for a specific caller (#1046); the other seven — `upsertEntity`, `updateEntityById`, `remember`,
+  `updateMemory`, `createChrono`, `updateChrono` and `updateEdgeById` — enforced nothing of their own. The rule
+  lived in copies at the doors instead: the REST routes, the MCP tools and `bulk.ts`.
+
+  **That is not a tidiness argument, and the copies had already diverged.** `bulk.ts` blocked on *any*
+  violation with no `preExisting`/`introduced` split, so the same upsert was refused through `/bulk` and
+  accepted through `/entities`. The two PATCH routes each *simulated* the merge — rebuilding the merged
+  properties and re-applying `deleteFields` to a throwaway object — twenty lines from the function that does
+  the real one, and the simulation could not see a `deleteFields` that removed a required property. And
+  `updateEdgeById` accepts a new `label`, which selects a different type schema entirely, so an edge could be
+  moved onto a label whose rules its stored properties break.
+
+  **Memory had no classifier at all** — entities, edges and chrono each had one and memory never did, so both
+  memory doors validated the incoming payload rather than the record the write would produce. A required
+  property present on the stored record and absent from a converging write read as a violation the merge would
+  have supplied.
+
+  Each writer now validates the merged record *after* `deleteFields` is folded in, branches on the
+  classification's `blocked` verdict rather than on the presence of violations, and hands the classification
+  back through `onValidation` so a door never re-derives it for presentation — which would be a second lookup
+  per write, and is how the rule came to be written six times.
+
+  Removing the door copies left the three record-loading classifier wrappers with no callers, and deleting
+  them broke a runtime import cycle that adding the checks had just created — `write-validation` had imported
+  `getEntityById` back out of `entities`.
+
+  **Sync is deliberately untouched.** It writes the collections directly and records violations rather than
+  refusing them, because refusing a peer's document would wedge replication rather than fix it.
+
+  The gate asserts the property over all eight writers rather than the fix over seven, so a fifth record kind
+  is covered on the commit that adds it. It was written first and was red on 21 assertions.
+
 ### Changed
 
 - **Everywhere the product promises whole records, it now also says what that costs.** A budgeted search

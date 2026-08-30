@@ -32,13 +32,11 @@
  * permanently out of conformance. And the record is not trapped — validation is of the *merged* result, so
  * a patch that repairs the pre-existing violation passes. The error names exactly what to include.
  */
-import { validateEntity, validateEdge, validateChrono, type SchemaViolation } from '../spaces/schema-validation.js';
+import { validateEntity, validateEdge, validateChrono, validateMemory, type SchemaViolation } from '../spaces/schema-validation.js';
 import type { SpaceMeta, ChronoEntry } from '../config/types.js';
 import { col, asFilter } from '../db/mongo.js';
 import { resolveMemberSpaces } from '../spaces/proxy.js';
 import { applyValidation, getSpaceMeta } from '../spaces/schema-validation.js';
-import { getEntityById } from './entities.js';
-import { findEdgeByTriplet } from './edge-lookup.js';
 import { mergeTagsAndProperties, mergePropertiesOrKeep } from './merge-fields.js';
 
 /**
@@ -295,20 +293,32 @@ export function classifyEdgeUpsertAgainst(
   return classifyUpdateViolations(meta, before, after);
 }
 
+
 /**
- * Validate an entity upsert against the record it will produce.
+ * As above, for a memory. The one that did not exist.
  *
- * `id` is what makes an upsert an update — omitted, or unknown, and this is a plain insert whose merged
- * form is the payload itself. Callers pass the space they resolved to write to, so a proxy validates
- * against the member that will hold the record rather than against the proxy's own meta.
+ * Entities, edges and chrono each had a classifier; memory never did, so the memory write paths validated the
+ * INCOMING payload rather than the record it would produce. That is the same defect the chrono classifier was
+ * written for and it fails in both directions: a required property present on the stored record and absent
+ * from a patch reads as a violation the merge would have supplied, and a property the patch removes is never
+ * checked because it was not in the payload.
+ *
+ * `type` replaces rather than merges — it is a scalar, and re-typing a memory has to be validated against the
+ * NEW type's schema, which is what `#1047` fixed on the update route and what this brings inside.
  */
-export async function classifyEntityUpsert(
-  spaceId: string,
-  incoming: { name: string; type: string; properties?: Record<string, string | number | boolean>; tags?: string[] },
-  id: string | undefined,
-): Promise<UpdateValidation> {
-  const existing = id ? await getEntityById(spaceId, id) : null;
-  return classifyEntityUpsertAgainst(getSpaceMeta(spaceId), existing, incoming);
+export function classifyMemoryUpsertAgainst(
+  meta: SpaceMeta | undefined,
+  existing: { type?: string; properties?: Record<string, string | number | boolean> } | null,
+  incoming: { type?: string; properties?: Record<string, string | number | boolean> },
+): UpdateValidation {
+  const after = validateMemory(meta ?? {}, {
+    type: incoming.type ?? existing?.type,
+    properties: mergePropertiesOrKeep(existing?.properties, incoming.properties) ?? {},
+  });
+  const before = existing
+    ? validateMemory(meta ?? {}, { type: existing.type, properties: existing.properties ?? {} })
+    : INSERT_HAS_NO_PRIOR;
+  return classifyUpdateViolations(meta, before, after);
 }
 
 /** As above, for a chrono entry. Its identity is a supplied `_id`, so type and properties both merge in. */
@@ -326,48 +336,4 @@ export function classifyChronoUpsertAgainst(
   return classifyUpdateViolations(meta, before, after);
 }
 
-/**
- * Validate a chrono upsert against the record it will produce.
- *
- * ## The branch this exists for
- *
- * `create_chrono` with a supplied `_id` that already names an entry CONVERGES rather than duplicating — and
- * it stores `mergeProperties(existing.properties, incoming.properties)`. Both doors validated the incoming
- * properties alone, so the document checked was not the document written, and it failed in both directions
- * at once:
- *
- *  - a required key present on the STORED record and absent from the request read as a violation, so a
- *    legitimate converge was refused with a 400 — the merge would have supplied it;
- *  - a violating key already stored was never re-examined, so it survived a write that had every opportunity
- *    to notice it.
- *
- * Entities and edges have had this since their upsert paths were written; chrono is the one that did not, and
- * only on create-with-an-id — both chrono UPDATE paths already check the merged result. So the rule existed
- * three times and was missing from the fourth, which is the shape `CLAUDE.md` names as this repo's most
- * frequent defect.
- */
-export async function classifyChronoUpsert(
-  spaceId: string,
-  incoming: { type: string; properties?: Record<string, string | number | boolean> },
-  id: string | undefined,
-): Promise<UpdateValidation> {
-  const existing = id
-    ? await col<ChronoEntry>(`${spaceId}_chrono`).findOne(asFilter<ChronoEntry>({ _id: id, spaceId }),
-      { projection: { type: 1, properties: 1 } }) as ChronoEntry | null
-    : null;
-  return classifyChronoUpsertAgainst(getSpaceMeta(spaceId), existing, incoming);
-}
 
-/**
- * Validate an edge upsert against the record it will produce.
- *
- * No id parameter: `(from, to, label)` IS the identity, so the lookup is the identity itself — which is
- * why every repeat upsert of an existing edge merges, with nothing in the call to suggest it.
- */
-export async function classifyEdgeUpsert(
-  spaceId: string,
-  incoming: { from: string; to: string; label: string; properties?: Record<string, string | number | boolean> },
-): Promise<UpdateValidation> {
-  const existing = await findEdgeByTriplet(spaceId, incoming.from, incoming.to, incoming.label);
-  return classifyEdgeUpsertAgainst(getSpaceMeta(spaceId), existing, incoming);
-}

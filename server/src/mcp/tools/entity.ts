@@ -3,7 +3,7 @@ import { UUID_V4_RE, TTL_DAYS_SCHEMA, SUPPRESS_EMBEDDINGS_SCHEMA, LEGACY_SUPPRES
 import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } from '../../brain/delete-fields.js';
 import { deleteEntity, findEntitiesByName, findEntityBacklinks, getEntityById, updateEntityById, upsertEntity } from '../../brain/entities.js';
 // The shared write gate, imported rather than reimplemented — see the note in memory.ts.
-import { assertUpdateAllowed, classifyEntityUpsert, classifyUpdateViolations, locateForUpdate } from '../../brain/write-validation.js';
+import { assertUpdateAllowed, classifyUpdateViolations, locateForUpdate, SchemaViolationError, type UpdateValidation } from '../../brain/write-validation.js';
 import { type PropertyResolution, applyResolutions, computeMergePlan, executeMerge, validateResolution } from '../../brain/merge.js';
 import { getConfig } from '../../config/loader.js';
 import { isProxySpace, isStrictLinkage, resolveMemberSpaces, resolveWriteTarget, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
@@ -74,18 +74,10 @@ export const upsert_entityTool: ToolHandler = {
     // partial patches whose merged result was perfectly conformant.
     const entMetaRaw = getConfig().spaces.find(s => s.id === wt.target)?.meta;
     const entMeta = entMetaRaw ? resolveMetaRefs(entMetaRaw) : undefined;
-    const entCheck = await classifyEntityUpsert(wt.target, { name: eName.trim(), type: eType.trim(), properties: props, tags }, rawId);
-    const entSchemaViolations = entCheck.all;
-    if (entCheck.blocked) {
-      // The violations travel as structured data rather than a JSON tail glued to the sentence: a
-      // caller had to parse the message to act on them. The prose is unchanged for a client that
-      // reads only the content blocks.
-      return {
-        content: [{ type: 'text' as const, text: `Error: schema_violation: ${entCheck.message}` }],
-        isError: true,
-        structuredContent: { error: 'schema_violation', message: entCheck.message, introduced: entCheck.introduced, preExisting: entCheck.preExisting, violations: entSchemaViolations },
-      };
-    }
+    // The check runs inside `upsertEntity` now — this tool, the REST route and `bulk.ts` each held a copy of
+    // it, and `bulk.ts`'s enforced a different rule. The refusal arrives as `SchemaViolationError`, whose
+    // `toStructured()` produces exactly the body this tool used to build by hand.
+    let entCheck: UpdateValidation | undefined;
 
     // Insert-time duplicate check defaults ON for the interactive upsert tool
     // (only fires on inserts, not updates — see upsertEntity).
@@ -93,8 +85,25 @@ export const upsert_entityTool: ToolHandler = {
     const entContraCheck = a['checkContradictions'] === true;
     const entDupeThreshold = typeof a['dupeThreshold'] === 'number' ? a['dupeThreshold'] : undefined;
     const entTtlDays = ttlDaysFromArgs(a);
-    const { entity, warning, similar, contradicts } = await upsertEntity(wt.target, eName, eType, tags, props, description, rawId,
-      { checkDuplicates: entDupeCheck, checkContradictions: entContraCheck, dupeThreshold: entDupeThreshold }, ctx.actor, entTtlDays);
+    let upserted;
+    try {
+      upserted = await upsertEntity(wt.target, eName, eType, tags, props, description, rawId,
+        { checkDuplicates: entDupeCheck, checkContradictions: entContraCheck, dupeThreshold: entDupeThreshold },
+        ctx.actor, entTtlDays, c => { entCheck = c; });
+    } catch (err) {
+      if (err instanceof SchemaViolationError) {
+        // The violations travel as structured data rather than a JSON tail glued to the sentence: a caller
+        // had to parse the message to act on them. The prose is unchanged for a client that reads only the
+        // content blocks.
+        return {
+          content: [{ type: 'text' as const, text: `Error: schema_violation: ${err.check.message}` }],
+          isError: true,
+          structuredContent: err.toStructured(),
+        };
+      }
+      throw err;
+    }
+    const { entity, warning, similar, contradicts } = upserted;
     let msg = `Entity '${entity.name}' (${entity.type}) upserted (ID ${entity._id}).${warning ? `\n⚠️ ${warning}` : ''}`;
     if (similar && similar.length > 0) {
       msg += `\n⚠️ Possible duplicate — ${similar.length} existing entit${similar.length === 1 ? 'y is' : 'ies are'} highly similar: ${similar.map(s => `"${s.summary}" (ID ${s._id}, ${s.score.toFixed(2)})`).join('; ')}. Pass checkDuplicates:false to skip, or provide the existing id to update it instead.`;
@@ -105,9 +114,10 @@ export const upsert_entityTool: ToolHandler = {
       msg += `
 ⚠️ Contradiction — ${contradicts.length} existing entit${contradicts.length === 1 ? 'y disagrees' : 'ies disagree'} with this one: ${detail}. The entity was still stored. If you are correcting an outdated fact, update the record above instead of leaving both.`;
     }
-    // Schema warnings (reuse violations from pre-write check)
+    // Schema warnings, taken from the classification the writer handed back rather than re-derived — which
+    // would be a second lookup per write and the second copy of the rule this change exists to remove.
     if (entMeta?.validationMode === 'warn') {
-      for (const v of entSchemaViolations) msg += `\n⚠️ Schema: ${v.field} — ${v.reason}`;
+      for (const v of (entCheck as UpdateValidation | undefined)?.all ?? []) msg += `\n⚠️ Schema: ${v.field} — ${v.reason}`;
     }
     return {
       content: [{ type: 'text' as const, text: msg }],

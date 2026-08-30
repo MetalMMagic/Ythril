@@ -16,7 +16,8 @@ import { deriveChronoStatus } from './chrono-status.js';
 import { getConfig } from '../config/loader.js';
 import { stampExpiryOnCreate, applyExpiryToUpdate } from './ttl.js';
 import { stampSkewOnCreate } from './stamp-skew.js';
-import { getSpaceMeta } from '../spaces/schema-validation.js';
+import { getSpaceMeta, applyPropertyDefaults } from '../spaces/schema-validation.js';
+import { classifyChronoUpsertAgainst, SchemaViolationError, type UpdateValidation } from './write-validation.js';
 import { mergeTags, mergeProperties, mergePropertiesOrKeep } from './merge-fields.js';
 import { applyDeleteFields } from './delete-fields.js';
 import { enqueueEmbedJob, retireEmbedJob } from './embed-queue.js';
@@ -114,7 +115,8 @@ export async function createChrono(
   },
   actor?: WebhookActor,
   ttlDays?: number | null,
-  opts?: DupeCheckOpts,
+  /** `onValidation` rides in `opts` rather than becoming another positional. See `upsertEdge`'s. */
+  opts?: DupeCheckOpts & { onValidation?: (check: UpdateValidation) => void },
 ): Promise<ChronoEntry & { similar?: SimilarMatch[]; contradicts?: ContradictionWarning[] }> {
   // When an id is supplied, look for the entry it names first — the same shape as `upsertEntity` and
   // `remember`.
@@ -123,6 +125,23 @@ export async function createChrono(
       asFilter<ChronoEntry>({ _id: fields.id, spaceId }),
       { projection: NEVER_RETURNED_PROJECTION }) as ChronoEntry | null)
     : null;
+
+  /*
+   * THE SCHEMA IS ENFORCED HERE, so that no caller can reach the collection around it.
+   *
+   * Owner's ruling, 2026-08-29. The classifier already existed (#1067) and was called by the doors alone —
+   * three copies for create and two for update, each reachable only if remembered.
+   */
+  const meta = getSpaceMeta(spaceId);
+  const withDefaults = existing
+    ? fields.properties
+    : applyPropertyDefaults(meta?.typeSchemas?.chrono?.[fields.type], fields.properties ?? {});
+  {
+    const check = classifyChronoUpsertAgainst(meta, existing, { type: fields.type, properties: withDefaults });
+    if (check.blocked) throw new SchemaViolationError(check);
+    opts?.onValidation?.(check);
+  }
+  fields = { ...fields, properties: withDefaults };
 
   const seq = await nextSeq(spaceId);
   const now = new Date().toISOString();
@@ -242,6 +261,8 @@ export async function updateChrono(
   actor?: WebhookActor,
   ttlDays?: number | null,
   ifMatchSeq?: number,
+  /** See `createChrono`'s: the classification, so a door never re-derives it for presentation. */
+  onValidation?: (check: UpdateValidation) => void,
 ): Promise<ChronoEntry | null> {
   const existing = await col<ChronoEntry>(`${spaceId}_chrono`)
     .findOne(asFilter<ChronoEntry>({ _id: id, spaceId }),
@@ -313,6 +334,21 @@ export async function updateChrono(
   // to pay for an inline embed; the re-embed is now ENQUEUED unconditionally after the write, and
   // `embedStoredRecord` reads the record as STORED. Deciding here would mean deciding from this function's
   // stale read — the exact reasoning that made the old inline embedding wrong.
+
+  /*
+   * Validated after `deleteFields` has been folded in, so the document checked is the document written — the
+   * same ordering `updateEntityById` and `updateMemory` need, and for the same reason: a patch that REMOVES a
+   * required property has only broken the record once the deletion is applied.
+   */
+  {
+    const finalType = ('type' in $set ? $set['type'] : existing.type) as ChronoEntry['type'];
+    const finalProps = ('properties' in $unset ? {}
+      : ('properties' in $set ? $set['properties'] : existing.properties)) as Record<string, string | number | boolean> | undefined;
+    const check = classifyChronoUpsertAgainst(getSpaceMeta(spaceId), existing,
+      { type: finalType, properties: finalProps });
+    if (check.blocked) throw new SchemaViolationError(check);
+    onValidation?.(check);
+  }
 
   applyExpiryToUpdate(spaceId, ttlDays, existing._expireAt != null, $set, $unset,
     { collection: 'chrono', existing: existing as unknown as Record<string, unknown> }); // F10

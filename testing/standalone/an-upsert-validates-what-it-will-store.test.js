@@ -110,38 +110,33 @@ describe('a converge is judged on the merged record', () => {
   });
 });
 
-describe('both doors reach a classifier', () => {
-  const DOORS = [
-    { what: 'REST', file: 'server/src/api/brain/chrono.ts' },
-    { what: 'MCP', file: 'server/src/mcp/tools/chrono.ts' },
-  ];
-
-  it('each create path calls classifyChronoUpsert', () => {
-    // A classifier nothing calls is a rule that exists on paper. Both doors, because one door adopting it is
-    // how the four validators drifted in the first place.
-    for (const d of DOORS) {
-      assert.match(
-        stripComments(readFileSync(d.file, 'utf8')), /classifyChronoUpsert\(/,
-        `${d.what} still validates the chrono payload rather than the record it will store`,
-      );
+describe('the doors reach the WRITER, and the writer holds the rule', () => {
+  /*
+   * These two tests used to assert that each DOOR called `classifyChronoUpsert` itself, and passed the
+   * supplied id so the existing record was loaded. That was right while the rule lived at the doors. It is
+   * now inverted: the owner ruled on 2026-08-29 that every upsert/update/insert validates, and the way to
+   * make that true for callers nobody has thought of is to put the check inside the writer — so a door
+   * calling a classifier is the second copy, not the fix.
+   *
+   * The classifiers are still exercised as functions above, which is the half that checks the MERGE ORDER and
+   * cannot be read from source. What moved is the "who calls it" half, and it moved to
+   * `every-writer-validates-internally.test.js`, which asserts the stronger property: all eight writers, not
+   * two doors. `classifyChronoUpsert` — the record-loading wrapper these tests named — no longer exists,
+   * because removing the door copies left nothing calling it.
+   */
+  it('no door re-derives the chrono rule', () => {
+    for (const f of ['server/src/api/brain/chrono.ts', 'server/src/mcp/tools/chrono.ts']) {
+      assert.doesNotMatch(stripComments(readFileSync(f, 'utf8')), /classifyChrono\w*\(/,
+        `${f} holds its own copy of a rule the writer now enforces`);
     }
   });
 
-  it('and passes the supplied id, or the merge can never be seen', () => {
-    /*
-     * The argument that makes it work. `classifyChronoUpsert(space, incoming, undefined)` loads no existing
-     * record and degrades silently to exactly the old behaviour — a call that looks correct in review and
-     * fixes nothing. On both doors the id also had to move ABOVE the check to be available at all.
-     */
-    for (const d of DOORS) {
-      const src = stripComments(readFileSync(d.file, 'utf8'));
-      const at = src.indexOf('classifyChronoUpsert(');
-      const stmt = statementAround(src, at, `${d.what} chrono upsert check`);
-      assert.doesNotMatch(
-        stmt, /,\s*undefined\s*\)/,
-        `${d.what} passes no id, so no existing record is ever loaded and the merged form is never checked`,
-      );
-      assert.match(stmt, /Id\b|id\b/, `${d.what} must pass the caller-supplied id`);
+  it('and takes the classification back from the writer, so warnings survive the move', () => {
+    // Dropping the door's own call must not silently drop what a `warn` space shows. Both doors take it
+    // through `onValidation` instead.
+    for (const f of ['server/src/api/brain/chrono.ts', 'server/src/mcp/tools/chrono.ts']) {
+      assert.match(stripComments(readFileSync(f, 'utf8')), /onValidation/,
+        `${f} would stop reporting schema warnings in a warn-mode space`);
     }
   });
 });

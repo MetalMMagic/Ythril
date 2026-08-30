@@ -80,6 +80,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   have been stricter than the API. Two shipped promises pointing opposite ways is a product decision, not a
   defect, so it is filed for a ruling and the code now says where.
 
+### Fixed
+
+- **Seven of the eight brain writers did not validate; now all eight do, inside the function that touches the
+  collection.** The owner ruled on 2026-08-29 that every upsert, update and insert validates. `upsertEdge` had
+  been fixed for a specific caller (#1046); the other seven — `upsertEntity`, `updateEntityById`, `remember`,
+  `updateMemory`, `createChrono`, `updateChrono` and `updateEdgeById` — enforced nothing of their own. The rule
+  lived in copies at the doors instead: the REST routes, the MCP tools and `bulk.ts`.
+
+  **That is not a tidiness argument, and the copies had already diverged.** `bulk.ts` blocked on *any*
+  violation with no `preExisting`/`introduced` split, so the same upsert was refused through `/bulk` and
+  accepted through `/entities`. The two PATCH routes each *simulated* the merge — rebuilding the merged
+  properties and re-applying `deleteFields` to a throwaway object — twenty lines from the function that does
+  the real one, and the simulation could not see a `deleteFields` that removed a required property. And
+  `updateEdgeById` accepts a new `label`, which selects a different type schema entirely, so an edge could be
+  moved onto a label whose rules its stored properties break.
+
+  **Memory had no classifier at all** — entities, edges and chrono each had one and memory never did, so both
+  memory doors validated the incoming payload rather than the record the write would produce. A required
+  property present on the stored record and absent from a converging write read as a violation the merge would
+  have supplied.
+
+  Each writer now validates the merged record *after* `deleteFields` is folded in, branches on the
+  classification's `blocked` verdict rather than on the presence of violations, and hands the classification
+  back through `onValidation` so a door never re-derives it for presentation — which would be a second lookup
+  per write, and is how the rule came to be written six times.
+
+  Removing the door copies left the three record-loading classifier wrappers with no callers, and deleting
+  them broke a runtime import cycle that adding the checks had just created — `write-validation` had imported
+  `getEntityById` back out of `entities`.
+
+  **Sync is deliberately untouched.** It writes the collections directly and records violations rather than
+  refusing them, because refusing a peer's document would wedge replication rather than fix it.
+
+  The gate asserts the property over all eight writers rather than the fix over seven, so a fifth record kind
+  is covered on the commit that adds it. It was written first and was red on 21 assertions.
+
 ### Changed
 
 - **Everywhere the product promises whole records, it now also says what that costs.** A budgeted search

@@ -228,7 +228,15 @@ describe('no tool repeats the claim that was false', () => {
        */
       const compared = [...src.matchAll(/\bendsAt\b/g)]
         .map(m => statementAround(src, m.index, name))
-        .filter(stmt => /\bstartsAt\b/.test(stmt) && /[<>]=?/.test(stmt));
+        /*
+         * `=>` is not a comparison, and the naive `[<>]=?` says it is.
+         *
+         * A callback anywhere in the statement — `onValidation: c => { … }`, added when the schema check moved
+         * inside the writer — put a `>` in a statement that also names both fields, and this reported the
+         * route as comparing them. Stripping arrows first is the narrow fix; widening the window or dropping
+         * the operator test would have been the appeasing one.
+         */
+        .filter(stmt => /\bstartsAt\b/.test(stmt) && /[<>]=?/.test(stmt.replace(/=>/g, '')));
       assert.deepEqual(compared, [],
         `${name} now compares the two — the descriptions may say it is refused, and should`);
     }

@@ -7,7 +7,7 @@ import { parseLimit, parseSkip } from '../util/pagination.js';
 import { toMongoSort, type SortSpec } from './list-sort.js';
 import { NEVER_RETURNED_PROJECTION, withoutVector } from './read-projection.js';
 import { findEdgeByTriplet } from './edge-lookup.js';
-import { classifyEdgeUpsertAgainst, type UpdateValidation } from './write-validation.js';
+import { classifyEdgeUpsertAgainst, SchemaViolationError, type UpdateValidation } from './write-validation.js';
 import { applyPropertyDefaults } from '../spaces/schema-validation.js';
 import { textSearchOr, SEARCHABLE_FIELDS } from './text-search.js';
 import { embed } from './embedding.js';
@@ -383,6 +383,8 @@ export async function updateEdgeById(
   actor?: WebhookActor,
   ttlDays?: number | null,
   ifMatchSeq?: number,
+  /** See `upsertEdge`'s: the classification, so a door never re-derives it for presentation. */
+  onValidation?: (check: UpdateValidation) => void,
 ): Promise<EdgeDoc | null> {
   const collection = col<EdgeDoc>(`${spaceId}_edges`);
   const existing = await collection.findOne(asFilter<EdgeDoc>({ _id: id, spaceId }),
@@ -451,6 +453,24 @@ export async function updateEdgeById(
   // The re-embed is ENQUEUED after the write — see `embedStoredRecord`. Computing it here would build the
   // text from this function's stale read, which is how a record's vector ends up describing a record that
   // no longer exists anywhere.
+
+  /*
+   * Validated after `deleteFields`, so the document checked is the document written.
+   *
+   * `upsertEdge` has enforced the schema internally since #1046 and this function did not — the half of the
+   * owner's 2026-08-29 ruling that was missed even on the record kind that got the fix, because the row that
+   * prompted it named the upsert. A patch may CHANGE THE LABEL, which selects a different type schema
+   * entirely, so an edge could be moved onto a label whose rules its stored properties break.
+   */
+  {
+    const finalLabel = ('label' in $set ? $set['label'] : existing.label) as string;
+    const finalProps = ('properties' in $unset ? {}
+      : ('properties' in $set ? $set['properties'] : existing.properties)) as Record<string, string | number | boolean> | undefined;
+    const check = classifyEdgeUpsertAgainst(getSpaceMeta(spaceId), existing,
+      { label: finalLabel, properties: finalProps });
+    if (check.blocked) throw new SchemaViolationError(check);
+    onValidation?.(check);
+  }
 
   applyExpiryToUpdate(spaceId, ttlDays, existing._expireAt != null, $set, $unset,
     { collection: 'edge', existing: existing as unknown as Record<string, unknown> }); // F10

@@ -19,9 +19,8 @@ import { parseSortParam, SORTABLE_FIELDS, toMongoSort } from '../../brain/list-s
 import { textSearchOr, SEARCHABLE_FIELDS } from '../../brain/text-search.js';
 import { resolveMemberSpaces, resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { memberSpacesForRequest } from '../../spaces/proxy-scoped.js';
-import { validateEntity } from '../../spaces/schema-validation.js';
 import { UUID_V4_RE, webhookToken, getSpaceMeta, ttlDaysFromBody, ttlDaysError, dupeCheckOptsFromBody, ifMatchFromRequest, preconditionFailedBody } from './_shared.js';
-import { classifyEntityUpsert, classifyUpdateViolations } from '../../brain/write-validation.js';
+import { SchemaViolationError, type UpdateValidation } from '../../brain/write-validation.js';
 import { tagContains, textContains, propertiesValueContains } from '../../brain/tag-filter.js';
 import { mergePropertiesOrKeep, mergeTagsOrKeep } from '../../brain/merge-fields.js';
 import { parseRecordSuppression } from '../../brain/suppress-embeddings.js';
@@ -73,13 +72,14 @@ entitiesRouter.post('/spaces/:spaceId/entities', globalRateLimit, requireSpaceAu
   const safeDesc: string | undefined = typeof description === 'string' ? description : undefined;
   const safeId: string | undefined = typeof id === 'string' ? id : undefined;
 
-  // Schema validation of the record this upsert will PRODUCE. `upsertEntity` merges into the stored
-  // record when `id` matches, so the payload on its own is not the thing being written.
-  const check = await classifyEntityUpsert(wt.target, { name: name.trim(), type: type.trim(), properties, tags }, safeId);
-  if (check.blocked) {
-    res.status(400).json({ error: 'schema_violation', message: check.message, violations: check.all, introduced: check.introduced, preExisting: check.preExisting });
-    return;
-  }
+  // Schema validation happens inside `upsertEntity` now, not here.
+  //
+  // It used to run in this route AND in the MCP tool AND in `bulk.ts` — one rule, three copies, and `bulk.ts`
+  // enforced a different one, so the same upsert was refused through `/bulk` and accepted through here. The
+  // writer is the door. This route keeps its response shape by catching `SchemaViolationError`, which carries
+  // the whole classification rather than a message, and by taking the warnings through `onValidation` — so a
+  // `warn` space still gets them in its 201 without a second lookup.
+  let check: UpdateValidation | undefined;
   const ttlErr = ttlDaysError(req.body);
   if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
 
@@ -102,16 +102,22 @@ entitiesRouter.post('/spaces/:spaceId/entities', globalRateLimit, requireSpaceAu
     const { entity, warning, similar, contradicts } = await upsertEntity(
       wt.target, name.trim(), type.trim(), tags, properties, safeDesc, safeId,
       Object.keys(writeOpts).length > 0 ? writeOpts : undefined,
-      webhookToken(req), ttlDaysFromBody(req.body));
+      webhookToken(req), ttlDaysFromBody(req.body), c => { check = c; });
     const result: Record<string, unknown> = { ...entity };
     if (warning) result['warning'] = warning;
-    if (check.warnings.length > 0) result['warnings'] = check.warnings;
+    if (check && check.warnings.length > 0) result['warnings'] = check.warnings;
     // Advisory, never blocking: the write already happened. An agent correcting an outdated fact must be
     // able to contradict the record it supersedes — the point is that it is TOLD, not that it is stopped.
     if (similar && similar.length > 0) result['similar'] = similar;
     if (contradicts && contradicts.length > 0) result['contradicts'] = contradicts;
     res.status(201).json(result);
   } catch (err) {
+    // The refusal the writer now raises, translated to this route's existing 400 shape. Caught before the
+    // generic handler so a schema violation never reads as an internal error.
+    if (err instanceof SchemaViolationError) {
+      res.status(400).json({ error: 'schema_violation', message: err.check.message, violations: err.check.all, introduced: err.check.introduced, preExisting: err.check.preExisting });
+      return;
+    }
     // The body stays flat and generic — `public-probes-leak-nothing.test.js` pins that, and a write route is
     // the last place to start echoing an exception back. The operator gets the cause; the caller gets a code.
     reportServerFailure('brain POST /spaces/:spaceId/entities', err);
@@ -303,36 +309,36 @@ entitiesRouter.patch('/spaces/:spaceId/entities/:id', globalRateLimit, requireSp
     // shared with the audit snapshot below.
     const existing = await getEntityById(mid, id);
     if (!existing) continue;
-    {
-      // Build the resulting entity state to validate against schema
-      const resultName = updates.name ?? existing.name;
-      const resultType = updates.type ?? existing.type;
-      const resultTags = mergeTagsOrKeep(existing.tags, updates.tags);
-      const resultProps = mergePropertiesOrKeep(existing.properties, updates.properties) ?? {};
-      // Build a simulation and apply deleteFields for schema check
-      const sim: Record<string, unknown> = { properties: resultProps, tags: resultTags, description: updates.description !== undefined ? updates.description : existing.description };
-      if (dfPaths) applyDeleteFieldsPaths(sim, dfPaths);
-      const simProps = (sim['properties'] ?? {}) as Record<string, unknown>;
-      const meta = getSpaceMeta(mid);
-      const check = classifyUpdateViolations(
-        meta,
-        validateEntity(meta ?? {}, { name: existing.name, type: existing.type, properties: existing.properties ?? {} }),
-        validateEntity(meta ?? {}, { name: resultName, type: resultType, properties: simProps }),
-      );
-      if (check.blocked) {
+    /*
+     * The schema check moved into `updateEntityById`.
+     *
+     * This route used to SIMULATE the merge here — rebuild `resultProps`, re-apply `deleteFields` to a
+     * throwaway object, and validate that — which is the merge logic written a second time, twenty lines from
+     * the one that actually runs. Two implementations of "what will this record look like" is precisely the
+     * defect that produced the memory-upsert bug, and the simulation is the copy that drifts, because nothing
+     * fails when it stops matching.
+     *
+     * The 422 below is preserved deliberately: this route has always answered 422 where the POST answers 400,
+     * and a status code is part of a caller's contract even when the pair looks inconsistent.
+     */
+    // Snapshot for the audit change list, from the read above — see the note in memories.ts.
+    // `properties` is deliberately not allowlisted, so handing the record over cannot publish it.
+    let updated;
+    try {
+      updated = await updateEntityById(mid, id, updates, dfPaths, webhookToken(req), ttlDaysFromBody(req.body), ifMatch.seq);
+    } catch (err) {
+      if (err instanceof SchemaViolationError) {
         res.status(422).json({
           error: 'schema_violation',
-          message: check.message,
-          violations: check.all,
-          introduced: check.introduced,
-          preExisting: check.preExisting,
+          message: err.check.message,
+          violations: err.check.all,
+          introduced: err.check.introduced,
+          preExisting: err.check.preExisting,
         });
         return;
       }
+      throw err;
     }
-    // Snapshot for the audit change list, from the read above — see the note in memories.ts.
-    // `properties` is deliberately not allowlisted, so handing the record over cannot publish it.
-    const updated = await updateEntityById(mid, id, updates, dfPaths, webhookToken(req), ttlDaysFromBody(req.body), ifMatch.seq);
     if (updated) {
       req.auditSnapshots = { before: existing ?? {}, after: updated };
       res.json(updated);

@@ -18,7 +18,8 @@ import { memoryEmbedText } from './embed-text.js';
 import { getConfig } from '../config/loader.js';
 import { stampExpiryOnCreate, applyExpiryToUpdate } from './ttl.js';
 import { stampSkewOnCreate } from './stamp-skew.js';
-import { getSpaceMeta } from '../spaces/schema-validation.js';
+import { getSpaceMeta, applyPropertyDefaults } from '../spaces/schema-validation.js';
+import { classifyMemoryUpsertAgainst, SchemaViolationError, type UpdateValidation } from './write-validation.js';
 import { applyDeleteFields } from './delete-fields.js';
 import { mergeTags, mergeProperties, mergePropertiesOrKeep } from './merge-fields.js';
 import { enqueueEmbedJob, retireEmbedJob } from './embed-queue.js';
@@ -50,7 +51,12 @@ export async function remember(
   properties?: Record<string, string | number | boolean>,
   entityNames?: string[],
   type?: string,
-  opts?: DupeCheckOpts,
+  /**
+   * `onValidation` rides in here rather than becoming a thirteenth positional, because the docblock below
+   * already says the twelfth was one too many. It hands the classification back so a door never re-derives it
+   * for presentation — the second lookup per write that is how this rule came to be written six times.
+   */
+  opts?: DupeCheckOpts & { onValidation?: (check: UpdateValidation) => void },
   actor?: WebhookActor,
   ttlDays?: number | null,
   /**
@@ -88,6 +94,28 @@ export async function remember(
     ? (await col<MemoryDoc>(`${spaceId}_memories`).findOne(asFilter<MemoryDoc>({ _id: id }),
       { projection: NEVER_RETURNED_PROJECTION }) as MemoryDoc | null)
     : null;
+
+  /*
+   * THE SCHEMA IS ENFORCED HERE, so that no caller can reach the collection around it.
+   *
+   * Owner's ruling, 2026-08-29: *"all upsert/update/insert things must validate btw."* Memory was the record
+   * kind with no classifier at all, so both doors validated the INCOMING payload rather than the record the
+   * write would produce — the same defect the chrono classifier was written for, and it fails in both
+   * directions: a required property present on the stored record and absent from a converging write reads as
+   * a violation the merge would have supplied.
+   *
+   * Defaults on INSERT only, before validation, for the reason `upsertEdge` states: a property that is
+   * `required` and has a `default` must not be a violation, and on an update an absent property may be one
+   * the caller has just removed.
+   */
+  const meta = getSpaceMeta(spaceId);
+  const withDefaults = existing
+    ? properties
+    : applyPropertyDefaults(type ? meta?.typeSchemas?.memory?.[type] : undefined, properties ?? {});
+  const check = classifyMemoryUpsertAgainst(meta, existing, { type, properties: withDefaults });
+  if (check.blocked) throw new SchemaViolationError(check);
+  opts?.onValidation?.(check);
+  properties = withDefaults;
 
   const names = entityNames ?? await resolveEntityNames(spaceId, entityIds);
   const embedText = memoryEmbedText(fact, tags, names, description, properties);
@@ -235,6 +263,8 @@ export async function updateMemory(
   actor?: WebhookActor,
   ttlDays?: number | null,
   ifMatchSeq?: number,
+  /** See `remember`'s: the classification, so a door never re-derives it for presentation. */
+  onValidation?: (check: UpdateValidation) => void,
 ): Promise<MemoryDoc | null> {
   const existing = await col<MemoryDoc>(`${spaceId}_memories`)
     .findOne(asFilter<MemoryDoc>({ _id: memoryId, spaceId }),
@@ -288,6 +318,25 @@ export async function updateMemory(
         $set[field] = merged[field];
       }
     }
+  }
+
+  /*
+   * Validated HERE, after `deleteFields` has been folded into `$set`/`$unset`, so the document checked is the
+   * document written. A patch that REMOVES a required property has only broken the record once the deletion is
+   * applied, so validating earlier would check something the caller is not about to store.
+   *
+   * The values come from `$set` where the patch touched a field and from `existing` where it did not — which
+   * is what "validate the merged record" means, and what neither door was doing for a memory before there was
+   * a classifier for one.
+   */
+  {
+    const finalType = ('type' in $set ? $set['type'] : existing.type) as string | undefined;
+    const finalProps = ('properties' in $unset ? {}
+      : ('properties' in $set ? $set['properties'] : existing.properties)) as Record<string, string | number | boolean> | undefined;
+    const check = classifyMemoryUpsertAgainst(getSpaceMeta(spaceId), existing,
+      { type: finalType, properties: finalProps });
+    if (check.blocked) throw new SchemaViolationError(check);
+    onValidation?.(check);
   }
 
   // Re-embed whenever any content field changes

@@ -185,6 +185,7 @@ import { lookupForNode, lookupForEdge } from './graph-record-lookup';
                  the styles moved with them, because a parent's styles do not reach a child's template. -->
             <app-graph-node-record-card
               [record]="selectedEntityRecord()"
+              [kind]="selectedNode()!.kind ?? null"
               [unavailable]="recordUnavailable()" />
 
             <!-- Lists pane: memories + chrono -->

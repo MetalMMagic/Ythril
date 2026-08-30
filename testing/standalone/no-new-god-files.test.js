@@ -172,7 +172,11 @@ const FROZEN = {
   // The entry STAYS, lowered rather than deleted, for the reason written above `brain.component.ts`: an entry
   // here is a ratchet, and removing it would hand this file back the 105 lines the extraction just took away.
   // It is still over the 650 ceiling, so the next reader can see there is more to take out.
-  'client/src/app/pages/graph/graph.component.ts': 688,
+  // 688 -> 689: ONE line, and it is the G-5 fix reaching the card — the `[kind]` binding, without which the
+  // branch on kind is inert and a memory still renders a blank name. Raised without argument, for the reason
+  // written above `brain.component.ts`: a ratchet that made a one-line bug fix negotiable would be a gate
+  // encouraging the wrong outcome. DECOMPOSE: G-7 still stands.
+  'client/src/app/pages/graph/graph.component.ts': 689,
   // 753 -> 764: `backfillTokenRights`. This file is where config migrations already live — the media
   // master-switch and space-description ones are both here — so a fourth belongs beside them rather than in
   // a module only the loader would ever call.

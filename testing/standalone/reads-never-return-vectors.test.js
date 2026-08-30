@@ -124,7 +124,20 @@ describe('the vector never leaves the database', () => {
           // An explicit narrow projection is stronger than the exclusion — it cannot include the vector by
           // accident, and several readers legitimately fetch only `_id` and `seq`.
           || /projection:\s*\{[^}]*\}/.test(window)
-          || /\.project\(\{[^}]*\}\)/.test(window);
+          || /\.project\(\{[^}]*\}\)/.test(window)
+          /*
+           * A DECLARED inclusion projection, e.g. `projection: FILE_LINKS.projection`.
+           *
+           * Accepted for the same reason the inline object is, and the type is what makes it safe rather than
+           * the shape: `LinkClass.projection` is `Record<string, 1>`, so it can only ever name fields to
+           * INCLUDE — a projection that cannot express an exclusion cannot leak a vector. One assertion over
+           * in `one-definition-of-a-link-class` pins that those projections stay inclusion-only.
+           *
+           * Requiring the literal here would have forced the three link readers to spell their projections
+           * out again, which is precisely the duplication `link-adjacency.ts` was extracted to remove — a gate
+           * pushing back against a correct refactor is a gate that gets edited rather than believed.
+           */
+          || /projection:\s*[A-Z][\w$]*\.projection\b/.test(window);
         if (!projected) offenders.push(`${file}:${trueLine(lines[i])}  ${lines[i].trim().slice(0, 90)}`);
       });
     }

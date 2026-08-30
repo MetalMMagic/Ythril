@@ -20,6 +20,7 @@ import { applyDeleteFields, setUnlessDeleted } from './delete-fields.js';
 import { mergePropertiesOrKeep, mergeTagsOrKeep } from './merge-fields.js';
 import { enqueueEmbedJob, retireEmbedJob } from './embed-queue.js';
 import { embeddingSuppressedFor } from './suppress-embeddings.js';
+import { linksToAny, linkClassFor } from './link-adjacency.js';
 import { getEntityById } from './entities.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { EdgeDoc, EntityDoc, TombstoneDoc, ChronoEntry, MemoryDoc, FileMetaDoc } from '../config/types.js';
@@ -64,6 +65,12 @@ export interface TraverseResult {
   edges: TraverseEdge[];
   truncated: boolean;
 }
+
+// The three link classes, resolved once at module load rather than looked up per frontier. `!` because
+// `LINK_CLASSES` declares all three — a missing one is a programming error, not a runtime condition.
+const CHRONO_LINKS = linkClassFor('chrono')!;
+const MEMORY_LINKS = linkClassFor('memory')!;
+const FILE_LINKS = linkClassFor('file')!;
 
 /**
  * The id of a SYNTHETIC traverse edge — the link from an entity to a chrono entry, memory or file.
@@ -689,8 +696,8 @@ export async function traverseGraph(
     if (includeChrono && wantsChronoLabel) {
       for (const mid of memberIds) {
         const linked = await col<ChronoEntry>(`${mid}_chrono`)
-          .find(asFilter<ChronoEntry>({ spaceId: mid, entityIds: { $in: frontier } }),
-                { projection: { title: 1, type: 1, entityIds: 1 } })
+          .find(asFilter<ChronoEntry>(linksToAny(mid, CHRONO_LINKS, frontier)),
+                { projection: CHRONO_LINKS.projection })
           .toArray() as ChronoEntry[];
         for (const c of linked) {
           if (visited.has(c._id)) continue;
@@ -708,8 +715,8 @@ export async function traverseGraph(
     if (includeMemories && wantsMemoryLabel) {
       for (const mid of memberIds) {
         const linked = await col<MemoryDoc>(`${mid}_memories`)
-          .find(asFilter<MemoryDoc>({ spaceId: mid, entityIds: { $in: frontier } }),
-                { projection: { fact: 1, type: 1, entityIds: 1 } })
+          .find(asFilter<MemoryDoc>(linksToAny(mid, MEMORY_LINKS, frontier)),
+                { projection: MEMORY_LINKS.projection })
           .toArray() as MemoryDoc[];
         for (const m of linked) {
           if (visited.has(m._id)) continue;
@@ -731,10 +738,8 @@ export async function traverseGraph(
     if (includeFiles && wantsFileLabel) {
       for (const mid of memberIds) {
         const linked = await col<FileMetaDoc>(`${mid}_files`)
-          .find(asFilter<FileMetaDoc>({
-                  spaceId: mid, entityIds: { $in: frontier }, parentFileId: { $exists: false },
-                }),
-                { projection: { path: 1, description: 1, tags: 1, entityIds: 1 } })
+          .find(asFilter<FileMetaDoc>(linksToAny(mid, FILE_LINKS, frontier)),
+                { projection: FILE_LINKS.projection })
           .toArray() as FileMetaDoc[];
         for (const f of linked) {
           if (visited.has(f._id)) continue;

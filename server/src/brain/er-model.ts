@@ -44,6 +44,7 @@
 import { col, asFilter } from '../db/mongo.js';
 import { getSpaceMeta } from '../spaces/schema-validation.js';
 import type { EntityDoc, EdgeDoc, PropertySchema } from '../config/types.js';
+import { LINK_CLASSES, hasAnyLink } from './link-adjacency.js';
 
 /** Read caps. Generous enough that no real space hits them, low enough that a runaway one cannot hang a page. */
 export const ER_ENTITY_SCAN_LIMIT = 200_000;
@@ -220,13 +221,16 @@ export async function buildErModel(spaceId: string): Promise<ErModel> {
 
   const links: ErInputs['links'] = { memories: [], chrono: [], files: [] };
   let linksTruncated = false;
-  for (const kind of ['memories', 'chrono', 'files'] as const) {
-    const rows = await col(`${spaceId}_${kind}`)
-      .find(asFilter({ entityIds: { $exists: true, $ne: [] } }),
+  // Through the shared link classes, so the diagram counts what a traversal would reach. This scan had no
+  // chunk exclusion of its own: a file split into forty passages could have contributed forty link rows and
+  // drawn a relationship forty times thicker than it is.
+  for (const cls of LINK_CLASSES) {
+    const rows = await col(`${spaceId}_${cls.collection}`)
+      .find(asFilter(hasAnyLink(cls)),
         { projection: { entityIds: 1 }, limit: ER_ENTITY_SCAN_LIMIT })
       .toArray() as Array<{ entityIds?: string[] }>;
     if (rows.length >= ER_ENTITY_SCAN_LIMIT) linksTruncated = true;
-    links[kind] = rows.map(r => r.entityIds ?? []);
+    links[cls.collection] = rows.map(r => r.entityIds ?? []);
   }
 
   // The first cap hit wins the report. One name is enough to tell a reader the diagram is partial; listing

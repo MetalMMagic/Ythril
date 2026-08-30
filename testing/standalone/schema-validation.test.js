@@ -157,10 +157,26 @@ describe('validateMemory', () => {
     has(validateMemory(META, { type: 'note', properties: { severity: 'medium' } }), 'properties.severity', 'must be one of');
   });
 
-  it('has NO type allowlist — an unknown memory type is simply unconstrained', () => {
-    // Deliberately asymmetric with entity/edge/chrono. Pinned so the asymmetry is a decision on
-    // record rather than something a later reader "fixes" into an allowlist.
-    ok(validateMemory(META, { type: 'not-declared', properties: { anything: 1 } }));
+  it('rejects a type outside the declared allowlist, like the other three', () => {
+    /*
+     * REVERSED on 2026-08-30, and the reversal is the whole record of why.
+     *
+     * This asserted the opposite, with the note: "Deliberately asymmetric with entity/edge/chrono. Pinned so
+     * the asymmetry is a decision on record rather than something a later reader 'fixes' into an allowlist."
+     * It did its job — it stopped exactly that fix, and sent the question to the owner instead, because
+     * `types-knowledge.ts` and two integration-guide pages had been claiming the allowlist existed all along.
+     *
+     * Owner ruled A: the keys ARE the allowlist. So the asymmetry was ruled away rather than overlooked, and
+     * that distinction is why this is rewritten rather than deleted.
+     */
+    has(validateMemory(META, { type: 'not-declared' }), 'type', 'not in memoryTypes allowlist');
+  });
+
+  it('but a space that declares NO memory types still accepts any string', () => {
+    // The bound on what this can newly refuse, and the same condition the other three carry. A space with no
+    // `typeSchemas.memory` never asked to constrain anything, and must not start refusing writes.
+    ok(validateMemory({ validationMode: 'strict', typeSchemas: {} }, { type: 'anything-at-all' }));
+    ok(validateMemory({ validationMode: 'strict' }, { type: 'anything-at-all' }));
   });
 });
 

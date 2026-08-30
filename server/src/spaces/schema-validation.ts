@@ -196,21 +196,50 @@ export function validateEdge(
 /**
  * Validate a memory write against the space meta schema.
  *
- * **No type allowlist, unlike the other three — and that asymmetry is disputed, not settled.** See P-24 in the
- * decisions tracker: `types-knowledge.ts` and two integration-guide pages state that the keys of
- * `typeSchemas.memory` are the allowed values, while this function only ever uses `type` to look one up. The
- * memories tab's free-text type control was designed on the current behaviour deliberately (#366 era), so
- * changing it is a product decision rather than a defect fix.
+ * ## The allowlist, and why it took a ruling rather than a bugfix
+ *
+ * Entities, edges and chrono entries each refuse a type outside the set their space declares. Memories did
+ * not — while `types-knowledge.ts` stated the rule for both kinds it covers, and two integration-guide pages
+ * said so outright. That reads like a documented-but-unimplemented feature, and it was nearly fixed as one.
+ *
+ * What stopped it: the absence was PINNED as deliberate, and the CHANGELOG carried a reason. The memories
+ * tab's `type` control is free text with suggestions rather than a closed select **because** the server
+ * accepted any string — a select would have been "stricter than the API", which is the mirror of the gap that
+ * work was closing. Two shipped promises pointing opposite ways is a product decision, not a defect.
+ *
+ * **Owner ruled A on 2026-08-30:** the keys are the allowlist. The UI argument was a consequence of the gap
+ * rather than a reason for it, and it inverts cleanly now the server constrains the type — so the control
+ * becomes a select wherever a space declares memory types.
+ *
+ * ## What it can newly refuse, which is bounded
+ *
+ * The same condition the other three use: **only when the space declares at least one memory type schema.** A
+ * space with no `typeSchemas.memory` is untouched, and a space with one had already been promised this.
  */
 export function validateMemory(
   meta: SpaceMeta,
   memory: { type?: string; properties?: Record<string, unknown> },
 ): SchemaViolation[] {
   if (!meta) return [];
-  const typeSchema = memory.type ? meta.typeSchemas?.memory?.[memory.type] : undefined;
+  const violations: SchemaViolation[] = [];
+
+  const memorySchemas = meta.typeSchemas?.memory;
+
+  // Memory type allowlist (if any types are defined, memory.type must be one of them)
+  if (memory.type && memorySchemas && Object.keys(memorySchemas).length > 0) {
+    if (!Object.prototype.hasOwnProperty.call(memorySchemas, memory.type)) {
+      violations.push({
+        field: 'type',
+        value: memory.type,
+        reason: `not in memoryTypes allowlist: ${Object.keys(memorySchemas).join(', ')}`,
+      });
+    }
+  }
+
+  const typeSchema = memory.type ? memorySchemas?.[memory.type] : undefined;
   const refViolations = checkUnresolvedRef(typeSchema);
-  if (refViolations.length) return refViolations;
-  return validatePropertiesAgainstSchema(typeSchema, memory.properties);
+  if (refViolations.length) return [...violations, ...refViolations];
+  return [...violations, ...validatePropertiesAgainstSchema(typeSchema, memory.properties)];
 }
 
 /**

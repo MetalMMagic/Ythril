@@ -70,19 +70,27 @@ import { TimestampComponent } from '../../shared/timestamp.component';
               </div>
               <div class="form-row rich">
                 <div class="field">
-                  <!-- TYPE is free text with SUGGESTIONS, not a closed select.
-                       The server does not restrict it: validateMemory uses type only to LOOK UP
-                       typeSchemas.memory[type] for property validation, and unlike chrono there is no
-                       getAllowedMemoryTypes allowlist — any string is accepted. A <select> would therefore be
-                       stricter than the API and would make a type the server accepts unreachable from the UI, which is
-                       the mirror image of the bug this fixes. memoryTypeOptions() already merges the schema's keys
-                       with the values present in the data, so it is a suggestion list by construction. -->
+                  <!-- TYPE follows the SERVER, and which control appears depends on the space.
+                       This was free text with suggestions on the stated reasoning that "the server does not
+                       restrict it ... a <select> would be stricter than the API". That reasoning was correct
+                       and is now inverted: since P-24 (owner, 2026-08-30) declaring typeSchemas.memory makes
+                       those names the allowed set, exactly as for entities, edges and chrono. Keeping free
+                       text in such a space would let the form submit a value the server refuses, which is the
+                       same defect the other way round. A space declaring NO memory types is unrestricted, and
+                       there the free-text control is still the right one. -->
                   <label>{{ 'common.form.type' | transloco }}</label>
-                  <input type="text" [(ngModel)]="memoryForm.type" name="memFormType" list="memTypeOptions"
-                         [placeholder]="'brain.memories.form.typePlaceholder' | transloco" />
-                  <datalist id="memTypeOptions">
-                    @for (t of store.memoryTypeOptions(); track t) { <option [value]="t"></option> }
-                  </datalist>
+                  @if (store.memoryTypesAreRestricted()) {
+                    <select [(ngModel)]="memoryForm.type" name="memFormType">
+                      <option value="">{{ 'brain.memories.form.typePlaceholder' | transloco }}</option>
+                      @for (t of store.memoryAllowedTypes(); track t) { <option [value]="t">{{ t }}</option> }
+                    </select>
+                  } @else {
+                    <input type="text" [(ngModel)]="memoryForm.type" name="memFormType" list="memTypeOptions"
+                           [placeholder]="'brain.memories.form.typePlaceholder' | transloco" />
+                    <datalist id="memTypeOptions">
+                      @for (t of store.memoryTypeOptions(); track t) { <option [value]="t"></option> }
+                    </datalist>
+                  }
                 </div>
                 <div class="field">
                   <label>{{ 'common.form.tags' | transloco }}</label>

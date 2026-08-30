@@ -244,7 +244,8 @@ describe('GraphComponent (OnPush)', () => {
         imports: [GraphComponent, getTranslocoModule()],
         providers: [
           { provide: SpacesApi, useValue: makeApi() },
-          { provide: BrainApi, useValue: { ...makeApi(), getEntity: () => of({ _id: 'ent-1', name: 'Ada', type: 'person' }), traverseGraph } },
+          { provide: BrainApi, useValue: { ...makeApi(), getEntity: () => of({ _id: 'ent-1', name: 'Ada', type: 'person' }),
+            getRecord: () => of({ _id: 'ent-1', name: 'Ada', type: 'person' }), traverseGraph } },
           { provide: AuthApi, useValue: makeApi() },
           { provide: ActivatedRoute, useValue: { snapshot: { queryParams: {} } } },
         ],

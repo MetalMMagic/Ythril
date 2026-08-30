@@ -1961,5 +1961,7 @@
   "tokens.create.rateLimitHint": "Pozostaw puste, aby użyć domyślnej wartości instancji. Dla klienta wykonującego pracę masową ustaw niższą wartość, aby nie wypierał pozostałych.",
   "tokens.table.quota": "Limit",
   "tokens.table.perMin": "/min",
-  "tokens.table.quotaInherited": "(odziedziczony)"
+  "tokens.table.quotaInherited": "(odziedziczony)",
+  "graph.recordUnavailable.file": "Ten plik nie ma tutaj widoku rekordu — otwórz go w zakładce „Pliki”.",
+  "graph.recordUnavailable.derived": "To połączenie jest wyprowadzone z odnośnika, a nie zapisaną relacją, więc nie ma własnego rekordu."
 }

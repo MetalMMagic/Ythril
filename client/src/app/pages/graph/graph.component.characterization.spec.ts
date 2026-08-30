@@ -134,6 +134,9 @@ function makeBrain(overrides: Record<string, any> = {}) {
     calls,
     traverseGraph: vi.fn((_s: string, body: any) => { calls.push(body); return of(traverseResult([], [])); }),
     getEntity: vi.fn(() => of(null as any)),
+    // `loadNodeDetails` dispatches through `getRecord` so a chrono/memory node opens its own collection;
+    // this mock forwards to the entity stub, which is what every node in these fixtures is.
+    getRecord: vi.fn(() => of(null as any)),
     getEdge: vi.fn(() => of(null as any)),
     getMemory: vi.fn(() => of(null as any)),
     getChrono: vi.fn(() => of(null as any)),
@@ -611,6 +614,7 @@ describe('GraphComponent — selection written from cytoscape handlers', () => {
     const brain: any = makeBrain({
       traverseGraph: vi.fn(() => of(traverseResult([['a', 1]], [['e1', 'root', 'a']]))),
       getEntity: vi.fn(() => of(NEW)),
+      getRecord: vi.fn(() => of(NEW)),
     });
     const { c } = withGraph(brain);
     cy.fire('dbltap', 'node', tapTarget('a'));

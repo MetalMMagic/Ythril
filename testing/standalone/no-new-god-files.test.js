@@ -145,7 +145,16 @@ const FROZEN = {
   // RAISED 773 -> 774 for one import. `canEdit` moved off `me.readOnly` onto the rights matrix, and the
   // import is the whole cost — the alternative is inlining the predicate, which is a second copy of a
   // rule the server already owns.
-  'client/src/app/pages/graph/graph.component.ts': 774,
+  // RAISED 774 -> 793 for L-12: tapping a chrono/memory/file node or a synthetic edge opened an empty panel,
+  // because every tap fetched an entity. The DECISION — which collection, or why none — was extracted to
+  // `graph-record-lookup.ts` first, where it is a pure function with its own spec; what remains here is the
+  // wiring and one template block, and there is no version of the fix that adds nothing to this file.
+  //
+  // This is the largest raise on the list by an order of magnitude, and it is the signal the list exists to
+  // give: the component cannot absorb behaviour any more. The cure is extracting the side-panel record card
+  // (~87 lines of template) into a child component, which is a refactor with its own characterization tests
+  // rather than a tail on a behaviour fix. Filed as G-2.
+  'client/src/app/pages/graph/graph.component.ts': 793,
   // 753 -> 764: `backfillTokenRights`. This file is where config migrations already live — the media
   // master-switch and space-description ones are both here — so a fourth belongs beside them rather than in
   // a module only the loader would ever call.

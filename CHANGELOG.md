@@ -82,6 +82,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Tapping a chrono, memory or file node in the graph no longer opens an empty panel.** Every node tap called
+  `getEntity`, so any node that was not an entity issued a request that 404s. It is caught, so nothing broke
+  visibly — the panel simply opened blank, with no indication that anything had been asked for or refused.
+  The same for a synthetic edge: derived from a link at render time and stored nowhere, so `GET /edges/:id`
+  could never answer.
+
+  That was unreachable until the synthetic-edge id collision was fixed; before it, chrono/memory/file links
+  never reached the canvas, so nobody could tap one.
+
+  A node carries its own `kind`, and the dispatch to the right collection already existed —
+  `BrainApi.getRecord`, whose docblock says it is there so the mapping is not *"re-derived by every view that
+  meets a typed id"*. What the tap path did not do was pass the kind along.
+
+  **What cannot be fetched now says so, in all three languages.** A file's record is addressed by path and a
+  graph node carries an id; a synthetic edge has no record at all. Both are facts rather than failures, and a
+  blank panel reads as "this record has nothing in it" — a statement about the data rather than about what
+  could be fetched.
+
+
 - **The last seven copies of the write-validation rule are gone; there is one.** Moving the check into the
   writers left the doors holding a redundant second implementation — the memories and edges REST routes and
   all four MCP update tools each still ran `classifyUpdateViolations` on a merge they rebuilt themselves, and

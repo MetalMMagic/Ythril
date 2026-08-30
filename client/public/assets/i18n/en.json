@@ -1961,5 +1961,7 @@
   "tokens.create.rateLimitHint": "Leave blank to use the instance default. Set a lower number for a client doing bulk work, so it cannot crowd out everything else.",
   "tokens.table.quota": "Quota",
   "tokens.table.perMin": "/min",
-  "tokens.table.quotaInherited": "(inherited)"
+  "tokens.table.quotaInherited": "(inherited)",
+  "graph.recordUnavailable.file": "This file has no record view here — open it from the Files tab.",
+  "graph.recordUnavailable.derived": "This connection is derived from a link, not a stored relationship, so it has no record of its own."
 }

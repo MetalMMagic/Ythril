@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`propertySchemas` was documented as "RETIRED — consumed by nothing".** It is one of the most-read fields in
+  the schema model and is consumed everywhere. An unclosed doc comment was the cause: the closing marker went
+  out with the field it belonged to when `tagSuggestions` was removed, the opener stayed, and the next
+  docblock down the file closed it — so the retirement notice landed on whichever field came after. It reached
+  the emitted `.d.ts`, and an editor hover with it. A second, smaller instance sat above `strictLinkage`.
+
+  **Every gate that reads these interfaces strips comments first**, correctly, because they are checking code —
+  so a comment defect is invisible to the whole class of them by construction. And the file compiles, lints and
+  parses; the only symptom is a reader believing the wrong sentence about the right field.
+
+  A new gate reads comments on purpose and fails when a `/**` meets another before it closes. It looks for a
+  **line-initial** opener specifically: block comments do not nest, so `/*` inside a comment body is prose, and
+  the first version reported four correct files whose comments mention paths like `/api/sync/*`. A gate that
+  fires on ordinary prose is one somebody switches off.
+
+### Changed
+
+- **`validateMemory`'s docblock now says the type allowlist is disputed rather than silently disagreeing with
+  three documents.** The interface docblock and two integration-guide pages state that the keys of
+  `typeSchemas.memory` are the allowed type values; the code only ever uses `type` to look one up. That looked
+  like a documented-but-unimplemented feature until the reason for the asymmetry turned up: the memories tab's
+  type control is free text with suggestions *because* the server accepts any string, and a closed select would
+  have been stricter than the API. Two shipped promises pointing opposite ways is a product decision, not a
+  defect, so it is filed for a ruling and the code now says where.
+
 - **One duplicate relationship stopped a peer receiving any further edges, permanently.** An edge's identity is
   its `(from, to, label)` triplet, which is uniquely indexed, while its `_id` is random — so two instances
   creating the same relationship independently produce one relationship under two ids. The receiving upsert is

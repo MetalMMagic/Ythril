@@ -96,16 +96,6 @@ export interface TypeSchema {
    * alternative (a local-only setting) lets two members of one network disagree about what the space keeps.
    */
   retention?: { days?: number; contentDays?: number };
-  /**
-   * **RETIRED — read and written, consumed by nothing.** Stored values are preserved; there is no
-   * longer an editor for this field on the space Schema tab or in the Schema Library.
-   *
-   * It never reached anything. The Brain record forms suggest from the tags **already in use** in
-   * each collection (self-maintaining, no editor needed), and the schema guidance sent to MCP clients
-   * only ever summarised the space-wide list — which was itself retired in #365, for the same reason.
-   * So this was an editor for a field with no consumer, which is precisely the dishonesty the Models
-   * rebuild spent four PRs removing.
-   *
   /** Property key → JSON Schema subset for value validation and merge hints. */
   propertySchemas?: Record<string, PropertySchema>;
   /**
@@ -187,7 +177,6 @@ export interface SpaceMeta {
    * When a collection's map is empty, all type/label values are accepted.
    */
   typeSchemas?: Partial<Record<KnowledgeType, Record<string, TypeSchema>>>;
-  /**
   /** When true, all reference fields (edge from/to, entityIds, memoryIds) must be
    *  valid UUID v4 values, and entity deletion is blocked while inbound backlinks exist. */
   strictLinkage?: boolean;

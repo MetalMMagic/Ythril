@@ -31,6 +31,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { matchIndexReference } from './todo-index-match.mjs';
+import { openItems, orderedHomeRows } from './todo-open-items.mjs';
 import { resolvedHeadings, decidedButStillFiled, rulingsLeftOnThePage } from './parked-decisions-rules.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -191,6 +192,48 @@ console.log(`\n${YELLOW}todo/ consistency${R}  ${DIM}(owner rules 2026-08-02 and
   }
 }
 
+// ── rule 2b: every row in the ordered list resolves to a real item in the home it names
+{
+  /**
+   * Rule 2 runs tracker → index. This is index → tracker, and nothing checked it until 2026-08-30.
+   *
+   * `W-3` had sat in the ordered list for weeks with `_WRITE-PATH-VALIDATION-TODOS.md` in its Home column and no
+   * `W-3` anywhere in that file. The row was a phantom: a queue entry whose work had no description, no detail
+   * and no verify line, because the section it pointed at was destroyed by a cleanup script whose backup went to
+   * a path that did not exist (`_REFERENCE.md`, 2026-08-13). Its id had since been reused by an unrelated
+   * reconstruction in `_REFERENCE.md`, so grepping the folder for "W-3" found something and looked fine.
+   *
+   * This matters for the same reason rule 2 does, from the other end. The release gate is "cut the tag when the
+   * ordered list is EMPTY", so a phantom row can never drain — there is nothing to build and nothing to close,
+   * and the queue reads one item longer than the work for as long as nobody opens the home file.
+   *
+   * The Home column is the claim being checked, which is what makes this independent evidence rather than more
+   * status text: the row names a file, and either that file declares the id or it does not.
+   */
+  const declared = new Map();
+  for (const f of files) {
+    if (f === ORDERED) continue;
+    for (const item of openItems(readFileSync(join(TODO, f), 'utf8'))) {
+      if (item.id) declared.set(`${f}::${item.id}`, true);
+    }
+  }
+  const phantoms = [];
+  for (const { id, home } of orderedHomeRows(ordered)) {
+    if (!files.includes(home)) { phantoms.push(`${id} → ${home} (no such file in todo/)`); continue; }
+    if (NOT_A_QUEUE.has(home)) continue;  // a row may legitimately point at reference material for its rationale
+    if (!declared.has(`${home}::${id}`)) phantoms.push(`${id} → ${home} declares no ${id}`);
+  }
+  if (phantoms.length) {
+    fail(`${phantoms.length} row(s) in ${ORDERED} name a home that does not declare them:\n`
+      + phantoms.map(p => `      ${p}`).join('\n')
+      + '\n\n      A queue row whose home has no matching item is work with no description — it can never be'
+      + '\n      built and never drains, so "the queue is empty" stays false for a row nobody can act on.');
+    console.log(`${RED}  ✗${R} a row in ${ORDERED} points at an item that does not exist`);
+  } else {
+    console.log(`${GREEN}  ✓${R} every row in ${ORDERED} resolves to a real item in its home`);
+  }
+}
+
 // ── rule 3: every open item states how to verify it is still open
 {
   /**
@@ -208,19 +251,27 @@ console.log(`\n${YELLOW}todo/ consistency${R}  ${DIM}(owner rules 2026-08-02 and
    * So the item carries its own evidence instead. **Every open item names what to look at to confirm it is still
    * open** — a file, a symbol, a test name, a route. That turns "is this still open?" from a judgement call into a
    * one-command answer, and unlike the prose comparison it is mechanically checkable.
+   *
+   * ## It covered ONE item out of eleven until 2026-08-30
+   *
+   * This rule split the file on `- [ ]` checkboxes. Rule 2, six lines above, learned about heading-style items
+   * that same day and this one did not — so `_LINKS-AND-SCHEMA-TODOS.md` (9 items) and
+   * `_WRITE-PATH-VALIDATION-TODOS.md` (1 item) contributed nothing to it, and the tick meant "the single
+   * checkbox item in `ARCHITECTURE-TODO.md` has a verify line".
+   *
+   * That is exactly the defect this codebase produces most, arriving inside the script that exists to catch
+   * bookkeeping drift: one rule, two implementations, the weaker one winning without saying anything. Six of the
+   * eight stale rows found on 2026-08-30 were in the two files it could not see. `openItems()` is now the single
+   * answer to "what is an item", shared with rule 2 — the extraction the codebase's own rule asks for the second
+   * time you write the same thing.
    */
   const VERIFY = /(?:\*\*)?(?:Verify|Still open because|Evidence)(?:\*\*)?\s*:/i;
-  const OPEN_ITEM = /^[ \t]*[-*][ \t]*\[ \]/;
   const missing = [];
   for (const f of files) {
     if (NOT_A_QUEUE.has(f)) continue;
-    const src = readFileSync(join(TODO, f), 'utf8');
-    // Split on top-level checkboxes so each item is checked together with its own body.
-    const parts = src.split(/(?=^[ \t]*[-*][ \t]*\[ \])/m).filter(p => OPEN_ITEM.test(p));
-    for (const p of parts) {
-      if (VERIFY.test(p)) continue;
-      const title = (p.match(/\*\*(.+?)\*\*/)?.[1] ?? p.split(/\r?\n/)[0]).replace(/[`*[\]]/g, '').trim();
-      missing.push(`${f} — "${title.slice(0, 66)}"`);
+    for (const item of openItems(readFileSync(join(TODO, f), 'utf8'))) {
+      if (VERIFY.test(item.body)) continue;
+      missing.push(`${f}:${item.line} — "${item.title.slice(0, 66)}"`);
     }
   }
   if (missing.length) {

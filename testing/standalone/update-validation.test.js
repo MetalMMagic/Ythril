@@ -242,16 +242,31 @@ describe('every update path runs the gate', () => {
    * Demanding the direct call would have made this gate refuse the fix — a check pinned on HOW a rule is
    * enforced blocks the change that enforces it better.
    */
-  for (const p of PATHS) {
-    it(`${p} reaches validation`, () => {
-      const src = strip(readFileSync(p, 'utf8'));
-      const own = /classifyUpdateViolations\(/.test(src);
-      const delegates = /SchemaViolationError/.test(src);
-      assert.ok(own || delegates,
-        'this update surface neither validates the merged record nor handles the refusal the writer raises, '
-        + 'so a violating patch reaches the collection or surfaces as an internal error');
-    });
-  }
+  it('no update surface holds its own copy of the rule', () => {
+    /*
+     * This asserted the OPPOSITE until 2026-08-30: that each surface calls `classifyUpdateViolations` itself.
+     * That was right while the rule lived at the doors, and the owner's ruling moved it into the writers — so
+     * the presence of a classifier call at a door is now the defect, not the evidence.
+     *
+     * The property "an update is validated" is asserted where it belongs and more strongly, over all eight
+     * writers, in `every-writer-validates-internally.test.js`. What is left for a door is to hold nothing,
+     * which is what this checks.
+     *
+     * Two of these need no error handling at all, and that is the cleanest outcome rather than a gap: the
+     * writer throws exactly the `SchemaViolationError` that `assertUpdateAllowed` used to throw here, so an
+     * MCP tool's existing failure path already carries it unchanged. An earlier draft of this check demanded
+     * that a door MENTION the error, and reported those two as failures for being tidy.
+     */
+    const offenders = [];
+    for (const p of PATHS) {
+      for (const m of strip(readFileSync(p, 'utf8')).matchAll(/classifyUpdateViolations\(/g)) {
+        offenders.push(`${p}: ${m[0]}`);
+      }
+    }
+    assert.deepEqual(offenders, [],
+      'these rebuild the merged record and validate it themselves, twenty lines from the writer that does the '
+      + 'real merge — and the simulation is the copy that drifts:\n  ' + offenders.join('\n  '));
+  });
 
   it('no update path still gates validation behind deleteFields alone', () => {
     // The exact shape of the original hole: `if (dfPaths) { ...validate... }`. Validation must run
@@ -271,10 +286,20 @@ describe('every update path runs the gate', () => {
       'validation must not be conditional on deleteFields — that was the original gap');
   });
 
-  it('the MCP tools import the shared gate rather than reimplementing it', () => {
+  it('and none of them reimplements one either', () => {
+    /*
+     * This used to require every MCP tool to IMPORT `write-validation.js` — the shared gate — as proof it was
+     * not rolling its own. With the rule inside the writers, a tool that imports nothing from it is the
+     * strongest possible version of that, so the check is now for the reimplementation itself: a tool
+     * assembling a merged record and running a validator over it.
+     */
+    const offenders = [];
     for (const p of PATHS.filter(x => x.includes('/mcp/'))) {
-      assert.match(readFileSync(p, 'utf8'), /from '\.\.\/\.\.\/brain\/write-validation\.js'/,
-        'two copies of a validation rule is how the surfaces drift apart');
+      const src = strip(readFileSync(p, 'utf8'));
+      if (/validate(Entity|Memory|Edge|Chrono)\(/.test(src)) offenders.push(p);
     }
+    assert.deepEqual(offenders, [],
+      'these run a validator directly, which is a second implementation of the rule the writer holds:\n  '
+      + offenders.join('\n  '));
   });
 });

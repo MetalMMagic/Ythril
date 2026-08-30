@@ -13,11 +13,11 @@ import { deleteMemory, listMemories, remember, updateMemory } from '../../brain/
 import { applyDeleteFields as applyDeleteFieldsPaths } from '../../brain/delete-fields.js';
 // The API layer's write gate, imported rather than reimplemented: `update_chrono` once shipped without
 // the allowlist `create_chrono` enforced, and two copies of a validation rule is how that happens.
-import { assertUpdateAllowed, classifyUpdateViolations, locateForUpdate } from '../../brain/write-validation.js';
 import { getConfig } from '../../config/loader.js';
 import { checkQuota } from '../../quota/quota.js';
 import { resolveWriteTarget, findFirstAcrossMembers, isStrictLinkage } from '../../spaces/proxy.js';
-import { resolveMetaRefs, validateMemory } from '../../spaces/schema-validation.js';
+import { resolveMetaRefs } from '../../spaces/schema-validation.js';
+import { type UpdateValidation } from '../../brain/write-validation.js';
 import { TTL_DAYS_SCHEMA, SUPPRESS_EMBEDDINGS_SCHEMA, LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA, ttlDaysFromArgs, unitScoreSchema, uuidSchema } from './shared.js';
 import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
 import { parseRecordSuppression } from '../../brain/suppress-embeddings.js';
@@ -91,17 +91,10 @@ export const rememberTool: ToolHandler = {
     // Schema validation (single pass — reuse for both strict gate and warn output)
     const remMetaRaw = getConfig().spaces.find(s => s.id === ts)?.meta;
     const remMeta = remMetaRaw ? resolveMetaRefs(remMetaRaw) : undefined;
-    const remSchemaViolations = remMeta ? validateMemory(remMeta, { type: memType, properties: props }) : [];
-    if (remSchemaViolations.length > 0 && remMeta?.validationMode === 'strict') {
-      // The violations travel as structured data rather than a JSON tail glued to the sentence: a
-      // caller had to parse the message to act on them. The prose is unchanged for a client that
-      // reads only the content blocks.
-      return {
-        content: [{ type: 'text' as const, text: 'Error: schema_violation' }],
-        isError: true,
-        structuredContent: { error: 'schema_violation', violations: remSchemaViolations },
-      };
-    }
+    // The check runs inside `remember` now. This copy validated the INCOMING payload rather than the record
+    // the write would produce — the defect memory's classifier was written to close, since a converging write
+    // merges into a stored record whose required properties the payload need not restate.
+    let remCheck: UpdateValidation | undefined;
 
     // Quota check — throws QuotaError (caught below) on hard limit
     const remQuota = await checkQuota('brain');
@@ -130,6 +123,7 @@ export const rememberTool: ToolHandler = {
       {
         checkDuplicates: remDupeCheck, checkContradictions: remContraCheck, dupeThreshold: remDupeThreshold,
         ...(a['waitForEmbedding'] === true ? { waitForEmbedding: true } : {}),
+        onValidation: c => { remCheck = c; },
       }, ctx.actor, remTtlDays,
       typeof a['id'] === 'string' ? a['id'] : undefined);
     const warnings: string[] = [];
@@ -147,7 +141,7 @@ export const rememberTool: ToolHandler = {
     // that already happened.)
     // Schema warnings (reuse violations from pre-write check)
     if (remMeta?.validationMode === 'warn') {
-      for (const v of remSchemaViolations) warnings.push(`⚠️ Schema: ${v.field} — ${v.reason}`);
+      for (const v of (remCheck as UpdateValidation | undefined)?.all ?? []) warnings.push(`⚠️ Schema: ${v.field} — ${v.reason}`);
     }
     const remText = `Stored memory (seq ${mem.seq}, ID ${mem._id}).`
       + (remQuota.softBreached ? `\n⚠️ Storage warning: ${remQuota.warning}` : '')
@@ -302,19 +296,12 @@ export const update_memoryTool: ToolHandler = {
     // Validate the memory AS IT WILL BE, against the meta of the member space it actually lives in.
     // This path had no schema validation at all, so an agent could write through MCP a value the same
     // space refuses at `remember` time — and, since #571, one the REST route refuses too.
-    const found = await locateForUpdate(wt.target, async mid => (await listMemories(mid, { _id: id }, 1, 0))[0]);
-    if (found) {
-      const priorProps = (found.record.properties ?? {}) as Record<string, unknown>;
-      const sim: Record<string, unknown> = { properties: mergePropertiesOrKeep(found.record.properties, updates.properties) ?? {} };
-      if (dfPaths) applyDeleteFieldsPaths(sim, dfPaths);
-      assertUpdateAllowed(classifyUpdateViolations(
-        found.meta,
-        validateMemory(found.meta ?? {}, { type: found.record.type, properties: priorProps }),
-        // The type the memory will HAVE. Both sides used to pass the stored type, so re-typing never consulted
-        // the destination schema — see the note on the REST route, which had the identical defect.
-        validateMemory(found.meta ?? {}, { type: updates.type ?? found.record.type, properties: (sim['properties'] ?? {}) as Record<string, unknown> }),
-      ));
-    }
+        /*
+     * The schema check moved into the writer, which validates the record it is about to store rather than a
+     * rebuilt simulation of it. `assertUpdateAllowed` threw exactly the `SchemaViolationError` the writer now
+     * throws, so nothing about this tool's failure shape changes — the block was pure duplication, and the
+     * duplicate is the one that drifted.
+     */
 
     // Search member spaces sequentially — consistent with REST endpoint behaviour.
     const updated = await findFirstAcrossMembers(wt.target, mid => updateMemory(mid, id, updates, dfPaths, ctx.actor, ttlDays));

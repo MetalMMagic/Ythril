@@ -232,32 +232,33 @@ describe('upsert validation', () => {
         'validate the payload');
     });
 
-    it('every one of them validates the merged record', () => {
+    it('none of them classifies the upsert itself any more', () => {
+      /*
+       * This asserted the OPPOSITE until 2026-08-30 — that each caller runs a classifier — and that was right
+       * while the rule lived at the doors. The owner ruled on 2026-08-29 that every writer validates, so the
+       * merged-record check now happens inside `upsertEntity` / `upsertEdge`, against the record actually
+       * about to be stored rather than a rebuild of it.
+       *
+       * The property this file is named for — an upsert is validated in its MERGED form — is asserted by the
+       * classifiers exercised as functions above, and by `every-writer-validates-internally.test.js` over all
+       * eight writers. What is left for a CALLER is to do none of it.
+       *
+       * Two intermediate drafts of this check accepted a caller that mentions `SchemaViolationError`, on the
+       * grounds that translating the refusal is delegation. That is true but insufficient as a test: an MCP
+       * tool needs no translation at all, because the router already converts the throw — so the tidiest
+       * callers mention nothing and were reported as failures for it.
+       */
       const offenders = [];
       for (const p of WRITER_CALLERS) {
-        const src = strip(readFileSync(p, 'utf8'));
-        /*
-         * Delegation counts, and counts for MORE.
-         *
-         * Since the owner's 2026-08-29 ruling the writers validate internally, so a caller that translates
-         * the writer's `SchemaViolationError` is not skipping the merge check — it is relying on the one that
-         * runs against the real merged record rather than on a simulation of it. Two of these callers used to
-         * rebuild the merge here to validate it, twenty lines from the function that does the real one, and
-         * that copy is what drifts.
-         *
-         * Demanding the direct call would make this gate refuse the fix that enforces the rule better.
-         */
-        const usesClassifier = /classify(Entity|Edge)Upsert\w*\(/.test(src) || /SchemaViolationError/.test(src);
-        // bulk.ts composes the merge itself (it needs the prior record for its own counters), so it is
-        // allowed to call the validator directly — as long as what it hands over came from the writer's
-        // merge helper and not from the request.
-        const usesMergeHelper = /merge(TagsAndProperties|PropertiesOrKeep|Properties)\(/.test(src);
-        if (!usesClassifier && !usesMergeHelper) offenders.push(p);
+        // `bulk.ts` composes the merge itself for its own counters and is allowed the direct validator call;
+        // what it must not do is classify the upsert, which is the writer's job.
+        for (const m of strip(readFileSync(p, 'utf8')).matchAll(/classify(Entity|Edge)Upsert\w*\(/g)) {
+          offenders.push(`${p}: ${m[0]}`);
+        }
       }
       assert.deepEqual(offenders, [],
-        'an upsert merges into the stored record, so validating the incoming payload validates a record ' +
-        'that will never exist. Use classifyEntityUpsert / classifyEdgeUpsert, or the writer\'s merge ' +
-        'helper if you already hold the prior record.');
+        'these classify an upsert the writer already classifies, against a merge they rebuild themselves — '
+        + 'one rule, two implementations, and the rebuilt one is what drifts:\n  ' + offenders.join('\n  '));
     });
 
     it('no caller passes the request payload straight to a validator', () => {

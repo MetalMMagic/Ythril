@@ -3,7 +3,7 @@ import { UUID_V4_RE, TTL_DAYS_SCHEMA, SUPPRESS_EMBEDDINGS_SCHEMA, LEGACY_SUPPRES
 import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } from '../../brain/delete-fields.js';
 import { deleteEntity, findEntitiesByName, findEntityBacklinks, getEntityById, updateEntityById, upsertEntity } from '../../brain/entities.js';
 // The shared write gate, imported rather than reimplemented — see the note in memory.ts.
-import { assertUpdateAllowed, classifyUpdateViolations, locateForUpdate, SchemaViolationError, type UpdateValidation } from '../../brain/write-validation.js';
+import { SchemaViolationError, type UpdateValidation } from '../../brain/write-validation.js';
 import { type PropertyResolution, applyResolutions, computeMergePlan, executeMerge, validateResolution } from '../../brain/merge.js';
 import { getConfig } from '../../config/loader.js';
 import { isProxySpace, isStrictLinkage, resolveMemberSpaces, resolveWriteTarget, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
@@ -239,25 +239,12 @@ export const update_entityTool: ToolHandler = {
     // Validate the entity AS IT WILL BE, against the meta of the member space it actually lives in. This
     // path had no schema validation at all, so `type` could be moved outside the allowlist that
     // `upsert_entity` enforces on the very same record.
-    const found = await locateForUpdate(wt.target, mid => getEntityById(mid, id));
-    if (found) {
-      const prior = found.record;
-      const resultTags = mergeTagsOrKeep(prior.tags, updates.tags);
-      const sim: Record<string, unknown> = {
-        properties: mergePropertiesOrKeep(prior.properties, updates.properties) ?? {},
-        tags: resultTags,
-      };
-      if (dfPaths) applyDeleteFieldsPaths(sim, dfPaths);
-      assertUpdateAllowed(classifyUpdateViolations(
-        found.meta,
-        validateEntity(found.meta ?? {}, { name: prior.name, type: prior.type, properties: prior.properties ?? {} }),
-        validateEntity(found.meta ?? {}, {
-          name: updates.name ?? prior.name,
-          type: updates.type ?? prior.type,
-          properties: (sim['properties'] ?? {}) as Record<string, unknown>,
-        }),
-      ));
-    }
+        /*
+     * The schema check moved into the writer, which validates the record it is about to store rather than a
+     * rebuilt simulation of it. `assertUpdateAllowed` threw exactly the `SchemaViolationError` the writer now
+     * throws, so nothing about this tool's failure shape changes — the block was pure duplication, and the
+     * duplicate is the one that drifted.
+     */
 
     const updatedEnt = await findFirstAcrossMembers(wt.target, mid => updateEntityById(mid, id, updates, dfPaths, ctx.actor, ttlDays));
     if (!updatedEnt) throw new Error(`Entity '${id}' not found`);

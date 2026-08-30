@@ -19,7 +19,7 @@ import { parseSortParam, SORTABLE_FIELDS, toMongoSort } from '../../brain/list-s
 import { resolveMemberSpaces, resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { validateEdge } from '../../spaces/schema-validation.js';
 import { UUID_V4_RE, webhookToken, getSpaceMeta, ttlDaysFromBody, ttlDaysError, ifMatchFromRequest, preconditionFailedBody } from './_shared.js';
-import { classifyUpdateViolations, type UpdateValidation } from '../../brain/write-validation.js';
+import { SchemaViolationError, type UpdateValidation } from '../../brain/write-validation.js';
 import { resolveEntityIdsByName } from '../../brain/entities.js';
 import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
 import { parseRecordSuppression } from '../../brain/suppress-embeddings.js';
@@ -274,30 +274,24 @@ edgesRouter.patch('/spaces/:spaceId/edges/:id', globalRateLimit, requireSpaceAut
     // snapshot below.
     const existing = await getEdgeById(mid, id);
     if (!existing) continue;
-    {
-      const resultProps = mergePropertiesOrKeep(existing.properties, updates.properties) ?? {};
-      const sim: Record<string, unknown> = { properties: resultProps };
-      if (dfPaths) applyDeleteFieldsPaths(sim, dfPaths);
-      const simProps = (sim['properties'] ?? {}) as Record<string, unknown>;
-      const meta = getSpaceMeta(mid);
-      const check = classifyUpdateViolations(
-        meta,
-        validateEdge(meta ?? {}, { label: existing.label, properties: existing.properties ?? {} }),
-        validateEdge(meta ?? {}, { label: updates.label ?? existing.label, properties: simProps }),
-      );
-      if (check.blocked) {
+    /*
+     * The schema check moved into `updateEdgeById`, which validates the record it is about to store rather
+     * than a rebuilt simulation of it. The 422 is preserved.
+     */
+    // Snapshot for the audit change list, from the read above — see the note in memories.ts.
+    let updated;
+    try {
+      updated = await updateEdgeById(mid, id, updates, dfPaths, webhookToken(req), ttlDaysFromBody(req.body), ifMatch.seq);
+    } catch (err) {
+      if (err instanceof SchemaViolationError) {
         res.status(422).json({
-          error: 'schema_violation',
-          message: check.message,
-          violations: check.all,
-          introduced: check.introduced,
-          preExisting: check.preExisting,
+          error: 'schema_violation', message: err.check.message, violations: err.check.all,
+          introduced: err.check.introduced, preExisting: err.check.preExisting,
         });
         return;
       }
+      throw err;
     }
-    // Snapshot for the audit change list, from the read above — see the note in memories.ts.
-    const updated = await updateEdgeById(mid, id, updates, dfPaths, webhookToken(req), ttlDaysFromBody(req.body), ifMatch.seq);
     if (updated) {
       req.auditSnapshots = { before: existing ?? {}, after: updated };
       res.json(updated);

@@ -82,6 +82,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The last seven copies of the write-validation rule are gone; there is one.** Moving the check into the
+  writers left the doors holding a redundant second implementation — the memories and edges REST routes and
+  all four MCP update tools each still ran `classifyUpdateViolations` on a merge they rebuilt themselves, and
+  the `remember` tool validated the raw payload rather than the merged record at all.
+
+  They were not merely redundant. Each rebuilt the merged record with `mergePropertiesOrKeep` and a throwaway
+  `applyDeleteFieldsPaths`, twenty lines from the writer that does the real merge — and a simulation is the
+  copy that drifts. One of them validated the wrong `type` on a re-type for months while the entity route
+  next door did it correctly.
+
+  Every one also performed its own read of the record first, purely to feed that check. Those reads are gone
+  too: a lookup per update that nothing used, which is the cost the `onValidation` callback exists to avoid.
+
+  Nothing about the MCP failure shape changes — `assertUpdateAllowed` threw exactly the error the writers now
+  throw, and the router already converts it, with a strictly larger body than the tools were assembling by
+  hand.
+
+  **Four gates asserted the old arrangement and are re-pointed rather than loosened.** Three had inverted:
+  they required a door to CALL a classifier, which is now the defect. The fourth pinned the re-typing rule to
+  the doors' hand-built comparison; its property — that the after-state is validated against the type the
+  record will have, while the before-state stays on the stored one — is unchanged and now asserted at the two
+  writers that own it.
+
+  Two intermediate drafts of those gates accepted a door that merely mentions the refusal, which is true but
+  insufficient: an MCP tool needs no translation at all, so the tidiest doors mention nothing and were
+  reported as failures for it.
+
 - **A CI hook recorded as an intermittent flake for two days was a deterministic API round-trip defect.**
   `GET /api/admin/media-config` returns the RESOLVED `documentProcessing` block — seven keys more than the
   patch schema declares — and that schema is `.strict()`, so PATCHing the block back is a **400 on the whole

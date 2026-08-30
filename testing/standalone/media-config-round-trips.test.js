@@ -160,6 +160,34 @@ describe('every field the GET emits is either settable or stripped', () => {
     return [...body.matchAll(/^\s{2}(\w+)\??:/gm)].map(m => m[1]);
   };
 
+  /**
+   * The strip list, from its own module.
+   *
+   * It moved out of `media-config.ts` when that file reached its size ceiling — a paths-and-prose table is a
+   * declaration rather than route logic. Reading it from the old file would have made this gate report every
+   * field as unstripped, which is a failure that looks like the defect it hunts.
+   */
+  const OWNED_SRC = readFileSync('server/src/api/media-config-server-owned.ts', 'utf8');
+  /*
+   * The PATHS ARRAY, not the whole file.
+   *
+   * Every path appears twice in that module — once in `SERVER_OWNED_MEDIA_PATHS` and once as a key of the
+   * `SERVER_OWNED_MEDIA_HOW` prose map. Searching the file therefore finds a path that has been deleted from
+   * the list and still has prose, which is exactly the half-edit this gate should catch: mutating one entry
+   * out of the array left it green.
+   */
+  const OWNED = OWNED_SRC.slice(
+    OWNED_SRC.indexOf('SERVER_OWNED_MEDIA_PATHS = ['), OWNED_SRC.indexOf('] as const;'));
+
+  /** Keys the RESOLVED documentProcessing actually carries — built key by key, so read from the builder. */
+  const resolverKeys = () => {
+    const loader = readFileSync('server/src/config/loader.ts', 'utf8');
+    const at = loader.indexOf('export function getDocumentProcessingConfig');
+    assert.ok(at > -1, 'getDocumentProcessingConfig not found — re-anchor this gate');
+    const body = loader.slice(at, loader.indexOf('\n}', at));
+    return [...body.matchAll(/^\s{4}(\w+):/gm)].map(m => m[1]);
+  };
+
   /** Field names declared inside a Zod object in media-config.ts. */
   const schemaFields = (name) => {
     const at = SRC.indexOf(`const ${name} = z.object({`);
@@ -175,26 +203,44 @@ describe('every field the GET emits is either settable or stripped', () => {
       'the patch schema yielded almost nothing — the parser is wrong, not the code');
   });
 
-  it('no emitted face field is both unsettable and unstripped', () => {
-    const emitted = fieldsOf('FaceRecognitionConfig');
-    const settable = new Set(schemaFields('FaceRecognitionPatchSchema'));
-    const strip = SRC.slice(SRC.indexOf('SERVER_OWNED_MEDIA_PATHS = ['), SRC.indexOf('] as const;'));
-    const orphans = emitted
-      .filter(f => !settable.has(f))
-      .filter(f => !strip.includes(`'faceRecognition.${f}'`));
-    assert.deepEqual(orphans, [],
-      'these fields are returned by the GET, refused by the PATCH, and not stripped — so echoing the config '
-      + 'back 400s the whole body, which is exactly the defect this file exists for:\n  '
-      + orphans.map(f => `faceRecognition.${f}`).join('\n  ')
-      + '\nAdd each to SERVER_OWNED_MEDIA_PATHS with a line in SERVER_OWNED_MEDIA_HOW, or to the patch schema.');
-  });
+  /*
+   * BOTH BLOCKS, not just faces.
+   *
+   * The class this file names — *a key the GET emits that the PATCH refuses* — was asserted for
+   * `faceRecognition` and not for `documentProcessing`, which had SEVEN such keys. Echoing the document block
+   * back was a 400 on the whole body for the same reason `enabled` was, and it went unnoticed for longer:
+   * nobody round-trips that block by hand, but two CI restore hooks did, and their silent failure read as an
+   * intermittent flake for two days.
+   *
+   * The two blocks are read differently on purpose. `faceRecognition`'s emitted shape is its interface, since
+   * the resolver returns `Required<FaceRecognitionConfig>`; `documentProcessing`'s is built key by key, and
+   * its interface carries optional fields the resolver never emits. Reading each the way it is actually
+   * produced is the difference between a gate and a plausible one.
+   */
+  const BLOCKS = [
+    { name: 'faceRecognition', schema: 'FaceRecognitionPatchSchema', emitted: () => fieldsOf('FaceRecognitionConfig') },
+    { name: 'documentProcessing', schema: 'DocumentProcessingPatchSchema', emitted: () => resolverKeys() },
+  ];
+
+  for (const b of BLOCKS) {
+    it(`no emitted ${b.name} field is both unsettable and unstripped`, () => {
+      const settable = new Set(schemaFields(b.schema));
+      const orphans = b.emitted()
+        .filter(f => !settable.has(f))
+        .filter(f => !OWNED.includes(`'${b.name}.${f}'`));
+      assert.deepEqual(orphans, [],
+        'these fields are returned by the GET, refused by the PATCH, and not stripped — so echoing the config '
+        + 'back 400s the whole body, which is exactly the defect this file exists for:\n  '
+        + orphans.map(f => `${b.name}.${f}`).join('\n  ')
+        + '\nAdd each to SERVER_OWNED_MEDIA_PATHS with a line in SERVER_OWNED_MEDIA_HOW, or to the patch schema.');
+    });
+  }
 
   it('and the strip list names nothing the schema already accepts', () => {
     // The opposite rot: a field made settable while its strip entry stays would be silently dropped from every
     // patch, so the caller gets a 200 and no change.
     const settable = new Set(schemaFields('FaceRecognitionPatchSchema'));
-    const strip = [...SRC.slice(SRC.indexOf('SERVER_OWNED_MEDIA_PATHS = ['), SRC.indexOf('] as const;'))
-      .matchAll(/'faceRecognition\.(\w+)'/g)].map(m => m[1]);
+    const strip = [...OWNED.matchAll(/'faceRecognition\.(\w+)'/g)].map(m => m[1]);
     const contradictory = strip.filter(f => settable.has(f));
     assert.deepEqual(contradictory, [],
       'these are on the patch schema AND on the strip list, so every attempt to set them is dropped with a 200');

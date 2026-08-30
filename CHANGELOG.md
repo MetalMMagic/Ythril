@@ -109,6 +109,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   insufficient: an MCP tool needs no translation at all, so the tidiest doors mention nothing and were
   reported as failures for it.
 
+- **Read-modify-write against `/api/admin/media-config` now works.** The GET returns the resolved
+  `documentProcessing` block and the PATCH schema is `.strict()`, so seven keys it emits and does not accept —
+  `maxTotalPages`, `vlmModel`, `vlmBaseUrl`, `repairModel`, `repairBaseUrl`, `verifyModel`, `verifyBaseUrl` —
+  made sending the block back a **400 on the whole body**. Reading a config block, changing one field and
+  putting it back is the ordinary way to use an API like this, and it did not work for any caller.
+
+  This needed no new mechanism. `SERVER_OWNED_MEDIA_PATHS` exists for exactly this shape and the route's own
+  docblock says so; three `faceRecognition` fields were declared that way and the seven document ones never
+  were. Declaring them gets both directions right at once: send back the value you were given and it is
+  stripped, so the rest of the patch applies; send a **different** value and you are refused, with prose
+  naming where that field actually is set. Quietly ignoring an attempted change would have been the
+  silent-acceptance defect this API is trying to shed.
+
+  The check derives its subject from the resolver rather than from a list of seven, so the next `DOC_*` model
+  slot is covered on the commit that adds it. The declaration table moved into its own module — the route file
+  was at its size ceiling, and a paths-and-prose table is a declaration rather than route logic.
+
 - **A CI hook recorded as an intermittent flake for two days was a deterministic API round-trip defect.**
   `GET /api/admin/media-config` returns the RESOLVED `documentProcessing` block — seven keys more than the
   patch schema declares — and that schema is `.strict()`, so PATCHing the block back is a **400 on the whole

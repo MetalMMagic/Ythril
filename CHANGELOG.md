@@ -57,6 +57,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A chrono create that converges onto an existing entry was validated against the wrong document.** Supplying
+  an `_id` that already names an entry does not duplicate — it converges, and it stores
+  `mergeProperties(existing, incoming)`. Both doors checked the incoming properties alone, so the document
+  validated was not the document written, and it failed in **both directions at once**:
+
+  - a required key present on the **stored** record and absent from the request read as a violation, and
+    refused a converge with `400` that the merge would have satisfied;
+  - a violating key already stored was never re-examined, so it survived a write that had every opportunity to
+    notice it.
+
+  Entities and edges have validated the merged form since their upserts were written, and both chrono *update*
+  paths already did too. The rule existed three times and was missing from the fourth — this repo's most
+  frequent defect in its quietest form: not a wrong implementation, an absent one.
+
+  `classifyChronoUpsert` mirrors the entity and edge classifiers exactly, so a pre-existing violation is
+  reported without freezing the record (the P-6 ruling) while anything the request introduces still blocks. On
+  both doors the supplied id had to move above the check to be available to it.
+
+  One mutant is the argument that matters: passing no id loads no existing record and degrades silently to the
+  old behaviour — a call that reviews as correct and fixes nothing.
+
 - **Neither door said that `recall`'s graph expansion cannot start from a memory, chrono entry or file.** Its
   traversal reads the edge collection only, and edge endpoints are entity ids — so a non-entity match comes
   back with an empty `_graph`, and raising `traverse` does not change it. A caller with a memory-heavy space

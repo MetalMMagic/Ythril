@@ -32,8 +32,9 @@
  * permanently out of conformance. And the record is not trapped — validation is of the *merged* result, so
  * a patch that repairs the pre-existing violation passes. The error names exactly what to include.
  */
-import { validateEntity, validateEdge, type SchemaViolation } from '../spaces/schema-validation.js';
-import type { SpaceMeta } from '../config/types.js';
+import { validateEntity, validateEdge, validateChrono, type SchemaViolation } from '../spaces/schema-validation.js';
+import type { SpaceMeta, ChronoEntry } from '../config/types.js';
+import { col, asFilter } from '../db/mongo.js';
 import { resolveMemberSpaces } from '../spaces/proxy.js';
 import { applyValidation, getSpaceMeta } from '../spaces/schema-validation.js';
 import { getEntityById } from './entities.js';
@@ -308,6 +309,53 @@ export async function classifyEntityUpsert(
 ): Promise<UpdateValidation> {
   const existing = id ? await getEntityById(spaceId, id) : null;
   return classifyEntityUpsertAgainst(getSpaceMeta(spaceId), existing, incoming);
+}
+
+/** As above, for a chrono entry. Its identity is a supplied `_id`, so type and properties both merge in. */
+export function classifyChronoUpsertAgainst(
+  meta: SpaceMeta | undefined,
+  existing: { type: string; properties?: Record<string, string | number | boolean> } | null,
+  incoming: { type: string; properties?: Record<string, string | number | boolean> },
+): UpdateValidation {
+  const after = validateChrono(meta ?? {}, {
+    type: incoming.type, properties: mergePropertiesOrKeep(existing?.properties, incoming.properties) ?? {},
+  });
+  const before = existing
+    ? validateChrono(meta ?? {}, { type: existing.type, properties: existing.properties ?? {} })
+    : INSERT_HAS_NO_PRIOR;
+  return classifyUpdateViolations(meta, before, after);
+}
+
+/**
+ * Validate a chrono upsert against the record it will produce.
+ *
+ * ## The branch this exists for
+ *
+ * `create_chrono` with a supplied `_id` that already names an entry CONVERGES rather than duplicating — and
+ * it stores `mergeProperties(existing.properties, incoming.properties)`. Both doors validated the incoming
+ * properties alone, so the document checked was not the document written, and it failed in both directions
+ * at once:
+ *
+ *  - a required key present on the STORED record and absent from the request read as a violation, so a
+ *    legitimate converge was refused with a 400 — the merge would have supplied it;
+ *  - a violating key already stored was never re-examined, so it survived a write that had every opportunity
+ *    to notice it.
+ *
+ * Entities and edges have had this since their upsert paths were written; chrono is the one that did not, and
+ * only on create-with-an-id — both chrono UPDATE paths already check the merged result. So the rule existed
+ * three times and was missing from the fourth, which is the shape `CLAUDE.md` names as this repo's most
+ * frequent defect.
+ */
+export async function classifyChronoUpsert(
+  spaceId: string,
+  incoming: { type: string; properties?: Record<string, string | number | boolean> },
+  id: string | undefined,
+): Promise<UpdateValidation> {
+  const existing = id
+    ? await col<ChronoEntry>(`${spaceId}_chrono`).findOne(asFilter<ChronoEntry>({ _id: id, spaceId }),
+      { projection: { type: 1, properties: 1 } }) as ChronoEntry | null
+    : null;
+  return classifyChronoUpsertAgainst(getSpaceMeta(spaceId), existing, incoming);
 }
 
 /**

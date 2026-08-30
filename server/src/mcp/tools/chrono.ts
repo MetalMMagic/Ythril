@@ -2,7 +2,7 @@ import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.
 import { UUID_V4_RE, TTL_DAYS_SCHEMA, SUPPRESS_EMBEDDINGS_SCHEMA, LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA, ttlDaysFromArgs, recurrenceSchema, unitScoreSchema, uuidSchema } from './shared.js';
 import { ChronoFilter, createChrono, deleteChrono, getChronoById, listChrono, updateChrono, parseRecurrence } from '../../brain/chrono.js';
 // The API layer's write gate, imported rather than reimplemented — see the note in memory.ts.
-import { assertUpdateAllowed, classifyUpdateViolations, locateForUpdate } from '../../brain/write-validation.js';
+import { assertUpdateAllowed, classifyUpdateViolations, classifyChronoUpsert, locateForUpdate } from '../../brain/write-validation.js';
 import { getConfig } from '../../config/loader.js';
 import { checkQuota } from '../../quota/quota.js';
 import { isStrictLinkage, resolveMemberSpaces, resolveWriteTarget, findFirstAcrossMembers } from '../../spaces/proxy.js';
@@ -115,8 +115,14 @@ export const create_chronoTool: ToolHandler = {
       throw new Error(`type must be one of: ${[...allowedChronoTypes].join(', ')}`);
     }
 
-    const chronoSchemaViolations = chronoMeta ? validateChrono(chronoMeta, { type: chronoType, properties: chronoProps }) : [];
-    if (chronoSchemaViolations.length > 0 && chronoMeta?.validationMode === 'strict') {
+    // Validated against the record this write will PRODUCE, not against the payload — see
+    // `classifyChronoUpsert`. A supplied id that already names an entry converges and MERGES its properties,
+    // so the payload alone is not the document being stored, and checking it refused legitimate converges
+    // while letting an already-violating stored key through untouched.
+    const chronoSuppliedId = typeof a['id'] === 'string' ? a['id'] : undefined;
+    const chronoCheck = await classifyChronoUpsert(wt.target, { type: chronoType, properties: chronoProps }, chronoSuppliedId);
+    const chronoSchemaViolations = chronoCheck.all;
+    if (chronoCheck.blocked) {
       // The violations travel as structured data rather than a JSON tail glued to the sentence: a
       // caller had to parse the message to act on them. The prose is unchanged for a client that
       // reads only the content blocks.
@@ -147,7 +153,7 @@ export const create_chronoTool: ToolHandler = {
     if (!rec.ok) throw new Error(rec.error);
 
     const entry = await createChrono(wt.target, {
-      id: typeof a['id'] === 'string' ? a['id'] : undefined,
+      id: chronoSuppliedId,
       title,
       type: chronoType,
       startsAt,

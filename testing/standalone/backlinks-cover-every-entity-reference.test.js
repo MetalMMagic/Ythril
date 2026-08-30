@@ -91,12 +91,30 @@ describe('backlinks cover every entity reference', () => {
       const tick = body.indexOf(`_${coll}\``);
       const at = tick === -1 ? body.indexOf(`_${coll}'`) : tick;
       const stmt = statementAround(body, at, `the ${coll} scan`);
+      /*
+       * The field arrives through the link class now, so the literal name is no longer in the query — and
+       * requiring it would force a copy of exactly what `link-adjacency.ts` was extracted to hold once.
+       *
+       * The invariant is unchanged and the check is stronger: `linksToAny(spaceId, linkClassFor('<kind>'), …)`
+       * carries the field AND the class's own scope, so a query built this way cannot scan a collection for
+       * the wrong reference — which is the failure this assertion has always been about. A query that named
+       * `entityIds` itself but forgot the file class's chunk predicate would have passed the old form.
+       */
       assert.match(
-        stmt, /entityIds/,
-        `findEntityBacklinks reads '${coll}' but that query does not mention entityIds — scanning a collection `
-        + 'for some other reference is not the same as scanning it for this one, which is exactly how files '
-        + `was missed.\n\nstatement:\n${stmt}`,
+        stmt, /linksToAny\(|entityIds/,
+        `findEntityBacklinks reads '${coll}' but that query neither names entityIds nor goes through the `
+        + 'shared link class — scanning a collection for some other reference is not the same as scanning it '
+        + `for this one, which is exactly how files was missed.\n\nstatement:\n${stmt}`,
       );
+      if (/linksToAny\(/.test(stmt)) {
+        // And it must ask for THIS collection's class. `linkClassFor('memory')` inside the chrono scan would
+        // satisfy the line above while scanning chrono for memory's rules.
+        const kind = { memories: 'memory', chrono: 'chrono', files: 'file' }[coll];
+        assert.match(
+          stmt, new RegExp(`linkClassFor\\('${kind}'\\)`),
+          `the ${coll} scan resolves a link class that is not '${kind}'`,
+        );
+      }
     }
   });
 

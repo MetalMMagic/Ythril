@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **What a "link" is now has one definition.** An edge is a record; a link is a *field* — a chrono entry,
+  memory or file naming the entities it concerns in `entityIds`. Three readers scanned those collections to
+  answer three different questions (what a graph walk reaches, what blocks a delete, what the ER diagram
+  draws), each carrying its own copy of the collection name, the field, the projection, and the predicate that
+  keeps file **chunks** out.
+
+  Only the graph walk had that last one. Chunks share a collection with the file they came from and are told
+  apart only by `parentFileId`, so a scan without it counts a forty-passage document forty times — and the
+  delete guard and the ER diagram had no such predicate.
+
+  **Latent, not live, and the distinction is the honest version:** the conversion pipeline never writes
+  `entityIds` onto a chunk, so nothing was actually double-counted. But `updateFileMeta` sets `entityIds` on
+  any filemeta record by id, chunk included, so it was reachable deliberately. One rule, three
+  implementations, and the weakest of them deciding whether an entity can be deleted.
+
+  `brain/link-adjacency.ts` declares the three classes and two query builders; all three readers go through
+  them. No stored data, embedding or sync behaviour changes.
+
+  The gate derives its subject from the declared collection names, so a fourth reader is covered on the commit
+  that adds it. Two of its assertions had to be narrowed after over-reaching: reading `entityIds` in a
+  *projection* is not re-deriving a link class, and `parentFileId: { $exists: false }` is a general
+  "file, not chunk" test that four unrelated call sites are right to use.
+
 - **All four schema validators took a `tags` parameter that none of them read.** `TypeSchema` carries
   `namingPattern`, `propertySchemas`, `retention` and `suppressEmbeddings` — nothing about tags — and the
   space-wide suggestion list was retired two releases ago. Seven files did work to fill the parameter anyway,

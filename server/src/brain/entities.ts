@@ -18,6 +18,7 @@ import { applyDeleteFields, setUnlessDeleted } from './delete-fields.js';
 import { mergeTagsAndProperties, mergePropertiesOrKeep, mergeTagsOrKeep } from './merge-fields.js';
 import { enqueueEmbedJob, retireEmbedJob } from './embed-queue.js';
 import { embeddingSuppressedFor } from './suppress-embeddings.js';
+import { linksToAny, linkClassFor } from './link-adjacency.js';
 import { checkDuplicates, type SimilarMatch, type DupeCheckOpts } from './recall.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import { log } from '../util/log.js';
@@ -519,13 +520,13 @@ export async function findEntityBacklinks(spaceId: string, entityId: string): Pr
 
   // Memories referencing this entity in entityIds
   const memories = await col<MemoryDoc>(`${spaceId}_memories`)
-    .find(asFilter<MemoryDoc>({ spaceId, entityIds: entityId }), { projection: { _id: 1 } })
+    .find(asFilter<MemoryDoc>(linksToAny(spaceId, linkClassFor('memory')!, [entityId])), { projection: { _id: 1 } })
     .toArray() as Array<{ _id: string }>;
   for (const m of memories) backlinks.push({ type: 'memory', _id: m._id });
 
   // Chrono entries referencing this entity in entityIds
   const chronos = await col<ChronoEntry>(`${spaceId}_chrono`)
-    .find(asFilter<ChronoEntry>({ spaceId, entityIds: entityId }), { projection: { _id: 1 } })
+    .find(asFilter<ChronoEntry>(linksToAny(spaceId, linkClassFor('chrono')!, [entityId])), { projection: { _id: 1 } })
     .toArray() as Array<{ _id: string }>;
   for (const c of chronos) backlinks.push({ type: 'chrono', _id: c._id });
 
@@ -540,8 +541,11 @@ export async function findEntityBacklinks(spaceId: string, entityId: string): Pr
    * It blocks, unlike the face scan. Both doors filter `b.type !== 'face'`, and that exemption is deliberate
    * and narrow: a face label is an annotation the system inferred, while `entityIds` is a link somebody wrote.
    */
+  // Through the shared class, which brings the chunk exclusion this scan never had. A chunk shares the file
+  // collection and is told apart only by `parentFileId`; the pipeline does not write `entityIds` onto one, but
+  // `updateFileMeta` will set it on any filemeta record by id, so the gap was reachable deliberately.
   const linkedFiles = await col<FileMetaDoc>(`${spaceId}_files`)
-    .find(asFilter<FileMetaDoc>({ entityIds: entityId }), { projection: { _id: 1 } })
+    .find(asFilter<FileMetaDoc>(linksToAny(spaceId, linkClassFor('file')!, [entityId])), { projection: { _id: 1 } })
     .toArray() as Array<{ _id: string }>;
   for (const f of linkedFiles) backlinks.push({ type: 'file', _id: f._id });
 

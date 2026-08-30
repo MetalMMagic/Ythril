@@ -60,8 +60,16 @@ describe('traverse follows chrono.entityIds', () => {
 
   it('queries the chrono collection for entries pointing at the frontier', () => {
     assert.match(code, /_chrono`\)/, 'the traversal must read the chrono collection');
-    assert.match(code, /entityIds: \{ \$in: frontier \}/,
-      'the link is `entityIds` containing a frontier node — that is the inbound edge this ask is about');
+    /*
+     * The filter now comes from the shared link class, so the literal `entityIds: { $in: frontier }` is gone —
+     * and requiring it back would force a copy of exactly what `link-adjacency.ts` holds once.
+     *
+     * The claim is unchanged: the walk reaches a chrono by the ids on the chrono, against the current
+     * frontier. `linksToAny(mid, CHRONO_LINKS, frontier)` says that and adds the class's own scope, which the
+     * literal could not. `one-definition-of-a-link-class` pins what the class contains.
+     */
+    assert.match(code, /linksToAny\(mid, CHRONO_LINKS, frontier\)/,
+      'the link is the chrono class read against the frontier — that is the inbound edge this ask is about');
   });
 
   it('an explicit edgeLabels filter excludes chrono unless it names the label', () => {

@@ -86,6 +86,18 @@ export async function linkedRecordsAtFrontier(
   visited: Set<string>,
   inclusion: LinkInclusion,
   edgeLabels?: readonly string[] | undefined,
+  /**
+   * The most records this scan may return — the WALK'S OWN cap, never a number chosen here.
+   *
+   * Without it one hub entity returns its whole mention set, once per link class, per member space, per hop.
+   * The node cap does not help: it counts records after they are hydrated, so the read has already happened.
+   *
+   * Owner's decision 2026-08-30: reuse the cap the walk already derives from `topK` and the byte budget, and
+   * let the existing truncation reporting cover it, rather than inventing a second number nobody tunes. The
+   * accepted cost is that link scans and edge scans share one budget, so a hub with thousands of mentions can
+   * crowd out its edge neighbours.
+   */
+  limit?: number,
 ): Promise<LinkedRecord[]> {
   const out: LinkedRecord[] = [];
   if (frontier.length === 0) return out;
@@ -93,8 +105,14 @@ export async function linkedRecordsAtFrontier(
   for (const cls of LINK_CLASSES) {
     if (!included(cls, inclusion) || !labelWanted(cls, edgeLabels)) continue;
     for (const mid of memberIds) {
+      // Bounded on the CURSOR. Reading everything and discarding the tail would cost the same scan and the
+      // same transfer — the point is that the database stops early. `out.length` is subtracted so the bound
+      // covers the call rather than each class separately.
+      const remaining = limit === undefined ? undefined : Math.max(0, limit - out.length);
+      if (remaining === 0) return out;
       const linked = await col<{ _id: string; entityIds?: string[] }>(`${mid}_${cls.collection}`)
         .find(asFilter<{ _id: string }>(linksToAny(mid, cls, frontier)), { projection: cls.projection })
+        .limit(remaining ?? 0)
         .toArray();
       for (const doc of linked) {
         if (visited.has(doc._id)) continue;
@@ -145,6 +163,8 @@ export async function entitiesLinkedFromRecords(
   recordIds: readonly string[],
   inclusion: LinkInclusion,
   edgeLabels?: readonly string[] | undefined,
+  /** The walk's own cap — see `linkedRecordsAtFrontier`'s. */
+  limit?: number,
 ): Promise<OutboundLink[]> {
   const out: OutboundLink[] = [];
   if (recordIds.length === 0) return out;
@@ -154,9 +174,17 @@ export async function entitiesLinkedFromRecords(
     for (const mid of memberIds) {
       // `cls.scope` still applies: a chunk is a filemeta record and must not be walked as a file. `_id` is
       // the whole predicate otherwise — a record either is one of the seeds or it is not.
+      /*
+       * Bounded on the RECORDS read, not on the links emitted. One record can name many entities, so the two
+       * are different numbers — and the read is what this bound exists to limit. The seed set is already
+       * small (it is the recall's matches), so this bites only on a pathological call.
+       */
+      const remaining = limit === undefined ? undefined : Math.max(0, limit - out.length);
+      if (remaining === 0) return out;
       const docs = await col<{ _id: string; entityIds?: string[] }>(`${mid}_${cls.collection}`)
         .find(asFilter<{ _id: string }>({ _id: { $in: [...recordIds] }, ...cls.scope }),
               { projection: { entityIds: 1 } })
+        .limit(remaining ?? 0)
         .toArray();
       for (const doc of docs) {
         for (const to of doc.entityIds ?? []) out.push({ from: doc._id, to, label: cls.label, kind: cls.kind });

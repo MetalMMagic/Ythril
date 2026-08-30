@@ -33,6 +33,16 @@ import { log } from '../util/log.js';
 const TYPE_FILTERED = ['memories', 'entities', 'edges', 'chrono'] as const;
 
 /**
+ * The collections a LINK scan reads, with the field it reads.
+ *
+ * `initSpace` creates these, and that only ever reaches a space NEW to the config — so an index added there
+ * leaves every existing operator on the collection scan. That is the half this file exists for, and it is why
+ * the two lists have to widen together: `entityIds` was created for memories alone, while
+ * `linkedRecordsAtFrontier` reads it on all three, once per class per member space per hop.
+ */
+const LINK_SCANNED = ['memories', 'chrono', 'files'] as const;
+
+/**
  * Create any missing read-path index, for every space.
  *
  * Returns how many index calls were issued, so a caller can log it and a test can assert the loop ran rather
@@ -51,6 +61,14 @@ export async function ensureQueryIndexes(): Promise<number> {
         issued++;
       } catch (err) {
         log.warn(`ensureQueryIndexes: ${space.id}_${name} type index: ${err}`);
+      }
+    }
+    for (const name of LINK_SCANNED) {
+      try {
+        await col(`${space.id}_${name}`).createIndex({ entityIds: 1 });
+        issued++;
+      } catch (err) {
+        log.warn(`ensureQueryIndexes: ${space.id}_${name} entityIds index: ${err}`);
       }
     }
   }

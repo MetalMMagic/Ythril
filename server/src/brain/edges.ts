@@ -769,9 +769,12 @@ export async function traverseGraph(
     //
     // Three blocks until 3.6, one per class, differing in the small. `linkedRecordsAtFrontier` is now the
     // only implementation and recall's expansion calls the same one.
+    // Bounded by THIS walk's node cap. Without it one hub entity returns its whole mention set per class per
+    // member space per hop, and the cap below cannot help because it counts records after they are hydrated.
     const linkedHere = await linkedRecordsAtFrontier(
       memberIds, frontier, frontierSet, visited,
-      { includeChrono, includeMemories, includeFiles }, edgeLabels);
+      { includeChrono, includeMemories, includeFiles }, edgeLabels,
+      Math.max(0, limit - resultNodes.length));
 
     if (newNeighborIds.length === 0 && linkedHere.length === 0) break;
 
@@ -991,7 +994,8 @@ export async function traverseFromSeeds(
   //
   // Once, on the seeds. Everything reached afterwards is an entity or a leaf.
   if (narrowing?.includeChrono || narrowing?.includeMemories || narrowing?.includeFiles) {
-    const outbound = await entitiesLinkedFromRecords([spaceId], frontier, narrowing, narrowing.edgeLabels);
+    const outbound = await entitiesLinkedFromRecords(
+      [spaceId], frontier, narrowing, narrowing.edgeLabels, limit);
     const wanted = outbound.filter(l => !visited.has(l.to));
     if (wanted.length > 0) {
       const linkedEntities = await col<EntityDoc>(`${spaceId}_entities`)
@@ -1089,8 +1093,11 @@ export async function traverseFromSeeds(
     // Collected BEFORE the break for the same reason the standalone walk collects it there: a seed whose only
     // links are a timeline is not a dead end, and keying the break on entity neighbours alone would make it
     // look like one.
+    // Same bound, same reason — and it matters more here, because this is the RECALL path: a depth-N call
+    // with all three flags on makes up to 3N of these reads.
     const linkedHere = await linkedRecordsAtFrontier(
-      [spaceId], frontier, frontierSet, visited, narrowing ?? {}, narrowing?.edgeLabels);
+      [spaceId], frontier, frontierSet, visited, narrowing ?? {}, narrowing?.edgeLabels,
+      Math.max(0, limit - results.length));
 
     // `deferred` counts: a memory seed has no edges and links nothing backwards, so both counters above are
     // zero on its first pass — breaking there would discard the entities its own links reached and undo the

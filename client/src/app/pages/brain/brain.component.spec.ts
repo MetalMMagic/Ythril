@@ -15,9 +15,9 @@
  */
 import { TestBed, DeferBlockBehavior } from '@angular/core/testing';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { EMPTY } from 'rxjs';
+import { EMPTY, BehaviorSubject } from 'rxjs';
 import { of } from 'rxjs';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { SpacesApi } from '../../core/spaces-api.service';
 import { BrainApi } from '../../core/brain-api.service';
 import { FilesApi } from '../../core/files-api.service';
@@ -31,9 +31,9 @@ import { SpaceSettingsState } from '../settings/space-settings-state.service';
 
 
 /** Read-only stub: brain's init cascade is listSpaces → getSpaceStats/getReindexStatus/getSpaceMeta. */
-function makeApi() {
+function makeApi(spaceIds: readonly string[] = ['work']) {
   return {
-    listSpaces: () => of({ spaces: [{ id: 'work', label: 'Work' }] }),
+    listSpaces: () => of({ spaces: spaceIds.map(id => ({ id, label: id })) }),
     getSpaceStats: () => of({ memories: 0, entities: 0, edges: 0, chrono: 0, files: 0 }),
     getReindexStatus: () => of({ needsReindex: false }),
     getSpaceMeta: () => of({ tagSuggestions: [], typeSchemas: {} }),
@@ -101,6 +101,111 @@ describe('BrainComponent (OnPush)', () => {
     // Re-clicking the chip you are already on is not a switch — it must not yank you off your tab.
     c.setTab('edges');
     c.selectSpace('other');
+    expect(c.activeTab()).toBe('edges');
+  });
+
+  it('switching a TAB does not throw you back to the first space', async () => {
+    /*
+     * Reported 2026-08-30: *"when clicking a knowledgetype table in any space but general the ui jumps to
+     * general"*, and the workaround found was to click the type, land in general, pick the space again, and
+     * then the type finally selects.
+     *
+     * The mechanism, and it is one line: this page READS `?space=` and never WRITES it. `setTab` navigates
+     * to record the tab, the navigation re-emits `queryParamMap`, and `applyQueryParams` reads an absent
+     * `?space=` as "no preference" and falls back to `spaces[0]` — the first space in the list. So every tab
+     * click on any other space snapped back, and it also reset the tab to Overview, because `selectSpace`
+     * treats a changed space as a switch.
+     *
+     * The workaround worked for a reason worth keeping: the SECOND click writes the same `?tab=` value, Angular
+     * emits no query-param change, and the handler never runs.
+     *
+     * Every earlier spec here stubs `queryParamMap` as `EMPTY`, so the subscription never fired and no test
+     * could see any of it. This one emits.
+     */
+    const params = new BehaviorSubject(new Map<string, string>());
+    const snapshot = { queryParamMap: { get: (k: string) => params.value.get(k) ?? null } };
+    TestBed.configureTestingModule({
+      imports: [BrainComponent, getTranslocoModule()],
+      providers: [
+        { provide: SpacesApi, useValue: makeApi(['work', 'other']) },
+        { provide: BrainApi, useValue: makeApi(['work', 'other']) },
+        { provide: FilesApi, useValue: makeApi(['work', 'other']) },
+        { provide: AdminApi, useValue: makeApi(['work', 'other']) },
+        { provide: NetworksApi, useValue: makeApi(['work', 'other']) },
+        { provide: AuthService, useValue: { token: () => '' } },
+        {
+          provide: ActivatedRoute,
+          useValue: { snapshot, queryParamMap: params.asObservable() },
+        },
+        {
+          // Stands in for the real navigation: records what was written and re-emits it, which is exactly
+          // what the router does and exactly what the component was not expecting.
+          provide: Router,
+          useValue: {
+            navigate: (_c: unknown[], extras: { queryParams: Record<string, string> }) => {
+              const next = new Map(params.value);
+              for (const [k, v] of Object.entries(extras.queryParams)) next.set(k, v);
+              params.next(next);
+              return Promise.resolve(true);
+            },
+          },
+        },
+      ],
+    });
+    const fixture = TestBed.createComponent(BrainComponent);
+    fixture.detectChanges();
+    const c = fixture.componentInstance as any;
+
+    c.selectSpace('other');
+    expect(c.activeSpaceId()).toBe('other');
+
+    c.setTab('entities');
+    await Promise.resolve();
+
+    expect(c.activeSpaceId(), 'the tab click threw the page back to the first space').toBe('other');
+    expect(c.activeTab(), 'and took the tab with it').toBe('entities');
+
+    /*
+     * And the space is NOT in the URL, on purpose. Writing it would fix this bug too, and is the obvious
+     * move — the owner ruled it out on 2026-08-30 because Ythril is often iframed and a page that rewrites
+     * its own address inside somebody else's frame is doing something the host did not ask for.
+     */
+    expect(params.value.get('space'), 'the space was written to the URL, which is ruled out for iframes')
+      .toBeUndefined();
+  });
+
+  it('a query-param change that names no space leaves the space alone', async () => {
+    // The second half, on its own. An external navigation — a link into this page carrying only `?tab=` —
+    // must not be read as "go back to the first space". Only the FIRST pass, with nothing selected yet,
+    // falls back to the first space.
+    const params = new BehaviorSubject(new Map<string, string>());
+    const snapshot = { queryParamMap: { get: (k: string) => params.value.get(k) ?? null } };
+    TestBed.configureTestingModule({
+      imports: [BrainComponent, getTranslocoModule()],
+      providers: [
+        { provide: SpacesApi, useValue: makeApi(['work', 'other']) },
+        { provide: BrainApi, useValue: makeApi(['work', 'other']) },
+        { provide: FilesApi, useValue: makeApi(['work', 'other']) },
+        { provide: AdminApi, useValue: makeApi(['work', 'other']) },
+        { provide: NetworksApi, useValue: makeApi(['work', 'other']) },
+        { provide: AuthService, useValue: { token: () => '' } },
+        { provide: ActivatedRoute, useValue: { snapshot, queryParamMap: params.asObservable() } },
+        { provide: Router, useValue: { navigate: () => Promise.resolve(true) } },
+      ],
+    });
+    const fixture = TestBed.createComponent(BrainComponent);
+    fixture.detectChanges();
+    const c = fixture.componentInstance as any;
+
+    c.selectSpace('other');
+    expect(c.activeSpaceId()).toBe('other');
+
+    // Someone links in with a tab and no space — the Router stub here writes nothing, so the URL genuinely
+    // carries no `?space=`, which is the state the old fallback mis-read.
+    params.next(new Map([['tab', 'edges']]));
+    await Promise.resolve();
+
+    expect(c.activeSpaceId(), 'an absent ?space= was read as "reset to the first space"').toBe('other');
     expect(c.activeTab()).toBe('edges');
   });
 

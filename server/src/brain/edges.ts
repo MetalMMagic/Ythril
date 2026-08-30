@@ -1,4 +1,4 @@
-import { v4 as uuidv4 } from 'uuid';
+import { edgeIdFor } from './edge-id.js';
 import { brainWriteSeqTotal } from '../metrics/registry.js';
 import { authorRef } from '../config/author.js';
 import { col, asFilter, asDoc, asUpdate, asBulk } from '../db/mongo.js';
@@ -271,7 +271,7 @@ export async function upsertEdge(
   }
 
   const doc: EdgeDoc = {
-    _id: uuidv4(),
+    _id: edgeIdFor(from, to, label),
     spaceId,
     from,
     to,

@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Three of the four single-record sync routes stored a peer's record without checking it, while the batch
+  path checked the same records.** `POST /api/sync/memories`, `/entities` and `/edges` answered `{ status: … }`
+  with nothing computed; only `/chrono` reported. So whether a schema mismatch was noticed depended on **how
+  many records the peer happened to send at once** — one rule, two implementations, the weaker one winning
+  silently.
+
+  This was a gap in the fix that introduced the check, not in the code it replaced, and it was invisible from
+  three directions at once: the helper's own docblock claimed *"the single-record routes return them"* in the
+  plural while one did; the gate windowed the `/chrono` route alone, so the other three sat outside every
+  assertion; and `schemaViolations` appeared in no documentation at all, so no integrator could have reported
+  the absence either.
+
+  All four routes now attach violations through one `withSchemaViolations()` helper rather than four inline
+  spreads — four copies of a rule written once is what produced the split. The gate **enumerates** the ingest
+  routes from source instead of slicing to a named one, so a fifth is covered on the commit that adds it, and
+  it fails if any route hand-rolls the attach-if-non-empty ternary again.
+
+  `schemaViolations` is now documented on both shapes it takes: a per-type counter on `batch-upsert`, the
+  violations themselves on a single-record ingest. It stays absent when empty, so a clean ingest's response is
+  unchanged and a present field always means something to look at.
 - **A long audio or video file could be re-queued while it was working, and then processed twice at once.**
   The media worker builds a heartbeat and a lease check and passed them **only** to the document pipeline. Two
   media steps are not one model call but N of them: audio transcribes one silence-delimited chunk at a time,

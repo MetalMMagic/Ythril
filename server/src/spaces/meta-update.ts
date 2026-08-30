@@ -44,6 +44,7 @@ import { normaliseRecordTtl } from './record-ttl.js';
 import { UpdateSpaceBody, findBrokenLibraryRefs, brokenRefsError, stripServerOwnedMeta, stripServerOwnedSpace } from './body-schemas.js';
 import type { TypeSchemasZ } from './body-schemas.js';
 import type { z } from 'zod';
+import { sweepSuppressedVectors } from '../brain/suppression-sweep.js';
 
 /**
  * Deep-merge an incoming PATCH `meta` payload into the existing SpaceMeta.
@@ -389,5 +390,17 @@ export async function applySpaceMetaUpdate(plan: MetaUpdatePlan): Promise<MetaUp
     meta: mergedMeta,
     ...(plan.hasDocExtraction ? { documentExtraction: plan.documentExtraction } : {}),
   });
+  /*
+   * The stored vectors follow the flag, which is what the userguide has always said happens.
+   *
+   * Not awaited: this runs on every meta write and a space may hold many records, so blocking the PATCH on it
+   * would make an unrelated `purpose` edit feel slow. The sweep is idempotent and local — the vector does not
+   * replicate — so a failure costs nothing beyond the next meta write repeating it, which is why a rejection
+   * is logged rather than surfaced to the caller who was not asking about embeddings.
+   */
+  if (updated) {
+    void sweepSuppressedVectors(id, mergedMeta as SpaceMeta)
+      .catch(err => log.warn(`Suppression sweep failed for ${id}: ${err instanceof Error ? err.message : String(err)}`));
+  }
   return updated ? { outcome: 'applied', space: updated } : { outcome: 'not_found' };
 }

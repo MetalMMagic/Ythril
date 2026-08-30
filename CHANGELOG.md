@@ -80,6 +80,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   have been stricter than the API. Two shipped promises pointing opposite ways is a product decision, not a
   defect, so it is filed for a ruling and the code now says where.
 
+### Fixed
+
+- **Turning suppression on now removes the vectors already stored, which is what the product said it did.**
+  `docs/userguide/02-brain.md` states it in the present tense — *"What it does is remove the record's
+  embedding, not hide the record"* — and it did not. The eleven write paths consult the flag, so a record
+  written *after* it was set never gets a vector; nothing ever looked at records that already existed, and
+  they kept competing on meaning indefinitely. A promise the product makes and the code does not keep is a
+  defect rather than a missing feature, which is what settled the direction. The same page is precise about
+  the other way round — *"Turning suppression off does not go back and embed what was written while it was
+  on"* — so only turning it on changed.
+
+  **The sweep is unconditional rather than a diff of what newly became suppressed**, and that distinction is
+  the whole value. Because nothing ever swept, a type whose schema has carried `suppressEmbeddings: true` for
+  months still holds vectors for every record written before the flag was set — the population the defect
+  actually created. A before/after diff would skip exactly those and heal only spaces that happen to be edited
+  twice. The rule is a state, not an event: after a meta write, nothing suppressed still holds a vector. It
+  converges the backlog on the next meta write of any kind.
+
+  **It is local and takes no seq.** The vector does not replicate — `api/sync/docs.ts` strips `embedding`
+  before sending in all five places, because it is derived and a peer may run a different model. So each peer
+  performs its own sweep when the meta reaches it, and bumping seq would replicate a no-op and re-send whole
+  documents for a field the other side never receives. Any queued embed job for a swept record is cancelled in
+  the same pass: the worker would otherwise write the vector straight back within seconds, and it would look
+  as though the sweep had not run.
+
+  The three tiers are `record > schema > space`, and the two `false`s do **not** mean the same thing: at the
+  record tier `false` means "not stated" and falls through, while at the schema tier it overrides the space.
+  Both directions are asserted, because conflating them would either spare every record anybody had ever
+  explicitly un-suppressed or sweep a type whose schema deliberately opted out.
+
 ### Changed
 
 - **Two peers that independently create the same relationship now agree on its id.** An edge's `_id` was

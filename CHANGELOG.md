@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Internal
+
+- **The work queue can no longer be pushed stale.** Every rule in the tracker gate checked a claim an
+  individual ROW made about the code, so a row that said nothing false stayed green while the queue as a whole
+  drifted: a bug fixed with no row filed for it, a state header naming a pull request from twelve hours
+  earlier, a remark quoting a line count three changes old. Nothing was lying; nothing was current either.
+
+  `todo/` is gitignored, so git cannot answer *"was this updated with the change"* — but the file's write time
+  can. If the newest commit is newer than the ordered queue, the queue predates the work and the check fails,
+  inside the preflight that runs before every push.
+
+  It is deliberately blunt and cannot tell a real update from a touch. It does not try to: satisfying it
+  honestly costs one line in the state header, which is exactly what kept going stale. What it removes is the
+  possibility of pushing without having looked.
+
+- **A tracker item marked in progress was invisible to its own gate.** Every tracker's legend documents
+  `- [~]` alongside `- [ ]`, and the item parser matched only the latter — so marking a row in progress, the
+  honest thing to do while its change is in flight, silently removed it from *"every open item is indexed"*.
+  Found the first time a row was actually marked that way.
+
+
 ### Fixed
 
 - **Clicking a knowledge-type tab in any space but the first jumped back to the first space.** Reported by an

@@ -163,6 +163,64 @@ describe('face labels cascade when their person is deleted', { skip }, () => {
     assert.equal((await face('a.jpg#face-chunk0')).faceEntityId, ALICE, 'an empty id list must match nothing');
   });
 
+  // ── 2. A MERGE is the opposite decision, and it was making neither ─────────
+
+  it('a merge MOVES the labels to the survivor — it does not clear them', async () => {
+    /*
+     * The case this file was missing, and the direction is the whole point.
+     *
+     * A delete means the person is gone, so their labels are wrong and clearing them is right — that is every
+     * test above. A merge means the two records were always the SAME person, so the absorbed one's faces are
+     * the survivor's faces. Clearing them would look like a fix and be a second kind of loss.
+     *
+     * What actually happened before this: the merge deleted the absorbed entity through the driver rather than
+     * through `deleteEntity`, so neither decision was made. The chunks kept pointing at an id that no longer
+     * existed, `labelStillResolves` returned null for every one of them, and the surviving person's gallery
+     * silently emptied.
+     *
+     * Driven through `executeMerge` rather than asserting that merge.ts contains the right string, because a
+     * source read proves a decision was MADE and this has to prove it is CORRECT.
+     */
+    await files.insertOne(faceChunk('bob1.jpg#face-chunk0', 'bob1.jpg', BOB));
+    await files.insertOne(faceChunk('bob2.jpg#face-chunk0', 'bob2.jpg', BOB));
+    await files.insertOne(faceChunk('alice1.jpg#face-chunk0', 'alice1.jpg', ALICE));
+
+    const merge = await import('../../server/dist/brain/merge.js');
+    const survivor = await entities.findOne({ _id: ALICE });
+    const absorbed = await entities.findOne({ _id: BOB });
+    await merge.executeMerge(SPACE, survivor, absorbed, {});
+
+    for (const id of ['bob1.jpg#face-chunk0', 'bob2.jpg#face-chunk0']) {
+      const doc = await face(id);
+      assert.equal(
+        doc.faceEntityId, ALICE,
+        `${id} must now name the survivor. Left pointing at the absorbed id it names a deleted entity, and `
+        + 'the face stops resolving — the gallery empties with nothing logged.',
+      );
+      assert.equal(doc.faceScore, 0.91, 'the confidence survives: the merge says the person did not change');
+      assert.equal(doc.faceEmbedding.length, 128, 'and the biometric descriptor is untouched');
+    }
+    assert.equal(
+      (await face('alice1.jpg#face-chunk0')).faceEntityId, ALICE,
+      'the survivor\'s own faces must be left exactly as they were',
+    );
+    assert.equal(await entities.findOne({ _id: BOB }), null, 'the absorbed entity is still deleted');
+  });
+
+  it('a merge leaves an unlabelled face unlabelled', async () => {
+    // A detected-but-never-labelled face has no opinion about either person. Relinking on a null would hand
+    // every anonymous face in the space to the survivor, which is the failure mode of a too-broad filter.
+    await files.insertOne(faceChunk('anon.jpg#face-chunk0', 'anon.jpg', null));
+
+    const merge = await import('../../server/dist/brain/merge.js');
+    await merge.executeMerge(SPACE, await entities.findOne({ _id: ALICE }), await entities.findOne({ _id: BOB }), {});
+
+    assert.equal(
+      (await face('anon.jpg#face-chunk0')).faceEntityId, undefined,
+      'a face nobody had labelled must not acquire a label from a merge it had nothing to do with',
+    );
+  });
+
   it('a person expiring by TTL detaches their faces too — no human action involved', async () => {
     // The worst version of this bug: `ttl-sweep` routes entity expiry through `deleteEntity`, so a
     // person record aging out silently orphaned every face labelled with them. Driven through the

@@ -45,17 +45,42 @@ const MERGE = 'server/src/brain/merge.ts';
 const withoutComments = (t) =>
   t.replace(/(^|[^:])\/\/.*$/gm, '$1').replace(/\/\*[\s\S]*?\*\//g, '');
 
-/** Every exported interface in `types.ts` that declares an `entityIds` field. */
-function typesWithEntityIds() {
+/**
+ * Every FIELD in `types.ts` that holds an entity id, with the interface it belongs to.
+ *
+ * ## Why this is not just `entityIds`
+ *
+ * It was, and that is how `faceEntityId` went unrelinked for two releases. The old matcher was
+ * `/^\s*entityIds\??\s*:/` — the literal plural name — so a **singular, differently-named link was outside
+ * this gate by construction**, and the one field that fits that description is the biometric one.
+ *
+ * The consequence was invisible in every direction: a merge left face chunks pointing at the absorbed id,
+ * phase 5 deleted it, and `labelStillResolves` returns null for a label that does not resolve — so the faces
+ * simply stopped counting and the surviving person's gallery went empty with nothing logged. `strictLinkage`
+ * could not catch it either, because a merge deletes the absorbed entity directly rather than through the
+ * guard that refuses a delete with inbound backlinks.
+ *
+ * So the discovery is by SHAPE — any field whose name ends in `entityId`/`entityIds`, whatever it is prefixed
+ * with. A third spelling added later is covered on the commit that adds it, which is the property the previous
+ * version lacked.
+ */
+function entityRefFields() {
   const lines = withoutComments(readFileSync(TYPES, 'utf8')).split(/\r?\n/);
   const found = [];
   let current = null;
   for (const line of lines) {
     const m = /^export interface (\w+)/.exec(line);
     if (m) current = m[1];
-    if (/^\s*entityIds\??\s*:/.test(line) && current) found.push(current);
+    // `\w*[eE]ntityIds?` — matches `entityIds` with an empty prefix and `faceEntityId` with one.
+    const f = /^\s*(\w*[eE]ntityIds?)\??\s*:/.exec(line);
+    if (f && current) found.push({ type: current, field: f[1] });
   }
-  return [...new Set(found)];
+  return found.filter((v, i, a) => a.findIndex(o => o.type === v.type && o.field === v.field) === i);
+}
+
+/** The interfaces carrying at least one such field — the unit the collection map is keyed by. */
+function typesWithEntityIds() {
+  return [...new Set(entityRefFields().map(f => f.type))];
 }
 
 /**
@@ -137,11 +162,50 @@ describe('executeMerge relinks every collection that can reference an entity', (
       const uses = [...merge.matchAll(new RegExp(`\\b${varName}\\b`, 'g'))]
         .filter(u => u.index > decl.index + decl[0].length)
         .map(u => statementFrom(merge, u.index, `a use of ${varName}`));
-      assert.ok(uses.some(u => /entityIds: absorbed\._id/.test(u)),
-        `the merge opens ${suffix} as \`${varName}\` and never searches THAT collection for `
-        + '`entityIds: absorbed._id` — so records there keep pointing at the entity phase 5 deletes');
+      // EVERY entity-id field this record type declares, not only the plural one. A type carrying two of them
+      // was relinked on one and left dangling on the other, which is the defect this gate now covers.
+      for (const { field } of entityRefFields().filter(f => f.type === type)) {
+        assert.ok(
+          uses.some(u => new RegExp(`${field}: absorbed\\._id`).test(u)),
+          `the merge opens ${suffix} as \`${varName}\` and never searches THAT collection for `
+          + `\`${field}: absorbed._id\` — so records there keep pointing at the entity phase 5 deletes. `
+          + `${field === 'faceEntityId'
+            ? 'For faces that means the surviving person\'s gallery silently empties: the label no longer '
+              + 'resolves, so every one of them stops counting and nothing says so.'
+            : ''}`,
+        );
+      }
     });
   }
+
+  it('a merge RELINKS a face rather than unlabelling it', () => {
+    /*
+     * The distinction that makes this different from the delete path, and the one worth pinning.
+     *
+     * `unlabelFacesForEntities` is correct for a DELETE — the person is gone, so the labels are wrong. A merge
+     * asserts the opposite: these two records were always the same person, so the absorbed one's faces ARE the
+     * survivor's. Clearing them would discard correct biometric labels the operator asked to keep, and it
+     * would look like a fix while being a second kind of loss.
+     */
+    /*
+     * BOTH SPELLINGS, on one line. The `$set` here is built up conditionally, so the assignment is
+     * `set['faceEntityId'] = survivor._id` rather than the object-literal `faceEntityId: survivor._id` — and
+     * the first draft of this assertion looked only for the second and failed on a correct fix.
+     *
+     * That is this repo's recorded lesson about searching for one way of WRITING a thing instead of for the
+     * thing: a dotted-only sweep reported clean twice. Bounded to a line, which is structural, rather than to
+     * a character count.
+     */
+    assert.match(
+      merge, /\bfaceEntityId\b[^\n]*survivor\._id/,
+      'the merge must point face records AT THE SURVIVOR. Unlabelling them instead throws away labels the '
+      + 'merge is a statement of confidence in.',
+    );
+    assert.doesNotMatch(
+      merge, /unlabelFaces/,
+      'the merge must not call the DELETE path\'s unlabel helper — a merge keeps the labels and moves them',
+    );
+  });
 
   it('bumps seq on every relinked record, so the change replicates', () => {
     // A relink that does not advance `seq` is invisible to sync: a peer would keep the old link forever, and

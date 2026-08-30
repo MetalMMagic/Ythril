@@ -616,6 +616,15 @@ export class BrainComponent implements OnInit, OnDestroy {
     this.loadStats(id);
     this.loadSpaceMeta(id);
     this.ov.loadAll(id, () => this.activeSpaceId() === id, this.spaces().find(sv => sv.space.id === id)?.space.networks ?? []);
+    /*
+     * The selected space is deliberately NOT written to the URL. Owner, 2026-08-30: *"dont use the url please
+     * — i use ythril iframed a lot"*, and a page that rewrites its own address inside somebody else's frame
+     * is doing something the host did not ask for.
+     *
+     * That is why the fix for the space-resetting bug lives in `applyQueryParams` instead: an absent
+     * `?space=` is read as "no preference" rather than as "go to the first space". Writing the parameter
+     * would have fixed the same bug and is the obvious move — do not reintroduce it.
+     */
   }
 
 
@@ -657,10 +666,25 @@ export class BrainComponent implements OnInit, OnDestroy {
   private applyQueryParams(spaces: { id: string }[]): void {
     const qp = this.route.snapshot.queryParamMap;
     const wanted = qp.get('space') ?? undefined;
-    const initial = wanted && spaces.some(s => s.id === wanted) ? wanted : spaces[0]!.id;
+    /*
+     * An ABSENT `?space=` means "no preference", not "go to the first space" — and reading it the second way
+     * is what made every tab click on any space but the first snap back to that first space.
+     *
+     * The sequence, reported 2026-08-30: `setTab` navigates to record the tab, the navigation re-emits
+     * `queryParamMap`, this handler reads no `?space=`, falls back to `spaces[0]`, and calls `selectSpace` —
+     * which also resets the tab to Overview, because a changed space is a switch. The user's own workaround
+     * fits exactly: the second click writes the same `?tab=`, no query-param change is emitted, and this
+     * never runs.
+     *
+     * The fallback is still right for the FIRST pass, when nothing is selected yet. It is only wrong
+     * afterwards, so it is now conditioned on that.
+     */
+    const current = this.activeSpaceId();
+    const known = wanted && spaces.some(s => s.id === wanted) ? wanted : undefined;
+    const initial = known ?? (current || spaces[0]!.id);
     // Only when it CHANGES: selectSpace reloads the space's data, so calling it on every query-param event
     // would refetch on each tab switch this component itself performs.
-    if (initial !== this.activeSpaceId()) this.selectSpace(initial);
+    if (initial !== current) this.selectSpace(initial);
 
     // Only a tab that exists. An unknown value in a hand-edited URL must land on the default rather than a
     // blank pane, and `BRAIN_TABS` is the same list the strip renders from.

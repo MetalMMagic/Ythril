@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Clicking a knowledge-type tab in any space but the first jumped back to the first space.** Reported by an
+  operator: entries in other spaces were only reachable by clicking the type, landing in the wrong space,
+  picking the right space again, and only then clicking the type.
+
+  The Brain page **reads** `?space=` and nothing ever writes it. Selecting a tab navigates to record the tab,
+  that navigation re-emits the query parameters, and an absent `?space=` was read as *"go to the first
+  space"* rather than *"no preference"*. It also reset the tab, because a changed space counts as a switch and
+  lands on the space's Overview.
+
+  The workaround people found works for a reason: the second click writes the same `?tab=` value, so no
+  query-parameter change is emitted and the handler never runs.
+
+  Fixed in the reader — the fallback to the first space is now reached only on the first pass, when nothing is
+  selected yet. **Deliberately not fixed by writing the space to the URL**, which would also have worked:
+  Ythril is frequently embedded in an iframe, and a page that rewrites its own address inside somebody else's
+  frame is doing something the host did not ask for. A test asserts the space stays out of the URL.
+
 - **A per-token rate limit above 300/min could not take effect, and the API said it had.**
   `rateLimitPerMinute` is a real per-token field with an instance ceiling, and its limiter has always been
   mounted. What was never moved is `globalRateLimit`: a literal `max: 300` on 171 routes, keyed on a **hash of
@@ -29,10 +46,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **And nothing moves for anyone who granted nothing:** `DEFAULT_PER_MINUTE` was deliberately kept equal to
   the global limiter's max, so a token with no value resolves to exactly the number it used to be capped at.
   The cap only lifts where somebody explicitly asked for more.
-
-
-### Fixed
-
 
 - **The graph side panel showed a blank name for a memory or a timeline entry.** A graph node is one of four
   kinds, and since 3.6 a chrono entry, memory or file reaches the canvas through its `entityIds` link. The

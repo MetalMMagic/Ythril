@@ -249,13 +249,25 @@ before(async () => {
   // A memory linked to the chain seed by `entityIds`. Not embedded, so it can only arrive through a link.
   if (seedAId) await syncMemory(SPACE, memLinked, `Rotation runbook note ${RUN}`, [seedAId], seq++);
 
-  // And a memory that is itself SEARCHABLE, naming B. It is the non-entity seed: it has no edges of its own,
-  // so before 3.6 it came back with an empty `_graph` at any depth.
-  const seedMem = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/memories`, {
-    fact: `Wombat migration checklist ${RUN} covering marsupial burrow relocation`,
-    entityIds: [entB], tags: [],
-  });
-  seedMemId = seedMem.body?._id ?? null;
+  /*
+   * And a memory that is itself SEARCHABLE, naming the chain seed. It is the non-entity seed: it has no edges
+   * of its own, so before 3.6 it came back with an empty `_graph` at any depth.
+   *
+   * It names `seedAId` rather than one of the synced entities because the space is strict-linkage and the
+   * route requires every `entityIds` value to be a UUID v4 that resolves to an entity. The synced fixtures
+   * are readable ids like `trav-B-…`, which the sync endpoint accepts and this route refuses — so linking to
+   * one 400s. The status is asserted for the same reason it went unnoticed: a create whose failure is not
+   * checked leaves `seedMemId` null, every later assertion looks for an id that is not there, and the
+   * failure reported is about traversal rather than about the fixture.
+   */
+  if (seedAId) {
+    const seedMem = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/memories`, {
+      fact: `Wombat migration checklist ${RUN} covering marsupial burrow relocation`,
+      entityIds: [seedAId], tags: [],
+    });
+    assert.equal(seedMem.status, 201, `memory seed create failed: ${JSON.stringify(seedMem.body)}`);
+    seedMemId = seedMem.body?._id ?? null;
+  }
 
   // Dense graph: hub H → 30 leaves (all one hop away).
   for (const leaf of DENSE_LEAVES) await syncEntity(SPACE_DENSE, leaf, `Leaf-${leaf}`, seq++);
@@ -434,15 +446,15 @@ describe('Recall traverse — links, which are not edges', () => {
     assert.equal(off.status, 200, JSON.stringify(off.body));
     const seedOff = off.body.results.find(x => x._id === seedMemId);
     assert.ok(seedOff, 'the memory must match its own text');
-    assert.equal(nested(off.body.results, entB), undefined, 'unflagged behaviour must be unchanged');
+    assert.equal(nested(off.body.results, seedAId), undefined, 'unflagged behaviour must be unchanged');
 
     const on = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/recall`,
       { query: mq, types: ['memory'], topK: 5, traverse: { depth: 1, includeMemories: true } });
     assert.equal(on.status, 200, JSON.stringify(on.body));
-    const b = nested(on.body.results, entB);
-    assert.ok(b, `the entity the memory names must be hop 1: ${JSON.stringify(allNested(on.body.results).map(n => n.node?._id))}`);
-    assert.equal(b.paths[0].length - 1, 1, 'the named entity is one hop from the match');
-    assert.equal(b.edge.label, 'memory.entityIds');
+    const a = nested(on.body.results, seedAId);
+    assert.ok(a, `the entity the memory names must be hop 1: ${JSON.stringify(allNested(on.body.results).map(n => n.node?._id))}`);
+    assert.equal(a.paths[0].length - 1, 1, 'the named entity is one hop from the match');
+    assert.equal(a.edge.label, 'memory.entityIds');
   });
 
   it('and the walk carries on from there — hop 2 is an ordinary edge', async (t) => {
@@ -454,9 +466,9 @@ describe('Recall traverse — links, which are not edges', () => {
       types: ['memory'], topK: 5, traverse: { depth: 2, includeMemories: true },
     });
     assert.equal(r.status, 200, JSON.stringify(r.body));
-    const c = nested(r.body.results, entC);
-    assert.ok(c, `B→C must be reached at depth 2: ${JSON.stringify(allNested(r.body.results).map(n => n.node?._id))}`);
-    assert.equal(c.paths[0].length - 1, 2, 'the edge neighbour of a linked entity is TWO hops from the match');
+    const b = nested(r.body.results, entB);
+    assert.ok(b, `A→B must be reached at depth 2: ${JSON.stringify(allNested(r.body.results).map(n => n.node?._id))}`);
+    assert.equal(b.paths[0].length - 1, 2, 'the edge neighbour of a linked entity is TWO hops from the match');
   });
 
   it('the echo reports the flags, so a caller can see what the server did', async (t) => {

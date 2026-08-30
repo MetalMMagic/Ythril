@@ -38,6 +38,7 @@
  */
 import { col, asFilter } from '../db/mongo.js';
 import { embed } from './embedding.js';
+import { embeddingSuppressedFor } from './suppress-embeddings.js';
 import { memoryEmbedText, entityEmbedText, edgeEmbedText, chronoEmbedText, fileEmbedText } from './embed-text.js';
 import { clearReindexFlag } from '../spaces/_shared.js';
 import { resolveEdgeEntityNames } from './edges.js';
@@ -145,6 +146,10 @@ export function startReindex(plan: ReindexPlan): void {
   setImmediate(() => {
     void (async () => {
       let reindexed = 0;
+      // Counted separately from `errors`: a suppressed record is not a failure, it is the flag working.
+      // Reported because a reindex that says `reindexed=0` over a suppressed space would otherwise read
+      // as broken, and an operator would go looking for a fault that is a setting.
+      let suppressed = 0;
       let errors = 0;
       try {
             for (const mid of memberIds) {
@@ -157,7 +162,7 @@ export function startReindex(plan: ReindexPlan): void {
               while (true) {
                 const q: Record<string, unknown> = cursor ? { _id: { $gt: cursor } } : {};
                 const batch: MemoryDoc[] = await col<MemoryDoc>(`${mid}_memories`)
-                  .find(asFilter<MemoryDoc>(q), { projection: { _id: 1, fact: 1, tags: 1, entityIds: 1, description: 1, properties: 1 } })
+                  .find(asFilter<MemoryDoc>(q), { projection: { _id: 1, fact: 1, tags: 1, entityIds: 1, description: 1, properties: 1, type: 1, suppressEmbeddings: 1, excludeFromVectorSearch: 1 } })
                   .sort({ _id: 1 })
                   .limit(BATCH)
                   .toArray() as MemoryDoc[];
@@ -171,6 +176,7 @@ export function startReindex(plan: ReindexPlan): void {
                           .toArray() as Array<{ name: string }>
                       : [];
                     const entityNames = entityDocs.map(e => e.name);
+                    if (embeddingSuppressedFor(mid, 'memory', doc as unknown as Record<string, unknown>)) { suppressed++; continue; }
                     const result = await embed(memoryEmbedText(doc.fact, doc.tags ?? [], entityNames, doc.description, doc.properties));
                     await col<MemoryDoc>(`${mid}_memories`).updateOne(
                       { _id: doc._id },
@@ -190,13 +196,14 @@ export function startReindex(plan: ReindexPlan): void {
               while (true) {
                 const q: Record<string, unknown> = cursor ? { _id: { $gt: cursor } } : {};
                 const batch: EntityDoc[] = await col<EntityDoc>(`${mid}_entities`)
-                  .find(asFilter<EntityDoc>(q), { projection: { _id: 1, name: 1, type: 1, tags: 1, description: 1, properties: 1 } })
+                  .find(asFilter<EntityDoc>(q), { projection: { _id: 1, name: 1, type: 1, tags: 1, description: 1, properties: 1, suppressEmbeddings: 1, excludeFromVectorSearch: 1 } })
                   .sort({ _id: 1 })
                   .limit(BATCH)
                   .toArray() as EntityDoc[];
                 if (batch.length === 0) break;
                 for (const doc of batch) {
                   try {
+                    if (embeddingSuppressedFor(mid, 'entity', doc as unknown as Record<string, unknown>)) { suppressed++; continue; }
                     const result = await embed(entityEmbedText(doc.name, doc.type, doc.tags ?? [], doc.description, doc.properties ?? {}));
                     await col<EntityDoc>(`${mid}_entities`).updateOne(
                       { _id: doc._id },
@@ -216,7 +223,7 @@ export function startReindex(plan: ReindexPlan): void {
               while (true) {
                 const q: Record<string, unknown> = cursor ? { _id: { $gt: cursor } } : {};
                 const batch: EdgeDoc[] = await col<EdgeDoc>(`${mid}_edges`)
-                  .find(asFilter<EdgeDoc>(q), { projection: { _id: 1, from: 1, label: 1, to: 1, type: 1, tags: 1, description: 1, properties: 1 } })
+                  .find(asFilter<EdgeDoc>(q), { projection: { _id: 1, from: 1, label: 1, to: 1, type: 1, tags: 1, description: 1, properties: 1, suppressEmbeddings: 1, excludeFromVectorSearch: 1 } })
                   .sort({ _id: 1 })
                   .limit(BATCH)
                   .toArray() as EdgeDoc[];
@@ -226,6 +233,7 @@ export function startReindex(plan: ReindexPlan): void {
                     // Resolve from/to to entity NAMES (not IDs) and include properties — matching
                     // edgeEmbedText so a reindex reproduces exactly what upsertEdge embedded.
                     const [fromName, toName] = await resolveEdgeEntityNames(mid, doc.from, doc.to);
+                    if (embeddingSuppressedFor(mid, 'edge', doc as unknown as Record<string, unknown>)) { suppressed++; continue; }
                     const result = await embed(edgeEmbedText(fromName, doc.label, toName, doc.tags ?? [], doc.type, doc.description, doc.properties));
                     await col<EdgeDoc>(`${mid}_edges`).updateOne(
                       { _id: doc._id },
@@ -245,13 +253,14 @@ export function startReindex(plan: ReindexPlan): void {
               while (true) {
                 const q: Record<string, unknown> = cursor ? { _id: { $gt: cursor } } : {};
                 const batch: ChronoEntry[] = await col<ChronoEntry>(`${mid}_chrono`)
-                  .find(asFilter<ChronoEntry>(q), { projection: { _id: 1, title: 1, type: 1, status: 1, description: 1, tags: 1, properties: 1 } })
+                  .find(asFilter<ChronoEntry>(q), { projection: { _id: 1, title: 1, type: 1, status: 1, description: 1, tags: 1, properties: 1, suppressEmbeddings: 1, excludeFromVectorSearch: 1 } })
                   .sort({ _id: 1 })
                   .limit(BATCH)
                   .toArray() as ChronoEntry[];
                 if (batch.length === 0) break;
                 for (const doc of batch) {
                   try {
+                    if (embeddingSuppressedFor(mid, 'chrono', doc as unknown as Record<string, unknown>)) { suppressed++; continue; }
                     const result = await embed(chronoEmbedText(doc.title, doc.type, doc.status, doc.description, doc.tags ?? [], doc.properties));
                     await col<ChronoEntry>(`${mid}_chrono`).updateOne(
                       { _id: doc._id },
@@ -274,7 +283,7 @@ export function startReindex(plan: ReindexPlan): void {
                   ? { _id: { $gt: cursor }, parentFileId: { $exists: false } }
                   : { parentFileId: { $exists: false } };
                 const batch: FileMetaDoc[] = await col<FileMetaDoc>(`${mid}_files`)
-                  .find(asFilter<FileMetaDoc>(q), { projection: { _id: 1, path: 1, tags: 1, description: 1, properties: 1, entityIds: 1 } })
+                  .find(asFilter<FileMetaDoc>(q), { projection: { _id: 1, path: 1, tags: 1, description: 1, properties: 1, entityIds: 1, suppressEmbeddings: 1, excludeFromVectorSearch: 1 } })
                   .sort({ _id: 1 })
                   .limit(BATCH)
                   .toArray() as FileMetaDoc[];
@@ -290,6 +299,7 @@ export function startReindex(plan: ReindexPlan): void {
                     const entityNames = entityDocs.map(e => e.name);
                     // `excerpt` included, or a reindex would silently re-embed every converted document
                     // without the document's own text — dropping exactly the phrases a reader searches for.
+                    if (embeddingSuppressedFor(mid, 'file', doc as unknown as Record<string, unknown>)) { suppressed++; continue; }
                     const result = await embed(fileEmbedText(doc.path, doc.tags ?? [], doc.description, doc.properties, entityNames, doc.excerpt));
                     await col<FileMetaDoc>(`${mid}_files`).updateOne(
                       { _id: doc._id },
@@ -304,7 +314,7 @@ export function startReindex(plan: ReindexPlan): void {
 
               clearReindexFlag(mid);
             }
-        log.info(`Reindex completed for space '${spaceId}': reindexed=${reindexed}, errors=${errors}`);
+        log.info(`Reindex completed for space '${spaceId}': reindexed=${reindexed}, suppressed=${suppressed}, errors=${errors}`);
       } catch (err) {
         log.error(`Reindex job failed for space '${spaceId}': ${String(err)}`);
       } finally {

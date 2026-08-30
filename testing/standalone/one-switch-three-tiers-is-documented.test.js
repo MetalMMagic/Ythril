@@ -87,7 +87,11 @@ describe('`false` at the record tier never reaches the resolver as `false`', () 
     // The rule was written out by hand at both readers before X-1b, which is the shape this repo produces
     // most: one rule, two implementations, and the weaker one winning silently. Bounded by the call's own
     // closing brace rather than by a character count — a count spans different lines on CRLF than on LF.
-    for (const file of ['server/src/brain/embed-record.ts', 'server/src/brain/reembed.ts']) {
+    // `suppress-embeddings.ts` rather than `embed-record.ts`: the resolution moved there when the creators
+    // needed it too, because `embed-record.ts` imports `edges.ts` and holding the helper there put six brain
+    // modules in a runtime import cycle. The invariant is unchanged — one reader of the record tier — and the
+    // module that owns `recordSuppression` is the honest home for it.
+    for (const file of ['server/src/brain/suppress-embeddings.ts', 'server/src/brain/reembed.ts']) {
       const src = stripComments(readFileSync(file, 'utf8'));
       const at = src.indexOf('embeddingSuppressed({');
       assert.ok(at > 0, `the suppression call was not found in ${file} — the scanner is wrong, not the code`);

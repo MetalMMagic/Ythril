@@ -9,6 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`suppressEmbeddings` was honoured on exactly one write path and ignored on ten others.** The flag is
+  implemented *as the absence of a vector* — there is no read-time filter — so a stored vector is not an
+  inconsistency, it is the feature not working.
+
+  Only the embed QUEUE consulted it, and it carried a comment asserting that *"every writer of a vector reaches
+  this function"*. It did not:
+
+  | path | what it did |
+  |---|---|
+  | the four record creators | computed the vector inline for `waitForEmbedding` / `checkDuplicates` / `checkContradictions`, then skipped the enqueue — the only place the flag applied |
+  | entity merge | re-embedded the survivor unconditionally and wrote it directly |
+  | reindex, five collections | re-embedded every record in the space with no check at all |
+
+  **It was the ordinary write, not an edge case.** `checkDuplicates` defaults to `true` on the MCP tools, so a
+  plain `remember` or `upsert_entity` into a suppressed space stored a vector every time — and a reindex
+  restored one for every record that had escaped.
+
+  All eleven sites now resolve through one `embeddingSuppressedFor()`. The reindex projections were widened
+  with it: they did not fetch `type` or either spelling of the record flag, so the check would have read
+  `undefined` at every tier and suppressed nothing — a fix that looks right and does nothing. A reindex now
+  reports `suppressed=N` beside `reindexed`, because zero re-embeds over a suppressed space otherwise reads as
+  a fault rather than as a setting.
+
+  The duplicate and contradiction checks do not run for a suppressed record. That is not a loss: every record
+  of a suppressed type lacks a vector, so a neighbour search had nothing to find them with — it would have
+  reported "no duplicates" over a space it could not see.
+
+  The gate finds vector STORES from source rather than naming the creators — which is how the merge and
+  reindex sites surfaced at all — and requires each file's checks to match its stores. It also requires a
+  computed `suppressed` to be *read*: a mutant that left the check in place and ignored its result walked
+  through the count, which is a check computed and discarded.
+
 - **`propertySchemas` was documented as "RETIRED — consumed by nothing".** It is one of the most-read fields in
   the schema model and is consumed everywhere. An unclosed doc comment was the cause: the closing marker went
   out with the field it belonged to when `tagSuggestions` was removed, the opener stayed, and the next

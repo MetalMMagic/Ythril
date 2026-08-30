@@ -21,7 +21,18 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const SRC = readFileSync(new URL('../../server/src/brain/embed-record.ts', import.meta.url), 'utf8');
+/*
+ * TWO FILES, because the wiring is now split across them and each half is asserted below.
+ *
+ * The three-tier resolution moved into `suppress-embeddings.ts` when the record creators needed it before
+ * their inline embed — `embed-record.ts` imports `edges.ts`, so holding it there put six brain modules in a
+ * runtime import cycle. What stayed in `embed-record.ts` is the CONSEQUENCE: unsetting a stale vector and
+ * returning `excluded`. Reading only one file would silently stop checking half of this.
+ */
+const SRC = [
+  '../../server/src/brain/suppress-embeddings.ts',
+  '../../server/src/brain/embed-record.ts',
+].map(f => readFileSync(new URL(f, import.meta.url), 'utf8')).join('\n');
 
 /** Comments must not satisfy any of these — several of them describe the very trap being asserted. */
 const CODE = SRC.replace(/(^|[^:])\/\/.*$/gm, '$1').replace(/\/\*[\s\S]*?\*\//g, '');

@@ -20,6 +20,7 @@ import { getSpaceMeta } from '../spaces/schema-validation.js';
 import { mergeTags, mergeProperties, mergePropertiesOrKeep } from './merge-fields.js';
 import { applyDeleteFields } from './delete-fields.js';
 import { enqueueEmbedJob, retireEmbedJob } from './embed-queue.js';
+import { embeddingSuppressedFor } from './suppress-embeddings.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { ChronoEntry, ChronoType, ChronoStatus, TombstoneDoc } from '../config/types.js';
 import { writeFilterFor, writeOutcome } from './write-precondition.js';
@@ -132,7 +133,9 @@ export async function createChrono(
   // Queued by default — see the note in `upsertEntity`. `matchedText` is stored either way.
   const embedText = chronoEmbedText(fields.title, fields.type, status, fields.description, tags, fields.properties);
   let embeddingFields: { embedding?: number[]; embeddingModel?: string; matchedText?: string } = { matchedText: embedText };
-  if (opts?.waitForEmbedding === true) {
+  // Suppression wins over `waitForEmbedding` — see `embeddingSuppressedFor`. `matchedText` is stored either
+  // way, which is the point: a suppressed record stays findable lexically and stops competing on meaning.
+  if (opts?.waitForEmbedding === true && !embeddingSuppressedFor(spaceId, 'chrono', { type: fields.type })) {
     const embResult = await embed(embedText);
     embeddingFields = { embedding: embResult.vector, embeddingModel: embResult.model, matchedText: embedText };
   }

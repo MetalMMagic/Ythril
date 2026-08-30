@@ -1,5 +1,6 @@
 import { TYPE_FIELD } from './ttl.js';
-import type { KnowledgeType } from '../config/types.js';
+import type { KnowledgeType, BrainEmbedRecordType } from '../config/types.js';
+import { getSpaceMeta } from '../spaces/schema-validation.js';
 
 /**
  * Should this record be embedded at all?
@@ -151,4 +152,49 @@ export function schemaKeyFor(
   const field = TYPE_FIELD[kind];
   const v = doc?.[field];
   return typeof v === 'string' && v.length > 0 ? v : undefined;
+}
+
+/**
+ * Would a record of this shape be embedded, or suppressed? The three-tier resolution, callable BEFORE a write.
+ *
+ * ## Why this had to be extractable
+ *
+ * The comment below used to say *"this is the single place the flag has any effect. Every writer of a vector
+ * reaches this function"* — and that was not true. The four creators (`memory.ts`, `entities.ts`, `chrono.ts`,
+ * `edges.ts`) compute the vector INLINE when the caller asks for `waitForEmbedding`, `checkDuplicates` or
+ * `checkContradictions`, and then skip the enqueue precisely because they already have one. The enqueue was
+ * the only path that consulted suppression, so the inline path stored a vector the flag forbids and nothing
+ * ever came back to remove it.
+ *
+ * **The default MCP write hit this**: `checkDuplicates` defaults to `true` on those tools, so an ordinary
+ * `remember` into a suppressed space stored a vector, every time, and the operator's setting did nothing they
+ * could see. `suppressEmbeddings` is implemented AS the absence of a vector — there is no query-time filter —
+ * so a stored vector is not a cosmetic inconsistency, it is the feature not working.
+ *
+ * One function, both callers: the queue asks it about a stored document and a creator asks it about the
+ * document it is about to store. A second copy of a three-tier resolution is exactly the drift this codebase
+ * names as its most frequent defect, and this one already had a comment claiming the copy did not exist.
+ *
+ * `doc` need only carry what the decision reads — the record's own `suppressEmbeddings` and its type field
+ * (`label` for an edge, `type` for the rest, which `schemaKeyFor` already encodes). A creator can pass the two
+ * fields it has before the document is assembled.
+ */
+export function embeddingSuppressedFor(
+  spaceId: string,
+  recordType: BrainEmbedRecordType,
+  doc: Record<string, unknown>,
+): boolean {
+  const meta = getSpaceMeta(spaceId);
+  // A FILE has no type and therefore no type schema — the same asymmetry `TtlBucket` exists to name. So a file
+  // skips the middle tier entirely and is governed by the record flag or the space setting. Narrowing here
+  // rather than casting, because a cast would silently index `typeSchemas` with `'file'` and always miss.
+  const knowledgeType: KnowledgeType | undefined = recordType === 'file' ? undefined : recordType;
+  const schemaKey = knowledgeType === undefined ? undefined : schemaKeyFor(knowledgeType, doc);
+  return embeddingSuppressed({
+    record: recordSuppression(doc),
+    schema: knowledgeType === undefined || schemaKey === undefined
+      ? undefined
+      : meta?.typeSchemas?.[knowledgeType]?.[schemaKey],
+    space: meta?.suppressEmbeddings === true,
+  });
 }

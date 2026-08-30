@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`recall`'s and `find_similar`'s three link flags were refused by MCP while REST accepted them.**
+  `includeChrono` / `includeMemories` / `includeFiles` shipped inside the `traverse` object and worked over
+  REST, but both MCP tools still declared `{depth, edgeLabels, direction}` with `additionalProperties: false`.
+  The dispatcher validates `inputSchema` with Ajv **before** the handler runs, so an MCP call carrying any of
+  them was refused outright — while the byte-identical REST body answered 200 with the expanded graph.
+
+  The tools' own descriptions told callers to send exactly that object. A schema description is what a caller
+  reads *while constructing arguments*, so the authoritative reference documented a call its own guard
+  rejected — the worst form of this, because nobody reports a capability they were told they had and could
+  not use.
+
+  **The schema is now built from `TRAVERSE_OPTION_FIELDS`**, the same list `parseTraverseOption` refuses
+  unknown keys against, by one `traverseOptionSchema(maxDepth)` shared by both tools. It was spelled out
+  inline twice, which is how the two came to disagree with the parser and would have let a fix reach `recall`
+  and leave `find_similar` behind. `additionalProperties: false` is kept: `limit` is still refused there, on
+  purpose.
+
+  **The gate that should have caught this asserted the flags appeared in the DESCRIPTION**, which they did.
+  Prose about a schema decides nothing; the replacement exercises the compiled schema and derives what it
+  expects from the parser's own field list, so a fourth key cannot reach one surface and not the other.
+
 ### Added
 
 - **`recall`'s graph expansion can follow links, not only edges.** Two records can be related two ways: a

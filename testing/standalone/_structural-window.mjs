@@ -475,6 +475,27 @@ export function enclosingBlocksMatching(src, at, opener, label = 'enclosingBlock
 }
 
 /**
+ * The BODY of the innermost enclosing block whose opening line matches `opener` — `null` when there is none.
+ *
+ * `enclosingBlocksMatching` answers *which* blocks contain `at`; this answers *what is in* the relevant one, and
+ * they are different questions. Asking the first and then reading `enclosingBlockAround` gives the innermost
+ * block of ANY kind, which for `res.status(504)` inside `catch (err) { if (err === SENTINEL) { … } }` is the
+ * `if`, not the `catch` — a window that excludes the very line (`err === SENTINEL`) the gate was looking for.
+ * That produced a false failure on a site that was already correct, which is the more dangerous direction: a
+ * gate that cries wolf gets its assertion loosened rather than its window fixed.
+ */
+export function enclosingBlockMatching(src, at, opener, label = 'enclosingBlockMatching') {
+  const { open } = boundariesBefore(src, at, label);
+  for (let i = open.length - 1; i >= 0; i--) {
+    const brace = open[i];
+    const line = openingLineOf(src, brace);
+    // The `{` is appended only for the TEST — `balancedFrom` already includes it, so the returned text must not.
+    if (opener.test(`${line}{`)) return line + balancedFrom(src, brace, label);
+  }
+  return null;
+}
+
+/**
  * An Angular component's inline template — the text inside `template: ` + backtick … backtick.
  *
  * Needed because the JS scanner treats a template literal as a STRING and skips it whole, so every `@if (…) {` in

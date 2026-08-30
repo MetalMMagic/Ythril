@@ -10,6 +10,7 @@ import { SPACE_AREAS, RUNGS, RUNG_IMPLICATIONS, DERIVED_RUNGS } from '../config/
 import { ROUTE_RIGHTS, NOT_AREA_SCOPED } from '../auth/space-rights.js';
 import { refusalsOutsideEditorScope, editorScopeFor } from '../auth/editor-scope.js';
 import { capRights, describeExcess } from '../auth/mint-cap.js';
+import { reportServerFailure } from '../util/report-failure.js';
 import { refuseSelfFloorRaise } from '../auth/floor-guard.js';
 import { migrateToken } from '../auth/rights-migration.js';
 import { canWriteAnywhere } from '../auth/write-anywhere.js';
@@ -680,6 +681,21 @@ tokensRouter.delete('/:id', requireAdminOrSpaceAdminMfa, async (req, res) => {
   // that deleted nothing — the caller believing a live credential is gone.
   const removed = await revokeToken(id);
   if (!removed) {
+    /*
+     * This branch is the one the canary operator hit on 2026-08-29, and it wrote NOTHING to the log — which is
+     * why they spent ten days and a morning reasoning from three unrelated OIDC warnings that happened to share
+     * the second. A deliberate 500 that leaves no trace is indistinguishable from a crash, from a proxy fault,
+     * and from an expired session; they picked the third and were wrong, on the only evidence available.
+     *
+     * There is no `catch` here because nothing threw: `listTokens()` found the id and `revokeToken` then failed
+     * to filter it out, which means the two disagreed about `config.tokens` between one statement and the next.
+     * That is worth a line at ERROR even though it should be unreachable — an unreachable branch that fires is
+     * exactly the report you want, and the id is what makes it actionable.
+     */
+    reportServerFailure(`revoke token ${id}`, new Error(
+      'listTokens() returned the token but revokeToken() removed nothing — the config list and the stored '
+      + 'config disagree',
+    ));
     res.status(500).json({
       error: `Token '${id}' was listed but could not be removed. It is still valid. This is a server-side `
         + 'inconsistency between the token list and the stored config, not something to retry.',

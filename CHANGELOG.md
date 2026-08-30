@@ -9,6 +9,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`recall`'s graph expansion can follow links, not only edges.** Two records can be related two ways: a
+  stored **edge**, or the `entityIds` field a memory, chrono entry or file carries naming what it is about.
+  The standalone `traverse` tool has followed both for two releases. `recall`'s expansion followed edges
+  alone, so in a space whose relationships are mentions rather than edge records — which is most spaces,
+  because mentions happen automatically and edges are written on purpose — `recall(traverse: n)` returned an
+  empty graph. Not an error and not a warning: the graph simply looked empty, which reads as a statement
+  about the data.
+
+  Three flags, inside the `traverse` object, on both doors:
+
+  ```json
+  { "traverse": { "depth": 2, "includeChrono": true, "includeMemories": true, "includeFiles": true } }
+  ```
+
+  **All three default to false**, so no existing response changes. That is a decision rather than caution: a
+  recall caller asked for semantic matches, expansion is decoration on them, and the answer is budgeted — a
+  match is counted together with its whole `_graph` subtree, so every record admitted by default would be
+  paid for in matches that no longer fit. The standalone tool defaults `includeChrono` on because its caller
+  is explicitly exploring a graph rather than searching.
+
+  A linked node arrives carrying `kind` (`chrono`, `memory` or `file`) and the fields that say what it is —
+  never file chunk text, which is the largest thing the product stores and is not what a structural walk is
+  for. The reaching edge is **synthetic**: id `<label>:<from>:<to>`, label `chrono.entityIds` /
+  `memory.entityIds` / `file.entityIds`, and no `author`, `createdAt` or `seq`, because a derived edge has
+  none and inventing them would put fabricated timestamps in a response. `edgeLabels` filters them exactly
+  like any other label.
+
+- **A non-entity recall match is no longer a dead end.** An edge's endpoints are entity ids, so a memory,
+  chrono entry or file that matched semantically had nothing to follow and came back with an empty `_graph`
+  at any depth. Both doors documented that and told the caller to lift the `entityIds` off the match and
+  traverse from one of those by hand — which is a query, performed by the caller because the server declined
+  to make it. With the matching flag on, the walk now starts from the entities the match names: they are hop
+  1 and everything an edge reaches from there is hop 2.
+
+  The docs that carried the limit, and the gate that pinned those sentences, are gone. That gate was written
+  to fail the day the limit was lifted, and it is worth recording that it did not: its probe was the literal
+  collection name inside `traverseFromSeeds`, and the scan had moved into a shared helper, so it passed while
+  enforcing a warning that had become false.
+
 - **A space can now restrict which memory TYPES it accepts.** Declaring one or more `typeSchemas.memory`
   entries makes those names the allowed set, exactly as it already did for entities, edges and chrono. A space
   that declares none is unchanged and still accepts any string, so this can only newly refuse a write in a

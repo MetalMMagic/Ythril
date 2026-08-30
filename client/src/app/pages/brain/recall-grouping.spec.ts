@@ -190,6 +190,24 @@ describe('recall grouping — the graph tree becomes ordered rows', () => {
     expect(out[1]['name']).toBe('vault');
   });
 
+  it('a linked node keeps the knowledge type it actually IS', () => {
+    /*
+     * `type: 'entity'` was hard-coded here, on a comment reading *"traversal only ever reaches entities"*.
+     * Since 3.6 a walk can also reach a memory, chrono entry or file through `entityIds`, and each arrives
+     * carrying `kind`. Stamping `entity` on a memory sends it to the entity grouping and renders it with an
+     * empty name, because a memory has a `fact` and no `name` — a wrong row rather than a missing one.
+     */
+    const out = flattenRecallItems([match({
+      _graph: [{
+        edge: { label: 'memory.entityIds' },
+        node: { _id: 'x1', kind: 'memory', fact: 'the runbook says rotate quarterly' },
+        paths: [['m1', 'x1']],
+      }],
+    })]);
+    expect(out[1]['type']).toBe('memory');
+    expect(out[1]['fact']).toBe('the runbook says rotate quarterly');
+  });
+
   it('a match with no graph is unchanged in content', () => {
     const out = flattenRecallItems([match()]);
     expect(out.length).toBe(1);

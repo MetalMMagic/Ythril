@@ -26,6 +26,18 @@
  *  - **both surfaces take the same flag with the same default.** A rule that reaches one door and not the
  *    other is the defect four brain-API fixes were about.
  *
+ * ## Re-pointed in 3.6, and the reason is the thing this file is about
+ *
+ * Every rule below used to be read out of `traverseGraph`, where the chrono scan sat inline beside a
+ * near-identical memory scan and a near-identical file scan. `recall`'s expansion then needed the same three,
+ * which would have made SIX copies of one rule in one file — the defect `CLAUDE.md` names as the one this
+ * repo produces most. The scan moved into `link-frontier.ts` and both traversals call it.
+ *
+ * So these assertions read from two files now, and they are stronger for it: the rule is enforced once for
+ * all three link classes rather than three times for three, and a check that passes proves it for the memory
+ * and file walks too. What is no longer assertable is any claim about chrono holding a rule the other two
+ * lack — there is nowhere left for that to be true.
+ *
  * Run: node --test testing/standalone/traverse-reaches-chrono.test.js
  * (requires a prior `npm run build` in server/ so server/dist exists)
  */
@@ -33,7 +45,7 @@ import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { bodyOf } from './_structural-window.mjs';
+import { bodyOf, blockAfter } from './_structural-window.mjs';
 
 const ROOT = process.cwd();
 const read = (p) => readFileSync(join(ROOT, p), 'utf8');
@@ -54,32 +66,33 @@ describe('the chrono link is a first-class edge label', () => {
 });
 
 describe('traverse follows chrono.entityIds', () => {
-  const src = read('server/src/brain/edges.ts');
   // Comments explain the mechanism by name, so they must not satisfy the checks that guard it.
-  const code = src.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
+  const strip = (t) =>
+    t.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
+  const code = strip(read('server/src/brain/edges.ts'));
+  const scan = strip(read('server/src/brain/link-frontier.ts'));
 
   it('queries the chrono collection for entries pointing at the frontier', () => {
-    assert.match(code, /_chrono`\)/, 'the traversal must read the chrono collection');
-    /*
-     * The filter now comes from the shared link class, so the literal `entityIds: { $in: frontier }` is gone —
-     * and requiring it back would force a copy of exactly what `link-adjacency.ts` holds once.
-     *
-     * The claim is unchanged: the walk reaches a chrono by the ids on the chrono, against the current
-     * frontier. `linksToAny(mid, CHRONO_LINKS, frontier)` says that and adds the class's own scope, which the
-     * literal could not. `one-definition-of-a-link-class` pins what the class contains.
-     */
-    assert.match(code, /linksToAny\(mid, CHRONO_LINKS, frontier\)/,
-      'the link is the chrono class read against the frontier — that is the inbound edge this ask is about');
+    // The class supplies the collection name, so the literal is gone from the query. Requiring it back would
+    // force a copy of exactly what `link-adjacency.ts` holds once, and `one-definition-of-a-link-class` is
+    // what pins the contents of that class.
+    assert.match(scan, /linksToAny\(mid, cls, frontier\)/,
+      'the link is the class read against the frontier — that is the inbound edge this ask is about');
+    assert.match(scan, /\$\{mid\}_\$\{cls\.collection\}/,
+      'the collection name must come from the class, or this scan knows a name the class does not');
   });
 
-  it('an explicit edgeLabels filter excludes chrono unless it names the label', () => {
-    assert.match(code, /wantsChronoLabel/,
-      'without this, asking for one label would quietly return chrono entries as well');
-    assert.match(code, /edgeLabels\.includes\(CHRONO_LINK_LABEL\)/);
+  it('an explicit edgeLabels filter excludes a link unless it names the label', () => {
+    // Without this, asking for one label would quietly return chrono entries as well — and a filter that
+    // cannot exclude something is not a filter.
+    const body = bodyOf(scan, 'labelWanted');
+    assert.match(body, /edgeLabels\.includes\(cls\.label\)/,
+      'an explicit filter must be able to exclude a link by name');
+    assert.match(body, /length === 0/, 'an empty filter must still mean every label, as it always did');
   });
 
-  it('marks the chrono node and leaves entity nodes untouched', () => {
-    assert.match(code, /kind: 'chrono'/, 'a caller following `_id` must know which collection to look in');
+  it('marks the linked node and leaves entity nodes untouched', () => {
+    assert.match(code, /kind: rec\.kind/, 'a caller following `_id` must know which collection to look in');
     // The entity push must NOT carry a kind — absence is what keeps existing responses identical.
     const entityPush = /resultNodes\.push\(\{ _id: entity\._id[^)]*\)/.exec(code)?.[0] ?? '';
     assert.ok(entityPush, 'could not find the entity node push');
@@ -87,83 +100,79 @@ describe('traverse follows chrono.entityIds', () => {
       'an entity node must stay exactly as it was, so no existing response changes shape');
   });
 
-  it('collects every non-entity kind BEFORE the early break, and the break counts each one', () => {
-    // The defect this gate did not catch on its own: the BFS breaks out when a frontier yields no entity
-    // neighbours, and the chrono lookup originally sat after that break — so an entity whose only link is a
-    // timeline traversed to nothing, which is the reported scenario rather than an edge case. Behaviour
-    // proved it; this pins the ordering that fixed it.
-    //
-    // Read from the break STATEMENT rather than a literal substring of its condition. The condition gained a
-    // third clause when `includeMemories` landed, which broke the old exact-text match while the property it
-    // was protecting was still perfectly intact — a gate that fails on a shape change it does not care about
-    // teaches people to edit gates rather than believe them.
-    const collections = ['chronoHere', 'memoriesHere', 'filesHere'];
+  it('collects the links BEFORE the early break, and the break counts them', () => {
+    /*
+     * The defect this gate did not catch on its own: the BFS breaks out when a frontier yields no entity
+     * neighbours, and the chrono lookup originally sat after that break — so an entity whose only link is a
+     * timeline traversed to nothing, which is the reported scenario rather than an edge case. Behaviour
+     * proved it; this pins the ordering that fixed it.
+     *
+     * Three collections until 3.6, one call now — which is also why the break condition can no longer be
+     * right for chrono and wrong for files.
+     */
     const breakLine = code.split('\n').find(l => l.includes('break;') && l.includes('newNeighborIds.length === 0'));
     assert.ok(breakLine, 'could not find the early break');
-
-    for (const name of collections) {
-      // Word-boundary, not substring: `indexOf('const chronoHere')` also matches `const chronoHereMoved`, so a
-      // rename slid straight past this check when it was mutation-tested.
-      const declaredAt = code.search(new RegExp(`const ${name}\\b`));
-      assert.ok(declaredAt > 0, `could not find the ${name} lookup`);
-      assert.ok(code.indexOf(breakLine) > declaredAt, `${name} must be collected before the early break`);
-      assert.ok(breakLine.includes(`${name}.length === 0`),
-        `the break must count ${name} — otherwise an entity whose only links are that kind looks like a dead end`);
-    }
+    const declaredAt = code.search(/const linkedHere\b/);
+    assert.ok(declaredAt > 0, 'could not find the link scan');
+    assert.ok(code.indexOf(breakLine) > declaredAt, 'the links must be collected before the early break');
+    assert.ok(breakLine.includes('linkedHere.length === 0'),
+      'the break must count the links, or an entity whose only link is a timeline looks like a dead end');
   });
 
-  it('does not expand FROM a chrono node', () => {
+  /*
+   * The emit loop, bounded by its own braces rather than by a character count. A fixed window spans different
+   * LINES on CRLF than on CI's LF, and a window that can fall short of its subject is a gate that passes by
+   * looking at less than it means to — which is what `gates-bound-their-subject-structurally` exists to refuse.
+   */
+  const emitLoop = () => {
+    const at = code.indexOf('for (const rec of linkedHere)');
+    assert.notEqual(at, -1, 'the link emit loop is gone — re-point this gate');
+    return blockAfter(code, at, 'the linked-record emit loop');
+  };
+
+  it('does not expand FROM a linked node', () => {
     // A chrono links to entities, not to other chrono entries, so expanding one would only walk back to
     // entities already visited — spending depth to return nothing.
-    const chronoBlock = code.slice(code.indexOf('for (const { doc, via } of chronoHere)'));
-    const block = chronoBlock.slice(0, chronoBlock.indexOf('frontier = nextFrontier'));
-    assert.doesNotMatch(block, /nextFrontier\.push/, 'a chrono node must not join the next frontier');
+    assert.doesNotMatch(emitLoop(), /nextFrontier\.push/, 'a linked node must not join the next frontier');
   });
 
   it('honours the node limit like any other node', () => {
-    const chronoBlock = code.slice(code.indexOf('for (const { doc, via } of chronoHere)'));
-    assert.match(chronoBlock.slice(0, 600), /resultNodes\.length >= limit/,
-      'chrono nodes must count toward `limit`, or a timeline-heavy space blows past it');
+    assert.match(emitLoop(), /resultNodes\.length >= limit/,
+      'linked nodes must count toward `limit`, or a timeline-heavy space blows past it');
   });
 
   it('gives every synthetic edge an id of its own, never the target node id', () => {
     /*
-     * REVERSED, because the rule it held was wrong in both halves.
+     * REVERSED once already, because the rule it held was wrong in both halves.
      *
      * It asserted `_id: doc._id` on the rationale that "an invented edge id would 404 for anyone who looked
-     * it up — the chrono's own id resolves". It does not: `getEdgeById` reads `${spaceId}_edges` and nothing
-     * else, so the chrono's id 404s on every edge-lookup path the product has. The affordance was never
-     * delivered.
+     * it up — the chrono's own id resolves". It does not: `getEdgeById` reads the edges collection and
+     * nothing else, so the chrono's id 404s on every edge-lookup path the product has. The affordance was
+     * never delivered.
      *
      * What WAS delivered was a collision. A graph library keeps one id namespace for nodes and edges, so the
      * synthetic edge and the node it points at were the same element — cytoscape drops the repeat silently,
      * and the links vanished from the graph view with nothing in the console.
      *
-     * ANCHORED PER BLOCK, not over the whole file. The previous version matched anywhere in `code`, so a
-     * partial fix — chrono corrected, memories and files left alone — would have kept it green. Each of the
-     * three loops is checked against its own slice.
+     * Checked in BOTH traversals. The old version anchored per link class, because the three emit loops could
+     * be fixed one at a time; the classes are one loop now, and what can be fixed one at a time is the
+     * standalone walk versus recall's expansion.
      */
-    for (const source of ['chronoHere', 'memoriesHere', 'filesHere']) {
-      const at = code.indexOf(`for (const { doc, via } of ${source})`);
-      assert.notEqual(at, -1, `the ${source} loop is gone — re-point this gate`);
-      const block = code.slice(at, code.indexOf('resultNodes.push', at));
-      assert.match(
-        block, /_id: syntheticEdgeId\(/,
-        `the ${source} synthetic edge must carry its own id — sharing the target node's id makes a graph `
-        + 'library drop the edge, and it resolves to nothing anyway',
-      );
-      assert.doesNotMatch(
-        block, /resultEdges\.push\(\{ _id: doc\._id/,
-        `the ${source} synthetic edge is reusing the target document id again`,
-      );
+    for (const name of ['traverseGraph', 'traverseFromSeeds']) {
+      const body = bodyOf(code, name);
+      assert.match(body, /syntheticEdgeId\(/,
+        `the ${name} link hop must carry its own edge id — sharing the target node id makes a graph library `
+        + 'drop the edge, and it resolves to nothing anyway');
+      assert.doesNotMatch(body, /_id: (?:doc|rec\.doc)\._id, from:/,
+        `${name} is reusing the target document id for the synthetic edge again`);
     }
   });
 
   it('the synthetic id cannot be mistaken for a stored one', () => {
     // Shaped `<label>:<from>:<to>` rather than a UUID, deliberately: there is no stored edge behind it, and
     // an id that looked real would invite the lookup that cannot work.
-    // `bodyOf`, not a slice to the first `}` — the first one belongs to `${label}` inside the template
-    // literal, so a hand-cut window ends three characters into the thing it is checking.
+    // `bodyOf`, not a slice to the first `}` — the first one belongs to the label placeholder inside the
+    // template literal, so a hand-cut window ends three characters into the thing it is checking.
     assert.match(bodyOf(code, 'syntheticEdgeId'), /\$\{label\}:\$\{from\}:\$\{to\}/,
       'the id must name its label and both endpoints, so two seeds linking to one target differ');
   });
@@ -175,9 +184,8 @@ describe('both surfaces take the same flag with the same default', () => {
 
   it('REST accepts includeChrono, defaults it ON, and validates its type', () => {
     // The three inclusion flags are now validated by one loop over an object of defaults, so the rejection
-    // message is templated (`\`${flag}\` must be a boolean`) rather than spelled out per flag. What matters is
-    // unchanged: the flag is known, its default is on, and a non-boolean is refused — coercing a string would
-    // make includeChrono:"false" silently mean true.
+    // message is templated rather than spelled out per flag. What matters is unchanged: the flag is known,
+    // its default is on, and a non-boolean is refused — coercing a string would make a "false" mean true.
     assert.match(rest, /includeChrono:\s*true/, 'includeChrono must still default to ON');
     assert.match(rest, /must be a boolean/, 'a non-boolean must be rejected, not coerced');
     assert.match(rest, /typeof raw !== 'boolean'|typeof includeChronoRaw !== 'boolean'/,

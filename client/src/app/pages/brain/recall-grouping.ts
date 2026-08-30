@@ -190,10 +190,16 @@ function walkGraph(nodes: unknown, out: RecallResult[]): void {
     const primary = Array.isArray(paths[0]) ? (paths[0] as unknown[]) : [];
     out.push({
       ...(node as Record<string, unknown>),
-      // `type` is the KNOWLEDGE type here, and traversal only ever reaches entities. An entity's own `type`
-      // field is its user-defined one (`service`, `decision`), so the spread must not be allowed to win —
-      // the old envelope overrode it for exactly this reason, and grouping keys off this field.
-      type: 'entity',
+      // `type` is the KNOWLEDGE type here, and an entity's own `type` field is its user-defined one
+      // (`service`, `decision`) — so the spread must not be allowed to win, and grouping keys off this field.
+      //
+      // It was the literal `'entity'` until 3.6, on a comment reading *"traversal only ever reaches
+      // entities"*. A walk can now also reach a memory, chrono entry or file through `entityIds`, and each
+      // arrives carrying `kind`. A memory stamped `entity` renders with an empty name, because a memory has
+      // a `fact` and no `name` — a wrong row rather than a missing one.
+      type: typeof (node as Record<string, unknown>)['kind'] === 'string'
+        ? (node as Record<string, unknown>)['kind']
+        : 'entity',
       source: 'traverse',
       // Derived from the route rather than carried: `paths[0]` is the one it is nested under.
       hops: Math.max(0, primary.length - 1),

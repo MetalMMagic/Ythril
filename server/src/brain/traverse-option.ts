@@ -33,10 +33,35 @@ export interface TraverseOption {
   depth: number;
   edgeLabels?: string[] | undefined;
   direction?: 'outbound' | 'inbound' | 'both' | undefined;
+  /** Follow `chrono.entityIds` as an inbound link, reaching timeline entries about a matched entity. */
+  includeChrono?: boolean | undefined;
+  /** Follow `memory.entityIds` the same way. */
+  includeMemories?: boolean | undefined;
+  /** Follow `file.entityIds`, reaching file META — never chunk text. */
+  includeFiles?: boolean | undefined;
 }
 
 /** Every key the object form accepts. Exported so both doors refuse the same set rather than each their own. */
-export const TRAVERSE_OPTION_FIELDS = ['depth', 'edgeLabels', 'direction'] as const;
+export const TRAVERSE_OPTION_FIELDS =
+  ['depth', 'edgeLabels', 'direction', 'includeChrono', 'includeMemories', 'includeFiles'] as const;
+
+/**
+ * The three link flags, and why every one of them defaults to **off** here.
+ *
+ * The standalone `traverse` tool defaults `includeChrono` ON, because its caller is explicitly exploring a
+ * graph: a flag defaulting off would leave the graph looking the same to everyone who does not already know
+ * the answer. That argument does not carry across.
+ *
+ * A recall caller asked for semantic matches, and expansion is decoration on top of them. The answer is
+ * BUDGETED — a match is counted together with its whole nested subtree — so every linked record admitted by
+ * default is paid for in matches that no longer fit. Memories are usually the most numerous record type in a
+ * space, which is the same reason the standalone tool leaves that one off too.
+ *
+ * Off by default also means this change alters no existing response, which is what makes a change this wide
+ * safe to ship at all. Raising `includeChrono` to on for recall is a one-line follow-up somebody can argue
+ * for on its own merits, against measurements rather than against a release.
+ */
+const LINK_FLAGS = ['includeChrono', 'includeMemories', 'includeFiles'] as const;
 
 const DIRECTIONS = new Set(['outbound', 'inbound', 'both']);
 
@@ -106,6 +131,15 @@ export function parseTraverseOption(raw: unknown, maxDepth: number): TraversePar
     value.direction = direction as 'outbound' | 'inbound' | 'both';
   }
 
+  // REFUSED rather than coerced, like everything else here: `includeChrono: 'yes'` is a mistake, and a
+  // truthy-string default would return a bigger graph with a 200 and no way to tell it was not asked for.
+  for (const flag of LINK_FLAGS) {
+    const raw = obj[flag];
+    if (raw === undefined) continue;
+    if (typeof raw !== 'boolean') return { ok: false, error: `traverse.${flag} must be a boolean` };
+    value[flag] = raw;
+  }
+
   return { ok: true, value };
 }
 
@@ -117,5 +151,9 @@ export function parseTraverseOption(raw: unknown, maxDepth: number): TraversePar
  * always reported a number would hide the narrowing that was applied.
  */
 export function echoTraverse(opt: TraverseOption): number | TraverseOption {
-  return opt.edgeLabels === undefined && opt.direction === undefined ? opt.depth : opt;
+  // Every narrowing key, not a hand-kept pair. When the three link flags were added, a list naming only
+  // `edgeLabels` and `direction` would have echoed `traverse: 2` for a call that also asked for chrono —
+  // reporting a walk the server did not do, which is the one thing this echo exists to prevent.
+  const narrowed = TRAVERSE_OPTION_FIELDS.some(k => k !== 'depth' && opt[k] !== undefined);
+  return narrowed ? opt : opt.depth;
 }

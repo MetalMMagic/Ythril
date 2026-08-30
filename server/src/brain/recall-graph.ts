@@ -37,8 +37,8 @@
  * Trading that for the owner's stated `[[id],[id,id,id]]` is the right way round: the primary route, which is
  * the one being served, gains a full edge object where it used to have three fields.
  */
-import type { EdgeDoc, EntityDoc } from '../config/types.js';
-import { type SeedTraverseNeighbor } from './edges.js';
+import type { EntityDoc } from '../config/types.js';
+import { type SeedTraverseNeighbor, type TraverseHopEdge, type TraverseHopRecord } from './edges.js';
 import { RECALL_RECORD_DIAGNOSTICS, NEVER_RETURNED_FIELDS } from './recall-shape.js';
 import { applyProjection, type NormalisedProjection } from './projection.js';
 
@@ -59,26 +59,45 @@ import { applyProjection, type NormalisedProjection } from './projection.js';
  * ordering matters: leaving `matchedText` out of the allowlist would mean `includeDiagnostics: true` gave a
  * REST caller a field the MCP caller could never get, which is the same divergence one layer down.
  */
-export function graphNodeRecord(e: EntityDoc): Record<string, unknown> {
-  const rec: Record<string, unknown> = { _id: e._id, spaceId: e.spaceId, name: e.name, type: e.type };
-  if (e.createdAt !== undefined) rec['createdAt'] = e.createdAt;
-  if (e.updatedAt !== undefined) rec['updatedAt'] = e.updatedAt;
-  if (e.tags !== undefined) rec['tags'] = e.tags;
-  if (e.description !== undefined) rec['description'] = e.description;
-  if (e.properties !== undefined) rec['properties'] = e.properties;
-  if (e.seq !== undefined) rec['seq'] = e.seq;
-  if (e.embeddingModel !== undefined) rec['embeddingModel'] = e.embeddingModel;
-  const mt = (e as unknown as { matchedText?: unknown }).matchedText;
+export function graphNodeRecord(e: TraverseHopRecord): Record<string, unknown> {
+  /*
+   * A record reached through a LINK is not an entity and has no `name`. It arrives holding its class
+   * projection — `title`/`type` for a chrono, `fact`/`type` for a memory, `path`/`description`/`tags` for a
+   * file — plus `kind`, and that projection IS the contract: a structural walk must not pay for a file's
+   * passage text or a memory's whole body, which is why the projection exists in `LINK_CLASSES` at all.
+   *
+   * So the allowlist below is the ENTITY allowlist, and running a chrono through it would return an object
+   * with an id and nothing else — a node that looks empty rather than one that says what it is. Emitting
+   * what was fetched is the honest answer, and it is the same answer the standalone `traverse` gives.
+   */
+  const kind = (e as { kind?: string }).kind;
+  if (kind !== undefined) return { ...e };
+
+  const ent = e as EntityDoc;
+  const rec: Record<string, unknown> = { _id: ent._id, spaceId: ent.spaceId, name: ent.name, type: ent.type };
+  if (ent.createdAt !== undefined) rec['createdAt'] = ent.createdAt;
+  if (ent.updatedAt !== undefined) rec['updatedAt'] = ent.updatedAt;
+  if (ent.tags !== undefined) rec['tags'] = ent.tags;
+  if (ent.description !== undefined) rec['description'] = ent.description;
+  if (ent.properties !== undefined) rec['properties'] = ent.properties;
+  if (ent.seq !== undefined) rec['seq'] = ent.seq;
+  if (ent.embeddingModel !== undefined) rec['embeddingModel'] = ent.embeddingModel;
+  const mt = (ent as unknown as { matchedText?: unknown }).matchedText;
   if (mt !== undefined) rec['matchedText'] = mt;
   return rec;
 }
 
 /** One traversed node, nested under whatever reached it. */
 export interface GraphNode {
-  /** The whole edge document for the hop that reached this node — `paths[0]`'s last hop. */
-  edge: EdgeDoc;
-  /** The reached record itself, embedding stripped. */
-  node: EntityDoc;
+  /**
+   * The edge for the hop that reached this node — `paths[0]`'s last hop.
+   *
+   * The whole document when a stored edge reached it. A record reached through a LINK has no stored edge and
+   * carries a synthetic one instead, which holds only what is derived: see `SyntheticLinkEdge`.
+   */
+  edge: TraverseHopEdge;
+  /** The reached record itself, embedding stripped. Non-entity kinds carry `kind`. */
+  node: TraverseHopRecord;
   /**
    * Every route from a seed to this node, ids only, seed first.
    *
@@ -107,7 +126,7 @@ export interface RecallGraph {
  */
 export function mapGraphNodes<T>(
   nodes: GraphNode[] | undefined,
-  shapeNode: (doc: EntityDoc) => T,
+  shapeNode: (doc: TraverseHopRecord) => T,
   /**
    * Carry the system-facing fields into the tree, or drop them (default: drop).
    *
@@ -131,13 +150,13 @@ export function mapGraphNodes<T>(
    * traversing call it is usually the bulk of what a projection is being asked to remove.
    */
   projection?: NormalisedProjection,
-): { edge: EdgeDoc; node: T; paths: string[][]; pathsTruncated?: boolean; _graph?: unknown[] }[] | undefined {
+): { edge: TraverseHopEdge; node: T; paths: string[][]; pathsTruncated?: boolean; _graph?: unknown[] }[] | undefined {
   if (!nodes) return undefined;
   return nodes.map(n => {
     const children = mapGraphNodes(n._graph, shapeNode, includeDiagnostics, projection);
-    const edge = stripDiag(n.edge, includeDiagnostics) as EdgeDoc;
+    const edge = stripDiag(n.edge, includeDiagnostics) as TraverseHopEdge;
     return {
-      edge: (projection ? applyProjection(edge, projection) : edge) as EdgeDoc,
+      edge: (projection ? applyProjection(edge, projection) : edge) as TraverseHopEdge,
       // The node goes through the caller's shaping FIRST and is stripped after, so this holds whether the
       // door passes the document through (REST) or maps it to its own record shape (MCP). Stripping an
       // allowlisted record is a no-op, which is the correct outcome rather than a wasted branch.

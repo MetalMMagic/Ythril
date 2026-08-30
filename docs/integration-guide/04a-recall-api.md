@@ -465,6 +465,15 @@ counting rows never double-counts a record, and no relationship is invisible.
 - **Cycle-safe:** each record is visited once, so a circular graph (A→B→C→A) never loops or produces duplicates. A record reachable by several routes is nested under the **shortest** one, with the rest in `paths`.
 - **Space-scoped:** traversal stays within the spaces the calling token may access. An edge pointing at a record in a space the token cannot see (or at an id that is not an entity) is silently skipped — no data and no `403` leak.
 - Only **entities** are returned by traversal (edges connect entities); memories, chrono entries, and files still appear as seeds when they match semantically.
+- **A non-entity seed reaches nothing, at any depth.** An edge's endpoints are entity ids, so a memory, chrono
+  entry or file that matched semantically is not on the graph at all — it comes back as a match with an empty
+  `_graph`, and raising `traverse` does not change that. This is the point most often misread from the bullet
+  above: "only entities are returned" is about what the walk RETURNS, and this is about where it can START.
+
+  It is not a gap in the data. A memory records its links in `entityIds`, which is a field rather than an edge,
+  and `recall`'s expansion follows edges only. To reach a memory's neighbourhood, take the entity ids off the
+  match and traverse from one of those — or use the standalone `traverse`, whose `includeChrono` /
+  `includeMemories` / `includeFiles` flags synthesise links from those same fields. `recall` has no equivalent.
 
 **Performance:** traversal issues roughly two batched (`$in`) MongoDB queries per hop, not one query per node. Even so, `traverse > 2` on a densely-connected graph can fan out quickly — pair it with `filter`, `tags`, or a low `topK` to keep the seed set (and therefore the traversal frontier) tight.
 

@@ -93,11 +93,15 @@ const FROZEN = {
   // shared helper — it is a one-line arrow, and the reasoning went into a TS comment because the prose
   // would otherwise sit inside the template STRING and count as code. The flags could not express a
   // per-space grant, so the pill labelled a token that can write in one space "read-only".
+  // NO DECOMPOSITION: 343 code lines is not a god file, and the raise was two lines moving a permission
+  // pill onto the rights matrix. Splitting a page this size costs a reader more than it saves.
   'client/src/app/pages/settings/tokens.component.ts': 343,
   // RAISED 1617 -> 1618 by one line: the Q-10 timestamp swap replaced a `| date:` cell with `<app-timestamp>` and
   // needed an import, gaining an import line while losing none. At 1618 code lines this file is by far the largest
   // here and wants splitting on its own terms — but not inside a one-cell rendering change, where the split would be
   // the diff and the fix would be a footnote.
+  // DECOMPOSE: G-3. The largest file on this list at 1 618 code lines (1 999 total), and the one where the
+  // ratchet has been loudest for longest.
   'client/src/app/pages/files/file-manager.component.ts': 1618,
   'client/src/app/pages/schema-library/schema-library.component.ts': 1112,
   'server/src/sync/engine.ts': 966,
@@ -138,6 +142,9 @@ const FROZEN = {
   // jobs a route should have — read the header, turn an outcome into a status. The 67 lines are the vote round and
   // the peer notify, which moved because the MCP tool needs them and a tool that skipped the vote would be a
   // governance bypass rather than a missing feature.
+  // NO DECOMPOSITION: already PAID, 851 -> 656 -> 589, by moving two route bodies out to `spaces-reembed.ts`
+  // and `spaces-activity.ts` and keeping only their mount points. This is the answer the rule asks for,
+  // done rather than queued.
   'server/src/api/spaces.ts': 589,
   // 769 -> 773: `openBrainDrawer` gained two overload signatures and its `lastSaved` effect reads the
   // record inside each branch so the discriminant narrows it. Four lines of TYPES, no new behaviour —
@@ -151,9 +158,10 @@ const FROZEN = {
   // wiring and one template block, and there is no version of the fix that adds nothing to this file.
   //
   // This is the largest raise on the list by an order of magnitude, and it is the signal the list exists to
-  // give: the component cannot absorb behaviour any more. The cure is extracting the side-panel record card
-  // (~87 lines of template) into a child component, which is a refactor with its own characterization tests
-  // rather than a tail on a behaviour fix. Filed as G-2.
+  // give: the component cannot absorb behaviour any more.
+  //
+  // DECOMPOSE: G-2 — the side-panel record card, ~87 lines of template, into a child component. A refactor
+  // with its own characterization tests rather than a tail on a behaviour fix.
   'client/src/app/pages/graph/graph.component.ts': 793,
   // 753 -> 764: `backfillTokenRights`. This file is where config migrations already live — the media
   // master-switch and space-description ones are both here — so a fourth belongs beside them rather than in
@@ -218,12 +226,17 @@ const FROZEN = {
   // re-upload stops re-running vision and speech-to-text over content already embedded. Optional on purpose:
   // absent means "unknown", which processes rather than assumes, and it fills itself on the next write —
   // file records SYNC, so a boot migration would have been the wrong shape.
+  // NO DECOMPOSITION: a type file grows with the domain it types, and the raise was ONE optional field on a
+  // doc type. Splitting shared interfaces by size would put a record's fields in a different file from the
+  // record, which is worse to read and worse to keep correct.
   'server/src/config/types.ts': 579,
   'client/src/app/pages/settings/data.component.ts': 644,
   // RAISED 646 -> 647 by ONE line: the Q-6 narrowing swapped `resolveMemberSpaces` for `memberSpacesForRequest`,
   // and this file no longer needed the old import, so it gained an import line and lost none. Not growth in any
   // meaningful sense — but the ratchet cannot tell a net line from a meaningful one, and quietly special-casing
   // "it was only an import" is how a ceiling stops meaning anything.
+  // DECOMPOSE: G-4. 882 lines total, and the raise was one line — but the file is a router with several
+  // route bodies inline, the exact shape `spaces.ts` paid down.
   'server/src/api/files.ts': 647,
   // 645 -> 660: the data-model panel’s mount and its card header. The panel ITSELF is a separate
   // component (er-model-panel) and its geometry a separate module (er-layout) — which is what this
@@ -317,5 +330,62 @@ describe('no file grows past what we already carry', () => {
     assert.ok(types.code < raw * 0.5,
       `expected config/types.ts to be mostly comment (${types.code} code of ${raw} lines); if that is no longer `
       + 'true this assertion is measuring the wrong thing and should be re-aimed at whatever is');
+  });
+});
+
+describe('a raise owes a decomposition task', () => {
+  /*
+   * Owner's rule, 2026-08-30: *"raising is okay but raising means you also have to queue a task to decompose
+   * and modularize."*
+   *
+   * The ratchet already made growth visible; it did not make anybody answer for it. A raise with a good
+   * reason and no follow-up is how a file reaches 1 618 lines one defensible increment at a time — every step
+   * justified, the total justified by nobody.
+   *
+   * `server/src/api/spaces.ts` is the shape this asks for and the proof it is affordable: raised four times,
+   * then PAID from 851 to 656 by moving two route bodies into `spaces-reembed.ts` and `spaces-activity.ts`,
+   * leaving only their mount points. The discipline existed; it was optional.
+   *
+   * ## The marker, and why a reason is allowed
+   *
+   * Every `RAISED a -> b` must be answered in its own comment block by one of:
+   *
+   *   - `DECOMPOSE: <ID>` — a queued task. `todo:check` verifies that id is actually open in the ordered
+   *     queue; this gate cannot, because `todo/` is gitignored and absent in CI.
+   *   - `NO DECOMPOSITION: <reason>` — for a file where splitting is not the answer. A type file grows with
+   *     the domain and a `.strict()` schema grows with its own contract; demanding a refactor task there
+   *     would be make-work, and make-work in a queue is what stops a queue being read.
+   *
+   * The reason costs something: it lands in a diff a person reads, next to the number it excuses.
+   */
+  const SRC = readFileSync('testing/standalone/no-new-god-files.test.js', 'utf8');
+
+  it('every raise is answered by a task or a reason', () => {
+    const lines = SRC.split(/\r?\n/);
+    const unanswered = [];
+    let block = [];
+    for (const line of lines) {
+      if (/^\s*\/\//.test(line)) { block.push(line); continue; }
+      const entry = /^\s*'([^']+)':\s*\d+,/.exec(line);
+      if (entry) {
+        const text = block.join('\n');
+        const raises = (text.match(/RAISED\s+\d+\s*->\s*\d+/g) ?? []).length;
+        if (raises > 0 && !/DECOMPOSE:\s*\S|NO DECOMPOSITION:\s*\S/.test(text)) {
+          unanswered.push(`${entry[1]} — ${raises} raise(s), no DECOMPOSE or NO DECOMPOSITION marker`);
+        }
+      }
+      block = [];
+    }
+    assert.deepEqual(unanswered, [],
+      'these files were raised and nothing was queued to shrink them. A raise with a good reason and no '
+      + 'follow-up is how a file reaches four figures one defensible increment at a time:\n  '
+      + unanswered.join('\n  '));
+  });
+
+  it('the check can see the raises at all', () => {
+    // Without this the parser could silently match nothing and report every file as answered — the vacuity
+    // every coverage gate in this repo has had at least once.
+    assert.ok((SRC.match(/RAISED\s+\d+\s*->\s*\d+/g) ?? []).length >= 5,
+      'no raises found — the comment convention changed and this gate is measuring nothing');
   });
 });

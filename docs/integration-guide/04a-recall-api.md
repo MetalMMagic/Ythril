@@ -464,16 +464,39 @@ counting rows never double-counts a record, and no relationship is invisible.
     would be the same defect again.
 - **Cycle-safe:** each record is visited once, so a circular graph (A→B→C→A) never loops or produces duplicates. A record reachable by several routes is nested under the **shortest** one, with the rest in `paths`.
 - **Space-scoped:** traversal stays within the spaces the calling token may access. An edge pointing at a record in a space the token cannot see (or at an id that is not an entity) is silently skipped — no data and no `403` leak.
-- Only **entities** are returned by traversal (edges connect entities); memories, chrono entries, and files still appear as seeds when they match semantically.
-- **A non-entity seed reaches nothing, at any depth.** An edge's endpoints are entity ids, so a memory, chrono
-  entry or file that matched semantically is not on the graph at all — it comes back as a match with an empty
-  `_graph`, and raising `traverse` does not change that. This is the point most often misread from the bullet
-  above: "only entities are returned" is about what the walk RETURNS, and this is about where it can START.
+- **Entities, and the records that mention them.** A walk follows two things: stored **edges**, whose endpoints
+  are always entities, and **links** — the `entityIds` field a memory, chrono entry or file carries naming what
+  it is about. Edges are followed always; links are opt-in, one flag per kind:
 
-  It is not a gap in the data. A memory records its links in `entityIds`, which is a field rather than an edge,
-  and `recall`'s expansion follows edges only. To reach a memory's neighbourhood, take the entity ids off the
-  match and traverse from one of those — or use the standalone `traverse`, whose `includeChrono` /
-  `includeMemories` / `includeFiles` flags synthesise links from those same fields. `recall` has no equivalent.
+  ```json
+  { "traverse": { "depth": 2, "includeChrono": true, "includeMemories": true, "includeFiles": true } }
+  ```
+
+  All three default to **false**, which is deliberate and is why this changed nothing for existing callers. You
+  asked for semantic matches; expansion is decoration on them, and the answer is budgeted — a match is counted
+  together with its whole `_graph` subtree, so every extra record admitted by default would be paid for in
+  matches that no longer fit. The standalone `traverse` tool defaults `includeChrono` to **true** because its
+  caller is explicitly exploring a graph rather than searching.
+
+  A linked node arrives carrying `kind` (`chrono`, `memory` or `file`) and the fields that say what it is — a
+  chrono's `title` and `type`, a memory's `fact`, a file's `path`, `description` and `tags`. **Never file chunk
+  text:** a file's body is its passages, they are the largest thing stored, and a structural walk must not pay
+  for them. Read the content with the file API if you want it.
+
+  The reaching `edge` is **synthetic** — there is no stored edge record for a link. It carries `_id` in the form
+  `<label>:<from>:<to>`, its two ends, and a label of `chrono.entityIds`, `memory.entityIds` or
+  `file.entityIds`. It has no `author`, `createdAt` or `seq`, because a derived edge has none; do not look one
+  up by that id, and do use the label to tell a modelled relationship from a derived one. `edgeLabels` filters
+  these exactly like any other label, so `{"edgeLabels": ["owns"]}` excludes them and
+  `{"edgeLabels": ["owns", "memory.entityIds"]}` keeps the memories.
+- **A non-entity seed reaches its own links.** An edge's endpoints are entity ids, so a memory, chrono entry or
+  file that matched semantically has no edges of its own. With the matching flag on, the walk instead starts
+  from the entities that match's `entityIds` names — they are hop 1, and everything an edge reaches from there
+  is hop 2.
+
+  Without the flags it still comes back with an empty `_graph`, which is what it always did. Before 3.6 there
+  was no flag to turn on and the guidance here was to take the entity ids off the match and traverse from one
+  of those by hand; that is now the server's job.
 
 **Performance:** traversal issues roughly two batched (`$in`) MongoDB queries per hop, not one query per node. Even so, `traverse > 2` on a densely-connected graph can fan out quickly — pair it with `filter`, `tags`, or a low `topK` to keep the seed set (and therefore the traversal frontier) tight.
 

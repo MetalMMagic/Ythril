@@ -48,11 +48,21 @@ describe('it names the other traversal', () => {
       'this starts from a node you name; recall starts from whatever a search matched');
   });
 
-  it('names `entityIds` as the thing recall cannot reach', () => {
-    // The decisive difference. A caller hitting it from the recall side concludes the data is absent.
+  it('names `entityIds` as the mechanism, and says how the two tools differ NOW', () => {
+    /*
+     * This asserted the literal *"unreachable from `recall`"* until 3.6, when recall gained the same three
+     * flags. The claim was true when written and the sentence had to go with the capability — a caller told
+     * they cannot do something does not report being able to, so a stale limit is invisible in a way a stale
+     * feature is not.
+     *
+     * What is still worth pinning is the part a caller has to know: the mechanism is a FIELD rather than an
+     * edge, and the two tools now differ by DEFAULT rather than by capability.
+     */
     assert.match(TRAVERSE, /entityIds/, 'name the mechanism, not just "more kinds of record"');
-    assert.match(TRAVERSE, /unreachable from `recall`/,
-      'say that recall cannot follow them AT ANY DEPTH — otherwise a caller just tries a deeper traverse');
+    assert.doesNotMatch(TRAVERSE, /unreachable from `recall`/,
+      'recall follows these since 3.6, so this sentence tells a caller not to try the thing that works');
+    assert.match(TRAVERSE, /default/i,
+      'the two tools differ by default now, and a caller choosing between them needs that stated');
   });
 });
 

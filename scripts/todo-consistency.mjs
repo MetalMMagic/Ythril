@@ -93,8 +93,6 @@ const NOT_A_QUEUE = new Map([
  * resolved history for weeks while every checked page stayed clean.
  */
 const MANUAL_VERIFY = new Map([
-  ['A-2', { why: 'the measured case is a graph SHAPE — a space of memories carrying entityIds must return '
-    + 'graphNodes > 0 at depth 1. No count over source answers it.', by: '2026-11-15' }],
   ['A-3', { why: 'Tier 0-R is a corpus benchmark; no count says "S0+ and S0 converge at traverse 0".',
     by: '2026-11-15' }],
 ]);

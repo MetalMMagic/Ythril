@@ -149,10 +149,25 @@ describe('the response says what was actually walked', () => {
       'the response does not echo the traverse, so a caller cannot confirm their narrowing took effect');
   });
 
-  it('the echo stays a NUMBER when nothing was narrowed', () => {
-    // Otherwise every existing caller's assertion on `traverse` changes shape for no behavioural reason.
-    const body = bodyOf(OPTION, 'echoTraverse');
-    assert.match(body, /opt\.depth/, 'echoTraverse never returns the plain depth');
-    assert.match(body, /edgeLabels === undefined/, 'the echo does not distinguish narrowed from not');
+  it('the echo stays a NUMBER when nothing was narrowed, and an OBJECT when anything was', async () => {
+    /*
+     * Otherwise every existing caller's assertion on `traverse` changes shape for no behavioural reason.
+     *
+     * EXERCISED, not read. This asserted the literal `edgeLabels === undefined` and so pinned one SPELLING of
+     * the rule: when the three link flags arrived the check became "no narrowing key is set", derived from
+     * `TRAVERSE_OPTION_FIELDS`, and the gate went red against code that was more correct than what it wanted.
+     * A hand-named pair is also exactly how the echo would have gone on reporting `traverse: 2` for a call
+     * that asked for chrono.
+     */
+    const { echoTraverse } = await import('../../server/dist/brain/traverse-option.js');
+    assert.equal(echoTraverse({ depth: 2 }), 2, 'a plain depth must echo as the number it was sent as');
+    for (const narrowing of [
+      { edgeLabels: ['owns'] }, { direction: 'outbound' },
+      { includeChrono: true }, { includeMemories: true }, { includeFiles: true },
+    ]) {
+      const [key] = Object.keys(narrowing);
+      assert.equal(typeof echoTraverse({ depth: 2, ...narrowing }), 'object',
+        `${key} was applied and the echo still reported a bare depth, describing a walk that did not happen`);
+    }
   });
 });

@@ -39,6 +39,19 @@ export interface LinkClass {
   /** The field naming the linked entities. One name today, declared rather than assumed. */
   field: 'entityIds';
   /**
+   * The label the synthetic edge for this link carries.
+   *
+   * A real value rather than an empty string, so `edgeLabels` can include or exclude a link like any other
+   * relationship and a reader of a traverse result can tell a modelled relationship from a derived one.
+   *
+   * It used to live in `edges.ts` beside the traversal that emits it, and this docblock argued that folding
+   * the two together *"would make an import cycle for the sake of one string apiece"*. That was true only in
+   * the direction it was tried: `edges.ts` already imports this module, so moving the string HERE costs no
+   * cycle at all. It moved when a second traversal needed the same three labels — one more reader is one
+   * more chance for the copies to disagree, and a label is part of what a link IS.
+   */
+  label: string;
+  /**
    * Extra predicate this class needs beyond the field match.
    *
    * Files carry one and the other two do not: chunk records share the file collection and are distinguished
@@ -56,16 +69,13 @@ export interface LinkClass {
 
 /**
  * Every link class, in the order a traversal emits them.
- *
- * The synthetic edge LABELS live in `edges.ts` beside the traversal that emits them and are not repeated here:
- * a label is part of the traverse contract, this module is about where a link is stored, and folding the two
- * together would make an import cycle for the sake of one string apiece.
  */
 export const LINK_CLASSES: readonly LinkClass[] = [
   {
     kind: 'chrono',
     collection: 'chrono',
     field: 'entityIds',
+    label: 'chrono.entityIds',
     scope: {},
     projection: { title: 1, type: 1, entityIds: 1 },
   },
@@ -73,6 +83,7 @@ export const LINK_CLASSES: readonly LinkClass[] = [
     kind: 'memory',
     collection: 'memories',
     field: 'entityIds',
+    label: 'memory.entityIds',
     scope: {},
     projection: { fact: 1, type: 1, entityIds: 1 },
   },
@@ -80,6 +91,7 @@ export const LINK_CLASSES: readonly LinkClass[] = [
     kind: 'file',
     collection: 'files',
     field: 'entityIds',
+    label: 'file.entityIds',
     // See `LinkClass.scope`: chunks share this collection with the files they came from.
     scope: { parentFileId: { $exists: false } },
     projection: { path: 1, description: 1, tags: 1, entityIds: 1 },

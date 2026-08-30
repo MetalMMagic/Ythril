@@ -20,7 +20,9 @@ import { applyDeleteFields, setUnlessDeleted } from './delete-fields.js';
 import { mergePropertiesOrKeep, mergeTagsOrKeep } from './merge-fields.js';
 import { enqueueEmbedJob, retireEmbedJob } from './embed-queue.js';
 import { embeddingSuppressedFor } from './suppress-embeddings.js';
-import { linksToAny, linkClassFor } from './link-adjacency.js';
+import { linkClassFor } from './link-adjacency.js';
+import { linkedRecordsAtFrontier, entitiesLinkedFromRecords, linkedRecordName, linkedRecordType, type LinkedRecord, type LinkInclusion }
+  from './link-frontier.js';
 import { getEntityById } from './entities.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { EdgeDoc, EntityDoc, TombstoneDoc, ChronoEntry, MemoryDoc, FileMetaDoc } from '../config/types.js';
@@ -65,12 +67,6 @@ export interface TraverseResult {
   edges: TraverseEdge[];
   truncated: boolean;
 }
-
-// The three link classes, resolved once at module load rather than looked up per frontier. `!` because
-// `LINK_CLASSES` declares all three — a missing one is a programming error, not a runtime condition.
-const CHRONO_LINKS = linkClassFor('chrono')!;
-const MEMORY_LINKS = linkClassFor('memory')!;
-const FILE_LINKS = linkClassFor('file')!;
 
 /**
  * The id of a SYNTHETIC traverse edge — the link from an entity to a chrono entry, memory or file.
@@ -564,22 +560,16 @@ export async function bulkDeleteEdges(spaceId: string): Promise<number> {
 }
 
 /**
- * The label the synthetic chrono link carries.
+ * The three synthetic link labels, re-exported from where a link is DEFINED.
  *
- * A real value rather than an empty string so `edgeLabels` can include or exclude it like any other, and so a
- * reader of a traverse result can tell a modelled relationship from a derived one.
+ * They were declared here, beside the one traversal that emitted them. A second traversal now emits the same
+ * three, so they moved onto `LinkClass` — a label is part of what a link is, not part of one walk. These
+ * names stay because they are what `edgeLabels` callers and four test suites already spell.
  */
-export const CHRONO_LINK_LABEL = 'chrono.entityIds';
-
-/**
- * The same device for memories: `memory.entityIds` is an inbound link in everything but name, so a memory
- * about an entity is reachable from it. Named on the same pattern as the chrono label so `edgeLabels` can
- * include or exclude it like any other relationship.
- */
-export const MEMORY_LINK_LABEL = 'memory.entityIds';
-
-/** And for files, whose `entityIds` links a document to what it is about. */
-export const FILE_LINK_LABEL = 'file.entityIds';
+// `!` because `LINK_CLASSES` declares all three — a missing one is a programming error, not a runtime state.
+export const CHRONO_LINK_LABEL = linkClassFor('chrono')!.label;
+export const MEMORY_LINK_LABEL = linkClassFor('memory')!.label;
+export const FILE_LINK_LABEL = linkClassFor('file')!.label;
 
 /**
  * BFS graph traversal from a starting entity.
@@ -660,15 +650,6 @@ export async function traverseGraph(
   const resultNodes: TraverseNode[] = [];
   const resultEdges: TraverseEdge[] = [];
 
-  // The label filter itself moved into `frontierEdgeQuery`, which both traversals now share. What stays here is
-  // the CONSEQUENCE of an explicit filter for the link labels below, which is a different question.
-  //
-  // An explicit label filter excludes the chrono link unless it names it — otherwise asking for `depends_on`
-  // would quietly return chrono entries too, and a filter that cannot exclude something is not a filter.
-  const wantsChronoLabel = !edgeLabels || edgeLabels.length === 0 || edgeLabels.includes(CHRONO_LINK_LABEL);
-  const wantsMemoryLabel = !edgeLabels || edgeLabels.length === 0 || edgeLabels.includes(MEMORY_LINK_LABEL);
-  const wantsFileLabel = !edgeLabels || edgeLabels.length === 0 || edgeLabels.includes(FILE_LINK_LABEL);
-
   // Three return sites below, and every one of them owed the same decision about the edge list. A rule copied
   // three times is a rule that will eventually disagree with itself, so it is written once here.
   const answer = (truncated: boolean): TraverseResult =>
@@ -705,72 +686,21 @@ export async function traverseGraph(
       edgesForNewNeighbors.push(edge);
     }
 
-    // Chrono entries that point AT the current frontier. `entityIds` is an inbound link in everything but
+    // Linked records that point AT the current frontier. `entityIds` is an inbound link in everything but
     // name, so this reads it as one — see the note above the function.
     //
     // Collected BEFORE the early break, and counted by it. Keying the break on entity neighbours alone meant
     // an entity whose only link is a timeline returned nothing at all — which is the reported scenario, not
     // an edge case: an incident with ten chrono entries and no edges is exactly what someone traverses from.
     // Verified against a running server; the source-level gate passed happily either way.
-    const chronoHere: { doc: ChronoEntry; via: string }[] = [];
-    if (includeChrono && wantsChronoLabel) {
-      for (const mid of memberIds) {
-        const linked = await col<ChronoEntry>(`${mid}_chrono`)
-          .find(asFilter<ChronoEntry>(linksToAny(mid, CHRONO_LINKS, frontier)),
-                { projection: CHRONO_LINKS.projection })
-          .toArray() as ChronoEntry[];
-        for (const c of linked) {
-          if (visited.has(c._id)) continue;
-          visited.add(c._id);
-          // The frontier entity it hangs off — the `from` of the synthetic edge.
-          const via = c.entityIds.find(id => frontierSet.has(id)) ?? frontier[0];
-          chronoHere.push({ doc: c, via });
-        }
-      }
-    }
-
-    // Memories that point AT the current frontier — same device as chrono above, same reason for collecting
-    // it before the break: an entity whose only links are memories must not look like a dead end.
-    const memoriesHere: { doc: MemoryDoc; via: string }[] = [];
-    if (includeMemories && wantsMemoryLabel) {
-      for (const mid of memberIds) {
-        const linked = await col<MemoryDoc>(`${mid}_memories`)
-          .find(asFilter<MemoryDoc>(linksToAny(mid, MEMORY_LINKS, frontier)),
-                { projection: MEMORY_LINKS.projection })
-          .toArray() as MemoryDoc[];
-        for (const m of linked) {
-          if (visited.has(m._id)) continue;
-          visited.add(m._id);
-          const via = m.entityIds.find(id => frontierSet.has(id)) ?? frontier[0];
-          memoriesHere.push({ doc: m, via });
-        }
-      }
-    }
-
-    // Files that point AT the current frontier.
     //
-    // `parentFileId: { $exists: false }` is load-bearing, not tidiness. Chunks live in the SAME collection as
-    // the files they belong to and are told apart only by that field (see the space-stats count, which uses the
-    // identical predicate). Without it a document that recall split into forty passages would arrive as forty
-    // nodes carrying passage text — the opposite of returning file meta, and it would exhaust `limit` on one
-    // file. The projection then keeps it to what the file IS.
-    const filesHere: { doc: FileMetaDoc; via: string }[] = [];
-    if (includeFiles && wantsFileLabel) {
-      for (const mid of memberIds) {
-        const linked = await col<FileMetaDoc>(`${mid}_files`)
-          .find(asFilter<FileMetaDoc>(linksToAny(mid, FILE_LINKS, frontier)),
-                { projection: FILE_LINKS.projection })
-          .toArray() as FileMetaDoc[];
-        for (const f of linked) {
-          if (visited.has(f._id)) continue;
-          visited.add(f._id);
-          const via = (f.entityIds ?? []).find(id => frontierSet.has(id)) ?? frontier[0];
-          filesHere.push({ doc: f, via });
-        }
-      }
-    }
+    // Three blocks until 3.6, one per class, differing in the small. `linkedRecordsAtFrontier` is now the
+    // only implementation and recall's expansion calls the same one.
+    const linkedHere = await linkedRecordsAtFrontier(
+      memberIds, frontier, frontierSet, visited,
+      { includeChrono, includeMemories, includeFiles }, edgeLabels);
 
-    if (newNeighborIds.length === 0 && chronoHere.length === 0 && memoriesHere.length === 0 && filesHere.length === 0) break;
+    if (newNeighborIds.length === 0 && linkedHere.length === 0) break;
 
     // Batch-fetch entity docs for all new neighbors
     const entityMap = new Map<string, EntityDoc>();
@@ -801,33 +731,19 @@ export async function traverseGraph(
       nextFrontier.push(neighborId);
     }
 
-    // Chrono nodes are emitted at this depth but do NOT join the next frontier: a chrono links to entities,
-    // not to other chrono entries, so expanding from one would only walk back to entities already visited.
-    for (const { doc, via } of chronoHere) {
-      resultEdges.push({ _id: syntheticEdgeId(CHRONO_LINK_LABEL, via, doc._id), from: via, to: doc._id, label: CHRONO_LINK_LABEL });
-      resultNodes.push({ _id: doc._id, name: doc.title, type: doc.type, depth: currentDepth + 1, kind: 'chrono' });
-      if (resultNodes.length >= limit) {
-        return answer(true);
-      }
-    }
-
-    // Memories, for the same reason chrono nodes do not: a memory links to entities, never to another memory.
-    // `type` is optional on a memory, so an undeclared one reports an empty type rather than borrowing `kind`.
-    for (const { doc, via } of memoriesHere) {
-      resultEdges.push({ _id: syntheticEdgeId(MEMORY_LINK_LABEL, via, doc._id), from: via, to: doc._id, label: MEMORY_LINK_LABEL });
-      resultNodes.push({ _id: doc._id, name: doc.fact, type: doc.type ?? '', depth: currentDepth + 1, kind: 'memory' });
-      if (resultNodes.length >= limit) {
-        return answer(true);
-      }
-    }
-
-    // Files, also leaves. `type` is empty because a file has none — borrowing `kind` for it would invent data.
-    for (const { doc, via } of filesHere) {
-      resultEdges.push({ _id: syntheticEdgeId(FILE_LINK_LABEL, via, doc._id), from: via, to: doc._id, label: FILE_LINK_LABEL });
+    // A linked record is emitted at this depth but does NOT join the next frontier: it links to entities,
+    // never to another record of its own kind, so expanding from one would only walk back to entities
+    // already visited. Files carry their meta — never chunk text, which is what the class projection is for.
+    for (const rec of linkedHere) {
+      resultEdges.push({
+        _id: syntheticEdgeId(rec.label, rec.via, rec.doc._id), from: rec.via, to: rec.doc._id, label: rec.label,
+      });
+      const file = rec.kind === 'file' ? rec.doc as FileMetaDoc : undefined;
       resultNodes.push({
-        _id: doc._id, name: doc.path, type: '', depth: currentDepth + 1, kind: 'file',
-        ...(doc.description ? { description: doc.description } : {}),
-        ...(doc.tags && doc.tags.length > 0 ? { tags: doc.tags } : {}),
+        _id: rec.doc._id, name: linkedRecordName(rec), type: linkedRecordType(rec),
+        depth: currentDepth + 1, kind: rec.kind,
+        ...(file?.description ? { description: file.description } : {}),
+        ...(file?.tags && file.tags.length > 0 ? { tags: file.tags } : {}),
       });
       if (resultNodes.length >= limit) {
         return answer(true);
@@ -857,6 +773,29 @@ export const MAX_RECALL_TRAVERSE = 5;
  */
 export const MAX_ALT_PATHS_PER_NODE = 8;
 
+/**
+ * The edge a hop reports when there is no stored edge to report.
+ *
+ * A link is a FIELD, not a record, so the hop that followed one has no `author`, no `createdAt` and no `seq`.
+ * Inventing them to satisfy `EdgeDoc` would put fabricated timestamps in a response, and returning `null`
+ * instead would make every consumer branch on a case that is not exceptional. So the hop edge is a union and
+ * a derived edge carries exactly what is derived: an id (`<label>:<from>:<to>`), the two ends, and the label
+ * that says it came from a field.
+ */
+export interface SyntheticLinkEdge {
+  _id: string;
+  spaceId: string;
+  from: string;
+  to: string;
+  label: string;
+}
+
+/** The edge for one traversed hop: a stored relationship, or a link expressed as one. */
+export type TraverseHopEdge = EdgeDoc | SyntheticLinkEdge;
+
+/** The record one hop reached. Non-entity kinds carry `kind`; an entity does not, and never did. */
+export type TraverseHopRecord = EntityDoc | (LinkedRecord['doc'] & { kind: LinkedRecord['kind'] });
+
 /** A neighbour reached by following the edge graph out from a recall seed set. */
 export interface SeedTraverseNeighbor {
   _id: string;
@@ -865,8 +804,15 @@ export interface SeedTraverseNeighbor {
   hops: number;
   /** Edge chain connecting the nearest seed to this neighbour (shortest path). */
   path: { from: string; label: string; to: string }[];
-  /** Hydrated entity document (embedding stripped). */
-  record: EntityDoc;
+  /**
+   * The reached record (embedding stripped).
+   *
+   * An entity arrives whole. A record reached through a LINK — a chrono entry, memory or file whose
+   * `entityIds` names something on the frontier — arrives holding its class projection and carrying `kind`,
+   * exactly as `TraverseNode.kind` reports it on the standalone tool. `kind` is absent on an entity, so
+   * every response that existed before this is unchanged down to the byte.
+   */
+  record: TraverseHopRecord;
   /** The record this one was reached FROM — its parent in the nesting. A seed id at hop 1. */
   parentId: string;
   /**
@@ -874,8 +820,10 @@ export interface SeedTraverseNeighbor {
    *
    * Its `description` is where the reason for a link lives, and its `tags` are how a caller filters one kind of
    * relationship from another. Reducing the edge to three fields threw both away on every traversal.
+   *
+   * A LINK hop has no stored edge, so it carries a synthetic one — see `SyntheticLinkEdge`.
    */
-  edge: EdgeDoc;
+  edge: TraverseHopEdge;
   /** Ordered record ids, seed first and this node last. `idPath.length - 1` is the hop count. */
   idPath: string[];
   /** Every OTHER route from a seed to this node, ids in the same seed-first order. */
@@ -902,7 +850,7 @@ export interface SeedTraverseNeighbor {
  * way for a caller to say otherwise. On a corpus where a few nodes hold most of the edges, that is the
  * difference between a deliberate neighbourhood and whichever neighbours the node cap happened to keep.
  */
-export interface TraverseNarrowing {
+export interface TraverseNarrowing extends LinkInclusion {
   /** Follow only these labels. Absent or empty means every label, which is what it meant before. */
   edgeLabels?: string[] | undefined;
   /** Which way to walk. Defaults to `both`, which is what recall's expansion always did. */
@@ -955,6 +903,51 @@ export async function traverseFromSeeds(
   let frontierSet = new Set<string>(frontier);
   let depth = 0;
   const results: SeedTraverseNeighbor[] = [];
+  /** Entities reached from a non-entity SEED's own links. Hop 1, so they join the frontier at depth 1. */
+  const deferred: string[] = [];
+
+  // ── A non-entity seed is no longer a dead end ──────────────────────────────────────────────────────────
+  //
+  // Edge endpoints are entity ids, so a memory, chrono entry or file that MATCHED semantically had nothing to
+  // follow: `recall(traverse: n)` returned it with an empty `_graph` at any depth, and both doors documented
+  // that and told the caller to lift the `entityIds` off the match and traverse from one of those by hand.
+  //
+  // That instruction was the query below, performed by the caller because the server declined to. Reading it
+  // here makes the seed's own links a first hop, so the walk continues from the entities it names — which is
+  // what makes the rest of the traversal reachable from a matched memory at all.
+  //
+  // Once, on the seeds. Everything reached afterwards is an entity or a leaf.
+  if (narrowing?.includeChrono || narrowing?.includeMemories || narrowing?.includeFiles) {
+    const outbound = await entitiesLinkedFromRecords([spaceId], frontier, narrowing, narrowing.edgeLabels);
+    const wanted = outbound.filter(l => !visited.has(l.to));
+    if (wanted.length > 0) {
+      const linkedEntities = await col<EntityDoc>(`${spaceId}_entities`)
+        .find(asFilter<EntityDoc>({ _id: { $in: [...new Set(wanted.map(l => l.to))] } }))
+        .project(NEVER_RETURNED_PROJECTION)
+        .toArray() as EntityDoc[];
+      const byId = new Map(linkedEntities.map(e => [e._id, e]));
+      for (const link of wanted) {
+        const entity = byId.get(link.to);
+        // Absent means the id names something outside this space, exactly as a cross-space edge target does.
+        if (!entity || visited.has(link.to)) continue;
+        visited.add(link.to);
+        pathTo.set(link.to, [{ from: link.from, label: link.label, to: link.to }]);
+        idPathTo.set(link.to, [link.from, link.to]);
+        altPathTo.set(link.to, []);
+        results.push({
+          _id: entity._id, spaceId, hops: 1, path: pathTo.get(link.to) ?? [], record: entity,
+          parentId: link.from,
+          edge: { _id: syntheticEdgeId(link.label, link.from, link.to), spaceId, from: link.from, to: link.to, label: link.label },
+          idPath: [link.from, link.to], altPaths: altPathTo.get(link.to) ?? [], altPathsTruncated: false,
+        });
+        if (results.length >= limit) return stampTruncation(results, altTruncated);
+        // Held for the NEXT frontier, not this one. These entities are hop 1, and the loop below emits what a
+        // frontier reaches at `depth + 1` — putting them beside the seeds would make everything one edge past
+        // them arrive labelled hop 1 and, worse, be walked at all on a `traverse: 1` that has no budget for it.
+        deferred.push(link.to);
+      }
+    }
+  }
 
   while (frontier.length > 0 && depth < maxDepth) {
     const edges = await col<EdgeDoc>(`${spaceId}_edges`)
@@ -1014,7 +1007,22 @@ export async function traverseFromSeeds(
       newNeighborIds.push(neighborId);
     }
 
-    if (newNeighborIds.length === 0) break;
+    // Records that point AT the current frontier through `entityIds`, which is an inbound link in everything
+    // but name. Until 3.6 this walk followed stored edges ALONE, while the standalone `traverse` tool —
+    // building the same query in the same file — followed both. One rule, two implementations, and the one
+    // reachable from a search had the weaker: in a space whose relationships are mentions rather than edge
+    // records, which is most spaces, `recall(traverse: n)` returned an empty graph and said nothing about why.
+    //
+    // Collected BEFORE the break for the same reason the standalone walk collects it there: a seed whose only
+    // links are a timeline is not a dead end, and keying the break on entity neighbours alone would make it
+    // look like one.
+    const linkedHere = await linkedRecordsAtFrontier(
+      [spaceId], frontier, frontierSet, visited, narrowing ?? {}, narrowing?.edgeLabels);
+
+    // `deferred` counts: a memory seed has no edges and links nothing backwards, so both counters above are
+    // zero on its first pass — breaking there would discard the entities its own links reached and undo the
+    // whole point of the pre-pass.
+    if (newNeighborIds.length === 0 && linkedHere.length === 0 && deferred.length === 0) break;
 
     // NOTE: no `spaceId` filter here — deliberately, and it must stay that way.
     //
@@ -1045,6 +1053,37 @@ export async function traverseFromSeeds(
       if (results.length >= limit) return stampTruncation(results, altTruncated);
       nextFrontier.push(neighborId);
     }
+
+    // Linked records are LEAVES — they do not join the next frontier. A chrono entry links to entities, never
+    // to another chrono entry, so expanding from one would only walk back to entities already visited.
+    //
+    // They carry no `altPaths`: a second route to a linked record would have to arrive through a second
+    // frontier entity in the same hop, and `visited` claims it at the first. Recording that properly means
+    // the same alternate-route bookkeeping the edge half does, and it is deliberately not built here — an
+    // empty array is the truthful shape for "one route recorded", which is also what a first-hop entity
+    // reports.
+    for (const rec of linkedHere) {
+      const viaPath = idPathTo.get(rec.via) ?? [rec.via];
+      results.push({
+        _id: rec.doc._id,
+        spaceId,
+        hops: viaPath.length,
+        path: [...(pathTo.get(rec.via) ?? []), { from: rec.via, label: rec.label, to: rec.doc._id }],
+        // `spaceId` stamped rather than projected: the class projection is shared with the ER scan, which has
+        // no use for it, and the walk already knows which space it is reading. Without it a linked node would
+        // be the only node in the answer that cannot say where it lives.
+        record: { ...rec.doc, spaceId, kind: rec.kind },
+        parentId: rec.via,
+        edge: { _id: syntheticEdgeId(rec.label, rec.via, rec.doc._id), spaceId, from: rec.via, to: rec.doc._id, label: rec.label },
+        idPath: [...viaPath, rec.doc._id],
+        altPaths: [],
+        altPathsTruncated: false,
+      });
+      if (results.length >= limit) return stampTruncation(results, altTruncated);
+    }
+
+    // The seed's own linked entities join here, once, on the first pass — see `deferred`.
+    nextFrontier.push(...deferred.splice(0));
 
     frontier = nextFrontier;
     frontierSet = new Set<string>(frontier);

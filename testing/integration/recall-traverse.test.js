@@ -46,6 +46,10 @@ const entB = `trav-B-${RUN}`;
 const entC = `trav-C-${RUN}`;
 const entD = `trav-D-${RUN}`;
 const ghost = `trav-ghost-${RUN}`; // referenced by an edge but never created as an entity
+// A memory ABOUT the chain seed, joined to it by `entityIds` rather than by an edge. Written via sync so it
+// is not embedded: it must be reached structurally, never by matching the query itself.
+const memLinked = `trav-mem-${RUN}`;
+let seedMemId = null;   // an embedded MEMORY seed, whose own entityIds names B
 const DENSE_LEAVES = Array.from({ length: 30 }, (_, i) => `dense-leaf-${i}-${RUN}`);
 
 function token() { return tokenA; }
@@ -168,13 +172,22 @@ async function openMcpSession(authToken, instance = INSTANCES.a, timeoutMs = 15_
  * 150 s index lag seen on CI.
  */
 const waitForIndexed = (space, ids, timeoutMs) =>
-  waitForIndexedShared(INSTANCES.a, token(), space, ids, ['entity'], timeoutMs);
+  waitForIndexedShared(INSTANCES.a, token(), space, ids, ['entity', 'memory'], timeoutMs);
 
 async function syncEntity(space, id, name, seq) {
   const { post: syncPost } = await import('../sync/helpers.js');
   const now = new Date().toISOString();
   await syncPost(INSTANCES.a, token(), `/api/sync/entities?spaceId=${space}`, {
     _id: id, spaceId: space, name, type: 'service', tags: [],
+    seq, author: { instanceId: 'test', instanceLabel: 'Test' }, createdAt: now, updatedAt: now,
+  });
+}
+
+async function syncMemory(space, id, fact, entityIds, seq) {
+  const { post: syncPost } = await import('../sync/helpers.js');
+  const now = new Date().toISOString();
+  await syncPost(INSTANCES.a, token(), `/api/sync/memories?spaceId=${space}`, {
+    _id: id, spaceId: space, fact, entityIds, tags: [], embedding: [], embeddingModel: 'none',
     seq, author: { instanceId: 'test', instanceLabel: 'Test' }, createdAt: now, updatedAt: now,
   });
 }
@@ -233,12 +246,24 @@ before(async () => {
     await syncEdge(SPACE, seedAId, ghost, 'references', seq++);
   }
 
+  // A memory linked to the chain seed by `entityIds`. Not embedded, so it can only arrive through a link.
+  if (seedAId) await syncMemory(SPACE, memLinked, `Rotation runbook note ${RUN}`, [seedAId], seq++);
+
+  // And a memory that is itself SEARCHABLE, naming B. It is the non-entity seed: it has no edges of its own,
+  // so before 3.6 it came back with an empty `_graph` at any depth.
+  const seedMem = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/memories`, {
+    fact: `Wombat migration checklist ${RUN} covering marsupial burrow relocation`,
+    entityIds: [entB], tags: [],
+  });
+  seedMemId = seedMem.body?._id ?? null;
+
   // Dense graph: hub H → 30 leaves (all one hop away).
   for (const leaf of DENSE_LEAVES) await syncEntity(SPACE_DENSE, leaf, `Leaf-${leaf}`, seq++);
   if (seedHId) for (const leaf of DENSE_LEAVES) await syncEdge(SPACE_DENSE, seedHId, leaf, 'feeds', seq++);
 
   if (embeddingAvailable && seedAId) await waitForIndexed(SPACE, [seedAId]);
   if (embeddingAvailable && seedHId) await waitForIndexed(SPACE_DENSE, [seedHId]);
+  if (embeddingAvailable && seedMemId) await waitForIndexed(SPACE, [seedMemId]);
 });
 
 after(async () => {
@@ -346,6 +371,111 @@ describe('Recall traverse — graph expansion', () => {
 });
 
 // ── Result cap (embedding required) ──────────────────────────────────────────
+
+describe('Recall traverse — links, which are not edges', () => {
+  const q = 'authentication token scoping vault';
+
+  it('with no flag, a linked memory is not reached — this is what every existing caller gets', async (t) => {
+    if (!embeddingAvailable) return t.skip('embedding unavailable');
+    /*
+     * The backward-compatibility half, and the reason all three flags default off. A memory that names the
+     * seed in `entityIds` is related to it, and an ordinary `traverse: 1` must still not return it: a change
+     * that silently widened the walk would spend the caller's byte budget on records they did not ask for.
+     */
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/recall`,
+      { query: q, types: ['entity'], topK: 10, traverse: 1 });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(nested(r.body.results, memLinked), undefined,
+      'a link was followed without being asked for');
+  });
+
+  it('includeMemories reaches it, with its kind and a synthetic edge', async (t) => {
+    if (!embeddingAvailable) return t.skip('embedding unavailable');
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/recall`,
+      { query: q, types: ['entity'], topK: 10, traverse: { depth: 1, includeMemories: true } });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+
+    const mem = nested(r.body.results, memLinked);
+    assert.ok(mem, `the linked memory must be reached: ${JSON.stringify(allNested(r.body.results).map(n => n.node?._id))}`);
+    // `kind` is what tells a caller which collection to look in. Guessing from the shape does not work: a
+    // memory has no `name`, so a consumer that assumed an entity renders an empty title rather than the fact.
+    assert.equal(mem.node.kind, 'memory');
+    assert.equal(mem.node.fact, `Rotation runbook note ${RUN}`);
+    // Synthetic: there is no stored edge record, so it carries what is derived and nothing invented.
+    assert.equal(mem.edge.label, 'memory.entityIds');
+    assert.equal(mem.edge._id, `memory.entityIds:${seedAId}:${memLinked}`);
+    assert.equal(mem.edge.author, undefined, 'a derived edge must not carry a fabricated author');
+    assert.equal(mem.edge.createdAt, undefined, 'a derived edge must not carry a fabricated timestamp');
+  });
+
+  it('edgeLabels excludes a link like any other label', async (t) => {
+    if (!embeddingAvailable) return t.skip('embedding unavailable');
+    // A filter that cannot exclude something is not a filter. Asking for `depends_on` alone must not return
+    // memories just because the flag is on.
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/recall`, {
+      query: q, types: ['entity'], topK: 10,
+      traverse: { depth: 1, includeMemories: true, edgeLabels: ['depends_on'] },
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(nested(r.body.results, memLinked), undefined, 'an explicit label filter did not exclude the link');
+    assert.ok(nested(r.body.results, entB), 'the named label must still be followed');
+  });
+
+  it('a memory SEED is no longer a dead end — the walk starts from what it names', async (t) => {
+    if (!embeddingAvailable) return t.skip('embedding unavailable');
+    /*
+     * The reported limit, from the other side. Edge endpoints are entity ids, so a matched memory had nothing
+     * to follow and came back with an empty `_graph` at any depth; both doors documented that and told the
+     * caller to lift the ids off the match and traverse from one of those by hand.
+     */
+    const mq = 'wombat marsupial burrow relocation checklist';
+    const off = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/recall`,
+      { query: mq, types: ['memory'], topK: 5, traverse: 1 });
+    assert.equal(off.status, 200, JSON.stringify(off.body));
+    const seedOff = off.body.results.find(x => x._id === seedMemId);
+    assert.ok(seedOff, 'the memory must match its own text');
+    assert.equal(nested(off.body.results, entB), undefined, 'unflagged behaviour must be unchanged');
+
+    const on = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/recall`,
+      { query: mq, types: ['memory'], topK: 5, traverse: { depth: 1, includeMemories: true } });
+    assert.equal(on.status, 200, JSON.stringify(on.body));
+    const b = nested(on.body.results, entB);
+    assert.ok(b, `the entity the memory names must be hop 1: ${JSON.stringify(allNested(on.body.results).map(n => n.node?._id))}`);
+    assert.equal(b.paths[0].length - 1, 1, 'the named entity is one hop from the match');
+    assert.equal(b.edge.label, 'memory.entityIds');
+  });
+
+  it('and the walk carries on from there — hop 2 is an ordinary edge', async (t) => {
+    if (!embeddingAvailable) return t.skip('embedding unavailable');
+    // Reaching the entity and stopping would be half the fix: the point of starting from it is that
+    // everything the graph relates to it is now reachable from the memory that matched.
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/recall`, {
+      query: 'wombat marsupial burrow relocation checklist',
+      types: ['memory'], topK: 5, traverse: { depth: 2, includeMemories: true },
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const c = nested(r.body.results, entC);
+    assert.ok(c, `B→C must be reached at depth 2: ${JSON.stringify(allNested(r.body.results).map(n => n.node?._id))}`);
+    assert.equal(c.paths[0].length - 1, 2, 'the edge neighbour of a linked entity is TWO hops from the match');
+  });
+
+  it('the echo reports the flags, so a caller can see what the server did', async (t) => {
+    if (!embeddingAvailable) return t.skip('embedding unavailable');
+    // A response echoing `traverse: 1` for a call that also asked for memories would describe a walk the
+    // server did not do, which is the one thing the echo exists to prevent.
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/recall`,
+      { query: q, types: ['entity'], topK: 5, traverse: { depth: 1, includeMemories: true } });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.traverse?.includeMemories, true, `echo was: ${JSON.stringify(r.body.traverse)}`);
+  });
+
+  it('a non-boolean flag is refused, not coerced', async () => {
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/recall`,
+      { query: 'anything', traverse: { depth: 1, includeChrono: 'yes' } });
+    assert.equal(r.status, 400, JSON.stringify(r.body));
+    assert.match(r.body.error, /includeChrono/);
+  });
+});
 
 describe('Recall traverse — result cap', () => {
   it('caps the combined output on a dense graph', async (t) => {

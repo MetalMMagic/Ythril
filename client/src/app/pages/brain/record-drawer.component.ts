@@ -69,14 +69,23 @@ import { BRAIN_CHIP_STYLES, BRAIN_DRAWER_STYLES } from './brain-form.styles';
                   <textarea [(ngModel)]="state.drawerEditMemory.description" name="drwMemDesc" rows="3" style="resize:vertical;"></textarea>
                 </div>
                 <div class="drawer-field">
-                  <!-- Free text with suggestions, matching the create form and the edge drawer's own type input.
-                       See the note there: memory type has no server-side allowlist, so a closed select would be
-                       stricter than the API. -->
+                  <!-- Matches the create form exactly, and for the same reason: since P-24 a space declaring
+                       typeSchemas.memory restricts memory types, so free text there would submit a value the
+                       server refuses. A space declaring none is unrestricted and keeps the free-text input.
+                       The two controls must agree — one door offering a type the other cannot write is the
+                       shape this whole item was about. -->
                   <div class="drawer-label">{{ 'common.form.type' | transloco }}</div>
-                  <input type="text" [(ngModel)]="state.drawerEditMemory.type" name="drwMemType" list="drwMemTypeOptions" />
-                  <datalist id="drwMemTypeOptions">
-                    @for (t of store.memoryTypeOptions(); track t) { <option [value]="t"></option> }
-                  </datalist>
+                  @if (store.memoryTypesAreRestricted()) {
+                    <select [(ngModel)]="state.drawerEditMemory.type" name="drwMemType">
+                      <option value=""></option>
+                      @for (t of store.memoryAllowedTypes(); track t) { <option [value]="t">{{ t }}</option> }
+                    </select>
+                  } @else {
+                    <input type="text" [(ngModel)]="state.drawerEditMemory.type" name="drwMemType" list="drwMemTypeOptions" />
+                    <datalist id="drwMemTypeOptions">
+                      @for (t of store.memoryTypeOptions(); track t) { <option [value]="t"></option> }
+                    </datalist>
+                  }
                 </div>
                 <div class="drawer-field">
                   <div class="drawer-label">{{ 'common.form.tags' | transloco }}</div>

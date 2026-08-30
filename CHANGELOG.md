@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A space can now restrict which memory TYPES it accepts.** Declaring one or more `typeSchemas.memory`
+  entries makes those names the allowed set, exactly as it already did for entities, edges and chrono. A space
+  that declares none is unchanged and still accepts any string, so this can only newly refuse a write in a
+  space that explicitly declared memory types.
+
+  Three places already said it worked this way — the interface docblock and two integration-guide pages — so
+  nothing in the documentation changed; the code caught up with it.
+
+  **It needed a ruling rather than a fix, and the reason is worth keeping.** The absence was pinned as
+  deliberate by a test, and the CHANGELOG carried a rationale: the memories tab's `type` control is free text
+  with suggestions *because* the server accepted any string, since a closed select would have been "stricter
+  than the API". Two shipped promises pointing opposite ways is a product decision, not a defect. Ruled on
+  2026-08-30 — the UI argument was a consequence of the gap rather than a reason for it, and it inverts now
+  the server constrains the type.
+
+  So both memory type controls — the create form and the record drawer — become a **select** where a space
+  declares types, and stay free text where it does not. The column FILTER keeps offering declared types union
+  the values actually present, so a record written before a schema change is still findable even though its
+  type is no longer writable.
+
+  The gate asks the question all four validators share rather than checking them one by one: a fifth record
+  kind is covered on the commit that adds it, and a future removal has to remove all four together.
+
 ### Changed
 
 - **What a "link" is now has one definition.** An edge is a record; a link is a *field* — a chrono entry,

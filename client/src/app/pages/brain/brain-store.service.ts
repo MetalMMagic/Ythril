@@ -115,6 +115,25 @@ export class BrainStore {
     return [...new Set([...schemaNames, ...present.filter((t): t is string => !!t)])].sort();
   }
 
+  /**
+   * Does this space RESTRICT memory types? The client's mirror of `validateMemory`'s allowlist branch.
+   *
+   * The rule is the one every other record kind uses and memories gained on 2026-08-30 (P-24 = A): declaring
+   * one or more `typeSchemas.memory` entries makes those names the allowed set. Declaring none constrains
+   * nothing, which is why this is a question rather than a constant — a space that never asked to restrict
+   * memory types must keep accepting any string, and the create form must keep letting one be typed.
+   */
+  memoryTypesAreRestricted(): boolean {
+    return Object.keys(this.spaceMeta()?.typeSchemas?.memory ?? {}).length > 0;
+  }
+
+  /** Types a memory write is ACCEPTED with — declared names where the space declares any, else unrestricted. */
+  memoryAllowedTypes(): string[] {
+    return Object.keys(this.spaceMeta()?.typeSchemas?.memory ?? {}).slice().sort();
+  }
+
+  /** Filter options: allowed types UNION whatever the loaded rows hold, so a record written before a schema
+   *  change stays reachable in the filter even though its type is no longer writable. */
   memoryTypeOptions(): string[] {
     return this.typeOptionsFrom(Object.keys(this.spaceMeta()?.typeSchemas?.memory ?? {}), this.memories().map(m => m.type));
   }

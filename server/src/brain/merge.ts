@@ -468,20 +468,50 @@ export async function executeMerge(
       // EDGES and never looked at files; `strictLinkage` blocks deleting an entity that still has inbound
       // backlinks, and a merge deletes the absorbed entity directly rather than passing that guard. A
       // traversal from the file came back empty, which reads as "nothing linked" rather than as a broken link.
+      /*
+       * TWO ways a file record can name an entity, and only one of them was relinked.
+       *
+       * `entityIds` is the array every record type has. **`faceEntityId` is a single-valued field on a face
+       * chunk** (`{fileId}#face-chunkN`), and it was missed for a reason worth writing down: the gate that
+       * shipped with the `entityIds` fix derives the record kinds it checks from the interfaces that DECLARE
+       * `entityIds` — so a differently-named, singular link is outside its scope by construction, and the
+       * field it cannot see is the biometric one.
+       *
+       * What that cost: after a merge, face chunks still pointed at the absorbed id, which phase 5 then
+       * deleted. `labelStillResolves` looks the label up and returns null when it does not resolve, so every
+       * one of those faces silently stopped counting — the surviving person's gallery went empty, and nothing
+       * anywhere said so. A delete has `unlabelFacesForEntities` for exactly this; a merge had nothing.
+       *
+       * **Relinked, not unlabelled**, and that is the whole difference from the delete path. A delete means
+       * the person is gone, so the labels are wrong and clearing them is right. A merge means these two
+       * records were always the SAME person — so the absorbed one's faces are the survivor's faces, and
+       * clearing them would throw away correct biometric labels the operator asked to keep. `faceScore` rides
+       * along for the same reason: it measures "how sure are we this face is that person", and the merge is a
+       * statement that the person did not change.
+       *
+       * One pass over both, rather than a second loop: a face chunk may also carry `entityIds`, and two
+       * updates would spend two `seq` values on one record and let the two halves drift apart later.
+       */
       const fileColl = col<FileMetaDoc>(`${spaceId}_files`);
       const affectedFiles = await fileColl
-        .find(asFilter<FileMetaDoc>({ spaceId, entityIds: absorbed._id }), { session })
+        .find(asFilter<FileMetaDoc>({
+          spaceId,
+          $or: [{ entityIds: absorbed._id }, { faceEntityId: absorbed._id }],
+        }), { session })
         .toArray() as FileMetaDoc[];
       for (const f of affectedFiles) {
-        // `?? []` because `entityIds` is OPTIONAL on a file record, unlike memories and chrono where it is
-        // required. The filter above only matches files that hold the id, so the fallback never fires in
-        // practice — but the map has to be total over the type rather than rely on that.
-        const newEntityIds = (f.entityIds ?? []).map(id => id === absorbed._id ? survivor._id : id);
-        const dedupedIds = [...new Set(newEntityIds)];
-        const fSeq = await nextSeq(spaceId);
+        const set: Record<string, unknown> = { updatedAt: now, seq: await nextSeq(spaceId) };
+        if ((f.entityIds ?? []).includes(absorbed._id)) {
+          // `?? []` because `entityIds` is OPTIONAL on a file record, unlike memories and chrono where it is
+          // required. The guard above already proves it is present — the fallback keeps the map total over
+          // the type rather than relying on that.
+          const newEntityIds = (f.entityIds ?? []).map(id => id === absorbed._id ? survivor._id : id);
+          set['entityIds'] = [...new Set(newEntityIds)];
+        }
+        if (f.faceEntityId === absorbed._id) set['faceEntityId'] = survivor._id;
         await fileColl.updateOne(
           asFilter<FileMetaDoc>({ _id: f._id }),
-          asUpdate<FileMetaDoc>({ $set: { entityIds: dedupedIds, updatedAt: now, seq: fSeq } }),
+          asUpdate<FileMetaDoc>({ $set: set }),
           { session },
         );
       }

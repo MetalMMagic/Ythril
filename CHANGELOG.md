@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Merging two people emptied the survivor's face gallery.** The merge relinked memories, chrono entries,
+  edges and a file's `entityIds` — but not `faceEntityId`, the single-valued link on a face chunk. So after a
+  merge those chunks still named the absorbed entity, which the merge then deleted; a label that does not
+  resolve is silently absent from the gallery, so the faces simply stopped counting and **nothing anywhere said
+  so**.
+
+  The labels are now **moved to the survivor**, not cleared. That is the opposite of what a delete does, and
+  deliberately: a delete means the person is gone so the labels are wrong, while a merge asserts the two
+  records were always the same person — clearing them would look like a fix and discard correct biometric
+  labels. `faceScore` travels with them for the same reason.
+
+  **The gate could not have caught it.** It derived the record types it checks from the interfaces that
+  *declare* `entityIds`, so a differently-named singular link was outside its scope by construction — and the
+  one field fitting that description is the biometric one. Discovery is by shape now (any field ending in
+  `entityId`/`entityIds`), and it asserts every such field per type rather than the plural one only.
+
+  A behavioural test drives a real merge rather than reading the source, because a source read proves a
+  decision was made and not that it is right. It also pins that an unlabelled face stays unlabelled, which is
+  the failure mode of a too-broad filter.
+
+  The face-recognition page now documents the label lifecycle for both paths; it described how labels are
+  acquired and never what becomes of them.
 - **Three of the four single-record sync routes stored a peer's record without checking it, while the batch
   path checked the same records.** `POST /api/sync/memories`, `/entities` and `/edges` answered `{ status: … }`
   with nothing computed; only `/chrono` reported. So whether a schema mismatch was noticed depended on **how

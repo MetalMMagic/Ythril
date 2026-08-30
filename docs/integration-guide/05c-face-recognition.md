@@ -71,6 +71,21 @@ Only entities whose `type` is listed in `personEntityTypes` (default `["person"]
 
 When a user manually updates `entityIds` on an image (e.g. correcting a mis-label via the Files UI or REST API), Ythril calls `propagateFaceLabel` — which sets `faceEntityId` on every face-chunk record belonging to that file. This immediately improves future auto-labeling for that person's identity.
 
+#### What happens to a label when the person record changes
+
+A `faceEntityId` names an entity, so the two have to move together. **A label that points at an entity which no
+longer exists stops resolving, and a face whose label does not resolve is silently absent from the gallery** —
+it is not an error anywhere, so the only symptom is a person's gallery quietly emptying.
+
+Both ways a person record can go away are handled, and they are handled **differently on purpose**:
+
+| what happened | what happens to the labels | why |
+|---|---|---|
+| the person entity is **deleted** — directly, by a bulk wipe, or by TTL expiry | `faceEntityId` and `faceScore` are **cleared**. The descriptor, bounding box and the file itself are untouched | the person is gone, so the label is wrong. The face is still a face and stays available to match against a future person |
+| two person entities are **merged** | the absorbed entity's labels are **moved to the survivor**, keeping `faceScore` | a merge asserts the two records were always the same person, so the faces belong to the survivor. Clearing them would discard correct labels |
+
+A face that was detected but never labelled is untouched by either.
+
 #### Synced Image Reprocessing
 
 When `reprocessSyncedImages: true` (default), images received through a network sync are automatically enqueued for face processing if they have not yet been processed (`faceChunkCount` is `0`). This lets secondary instances build a full face gallery from synced images without requiring separate re-uploads.

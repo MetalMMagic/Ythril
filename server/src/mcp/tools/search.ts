@@ -13,7 +13,7 @@ import { MAX_RECALL_TRAVERSE } from '../../brain/edges.js';
 import { mapGraphNodes, graphNodeRecord } from '../../brain/recall-graph.js';
 import { applyProjection, normaliseProjection } from '../../brain/projection.js';
 import { resolveBudget, resolvePaging, budgetedEnvelope, type BudgetRequest, MCP_DEFAULT_MAX_BYTES } from '../../brain/result-budget.js';
-import { buildGraphWithSpill, spillResultSet } from '../../brain/graph-spill.js';
+import { buildGraphWithSpill, spillResultSet, countGraphNodes } from '../../brain/graph-spill.js';
 import { parseTraverseOption } from '../../brain/traverse-option.js';
 import { type FilterExpression } from '../../brain/filter.js';
 import { resolveRecallFilter, type RawMongoFilter } from '../../brain/recall-filter.js';
@@ -375,7 +375,17 @@ export const recallTool: ToolHandler = {
       results: budgeted.results,
       ...budgeted.fields,
       traverseDepth: traverse,
-      graphNodes: graph.nodes,
+      // Counted from the payload actually being sent, not from what the traversal REACHED.
+      //
+      // `graph.nodes` is the total across every seed the walk visited — including seeds the byte budget then
+      // evicted, so the number described an answer the caller did not receive. The integration guide already
+      // said this field is "how many traversed nodes came back", which was simply false.
+      //
+      // `countGraphNodes` walks the emitted structure, so it is correct for both doors' shapes by
+      // construction — flat with `_graph` alongside on REST, nested under `record` on MCP — and it is the
+      // same function the spill file uses to describe itself, for the same reason: a count passed in
+      // alongside a payload can describe a different set of records than the payload does.
+      graphNodes: countGraphNodes(budgeted.results),
       ...(spill ? { graphTruncated: true, graphComplete: spill } : {}),
       ...(degraded.length > 0 ? { degraded } : {}),
     };
@@ -597,7 +607,17 @@ export const find_similarTool: ToolHandler = {
       results: itemsBudgeted.results,
       ...itemsBudgeted.fields,
       traverseDepth: traverse,
-      graphNodes: graph.nodes,
+      // Counted from the payload actually being sent, not from what the traversal REACHED.
+      //
+      // `graph.nodes` is the total across every seed the walk visited — including seeds the byte budget then
+      // evicted, so the number described an answer the caller did not receive. The integration guide already
+      // said this field is "how many traversed nodes came back", which was simply false.
+      //
+      // `countGraphNodes` walks the emitted structure, so it is correct for both doors' shapes by
+      // construction — flat with `_graph` alongside on REST, nested under `record` on MCP — and it is the
+      // same function the spill file uses to describe itself, for the same reason: a count passed in
+      // alongside a payload can describe a different set of records than the payload does.
+      graphNodes: countGraphNodes(itemsBudgeted.results),
       ...(spill ? { graphTruncated: true, graphComplete: spill } : {}),
     };
     return { content: [{ type: 'text' as const, text: JSON.stringify(output) }] };

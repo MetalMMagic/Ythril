@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`graphNodes` counted nodes the caller never received.** All four traverse-capable search endpoints —
+  recall and `find_similar`, on both doors — reported the total the traversal *reached*, across every seed.
+  But the byte budget then keeps only a prefix of the matches, and an evicted match takes its subtree with it,
+  so the number always described a larger answer than the one sent.
+
+  The integration guide already defined the field as *"how many traversed nodes came back"*, so the
+  documentation was right and the code was wrong; nothing in the docs changed. Two integration tests already
+  asserted the correct contract and passed only because their fixtures never truncate — true by luck of
+  fixture size, and silent about it.
+
+  Each site now counts its own emitted payload with `countGraphNodes`, which walks the structure and is
+  therefore right for both doors' shapes by construction (REST puts `_graph` beside the match, MCP nests the
+  match under `record`). It is the same function the spill file uses to describe itself, for the same reason:
+  a count carried alongside a payload can describe a different set of records than the payload does.
+
+  The gate pins that each endpoint counts *its own* envelope. Writing the fix, a blanket replace gave both
+  endpoints on a door the same envelope name and one of them ended up reporting its sibling's count —
+  TypeScript caught it only because the name happened to be undefined.
+
+  The other half of this — that a large subtree can evict later *matches* — is not fixed here. The obvious
+  remedy breaks a guarantee the product states in nine places, including the UI in three locales (*"never a
+  record missing part of its graph"*), so it is a decision rather than a defect.
+
 - **`suppressEmbeddings` was honoured on exactly one write path and ignored on ten others.** The flag is
   implemented *as the absence of a vector* — there is no read-time filter — so a stored vector is not an
   inconsistency, it is the feature not working.

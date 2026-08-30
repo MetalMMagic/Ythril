@@ -23,7 +23,7 @@ import { findSimilar, recall, type RecallKnowledgeType, type RecallResult } from
 import { type FilterExpression } from '../../brain/filter.js';
 import { resolveRecallFilter } from '../../brain/recall-filter.js';
 import { traverseGraph, MAX_RECALL_TRAVERSE, resolveEdgeEntityNames } from '../../brain/edges.js';
-import { buildGraphWithSpill, spillResultSet } from '../../brain/graph-spill.js';
+import { buildGraphWithSpill, spillResultSet, countGraphNodes } from '../../brain/graph-spill.js';
 import { parseTraverseOption, echoTraverse } from '../../brain/traverse-option.js';
 import { embed } from '../../brain/embedding.js';
 import { getConfig } from '../../config/loader.js';
@@ -657,7 +657,17 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
       // still holds — and the object when it was, because a narrowing the response does not mention is one the
       // caller cannot verify was applied.
       traverse: echoTraverse(traverseOpt),
-      graphNodes: graph.nodes,
+      // Counted from the payload actually being sent, not from what the traversal REACHED.
+      //
+      // `graph.nodes` is the total across every seed the walk visited — including seeds the byte budget then
+      // evicted, so the number described an answer the caller did not receive. The integration guide already
+      // said this field is "how many traversed nodes came back", which was simply false.
+      //
+      // `countGraphNodes` walks the emitted structure, so it is correct for both doors' shapes by
+      // construction — flat with `_graph` alongside on REST, nested under `record` on MCP — and it is the
+      // same function the spill file uses to describe itself, for the same reason: a count passed in
+      // alongside a payload can describe a different set of records than the payload does.
+      graphNodes: countGraphNodes(budgeted.results),
       ...(spill ? { graphTruncated: true, graphComplete: spill } : {}),
       ...(degraded.length > 0 ? { degraded } : {}),
     });
@@ -840,7 +850,18 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
       source: result.source,
       results: itemsBudgeted.results,
       ...itemsBudgeted.fields,
-      traverseDepth: safeTraverse, graphNodes: graph.nodes,
+      traverseDepth: safeTraverse,
+      // Counted from the payload actually being sent, not from what the traversal REACHED.
+      //
+      // `graph.nodes` is the total across every seed the walk visited — including seeds the byte budget then
+      // evicted, so the number described an answer the caller did not receive. The integration guide already
+      // said this field is "how many traversed nodes came back", which was simply false.
+      //
+      // `countGraphNodes` walks the emitted structure, so it is correct for both doors' shapes by
+      // construction — flat with `_graph` alongside on REST, nested under `record` on MCP — and it is the
+      // same function the spill file uses to describe itself, for the same reason: a count passed in
+      // alongside a payload can describe a different set of records than the payload does.
+      graphNodes: countGraphNodes(itemsBudgeted.results),
       ...(spill ? { graphTruncated: true, graphComplete: spill } : {}),
     });
   } catch (err: unknown) {

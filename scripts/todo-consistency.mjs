@@ -32,6 +32,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { matchIndexReference } from './todo-index-match.mjs';
 import { openItems, orderedHomeRows } from './todo-open-items.mjs';
+import { verifyLineOf, parseVerifyLine, evaluateClause } from './verify-line.mjs';
 import { resolvedHeadings, decidedButStillFiled, rulingsLeftOnThePage } from './parked-decisions-rules.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -71,6 +72,31 @@ const NOT_A_QUEUE = new Map([
   ['_DEPRECATIONS.md', 'a removal checklist keyed to a future major, not the current queue'],
   ['_CLA-BOT-SETUP.md', 'setup instructions'],
   ['_NEXT-PR-PLAN.md', 'the working plan for the PR in flight; cleared on push'],
+]);
+
+/**
+ * Items whose evidence genuinely cannot be a count, each with a reason and a date.
+ *
+ * **Four things make this cost something, and they are the difference between an escape hatch and the hole
+ * reopening.** An exemption anybody can take for free is how the last four rounds of the closed-work rule went:
+ *
+ *  1. **It lives HERE, in a tracked file.** `todo/` is gitignored and reviewed by nobody, so a reason written
+ *     beside the item costs nothing. A row in this map lands in a PR diff a human reads. That asymmetry is the
+ *     whole lever.
+ *  2. **A hard expiry.** On or after `by`, the gate fails. The item comes back on a date its author cannot
+ *     quietly extend.
+ *  3. **The expiry is bounded** to 120 days out, because an exemption dated 2099 is a deletion wearing a date.
+ *  4. **A cap of three**, which makes the hatch rivalrous: taking it for a new item means retiring one.
+ *
+ * And a stale entry FAILS rather than warns — the existing exemption-rot check only `console.log`s, and this
+ * file's own comment records that a stale `NOT_A_QUEUE` reason is how `_PARKED-DECISIONS.md` accumulated
+ * resolved history for weeks while every checked page stayed clean.
+ */
+const MANUAL_VERIFY = new Map([
+  ['A-2', { why: 'the measured case is a graph SHAPE — a space of memories carrying entityIds must return '
+    + 'graphNodes > 0 at depth 1. No count over source answers it.', by: '2026-11-15' }],
+  ['A-3', { why: 'Tier 0-R is a corpus benchmark; no count says "S0+ and S0 converge at traverse 0".',
+    by: '2026-11-15' }],
 ]);
 
 const failures = [];
@@ -265,13 +291,93 @@ console.log(`\n${YELLOW}todo/ consistency${R}  ${DIM}(owner rules 2026-08-02 and
    * answer to "what is an item", shared with rule 2 — the extraction the codebase's own rule asks for the second
    * time you write the same thing.
    */
-  const VERIFY = /(?:\*\*)?(?:Verify|Still open because|Evidence)(?:\*\*)?\s*:/i;
   const missing = [];
+  const unparsed = [];
+  const disagree = [];
+  const broken = [];
+  const seenManual = new Set();
+  let mechanised = 0;
+
+  /*
+   * The tracked file set, from git — never `readdirSync`. `todo/` and `dist/` are gitignored, and a path that
+   * exists on disk but is not in the repo is exactly the kind of evidence that vanishes on another machine.
+   *
+   * A git failure is a FAILURE, not a skip. Rule 4 below catches its own `git log` and leaves the result empty,
+   * which makes an error indistinguishable from a pass — the gate's one independent check reporting green
+   * having compared nothing. Do not reproduce that shape here.
+   */
+  let tracked;
+  try {
+    tracked = new Set(
+      execFileSync('git', ['ls-files', '-z'], { cwd: ROOT, encoding: 'utf8', timeout: 15_000, maxBuffer: 1 << 26 })
+        .split('\0').filter(Boolean),
+    );
+  } catch (err) {
+    fail(`could not establish the tracked file set, so no verify line could be checked: ${err}`);
+    tracked = null;
+  }
+  const cache = new Map();
+  const ctx = {
+    isTracked: p => tracked.has(p),
+    readLines: p => {
+      if (!cache.has(p)) cache.set(p, readFileSync(join(ROOT, p), 'utf8').split(/\r?\n/));
+      return cache.get(p);
+    },
+  };
+
   for (const f of files) {
     if (NOT_A_QUEUE.has(f)) continue;
     for (const item of openItems(readFileSync(join(TODO, f), 'utf8'))) {
-      if (VERIFY.test(item.body)) continue;
-      missing.push(`${f}:${item.line} — "${item.title.slice(0, 66)}"`);
+      const where = `${f}:${item.line} — "${item.title.slice(0, 60)}"`;
+      const text = verifyLineOf(item.body);
+      if (text === null) { missing.push(where); continue; }
+
+      const parsed = parseVerifyLine(text);
+      if (!parsed.ok) { unparsed.push(`${where}\n        ${parsed.reason}\n        → ${parsed.hint}`); continue; }
+
+      if (parsed.kind === 'manual') {
+        if (!item.id || !MANUAL_VERIFY.has(item.id)) {
+          unparsed.push(`${where}\n        says MANUAL but is not in MANUAL_VERIFY in this script — the reason `
+            + 'and the expiry live in the TRACKED file, where a human reads them in a diff');
+        } else {
+          seenManual.add(item.id);
+        }
+        continue;
+      }
+      if (!tracked) continue;
+      mechanised++;
+      const result = evaluateClause(parsed, ctx);
+      if (result.state === 'broken') broken.push(`${where}\n        ${result.why}`);
+      else if (result.state === 'disagrees') {
+        disagree.push(`${where}\n        its own line says \`grep -c "${parsed.pattern}" ${parsed.path}\` returns `
+          + `${parsed.expected}. It returns ${result.actual}. Either the row shipped, or its evidence points at `
+          + 'the wrong thing.');
+      }
+    }
+  }
+
+  // The hatch's accounting, which is what stops it becoming the hole again. See MANUAL_VERIFY.
+  const today = new Date().toISOString().slice(0, 10);
+  for (const [id, { by }] of MANUAL_VERIFY) {
+    if (!seenManual.has(id)) {
+      fail(`MANUAL_VERIFY names ${id}, which is not an open item with a MANUAL verify line. A stale exemption is `
+        + 'how `_PARKED-DECISIONS.md` accumulated resolved history for weeks — remove the row.');
+    } else if (today >= by) {
+      fail(`the manual verify exemption for ${id} expired on ${by} — mechanise it, or re-argue the reason and `
+        + 'set a new date in this script, where the argument lands in a diff somebody reads.');
+    } else if (by > new Date(Date.now() + 120 * 864e5).toISOString().slice(0, 10)) {
+      fail(`the manual verify exemption for ${id} expires ${by}, more than 120 days out. An exemption dated that `
+        + 'far ahead is a deletion wearing a date.');
+    }
+  }
+  if (MANUAL_VERIFY.size > 3) {
+    fail(`MANUAL_VERIFY holds ${MANUAL_VERIFY.size} entries; the cap is 3. The cap is what makes the hatch cost `
+      + 'something: taking it for a new item means retiring an existing one.');
+  }
+  for (const [what, rows] of [['could not be parsed', unparsed], ['name a file that is gone', broken],
+    ['DISAGREE with their own evidence', disagree]]) {
+    if (rows.length) {
+      fail(`${rows.length} verify line(s) ${what}:\n` + rows.map(r => `      ${r}`).join('\n'));
     }
   }
   if (missing.length) {
@@ -284,6 +390,22 @@ console.log(`\n${YELLOW}todo/ consistency${R}  ${DIM}(owner rules 2026-08-02 and
   } else {
     console.log(`${GREEN}  ✓${R} every open item says how to verify it is still open`);
   }
+
+  /*
+   * The tick says "its stated evidence still holds" — NOT "it is still open", and the difference is the whole
+   * honest bound on this check. They come apart whenever a fix lands somewhere other than the file the row
+   * names, which in this codebase is the usual shape rather than the exception, because the convention is to
+   * extract. `L-4` named `api/contradictions.ts`; its fix (#1046) went into `brain/edges.ts`, and that file is
+   * byte-identical from #1041 through HEAD — so every clause faithful to the row's own words would still have
+   * said "holds" four days after it shipped. Six of the eight stale rows of 2026-08-30 were fix-in-place and
+   * would have been caught; two were extractions and would not. Claiming the stronger thing is how the four
+   * previous rounds of this check went wrong.
+   */
+  const okVerify = !unparsed.length && !broken.length && !disagree.length;
+  console.log(okVerify
+    ? `${GREEN}  ✓${R} every mechanised verify line still holds  ${DIM}(${mechanised} checked, `
+      + `${MANUAL_VERIFY.size} manual — evidence intact, not "still open": a fix that lands elsewhere is invisible)${R}`
+    : `${RED}  ✗${R} a verify line disagrees with the tree, or cannot be checked`);
 }
 
 
@@ -344,12 +466,26 @@ console.log(`\n${YELLOW}todo/ consistency${R}  ${DIM}(owner rules 2026-08-02 and
   if (files.includes(PLAN)) {
     const src = readFileSync(join(TODO, PLAN), 'utf8');
     const claimed = [...new Set([...src.matchAll(/#(\d{3,5})\b/g)].map(m => m[1]))];
-    let log = '';
+    /*
+     * A git failure is a FAILURE, not a skip.
+     *
+     * This used to `catch {}` and leave `log = ''`, and the next line then read `log ? … : []` — so an error was
+     * indistinguishable from a clean result, and the gate's one independent check printed its green tick having
+     * compared nothing. That is the same shape as everything else this script was found to be doing on
+     * 2026-08-30: reporting a rule it was not enforcing. The `timeout` matters too — preflight's own `run`
+     * helper passes none, so a hung child would hang the gate with nothing to kill it.
+     */
+    let log = null;
     try {
-      log = execFileSync('git', ['log', '--oneline', '-400'], { cwd: ROOT, encoding: 'utf8' });
-    } catch { /* no git history available — skip rather than guess */ }
+      log = execFileSync('git', ['log', '--oneline', '-400'],
+        { cwd: ROOT, encoding: 'utf8', timeout: 15_000, maxBuffer: 1 << 24 });
+    } catch (err) {
+      fail(`${PLAN} could not be checked against main: \`git log\` failed (${err}). A plan naming a merged PR is `
+        + 'a plan describing the past, and this is the check for it — an unreadable history is an unanswered '
+        + 'question, not a pass.');
+    }
 
-    const merged = log ? claimed.filter(n => log.includes(`(#${n})`)) : [];
+    const merged = log === null ? [] : claimed.filter(n => log.includes(`(#${n})`));
     if (merged.length) {
       fail(`${PLAN} names PR(s) already merged into main: ${merged.map(n => `#${n}`).join(', ')}. A plan is about `
         + 'work ahead — a merged number in it means the file describes the past. Rewrite it to the current state, '

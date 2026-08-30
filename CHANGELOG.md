@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A long audio or video file could be re-queued while it was working, and then processed twice at once.**
+  The media worker builds a heartbeat and a lease check and passed them **only** to the document pipeline. Two
+  media steps are not one model call but N of them: audio transcribes one silence-delimited chunk at a time,
+  and a keyframed video captions one frame per 30 s of footage with no cap. An hour of video is 120 captions —
+  14 400 s inside a step reporting nothing, against a 270 s stall floor.
+
+  **No timeout could have fixed this**: a hop budget bounds one call and the step is a loop of them. Both loops
+  now report progress once per item, so a working job stops looking like a stalled one.
+
+  **The second half is the one that corrupted rather than delayed.** Stall recovery clears the claim token and
+  hands the file to another worker, and nothing in the media path polled the lease — so the first run carried
+  on. Two runs transcribed the same audio into the same chunk ids, competing for the same model. Both loops now
+  stop when their claim is withdrawn, and check *before* the call rather than after, so no run spends a full
+  provider budget producing work another run is about to overwrite.
+
+  Progress is reported in the `finally`, deliberately: a beat that fired only on success would go silent
+  exactly when a provider starts failing — the moment the detector most needs to know the worker is alive, and
+  the moment it would otherwise re-queue a job that is working correctly through a list of refusals.
+
+  Audio and video consequently gain the file-manager stage bar they never had; the route is named by the
+  caller, so a video's audio stage draws under the video's own segments instead of swapping the list halfway.
+
+  The gate derives its subject — every `for` loop in the media path whose body awaits a provider call — rather
+  than naming the embedders, and that is what found the audio loop: it was assumed to be local work and is not.
+
 - **A provider fallback ran two model calls inside one step, and stall detection was told about only the
   longer one.** With `fallbackToExternal` on, the media worker calls the primary provider, catches, and calls
   the external one — in the same hop, with nothing reporting progress between them. `hopBudgets()` listed the

@@ -226,6 +226,14 @@ The worker-tuning fields — `workerConcurrency`, `workerPollIntervalMs`, `worke
 >
 > Also reachable by configuration, as before: `ocrTimeoutMs` accepts up to **30 minutes** and the two model
 > budgets up to **10** each.
+>
+> **Two media steps are not one model call but N of them, and no budget can describe N.** Audio transcribes
+> one silence-delimited chunk at a time, and a keyframed video captions one frame per 30 s of footage with no
+> cap — so an hour of either is dozens of calls inside a single job step. Raising a per-call budget cannot
+> help: the budget bounds one call and the step is a loop of them. Both loops now **report progress once per
+> item**, so the stall detector sees a working job for what it is, and both **stop when their claim is
+> withdrawn** rather than continuing alongside the run that recovered the job. Those two are what make a long
+> media file safe, not the numbers above.
 
 #### ISO 27001 / Data Egress Note
 

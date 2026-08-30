@@ -48,7 +48,8 @@ succeeded, delete it and upload it again.
 **Status & tags:** each file row also shows its **embedding status** (a pill: *Embedded*, *Embedding*, *Partial*, *Failed*, *Skipped*…) and its **tags**, pulled from the file's metadata — so a space's file-processing state is visible right in the list. (This is the file manager and the *File Meta* tab coming together into one view.)
 
 **While a file is being processed**, the Status column shows a **stage bar** instead of the pill: a segment
-per stage of *that file's own route* — a PDF might run render → VLM → repair, an image caption → embed — with
+per stage of *that file's own route* — a PDF might run render → VLM → repair, an audio file transcribe →
+embed, a video transcribe → caption → embed — with
 the current stage filling as its pages land and a `12 / 40` count where the work is countable. It replaces a
 generic "Embedding" that looked the same for every file and every stage. If the worker stops reporting for
 longer than the stall timeout the bar turns amber and says **stalled**, so a wedged job no longer looks like

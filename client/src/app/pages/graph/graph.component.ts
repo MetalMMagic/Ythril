@@ -58,6 +58,9 @@ import {
 } from './graph-cytoscape';
 import { GRAPH_STYLES } from './graph.styles';
 import { canWriteAnywhere } from '../../core/token-capability';
+import { lookupForNode, lookupForEdge } from './graph-record-lookup';
+
+
 
 @Component({
   selector: 'app-graph-view',
@@ -179,6 +182,16 @@ import { canWriteAnywhere } from '../../core/token-capability';
 
             <!-- Record card -->
             <div class="record-card">
+              <!--
+                Why a record is absent, when that is a fact rather than a failure. Without it the panel is
+                simply blank, and blank reads as "this record has nothing in it" — a statement about the data
+                rather than about what could be fetched.
+              -->
+              @if (recordUnavailable(); as why) {
+                <div class="drawer-field">
+                  <div class="drawer-value muted">{{ 'graph.recordUnavailable.' + why | transloco }}</div>
+                </div>
+              }
               @if (selectedEntityRecord()) {
                 <div class="drawer-field">
                   <div class="drawer-label">{{ 'brain.entities.table.name' | transloco }}</div>
@@ -445,6 +458,19 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
   selectedEntityRecord = signal<Entity | null>(null);
   selectedEdge = signal<TraverseEdge | null>(null);
   selectedEdgeRecord = signal<Edge | null>(null);
+  /**
+   * Why the detail panel has no record, when that is a fact rather than a failure.
+   *
+   * A file node is addressed by PATH and a graph node carries an id; a synthetic edge has no stored record at
+   * all. Both used to issue a request that 404ed into `catchError`, so the panel opened empty and said
+   * nothing — and an empty panel is indistinguishable from a record that failed to load. Only one of those is
+   * worth a retry.
+   *
+   * ONE signal, not one per kind of selection: a node tap clears the edge and an edge tap clears the node, so
+   * the panel only ever describes one thing. Two parallel signals could disagree, and the reason they carry
+   * is what the message is chosen by anyway.
+   */
+  recordUnavailable = signal<'file' | 'derived' | null>(null);
   nodeMemories = signal<Memory[]>([]);
   nodeChrono = signal<ChronoEntry[]>([]);
 
@@ -651,7 +677,9 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     this.selectedEdgeRecord.set(null);
     this.selectedEntityRecord.set(null);
     this.selectedNode.set(tn);
-    this.loadNodeDetails(id);
+    // `tn.kind` decides which collection the record comes from. Passing the id alone is what made every
+    // chrono/memory/file node open an empty panel — the branch existed and nothing fed it.
+    this.loadNodeDetails(id, tn.kind);
   }
 
   private onEdgeTap(id: string): void {
@@ -838,14 +866,17 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
 
   // ── Detail panel helpers ────────────────────────────────────────────────────
 
-  private loadNodeDetails(entityId: string): void {
+  /** `lookupForNode` decides which collection, or that there is none. `BrainApi.getRecord` owns the dispatch. */
+  private loadNodeDetails(entityId: string, kind?: 'chrono' | 'memory' | 'file'): void {
     const spaceId = this.activeSpaceId();
     if (!spaceId) return;
+    this.recordUnavailable.set(null);
 
-    // Fetch full entity record for the record card
-    this.brainApi.getEntity(spaceId, entityId).pipe(
+    const want = lookupForNode(kind);
+    if ('unavailable' in want) { this.recordUnavailable.set(want.unavailable); return; }
+    this.brainApi.getRecord(spaceId, want.fetch, entityId).pipe(
       catchError(() => of(null)),
-    ).subscribe(ent => { if (ent) this.selectedEntityRecord.set(ent); });
+    ).subscribe(rec => { if (rec) this.selectedEntityRecord.set(rec as Entity); });
 
     forkJoin({
       mems: this.brainApi.listMemories(spaceId, 100, 0, { entity: entityId }).pipe(
@@ -892,13 +923,17 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     if (!spaceId) return;
     this.nodeMemories.set([]);
     this.nodeChrono.set([]);
+    this.recordUnavailable.set(null);
 
-    // Load the full edge record
-    this.brainApi.getEdge(spaceId, te._id).pipe(
-      catchError(() => of(null)),
-    ).subscribe(edge => {
-      if (edge) this.selectedEdgeRecord.set(edge);
-    });
+    // A synthetic edge is derived at render time and stored nowhere — see `lookupForEdge`.
+    const want = lookupForEdge(te._id);
+    if ('unavailable' in want) {
+      this.recordUnavailable.set(want.unavailable);
+    } else {
+      this.brainApi.getEdge(spaceId, te._id).pipe(
+        catchError(() => of(null)),
+      ).subscribe(edge => { if (edge) this.selectedEdgeRecord.set(edge); });
+    }
 
     // Load memories/chronos linked to BOTH endpoints
     forkJoin({
@@ -990,7 +1025,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     if (root) {
       this.traverse(root._id, this.depth(), this.direction());
       const sel = this.selectedNode();
-      if (sel) this.loadNodeDetails(sel._id);
+      if (sel) this.loadNodeDetails(sel._id, sel.kind);
       const edge = this.selectedEdge();
       if (edge) this.loadEdgeDetails(edge);
     }

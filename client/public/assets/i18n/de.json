@@ -1961,5 +1961,7 @@
   "tokens.create.rateLimitHint": "Leer lassen, um den Standard der Instanz zu verwenden. Für einen Client mit Massenverarbeitung einen niedrigeren Wert setzen, damit er nicht alles andere verdrängt.",
   "tokens.table.quota": "Kontingent",
   "tokens.table.perMin": "/min",
-  "tokens.table.quotaInherited": "(geerbt)"
+  "tokens.table.quotaInherited": "(geerbt)",
+  "graph.recordUnavailable.file": "Für diese Datei gibt es hier keine Datensatzansicht — öffnen Sie sie im Reiter „Dateien“.",
+  "graph.recordUnavailable.derived": "Diese Verbindung ist aus einer Verknüpfung abgeleitet und keine gespeicherte Beziehung, hat also keinen eigenen Datensatz."
 }

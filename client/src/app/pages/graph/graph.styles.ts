@@ -500,9 +500,11 @@ export const GRAPH_LINKED_RECORDS_STYLES = `
  * `.record-card` became `:host`, because the host is the element the parent lays out. Left on an inner
  * wrapper it would leave the host unsized, `flex: 0 0 50%` would do nothing, and the column would collapse.
  *
- * `.drawer-muted` did NOT come along: it was declared in `GRAPH_STYLES` and used by nothing in the graph
- * page. Its users are brain's own components, which carry their own copy. (The card's unavailable message
- * asks for `.muted`, which is declared nowhere at all — filed as part of G-6, not fixed here.)
+ * `.drawer-muted` did not come along at first, because at that moment nothing in the graph page rendered it —
+ * the unavailable message asked for `.muted`, which was declared nowhere at all. Fixing that spelling gave the
+ * class its first two users here, and a class with users has to be DEFINED where they can reach it: brain's
+ * copy lives in `BRAIN_DRAWER_STYLES`, which is scoped to brain's own components and could never reach a
+ * graph child. So it is declared below, and `shared-styles-reach-their-renderers` now watches this pair.
  */
 export const GRAPH_RECORD_CARD_STYLES = `
   /* The card itself — this component IS the left column of a side panel. */
@@ -532,6 +534,9 @@ export const GRAPH_RECORD_CARD_STYLES = `
     word-break: break-word;
     line-height: 1.5;
   }
+  /* Why a panel is empty, said quietly. Without this rule the sentence inherits the drawer-value colour,
+     text-primary, and reads as a record's value rather than as an explanation of its absence. */
+  .drawer-muted { color: var(--text-muted); }
   .drawer-hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
   .drawer-readonly-value {
     font-size: 12px;

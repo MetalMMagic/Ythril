@@ -39,8 +39,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   immediately above "Loading…"** and contradicted itself — with the second line the more believable of the
   two, because it is the one that usually means something.
 
-  The message asked for a CSS class that **is declared nowhere**, so the one sentence explaining why a panel
-  is empty rendered as ordinary body text.
+  The message asked for a CSS class that **was declared nowhere**, so the one sentence explaining why a panel
+  is empty rendered as ordinary body text. Correcting the spelling was only half of it: the correct name is
+  defined in brain's stylesheet, which is scoped to brain's components and cannot reach a graph child, so the
+  rule is now declared where the cards load it. `shared-styles-reach-their-renderers` watches that pair from
+  here on — it is the gate that already existed for this exact failure, and it needed one line to see it.
 
   And the EDGE card had no such branch at all: its message was translated into three languages and was
   **unreachable on screen**, because the only place it rendered was inside the node card and selecting an edge

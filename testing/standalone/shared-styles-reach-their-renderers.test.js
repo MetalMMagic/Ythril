@@ -48,6 +48,7 @@ import { execSync } from 'node:child_process';
 const SHARED = [
   'client/src/app/shared/prop-table.styles.ts',
   'client/src/app/shared/chip.styles.ts',
+  'client/src/app/pages/brain/brain-form.styles.ts',
 ];
 
 const read = (p) => readFileSync(p, 'utf8');

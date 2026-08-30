@@ -20,8 +20,10 @@ import type { VisionProvider, SttProvider } from './providers.js';
 import { embedAudio, type AudioChunkRecord } from './audio-embedder.js';
 import { extForMimeType } from '../mime.js';
 import { log } from '../../util/log.js';
+import { VIDEO_STEPS, type MediaProgressOpts } from './progress.js';
 
 const DEFAULT_KEYFRAME_INTERVAL_S = 30;
+
 
 // ── ffmpeg helpers ────────────────────────────────────────────────────────
 
@@ -118,6 +120,7 @@ export async function embedVideo(
   doKeyframes = true,
   overlapMs = 5000,
   keyframeIntervalS = DEFAULT_KEYFRAME_INTERVAL_S,
+  opts?: MediaProgressOpts,
 ): Promise<{ audioFailed: number; audioTotal: number }> {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ythril-video-'));
   const videoExt = mimeTypeToVideoExt(mimeType);
@@ -130,7 +133,10 @@ export async function embedVideo(
     // Step 1: Extract audio + embed audio chunks
     await extractAudioTrack(videoPath, audioPath);
     const audioBytes = await fs.readFile(audioPath);
-    const audioResult = await embedAudio(spaceId, fileId, audioBytes, 'audio/wav', stt, overlapMs);
+    const audioResult = await embedAudio(spaceId, fileId, audioBytes, 'audio/wav', stt, overlapMs,
+      // The video's route, not the audio one: `embedAudio` is a STAGE of this job, and a bar that swapped
+      // its segment list halfway through would redraw mid-file.
+      { ...opts, steps: opts?.steps ?? VIDEO_STEPS });
     const audioChunks: AudioChunkRecord[] = audioResult.records;
     // Carried up so the worker can mark the job `partial`. A video whose audio partly failed to
     // transcribe is not a complete video: its keyframes may be fine while the spoken content is missing,
@@ -161,8 +167,22 @@ export async function embedVideo(
     }
 
     // Step 3: Caption keyframes
+    //
+    // The one loop in the media path that calls a model repeatedly inside a single job step, and therefore
+    // the only one that has to beat. `steps` names the route this file actually takes so the file manager's
+    // stage bar can show it; `done`/`total` fill the bar as frames land.
     const captionedFrames: Array<{ timestampS: number; caption: string }> = [];
-    for (const { timestampS, jpegBytes } of keyframes) {
+    const beat = (done: number): void =>
+      opts?.onProgress?.({ step: 'caption', steps: [...(opts.steps ?? VIDEO_STEPS)], done, total: keyframes.length });
+    beat(0);
+    for (const [i, { timestampS, jpegBytes }] of keyframes.entries()) {
+      // Checked BEFORE the call, not after: stall recovery has already handed this file to another worker, so
+      // spending another vision budget on it produces a caption that the other run will overwrite anyway.
+      if (opts?.shouldStop?.()) {
+        log.warn(`Video embedder: lease lost after ${i}/${keyframes.length} keyframes for ${fileId} — stopping `
+          + 'rather than competing with the run that recovered this job');
+        break;
+      }
       try {
         const caption = await vision.caption(jpegBytes, 'image/jpeg');
         if (typeof caption === 'string' && caption.trim()) {
@@ -171,6 +191,10 @@ export async function embedVideo(
       } catch (err) {
         log.warn(`Video embedder: keyframe caption failed at ${timestampS}s for ${fileId}: ${err instanceof Error ? err.message : String(err)}`);
       }
+      // After the attempt, and outside the catch on purpose: a keyframe the model refused is still a keyframe
+      // this run got through, and a beat that only fires on success would go silent exactly when a provider
+      // starts failing — the moment the stall detector most needs to know the worker is alive.
+      beat(i + 1);
     }
 
     if (captionedFrames.length === 0) return audioOutcome;

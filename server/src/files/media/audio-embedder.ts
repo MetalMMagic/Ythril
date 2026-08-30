@@ -24,6 +24,7 @@ import type { FileMetaDoc, AuthorRef } from '../../config/types.js';
 import type { SttProvider, SttSegment } from './providers.js';
 import { extForMimeType } from '../mime.js';
 import { log } from '../../util/log.js';
+import { AUDIO_STEPS, type MediaProgressOpts } from './progress.js';
 
 
 // ── ffmpeg helpers ────────────────────────────────────────────────────────
@@ -206,6 +207,7 @@ export async function embedAudio(
   mimeType: string,
   stt: SttProvider,
   overlapMs = 5000,
+  opts?: MediaProgressOpts,
 ): Promise<AudioEmbedResult> {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ythril-audio-'));
   const inputPath = path.join(tmpDir, `input.${mimeTypeToExt(mimeType)}`);
@@ -236,7 +238,21 @@ export async function embedAudio(
     let lastError = '';
     const now = new Date().toISOString();
 
+    // One `stt.transcribe` per chunk, and a hop budget bounds ONE of them: an hour of speech is dozens of
+    // chunks at 300 s each, all inside a single job step. Without a beat the sweep re-queues the job mid-loop
+    // however high that budget is; without the lease check the recovered run and this one transcribe the same
+    // audio into the same chunk ids at the same time.
+    const beat = (done: number): void =>
+      opts?.onProgress?.({ step: 'transcribe', steps: [...(opts.steps ?? AUDIO_STEPS)], done, total: chunks.length });
+    beat(0);
     for (let i = 0; i < chunks.length; i++) {
+      // Before the call, not after: afterwards this run has already spent a full STT budget producing a chunk
+      // the recovering run is about to overwrite.
+      if (opts?.shouldStop?.()) {
+        log.warn(`Audio embedder: lease lost after ${i}/${chunks.length} chunks for ${fileId} — stopping `
+          + 'rather than competing with the run that recovered this job');
+        break;
+      }
       const { startMs, endMs, overlapMs: chunkOverlapMs } = chunks[i]!;
       const startS = startMs / 1000;
       const endS = endMs / 1000;
@@ -297,6 +313,11 @@ export async function embedAudio(
         // never transcribed, which is a silent loss and worse than the error that caused it.
       } finally {
         await fs.unlink(segPath).catch(() => {});
+        // In the `finally`, so a chunk the provider refused still counts as one this run got through. A beat
+        // that only fired on success would go silent exactly when a provider starts failing — the moment the
+        // stall detector most needs to know the worker is alive, and the moment it would instead re-queue a
+        // job that is working correctly through a list of failures.
+        beat(i + 1);
       }
     }
 

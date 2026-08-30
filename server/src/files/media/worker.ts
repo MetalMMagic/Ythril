@@ -70,6 +70,7 @@ import { stallTimeoutWithWarning } from './stall-floor.js';
 import { worstRenderWindowMs } from '../converters/render-budget.js';
 import { VISION_TIMEOUT_MS, EXTERNAL_VISION_TIMEOUT_MS, STT_TIMEOUT_MS, providerHopMs } from './providers.js';
 import { FACE_TIMEOUT_MS } from './face-external.js';
+import { AUDIO_STEPS, VIDEO_STEPS } from './progress.js';
 
 let running = false;
 let stalledSweepTimer: NodeJS.Timeout | null = null;
@@ -440,7 +441,8 @@ async function processJob(
         // A chunk that failed to transcribe makes this PARTIAL, never complete. The count used to be
         // discarded here, so an operator saw success over audio that was never transcribed — the
         // document path has modelled this correctly all along and audio simply never carried the number.
-        const a = await embedAudio(spaceId, fileId, fileBytes, mimeType, providers.stt);
+        const a = await embedAudio(spaceId, fileId, fileBytes, mimeType, providers.stt, undefined,
+          { onProgress: heartbeat, shouldStop: () => leaseLost, steps: AUDIO_STEPS });
         if (a.failed > 0) {
           fileEmbeddingStatus = 'partial';
           log.warn(`Media worker: ${a.failed}/${a.total} audio chunks failed for ${spaceId}/${fileId} — recording partial`);
@@ -453,7 +455,8 @@ async function processJob(
         const doKeyframes = videoDoesKeyframes(effectiveVideoLevel(spaceId));
         // Same rule as audio: a video whose spoken content partly failed to transcribe is not complete,
         // however good its keyframe captions are.
-        const v = await embedVideo(spaceId, fileId, fileBytes, mimeType, providers.vision, providers.stt, doKeyframes);
+        const v = await embedVideo(spaceId, fileId, fileBytes, mimeType, providers.vision, providers.stt, doKeyframes,
+          undefined, undefined, { onProgress: heartbeat, shouldStop: () => leaseLost, steps: VIDEO_STEPS });
         if (v.audioFailed > 0) {
           fileEmbeddingStatus = 'partial';
           log.warn(`Media worker: ${v.audioFailed}/${v.audioTotal} audio chunks failed for ${spaceId}/${fileId} — recording partial`);

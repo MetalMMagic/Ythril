@@ -133,11 +133,20 @@ describe('the groups fixed here stay fixed', () => {
   });
 
   it('the graph toolbar distinguishes a toggle from a single-select set', () => {
-    // `aria-pressed` on independent toggles; `aria-current` on the space chips, where exactly one is active.
-    // Using pressed for both would tell a screen reader that several spaces are simultaneously on.
-    const src = readFileSync(join('client', 'src', 'app', 'pages', 'graph', 'graph.component.ts'), 'utf8');
-    assert.match(src, /aria-pressed/, 'the direction/label toggles must report pressed state');
-    assert.match(src, /aria-current/, 'the space chips are a single-select set, so aria-current is the right one');
+    /*
+     * `aria-pressed` on independent toggles; `aria-current` on the space chips, where exactly one is active.
+     * Using pressed for both would tell a screen reader that several spaces are simultaneously on.
+     *
+     * Read from the two files that RENDER them, which stopped being one file when the toolbar was extracted
+     * (G-7). Asserting both against the page would have gone quiet the moment the markup moved — and it would
+     * have looked like the gate still covering the toolbar, which is worse than it failing.
+     */
+    const page = readFileSync(join('client', 'src', 'app', 'pages', 'graph', 'graph.component.ts'), 'utf8');
+    const toolbar = readFileSync(join('client', 'src', 'app', 'pages', 'graph', 'graph-toolbar.component.ts'), 'utf8');
+    assert.match(toolbar, /aria-pressed/, 'the direction/label toggles must report pressed state');
+    assert.match(page, /aria-current/, 'the space chips are a single-select set, so aria-current is the right one');
+    assert.doesNotMatch(page, /aria-pressed/,
+      'a toggle came back to the page — either move it to the toolbar or widen this gate deliberately');
   });
 
   it('the pattern this copied is still there to copy', () => {

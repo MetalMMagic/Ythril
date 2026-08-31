@@ -32,6 +32,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **The graph page is under the size ceiling for the first time since it joined the ratchet** — 690 code
+  lines to 641, against a limit of 650. Three things, and the third was the surprise.
+
+  The two side-panel headers were one bar written twice, differing in a title, a badge and whether the view
+  button showed at all; they are now one component. The toolbar — root search, depth, direction, labels, fit
+  and reset — is another. Its controls **report** rather than set, which is load-bearing rather than stylistic:
+  a new depth or direction re-runs the traversal and toggling labels repaints the canvas, so a two-way binding
+  would have moved the value and dropped the rest, leaving a toolbar whose controls look like they work.
+
+  **Six members were deleted because nothing read them**, and a new gate names them by asking whether anything
+  in the client mentions each one. Two shapes: `panelTitle` was computed for exactly this extraction and never
+  wired in, so the page had one right answer beside two hand-written copies of it; `toggleSort` and `sortArrow`
+  were left behind when the detail table moved to a child component that filters but does not sort — and were
+  still covered by four passing specs, which is the worse state, because green is read as "the behaviour is
+  still there". Two of those cases moved down to the module that actually owns the sorting; two went with
+  their subject.
+
 - **The working order is a checklist now, and the checklist is a gate.** The order a change is supposed to be
   made in — plan, write the tests and watch them fail, implement, run them, run the full suite, do the
   documentation, then push — was written down in two places and enforced in none, so it held exactly as well

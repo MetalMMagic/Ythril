@@ -179,7 +179,18 @@ const FROZEN = {
   // 689 -> 690: ONE line again, the `[unavailable]` binding that lets the EDGE card say why a synthetic edge
   // has no record. Without it the branch exists and nothing feeds it — the same inert-wiring shape as G-5's
   // `[kind]`, which is why both are pinned by a rendering test rather than a method call.
-  'client/src/app/pages/graph/graph.component.ts': 690,
+  // 690 -> 641, and UNDER the 650 ceiling for the first time since it went on this list (G-7 paid).
+  //
+  // Three things, not one. The two panel headers became `graph-panel-header.component.ts` — one bar rendered
+  // twice, differing in a title, a badge and whether the eye button shows. The toolbar became
+  // `graph-toolbar.component.ts`, the largest self-contained block left. And six members were deleted because
+  // nothing read them: `panelTitle` was computed for exactly this extraction and never wired in, while both
+  // headers hand-wrote the same expression; `toggleSort` and `sortArrow` were left behind when the detail
+  // table moved to a child that does not sort, and were still covered by four passing specs.
+  //
+  // The entry STAYS at the real number rather than being deleted, for the reason written above
+  // `tokens.component.ts`: removing it would hand the file back the 49 lines the extraction just took.
+  'client/src/app/pages/graph/graph.component.ts': 641,
   // 753 -> 764: `backfillTokenRights`. This file is where config migrations already live — the media
   // master-switch and space-description ones are both here — so a fourth belongs beside them rather than in
   // a module only the loader would ever call.

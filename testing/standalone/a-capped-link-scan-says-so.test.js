@@ -38,6 +38,12 @@ import { bodyOf } from './_structural-window.mjs';
 const read = (p) => stripComments(readFileSync(p, 'utf8'));
 const FRONTIER = 'server/src/brain/link-frontier.ts';
 const EDGES = 'server/src/brain/edges.ts';
+/*
+ * The recall walk moved to its own module in A-4 while the standalone `traverseGraph` stayed. Read each from
+ * where it lives: a gate left pointing at the old file fails several assertions at once, which reads as broken
+ * production code rather than one moved module.
+ */
+const SEEDS = 'server/src/brain/recall-seed-traversal.ts';
 const SPILL = 'server/src/brain/graph-spill.ts';
 
 const SCANS = ['linkedRecordsAtFrontier', 'entitiesLinkedFromRecords'];
@@ -108,7 +114,7 @@ describe('and the caller turns that into a truncation the API states', () => {
   it('the recall path carries it too, so both surfaces agree', () => {
     // REST and MCP read the same `spill`, so the fix has to land where they share it rather than on either
     // door — otherwise `graphTruncated` would mean different things depending on which client was used.
-    assert.match(bodyOf(read(EDGES), 'traverseRecallSeeds'), /walk\.scanCapped\)\s*scanCapped = true/,
+    assert.match(bodyOf(read(SEEDS), 'traverseRecallSeeds'), /walk\.scanCapped\)\s*scanCapped = true/,
       'the recall traversal drops the signal, so a recall reports a short graph as a whole one');
 
     /*
@@ -117,7 +123,7 @@ describe('and the caller turns that into a truncation the API states', () => {
      * makes deleting either one visible — checking that "capped is set somewhere" passes with one of the two
      * gone, which is the same defect this whole file is about.
      */
-    const seeds = bodyOf(read(EDGES), 'traverseFromSeeds');
+    const seeds = bodyOf(read(SEEDS), 'traverseFromSeeds');
     assert.equal((seeds.match(/[Cc]apped\)\s*capped = true/g) ?? []).length, 2,
       'one of the recall walk\'s two scans does not raise the flag — the pre-pass and the per-hop scan both must');
 

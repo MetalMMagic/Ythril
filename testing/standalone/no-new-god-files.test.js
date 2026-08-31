@@ -385,7 +385,16 @@ const FROZEN = {
   // `traverseRecallSeeds`, and the destructures at three call sites. The alternative was a module-level
   // mutable that every one of them writes, which is smaller and much worse to read.
   // DECOMPOSE: A-4 still stands and is what pays it back.
-  'server/src/brain/edges.ts': 688,
+  // 688 -> 487, and UNDER the 650 ceiling. A-4 PAID: the recall-augmenting traversal became
+  // `recall-seed-traversal.ts` (192 lines) — a different subject from the walk that stayed, which starts at ONE
+  // node where this one starts at the records a search matched.
+  //
+  // `frontierEdgeQuery` and `TraverseNarrowing` went sideways into `frontier-query.ts` because BOTH traversals
+  // apply them. That helper exists because the rule was once written twice with the copies disagreeing, so
+  // duplicating it during the extraction that separates its two callers would have been the same defect again.
+  //
+  // Lowered rather than deleted: an entry here is a ratchet.
+  'server/src/brain/edges.ts': 487,
 };
 
 describe('no file grows past what we already carry', () => {

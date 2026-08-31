@@ -27,7 +27,19 @@ import { readFileSync } from 'node:fs';
 import { stripComments } from './_strip-comments.mjs';
 import { bodyOf, balancedFrom } from './_structural-window.mjs';
 
-const EDGES = stripComments(readFileSync('server/src/brain/edges.ts', 'utf8'));
+/*
+ * Three files since A-4, and which one holds what is the point of the split: `frontierEdgeQuery` is the rule
+ * BOTH traversals apply and went sideways into its own module; the recall walk moved; `traverseGraph` stayed.
+ *
+ * Read as one blob, because every assertion below is about whether the RULE exists in the traversal rather
+ * than about which file it sits in — and joining them keeps this gate from having to be edited again the next
+ * time one of the three moves.
+ */
+const EDGES = stripComments(
+  readFileSync('server/src/brain/frontier-query.ts', 'utf8')
+  + readFileSync('server/src/brain/recall-seed-traversal.ts', 'utf8')
+  + readFileSync('server/src/brain/edges.ts', 'utf8'),
+);
 const SPILL = stripComments(readFileSync('server/src/brain/graph-spill.ts', 'utf8'));
 const REST = stripComments(readFileSync('server/src/api/brain/search.ts', 'utf8'));
 const MCP = stripComments(readFileSync('server/src/mcp/tools/search.ts', 'utf8'));

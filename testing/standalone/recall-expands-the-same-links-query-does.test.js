@@ -52,7 +52,7 @@ describe('the seed traversal reads links, not only edges', () => {
      * times and the five disagreed. A second hand-rolled `entityIds` query here would make it six — and this
      * traversal is the one that was already wrong.
      */
-    const body = bodyOf(src('server/src/brain/edges.ts'), 'traverseFromSeeds');
+    const body = bodyOf(src('server/src/brain/recall-seed-traversal.ts'), 'traverseFromSeeds');
     assert.match(body, /linkedRecordsAtFrontier\(/,
       'the seed traversal must reach links through the shared scan, not its own query');
     assert.match(body, /entitiesLinkedFromRecords\(/,
@@ -68,7 +68,7 @@ describe('the seed traversal reads links, not only edges', () => {
   it('a link hop carries a synthetic edge, because there is no stored one', () => {
     // The standalone traversal already solved this: a link is not an edge record, so the hop that reached the
     // node gets `<label>:<from>:<to>`. Returning a null edge instead would make every consumer branch.
-    const body = bodyOf(src('server/src/brain/edges.ts'), 'traverseFromSeeds');
+    const body = bodyOf(src('server/src/brain/recall-seed-traversal.ts'), 'traverseFromSeeds');
     assert.match(body, /syntheticEdgeId\(/,
       'a link hop needs an edge to report; the standalone traverse mints a synthetic one for exactly this');
   });
@@ -79,7 +79,7 @@ describe('the seed traversal reads links, not only edges', () => {
      * shaper can see — `mapGraphNodes` hands `shapeNode` the document alone. A second copy on the neighbour
      * would be one fact in two places, which is this repo's signature defect.
      */
-    assert.match(bodyOf(src('server/src/brain/edges.ts'), 'traverseFromSeeds'), /kind:/,
+    assert.match(bodyOf(src('server/src/brain/recall-seed-traversal.ts'), 'traverseFromSeeds'), /kind:/,
       'the seed traversal must stamp the reached record\'s kind on it');
     const shaper = bodyOf(src('server/src/brain/recall-graph.ts'), 'graphNodeRecord');
     assert.match(shaper, /\bkind\b/,

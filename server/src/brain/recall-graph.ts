@@ -38,7 +38,7 @@
  * the one being served, gains a full edge object where it used to have three fields.
  */
 import type { EntityDoc } from '../config/types.js';
-import { type SeedTraverseNeighbor, type TraverseHopEdge, type TraverseHopRecord } from './edges.js';
+import { type SeedTraverseNeighbor, type TraverseHopEdge, type TraverseHopRecord } from './recall-seed-traversal.js';
 import { RECALL_RECORD_DIAGNOSTICS, NEVER_RETURNED_FIELDS } from './recall-shape.js';
 import { applyProjection, type NormalisedProjection } from './projection.js';
 

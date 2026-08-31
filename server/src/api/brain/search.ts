@@ -22,7 +22,8 @@ import {
 import { findSimilar, recall, type RecallKnowledgeType, type RecallResult } from '../../brain/recall.js';
 import { type FilterExpression } from '../../brain/filter.js';
 import { resolveRecallFilter } from '../../brain/recall-filter.js';
-import { traverseGraph, MAX_RECALL_TRAVERSE, resolveEdgeEntityNames } from '../../brain/edges.js';
+import { traverseGraph, resolveEdgeEntityNames } from '../../brain/edges.js';
+import { MAX_RECALL_TRAVERSE } from '../../brain/recall-seed-traversal.js';
 import { buildGraphWithSpill, spillResultSet, countGraphNodes } from '../../brain/graph-spill.js';
 import { parseTraverseOption, echoTraverse } from '../../brain/traverse-option.js';
 import { embed } from '../../brain/embedding.js';

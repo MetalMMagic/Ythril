@@ -102,7 +102,13 @@ const FROZEN = {
   // the diff and the fix would be a footnote.
   // DECOMPOSE: G-3. The largest file on this list at 1 618 code lines (1 999 total), and the one where the
   // ratchet has been loudest for longest.
-  'client/src/app/pages/files/file-manager.component.ts': 1618,
+  // 1618 -> 1545. G-3's first cut: the preview body became `file-preview.component.ts`, its styles moved with
+  // it into `file-manager.styles.ts`, and `formatSize` became a shared function rather than the second copy
+  // the extraction was about to create.
+  //
+  // Lowered rather than deleted, and still by far the largest here. DECOMPOSE: G-3 stays open — the browser,
+  // the upload flow and the metadata drawer are the remaining seams, and each is its own change.
+  'client/src/app/pages/files/file-manager.component.ts': 1545,
   'client/src/app/pages/schema-library/schema-library.component.ts': 1112,
   'server/src/sync/engine.ts': 966,
   // 958 -> 684: the per-type editor body moved into `schema-type-editor.component` so the Brain Overview

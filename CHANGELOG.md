@@ -32,6 +32,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **The file manager's preview is its own component now** — 1 618 code lines to 1 545, the first cut of the
+  largest file in the repo. It renders and does nothing else: the page still fetches and still owns the
+  preview's object URL, because a component that revoked on destroy would revoke it during the very re-render
+  that replaces it.
+
+  It takes **one view model** rather than eight inputs, which also makes the loading, error and rendered
+  states mutually exclusive by construction instead of by hand in two places. The markup was already an
+  `ng-template` rendered twice — the same instinct as a component, one Angular version early — but it left
+  the whole thing inside a 1 618-line file with its styles 500 lines from the markup they applied to.
+
+  **Two CSS rules changed shape on the way, and that is the load-bearing part.** `.preview-body img` and
+  `.preview-body iframe` were written against the page's wrapper, which is now the *parent* of the component
+  that renders the image; left qualified they would have matched nothing, giving an image with no width cap
+  and a PDF frame with no height on a page that still looked fine until you opened one.
+
+  `formatSize` became a shared function rather than the second copy the extraction was about to create.
+
 - **The largest file in the repo has characterization tests before it is split.** `file-manager.component.ts`
   is 1 618 code lines and its spec never mentioned **69 of its 117 members** — one component doing the
   browser, the upload flow, the preview, the extract tab and the per-file metadata drawer, with each of those

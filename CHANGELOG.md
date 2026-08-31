@@ -32,6 +32,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **The file manager's extract view is its own component** — 1 397 code lines to 1 326, and 1 618 to 1 326
+  over four cuts. That is the whole detail pane: preview, upload panel, meta editor and now the extract view,
+  which is what retrieval actually sees for a file.
+
+  Fetching, paging and retry stayed on the page, as with the other three: the request is the page's, and a
+  component that owned it would drop an in-flight page load when the pane switched tabs.
+
+  `msRange` — a chunk's clock range, for media provenance — joined `formatSize` as a shared function, and its
+  three cases moved with it. They had been reaching through a 1 600-line component to exercise six lines of
+  arithmetic, which is exactly how two sort helpers came to be tested after the control that called them had
+  gone. Testing the function directly also made room for the rounding, padding and negative-offset cases that
+  were awkward to assert from a component.
+
 - **The file manager's metadata editor is its own component** — 1 422 code lines to 1 397, G-3's third cut.
   Saving stayed on the page: the request is the page's, it knows what to reload afterwards, and a component
   that owned it would cancel a save in flight when the pane closed.

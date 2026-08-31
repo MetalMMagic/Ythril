@@ -157,3 +157,34 @@ export const FILE_META_EDITOR_STYLES = `
   .detail-meta-form textarea { width: 100%; resize: vertical; }
   .detail-meta-actions { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
 `;
+
+/**
+ * The extract view's rules, moved with its markup (G-3).
+ *
+ * Left qualified by `.detail-extract` rather than hoisted to `:host`: the wrapper is one element inside the
+ * component, and several rules read `.detail-extract .muted` / `.desc-src` — scoping those to the host would
+ * change which elements they reach.
+ */
+export const FILE_EXTRACT_STYLES = `
+  /* Extract face. A diagnostic, so it is dense and legible rather than pretty: the chunk bodies are the
+     thing being read, and everything else is a label on them. */
+  .detail-extract section { margin-bottom: 18px; }
+  .detail-extract h4 { margin: 0 0 8px; font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted); }
+  .detail-extract .muted { color: var(--text-muted); font-size: 0.9em; }
+  .chunk { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; background: var(--bg-primary); }
+  .chunk-head { display: flex; gap: 8px; align-items: baseline; margin-bottom: 5px; font-size: 0.82em; }
+  .chunk-ix { font-family: var(--font-mono, monospace); color: var(--text-muted); flex: none; }
+  /* Provenance can be a long heading; it truncates rather than pushing the row. */
+  .chunk-prov { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chunk-warn { color: var(--warning); flex: none; }
+  /* pre-wrap, because a chunk's own line breaks are part of what retrieval sees. */
+  .chunk-body { margin: 0; white-space: pre-wrap; word-break: break-word; line-height: 1.45; font-size: 0.92em; }
+  .xtr-image { border-top: 1px solid var(--border); padding: 8px 0; }
+  .xtr-image p { margin: 4px 0 0; line-height: 1.45; font-size: 0.92em; }
+  .xtr-path { font-family: var(--font-mono, monospace); font-size: 0.82em; color: var(--text-muted); word-break: break-all; }
+  .xtr-md { margin: 6px 0 0; padding: 10px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--bg-primary); max-height: 40vh; overflow: auto; white-space: pre-wrap;
+    word-break: break-word; font-size: 0.85em; line-height: 1.45; }
+  .detail-extract .desc-src { margin-left: 6px; padding: 1px 6px; border: 1px solid var(--border);
+    border-radius: 10px; font-size: 0.86em; color: var(--text-muted); cursor: help; }
+`;

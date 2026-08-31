@@ -132,12 +132,10 @@ describe('FileManagerComponent — the Extract tab', () => {
     expect(c.extract()).toBeNull();
   });
 
-  it('formats a chunk offset as a clock, and a document chunk as nothing', () => {
-    const { c } = open({ chunkCount: 1 } as FileMeta);
-    expect(c.msRange(0, null)).toBe('0:00');
-    expect(c.msRange(65_000, 30_000)).toBe('1:05-1:35');
-    expect(c.msRange(null, null)).toBe('');
-  });
+  // The chunk-offset clock moved to `file-format.spec.ts` when `msRange` became a shared function (G-3).
+  // It was reaching through this component to exercise six lines of arithmetic, and the extract view needs
+  // the same function — so the cases now test it directly, with the rounding and padding they could not
+  // reasonably assert from here.
 
   it('appends the next page instead of replacing what is on screen', () => {
     const { c, fixture, getFileExtract } = open({ chunkCount: 3 } as FileMeta);

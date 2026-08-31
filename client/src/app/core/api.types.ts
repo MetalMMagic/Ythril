@@ -266,6 +266,14 @@ export interface Memory {
   description?: string;
   properties?: Record<string, string | number | boolean>;
   createdAt: string;
+  /**
+   * Set on every write, by the server, always — and it was missing from this interface.
+   *
+   * `ChronoEntry` declared it and these three did not, so any client code that wanted it had to cast. The
+   * server's `MemoryDoc`/`EntityDoc`/`EdgeDoc` all declare it REQUIRED, which is the shape the API returns:
+   * one rule, two declarations, and the weaker one on the side that reads the response.
+   */
+  updatedAt: string;
   seq: number;
   author?: { instanceId: string };
 }
@@ -278,6 +286,14 @@ export interface Entity {
   description?: string;
   properties?: Record<string, string | number | boolean>;
   createdAt: string;
+  /**
+   * Set on every write, by the server, always — and it was missing from this interface.
+   *
+   * `ChronoEntry` declared it and these three did not, so any client code that wanted it had to cast. The
+   * server's `MemoryDoc`/`EntityDoc`/`EdgeDoc` all declare it REQUIRED, which is the shape the API returns:
+   * one rule, two declarations, and the weaker one on the side that reads the response.
+   */
+  updatedAt: string;
 }
 
 export interface Edge {
@@ -293,6 +309,14 @@ export interface Edge {
   description?: string;
   properties?: Record<string, string | number | boolean>;
   createdAt: string;
+  /**
+   * Set on every write, by the server, always — and it was missing from this interface.
+   *
+   * `ChronoEntry` declared it and these three did not, so any client code that wanted it had to cast. The
+   * server's `MemoryDoc`/`EntityDoc`/`EdgeDoc` all declare it REQUIRED, which is the shape the API returns:
+   * one rule, two declarations, and the weaker one on the side that reads the response.
+   */
+  updatedAt: string;
 }
 
 export type ChronoType = 'event' | 'deadline' | 'plan' | 'prediction' | 'milestone';

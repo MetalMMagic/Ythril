@@ -8,6 +8,7 @@ import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { getTranslocoModule } from '../../testing/transloco-testing';
 import { SortableHeaderComponent } from './sortable-header.component';
+import { isOnPush } from '../../testing/onpush';
 
 @Component({
   standalone: true,
@@ -40,7 +41,7 @@ describe('SortableHeaderComponent', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   it('is compiled as OnPush', () => {
-    expect(SortableHeaderComponent.ɵcmp?.onPush).toBe(true);
+    expect(isOnPush(SortableHeaderComponent)).toBe(true);
   });
 
   it('renders the translated label', () => {

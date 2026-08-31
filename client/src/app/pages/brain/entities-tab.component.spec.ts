@@ -16,9 +16,22 @@ import { EntityRefPicker } from './entity-ref-picker.service';
 import { RecordDrawerState } from './record-drawer-state.service';
 import { RecordListState } from './record-list-state.service';
 import { EntitiesTabComponent } from './entities-tab.component';
+import { isOnPush } from '../../testing/onpush';
 
 const api = {
-  listEntities: vi.fn(() => of({ entities: [] as Entity[] })),
+  /*
+   * Parameters declared, because the specs read `mock.calls.at(-1)![3]` and `[5]` — and a `vi.fn(() => …)`
+   * with none types its calls as an EMPTY tuple, so those reads were errors and could never have caught an
+   * argument moving position. Shapes from `BrainApi.listEntities`.
+   */
+  listEntities: vi.fn((
+    _spaceId: string,
+    _limit?: number,
+    _skip?: number,
+    _filters?: { search?: string; type?: string; tag?: string; description?: string; properties?: string },
+    _sort?: unknown,
+    _search?: string,
+  ) => of({ entities: [] as Entity[] })),
   getEntitiesByIds: vi.fn(() => of({ entities: [] })),
   createEntity: vi.fn(() => of({ _id: 'new' } as Entity)),
   updateEntity: vi.fn((_s: string, id: string) => of({ _id: id, name: 'UPDATED' } as Entity)),
@@ -47,7 +60,7 @@ beforeEach(() => { for (const fn of Object.values(api)) (fn as any).mockClear();
 
 describe('EntitiesTabComponent', () => {
   it('is compiled as OnPush', () => {
-    expect(EntitiesTabComponent.ɵcmp?.onPush).toBe(true);
+    expect(isOnPush(EntitiesTabComponent)).toBe(true);
   });
 
   it('self-loads on the spaceId input (page size + skip 0 + no filter)', () => {
@@ -286,8 +299,8 @@ describe('EntitiesTabComponent — description column filter', () => {
 
     const call = api.listEntities.mock.calls.at(-1);
     expect(call, 'a reload must happen').toBeTruthy();
-    const filters = call![3] as Record<string, string>;
-    expect(filters['description']).toBe('quarterly');
+    const filters = call![3] ?? {};
+    expect(filters.description).toBe('quarterly');
     // NOT folded into `search` — that would filter the name column too and defeat the point.
     expect(call![5]).toBeFalsy();
   });

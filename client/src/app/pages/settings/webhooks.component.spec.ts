@@ -16,6 +16,7 @@ import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 import { getTranslocoModule } from '../../testing/transloco-testing';
 import { WebhooksComponent } from './webhooks.component';
 import type { WebhookSubscription } from '../../core/api.types';
+import { isOnPush } from '../../testing/onpush';
 
 function webhook(over: Partial<WebhookSubscription> = {}): WebhookSubscription {
   return {
@@ -46,7 +47,7 @@ describe('WebhooksComponent — payload shaping (C1)', () => {
   }
 
   it('is OnPush', () => {
-    expect((WebhooksComponent as any).ɵcmp?.onPush).toBe(true);
+    expect(isOnPush(WebhooksComponent)).toBe(true);
   });
 
   it('create with "all events"/"all spaces" sends empty arrays + the typed secret', () => {

@@ -5,6 +5,7 @@ import { ComponentRef } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { StatusPillComponent } from './status-pill.component';
+import { isOnPush } from '../testing/onpush';
 
 describe('StatusPillComponent', () => {
   let fixture: ReturnType<typeof TestBed.createComponent<StatusPillComponent>>;
@@ -42,6 +43,6 @@ describe('StatusPillComponent', () => {
   });
 
   it('is OnPush', () => {
-    expect(StatusPillComponent.ɵcmp?.onPush).toBe(true);
+    expect(isOnPush(StatusPillComponent)).toBe(true);
   });
 });

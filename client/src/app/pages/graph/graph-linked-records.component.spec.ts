@@ -19,6 +19,7 @@ import { Component, signal } from '@angular/core';
 import { getTranslocoModule } from '../../testing/transloco-testing';
 import { GraphLinkedRecordsComponent } from './graph-linked-records.component';
 import { DetailRef } from './graph-details';
+import { isOnPush } from '../../testing/onpush';
 
 @Component({
   standalone: true,
@@ -53,7 +54,7 @@ describe('GraphLinkedRecordsComponent', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   it('is compiled as OnPush', () => {
-    expect(GraphLinkedRecordsComponent.ɵcmp?.onPush).toBe(true);
+    expect(isOnPush(GraphLinkedRecordsComponent)).toBe(true);
   });
 
   it('renders one row per memory AND one per chrono entry', () => {

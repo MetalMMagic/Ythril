@@ -32,7 +32,6 @@ function makeApi(spaces: Space[] = []) {
   return {
     listSpaces: () => of({ spaces }),
     list: () => of({ spaces }),
-    getSpaceStats: () => of({ spaceId: 'work', memories: 1, entities: 2, edges: 3, chrono: 4, files: 5 }),
     getActivity: () => of({ spaces: [] }),
     updateSpace: () => of({ space: spaces[0] ?? space() }),
     getSchema: () => of({ meta: {} }),

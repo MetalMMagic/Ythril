@@ -15,6 +15,7 @@ import { EntityRefPicker } from './entity-ref-picker.service';
 import { RecordDrawerState } from './record-drawer-state.service';
 import { RecordListState } from './record-list-state.service';
 import { EdgesTabComponent } from './edges-tab.component';
+import { isOnPush } from '../../testing/onpush';
 
 const api = {
   listEdges: vi.fn(() => of({ edges: [] as Edge[] })),
@@ -44,7 +45,7 @@ beforeEach(() => { for (const fn of Object.values(api)) (fn as any).mockClear();
 
 describe('EdgesTabComponent', () => {
   it('is compiled as OnPush', () => {
-    expect(EdgesTabComponent.ɵcmp?.onPush).toBe(true);
+    expect(isOnPush(EdgesTabComponent)).toBe(true);
   });
 
   it('self-loads on the spaceId input', () => {

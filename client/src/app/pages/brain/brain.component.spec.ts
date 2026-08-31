@@ -28,6 +28,7 @@ import { getTranslocoModule } from '../../testing/transloco-testing';
 import { BrainComponent } from './brain.component';
 import { COLLECTION_TABS } from './brain-tabs';
 import { SpaceSettingsState } from '../settings/space-settings-state.service';
+import { isOnPush } from '../../testing/onpush';
 
 
 /** Read-only stub: brain's init cascade is listSpaces → getSpaceStats/getReindexStatus/getSpaceMeta. */
@@ -80,7 +81,7 @@ describe('BrainComponent (OnPush)', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   it('is compiled as OnPush', () => {
-    expect(BrainComponent.ɵcmp?.onPush).toBe(true);
+    expect(isOnPush(BrainComponent)).toBe(true);
   });
 
   it('lands on the Overview tab by default (F9 — Overview is the space landing view)', () => {

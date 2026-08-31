@@ -9,6 +9,7 @@ import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { getTranslocoModule } from '../testing/transloco-testing';
 import { PropertiesViewComponent } from './properties-view.component';
+import { isOnPush } from '../testing/onpush';
 
 describe('PropertiesViewComponent (OnPush)', () => {
   let fixture: ReturnType<typeof TestBed.createComponent<PropertiesViewComponent>>;
@@ -22,7 +23,7 @@ describe('PropertiesViewComponent (OnPush)', () => {
   });
 
   it('is compiled as OnPush', () => {
-    expect(PropertiesViewComponent.ɵcmp?.onPush).toBe(true);
+    expect(isOnPush(PropertiesViewComponent)).toBe(true);
   });
 
   it('renders an em-dash when there are no properties', () => {

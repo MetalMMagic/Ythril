@@ -7,6 +7,7 @@ import { ComponentRef } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { PhIconComponent } from './ph-icon.component';
+import { isOnPush } from '../testing/onpush';
 
 describe('PhIconComponent', () => {
   let fixture: ReturnType<typeof TestBed.createComponent<PhIconComponent>>;
@@ -56,7 +57,7 @@ describe('PhIconComponent', () => {
     // still pass (default CD also updates), so it is not a full mutation test — but paired with
     // the harness's negative control (which proves the harness CAN see a stale OnPush view),
     // an input-driven update failing here would mean the conversion broke the component.
-    expect(PhIconComponent.ɵcmp?.onPush).toBe(true);
+    expect(isOnPush(PhIconComponent)).toBe(true);
 
     ref.setInput('name', 'trash');
     ref.setInput('size', 12);

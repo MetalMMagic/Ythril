@@ -100,14 +100,40 @@ describe('DataComponent — cron build/parse (schedule round-trip)', () => {
 describe('DataComponent — buildConfig assembly', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
+  it('emits `encrypt` only when it is ON, so turning it off REMOVES the key', () => {
+    /*
+     * A branch nothing covered, and the type checker is what found it: six fixtures omitted `encrypt`
+     * entirely, so it was `undefined` on every one and neither side of `if (this.destForm.encrypt)` was ever
+     * taken. Completing the fixtures made the omission visible.
+     *
+     * The asymmetry is the behaviour: ON writes `encrypt: true`, OFF writes NOTHING rather than
+     * `encrypt: false`. That keeps an untouched `backup.json` byte-identical and keeps
+     * "absent means plaintext" the single source of truth — a written `false` would make two spellings of
+     * the same state, which is what the component's own comment says it is avoiding.
+     */
+    const { c } = make();
+    c.scheduleForm = { frequency: 'daily', hour: 2, minute: 0, weekday: 1, monthDay: 1 };
+
+    // `priv` hands back `unknown` on purpose — it is a window into a private method, not a typed API. The
+    // shape is stated here rather than by widening `priv`, which every other case in this file relies on
+    // being deliberately opaque.
+    const built = () => priv(c)['buildConfig']() as Record<string, unknown>;
+
+    c.destForm = { ythrilInternal: true, customPath: '', keepLocal: 7, encrypt: true };
+    expect(built()['encrypt']).toBe(true);
+
+    c.destForm = { ythrilInternal: true, customPath: '', keepLocal: 7, encrypt: false };
+    expect('encrypt' in built(), 'OFF must remove the key, not write false').toBe(false);
+  });
+
   it('assembles schedule + keepLocal retention, and only adds offsite for a custom path', () => {
     const { c } = make();
     c.scheduleForm = { frequency: 'daily', hour: 2, minute: 0, weekday: 1, monthDay: 1 };
-    c.destForm = { ythrilInternal: true, customPath: '', keepLocal: 7 };
+    c.destForm = { ythrilInternal: true, customPath: '', keepLocal: 7 , encrypt: false };
     expect(priv(c)['buildConfig']()).toEqual({ schedule: '0 2 * * *', retention: { keepLocal: 7 } });
 
     // custom offsite path → offsite block carries destPath + keepCount
-    c.destForm = { ythrilInternal: false, customPath: '  /mnt/backups  ', keepLocal: 3 };
+    c.destForm = { ythrilInternal: false, customPath: '  /mnt/backups  ', keepLocal: 3 , encrypt: false };
     expect(priv(c)['buildConfig']()).toEqual({
       schedule: '0 2 * * *',
       retention: { keepLocal: 3 },
@@ -118,9 +144,9 @@ describe('DataComponent — buildConfig assembly', () => {
   it('omits schedule when never and retention when keepLocal is null/0', () => {
     const { c } = make();
     c.scheduleForm = { frequency: 'never', hour: 2, minute: 0, weekday: 1, monthDay: 1 };
-    c.destForm = { ythrilInternal: true, customPath: '', keepLocal: null };
+    c.destForm = { ythrilInternal: true, customPath: '', keepLocal: null , encrypt: false };
     expect(priv(c)['buildConfig']()).toEqual({});
-    c.destForm = { ythrilInternal: true, customPath: '', keepLocal: 0 };
+    c.destForm = { ythrilInternal: true, customPath: '', keepLocal: 0 , encrypt: false };
     expect(priv(c)['buildConfig']()).toEqual({});
   });
 });
@@ -160,9 +186,9 @@ describe('DataComponent — display helpers (U11: now routed through transloco)'
 
   it('destConfigured / scheduleConfigured reflect the forms', () => {
     const { c } = make();
-    c.destForm = { ythrilInternal: true, customPath: '/x', keepLocal: null };
+    c.destForm = { ythrilInternal: true, customPath: '/x', keepLocal: null , encrypt: false };
     expect(c.destConfigured()).toBe(false);                         // internal → not "configured" offsite
-    c.destForm = { ythrilInternal: false, customPath: '/x', keepLocal: null };
+    c.destForm = { ythrilInternal: false, customPath: '/x', keepLocal: null , encrypt: false };
     expect(c.destConfigured()).toBe(true);
     c.scheduleForm = { ...c.scheduleForm, frequency: 'never' };
     expect(c.scheduleConfigured()).toBe(false);

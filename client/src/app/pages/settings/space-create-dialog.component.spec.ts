@@ -14,8 +14,13 @@ import { SpacesApi } from '../../core/spaces-api.service';
 import { getTranslocoModule } from '../../testing/transloco-testing';
 import { SpacesStore } from './spaces-store.service';
 import { SpaceCreateDialogComponent } from './space-create-dialog.component';
+import { isOnPush } from '../../testing/onpush';
+import type { SpaceMeta } from '../../core/api.types';
 
-function create(createSpaceSpy?: (body: unknown) => unknown) {
+/** The body `SpacesApi.createSpace` takes — named so the harness and the spy agree on one shape. */
+type CreateSpaceBody = { label: string; id?: string; maxGiB?: number; proxyFor?: string[]; meta?: Partial<SpaceMeta> };
+
+function create(createSpaceSpy?: (body: CreateSpaceBody) => unknown) {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     imports: [SpaceCreateDialogComponent, getTranslocoModule()],
@@ -37,7 +42,7 @@ describe('SpaceCreateDialogComponent', () => {
   it('is compiled as OnPush', () => {
     // Matches the house pattern (brain, file-manager, graph, audit-log all assert this). Every child
     // extracted in A17.8b is OnPush from birth rather than retrofitted onto the old 1600-line parent.
-    expect(SpaceCreateDialogComponent.ɵcmp?.onPush).toBe(true);
+    expect(isOnPush(SpaceCreateDialogComponent)).toBe(true);
   });
 
   it('starts with an empty Purpose and a fully-strict validation default', () => {
@@ -53,14 +58,16 @@ describe('SpaceCreateDialogComponent', () => {
   it('sends the validation choices explicitly, even when the user picks the lenient options', () => {
     // If the form quietly omitted an "off"/unchecked choice, the server default (strict) would create a
     // strict space while the user was shown "off" — so both flags are always sent.
-    const spy = vi.fn(() => of({ space: {} }));
+    // The parameter is declared because the assertion below reads `mock.calls[0][0]`, and a `vi.fn(() => …)`
+    // with none types its calls as an empty tuple. Shape from `SpacesApi.createSpace`.
+    const spy = vi.fn((_body: CreateSpaceBody) => of({ space: {} }));
     const c = create(spy).componentInstance;
     c.form.label = 'My Space';
     c.form.validationMode = 'off';
     c.form.strictLinkage = false;
     c.createSpace();
     expect(spy).toHaveBeenCalledTimes(1);
-    const body = spy.mock.calls[0][0] as { meta?: { validationMode?: string; strictLinkage?: boolean; purpose?: string } };
+    const body = spy.mock.calls[0][0];
     expect(body.meta?.validationMode).toBe('off');
     expect(body.meta?.strictLinkage).toBe(false);
     // An empty Purpose is not sent as a blank string.

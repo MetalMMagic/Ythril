@@ -17,6 +17,8 @@ import { BrainStore } from './brain-store.service';
 import { EntityRefPicker } from './entity-ref-picker.service';
 import { RecordDrawerState } from './record-drawer-state.service';
 import { RecordDrawerComponent } from './record-drawer.component';
+import { isOnPush } from '../../testing/onpush';
+import { aMemory } from '../../testing/records';
 
 /** getEntitiesByIds is the only API the open() → resolveEntityNames path can touch here. */
 function makeApi() {
@@ -42,7 +44,7 @@ describe('RecordDrawerComponent', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   it('is compiled as OnPush', () => {
-    expect(RecordDrawerComponent.ɵcmp?.onPush).toBe(true);
+    expect(isOnPush(RecordDrawerComponent)).toBe(true);
   });
 
   it('renders nothing until a record is opened', () => {
@@ -58,7 +60,7 @@ describe('RecordDrawerComponent', () => {
     const fixture = create();
     const state = TestBed.inject(RecordDrawerState);
 
-    state.open('memory', { _id: 'm1', fact: 'a load-bearing fact', tags: [], entityIds: [], properties: {} });
+    state.open('memory', aMemory({ fact: 'a load-bearing fact' }));
     fixture.detectChanges();
 
     const drawer = fixture.nativeElement.querySelector('.drawer');
@@ -80,9 +82,7 @@ describe('RecordDrawerComponent', () => {
     const state = TestBed.inject(RecordDrawerState);
     const multiline = 'line one\nline two\nline three';
 
-    state.open('memory', {
-      _id: 'm1', fact: 'f', description: multiline, tags: [], entityIds: [], properties: {},
-    });
+    state.open('memory', aMemory({ fact: 'f', description: multiline }));
     fixture.detectChanges();
     await fixture.whenStable();
 

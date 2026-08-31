@@ -81,11 +81,13 @@ describe('NetworksComponent (characterization)', () => {
   it('load() populates networks and fetches only OPEN vote rounds per network', () => {
     const c = make();
     api.listNetworks.mockReturnValue(of({ networks: [net({ id: 'n1' }), net({ id: 'n2' })] }));
-    api.listVotes.mockReturnValue(of({ rounds: [round({ id: 'open1', status: 'open' }), round({ id: 'closed1', status: 'closed' })] }));
+    api.listVotes.mockReturnValue(of({ rounds: [round({ id: 'open1', status: 'open' }), round({ id: 'passed1', status: 'passed' })] }));
     c.load();
     expect(c.networks().map(n => n.id)).toEqual(['n1', 'n2']);
     expect(api.listVotes).toHaveBeenCalledTimes(2); // one per network
-    expect(c.openVotes('n1').map(r => r.id)).toEqual(['open1']); // closed round filtered out
+        // `'passed'`, not `'closed'`. A round's status is `open | passed | failed` — there is no `closed`, so the
+    // fixture was proving the filter rejects a value the API cannot send. It keeps `=== 'open'` honest.
+    expect(c.openVotes('n1').map(r => r.id)).toEqual(['open1']);
   });
 
   // Create-dialog behavior (blank-label guard, space payload, CSV fallback, error) moved to

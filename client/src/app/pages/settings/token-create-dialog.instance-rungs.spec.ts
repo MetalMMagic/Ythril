@@ -84,8 +84,13 @@ describe('the dialog is wide enough for the matrix it contains', () => {
     const width = /--dialog-max-width:\s*(min\([^)]*\))/;
     const mine = component.match(width);
     const theirs = editor.match(width);
-    expect(mine).not.toBeNull();
-    expect(theirs).not.toBeNull();
+    /*
+     * Narrowed with a throw rather than `!`. `expect(...).not.toBeNull()` is a runtime assertion the compiler
+     * cannot follow, so the reads below were errors — and `!` would have turned a missing rule into
+     * "cannot read properties of null" instead of naming which stylesheet lost it.
+     */
+    if (!mine) throw new Error('the dialog declares no --dialog-max-width');
+    if (!theirs) throw new Error('the token editor declares no --dialog-max-width');
     expect(mine[1]).toBe(theirs[1]);
   });
 });

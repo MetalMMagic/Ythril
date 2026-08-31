@@ -15,6 +15,7 @@ import type { ChronoEntry } from '../../core/api.types';
 import { EntityRefPicker } from './entity-ref-picker.service';
 import { BrainStore } from './brain-store.service';
 import { ChronoRefFieldComponent } from './chrono-ref-field.component';
+import { isOnPush } from '../../testing/onpush';
 
 function make(target: { chronoIds: string[] }) {
   TestBed.resetTestingModule();
@@ -35,7 +36,7 @@ describe('ChronoRefFieldComponent', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   it('is compiled as OnPush', () => {
-    expect(ChronoRefFieldComponent.ɵcmp?.onPush).toBe(true);
+    expect(isOnPush(ChronoRefFieldComponent)).toBe(true);
   });
 
   it('always hosts the inline chrono search', () => {

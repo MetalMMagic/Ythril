@@ -28,6 +28,8 @@ import { AuthApi } from '../../core/auth-api.service';
 import { getTranslocoModule } from '../../testing/transloco-testing';
 import { RecordDrawerState } from '../brain/record-drawer-state.service';
 import { GraphComponent } from './graph.component';
+import { isOnPush } from '../../testing/onpush';
+import { aMemory } from '../../testing/records';
 
 function makeApi() {
   return {
@@ -58,7 +60,7 @@ describe('GraphComponent (OnPush)', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   it('is compiled as OnPush', () => {
-    expect(GraphComponent.ɵcmp?.onPush).toBe(true);
+    expect(isOnPush(GraphComponent)).toBe(true);
   });
 
   it('renders the node side panel when selectedNode is set (the signal a cytoscape tap writes)', () => {
@@ -176,7 +178,7 @@ describe('GraphComponent (OnPush)', () => {
     const c = fixture.componentInstance;
     expect(fixture.nativeElement.querySelector('.drawer')).toBeNull();
 
-    c.openBrainDrawer('memory', { _id: 'm1', fact: 'a graph-drawer fact', tags: [], entityIds: [], properties: {} });
+    c.openBrainDrawer('memory', aMemory({ fact: 'a graph-drawer fact' }));
     fixture.detectChanges();
 
     const drawer = fixture.nativeElement.querySelector('.drawer');
@@ -195,7 +197,7 @@ describe('GraphComponent (OnPush)', () => {
 
     // From the COMPONENT's injector, not TestBed's — the page provides its own drawer collaborators.
     const drawerState = fixture.debugElement.injector.get(RecordDrawerState);
-    drawerState.lastSaved.set({ kind: 'memory', record: { _id: 'm1', fact: 'after' } });
+    drawerState.lastSaved.set({ kind: 'memory', record: aMemory({ fact: 'after' }) });
     fixture.detectChanges();
 
     expect(c.nodeMemories()[0].fact).toBe('after');

@@ -61,3 +61,85 @@ export const FILE_PREVIEW_STYLES = `
   .preview-meta dt { color: var(--text-muted); font-weight: 500; }
   .preview-meta dd { margin: 0; }
 `;
+
+/**
+ * The upload panel's rules, moved with its markup (G-3).
+ *
+ * `.upload-panel` became `:host`, for the reason the graph extraction records: the host is the element the
+ * page lays out, and a wrapper inside it would leave the host unsized.
+ *
+ * `.upload-zone` did NOT come along. It is the drop target on the page — the area you drag a file onto — and
+ * it exists whether or not anything is queued, so it belongs to the page rather than to the panel that
+ * appears once an upload starts.
+ */
+export const UPLOAD_QUEUE_STYLES = `
+  :host {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+  .upload-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .upload-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+  }
+  .upload-row + .upload-row { border-top: 1px solid var(--border); }
+  .upload-row-icon { flex-shrink: 0; color: var(--text-secondary); }
+  .upload-row.done .upload-row-icon { color: var(--success); }
+  .upload-row.failed .upload-row-icon { color: var(--error); }
+  .upload-row-body { flex: 1; min-width: 0; }
+  .upload-row-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .upload-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+  }
+  .upload-state {
+    flex-shrink: 0;
+    font-size: 12px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .upload-row.failed .upload-state { color: var(--error); }
+  .upload-bar {
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-top: 6px;
+  }
+  .upload-bar-fill {
+    height: 100%;
+    background: var(--accent);
+    transition: width 0.2s;
+  }
+  .upload-row-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+`;

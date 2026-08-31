@@ -108,7 +108,12 @@ const FROZEN = {
   //
   // Lowered rather than deleted, and still by far the largest here. DECOMPOSE: G-3 stays open — the browser,
   // the upload flow and the metadata drawer are the remaining seams, and each is its own change.
-  'client/src/app/pages/files/file-manager.component.ts': 1545,
+  // 1545 -> 1422. G-3's second cut: the upload panel became `upload-queue.component.ts`. The QUEUE stayed —
+  // ordering, the one-at-a-time rule, the HTTP subscriptions — because an upload in flight owns a
+  // subscription, and a component that owned it would abort on destroy.
+  //
+  // DECOMPOSE: G-3 stays open. The browser and the metadata drawer are the seams left.
+  'client/src/app/pages/files/file-manager.component.ts': 1422,
   'client/src/app/pages/schema-library/schema-library.component.ts': 1112,
   'server/src/sync/engine.ts': 966,
   // 958 -> 684: the per-type editor body moved into `schema-type-editor.component` so the Brain Overview

@@ -32,6 +32,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **The file manager's upload panel is its own component** — 1 545 code lines to 1 422, G-3's second cut.
+
+  **The queue stayed on the page, deliberately.** Ordering, the one-at-a-time rule, the HTTP subscriptions,
+  retry and cancel semantics: an upload in flight owns a subscription, and a component that owned it would
+  abort on destroy — so navigating away, or any structural change that remounted the panel, would silently
+  cancel a running upload. The panel now holds no state at all; it renders what it is given and reports which
+  button was pressed.
+
+  Which action a row offers stays in one place with it: retry belongs to a failed row, cancel to one queued or
+  uploading, dismiss to one that is finished either way. Each of those conditions was the only thing standing
+  between a user and a cancel button on a completed upload.
+
 - **The file manager's preview is its own component now** — 1 618 code lines to 1 545, the first cut of the
   largest file in the repo. It renders and does nothing else: the page still fetches and still owns the
   preview's object URL, because a component that revoked on destroy would revoke it during the very re-render

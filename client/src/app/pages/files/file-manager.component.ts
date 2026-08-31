@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, inject, signal, computed, effect, untracked, OnInit, OnDestroy, HostListener, ElementRef, viewChild, Input, Output, EventEmitter } from '@angular/core';
 import { SortableHeaderComponent } from '../brain/sortable-header.component';
 import { FilePreviewComponent, type FilePreview, type PreviewKind, type XlsxPreview } from './file-preview.component';
+import { UploadQueueComponent, type UploadItem, type UploadStatus } from './upload-queue.component';
 import { formatSize } from './file-format';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -69,17 +70,7 @@ interface TreeNode {
 const XLSX_MAX_ROWS = 200;
 const XLSX_MAX_COLS = 40;
 
-type UploadStatus = 'queued' | 'uploading' | 'done' | 'failed';
 
-/** One row in the upload panel — a single file's lifecycle (U12). */
-interface UploadItem {
-  id: number;
-  file: File;
-  name: string;
-  status: UploadStatus;
-  percent: number;
-  error?: string;
-}
 
 const TEXT_EXTS = new Set([
   '.txt', '.json', '.yaml', '.yml', '.ts', '.js', '.py', '.sh',
@@ -144,7 +135,7 @@ function xlsxCellText(v: unknown): string {
   // regardless of zone. Text fields (`newFolderName`, `renameValue`) are ngModel two-way bindings
   // whose input events mark the view dirty. So OnPush re-checks exactly when state changes.
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe, ErrorStateComponent, TagInputComponent, EntityRefFieldComponent, MemoryRefFieldComponent, ChronoRefFieldComponent, SortableHeaderComponent, StepProgressBarComponent, HscrollTopDirective, ModalDirective, TimestampComponent, FilePreviewComponent],
+  imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe, ErrorStateComponent, TagInputComponent, EntityRefFieldComponent, MemoryRefFieldComponent, ChronoRefFieldComponent, SortableHeaderComponent, StepProgressBarComponent, HscrollTopDirective, ModalDirective, TimestampComponent, FilePreviewComponent, UploadQueueComponent],
   styles: [`
     /* A background refresh, as a 2px indeterminate hairline above the table. Deliberately NOT a spinner and
        deliberately not an overlay: the whole point is that nothing on screen moves or disappears while a poll
@@ -261,75 +252,6 @@ function xlsxCellText(v: unknown): string {
     }
 
     /* ── Upload queue panel (U12) ─────────────────────────────── */
-    .upload-panel {
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      margin-bottom: 16px;
-      overflow: hidden;
-    }
-    .upload-panel-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      padding: 8px 12px;
-      font-size: 12px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--text-muted);
-      background: var(--bg-surface);
-      border-bottom: 1px solid var(--border);
-    }
-    .upload-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 8px 12px;
-    }
-    .upload-row + .upload-row { border-top: 1px solid var(--border); }
-    .upload-row-icon { flex-shrink: 0; color: var(--text-secondary); }
-    .upload-row.done .upload-row-icon { color: var(--success); }
-    .upload-row.failed .upload-row-icon { color: var(--error); }
-    .upload-row-body { flex: 1; min-width: 0; }
-    .upload-row-top {
-      display: flex;
-      align-items: baseline;
-      justify-content: space-between;
-      gap: 10px;
-    }
-    .upload-name {
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      font-size: 13px;
-    }
-    .upload-state {
-      flex-shrink: 0;
-      font-size: 12px;
-      color: var(--text-muted);
-      font-variant-numeric: tabular-nums;
-    }
-    .upload-row.failed .upload-state { color: var(--error); }
-    .upload-bar {
-      height: 4px;
-      background: var(--border);
-      border-radius: 2px;
-      overflow: hidden;
-      margin-top: 6px;
-    }
-    .upload-bar-fill {
-      height: 100%;
-      background: var(--accent);
-      transition: width 0.2s;
-    }
-    .upload-row-actions {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      flex-shrink: 0;
-    }
-
     .rename-form { display: flex; gap: 6px; align-items: center; }
 
     .space-selector {
@@ -544,52 +466,13 @@ function xlsxCellText(v: unknown): string {
 
         <!-- Upload queue — one row per file (U12) -->
         @if (uploads().length) {
-          <div class="upload-panel">
-            <div class="upload-panel-head">
-              <span>{{ 'files.upload.queueTitle' | transloco }}</span>
-              @if (hasFinishedUploads()) {
-                <button class="btn-ghost btn btn-sm" type="button" (click)="clearFinishedUploads()">
-                  {{ 'files.upload.clearFinished' | transloco }}
-                </button>
-              }
-            </div>
-            @for (u of uploads(); track u.id) {
-              <div class="upload-row" [class.failed]="u.status === 'failed'" [class.done]="u.status === 'done'">
-                <ph-icon class="upload-row-icon" [name]="uploadIcon(u.status)" [size]="14"/>
-                <div class="upload-row-body">
-                  <div class="upload-row-top">
-                    <span class="upload-name" [title]="u.name">{{ u.name }}</span>
-                    <span class="upload-state">
-                      @switch (u.status) {
-                        @case ('queued') { {{ 'files.upload.status.queued' | transloco }} }
-                        @case ('uploading') { {{ u.percent }}% }
-                        @case ('done') { {{ 'files.upload.status.done' | transloco }} }
-                        @case ('failed') { {{ u.error || ('files.upload.status.failed' | transloco) }} }
-                      }
-                    </span>
-                  </div>
-                  @if (u.status === 'uploading' || u.status === 'queued') {
-                    <div class="upload-bar">
-                      <div class="upload-bar-fill" [style.width.%]="u.percent"></div>
-                    </div>
-                  }
-                </div>
-                <div class="upload-row-actions">
-                  @if (u.status === 'failed') {
-                    <button class="btn-ghost btn btn-sm" type="button" (click)="retryUpload(u)">{{ 'common.retry' | transloco }}</button>
-                  }
-                  @if (u.status === 'queued' || u.status === 'uploading') {
-                    <button class="btn-ghost btn btn-sm" type="button" (click)="cancelUpload(u)">{{ 'common.cancel' | transloco }}</button>
-                  }
-                  @if (u.status === 'done' || u.status === 'failed') {
-                    <button class="icon-btn" type="button" [attr.aria-label]="'files.upload.dismiss' | transloco" (click)="dismissUpload(u)">
-                      <ph-icon name="x" [size]="12"/>
-                    </button>
-                  }
-                </div>
-              </div>
-            }
-          </div>
+          <app-upload-queue
+            [uploads]="uploads()"
+            [hasFinished]="hasFinishedUploads()"
+            (retry)="retryUpload($event)"
+            (cancel)="cancelUpload($event)"
+            (dismiss)="dismissUpload($event)"
+            (clearFinished)="clearFinishedUploads()" />
         }
 
         <div class="fm-layout">
@@ -1497,15 +1380,6 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   /** Clear all finished rows, leaving queued/in-flight ones. */
   clearFinishedUploads(): void {
     this.uploads.update(list => list.filter(u => u.status === 'queued' || u.status === 'uploading'));
-  }
-
-  uploadIcon(status: UploadStatus): string {
-    switch (status) {
-      case 'done': return 'check-circle';
-      case 'failed': return 'warning';
-      case 'uploading': return 'arrow-up';
-      default: return 'timer';
-    }
   }
 
   createFolder(): void {

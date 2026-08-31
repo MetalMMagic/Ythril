@@ -234,21 +234,40 @@ describe('the node card, when the record cannot be fetched', () => {
     c.selectedNode.set(node({ _id: 'f1', kind: 'file' }));
     c.recordUnavailable.set('file');
     f.detectChanges();
-    expect(card(f)?.querySelector('.drawer-value.muted')).not.toBeNull();
+    expect(card(f)?.querySelector('.drawer-value.drawer-muted')).not.toBeNull();
   });
 
-  it('AND shows the loading row at the same time — today\'s behaviour', () => {
+  it('and does NOT also say it is loading', () => {
     /*
-     * PINNING A DEFECT. The message and the record are two independent `@if`s rather than an if/else, so a
-     * file node renders "no record can be fetched for a file node" immediately above "Loading…", which
-     * contradicts it. Extracting the card must not silently resolve this; changing it is a decision.
+     * G-6, fixed. This pinned the defect: the message and the record were two independent `@if`s rather than
+     * an if/else, so a file node rendered "no record can be fetched for a file node" immediately above
+     * "Loading…" — the panel contradicting itself, and the second line the more believable of the two,
+     * because it is the one that usually means something.
      */
     const f = create();
     const c = f.componentInstance as any;
     c.selectedNode.set(node({ _id: 'f1', kind: 'file' }));
     c.recordUnavailable.set('file');
     f.detectChanges();
-    expect(card(f)?.textContent).toMatch(/loading/i);
+    expect(card(f)?.textContent).not.toMatch(/loading/i);
+  });
+
+  it('and the message is actually muted', () => {
+    /*
+     * It asked for `class="muted"`, which is declared NOWHERE — not in `graph.styles.ts`, not globally. A
+     * `.drawer-muted` rule sat beside the other drawer classes with no user in the graph page at all. So the
+     * one sentence explaining why a panel is empty rendered as ordinary body text.
+     *
+     * Asserted as the class the stylesheet actually defines, because "muted" is exactly the kind of plausible
+     * name that reads as working.
+     */
+    const f = create();
+    const c = f.componentInstance as any;
+    c.selectedNode.set(node({ _id: 'f1', kind: 'file' }));
+    c.recordUnavailable.set('file');
+    f.detectChanges();
+    const msg = card(f)?.querySelector('.drawer-value');
+    expect(msg?.className, 'the message asks for a class the stylesheet does not define').toContain('drawer-muted');
   });
 });
 
@@ -292,22 +311,22 @@ describe('the edge card', () => {
     expect(values).toContain('Grace');
   });
 
-  it('shows loading for a SYNTHETIC edge for ever — today\'s behaviour', () => {
+  it('explains a SYNTHETIC edge rather than loading for ever', () => {
     /*
-     * PINNING A DEFECT. `loadEdgeDetails` sets `recordUnavailable('derived')` for a synthetic edge, whose
-     * id is `<label>:<from>:<to>` and which has no stored record. The string exists in all three locale
-     * files and the signal is asserted by another suite — but the ONLY render site for
-     * `recordUnavailable()` is inside the NODE card, and `onEdgeTap` nulls `selectedNode` first. So the
-     * edge panel shows "Loading…" indefinitely and the explanation is unreachable on screen.
+     * G-6, fixed. `loadEdgeDetails` sets `recordUnavailable('derived')` for a synthetic edge — id
+     * `<label>:<from>:<to>`, no stored record. The string was shipped in all three locale files and the
+     * signal was asserted by another suite, but the ONLY render site was inside the NODE card, and
+     * `onEdgeTap` nulls `selectedNode` first. So the edge panel showed "Loading…" indefinitely and the
+     * explanation was unreachable on screen: written, translated three times, impossible to see.
      */
     const f = create();
     const c = f.componentInstance as any;
     c.selectedEdge.set({ _id: 'mentions:a:b', from: 'a', to: 'b', label: 'mentions' });
     c.recordUnavailable.set('derived');
     f.detectChanges();
-    expect(card(f, 0)?.textContent).toMatch(/loading/i);
-    expect(card(f, 0)?.querySelector('.drawer-value.muted'),
-      'the edge card gained an unavailable branch — good, but rewrite this test deliberately').toBeNull();
+    expect(card(f, 0)?.querySelector('.drawer-value.drawer-muted'),
+      'the edge card still has no unavailable branch').not.toBeNull();
+    expect(card(f, 0)?.textContent).not.toMatch(/loading/i);
   });
 });
 

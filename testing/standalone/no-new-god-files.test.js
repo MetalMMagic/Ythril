@@ -176,7 +176,10 @@ const FROZEN = {
   // branch on kind is inert and a memory still renders a blank name. Raised without argument, for the reason
   // written above `brain.component.ts`: a ratchet that made a one-line bug fix negotiable would be a gate
   // encouraging the wrong outcome. DECOMPOSE: G-7 still stands.
-  'client/src/app/pages/graph/graph.component.ts': 689,
+  // 689 -> 690: ONE line again, the `[unavailable]` binding that lets the EDGE card say why a synthetic edge
+  // has no record. Without it the branch exists and nothing feeds it — the same inert-wiring shape as G-5's
+  // `[kind]`, which is why both are pinned by a rendering test rather than a method call.
+  'client/src/app/pages/graph/graph.component.ts': 690,
   // 753 -> 764: `backfillTokenRights`. This file is where config migrations already live — the media
   // master-switch and space-description ones are both here — so a fourth belongs beside them rather than in
   // a module only the loader would ever call.

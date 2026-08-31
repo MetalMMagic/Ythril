@@ -668,14 +668,21 @@ console.log(`\n${YELLOW}todo/ consistency${R}  ${DIM}(owner rules 2026-08-02 and
         // The plan row must name work the queue actually holds. `owner-directed` is the escape hatch for work
         // that arrives by message rather than through the queue, and it is a real category — most of tonight's
         // did. Without it the honest move and the bypass would be the same keystroke.
+        //
+        // `closed by this change` is the third form, and it is the convention rather than a loophole. A fix
+        // sitting in the working tree already fails the verify-line rule — "still open while grep returns 0"
+        // stops being true the moment the code lands — so an item is closed in the same change that ships it,
+        // and has left the queue by the time this runs. Found the first time this checklist was used on a bug
+        // fix, which was the change immediately after the one that added it. The CHANGELOG row still applies,
+        // so the claim is not free.
         const plan = src.match(/^\s*[-*]\s*\[[x~]\]\s*\**\s*1[^—\n]*—\s*(.+)$/m)?.[1]?.trim();
-        if (plan && !/owner-directed/i.test(plan)) {
+        if (plan && !/owner-directed/i.test(plan) && !/closed by this change/i.test(plan)) {
           const id = plan.match(/\b([A-Z]+-[A-Z0-9-]+)\b/)?.[1];
           const known = id && orderedHomeRows(readFileSync(join(TODO, ORDERED), 'utf8')).some(r => r.id === id);
           if (!known) {
             fail(`${WORKING}'s plan row names ${id ? `\`${id}\`` : 'no item id'}, which ${ORDERED} does not `
-              + `hold.\n\n      File it in a tracker and index it, or say \`owner-directed\` if it came by `
-              + `message.`);
+              + `hold.\n\n      File it in a tracker and index it, say \`owner-directed\` if it came by `
+              + `message, or\n      \`closed by this change\` if this is the change that ships it.`);
           }
         }
 

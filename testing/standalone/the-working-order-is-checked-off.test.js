@@ -83,6 +83,13 @@ describe('the working order is gated, not merely written down', () => {
       'the plan row is not checked against the ordered queue, so it attests to nothing');
     assert.match(r, /owner-directed/,
       'owner-directed work has no queue id and must be sayable, or the gate teaches its own bypass');
+    /*
+     * The third form, and it is the convention rather than a loophole: a fix in the working tree already
+     * fails the verify-line rule, so an item is closed in the same change that ships it and has left the
+     * queue by the time this runs. Without it every bug fix would have to lie in one of the two rules.
+     */
+    assert.match(r, /closed by this change/,
+      'an item closed by the very change that ships it cannot be named, so the two rules contradict');
   });
 
   it('the documentation row is checked against CHANGELOG.md, not taken on trust', () => {

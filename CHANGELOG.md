@@ -22,8 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   **Four of the seven rows are checked against something outside the file**, because a checklist you tick
   yourself is advice with boxes on it: the plan row names an item the ordered queue must actually hold (or
-  says `owner-directed`), the tests row carries the failure the test gave *before* the implementation existed
-  (or `NO NEW BEHAVIOUR:` naming the spec that already covers it, which must exist), and the documentation row
+  says `owner-directed`, or `closed by this change` — the convention, since a fix in the working tree already
+  fails the verify-line rule, so an item is closed in the change that ships it and has left the queue by the
+  time this runs), the tests row carries the failure the test gave *before* the implementation existed
+  (or `NO NEW BEHAVIOUR:` naming the spec that already covers it, which must exist), the CHANGELOG row
   requires `CHANGELOG.md` to differ from `main`, and **the guides are an explicit checkpoint of their own** —
   `docs/integration-guide/` and `docs/userguide/` are two of the five places a capability lives and the two
   that fail silently, since each is somebody's authoritative source and the one that is wrong is invisible to

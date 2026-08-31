@@ -289,7 +289,12 @@ const FROZEN = {
   // The entry STAYS, lowered rather than deleted, for the reason written above `tokens.component.ts`: an entry
   // here is a ratchet, and removing it would hand this file back the 89 lines of headroom the extraction just
   // took away. G-2's own note said to delete it; the precedent in this file is better and wins.
-  'client/src/app/pages/brain/brain.component.ts': 571,
+  // RAISED 571 -> 572: one field, `lastAppliedSpaceParam`, so the query-parameter handler can tell a value it
+  // has already acted on from a fresh one. The whole fix is that field plus two lines using it.
+  // NO DECOMPOSITION: 572 code lines is 78 UNDER the 650 ceiling — this entry is a ratchet on a file that was
+  // decomposed to well below the line (G-2, 660 -> 571), not a god file. Queueing a split for one field would
+  // make the ratchet argue against the very extraction it is here to protect.
+  'client/src/app/pages/brain/brain.component.ts': 572,
   'client/src/app/pages/settings/networks.component.ts': 643,
   // FIRST entry for this file: RAISED 650 -> 662 for the re-key branch in `updateEdgeById` — the If-Match
   // check that `writeFilterFor` cannot make on a path with no `findOneAndUpdate`, the call, the deleteFields

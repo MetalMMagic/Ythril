@@ -75,11 +75,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unhelpful, it is the one message that promises something is coming.
 
 
+- **A stale `?space=` still moved the Brain page to another space.** The fix above reached the *absent* case;
+  a **present** one stayed authoritative on every emission, which is the other half of the same bug.
+
+  The premise that hid it was written down in three places and was false: the page reads `?space=` and
+  *nothing ever writes it*. The ER diagram's knowledge-type count links write it — the very control the
+  original report was about. So it goes stale the moment a different space is picked by chip (the screen
+  changes, and the URL deliberately does not), and a tab click merges the stale value forward and throws the
+  page back. A reload after any chip switch landed somewhere else for the same reason.
+
+  A present `?space=` is now honoured only when it has **changed** since the page last acted on it. Honouring
+  it on the first pass only would have been the smaller change and would have broken those count links: they
+  navigate to `/brain` from *inside* `/brain`, so there is no remount and no first pass. Still nothing is
+  written to the URL — Ythril is frequently embedded in an iframe. The three copies of the false premise are
+  corrected.
+
 - **Clicking a knowledge-type tab in any space but the first jumped back to the first space.** Reported by an
   operator: entries in other spaces were only reachable by clicking the type, landing in the wrong space,
   picking the right space again, and only then clicking the type.
 
-  The Brain page **reads** `?space=` and nothing ever writes it. Selecting a tab navigates to record the tab,
+  The Brain page **reads** `?space=`, and the only thing that writes it is the ER diagram's knowledge-type
+  count links. Selecting a tab navigates to record the tab,
   that navigation re-emits the query parameters, and an absent `?space=` was read as *"go to the first
   space"* rather than *"no preference"*. It also reset the tab, because a changed space counts as a switch and
   lands on the space's Overview.

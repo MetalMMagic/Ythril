@@ -662,6 +662,14 @@ export class BrainComponent implements OnInit, OnDestroy {
     this.route.queryParamMap.subscribe(() => this.applyQueryParams(spaces));
   }
 
+  /**
+   * The last `?space=` this handler acted on, so a value it has already honoured stops being authoritative.
+   *
+   * `undefined` before the first emission, and it deliberately also records an ABSENT parameter — otherwise
+   * a link that removes `?space=` would look unchanged forever after one that set it.
+   */
+  private lastAppliedSpaceParam: string | undefined = undefined;
+
   /** Apply `?space=` / `?tab=` if — and only if — they differ from what is on screen. */
   private applyQueryParams(spaces: { id: string }[]): void {
     const qp = this.route.snapshot.queryParamMap;
@@ -679,8 +687,24 @@ export class BrainComponent implements OnInit, OnDestroy {
      * The fallback is still right for the FIRST pass, when nothing is selected yet. It is only wrong
      * afterwards, so it is now conditioned on that.
      */
+    /*
+     * A PRESENT `?space=` is honoured only when it CHANGED, and that is the other half of the same bug.
+     *
+     * The premise this file, its commit and the CHANGELOG all carried — that nothing ever writes `?space=` —
+     * was false. `er-model-panel.component.ts` writes it on the knowledge-type count links, which is the very
+     * control the report named. So it goes stale the moment the user picks a different space by chip (the
+     * screen changes, the URL deliberately does not), and `writeTabToUrl` merges it forward on every
+     * subsequent tab click. Read as authoritative each time, it threw the page back exactly as the absent
+     * case did.
+     *
+     * Honouring it only on the FIRST pass would have been the smaller change and would have broken those
+     * count links: they navigate to `/brain` from INSIDE `/brain`, so there is no remount and no first pass.
+     * "Changed" covers both — a fresh link moves the page, a merge-preserved value does not.
+     */
     const current = this.activeSpaceId();
-    const known = wanted && spaces.some(s => s.id === wanted) ? wanted : undefined;
+    const fresh = wanted !== this.lastAppliedSpaceParam;
+    this.lastAppliedSpaceParam = wanted;
+    const known = fresh && wanted && spaces.some(s => s.id === wanted) ? wanted : undefined;
     const initial = known ?? (current || spaces[0]!.id);
     // Only when it CHANGES: selectSpace reloads the space's data, so calling it on every query-param event
     // would refetch on each tab switch this component itself performs.

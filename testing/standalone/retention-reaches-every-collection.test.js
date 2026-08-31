@@ -125,12 +125,15 @@ describe('the schema retention tier reaches every typed collection', () => {
   });
 
   it('the documented worked example is the one that was broken', () => {
-    // 04-brain-api.md promises the tier on `entity`, with `ticket` as its example. If that claim is ever
-    // narrowed to chrono, this gate should be reconsidered rather than silently disagreeing with the docs.
+    // The guide promises the tier on `entity`, with `ticket` as its example. If that claim is ever narrowed to
+    // chrono, this gate should be reconsidered rather than silently disagreeing with the docs.
+    //
+    // `04f-write-semantics.md` since A-5: expiry moved off the memory page with the rest of the rules that
+    // apply to every record type, and the worked example went with it.
     // A WINDOW, converted: the subject is the `"entity"` object in the JSON example, bounded by its own brace.
     // The example is prose-adjacent and gets reformatted; 120 characters is a claim about how somebody chose to
     // wrap the snippet, not about whether `retention` is shown under `entity`.
-    const doc = read('docs/integration-guide/04-brain-api.md');
+    const doc = read('docs/integration-guide/04f-write-semantics.md');
     const entity = doc.indexOf('"entity": {');
     assert.ok(entity > -1, 'the guide no longer shows an "entity" schema object — re-anchor this gate');
     assert.match(balancedFrom(doc, doc.indexOf('{', entity), 'the entity schema example'), /"retention"/,

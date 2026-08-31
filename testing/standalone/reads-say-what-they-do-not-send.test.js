@@ -132,7 +132,10 @@ describe('field selection is findable from where somebody would look', () => {
   it('the REST reference states the vector rule too', () => {
     // REST is the door that has NO field selection on its list routes, so a reader there needs the rule
     // even more than an MCP caller: what they cannot control, they should at least not be hunting for.
-    const doc = readFileSync('docs/integration-guide/04-brain-api.md', 'utf8');
+    // `04f-write-semantics.md` since A-5: the write-and-read rules moved off the memory page, because
+    // they apply to every record type. Read from where the section IS — a gate left pointing at the old
+    // page fails several assertions at once and reads as missing sentences rather than a moved file.
+    const doc = readFileSync('docs/integration-guide/04f-write-semantics.md', 'utf8');
     assert.match(doc, /never returned|cannot be requested/i, 'the brain-API page must state it');
   });
 });

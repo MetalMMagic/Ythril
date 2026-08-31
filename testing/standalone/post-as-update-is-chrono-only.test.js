@@ -77,7 +77,10 @@ describe('POST-as-update exists on no record type', () => {
   });
 
   it('the guide no longer offers the legacy form', () => {
-    const guide = readFileSync(join(ROOT, 'docs/integration-guide/04-brain-api.md'), 'utf8');
+    // `04f-write-semantics.md` since A-5: the write-and-read rules moved off the memory page, because
+    // they apply to every record type. Read from where the section IS — a gate left pointing at the old
+    // page fails several assertions at once and reads as missing sentences rather than a moved file.
+    const guide = readFileSync(join(ROOT, 'docs/integration-guide/04f-write-semantics.md'), 'utf8');
     assert.match(guide, /Updating by id: use PATCH/, 'the section exists');
     assert.ok(!/POST\s+`?\/api\/brain\/spaces\/:spaceId\/chrono\/:id/.test(guide),
       'the guide must not still document a route that answers 404');

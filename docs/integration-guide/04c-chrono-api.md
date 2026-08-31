@@ -83,7 +83,7 @@ PATCH /api/brain/spaces/:spaceId/chrono/:id
 > (`properties.title`) is an ordinary user key and stays deletable.
 >
 > Same parameter, same refusals, on the `update_chrono` MCP tool. See
-> [Partial Update with deleteFields](04-brain-api.md#partial-update-with-deletefields) for the shared rules.
+> [Partial Update with deleteFields](04f-write-semantics.md#partial-update-with-deletefields) for the shared rules.
 
 **Response** `200` — the updated `ChronoEntry`.
 

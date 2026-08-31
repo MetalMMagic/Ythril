@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **`04-brain-api.md` is split; it was sitting exactly at the 900-line doc ceiling**, so any addition to it
+  failed the gate and whoever next documented a brain-API change would have paid for a split they did not
+  cause. It is 405 lines now.
+
+  **Split by subject rather than by size.** What moved is a set of rules that were never about memories:
+  expiry, stamp integrity, what a `PATCH` does to `tags` and `properties`, optimistic concurrency, what a read
+  never sends, retiring a record from semantic search, and partial updates with `deleteFields`. Every one
+  applies to entities, edges and chrono entries too — they were filed on the memory page because memories were
+  documented first. They are **[Write & Read Semantics](docs/integration-guide/04f-write-semantics.md)**, with
+  a pointer left in reading order rather than at the end.
+
+  Moved by script, with every range asserting the heading it must start on and a **multiset** comparison of
+  prose lines before and after: zero lost. A line count alone is conserved by a split that duplicates one line
+  and drops another, which is how the last hand-split of this guide shipped `ation naming the missing
+  capability` in the docs for months.
+
 - **The 2.x releases moved to `changelog/CHANGELOG-2.x.md`, and a gate now holds the convention.**
   `CHANGELOG.md` was 17 082 lines while its own second sentence said it "covers the **current major series**".
   It covered two: all seventeen 2.x releases sat in it alongside 3.x.

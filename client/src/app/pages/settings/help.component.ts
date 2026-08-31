@@ -50,12 +50,15 @@ export const HELP_DOCS = [
     parts: [
       'integration-guide/01-getting-ythril.md', 'integration-guide/02-hosting.md',
       'integration-guide/03-auth-and-limits.md', 'integration-guide/04-brain-api.md',
-      // The Brain API is five files: the base part carries the memory endpoints and the rules that apply to
-      // every record type (retry safety, sorting, PATCH semantics), and the four `04x` parts are the
-      // resource families. Reading order, so `joinParts` renders them as one continuous chapter.
+      // The Brain API is SIX files: the base part carries the memory endpoints, the four `04a`-`04e` parts are
+      // the resource families and the search comparison, and `04f` holds the write-and-read semantics that
+      // apply to EVERY record type — expiry, stamp integrity, PATCH semantics, concurrency, `deleteFields`.
+      // Those were on the base page until A-5, filed there because memories were documented first rather than
+      // because they belong to memories. Reading order, so `joinParts` renders them as one chapter.
       'integration-guide/04a-recall-api.md', 'integration-guide/04b-graph-api.md',
       'integration-guide/04c-chrono-api.md', 'integration-guide/04d-brain-ops-api.md',
       'integration-guide/04e-choosing-a-search.md',
+      'integration-guide/04f-write-semantics.md',
       'integration-guide/05-files-api.md',
       // The three pipelines a file can go through are their own parts. They are read by different people
       // for different reasons — an operator sizing a document converter, an integrator wiring vision/STT

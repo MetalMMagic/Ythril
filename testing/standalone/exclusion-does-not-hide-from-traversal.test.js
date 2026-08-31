@@ -71,7 +71,13 @@ describe('both surfaces name both traversals', () => {
   });
 
   it('the integration guide does', () => {
-    const g = read('docs/integration-guide/04-brain-api.md');
+    /*
+     * `04f-write-semantics.md` since A-5: "retiring a record from semantic search" moved there with the rest
+     * of the write-and-read rules, which apply to every record type rather than to memories. Read from where
+     * the section IS — a gate left pointing at the old page fails all three assertions at once and reads as
+     * three missing sentences rather than one moved file.
+     */
+    const g = read('docs/integration-guide/04f-write-semantics.md');
     assert.match(g, /recall\(traverse: n\)/, 'the guide must name recall.s expansion explicitly');
     assert.match(g, /the `traverse` tool/, 'and the tool, as a separate row');
     assert.match(g, /still findable through its relationships/i,

@@ -49,6 +49,10 @@ const SHARED = [
   'client/src/app/shared/prop-table.styles.ts',
   'client/src/app/shared/chip.styles.ts',
   'client/src/app/pages/brain/brain-form.styles.ts',
+  // Added after the file-manager split (G-3) put five components' rules in one module and left two classes
+  // behind on the PAGE with no rule that could reach them. This gate is written for exactly that failure and
+  // was not asked about the module the whole split created.
+  'client/src/app/pages/files/file-manager.styles.ts',
 ];
 
 const read = (p) => readFileSync(p, 'utf8');

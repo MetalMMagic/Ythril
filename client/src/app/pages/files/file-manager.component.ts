@@ -1,11 +1,9 @@
 import { ChangeDetectionStrategy, Component, inject, signal, computed, effect, untracked, OnInit, OnDestroy, HostListener, ElementRef, viewChild, Input, Output, EventEmitter } from '@angular/core';
-import { SortableHeaderComponent } from '../brain/sortable-header.component';
 import { FilePreviewComponent, type FilePreview, type PreviewKind, type XlsxPreview } from './file-preview.component';
 import { UploadQueueComponent, type UploadItem, type UploadStatus } from './upload-queue.component';
 import { FileMetaEditorComponent, type FileMetaModel } from './file-meta-editor.component';
 import { FileExtractViewComponent } from './file-extract-view.component';
 import { FileListingComponent, type FileRow } from './file-listing.component';
-import { formatSize } from './file-format';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
@@ -21,15 +19,10 @@ import { ToastService } from '../../core/toast.service';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 import { ErrorStateComponent } from '../../shared/error-state.component';
 import { httpErrorReason } from '../../core/http-error';
-import { StepProgressBarComponent } from '../../shared/step-progress-bar.component';
 import { MarkdownRenderService } from '../../shared/markdown-render.service';
 // The docked detail pane reuses the Brain's file-metadata edit fields. These are dumb, shared
 // ref-field widgets; they resolve chip labels via EntityRefPicker, which the Brain provides — so the
 // "File meta" edit mode is available only when embedded in the Brain (embeddedSpaceId set).
-import { TagInputComponent } from '../../shared/tag-input.component';
-import { EntityRefFieldComponent } from '../brain/entity-ref-field.component';
-import { MemoryRefFieldComponent } from '../brain/memory-ref-field.component';
-import { ChronoRefFieldComponent } from '../brain/chrono-ref-field.component';
 import { EntityRefPicker } from '../brain/entity-ref-picker.service';
 import { BrainStore } from '../brain/brain-store.service';
 import hljs from 'highlight.js/lib/core';
@@ -43,9 +36,7 @@ import markdown from 'highlight.js/lib/languages/markdown';
 import python from 'highlight.js/lib/languages/python';
 import bash from 'highlight.js/lib/languages/bash';
 import plaintext from 'highlight.js/lib/languages/plaintext';
-import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
 import { ModalDirective } from '../../shared/modal.directive';
-import { TimestampComponent } from '../../shared/timestamp.component';
 
 hljs.registerLanguage('javascript', javascript);
 hljs.registerLanguage('typescript', typescript);
@@ -138,7 +129,7 @@ function xlsxCellText(v: unknown): string {
   // regardless of zone. Text fields (`newFolderName`, `renameValue`) are ngModel two-way bindings
   // whose input events mark the view dirty. So OnPush re-checks exactly when state changes.
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe, ErrorStateComponent, TagInputComponent, EntityRefFieldComponent, MemoryRefFieldComponent, ChronoRefFieldComponent, SortableHeaderComponent, StepProgressBarComponent, HscrollTopDirective, ModalDirective, TimestampComponent, FilePreviewComponent, UploadQueueComponent, FileMetaEditorComponent, FileExtractViewComponent, FileListingComponent],
+  imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe, ErrorStateComponent, ModalDirective, FilePreviewComponent, UploadQueueComponent, FileMetaEditorComponent, FileExtractViewComponent, FileListingComponent],
   styles: [`
     /* A background refresh, as a 2px indeterminate hairline above the table. Deliberately NOT a spinner and
        deliberately not an overlay: the whole point is that nothing on screen moves or disappears while a poll
@@ -207,20 +198,16 @@ function xlsxCellText(v: unknown): string {
     .breadcrumb-item.current:hover { text-decoration: none; }
 
 
-    .upload-zone {
-      border: 2px dashed var(--border);
-      border-radius: var(--radius-md);
-      padding: 24px;
-      text-align: center;
-      color: var(--text-muted);
-      margin-bottom: 16px;
-      transition: border-color var(--transition);
-      cursor: pointer;
-    }
-    .upload-zone:hover, .upload-zone.drag-over {
-      border-color: var(--accent);
-      color: var(--text-secondary);
-    }
+    /* The new-folder form in the toolbar. The IN-TABLE rename form uses the same class and moved into
+       file-listing.component.ts with its own copy of this rule — two consumers, so the rule has to exist in
+       both places. Moving it to the listing alone left this one an unstyled block.
+       (No backticks in here: one ends the template literal and the error points at @Component.) */
+    .rename-form { display: flex; gap: 6px; align-items: center; }
+
+    /* .upload-zone was here and matched NOTHING: no element in the client carries the class, and the drop
+       target is .fm-main with a drag-over class binding. The #1099 commit message called it "the drop target
+       on the page" as the reason for leaving it behind, which was wrong twice over — it is not the drop target
+       and it was not doing anything. Deleted rather than moved. */
 
     /* ── Upload queue panel (U12) ─────────────────────────────── */
 
@@ -268,27 +255,6 @@ function xlsxCellText(v: unknown): string {
        announcing itself. Lower-case against the upper-case heading so it reads as an aside. */
     .detail-desc .desc-src { margin-left: 8px; padding: 1px 6px; border: 1px solid var(--border); border-radius: 10px;
       font-size: 0.92em; text-transform: none; letter-spacing: 0; color: var(--text-muted); cursor: help; }
-    /* Extract face. A diagnostic, so it is dense and legible rather than pretty: the chunk bodies are the
-       thing being read, and everything else is a label on them. */
-    .detail-extract section { margin-bottom: 18px; }
-    .detail-extract h4 { margin: 0 0 8px; font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted); }
-    .detail-extract .muted { color: var(--text-muted); font-size: 0.9em; }
-    .chunk { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; background: var(--bg-primary); }
-    .chunk-head { display: flex; gap: 8px; align-items: baseline; margin-bottom: 5px; font-size: 0.82em; }
-    .chunk-ix { font-family: var(--font-mono, monospace); color: var(--text-muted); flex: none; }
-    /* Provenance can be a long heading; it truncates rather than pushing the row. */
-    .chunk-prov { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .chunk-warn { color: var(--warning); flex: none; }
-    /* pre-wrap, because a chunk's own line breaks are part of what retrieval sees. */
-    .chunk-body { margin: 0; white-space: pre-wrap; word-break: break-word; line-height: 1.45; font-size: 0.92em; }
-    .xtr-image { border-top: 1px solid var(--border); padding: 8px 0; }
-    .xtr-image p { margin: 4px 0 0; line-height: 1.45; font-size: 0.92em; }
-    .xtr-path { font-family: var(--font-mono, monospace); font-size: 0.82em; color: var(--text-muted); word-break: break-all; }
-    .xtr-md { margin: 6px 0 0; padding: 10px; border: 1px solid var(--border); border-radius: 8px;
-      background: var(--bg-primary); max-height: 40vh; overflow: auto; white-space: pre-wrap;
-      word-break: break-word; font-size: 0.85em; line-height: 1.45; }
-    .detail-extract .desc-src { margin-left: 6px; padding: 1px 6px; border: 1px solid var(--border);
-      border-radius: 10px; font-size: 0.86em; color: var(--text-muted); cursor: help; }
     /* Full-screen toggle floats at the top-right of the preview body. */
     .preview-body { position: relative; }
     .preview-fs-btn { position: absolute; top: 4px; right: 4px; z-index: 1; opacity: 0.75; }
@@ -1263,14 +1229,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     }
   }
 
-  /**
-   * The shared rule, exposed for this page's template.
-   *
-   * A template can only call a member, so the import needs a name on the class — but it is the SAME function
-   * the preview uses, not a second copy of it. Extracting the preview and leaving four lines of arithmetic
-   * behind in both places is precisely the shape this codebase keeps paying for.
-   */
-  protected readonly formatSize = formatSize;
+
 
   private join(base: string, name: string): string {
     return base.endsWith('/') ? `${base}${name}` : `${base}/${name}`;

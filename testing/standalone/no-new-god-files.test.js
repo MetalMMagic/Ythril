@@ -299,8 +299,13 @@ const FROZEN = {
   // and this file no longer needed the old import, so it gained an import line and lost none. Not growth in any
   // meaningful sense — but the ratchet cannot tell a net line from a meaningful one, and quietly special-casing
   // "it was only an import" is how a ceiling stops meaning anything.
-  // DECOMPOSE: G-4. 882 lines total, and the raise was one line — but the file is a router with several
-  // route bodies inline, the exact shape `spaces.ts` paid down.
+  // NO DECOMPOSITION: PAID. This raise owed G-4 — 882 lines total, a router with several route bodies inline,
+  // the exact shape `spaces.ts` paid down — and the entry below records what paid it.
+  //
+  // The marker was CHANGED rather than deleted, as G-7's was: an id named this way must still be in the queue,
+  // and one that is not is indistinguishable from one nobody ever filed. Whoever edits this next should write
+  // the id and the word apart, because the tracker rule matches the pattern anywhere in this file, prose
+  // included.
   // 647 -> 455, and UNDER the 650 ceiling. G-4: the upload route — 196 code lines, by far the largest body
   // here — moved to `files-upload.ts`, and the four request-shape helpers it SHARES with the routes that
   // stayed went sideways into `files-request.ts` rather than travelling with it.

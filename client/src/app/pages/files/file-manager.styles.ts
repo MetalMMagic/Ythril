@@ -68,12 +68,23 @@ export const FILE_PREVIEW_STYLES = `
  * `.upload-panel` became `:host`, for the reason the graph extraction records: the host is the element the
  * page lays out, and a wrapper inside it would leave the host unsized.
  *
- * `.upload-zone` did NOT come along. It is the drop target on the page — the area you drag a file onto — and
- * it exists whether or not anything is queued, so it belongs to the page rather than to the panel that
- * appears once an upload starts.
+ * `.upload-zone` did not come along either, and the reason first written here was wrong: it said the class is
+ * "the drop target on the page". It is not — the drop target is `.fm-main` with `[class.drag-over]`, and NO
+ * element in the client carries `.upload-zone` at all. It was a dead rule, found by asking this gate about
+ * this module, and it is deleted rather than moved.
  */
 export const UPLOAD_QUEUE_STYLES = `
   :host {
+    /*
+     * The display is not decoration, it is the half a :host rewrite loses. .upload-panel was a div, which is
+     * block by default; a custom element is INLINE, so every box property below — the border, the radius, the
+     * margin, the overflow — was being applied to an inline box that shrink-wraps its content and ignores
+     * vertical margin. The panel still rendered, which is why nothing caught it.
+     *
+     * NO BACKTICKS IN HERE: one ends the template literal, and the error surfaces as TS1005 in this file with
+     * no hint that a comment caused it. Third time tonight.
+     */
+    display: block;
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     margin-bottom: 16px;

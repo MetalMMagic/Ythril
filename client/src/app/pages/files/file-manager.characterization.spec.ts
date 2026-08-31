@@ -308,26 +308,13 @@ describe('FileManagerComponent — the metadata edit model (characterization for
   });
 });
 
-describe('FileManagerComponent — formatSize (characterization for G-3)', () => {
-  it('switches unit at each 1024 boundary, and the boundary belongs to the LARGER unit', () => {
-    const c = create();
-    expect(c.formatSize(1023)).toBe('1023 B');
-    expect(c.formatSize(1024)).toBe('1.0 KB');
-    expect(c.formatSize(1024 * 1024 - 1)).toBe('1024.0 KB');
-    expect(c.formatSize(1024 * 1024)).toBe('1.0 MB');
-  });
-
-  it('gives bytes no decimal, KB and MB one, and GB two', () => {
-    // AS-IS, and it is a deliberate asymmetry rather than an oversight: a GB figure moves slowly enough that
-    // one decimal would look stuck.
-    const c = create();
-    expect(c.formatSize(500)).toBe('500 B');
-    expect(c.formatSize(1536)).toBe('1.5 KB');
-    expect(c.formatSize(1024 * 1024 * 1024 * 2.5)).toBe('2.50 GB');
-  });
-
-  it('zero is bytes, not an empty string or a dash', () => {
-    const c = create();
-    expect(c.formatSize(0)).toBe('0 B');
-  });
-});
+/*
+ * The `formatSize` block moved to `file-format.spec.ts` when it became a shared function.
+ *
+ * It was reaching through the page for six lines of arithmetic, and the page kept a named handle on the
+ * function ONLY so this could find it. That is the trap `file-format.spec.ts`'s own docblock describes and the
+ * one G-7 removed twice — a spec that reaches through a component keeps passing after the component stops
+ * using the thing, so the coverage reads as protection for code nobody can reach.
+ *
+ * The boundary cases are unchanged there, plus the ones that were awkward to assert from a component.
+ */

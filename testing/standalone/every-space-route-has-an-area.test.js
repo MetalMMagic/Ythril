@@ -44,7 +44,12 @@ const INVENTORY = 'server/src/auth/space-rights.ts';
  */
 const SPACE_ROUTERS = [
   { glob: 'server/src/api/brain', mount: '/api/brain' },
-  { glob: 'server/src/api/files.ts', mount: '/api/files' },
+  /*
+   * A PATTERN, for the same reason `spaces*.ts` is one: G-4 moved the upload route to `files-upload.ts`, and
+   * a gate naming one file would have stopped asking the completeness question of the routes that left. That
+   * is how nine space-scoped routes on the spaces router sat unclassified, recorded below.
+   */
+  { glob: 'server/src/api/files*.ts', mount: '/api/files' },
   { glob: 'server/src/api/duplicates.ts', mount: '/api/duplicates' },
   { glob: 'server/src/api/contradictions.ts', mount: '/api/contradictions' },
   { glob: 'server/src/api/conflicts.ts', mount: '/api/conflicts' },

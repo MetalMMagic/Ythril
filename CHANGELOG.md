@@ -32,6 +32,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **The file-upload route is its own module** — `api/files.ts` from 647 code lines to 455, under the ceiling
+  for the first time since it was frozen. The route is 196 of those lines and by far the file's largest body:
+  raw bytes or JSON, chunked uploads with a `Content-Range`, a quota check, a proxy-space write target, a TTL,
+  a media dispatch and a webhook. Nothing else in the file referenced it, which is what makes a route the
+  easiest thing there to move.
+
+  **The four request-shape helpers went sideways rather than travelling with it.** The routes that stayed use
+  three of the four, so taking them along would have left a copy behind — one rule with two implementations is
+  the defect this codebase produces most, and the module that holds them now says so, because the rest of the
+  split should follow the same rule as each route leaves.
+
 - **The file manager's directory listing is its own component** — 1 326 code lines to 1 216, and **1 618 to
   1 216 over five cuts**.
 

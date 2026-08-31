@@ -301,7 +301,13 @@ const FROZEN = {
   // "it was only an import" is how a ceiling stops meaning anything.
   // DECOMPOSE: G-4. 882 lines total, and the raise was one line — but the file is a router with several
   // route bodies inline, the exact shape `spaces.ts` paid down.
-  'server/src/api/files.ts': 647,
+  // 647 -> 455, and UNDER the 650 ceiling. G-4: the upload route — 196 code lines, by far the largest body
+  // here — moved to `files-upload.ts`, and the four request-shape helpers it SHARES with the routes that
+  // stayed went sideways into `files-request.ts` rather than travelling with it.
+  //
+  // Lowered rather than deleted, for the reason written above `tokens.component.ts`: an entry here is a
+  // ratchet, and removing it would hand the file back the 192 lines the extraction just took.
+  'server/src/api/files.ts': 455,
   // 645 -> 660: the data-model panel’s mount and its card header. The panel ITSELF is a separate
   // component (er-model-panel) and its geometry a separate module (er-layout) — which is what this
   // ratchet asks for. What landed here is the 13 lines that place it in the grid, plus the two inputs

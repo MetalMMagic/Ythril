@@ -23,9 +23,11 @@ import { SpaceSettingsTabComponent } from './space-settings-tab.component';
 import { SpaceSchemaTabComponent } from './space-schema-tab.component';
 import { SpaceDuplicatesTabComponent } from './space-duplicates-tab.component';
 import { SpaceDangerTabComponent } from './space-danger-tab.component';
+import type { Type } from '@angular/core';
+import { isOnPush } from '../../testing/onpush';
 
 describe('spaces page — the shell and extracted components are OnPush', () => {
-  const CASES: [string, { ɵcmp?: { onPush?: boolean } }][] = [
+  const CASES: [string, Type<unknown>][] = [
     ['SpacesComponent', SpacesComponent],
     ['SpaceCreateDialogComponent', SpaceCreateDialogComponent],
     ['SpaceSettingsTabComponent', SpaceSettingsTabComponent],
@@ -36,7 +38,7 @@ describe('spaces page — the shell and extracted components are OnPush', () => 
 
   for (const [name, cmp] of CASES) {
     it(`${name} is compiled as OnPush`, () => {
-      expect(cmp.ɵcmp?.onPush).toBe(true);
+      expect(isOnPush(cmp)).toBe(true);
     });
   }
 });

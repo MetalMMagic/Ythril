@@ -137,14 +137,38 @@ describe('recall grouping — the graph tree becomes ordered rows', () => {
   // `traverse > 0` returns each match with a `_graph` tree hanging off it: `{edge, node, paths}`, and a
   // nested node carries its own `_graph`. This tab renders rows, so the tree is walked depth-first — a
   // neighbour sits directly beneath the match it belongs to rather than after every other match.
-  const gnode = (id, label, path, children) => ({
+  /**
+   * One `_graph` entry, which is NOT a `RecallResult`.
+   *
+   * Annotating it as one was the obvious move and wrong: a traversed node is `{edge, node, paths}` with an
+   * optional nested `_graph`, and `walkGraph` reads it as `unknown` precisely because it is a different shape.
+   * `RecallResult` would have demanded a `type` this object has never carried.
+   */
+  type GraphEntry = {
+    edge: { _id: string; label: string; from: string | undefined; to: string };
+    node: { _id: string; name: string; type: string };
+    paths: string[][];
+    _graph?: GraphEntry[];
+  };
+
+  /*
+   * `children` is OPTIONAL rather than a required parameter callers pass `undefined` to. Three call sites
+   * already omitted it — an error once the function is typed, and silently fine while it was `any`. The
+   * optional marker is what those three sites were assuming all along.
+   */
+  const gnode = (
+    id: string,
+    label: string,
+    path: string[],
+    children?: GraphEntry[],
+  ): GraphEntry => ({
     edge: { _id: `e-${id}`, label, from: path[path.length - 2], to: id },
     node: { _id: id, name: id, type: 'entity' },
     paths: [path],
     ...(children ? { _graph: children } : {}),
   });
 
-  const match = (over = {}) => ({
+  const match = (over: Partial<RecallResult> = {}): RecallResult => ({
     _id: 'm1', type: 'entity', name: 'Ada', score: 0.8, ...over,
   });
 

@@ -129,7 +129,7 @@ describe('graph-cytoscape — the element model', () => {
 
   it('skips the root by id, not by identity — a renamed root node is still the root', () => {
     const els = buildElements(root, [{ ...node('root', 0), name: 'Different' }], [], 'root');
-    expect(els.map(e => e.data.label)).toEqual(['Ada']);
+    expect(els.map(e => e.data['label'])).toEqual(['Ada']);
   });
 
   it('renames from/to to source/target', () => {
@@ -139,7 +139,7 @@ describe('graph-cytoscape — the element model', () => {
 
   it('substitutes a "default" type rather than emitting undefined', () => {
     const els = buildElements({ ...root, type: '' } as Entity, [{ ...node('a', 1), type: '' }], [], 'root');
-    expect(els.map(e => e.data.type)).toEqual(['default', 'default']);
+    expect(els.map(e => e.data['type'])).toEqual(['default', 'default']);
   });
 });
 

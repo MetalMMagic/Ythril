@@ -9,6 +9,7 @@ import { getTranslocoModule } from '../../testing/transloco-testing';
 import { BrainApi } from '../../core/brain-api.service';
 import { BrainStore } from './brain-store.service';
 import { QueryTabComponent } from './query-tab.component';
+import { isOnPush } from '../../testing/onpush';
 
 function makeApi() {
   return {
@@ -35,7 +36,7 @@ describe('QueryTabComponent', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   it('is compiled as OnPush', () => {
-    expect(QueryTabComponent.ɵcmp?.onPush).toBe(true);
+    expect(isOnPush(QueryTabComponent)).toBe(true);
   });
 
   it('formatQueryDoc pretty-prints a document as 2-space JSON', () => {

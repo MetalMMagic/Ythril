@@ -7,6 +7,7 @@ import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { getTranslocoModule } from '../../testing/transloco-testing';
 import { RecordSearchBarComponent } from './record-search-bar.component';
+import { isOnPush } from '../../testing/onpush';
 
 function create(inputs: { value: string; placeholder: string; ariaLabel?: string }) {
   TestBed.resetTestingModule();
@@ -23,7 +24,7 @@ describe('RecordSearchBarComponent', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   it('is compiled as OnPush', () => {
-    expect(RecordSearchBarComponent.ɵcmp?.onPush).toBe(true);
+    expect(isOnPush(RecordSearchBarComponent)).toBe(true);
   });
 
   it('renders the search input with the bound value', () => {

@@ -17,6 +17,7 @@ import { AdminApi } from '../../core/admin-api.service';
 import { SpacesApi } from '../../core/spaces-api.service';
 import { getTranslocoModule } from '../../testing/transloco-testing';
 import { AuditLogComponent } from './audit-log.component';
+import { isOnPush } from '../../testing/onpush';
 
 function entry(over: Partial<AuditLogEntry> = {}): AuditLogEntry {
   return {
@@ -59,7 +60,7 @@ describe('AuditLogComponent (OnPush)', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   it('is compiled as OnPush', () => {
-    expect(AuditLogComponent.ɵcmp?.onPush).toBe(true);
+    expect(isOnPush(AuditLogComponent)).toBe(true);
   });
 
   it('renders a table row per audit entry after load (signal-driven view updates under OnPush)', () => {

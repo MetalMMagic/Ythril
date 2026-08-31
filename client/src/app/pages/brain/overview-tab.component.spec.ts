@@ -532,11 +532,17 @@ describe('OverviewTabComponent — first-load skeletons', () => {
  * clear, showing to someone who cannot do it, deleting without asking, and deleting twice.
  */
 describe('the usage reset button', () => {
-  const ACTIVE = {
+  /*
+   * Typed rather than `as never`. The cast made the fixture unusable as an object — spreading `never` is not
+   * allowed — and, worse, it accepted any shape at all: `SpaceActivity` distinguishes `meanMs: null` from
+   * `0` deliberately, and a fixture the compiler cannot check is one that can drift from the type it stands in
+   * for without anything noticing.
+   */
+  const ACTIVE: SpaceActivity = {
     space: 'general', calls: 120, recall: 90, answered: 70, writes: 12,
     meanMs: 40, maxMs: 900, over1s: 0, meanTopScore: 0.7, lastUsedAt: null,
-  } as never;
-  const IDLE = { ...(ACTIVE as never), calls: 0, recall: 0, answered: 0, writes: 0 } as never;
+  };
+  const IDLE: SpaceActivity = { ...ACTIVE, calls: 0, recall: 0, answered: 0, writes: 0 };
 
   function panel(activity: unknown, over: { canEdit?: boolean; confirm?: boolean; resetting?: boolean } = {}) {
     const s = setup({ confirm: over.confirm ?? true });

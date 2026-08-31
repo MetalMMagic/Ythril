@@ -15,6 +15,7 @@ import type { Entity } from '../../core/api.types';
 import { EntityRefPicker } from './entity-ref-picker.service';
 import { BrainStore } from './brain-store.service';
 import { EntityRefFieldComponent } from './entity-ref-field.component';
+import { isOnPush } from '../../testing/onpush';
 
 function make(target: { entityIds: string }) {
   TestBed.resetTestingModule();
@@ -36,7 +37,7 @@ describe('EntityRefFieldComponent', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   it('is compiled as OnPush', () => {
-    expect(EntityRefFieldComponent.ɵcmp?.onPush).toBe(true);
+    expect(isOnPush(EntityRefFieldComponent)).toBe(true);
   });
 
   it('always hosts the inline entity picker', () => {

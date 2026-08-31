@@ -477,7 +477,9 @@ describe('ReviewTabComponent', () => {
       c.sub.set('contradictions');
       f.detectChanges();
       const el = f.nativeElement as HTMLElement;
-      expect(el.querySelector('.con-fields')).toBeNull('a model verdict has no field to name');
+      // The message goes on `expect`, not on `toBeNull` — which takes no arguments, so as written it was
+      // discarded and a failure here would have reported nothing but "expected null".
+      expect(el.querySelector('.con-fields'), 'a model verdict has no field to name').toBeNull();
       expect(el.querySelector('#review-panel-contradictions .conf-pct')?.textContent).toContain('91');
     });
 

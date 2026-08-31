@@ -17,6 +17,7 @@ import { BrainApi } from '../../core/brain-api.service';
 import { BrainStore } from './brain-store.service';
 import { EntityRefPicker } from './entity-ref-picker.service';
 import { RecordDrawerState } from './record-drawer-state.service';
+import { aMemory, aChrono } from '../../testing/records';
 
 function makeApi() {
   return {
@@ -45,15 +46,18 @@ describe('RecordDrawerState — lastSaved', () => {
 
   it('announces the SERVER copy of a saved memory, not the local edit model', () => {
     const state = create();
-    state.open('memory', { _id: 'm1', fact: 'before', tags: [], entityIds: [], properties: {} });
+    state.open('memory', aMemory({ _id: 'm1', fact: 'before' }));
     state.drawerEditMemory.fact = 'after';
 
     state.save();
 
     const saved = state.lastSaved();
     expect(saved?.kind).toBe('memory');
-    expect(saved?.record._id).toBe('m1');
-    expect(saved?.record.fact).toBe('after');
+    // `DrawerRecord` is discriminated on `kind`, but `expect(...)` is a runtime assertion TypeScript cannot
+    // follow — so the narrowing is explicit. A cast would compile and would also accept the wrong member.
+    if (saved?.kind !== 'memory') throw new Error('lastSaved did not announce a memory');
+    expect(saved.record._id).toBe('m1');
+    expect(saved.record.fact).toBe('after');
     // The announced record is what the API returned — a consumer patching its own list with the edit
     // model instead would drop every server-assigned field.
     expect(saved?.record.updatedAt, 'the announced record must be the response, not the edit model').toBe('saved');
@@ -61,18 +65,21 @@ describe('RecordDrawerState — lastSaved', () => {
 
   it('announces a saved chrono under its own kind', () => {
     const state = create();
-    state.open('chrono', { _id: 'c1', title: 'before', type: 'event', status: 'upcoming', tags: [], entityIds: [], memoryIds: [], properties: {} });
+    state.open('chrono', aChrono({ _id: 'c1', title: 'before' }));
     state.drawerEditChrono.title = 'after';
 
     state.save();
 
-    expect(state.lastSaved()?.kind).toBe('chrono');
-    expect(state.lastSaved()?.record.title).toBe('after');
+    const saved = state.lastSaved();
+    expect(saved?.kind).toBe('chrono');
+    // Explicit, for the reason above: `expect` is a runtime assertion the compiler cannot follow.
+    if (saved?.kind !== 'chrono') throw new Error('lastSaved did not announce a chrono');
+    expect(saved.record.title).toBe('after');
   });
 
   it('announces nothing when the save fails', () => {
     const state = create();
-    state.open('memory', { _id: 'm1', fact: 'before', tags: [], entityIds: [], properties: {} });
+    state.open('memory', aMemory({ _id: 'm1', fact: 'before' }));
     // A failing save must not announce: a consumer would otherwise patch its list with a record the
     // server rejected, showing the edit as persisted.
     (TestBed.inject(BrainApi) as any).updateMemory = () => ({

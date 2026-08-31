@@ -29,6 +29,17 @@ export interface RecordFilter {
 }
 
 /**
+ * Every filter cleared — the state a tab opens in.
+ *
+ * Named because it was written inline in the signal and nowhere else, so a spec wanting "the default plus one
+ * field" had to retype all seven and the ones that did not retyped fewer, leaving the template reading
+ * `undefined` for the rest. `RecordFilter` requires all seven precisely because the column headers bind them.
+ */
+export function noRecordFilter(): RecordFilter {
+  return { type: '', tag: '', description: '', properties: '', fromName: '', toName: '', entityName: '' };
+}
+
+/**
  * Shared machinery for the five record-tab components (memories/entities/edges/chrono/filemeta),
  * extracted after all five landed (A17.9d). Holds ONLY what is provably universal across all of them
  * — the collaborators every tab injects, the `spaceId` input, page size, the paging cursor, the
@@ -70,7 +81,7 @@ export abstract class RecordTabBase {
    * memories tab's tag-badge click writes it — so pushing a value in still reflects into the header
    * control, the round-trip the old filter bar's `[value]` gave. Each tab's `load()` reads it.
    */
-  recordFilter = signal<RecordFilter>({ type: '', tag: '', description: '', properties: '', fromName: '', toName: '', entityName: '' });
+  recordFilter = signal<RecordFilter>(noRecordFilter());
 
   /** Unique datalist id for a tab's docked tag-filter suggestions (multiple tables on one shell). */
   readonly tagListId = `brain-tag-filter-${RecordTabBase._tagSeq++}`;

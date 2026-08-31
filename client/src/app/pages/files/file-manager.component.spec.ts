@@ -20,6 +20,7 @@ import { AuthService } from '../../core/auth.service';
 import { BrainStore } from '../brain/brain-store.service';
 import { getTranslocoModule } from '../../testing/transloco-testing';
 import { FileManagerComponent } from './file-manager.component';
+import { isOnPush } from '../../testing/onpush';
 
 function fileEntry(name: string, isDir = false): FileEntry {
   return {
@@ -174,7 +175,7 @@ describe('FileManagerComponent (OnPush)', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   it('is compiled as OnPush', () => {
-    expect(FileManagerComponent.ɵcmp?.onPush).toBe(true);
+    expect(isOnPush(FileManagerComponent)).toBe(true);
   });
 
   // ── Live processing stage (replaces the generic "embedding" + spinner) ───────────────────────

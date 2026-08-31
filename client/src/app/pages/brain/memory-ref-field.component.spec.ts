@@ -15,6 +15,7 @@ import type { Memory } from '../../core/api.types';
 import { EntityRefPicker } from './entity-ref-picker.service';
 import { BrainStore } from './brain-store.service';
 import { MemoryRefFieldComponent } from './memory-ref-field.component';
+import { isOnPush } from '../../testing/onpush';
 
 function make(target: { memoryIds: string[] }) {
   TestBed.resetTestingModule();
@@ -35,7 +36,7 @@ describe('MemoryRefFieldComponent', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   it('is compiled as OnPush', () => {
-    expect(MemoryRefFieldComponent.ɵcmp?.onPush).toBe(true);
+    expect(isOnPush(MemoryRefFieldComponent)).toBe(true);
   });
 
   it('always hosts the inline memory search', () => {

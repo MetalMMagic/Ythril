@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **The client's spec project type-checks, and nothing had been checking it.** `vitest` transpiles without
+  type-checking and the production build compiles `tsconfig.app.json` only, so `tsconfig.spec.json` — 102 files,
+  1 284 tests — was unchecked. It had **122 errors**. It has none, and `npm run preflight` now runs both
+  projects as a gate of their own.
+
+  **Four of them were real defects rather than type noise:**
+
+  - A vote-round fixture used `status: 'closed'`, which the API cannot return — the union is
+    `open | passed | failed`. The test asserted that a non-open round is filtered out while feeding it a value
+    no server sends, so it proved nothing about the statuses that do.
+  - Six backup-destination fixtures omitted `encrypt`, so **neither side of the branch that reads it was ever
+    covered**. That branch has a case now: ON writes `encrypt: true`, OFF removes the key rather than writing
+    `false`, and the mutant that writes `false` fails.
+  - An assertion message was passed to `toBeNull()`, which takes no arguments — so it was silently discarded
+    and a failure there would have reported nothing but *"expected null"*.
+  - **`Memory`, `Entity` and `Edge` did not declare `updatedAt`**, which the server sets on every write and
+    declares required. `ChronoEntry` had it, so client code wanting it on the other three had to cast: one
+    rule, two declarations, and the weaker one on the side that reads the response.
+
+  The fixes are shared definitions rather than casts: `testing/onpush.ts` replaces 23 copies of an untyped
+  Angular internal, `testing/records.ts` gives each record kind one factory with the server-assigned fields
+  filled in, `noRecordFilter()` names the default that was written inline in a signal, and
+  `SpecTranslocoOptions` makes real an option the test helper's own docblock had always promised.
+
+  **Checking the root `tsconfig.json` is what hid all of it**: that config includes the specs without the
+  vitest types, so it reported 297 errors of which 175 were `Cannot find name 'expect'` — noise a real error
+  hides inside. The two real projects are the question worth asking.
 - **`04-brain-api.md` is split; it was sitting exactly at the 900-line doc ceiling**, so any addition to it
   failed the gate and whoever next documented a brain-API change would have paid for a split they did not
   cause. It is 405 lines now.

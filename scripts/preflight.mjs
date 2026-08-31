@@ -231,6 +231,24 @@ try { run('node ./scripts/check-changelog.mjs'); } catch {
   failures.push({ name: 'check-changelog', why: 'a file that changes what ships, with no [Unreleased] line' });
 }
 
+/*
+ * ── client type-check, BOTH projects ──
+ *
+ * Neither gate around this one asks the question. `test:client` runs vitest, which transpiles without
+ * type-checking; the production build below compiles `tsconfig.app.json` only. So the SPEC project was never
+ * checked, and it had 122 type errors — among them a fixture using a vote status the API cannot return, six
+ * fixtures omitting a field whose branch no test therefore covered, an assertion message silently discarded
+ * because `toBeNull()` takes no arguments, and three client interfaces missing a field the server always sends.
+ *
+ * Checking the ROOT `tsconfig.json` is what hid it: that config includes the specs without the vitest types,
+ * so it reported 297 errors of which 175 were `Cannot find name 'expect'` — noise a real error hides inside.
+ * The two real projects are the question worth asking.
+ */
+console.log('\n── client type-check (app + spec projects) ──');
+try { run('npm run typecheck:client'); } catch {
+  failures.push({ name: 'typecheck:client', why: 'types the test run transpiles past and the AOT build never sees' });
+}
+
 console.log('\n── client unit tests (includes i18n key coverage) ──');
 try { run('npm run test:client'); } catch {
   failures.push({ name: 'test:client', why: 'component behaviour, and translation keys missing from de/pl' });

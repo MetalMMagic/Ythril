@@ -147,7 +147,10 @@ describe('every join starts and ends on a box', () => {
  * it. Reported labels were `implements · 113`, `refines · 53` and a clipped `conflicts`.
  */
 describe('er-layout with labels wider than the lane spacing', () => {
-  const t = (name) => ({
+  // Annotated, which is what makes the fixture a CHECK rather than a shape: `ErProperty.type` is a union of
+  // four literals, and without the return type `type: 'string'` widens to `string` and the whole array stops
+  // being an `ErEntityType[]`. That is the error this fixes, and the reason `name` was implicitly `any`.
+  const t = (name: string): ErEntityType => ({
     type: name, count: 9, declared: true,
     properties: [{ name: 'p0', type: 'string', required: true }],
     linkedFrom: { memories: 0, chrono: 0, files: 0 },
@@ -190,7 +193,7 @@ describe('er-layout with labels wider than the lane spacing', () => {
 });
 
 describe('er-layout on a big, lopsided model', () => {
-  const type = (name, props, count = 10) => ({
+  const type = (name: string, props: number, count = 10): ErEntityType => ({
     type: name,
     count,
     declared: true,
@@ -211,7 +214,23 @@ describe('er-layout on a big, lopsided model', () => {
   ];
 
   const out = layoutErModel(types, rels);
-  const boxOf = (t) => out.boxes.find(b => b.type === t);
+  /*
+   * Throws rather than returning `undefined`. Every caller here is asserting geometry about a box the layout
+   * is supposed to have produced, so a missing one is a failure with a name — not a `TypeError` two lines
+   * later reading "cannot read properties of undefined", which is what `!` would have bought.
+   */
+  /** The lane x of a join path, asserted — a `d` this pattern cannot read is a layout change, not a null. */
+  const laneOf = (d: string): number => {
+    const m = /^M[\d.]+ [\d.]+ H([\d.]+) V/.exec(d);
+    if (!m) throw new Error(`join path does not start with the expected move/H/V shape: ${JSON.stringify(d)}`);
+    return Number(m[1]);
+  };
+
+  const boxOf = (t: string): ErBox => {
+    const b = out.boxes.find(x => x.type === t);
+    if (!b) throw new Error(`the layout produced no box for type ${JSON.stringify(t)}`);
+    return b;
+  };
 
   it('places every type exactly once', () => {
     expect(out.boxes.length).toBe(types.length);
@@ -264,7 +283,7 @@ describe('er-layout on a big, lopsided model', () => {
     // never claimed, which is how a test fails on correct code.
     const perSide = new Map();
     for (const p of out.paths.filter(x => !x.selfJoin)) {
-      const lane = Number(/^M[\d.]+ [\d.]+ H([\d.]+) V/.exec(p.d)[1]);
+      const lane = laneOf(p.d);
       const key = 'lane:' + lane;
       expect(perSide.has(key), 'two joins on the same side share lane ' + lane).toBe(false);
       perSide.set(key, p);
@@ -274,7 +293,7 @@ describe('er-layout on a big, lopsided model', () => {
   it('does not let a lane run through a box', () => {
     const boxes = out.boxes;
     for (const p of out.paths.filter(x => !x.selfJoin)) {
-      const lane = Number(/^M[\d.]+ [\d.]+ H([\d.]+) V/.exec(p.d)[1]);
+      const lane = laneOf(p.d);
       // Only boxes the lane VERTICALLY overlaps can be cut. A lane exists between its two endpoints' mid
       // heights, so a shelf box far below it shares an x range and is never crossed — checking x alone
       // reported the shelf as an obstruction and was wrong about the geometry.

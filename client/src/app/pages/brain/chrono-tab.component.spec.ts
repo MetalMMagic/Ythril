@@ -15,12 +15,26 @@ import { EntityRefPicker } from './entity-ref-picker.service';
 import { RecordDrawerState } from './record-drawer-state.service';
 import { RecordListState } from './record-list-state.service';
 import { ChronoTabComponent } from './chrono-tab.component';
+import { isOnPush } from '../../testing/onpush';
+
+/** The chrono write body, as `BrainApi.createChrono` declares it. */
+type ChronoWriteBody = {
+  title: string; type: string; startsAt: string; endsAt?: string; status?: string; confidence?: number;
+  tags?: string[]; entityIds?: string[]; memoryIds?: string[]; description?: string;
+  properties?: Record<string, string | number | boolean>;
+};
 
 const api = {
   listChrono: vi.fn(() => of({ chrono: [] as ChronoEntry[] })),
   getEntitiesByIds: vi.fn(() => of({ entities: [] })),
-  createChrono: vi.fn(() => of({ _id: 'new' } as ChronoEntry)),
-  updateChrono: vi.fn((_s: string, id: string) => of({ _id: id, title: 'UPDATED' } as ChronoEntry)),
+  /*
+   * The parameters are declared because the specs READ `mock.calls[0][1]`, and a `vi.fn(() => …)` with no
+   * parameters types its calls as an empty tuple — so every one of those reads was a type error and none of
+   * them could have caught an argument going missing. Shapes copied from `BrainApi`, which makes the mock a
+   * statement about the call rather than a hole that accepts anything.
+   */
+  createChrono: vi.fn((_spaceId: string, _body: ChronoWriteBody) => of({ _id: 'new' } as ChronoEntry)),
+  updateChrono: vi.fn((_s: string, id: string, _body: Partial<ChronoWriteBody>) => of({ _id: id, title: 'UPDATED' } as ChronoEntry)),
   deleteChrono: vi.fn(() => of({})),
   recallBrain: vi.fn(() => of({ results: [], count: 0 })),
 };
@@ -44,7 +58,7 @@ beforeEach(() => { for (const fn of Object.values(api)) (fn as any).mockClear();
 
 describe('ChronoTabComponent', () => {
   it('is compiled as OnPush', () => {
-    expect(ChronoTabComponent.ɵcmp?.onPush).toBe(true);
+    expect(isOnPush(ChronoTabComponent)).toBe(true);
   });
 
   // The CLIENT half of sortable-column coverage. `brain-list-sort-unit.test.js` pins the server whitelist

@@ -20,7 +20,15 @@ import { NetworksApi } from '../../core/networks-api.service';
 import { ToastService } from '../../core/toast.service';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 
-function setup(confirmResult: boolean, api: Partial<Record<string, unknown>> = {}) {
+/*
+ * Generic in the OVERRIDES, so a mock a caller adds is visible on the returned `spacesApi`.
+ *
+ * It was `Partial<Record<string, unknown>>`, which accepts anything and contributes nothing: the return type
+ * was inferred from the base stub alone, so `h.spacesApi.updateSpace` — passed in by `withMeta` and present at
+ * runtime — did not exist as far as the compiler was concerned. Four assertions were reading a property the
+ * type said was absent.
+ */
+function setup<E extends Record<string, unknown>>(confirmResult: boolean, api: E = {} as E) {
   const spacesApi = {
     renameSpace: vi.fn().mockReturnValue(of({ space: { id: 'renamed', label: 'S' } })),
     wipeSpace: vi.fn().mockReturnValue(of({})),
@@ -118,7 +126,7 @@ describe('the embedding suppression section', () => {
   // The seeding lives in an `effect()`, so it does not run on `set()` alone — it needs a change-detection pass.
   // Flushed explicitly rather than worked around, because the effect IS the behaviour being tested: seeding from
   // the space is what makes the toggle show the stored value instead of always starting off.
-  const withMeta = (meta) => {
+  const withMeta = (meta: Record<string, unknown>) => {
     const h = setup(true, {
       updateSpace: vi.fn().mockReturnValue(of({ space: { id: 'proj', label: 'Project' } })),
       reembedSpace: vi.fn().mockReturnValue(of({ spaceId: 'proj', enqueued: 12, skippedSuppressed: 0, byKind: { memory: 12 }, remaining: 0, truncated: false })),

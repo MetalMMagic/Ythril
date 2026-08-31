@@ -14,6 +14,8 @@ import { EntityRefPicker } from './entity-ref-picker.service';
 import { RecordDrawerState } from './record-drawer-state.service';
 import { RecordListState } from './record-list-state.service';
 import { MemoriesTabComponent } from './memories-tab.component';
+import { isOnPush } from '../../testing/onpush';
+import { noRecordFilter } from './record-tab-base';
 
 const api = {
   listMemories: vi.fn(() => of({ memories: [] as Memory[] })),
@@ -46,7 +48,7 @@ beforeEach(() => { for (const fn of Object.values(api)) (fn as any).mockClear();
 
 describe('MemoriesTabComponent', () => {
   it('is compiled as OnPush', () => {
-    expect(MemoriesTabComponent.ɵcmp?.onPush).toBe(true);
+    expect(isOnPush(MemoriesTabComponent)).toBe(true);
   });
 
   it('self-loads on the spaceId input (sends page size + skip 0 + no filter)', () => {
@@ -189,7 +191,7 @@ describe('MemoriesTabComponent', () => {
   it('nextPage advances skip by pageSize and reloads; the load sends the active tag/type/entity filter', () => {
     const fixture = make();
     const c = fixture.componentInstance;
-    c.recordFilter.set({ type: 'note', tag: 'urgent' });
+    c.recordFilter.set({ ...noRecordFilter(), type: 'note', tag: 'urgent' });
     c.filterEntity.set('e9');
     api.listMemories.mockClear();
     c.nextPage();

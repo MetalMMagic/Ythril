@@ -322,7 +322,12 @@ const FROZEN = {
   // link scan, which had none — one hub entity returned its whole mention set per class, per member space,
   // per hop, and on the recall path since 3.6. Raised without argument, for the reason written above
   // `brain.component.ts`. DECOMPOSE: A-4 still stands and is what pays it back.
-  'server/src/brain/edges.ts': 675,
+  // RAISED 675 -> 688: the same bound now says when it stopped reading. Thirteen lines across four functions
+  // — a per-hop flag in `traverseGraph`, a walk-level one in `traverseFromSeeds`, its merge in
+  // `traverseRecallSeeds`, and the destructures at three call sites. The alternative was a module-level
+  // mutable that every one of them writes, which is smaller and much worse to read.
+  // DECOMPOSE: A-4 still stands and is what pays it back.
+  'server/src/brain/edges.ts': 688,
 };
 
 describe('no file grows past what we already carry', () => {

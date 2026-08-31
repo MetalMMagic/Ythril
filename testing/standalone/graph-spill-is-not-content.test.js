@@ -100,8 +100,28 @@ describe('every traverse site spills — there are four and they must agree', ()
 
   it('all four report the spill in the response, not just compute it', () => {
     // Computing a spill and dropping it would leave the caller exactly where they started.
-    assert.equal((rest.match(/graphTruncated: true, graphComplete: spill/g) ?? []).length, 2);
-    assert.equal((mcp.match(/graphTruncated: true, graphComplete: spill/g) ?? []).length, 2);
+    assert.equal((rest.match(/graphComplete: spill/g) ?? []).length, 2);
+    assert.equal((mcp.match(/graphComplete: spill/g) ?? []).length, 2);
+  });
+
+  it('and all four report a short graph even when there is no spill to offer', () => {
+    /*
+     * The two were one expression — `graphTruncated: true, graphComplete: spill` — because a spill was the
+     * only way a graph could be short. It is not: a bounded link scan that stops reading leaves a short graph
+     * with no complete copy to write, since the records missing from it are exactly the ones never read.
+     * Deriving the flag from the file reported that case as complete.
+     *
+     * So the flag has its own source. Asserted on both doors and both sites in each, because a fix applied to
+     * three of four would make `graphTruncated` mean different things depending on which one answered.
+     */
+    assert.equal((rest.match(/graphTruncated \? \{ graphTruncated: true \}/g) ?? []).length, 2,
+      'a REST site still derives truncation from the spill file');
+    assert.equal((mcp.match(/graphTruncated \? \{ graphTruncated: true \}/g) ?? []).length, 2,
+      'an MCP site still derives truncation from the spill file');
+    for (const [door, src] of [['REST', rest], ['MCP', mcp]]) {
+      assert.doesNotMatch(src, /graphTruncated: true, graphComplete: spill/,
+        `${door} still couples the two, so a scan that stopped reading is reported as a complete graph`);
+    }
   });
 });
 

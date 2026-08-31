@@ -715,6 +715,9 @@ export async function traverseGraph(
    */
   includeEdges = true,
 ): Promise<TraverseResult> {
+  // Set by a link scan that stopped reading rather than running out of matches. It cannot be answered on the
+  // spot: the hop's records are already read and belong in the result, so the walk finishes and reports here.
+  let scanCapped = false;
   const visited = new Set<string>([startId]);
   // frontier: nodes whose outgoing edges we need to explore at the current depth
   let frontier: string[] = [startId];
@@ -771,10 +774,21 @@ export async function traverseGraph(
     // only implementation and recall's expansion calls the same one.
     // Bounded by THIS walk's node cap. Without it one hub entity returns its whole mention set per class per
     // member space per hop, and the cap below cannot help because it counts records after they are hydrated.
-    const linkedHere = await linkedRecordsAtFrontier(
+    const { records: linkedHere, scanCapped: hopScanCapped } = await linkedRecordsAtFrontier(
       memberIds, frontier, frontierSet, visited,
       { includeChrono, includeMemories, includeFiles }, edgeLabels,
       Math.max(0, limit - resultNodes.length));
+
+    /*
+     * A capped scan is a truncation even when the result never fills up, and that is the whole point: the
+     * bound is spent on documents that are then discarded, so this loop can burn its budget on records
+     * already visited and still exit below `limit`. The check on `resultNodes.length` is the only other
+     * truncation signal here, and it cannot see that.
+     *
+     * Remembered rather than returned on: this hop's records HAVE been read and belong in the answer, so
+     * leaving here would throw away the very work the bound was spent on. The flag is read at the bottom.
+     */
+    if (hopScanCapped) scanCapped = true;
 
     if (newNeighborIds.length === 0 && linkedHere.length === 0) break;
 
@@ -831,7 +845,10 @@ export async function traverseGraph(
     currentDepth++;
   }
 
-  return answer(false);
+  // NOT `answer(false)`. The walk ran out of frontier, which is what a complete neighbourhood looks like —
+  // and also what a neighbourhood looks like when a scan stopped reading and the records it would have
+  // reached were never added to it. Only the flag can tell those apart.
+  return answer(scanCapped);
 }
 
 // ── Recall-augmenting traversal ──────────────────────────────────────────────
@@ -873,6 +890,18 @@ export type TraverseHopEdge = EdgeDoc | SyntheticLinkEdge;
 export type TraverseHopRecord = EntityDoc | (LinkedRecord['doc'] & { kind: LinkedRecord['kind'] });
 
 /** A neighbour reached by following the edge graph out from a recall seed set. */
+/**
+ * What a seed traversal reached, and whether a link scan stopped reading before it ran out of matches.
+ *
+ * Separate from `altPathsTruncated`, which is per node and about ROUTES. This one is about the walk: it says
+ * the neighbourhood is short, and it exists because the length checks the callers already had cannot tell —
+ * a capped scan finishes below the cap it was capped by.
+ */
+export interface SeedTraverse {
+  neighbours: SeedTraverseNeighbor[];
+  scanCapped: boolean;
+}
+
 export interface SeedTraverseNeighbor {
   _id: string;
   spaceId: string;
@@ -959,9 +988,13 @@ export async function traverseFromSeeds(
   maxDepth: number,
   limit: number,
   narrowing?: TraverseNarrowing,
-): Promise<SeedTraverseNeighbor[]> {
-  if (seedIds.length === 0 || maxDepth < 1 || limit < 1) return [];
+): Promise<SeedTraverse> {
+  if (seedIds.length === 0 || maxDepth < 1 || limit < 1) return { neighbours: [], scanCapped: false };
 
+  // Set by either link scan when it stopped reading rather than running out of matches. Carried out rather
+  // than returned early: unlike the standalone traversal this one has a pre-pass whose results are still
+  // wanted, so the honest answer is "here is what was reached, and it is short".
+  let capped = false;
   const visited = new Set<string>(seedIds);
   const pathTo = new Map<string, { from: string; label: string; to: string }[]>();
   for (const id of seedIds) pathTo.set(id, []);
@@ -994,8 +1027,9 @@ export async function traverseFromSeeds(
   //
   // Once, on the seeds. Everything reached afterwards is an entity or a leaf.
   if (narrowing?.includeChrono || narrowing?.includeMemories || narrowing?.includeFiles) {
-    const outbound = await entitiesLinkedFromRecords(
+    const { records: outbound, scanCapped: seedScanCapped } = await entitiesLinkedFromRecords(
       [spaceId], frontier, narrowing, narrowing.edgeLabels, limit);
+    if (seedScanCapped) capped = true;
     const wanted = outbound.filter(l => !visited.has(l.to));
     if (wanted.length > 0) {
       const linkedEntities = await col<EntityDoc>(`${spaceId}_entities`)
@@ -1017,7 +1051,7 @@ export async function traverseFromSeeds(
           edge: { _id: syntheticEdgeId(link.label, link.from, link.to), spaceId, from: link.from, to: link.to, label: link.label },
           idPath: [link.from, link.to], altPaths: altPathTo.get(link.to) ?? [], altPathsTruncated: false,
         });
-        if (results.length >= limit) return stampTruncation(results, altTruncated);
+        if (results.length >= limit) return { neighbours: stampTruncation(results, altTruncated), scanCapped: capped };
         // Held for the NEXT frontier, not this one. These entities are hop 1, and the loop below emits what a
         // frontier reaches at `depth + 1` — putting them beside the seeds would make everything one edge past
         // them arrive labelled hop 1 and, worse, be walked at all on a `traverse: 1` that has no budget for it.
@@ -1095,9 +1129,10 @@ export async function traverseFromSeeds(
     // look like one.
     // Same bound, same reason — and it matters more here, because this is the RECALL path: a depth-N call
     // with all three flags on makes up to 3N of these reads.
-    const linkedHere = await linkedRecordsAtFrontier(
+    const { records: linkedHere, scanCapped: hopScanCapped } = await linkedRecordsAtFrontier(
       [spaceId], frontier, frontierSet, visited, narrowing ?? {}, narrowing?.edgeLabels,
       Math.max(0, limit - results.length));
+    if (hopScanCapped) capped = true;
 
     // `deferred` counts: a memory seed has no edges and links nothing backwards, so both counters above are
     // zero on its first pass — breaking there would discard the entities its own links reached and undo the
@@ -1130,7 +1165,7 @@ export async function traverseFromSeeds(
         parentId: reached.parentId, edge: reached.edge, idPath: idPathTo.get(neighborId) ?? [neighborId],
         altPaths: altPathTo.get(neighborId) ?? [], altPathsTruncated: false,
       });
-      if (results.length >= limit) return stampTruncation(results, altTruncated);
+      if (results.length >= limit) return { neighbours: stampTruncation(results, altTruncated), scanCapped: capped };
       nextFrontier.push(neighborId);
     }
 
@@ -1159,7 +1194,7 @@ export async function traverseFromSeeds(
         altPaths: [],
         altPathsTruncated: false,
       });
-      if (results.length >= limit) return stampTruncation(results, altTruncated);
+      if (results.length >= limit) return { neighbours: stampTruncation(results, altTruncated), scanCapped: capped };
     }
 
     // The seed's own linked entities join here, once, on the first pass — see `deferred`.
@@ -1170,7 +1205,7 @@ export async function traverseFromSeeds(
     depth++;
   }
 
-  return stampTruncation(results, altTruncated);
+  return { neighbours: stampTruncation(results, altTruncated), scanCapped: capped };
 }
 
 /**
@@ -1198,8 +1233,8 @@ export async function traverseRecallSeeds(
   maxDepth: number,
   limit: number,
   narrowing?: TraverseNarrowing,
-): Promise<SeedTraverseNeighbor[]> {
-  if (seeds.length === 0 || maxDepth < 1 || limit < 1) return [];
+): Promise<SeedTraverse> {
+  if (seeds.length === 0 || maxDepth < 1 || limit < 1) return { neighbours: [], scanCapped: false };
   const allowed = new Set(memberIds);
   const bySpace = new Map<string, string[]>();
   for (const s of seeds) {
@@ -1210,9 +1245,17 @@ export async function traverseRecallSeeds(
   }
 
   const collected: SeedTraverseNeighbor[] = [];
+  // Any member space whose scan stopped early makes the WHOLE answer short — the caller sees one merged
+  // neighbourhood and cannot tell which space came back partial.
+  let scanCapped = false;
   for (const [sid, ids] of bySpace) {
-    collected.push(...await traverseFromSeeds(sid, ids, maxDepth, limit, narrowing));
+    const walk = await traverseFromSeeds(sid, ids, maxDepth, limit, narrowing);
+    collected.push(...walk.neighbours);
+    if (walk.scanCapped) scanCapped = true;
   }
   collected.sort((a, b) => a.hops - b.hops); // prefer lower-hop neighbours when truncating
-  return collected.slice(0, limit);
+  // Dropping the tail here is itself a truncation, and it was already reported by length downstream. Saying
+  // it explicitly costs nothing and stops that reporting depending on a comparison made in another file.
+  if (collected.length > limit) scanCapped = true;
+  return { neighbours: collected.slice(0, limit), scanCapped };
 }

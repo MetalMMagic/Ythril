@@ -421,7 +421,7 @@ actually reached was the weaker.
 | `pathsTruncated` | Present and `true` only when a node had more routes than were recorded (cap: 8) |
 | `_graph` | Present on a nested node too, so depth is a tree: `adr-0088` hangs off `adr-0079`, which hangs off the match |
 | `graphTruncated` | Present and `true` only when the inline graph is **short of the real neighbourhood** |
-| `graphComplete` | Present with it: `{nodes, path, download, expiresAt}` — where the **whole** graph was written |
+| `graphComplete` | `{nodes, path, download, expiresAt}` — where the **whole** graph was written. Present with `graphTruncated` whenever a complete copy exists, which is not always: see below |
 
 Note `adr-0088` above: it is reachable two ways and appears **once**, with both routes in `paths`. A caller
 counting rows never double-counts a record, and no relationship is invisible.
@@ -459,6 +459,13 @@ counting rows never double-counts a record, and no relationship is invisible.
   - The file **expires after one day** and is removed with its record by the retention sweep.
   - It is **hidden from file browsing** (like `_converted/` and `_extracted/`) and is **never embedded**, so it
     cannot come back as a recall hit.
+- **`graphTruncated` can arrive WITHOUT `graphComplete`, and that is the honest case.** The link scans — the
+  ones that follow the `entityIds` a memory, chrono entry or file carries — are bounded per hop, and a hop can
+  spend its whole budget on records it then discards as already-visited. The neighbourhood is short, and there
+  is **no complete copy to offer**, because the records that are missing are exactly the ones never read. So
+  the flag stands alone: you are told the graph is partial, and a narrower `edgeLabels` or a lower `traverse`
+  is what makes it whole. Before 3.6.1 this case was reported as complete.
+
   - The spill walk is itself bounded, at 20× the inline cap. If even that is reached, `graphComplete.ceilingHit`
     is `true` and the same flag is inside the file — a second silent truncation inside the fix for the first one
     would be the same defect again.

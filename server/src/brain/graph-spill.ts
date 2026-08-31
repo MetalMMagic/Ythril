@@ -81,8 +81,17 @@ export interface GraphSpill {
 export interface GraphWithSpill {
   /** The tree to return inline — capped exactly as before. */
   graph: RecallGraph;
-  /** Present only when the inline tree is short of the real neighbourhood. */
+  /** Present only when the inline tree is short of the real neighbourhood AND the complete one was written. */
   spill: GraphSpill | null;
+  /**
+   * The inline tree is short of the real neighbourhood, whether or not a complete copy exists.
+   *
+   * **These are two different facts and only one of them used to be reported.** A spill implies truncation,
+   * so before this the flag could be derived from `spill` — but a link scan that stopped reading produces a
+   * short graph with NO complete version to write, because the records it did not read are exactly the ones
+   * missing. Deriving the flag from the file meant that case was reported as complete.
+   */
+  truncated: boolean;
 }
 
 /**
@@ -105,15 +114,21 @@ export async function buildGraphWithSpill(
 ): Promise<GraphWithSpill> {
   const seedIds = seeds.map(s => s._id);
   if (inlineCap < 1 || maxDepth < 1 || seeds.length === 0) {
-    return { graph: nestNeighbours([], seedIds), spill: null };
+    return { graph: nestNeighbours([], seedIds), spill: null, truncated: false };
   }
 
   const ceiling = inlineCap * SPILL_CEILING_MULTIPLE;
-  const flat = await traverseRecallSeeds(memberIds, seeds, maxDepth, ceiling, narrowing);
+  const { neighbours: flat, scanCapped } = await traverseRecallSeeds(memberIds, seeds, maxDepth, ceiling, narrowing);
 
   if (flat.length <= inlineCap) {
-    // The whole neighbourhood fits. No file, no flag, and `graphNodes` is the complete count.
-    return { graph: nestNeighbours(flat, seedIds), spill: null };
+    /*
+     * The whole neighbourhood fits — UNLESS a link scan stopped reading, in which case it fits only because
+     * records were never read. There is no complete copy to write: the missing records are precisely the ones
+     * the scan did not reach, so a spill file would be the same short graph under a name that promises
+     * otherwise. `graphTruncated` alone is the honest answer, and it is why that flag no longer implies
+     * `graphComplete`.
+     */
+    return { graph: nestNeighbours(flat, seedIds), spill: null, truncated: scanCapped };
   }
 
   const graph = nestNeighbours(flat.slice(0, inlineCap), seedIds);
@@ -125,8 +140,8 @@ export async function buildGraphWithSpill(
   // would have created a file tree and a `{proxy}_files` record for a space that is supposed to have neither —
   // and the download would then be served, or not, depending on how the merged listing resolved a path nobody
   // put there. A seed's `spaceId` is always a concrete member, so taking it removes the whole question.
-  const spill = await writeSpill(seeds[0]!.spaceId, complete, flat.length, flat.length >= ceiling);
-  return { graph, spill };
+  const spill = await writeSpill(seeds[0]!.spaceId, complete, flat.length, flat.length >= ceiling || scanCapped);
+  return { graph, spill, truncated: true };
 }
 
 /**

@@ -612,7 +612,7 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
     // The cap is now the SPILL point rather than the truncation point: past it the whole neighbourhood is
     // written to the space's `_tmp/` and the response carries an authenticated download link. A short graph
     // reads as "this record has few relationships", which is a wrong conclusion about the DATA.
-    const { graph, spill } = await buildGraphWithSpill(
+    const { graph, spill, truncated: graphTruncated } = await buildGraphWithSpill(
       memberIds,
       seeds.map(s => ({ _id: s._id, spaceId: s.spaceId })),
       safeTraverse,
@@ -668,7 +668,8 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
       // same function the spill file uses to describe itself, for the same reason: a count passed in
       // alongside a payload can describe a different set of records than the payload does.
       graphNodes: countGraphNodes(budgeted.results),
-      ...(spill ? { graphTruncated: true, graphComplete: spill } : {}),
+      ...(graphTruncated ? { graphTruncated: true } : {}),
+      ...(spill ? { graphComplete: spill } : {}),
       ...(degraded.length > 0 ? { degraded } : {}),
     });
   } catch (err: unknown) {
@@ -820,7 +821,7 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
     // copy of the shape is how the two would drift.
     const traverseSpaces = crossSpaceIds ?? [spaceId];
     const totalCap = topK * (safeTraverse + 1) * 4;
-    const { graph, spill } = await buildGraphWithSpill(
+    const { graph, spill, truncated: graphTruncated } = await buildGraphWithSpill(
       traverseSpaces,
       result.results.map(r => ({ _id: r._id, spaceId: r.spaceId })),
       safeTraverse,
@@ -862,7 +863,8 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
       // same function the spill file uses to describe itself, for the same reason: a count passed in
       // alongside a payload can describe a different set of records than the payload does.
       graphNodes: countGraphNodes(itemsBudgeted.results),
-      ...(spill ? { graphTruncated: true, graphComplete: spill } : {}),
+      ...(graphTruncated ? { graphTruncated: true } : {}),
+      ...(spill ? { graphComplete: spill } : {}),
     });
   } catch (err: unknown) {
     if (err instanceof NotFoundError) {

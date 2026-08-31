@@ -365,17 +365,19 @@ describe('the limit is gone from where it was stated', () => {
      * call succeeds, and the caller's next request fails somewhere else.
      */
     /*
-     * On the GRAPH page, which owns edge identity — and on the brain page as a pointer, because that is
-     * where the PATCH route is documented and a contract a reader cannot reach from the route they are
-     * reading is one they will not find. `04-brain-api.md` sits at the 900-line ceiling, so the pointer
-     * replaces a line rather than adding one; A-5 queues the split that ends that constraint.
+     * On the GRAPH page, which owns edge identity — and beside the PATCH semantics as a pointer, because a
+     * contract a reader cannot reach from the route they are reading is one they will not find.
+     *
+     * That pointer used to be on `04-brain-api.md`, which sat exactly at the 900-line ceiling and so had to
+     * take it in place of an existing line. A-5 split the page and the PATCH semantics moved with it, so the
+     * pointer is read from `04f-write-semantics.md` now — the file that documents the route it warns about.
      */
     const graph = readFileSync('docs/integration-guide/04b-graph-api.md', 'utf8').replace(/\s+/g, ' ');
     assert.match(graph, /DERIVED from the relationship/, 'the graph page does not explain the derived id');
     assert.match(graph, /different `_id`/, 'it does not say a label patch moves the edge');
     assert.match(graph, /404/, 'it does not say what happens to the id the caller was holding');
 
-    const brain = readFileSync('docs/integration-guide/04-brain-api.md', 'utf8').replace(/\s+/g, ' ');
+    const brain = readFileSync('docs/integration-guide/04f-write-semantics.md', 'utf8').replace(/\s+/g, ' ');
     assert.match(brain, /patching an edge's `label` changes its `_id`/,
       'the page documenting the PATCH route does not warn that this one field moves the record');
 

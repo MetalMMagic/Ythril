@@ -183,7 +183,10 @@ describe('both doors name the one tier name', () => {
   it('the REST reference says the same, from the record side', () => {
     // `06a-schema-api.md` already said it from the SPACE side. One direction is not parity: a reader who
     // starts at the record flag never opens the schema page.
-    const doc = readFileSync('docs/integration-guide/04-brain-api.md', 'utf8');
+    // `04f-write-semantics.md` since A-5: the write-and-read rules moved off the memory page, because
+    // they apply to every record type. Read from where the section IS — a gate left pointing at the old
+    // page fails several assertions at once and reads as missing sentences rather than a moved file.
+    const doc = readFileSync('docs/integration-guide/04f-write-semantics.md', 'utf8');
     assert.match(doc, /suppressEmbeddings/, 'the record-side page must name the tier');
     assert.match(doc, /record\s*>\s*schema\s*>\s*space/, 'and the order');
     assert.match(doc, /means \*not stated\*|means \*\*not stated\*\*|not stated/i, 'and the false trap');

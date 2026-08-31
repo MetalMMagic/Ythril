@@ -350,7 +350,7 @@ POST /api/brain/spaces/:spaceId/traverse
 | Field | Required | Default | Description |
 |-------|----------|---------|-------------|
 | `startId` | ✅ | — | UUID of the starting entity |
-| `direction` | — | `"outbound"` | `"outbound"` follows edges from the node, `"inbound"` follows edges to it, `"both"` follows in either direction |
+| `direction` | — | `"outbound"` | `"outbound"` follows edges from the node, `"inbound"` follows edges to it, `"both"` follows in either direction. **Stored edges only** — it does not narrow links; see below |
 | `edgeLabels` | — | all labels | Filter traversal to specific edge labels only |
 | `maxDepth` | — | `3` | Maximum hops from `startId`; hard-capped at `10` |
 | `limit` | — | `100` | Maximum total nodes returned |
@@ -358,6 +358,13 @@ POST /api/brain/spaces/:spaceId/traverse
 | `includeMemories` | — | `false` | Also reach memories whose `entityIds` reference a traversed node, marked `kind: "memory"`. **Opt-in, unlike `includeChrono`** — see the note below. A non-boolean is a `400` |
 | `includeFiles` | — | `false` | Also reach files whose `entityIds` reference a traversed node, marked `kind: "file"` and carrying **file meta only**. Opt-in. A non-boolean is a `400` |
 | `includeEdges` | — | `true` | Whether the response carries the `edges` list. **This does not change the walk** — edges are how the graph is traversed. A non-boolean is a `400` |
+
+**`direction` narrows stored edges and never links.** A link is an `entityIds` ARRAY today — the field a memory, chrono
+entry or file carries — and it holds one orientation only: the record names the entity. There is nothing for
+`direction` to select between. With
+`includeChrono`, `includeMemories` or `includeFiles` on, the walk reaches the records that NAME this entity
+whatever `direction` says. The traverse expansion inside `recall` behaves identically, deliberately: two walks
+disagreeing about one parameter is worse than either reading of it.
 
 **Response** `200`:
 

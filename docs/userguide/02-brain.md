@@ -307,7 +307,7 @@ all. Use the **Entities** column in those tables to find the entity you want, th
 |---------|-------------|
 | **Search** | Find and load an entity as the root node |
 | **Depth** | How many hops out from the root to show (1–10) |
-| **Direction** | Show outbound edges, inbound edges, or both |
+| **Direction** | Show outbound edges, inbound edges, or both. It applies to the edges you drew between entities — not to the memories, timeline entries and files that merely MENTION an entity. A mention runs one way, from the record to the entity, so there is no second direction to choose and those are always reached the same way |
 | **Hide labels** | Hide edge labels entirely. By default a label is shown only on the edges of the node you have selected, and on an edge you hover — labelling every edge at once is unreadable on a dense graph, because the labels overlap each other and the nodes |
 | **Fit** | Zoom to fit the whole graph in view |
 | **Reset** | Clear the graph |

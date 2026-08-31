@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`direction` narrows stored edges only, and now every surface that offers it says so.** A link is an
+  `entityIds` **array** today — the field a memory, chrono entry or file carries — and it holds one
+  orientation: the record names the entity. So there is nothing for a direction to select between, and neither
+  link scan even accepts one, which is why the standalone `traverse` tool and recall's expansion have always
+  agreed.
+
+  **This is true of the array representation, not of links in principle**, and the link-records migration
+  (M-2, this cycle) revisits it: a link record has a `from` and a `to`, so from an entity an inbound one
+  reaches the memory that named it and an outbound one reaches nothing. The gate asserts that separately — a
+  link scan gaining a `direction` parameter is that migration arriving, and the answer will be to rewrite these
+  sentences rather than to make the gate agree.
+
+  **The defect was that nothing said it.** A caller sending
+  `{depth: 1, direction: 'inbound', includeMemories: true}` gets the entities their matched memory *names* — an
+  outbound step from the record — and neither door's description nor either guide mentioned the rule. An
+  undocumented rule that surprises costs the same as a wrong one, because the caller designs around what they
+  were told.
+
+  Stated on the shared traverse schema both doors read, on `recall`, `find_similar` and the standalone
+  `traverse` tool, in the recall and graph API guides, and in the userguide in an operator's terms. The
+  consequence is spelled out beside the rule, because the rule alone reads as a technicality.
+
+  **The alternative was honouring `direction` on links, and it would be worse**: `inbound` would then hide a
+  memory's own links, which is not what anyone asks for by narrowing. A gate now fails if any surface drops the
+  statement — or if a link scan gains a `direction` parameter, which is the only thing that could make it
+  untrue.
+
 ### Internal
 
 - **The client's spec project type-checks, and nothing had been checking it.** `vitest` transpiles without

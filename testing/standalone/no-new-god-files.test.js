@@ -124,7 +124,14 @@ const FROZEN = {
   //
   // 1618 -> 1326 over four cuts, all of the detail pane. DECOMPOSE: G-3 stays open for the browser itself:
   // the listing table and the directory tree are what is left, and they are one concern rather than two.
-  'client/src/app/pages/files/file-manager.component.ts': 1326,
+  // 1326 -> 1216. G-3's fifth cut: the directory listing became `file-listing.component.ts` — the page's
+  // core, and the widest interface of the five. Nine bindings rather than sixteen, because the three per-row
+  // questions (`canRequeue`, is-renaming, is-requeueing) are answered on the page and arrive as row flags.
+  //
+  // 1618 -> 1216 over five cuts. DECOMPOSE: G-3 stays open. What is left is the shell — the space selector,
+  // the breadcrumb toolbar, the new-folder and upload controls, the tree sidebar — plus every request the
+  // extracted pieces deliberately did not take with them.
+  'client/src/app/pages/files/file-manager.component.ts': 1216,
   'client/src/app/pages/schema-library/schema-library.component.ts': 1112,
   'server/src/sync/engine.ts': 966,
   // 958 -> 684: the per-type editor body moved into `schema-type-editor.component` so the Brain Overview

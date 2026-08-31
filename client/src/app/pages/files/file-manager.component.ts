@@ -4,6 +4,7 @@ import { FilePreviewComponent, type FilePreview, type PreviewKind, type XlsxPrev
 import { UploadQueueComponent, type UploadItem, type UploadStatus } from './upload-queue.component';
 import { FileMetaEditorComponent, type FileMetaModel } from './file-meta-editor.component';
 import { FileExtractViewComponent } from './file-extract-view.component';
+import { FileListingComponent, type FileRow } from './file-listing.component';
 import { formatSize } from './file-format';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -137,7 +138,7 @@ function xlsxCellText(v: unknown): string {
   // regardless of zone. Text fields (`newFolderName`, `renameValue`) are ngModel two-way bindings
   // whose input events mark the view dirty. So OnPush re-checks exactly when state changes.
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe, ErrorStateComponent, TagInputComponent, EntityRefFieldComponent, MemoryRefFieldComponent, ChronoRefFieldComponent, SortableHeaderComponent, StepProgressBarComponent, HscrollTopDirective, ModalDirective, TimestampComponent, FilePreviewComponent, UploadQueueComponent, FileMetaEditorComponent, FileExtractViewComponent],
+  imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe, ErrorStateComponent, TagInputComponent, EntityRefFieldComponent, MemoryRefFieldComponent, ChronoRefFieldComponent, SortableHeaderComponent, StepProgressBarComponent, HscrollTopDirective, ModalDirective, TimestampComponent, FilePreviewComponent, UploadQueueComponent, FileMetaEditorComponent, FileExtractViewComponent, FileListingComponent],
   styles: [`
     /* A background refresh, as a 2px indeterminate hairline above the table. Deliberately NOT a spinner and
        deliberately not an overlay: the whole point is that nothing on screen moves or disappears while a poll
@@ -205,38 +206,6 @@ function xlsxCellText(v: unknown): string {
     .breadcrumb-item.current { color: var(--text-primary); cursor: default; }
     .breadcrumb-item.current:hover { text-decoration: none; }
 
-    .file-icon { width: 20px; text-align: center; flex-shrink: 0; }
-
-    .file-name-btn {
-      background: none;
-      border: none;
-      color: var(--text-primary);
-      cursor: pointer;
-      font-size: 13px;
-      font-family: var(--font);
-      text-align: left;
-      padding: 0;
-    }
-    .file-name-btn.dir { color: var(--info); font-weight: 500; }
-    .file-name-btn:hover { text-decoration: underline; }
-
-    /* Merged metadata columns: embedding-status pill + tag chips (joined from the file's FileMeta). */
-    .emb-pill { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 500;
-      padding: 1px 8px; border-radius: 20px; white-space: nowrap; border: 1px solid transparent; }
-    .emb-pill .emb-dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
-    .emb-complete { color: var(--success); background: color-mix(in srgb, var(--success) 14%, transparent); border-color: color-mix(in srgb, var(--success) 30%, transparent); }
-    .emb-complete .emb-dot { background: var(--success); }
-    .emb-pending, .emb-processing { color: var(--info); background: color-mix(in srgb, var(--info) 14%, transparent); border-color: color-mix(in srgb, var(--info) 30%, transparent); }
-    .emb-pending .emb-dot, .emb-processing .emb-dot { background: var(--info); }
-    .emb-partial { color: var(--warning); background: color-mix(in srgb, var(--warning) 15%, transparent); border-color: color-mix(in srgb, var(--warning) 32%, transparent); }
-    .emb-partial .emb-dot { background: var(--warning); }
-    .emb-failed { color: var(--error); background: color-mix(in srgb, var(--error) 14%, transparent); border-color: color-mix(in srgb, var(--error) 30%, transparent); }
-    .emb-failed .emb-dot { background: var(--error); }
-    .emb-skipped, .emb-disabled { color: var(--text-muted); background: var(--bg-elevated); border-color: var(--border); }
-    .emb-skipped .emb-dot, .emb-disabled .emb-dot { background: var(--text-muted); }
-    .tag-list { display: inline-flex; gap: 4px; flex-wrap: wrap; }
-    .tag-chip { font-size: 10.5px; padding: 1px 7px; border-radius: 20px; background: var(--bg-elevated);
-      border: 1px solid var(--border); color: var(--text-secondary); white-space: nowrap; }
 
     .upload-zone {
       border: 2px dashed var(--border);
@@ -254,7 +223,6 @@ function xlsxCellText(v: unknown): string {
     }
 
     /* ── Upload queue panel (U12) ─────────────────────────────── */
-    .rename-form { display: flex; gap: 6px; align-items: center; }
 
     .space-selector {
       display: flex;
@@ -492,112 +460,21 @@ function xlsxCellText(v: unknown): string {
           @if (refreshFailed()) {
             <div class="fm-stale">{{ 'files.refreshFailed' | transloco }}</div>
           }
-          <div class="table-wrapper" hscrollTop>
-            <table>
-              <thead>
-                <tr>
-                  <th style="width:24px"></th>
-                  <th app-sort-th field="name" label="files.table.name" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th>
-                  <th app-sort-th field="status" label="files.table.status" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th>
-                  <th>{{ 'files.table.tags' | transloco }}</th>
-                  <th app-sort-th field="size" label="files.table.size" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th>
-                  <th app-sort-th field="modified" label="files.table.modified" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th>
-                  <th>{{ 'files.table.actions' | transloco }}</th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (entry of sortedEntries(); track entry.name) {
-                  <tr>
-                    <td><span class="file-icon">@if (entry.isDirectory) { <ph-icon name="folder" [size]="16"/> } @else { <ph-icon name="file" [size]="16"/> }</span></td>
-                    <td>
-                      @if (renamingEntry() === entry.name) {
-                        <form class="rename-form" (ngSubmit)="confirmRename(entry)">
-                          <input type="text" [(ngModel)]="renameValue" name="rn" [attr.aria-label]="'files.renameEntryAriaLabel' | transloco" style="width:200px" />
-                          <button class="btn-primary btn btn-sm" type="submit">{{ 'common.save' | transloco }}</button>
-                          <button class="btn-ghost btn btn-sm" type="button" (click)="renamingEntry.set('')">{{ 'common.cancel' | transloco }}</button>
-                        </form>
-                      } @else {
-                        <button
-                          class="file-name-btn"
-                          [class.dir]="entry.isDirectory"
-                          (click)="open(entry)"
-                        >{{ entry.name }}</button>
-                      }
-                    </td>
-                    <td>
-                      @if (entry.isFile && entry.progress) {
-                        <!-- In flight AND the worker has reported a stage: show WHICH stage of this
-                             file's own route is running, rather than a generic "embedding" + spinner
-                             that looks identical whether the job is working or wedged. Falls back to
-                             the pill below the moment the job finishes or before it reports. -->
-                        <app-step-progress-bar
-                          [progress]="entry.progress"
-                          [progressAt]="entry.progressAt" />
-                      } @else if (entry.isFile && entry.embeddingStatus) {
-                        <span class="emb-pill" [class]="'emb-' + entry.embeddingStatus">
-                          <span class="emb-dot"></span>{{ 'files.embStatus.' + entry.embeddingStatus | transloco }}
-                        </span>
-                      }
-                    </td>
-                    <td>
-                      @if (entry.tags?.length) {
-                        <span class="tag-list">@for (t of entry.tags; track t) { <span class="tag-chip">{{ t }}</span> }</span>
-                      }
-                    </td>
-                    <td style="color:var(--text-muted)">
-                      {{ formatSize(entry.size) }}
-                    </td>
-                    <td><app-timestamp [value]="entry.modified"/></td>
-                    <td style="display:flex; gap:6px; align-items:center;">
-                      @if (entry.isFile) {
-                        <button
-                          type="button"
-                          class="btn-ghost btn btn-sm"
-                          (click)="downloadFile(entry)"
-                          [attr.aria-label]="'files.downloadAriaLabel' | transloco"
-                        ><ph-icon name="download-simple" [size]="16"/></button>
-                      }
-                      @if (canRequeue(entry)) {
-                        <!-- Re-embedding was reachable only from the detail pane, so fixing a file whose
-                             embedding failed meant OPENING it first — and the row already tells you it
-                             failed. The action belongs where the diagnosis is. Hidden while a job is
-                             pending or processing: the server refuses that with a 409, and an action that
-                             exists only to be refused is worse than one that is absent. -->
-                        <button
-                          type="button"
-                          class="btn-ghost btn btn-sm"
-                          [disabled]="requeueingPath() === relPath(entry)"
-                          (click)="requeueEmbedding(entry)"
-                          [attr.title]="'brain.fileMeta.retryEmbedding' | transloco"
-                          [attr.aria-label]="'files.reembedAriaLabel' | transloco"
-                        ><ph-icon name="arrows-clockwise" [size]="16"/></button>
-                      }
-                      <!-- Rename is a pencil, not the word: it sat as the one text button among icons, so it
-                           set the width of the actions column on every row and pushed delete off the edge on
-                           a narrow window. Same label, on hover and for assistive tech. -->
-                      <button class="btn-ghost btn btn-sm" (click)="startRename(entry)"
-                        [attr.title]="'files.rename' | transloco"
-                        [attr.aria-label]="'files.renameEntryAriaLabel' | transloco"
-                      ><ph-icon name="pencil-simple" [size]="16"/></button>
-                      <button class="icon-btn danger" (click)="deleteEntry(entry)" [attr.aria-label]="'files.deleteEntryAriaLabel' | transloco"><ph-icon name="x" [size]="16"/></button>
-                    </td>
-                  </tr>
-                } @empty {
-                  <tr><td colspan="5">
-                    @if (loadError() !== null) {
-                      <app-error-state [message]="'files.error.loadFiles' | transloco" [reason]="loadError() ?? ''" (retry)="reloadDir()" />
-                    } @else {
-                    <div class="empty-state" style="padding:32px">
-                      <div class="empty-state-icon"><ph-icon name="folder-open" [size]="48"/></div>
-                      <h3>{{ 'files.emptyFolder.title' | transloco }}</h3>
-                      <p>{{ 'files.emptyFolder.body' | transloco }}</p>
-                    </div>
-                    }
-                  </td></tr>
-                }
-              </tbody>
-            </table>
-          </div>
+          <app-file-listing
+            [rows]="fileRows()"
+            [sortField]="sortField()"
+            [sortDir]="sortDir()"
+            [error]="loadError()"
+            [(renameValue)]="renameValue"
+            (sort)="setSort($event)"
+            (open)="open($event)"
+            (download)="downloadFile($event)"
+            (requeue)="requeueEmbedding($event)"
+            (renameStart)="startRename($event)"
+            (renameConfirm)="confirmRename($event)"
+            (renameCancel)="renamingEntry.set('')"
+            (remove)="deleteEntry($event)"
+            (retryLoad)="reloadDir()" />
         }
           </div><!-- .fm-main -->
 
@@ -791,6 +668,25 @@ export class FileManagerComponent implements OnInit, OnDestroy {
    * Folders always come first — this is a file explorer, and interleaving directories with files by size
    * or date makes the tree unnavigable. The chosen column orders WITHIN each group.
    */
+  /**
+   * The listing rows, with the three per-row questions answered before they leave this page.
+   *
+   * `canRequeue`, "is this row renaming" and "is a re-embed already in flight for it" were evaluated inside
+   * the table's loop, which meant the table needed the requeue policy, the rename state and `relPath` just to
+   * decide which buttons to draw. Answering them here is what kept the extracted component to nine bindings
+   * instead of sixteen.
+   */
+  fileRows = computed<FileRow[]>(() => {
+    const renaming = this.renamingEntry();
+    const requeueing = this.requeueingPath();
+    return this.sortedEntries().map(entry => ({
+      entry,
+      renaming: renaming === entry.name,
+      requeueing: requeueing === this.relPath(entry),
+      canRequeue: this.canRequeue(entry),
+    }));
+  });
+
   sortedEntries = computed<FileEntry[]>(() => {
     const list = this.entries();
     const field = this.sortField();

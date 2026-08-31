@@ -188,3 +188,49 @@ export const FILE_EXTRACT_STYLES = `
   .detail-extract .desc-src { margin-left: 6px; padding: 1px 6px; border: 1px solid var(--border);
     border-radius: 10px; font-size: 0.86em; color: var(--text-muted); cursor: help; }
 `;
+
+/**
+ * The directory listing's rules, moved with its markup (G-3's last cut).
+ *
+ * `.rename-form` came too, and it is the reason this block is assembled from two ranges rather than one: it
+ * sat forty lines below the rest, under the upload-queue banner, because that is where somebody happened to
+ * add it. The upload zone in between STAYS on the page — it is the drop target, not part of the table.
+ *
+ * No `:host` rewrite here: every rule is qualified by a class inside the component's own template, and the
+ * host is the wrapper the page lays out.
+ */
+export const FILE_LISTING_STYLES = `
+  .file-icon { width: 20px; text-align: center; flex-shrink: 0; }
+
+  .file-name-btn {
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: 13px;
+    font-family: var(--font);
+    text-align: left;
+    padding: 0;
+  }
+  .file-name-btn.dir { color: var(--info); font-weight: 500; }
+  .file-name-btn:hover { text-decoration: underline; }
+
+  /* Merged metadata columns: embedding-status pill + tag chips (joined from the file's FileMeta). */
+  .emb-pill { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 500;
+    padding: 1px 8px; border-radius: 20px; white-space: nowrap; border: 1px solid transparent; }
+  .emb-pill .emb-dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+  .emb-complete { color: var(--success); background: color-mix(in srgb, var(--success) 14%, transparent); border-color: color-mix(in srgb, var(--success) 30%, transparent); }
+  .emb-complete .emb-dot { background: var(--success); }
+  .emb-pending, .emb-processing { color: var(--info); background: color-mix(in srgb, var(--info) 14%, transparent); border-color: color-mix(in srgb, var(--info) 30%, transparent); }
+  .emb-pending .emb-dot, .emb-processing .emb-dot { background: var(--info); }
+  .emb-partial { color: var(--warning); background: color-mix(in srgb, var(--warning) 15%, transparent); border-color: color-mix(in srgb, var(--warning) 32%, transparent); }
+  .emb-partial .emb-dot { background: var(--warning); }
+  .emb-failed { color: var(--error); background: color-mix(in srgb, var(--error) 14%, transparent); border-color: color-mix(in srgb, var(--error) 30%, transparent); }
+  .emb-failed .emb-dot { background: var(--error); }
+  .emb-skipped, .emb-disabled { color: var(--text-muted); background: var(--bg-elevated); border-color: var(--border); }
+  .emb-skipped .emb-dot, .emb-disabled .emb-dot { background: var(--text-muted); }
+  .tag-list { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+  .tag-chip { font-size: 10.5px; padding: 1px 7px; border-radius: 20px; background: var(--bg-elevated);
+    border: 1px solid var(--border); color: var(--text-secondary); white-space: nowrap; }
+  .rename-form { display: flex; gap: 6px; align-items: center; }
+`;

@@ -32,6 +32,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **The file manager's directory listing is its own component** — 1 326 code lines to 1 216, and **1 618 to
+  1 216 over five cuts**.
+
+  This one is the page's core rather than one panel of it, so its interface is inherently the widest of the
+  five. It came to nine bindings instead of sixteen by answering the three per-row questions before they
+  arrive: whether a row is being renamed, whether a re-embed for it is already in flight, and whether
+  re-embedding is offered at all. Those were evaluated inside the table's loop, which meant the table needed
+  the page's requeue policy, its rename state and its path helper just to decide which buttons to draw.
+
+  The row actions stayed as **separate outputs** rather than one event carrying a tag. Fewer bindings would
+  have been worse to read: the page would gain a `switch` where it now has seven one-line handlers, and a
+  template is the one place where naming each event beats dispatching on a discriminator.
+
 - **The file manager's extract view is its own component** — 1 397 code lines to 1 326, and 1 618 to 1 326
   over four cuts. That is the whole detail pane: preview, upload panel, meta editor and now the extract view,
   which is what retrieval actually sees for a file.

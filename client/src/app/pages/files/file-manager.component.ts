@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, inject, signal, computed, effect, u
 import { SortableHeaderComponent } from '../brain/sortable-header.component';
 import { FilePreviewComponent, type FilePreview, type PreviewKind, type XlsxPreview } from './file-preview.component';
 import { UploadQueueComponent, type UploadItem, type UploadStatus } from './upload-queue.component';
+import { FileMetaEditorComponent, type FileMetaModel } from './file-meta-editor.component';
 import { formatSize } from './file-format';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -135,7 +136,7 @@ function xlsxCellText(v: unknown): string {
   // regardless of zone. Text fields (`newFolderName`, `renameValue`) are ngModel two-way bindings
   // whose input events mark the view dirty. So OnPush re-checks exactly when state changes.
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe, ErrorStateComponent, TagInputComponent, EntityRefFieldComponent, MemoryRefFieldComponent, ChronoRefFieldComponent, SortableHeaderComponent, StepProgressBarComponent, HscrollTopDirective, ModalDirective, TimestampComponent, FilePreviewComponent, UploadQueueComponent],
+  imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe, ErrorStateComponent, TagInputComponent, EntityRefFieldComponent, MemoryRefFieldComponent, ChronoRefFieldComponent, SortableHeaderComponent, StepProgressBarComponent, HscrollTopDirective, ModalDirective, TimestampComponent, FilePreviewComponent, UploadQueueComponent, FileMetaEditorComponent],
   styles: [`
     /* A background refresh, as a 2px indeterminate hairline above the table. Deliberately NOT a spinner and
        deliberately not an overlay: the whole point is that nothing on screen moves or disappears while a poll
@@ -319,10 +320,6 @@ function xlsxCellText(v: unknown): string {
       word-break: break-word; font-size: 0.85em; line-height: 1.45; }
     .detail-extract .desc-src { margin-left: 6px; padding: 1px 6px; border: 1px solid var(--border);
       border-radius: 10px; font-size: 0.86em; color: var(--text-muted); cursor: help; }
-    .detail-meta-form .field { margin-bottom: 12px; }
-    .detail-meta-form label { display: block; margin-bottom: 4px; font-size: 0.8em; color: var(--text-muted); }
-    .detail-meta-form textarea { width: 100%; resize: vertical; }
-    .detail-meta-actions { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
     /* Full-screen toggle floats at the top-right of the preview body. */
     .preview-body { position: relative; }
     .preview-fs-btn { position: absolute; top: 4px; right: 4px; z-index: 1; opacity: 0.75; }
@@ -729,38 +726,16 @@ function xlsxCellText(v: unknown): string {
                   </div>
                 } @else {
                   <!-- File-meta edit form (embedded only — reuses the Brain ref-field widgets). -->
-                  <form class="detail-meta-form" (ngSubmit)="saveMeta(pf)" #metaForm="ngForm">
-                    <div class="field">
-                      <label>{{ 'brain.fileMeta.table.description' | transloco }}</label>
-                      <textarea [(ngModel)]="metaEditModel.description" name="detailDesc" rows="3"></textarea>
-                    </div>
-                    <div class="field">
-                      <label>{{ 'brain.fileMeta.table.tags' | transloco }}</label>
-                      <app-tag-input [(value)]="metaEditModel.tags" inputName="detailTags" />
-                    </div>
-                    <div class="field">
-                      <label>{{ 'brain.fileMeta.table.entities' | transloco }}</label>
-                      <app-entity-ref-field [target]="metaEditModel" [spaceId]="activeSpaceId()" />
-                    </div>
-                    <div class="field">
-                      <label>{{ 'brain.fileMeta.table.memories' | transloco }}</label>
-                      <app-memory-ref-field [target]="metaEditModel" />
-                    </div>
-                    <div class="field">
-                      <label>{{ 'brain.fileMeta.table.chrono' | transloco }}</label>
-                      <app-chrono-ref-field [target]="metaEditModel" />
-                    </div>
-                    @if (metaError()) { <div class="alert alert-error" role="alert">{{ metaError() }}</div> }
-                    <div class="detail-meta-actions">
-                      <button class="btn btn-sm btn-primary" type="submit" [disabled]="metaSaving()">{{ 'common.save' | transloco }}</button>
-                      <button class="btn btn-sm btn-secondary" type="button" (click)="cancelMeta()">{{ 'common.cancel' | transloco }}</button>
-                      @if (pf.embeddingStatus === 'failed' || pf.embeddingStatus === 'partial') {
-                        <button class="btn btn-sm btn-ghost" type="button"
-                          [disabled]="requeueingPath() === relPath(pf)"
-                          (click)="requeueEmbedding(pf)">{{ 'brain.fileMeta.retryEmbedding' | transloco }}</button>
-                      }
-                    </div>
-                  </form>
+                  <app-file-meta-editor
+                    [model]="metaEditModel"
+                    [spaceId]="activeSpaceId()"
+                    [error]="metaError()"
+                    [saving]="metaSaving()"
+                    [canRetryEmbedding]="pf.embeddingStatus === 'failed' || pf.embeddingStatus === 'partial'"
+                    [retryPending]="requeueingPath() === relPath(pf)"
+                    (save)="saveMeta(pf)"
+                    (cancel)="cancelMeta()"
+                    (retryEmbedding)="requeueEmbedding(pf)" />
                 }
               </div>
             </div>
@@ -1057,7 +1032,14 @@ export class FileManagerComponent implements OnInit, OnDestroy {
 
   /** Edit model for the meta form — same shape the Brain File Meta tab uses (entityIds is comma-joined
    *  for app-entity-ref-field; memory/chrono are id arrays). Mutated in place by the ref-field widgets. */
-  metaEditModel = { description: '', tags: [] as string[], entityIds: '', memoryIds: [] as string[], chronoIds: [] as string[] };
+  /**
+   * The edit model, held as a PLAIN object because the reference widgets write into it.
+   *
+   * Typed by the editor that renders it, so there is one definition of the shape rather than a structural
+   * literal here and an interface there — the two drifting is how `entityIds` would quietly become an array
+   * on one side.
+   */
+  metaEditModel: FileMetaModel = { description: '', tags: [], entityIds: '', memoryIds: [], chronoIds: [] };
   metaSaving = signal(false);
   metaError = signal<string | null>(null);
   /**

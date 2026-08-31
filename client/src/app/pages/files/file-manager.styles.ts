@@ -143,3 +143,17 @@ export const UPLOAD_QUEUE_STYLES = `
   }
 
 `;
+
+/**
+ * The file-meta form's rules, moved with its markup (G-3).
+ *
+ * They stay QUALIFIED by `.detail-meta-form` rather than becoming `:host`. The form is one element inside this
+ * component and the host is its wrapper in the pane, so the class is doing real work here — unlike the panel
+ * and card extractions, where the class WAS the host and leaving it qualified would have matched nothing.
+ */
+export const FILE_META_EDITOR_STYLES = `
+  .detail-meta-form .field { margin-bottom: 12px; }
+  .detail-meta-form label { display: block; margin-bottom: 4px; font-size: 0.8em; color: var(--text-muted); }
+  .detail-meta-form textarea { width: 100%; resize: vertical; }
+  .detail-meta-actions { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+`;

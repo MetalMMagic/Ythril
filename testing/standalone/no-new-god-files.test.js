@@ -113,7 +113,13 @@ const FROZEN = {
   // subscription, and a component that owned it would abort on destroy.
   //
   // DECOMPOSE: G-3 stays open. The browser and the metadata drawer are the seams left.
-  'client/src/app/pages/files/file-manager.component.ts': 1422,
+  // 1422 -> 1397. G-3's third cut: the file-meta edit face became `file-meta-editor.component.ts`. Saving
+  // stayed on the page for the same reason the upload queue did — the request is the page's, and a component
+  // that owned it would cancel a save in flight when the pane closed.
+  //
+  // DECOMPOSE: G-3 stays open. The browser and its directory tree are what is left, and they are the largest
+  // remaining block by some way.
+  'client/src/app/pages/files/file-manager.component.ts': 1397,
   'client/src/app/pages/schema-library/schema-library.component.ts': 1112,
   'server/src/sync/engine.ts': 966,
   // 958 -> 684: the per-type editor body moved into `schema-type-editor.component` so the Brain Overview

@@ -132,7 +132,12 @@ describe('the writers supply the hash, or the guard is dead code', () => {
 
     // The guard can only ever fire if the three writers that compute a hash also hand it over. Each of these
     // computed one already — for the response body and the webhook — and threw it away.
-    const rest = strip(readFileSync('server/src/api/files.ts', 'utf8'));
+    /*
+     * The UPLOAD route's file, which stopped being `api/files.ts` when G-4 moved it to `files-upload.ts`. Read
+     * from where the writers are rather than from where they used to be: pointed at the old file these four
+     * assertions would all fail at once, which reads as four broken writers instead of one moved module.
+     */
+    const rest = strip(readFileSync('server/src/api/files-upload.ts', 'utf8'));
     assert.match(rest, /upsertFileMeta\(targetSpace, filePath, range\.total, \{ ttlDays: parseTtlDaysQuery\(req\), sha256 \}/,
       'chunked assembly must store the hash it computed');
     assert.match(rest, /dispatchFileProcessing\(targetSpace, filePath, \{ bytes: range\.total,[^)]*sha256 \}/,

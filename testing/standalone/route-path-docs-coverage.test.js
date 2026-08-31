@@ -67,6 +67,36 @@ function knownRoutes() {
   for (const m of sources.get(join(ROOT, 'server', 'src', 'app.ts')).matchAll(
     /app\.use\(\s*'([^']+)'\s*,\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)/g)) addPrefix(m[2], m[1]);
 
+  /*
+   * (1b) REGISTER FUNCTIONS: `registerUploadRoute(fileStoreRouter)` in one file, and
+   * `export function registerUploadRoute(router: Router)` declaring the routes in another.
+   *
+   * The parameter carries the caller's prefixes. Without this the extractor sees `router.post('/:spaceId')`
+   * with no prefix for `router` and the route resolves to nothing — a documented endpoint reported as
+   * missing, which is the sixth extractor defect this file has had and the same shape as the other five.
+   *
+   * `spaces-reembed.ts` predates this and resolved anyway, by NAMING its parameter `spacesRouter` — the same
+   * identifier the caller uses. That is a coincidence rather than a mechanism: renaming the variable in
+   * `api/spaces.ts` would have silently dropped its route from this gate's view, with nothing to say so.
+   */
+  /*
+   * Keyed by the DECLARING FILE, not by the parameter name — and that distinction is the whole difficulty.
+   *
+   * The first version added the prefix under the bare parameter name, `router`. `mcp/oauth.ts` builds its own
+   * router into a local `const router` and declares `/mcp-oauth/consent` on it, so it inherited `/api/files`
+   * and this gate reported `POST /api/files/mcp-oauth/consent` as an undocumented route. A name is not an
+   * identity: the same one means different things in different files, which is exactly why the rest of this
+   * extractor resolves module-level variables and nothing narrower.
+   */
+  const registrars = new Map();          // fn name -> { file, param }
+  for (const [file, src] of sources) {
+    for (const m of src.matchAll(/export\s+function\s+([A-Za-z_]\w*)\s*\(\s*([A-Za-z_]\w*)\s*:\s*Router\b/g)) {
+      registrars.set(m[1], { file, param: m[2] });
+    }
+  }
+  /** A prefix that applies to one identifier in one file only. */
+  const scoped = (file, name) => `${file}::${name}`;
+
   // (2) nested mounts, both prefixed and path-less, to a fixed point.
   for (let pass = 0; pass < 5; pass++) {
     for (const src of sources.values()) {
@@ -76,14 +106,30 @@ function knownRoutes() {
       for (const m of src.matchAll(/([A-Za-z_][A-Za-z0-9_]*)\.use\(\s*([A-Za-z_][A-Za-z0-9_]*Router)\s*\)/g)) {
         for (const p of prefixes.get(m[1]) ?? []) addPrefix(m[2], p);
       }
+      /*
+       * A register function's parameter inherits the prefixes of whatever router it is handed.
+       *
+       * Matched by splitting on the call rather than by building a regex around the name. Inside a template
+       * literal `\b`, `\s` and `\w` are not escapes — they collapse to the bare letters — so a pattern
+       * assembled that way silently matches nothing, which here would look exactly like "no caller found".
+       */
+      for (const [fn, { file, param }] of registrars) {
+        for (const piece of src.split(`${fn}(`).slice(1)) {
+          const arg = piece.match(/^\s*([A-Za-z_]\w*)\s*\)/);
+          if (arg) for (const p of prefixes.get(arg[1]) ?? []) addPrefix(scoped(file, param), p);
+        }
+      }
     }
   }
 
   const routes = new Set();
-  for (const src of sources.values()) {
+  for (const [file, src] of sources) {
     for (const m of src.matchAll(new RegExp(`([A-Za-z_][A-Za-z0-9_]*)\\.(${VERBS})\\(\\s*'([^']*)'`, 'g'))) {
       const [, v, method, path] = m;
-      for (const prefix of prefixes.get(v) ?? []) {
+      // Module-level prefixes, plus any that belong to this identifier IN THIS FILE — a register function's
+      // parameter. Both, because a file can declare routes on an imported router and on its parameter.
+      const applies = [...(prefixes.get(v) ?? []), ...(prefixes.get(scoped(file, v)) ?? [])];
+      for (const prefix of applies) {
         routes.add(`${method.toUpperCase()} ${norm((prefix + (path === '/' ? '' : path)) || '/')}`);
       }
     }

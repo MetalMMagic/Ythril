@@ -69,7 +69,9 @@ describe('traverse follows chrono.entityIds', () => {
   // Comments explain the mechanism by name, so they must not satisfy the checks that guard it.
   const strip = (t) =>
     t.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
-  const code = strip(read('server/src/brain/edges.ts'));
+  // Both traversals: the standalone one stayed in `edges.ts`, the recall walk moved to its own module in A-4,
+  // and the break condition this pins has to be right in both.
+  const code = strip(read('server/src/brain/edges.ts') + read('server/src/brain/recall-seed-traversal.ts'));
   const scan = strip(read('server/src/brain/link-frontier.ts'));
 
   it('queries the chrono collection for entries pointing at the frontier', () => {

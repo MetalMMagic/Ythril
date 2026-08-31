@@ -9,7 +9,7 @@
 
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
 import { UUID_V4_RE, formatRecallSummary, toRecallRecord, uuidSchema, unitScoreSchema, QUERY_FILTER_OPERATORS } from './shared.js';
-import { MAX_RECALL_TRAVERSE } from '../../brain/edges.js';
+import { MAX_RECALL_TRAVERSE } from '../../brain/recall-seed-traversal.js';
 import { mapGraphNodes, graphNodeRecord } from '../../brain/recall-graph.js';
 import { applyProjection, normaliseProjection } from '../../brain/projection.js';
 import { resolveBudget, resolvePaging, budgetedEnvelope, type BudgetRequest, MCP_DEFAULT_MAX_BYTES } from '../../brain/result-budget.js';

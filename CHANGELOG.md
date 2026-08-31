@@ -58,6 +58,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **The recall-augmenting traversal is its own module** — `brain/edges.ts` from 688 code lines to 487, under
+  the 650 ceiling. A-4, and the raise that owed it is paid.
+
+  It is a different subject from the traversal that stayed, which is why it was the right thing to move:
+  `traverseGraph` answers *"walk out from one start node"*, while this answers *"walk out from the records a
+  search matched"* — a different entry shape, a different budget, a pre-pass that follows a matched record's
+  `entityIds` out to entities, and route bookkeeping the standalone walk has no use for.
+
+  **`frontierEdgeQuery` went sideways rather than travelling with it**, into `frontier-query.ts`, because both
+  traversals apply it. That helper exists *because* the rule was once written twice with the copies disagreeing
+  — the standalone path honouring direction and labels while recall's did neither — so duplicating it during
+  the extraction that separates its two callers would have been the same defect a second time.
+
+  Six gates read `edges.ts` for something that moved. Which gate needed which file was derived from the moved
+  symbols rather than guessed, because a gate left pointing at the old file fails several assertions at once
+  and reads as broken production code rather than as one moved module.
+
 - **The file-upload route is its own module** — `api/files.ts` from 647 code lines to 455, under the ceiling
   for the first time since it was frozen. The route is 196 of those lines and by far the file's largest body:
   raw bytes or JSON, chunked uploads with a `Content-Range`, a quota check, a proxy-space write target, a TTL,

@@ -49,7 +49,8 @@
 import { randomUUID } from 'node:crypto';
 import { writeFile } from '../files/files.js';
 import { upsertFileMeta } from '../files/file-meta.js';
-import { traverseRecallSeeds, type TraverseNarrowing } from './edges.js';
+import { traverseRecallSeeds } from './recall-seed-traversal.js';
+import { type TraverseNarrowing } from './frontier-query.js';
 import { nestNeighbours, type RecallGraph } from './recall-graph.js';
 import { SPILL_DIR } from './spill-path.js';
 

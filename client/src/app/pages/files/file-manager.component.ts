@@ -3,6 +3,7 @@ import { SortableHeaderComponent } from '../brain/sortable-header.component';
 import { FilePreviewComponent, type FilePreview, type PreviewKind, type XlsxPreview } from './file-preview.component';
 import { UploadQueueComponent, type UploadItem, type UploadStatus } from './upload-queue.component';
 import { FileMetaEditorComponent, type FileMetaModel } from './file-meta-editor.component';
+import { FileExtractViewComponent } from './file-extract-view.component';
 import { formatSize } from './file-format';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -136,7 +137,7 @@ function xlsxCellText(v: unknown): string {
   // regardless of zone. Text fields (`newFolderName`, `renameValue`) are ngModel two-way bindings
   // whose input events mark the view dirty. So OnPush re-checks exactly when state changes.
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe, ErrorStateComponent, TagInputComponent, EntityRefFieldComponent, MemoryRefFieldComponent, ChronoRefFieldComponent, SortableHeaderComponent, StepProgressBarComponent, HscrollTopDirective, ModalDirective, TimestampComponent, FilePreviewComponent, UploadQueueComponent, FileMetaEditorComponent],
+  imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe, ErrorStateComponent, TagInputComponent, EntityRefFieldComponent, MemoryRefFieldComponent, ChronoRefFieldComponent, SortableHeaderComponent, StepProgressBarComponent, HscrollTopDirective, ModalDirective, TimestampComponent, FilePreviewComponent, UploadQueueComponent, FileMetaEditorComponent, FileExtractViewComponent],
   styles: [`
     /* A background refresh, as a 2px indeterminate hairline above the table. Deliberately NOT a spinner and
        deliberately not an overlay: the whole point is that nothing on screen moves or disappears while a poll
@@ -651,79 +652,12 @@ function xlsxCellText(v: unknown): string {
                        which removed the only way to answer "what did the pipeline get out of this file?" —
                        the first question when a document answers queries badly. Hidden from browsing, not
                        from inspection. Nothing here is new data; these are records conversion already wrote. -->
-                  <div class="detail-extract">
-                    @if (extractLoading()) {
-                      <div class="muted">{{ 'files.extract.loading' | transloco }}</div>
-                    } @else if (extractError()) {
-                      <app-error-state [message]="'files.extract.error' | transloco" [reason]="extractError() ?? ''" (retry)="loadExtract(pf)" />
-                    } @else if (extract(); as x) {
-                      @if (x.conversionError) {
-                        <div class="alert alert-error" role="alert">{{ x.conversionError }}</div>
-                      }
-
-                      <!-- Chunks first, deliberately: they ARE what retrieval matches on. The converted
-                           Markdown is the input to chunking, and the images are a side product. -->
-                      <section>
-                        <h4>{{ 'files.extract.chunks' | transloco: { shown: x.chunks.length, total: x.chunkTotal } }}</h4>
-                        @if (x.chunks.length === 0) {
-                          <p class="muted">{{ 'files.extract.noChunks' | transloco }}</p>
-                        }
-                        @for (c of x.chunks; track c.id) {
-                          <div class="chunk">
-                            <div class="chunk-head">
-                              <span class="chunk-ix">#{{ c.index }}</span>
-                              <!-- One provenance line, whichever kind of provenance this chunk has: a
-                                   timestamp for audio, the heading it opened for a document. -->
-                              @if (c.chunkOffsetMs !== null) {
-                                <span class="chunk-prov">{{ msRange(c.chunkOffsetMs, c.chunkDurationMs) }}</span>
-                              } @else if (c.headingText) {
-                                <span class="chunk-prov">{{ c.headingText }}</span>
-                              }
-                              @if (c.embeddingStatus && c.embeddingStatus !== 'complete') {
-                                <span class="chunk-warn">{{ c.embeddingStatus }}</span>
-                              }
-                            </div>
-                            <p class="chunk-body">{{ c.content }}</p>
-                          </div>
-                        }
-                        @if (x.chunkTotal > x.chunks.length + x.skip) {
-                          <button class="btn btn-sm btn-secondary" type="button" (click)="moreChunks(pf)">{{ 'files.extract.more' | transloco }}</button>
-                        }
-                      </section>
-
-                      @if (x.images.length > 0) {
-                        <section>
-                          <h4>{{ 'files.extract.images' | transloco: { count: x.images.length } }}</h4>
-                          @for (img of x.images; track img.path) {
-                            <div class="xtr-image">
-                              <span class="xtr-path">{{ img.path }}</span>
-                              @if (img.description) {
-                                <p>
-                                  {{ img.description }}
-                                  @if (img.descriptionSource) {
-                                    <span class="desc-src" [attr.title]="'files.detail.descriptionSource.' + img.descriptionSource + 'Hint' | transloco">{{ 'files.detail.descriptionSource.' + img.descriptionSource | transloco }}</span>
-                                  }
-                                </p>
-                              } @else {
-                                <p class="muted">{{ 'files.extract.noCaption' | transloco }}</p>
-                              }
-                            </div>
-                          }
-                        </section>
-                      }
-
-                      @if (x.converted; as conv) {
-                        <section>
-                          <h4>{{ 'files.extract.converted' | transloco }}</h4>
-                          <div class="muted xtr-path">{{ conv.path }}</div>
-                          @if (conv.truncated) {
-                            <div class="muted">{{ 'files.extract.truncated' | transloco }}</div>
-                          }
-                          <pre class="xtr-md">{{ conv.markdown }}</pre>
-                        </section>
-                      }
-                    }
-                  </div>
+                  <app-file-extract-view
+                    [extract]="extract()"
+                    [loading]="extractLoading()"
+                    [error]="extractError()"
+                    (more)="moreChunks(pf)"
+                    (retry)="loadExtract(pf)" />
                 } @else {
                   <!-- File-meta edit form (embedded only — reuses the Brain ref-field widgets). -->
                   <app-file-meta-editor
@@ -1021,14 +955,6 @@ export class FileManagerComponent implements OnInit, OnDestroy {
    * here rather than server-side because it is a display choice, and the raw milliseconds are what an API
    * consumer wants.
    */
-  msRange(offsetMs: number | null, durationMs: number | null): string {
-    if (offsetMs === null) return '';
-    const clock = (ms: number) => {
-      const total = Math.max(0, Math.round(ms / 1000));
-      return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
-    };
-    return durationMs ? `${clock(offsetMs)}-${clock(offsetMs + durationMs)}` : clock(offsetMs);
-  }
 
   /** Edit model for the meta form — same shape the Brain File Meta tab uses (entityIds is comma-joined
    *  for app-entity-ref-field; memory/chrono are id arrays). Mutated in place by the ref-field widgets. */

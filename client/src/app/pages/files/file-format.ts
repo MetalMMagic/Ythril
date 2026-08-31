@@ -23,3 +23,22 @@ export function formatSize(bytes: number): string {
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
+
+/**
+ * A chunk's position in a timed source, as `m:ss` or `m:ss-m:ss`.
+ *
+ * Media provenance: an audio or video file is chunked by TIME, so "where did this text come from" is a clock
+ * range rather than a page or a byte offset. A null offset means the chunk has no timed provenance at all —
+ * the ordinary case for a document — and renders as nothing rather than as `0:00`, which would claim the very
+ * beginning of a file that has no timeline.
+ *
+ * A null duration means a point rather than a span, and prints as one clock.
+ */
+export function msRange(offsetMs: number | null, durationMs: number | null): string {
+  if (offsetMs === null) return '';
+  const clock = (ms: number) => {
+    const total = Math.max(0, Math.round(ms / 1000));
+    return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+  };
+  return durationMs ? `${clock(offsetMs)}-${clock(offsetMs + durationMs)}` : clock(offsetMs);
+}

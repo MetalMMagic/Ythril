@@ -110,7 +110,9 @@ describe('BrainComponent (OnPush)', () => {
      * general"*, and the workaround found was to click the type, land in general, pick the space again, and
      * then the type finally selects.
      *
-     * The mechanism, and it is one line: this page READS `?space=` and never WRITES it. `setTab` navigates
+     * The mechanism, and it is one line: this page READS `?space=` and never writes it itself — the only
+     * writer is the ER diagram's count links, which is what made a STALE one possible and is covered by the
+     * spec below. `setTab` navigates
      * to record the tab, the navigation re-emits `queryParamMap`, and `applyQueryParams` reads an absent
      * `?space=` as "no preference" and falls back to `spaces[0]` — the first space in the list. So every tab
      * click on any other space snapped back, and it also reset the tab to Overview, because `selectSpace`
@@ -172,6 +174,97 @@ describe('BrainComponent (OnPush)', () => {
      */
     expect(params.value.get('space'), 'the space was written to the URL, which is ruled out for iframes')
       .toBeUndefined();
+  });
+
+  it('a STALE ?space= does not move the page either', async () => {
+    /*
+     * The other half of the same bug, and the half the fix above did not reach. It survived because the
+     * commit, the CHANGELOG and the docblock all said the page reads `?space=` and *nothing ever writes it* —
+     * and if nothing writes it, a stale one is impossible. `er-model-panel.component.ts` writes it, on the
+     * knowledge-type count links, which is the very control the report named.
+     *
+     * So: land with `?space=other` (what an ER count link produces), switch space by chip — the screen
+     * changes and the URL deliberately does not — then click a tab. `writeTabToUrl` merges, which carries the
+     * stale `?space=other` forward, the handler reads it as authoritative, and the page jumps back.
+     *
+     * A reload after any chip switch lands somewhere else for the same reason.
+     */
+    const params = new BehaviorSubject(new Map<string, string>([['space', 'other']]));
+    const snapshot = { queryParamMap: { get: (k: string) => params.value.get(k) ?? null } };
+    TestBed.configureTestingModule({
+      imports: [BrainComponent, getTranslocoModule()],
+      providers: [
+        { provide: SpacesApi, useValue: makeApi(['work', 'other']) },
+        { provide: BrainApi, useValue: makeApi(['work', 'other']) },
+        { provide: FilesApi, useValue: makeApi(['work', 'other']) },
+        { provide: AdminApi, useValue: makeApi(['work', 'other']) },
+        { provide: NetworksApi, useValue: makeApi(['work', 'other']) },
+        { provide: AuthService, useValue: { token: () => '' } },
+        { provide: ActivatedRoute, useValue: { snapshot, queryParamMap: params.asObservable() } },
+        {
+          provide: Router,
+          useValue: {
+            navigate: (_c: unknown[], extras: { queryParams: Record<string, string> }) => {
+              const next = new Map(params.value);
+              for (const [k, v] of Object.entries(extras.queryParams)) next.set(k, v);
+              params.next(next);
+              return Promise.resolve(true);
+            },
+          },
+        },
+      ],
+    });
+    const fixture = TestBed.createComponent(BrainComponent);
+    fixture.detectChanges();
+    const c = fixture.componentInstance as any;
+
+    expect(c.activeSpaceId(), 'the deep link did not land on the space it named').toBe('other');
+
+    c.selectSpace('work');
+    expect(c.activeSpaceId()).toBe('work');
+
+    c.setTab('entities');
+    await Promise.resolve();
+
+    expect(c.activeSpaceId(), 'a stale ?space= from the deep link overrode the space on screen').toBe('work');
+    expect(c.activeTab(), 'and took the tab with it').toBe('entities');
+  });
+
+  it('but a NEW ?space= still moves the page — the ER count links depend on it', async () => {
+    /*
+     * The reason the fix cannot simply be "honour `?space=` on the first pass only". The ER-model panel's
+     * count links are `routerLink` navigations to `/brain` with a fresh `?space=`, and they are clicked from
+     * INSIDE `/brain` — no remount, no first pass. Ignoring a changed value would break the control the
+     * original report was about, which is a worse bug than the one being fixed.
+     *
+     * So the rule is "honour it when it CHANGED", not "honour it once".
+     */
+    const params = new BehaviorSubject(new Map<string, string>([['space', 'work']]));
+    const snapshot = { queryParamMap: { get: (k: string) => params.value.get(k) ?? null } };
+    TestBed.configureTestingModule({
+      imports: [BrainComponent, getTranslocoModule()],
+      providers: [
+        { provide: SpacesApi, useValue: makeApi(['work', 'other']) },
+        { provide: BrainApi, useValue: makeApi(['work', 'other']) },
+        { provide: FilesApi, useValue: makeApi(['work', 'other']) },
+        { provide: AdminApi, useValue: makeApi(['work', 'other']) },
+        { provide: NetworksApi, useValue: makeApi(['work', 'other']) },
+        { provide: AuthService, useValue: { token: () => '' } },
+        { provide: ActivatedRoute, useValue: { snapshot, queryParamMap: params.asObservable() } },
+        { provide: Router, useValue: { navigate: () => Promise.resolve(true) } },
+      ],
+    });
+    const fixture = TestBed.createComponent(BrainComponent);
+    fixture.detectChanges();
+    const c = fixture.componentInstance as any;
+    expect(c.activeSpaceId()).toBe('work');
+
+    // What the ER panel's count link does: navigate to /brain with a different space and a tab.
+    params.next(new Map<string, string>([['space', 'other'], ['tab', 'memories']]));
+    await Promise.resolve();
+
+    expect(c.activeSpaceId(), 'an ER count link to another space stopped working').toBe('other');
+    expect(c.activeTab()).toBe('memories');
   });
 
   it('a query-param change that names no space leaves the space alone', async () => {

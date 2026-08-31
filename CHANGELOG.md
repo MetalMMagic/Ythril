@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A bounded link scan could drop records while the answer said the graph was complete.** The commit that
+  bounded those scans said hitting the bound *"is reported through the existing `graphTruncated` /
+  `graphComplete` spill"*. Neither traversal could report it, which made the bound worse than the unbounded
+  scan it replaced: an incomplete answer that says nothing is indistinguishable from a complete one.
+
+  The bound is spent on documents that are then **discarded** — the limit runs before the already-visited
+  check — so a hop can burn its whole budget on records emitted at an earlier hop and finish *below* the node
+  cap. That cap was the only truncation signal either traversal had, so the walk answered "complete". The
+  second scan had its own version: its budget counts links emitted while the limit counts records read, so a
+  few link-dense seeds could return before a whole class was queried at all.
+
+  Both scans now report that they **stopped reading**, which is a different fact from the result filling up
+  and the only one knowable at the cursor — a cursor that came back full may have more behind it, whatever
+  survives the visited filter. `traverse` reports it as `truncated`, and `recall` and `find_similar` as
+  `graphTruncated`.
+
+  **`graphTruncated` can now arrive without `graphComplete`**, and callers reading them as a pair should treat
+  the second as optional. There is no complete copy to write in this case: the records missing from the graph
+  are exactly the ones the scan never read, so a spill file would be the same short graph under a name that
+  promises otherwise. Both API doors, both MCP tool descriptions, and both guides say so.
+
 ### Internal
 
 - **The working order is a checklist now, and the checklist is a gate.** The order a change is supposed to be

@@ -172,6 +172,12 @@ search you can run without writing a request by hand:
   for a day. The result says both: how many it showed, and where the complete set is. A short graph would
   otherwise read as "this record has few relationships", which is a statement about your data rather than about
   the search.
+
+  **Sometimes there is no complete set to offer, and the result says that too.** Following the records that
+  merely *name* an entity is bounded per hop, so a dense space can use up a hop's budget on records it has
+  already shown. The neighbourhood is then genuinely partial — the rest was never read, so there is nothing to
+  write to a file — and the result is marked short with no download beside it. Narrowing the search, or asking
+  for fewer hops, is what makes it whole.
 - **When the answer itself does not fit** — a search result is also bounded by SIZE, not only by `topK`. Ask
   for a hundred matches with their surroundings and the answer can be larger than anything that should arrive
   in one piece, so what fits comes back in full and the answer says where to carry on from. Two things are

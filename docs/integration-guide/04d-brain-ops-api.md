@@ -616,6 +616,12 @@ and never embedded.
 The alternative — a `truncated` flag alone — tells a caller their graph was cut and leaves them no way to get
 the rest, which on a neighbourhood is a dead end: there is no `total` to page against.
 
+**It is still the right answer in one case, and since 3.6.1 it is used there.** The link scans that follow a
+record's `entityIds` are bounded per hop, and a hop can spend its budget on records it discards as already
+visited — so the graph is short and there is no complete copy to write, because the missing records were never
+read. `graphTruncated: true` arrives on its own. A caller that treated the two as inseparable should read the
+flag and treat `graphComplete` as optional.
+
 #### Unknown body fields are refused
 
 These four read routes accept a fixed set of body fields and **reject anything else with a `400`** naming the offending

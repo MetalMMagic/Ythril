@@ -92,15 +92,22 @@ export async function linkedRecordsAtFrontier(
    * Without it one hub entity returns its whole mention set, once per link class, per member space, per hop.
    * The node cap does not help: it counts records after they are hydrated, so the read has already happened.
    *
-   * Owner's decision 2026-08-30: reuse the cap the walk already derives from `topK` and the byte budget, and
-   * let the existing truncation reporting cover it, rather than inventing a second number nobody tunes. The
+   * Owner's decision 2026-08-30: reuse the cap the walk already derives from `topK` and the byte budget,
+   * rather than inventing a second number nobody tunes. The
    * accepted cost is that link scans and edge scans share one budget, so a hub with thousands of mentions can
    * crowd out its edge neighbours.
+   *
+   * **Hitting it is reported, and the first version of this said the existing truncation reporting covered
+   * it. That was false.** The limit is spent on documents that are then discarded — `.limit()` runs before the
+   * `visited` check — so a hop can consume its whole budget on records already emitted and still finish BELOW
+   * the walk's node cap, which is the only thing either traversal looked at. The answer came back short and
+   * flagged complete. Hence `scanCapped` below.
    */
   limit?: number,
-): Promise<LinkedRecord[]> {
+): Promise<ScanResult<LinkedRecord>> {
   const out: LinkedRecord[] = [];
-  if (frontier.length === 0) return out;
+  let scanCapped = false;
+  if (frontier.length === 0) return { records: out, scanCapped };
 
   for (const cls of LINK_CLASSES) {
     if (!included(cls, inclusion) || !labelWanted(cls, edgeLabels)) continue;
@@ -109,11 +116,17 @@ export async function linkedRecordsAtFrontier(
       // same transfer — the point is that the database stops early. `out.length` is subtracted so the bound
       // covers the call rather than each class separately.
       const remaining = limit === undefined ? undefined : Math.max(0, limit - out.length);
-      if (remaining === 0) return out;
+      // A budget spent before every class was read leaves whole kinds of record unlooked-at, not merely
+      // trimmed — so this is a truncation even though nothing was thrown away here.
+      if (remaining === 0) return { records: out, scanCapped: true };
       const linked = await col<{ _id: string; entityIds?: string[] }>(`${mid}_${cls.collection}`)
         .find(asFilter<{ _id: string }>(linksToAny(mid, cls, frontier)), { projection: cls.projection })
         .limit(remaining ?? 0)
         .toArray();
+      // A cursor that came back FULL is the case that hides. The database stopped handing documents over, so
+      // there may be more behind it — and that is true however many of these survive the `visited` filter
+      // below. Counting what survives instead is exactly the mistake that made the bound silent.
+      if (remaining !== undefined && linked.length === remaining) scanCapped = true;
       for (const doc of linked) {
         if (visited.has(doc._id)) continue;
         visited.add(doc._id);
@@ -125,7 +138,21 @@ export async function linkedRecordsAtFrontier(
       }
     }
   }
-  return out;
+  return { records: out, scanCapped };
+}
+
+/**
+ * What a bounded scan found, and whether it stopped reading before it ran out of matches.
+ *
+ * **`scanCapped` is "the scan stopped reading", not "the result filled up",** and only the first is knowable
+ * at the cursor. The bound is spent on documents that are then discarded, so a hop can burn its whole budget
+ * on records already visited and still return fewer than the walk's node cap — at which point every
+ * length-based truncation check says the neighbourhood is complete. It is not, and the caller has no other
+ * way to find out.
+ */
+export interface ScanResult<T> {
+  records: T[];
+  scanCapped: boolean;
 }
 
 /** One entity named by a linked record's `entityIds` — the link followed the OTHER way. */
@@ -165,9 +192,10 @@ export async function entitiesLinkedFromRecords(
   edgeLabels?: readonly string[] | undefined,
   /** The walk's own cap — see `linkedRecordsAtFrontier`'s. */
   limit?: number,
-): Promise<OutboundLink[]> {
+): Promise<ScanResult<OutboundLink>> {
   const out: OutboundLink[] = [];
-  if (recordIds.length === 0) return out;
+  let scanCapped = false;
+  if (recordIds.length === 0) return { records: out, scanCapped };
 
   for (const cls of LINK_CLASSES) {
     if (!included(cls, inclusion) || !labelWanted(cls, edgeLabels)) continue;
@@ -179,19 +207,25 @@ export async function entitiesLinkedFromRecords(
        * are different numbers — and the read is what this bound exists to limit. The seed set is already
        * small (it is the recall's matches), so this bites only on a pathological call.
        */
+      /*
+       * And because those are different numbers, the budget can run out FASTER than the reads: `out` counts
+       * links while `.limit()` counts records, so a few link-dense seeds drive `remaining` to zero and return
+       * before a whole later class is read at all. That is a truncation, and it was silent.
+       */
       const remaining = limit === undefined ? undefined : Math.max(0, limit - out.length);
-      if (remaining === 0) return out;
+      if (remaining === 0) return { records: out, scanCapped: true };
       const docs = await col<{ _id: string; entityIds?: string[] }>(`${mid}_${cls.collection}`)
         .find(asFilter<{ _id: string }>({ _id: { $in: [...recordIds] }, ...cls.scope }),
               { projection: { entityIds: 1 } })
         .limit(remaining ?? 0)
         .toArray();
+      if (remaining !== undefined && docs.length === remaining) scanCapped = true;
       for (const doc of docs) {
         for (const to of doc.entityIds ?? []) out.push({ from: doc._id, to, label: cls.label, kind: cls.kind });
       }
     }
   }
-  return out;
+  return { records: out, scanCapped };
 }
 
 /**

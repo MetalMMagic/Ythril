@@ -112,7 +112,10 @@ describe('traverse follows chrono.entityIds', () => {
      */
     const breakLine = code.split('\n').find(l => l.includes('break;') && l.includes('newNeighborIds.length === 0'));
     assert.ok(breakLine, 'could not find the early break');
-    const declaredAt = code.search(/const linkedHere\b/);
+    // `records: linkedHere` since the scans began reporting whether they stopped reading — matched on the
+    // BINDING rather than on `const linkedHere`, so destructuring more out of the same call does not read as
+    // the scan having moved.
+    const declaredAt = code.search(/\blinkedHere\b/);
     assert.ok(declaredAt > 0, 'could not find the link scan');
     assert.ok(code.indexOf(breakLine) > declaredAt, 'the links must be collected before the early break');
     assert.ok(breakLine.includes('linkedHere.length === 0'),

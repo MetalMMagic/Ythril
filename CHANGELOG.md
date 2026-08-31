@@ -32,6 +32,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **The file manager's metadata editor is its own component** — 1 422 code lines to 1 397, G-3's third cut.
+  Saving stayed on the page: the request is the page's, it knows what to reload afterwards, and a component
+  that owned it would cancel a save in flight when the pane closed.
+
+  **The model is passed through, not copied**, and that is the one thing this cut could have broken silently.
+  The entity, memory and chrono reference widgets take a target object and write their results straight into
+  it, so a defensive copy — the instinct an extraction usually rewards — would leave the page holding the
+  original and every reference edit would vanish on save. Nothing else would look wrong: the form renders
+  identically, the save fires, and the description and tags arrive correctly, because those go through
+  `ngModel`. Only a user who edited the references would notice. A spec now fails on exactly that mutation.
+
 - **The file manager's upload panel is its own component** — 1 545 code lines to 1 422, G-3's second cut.
 
   **The queue stayed on the page, deliberately.** Ordering, the one-at-a-time rule, the HTTP subscriptions,

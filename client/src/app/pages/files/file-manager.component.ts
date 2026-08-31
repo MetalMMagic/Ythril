@@ -1,5 +1,7 @@
 import { ChangeDetectionStrategy, Component, inject, signal, computed, effect, untracked, OnInit, OnDestroy, HostListener, ElementRef, viewChild, Input, Output, EventEmitter } from '@angular/core';
 import { SortableHeaderComponent } from '../brain/sortable-header.component';
+import { FilePreviewComponent, type FilePreview, type PreviewKind, type XlsxPreview } from './file-preview.component';
+import { formatSize } from './file-format';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
@@ -62,10 +64,8 @@ interface TreeNode {
   children: TreeNode[] | null;  // null = not yet loaded
 }
 
-type PreviewKind = 'text' | 'markdown' | 'image' | 'pdf' | 'xlsx' | 'unknown';
 
 /** A parsed spreadsheet preview: the first sheet as a capped grid, with a note when truncated. */
-interface XlsxPreview { sheet: string; header: string[]; rows: string[][]; note: string | null; }
 const XLSX_MAX_ROWS = 200;
 const XLSX_MAX_COLS = 40;
 
@@ -144,7 +144,7 @@ function xlsxCellText(v: unknown): string {
   // regardless of zone. Text fields (`newFolderName`, `renameValue`) are ngModel two-way bindings
   // whose input events mark the view dirty. So OnPush re-checks exactly when state changes.
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe, ErrorStateComponent, TagInputComponent, EntityRefFieldComponent, MemoryRefFieldComponent, ChronoRefFieldComponent, SortableHeaderComponent, StepProgressBarComponent, HscrollTopDirective, ModalDirective, TimestampComponent],
+  imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe, ErrorStateComponent, TagInputComponent, EntityRefFieldComponent, MemoryRefFieldComponent, ChronoRefFieldComponent, SortableHeaderComponent, StepProgressBarComponent, HscrollTopDirective, ModalDirective, TimestampComponent, FilePreviewComponent],
   styles: [`
     /* A background refresh, as a 2px indeterminate hairline above the table. Deliberately NOT a spinner and
        deliberately not an overlay: the whole point is that nothing on screen moves or disappears while a poll
@@ -406,28 +406,8 @@ function xlsxCellText(v: unknown): string {
     .preview-fs-btn { position: absolute; top: 4px; right: 4px; z-index: 1; opacity: 0.75; }
     .preview-fs-btn:hover { opacity: 1; }
     /* Formatted markdown */
-    .md-rendered { line-height: 1.6; word-break: break-word; }
-    .md-rendered ::ng-deep h1, .md-rendered ::ng-deep h2, .md-rendered ::ng-deep h3 { margin: 0.8em 0 0.4em; line-height: 1.25; }
-    .md-rendered ::ng-deep h1 { font-size: 1.5em; } .md-rendered ::ng-deep h2 { font-size: 1.3em; } .md-rendered ::ng-deep h3 { font-size: 1.12em; }
-    .md-rendered ::ng-deep p { margin: 0.5em 0; }
-    .md-rendered ::ng-deep ul, .md-rendered ::ng-deep ol { margin: 0.5em 0; padding-left: 1.5em; }
-    .md-rendered ::ng-deep code { background: var(--bg-muted); padding: 0.1em 0.35em; border-radius: 4px; font-family: var(--font-mono, monospace); font-size: 0.9em; }
-    .md-rendered ::ng-deep pre { background: var(--bg-muted); padding: 12px; border-radius: 6px; overflow: auto; margin: 0.6em 0; }
-    .md-rendered ::ng-deep pre code { background: none; padding: 0; }
-    .md-rendered ::ng-deep a { color: var(--accent, #6ea8fe); }
-    .md-rendered ::ng-deep blockquote { margin: 0.5em 0; padding-left: 12px; border-left: 3px solid var(--border); color: var(--text-muted); }
-    .md-rendered ::ng-deep table { border-collapse: collapse; margin: 0.5em 0; }
-    .md-rendered ::ng-deep th, .md-rendered ::ng-deep td { border: 1px solid var(--border); padding: 4px 8px; }
-    .md-rendered ::ng-deep img { max-width: 100%; }
     .mermaid-diagram { display: flex; justify-content: center; margin: 0.8em 0; }
     .mermaid-diagram svg { max-width: 100%; height: auto; }
-    /* xlsx grid preview */
-    .xlsx-note { font-size: 0.8em; color: var(--text-muted); margin-bottom: 8px; }
-    .xlsx-wrap { overflow: auto; max-width: 100%; }
-    .xlsx-grid { border-collapse: collapse; font-size: 0.82em; font-variant-numeric: tabular-nums; }
-    .xlsx-grid th, .xlsx-grid td { border: 1px solid var(--border); padding: 3px 8px; text-align: left; white-space: nowrap; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
-    .xlsx-grid th { background: var(--bg-muted); font-weight: 600; position: sticky; top: 0; }
-    .xlsx-grid tbody tr:nth-child(even) { background: color-mix(in srgb, var(--bg-muted) 40%, transparent); }
     /* Full-screen preview overlay */
     .preview-fs-overlay {
       position: fixed; inset: 0; z-index: 1200;
@@ -444,31 +424,6 @@ function xlsxCellText(v: unknown): string {
       overflow: auto;
       padding: 16px;
     }
-    .preview-body img {
-      max-width: 100%;
-      max-height: 80vh;
-      object-fit: contain;
-    }
-    .preview-body iframe {
-      width: 100%;
-      height: 100%;
-      border: none;
-    }
-    .preview-code {
-      background: var(--bg-muted);
-      border-radius: 6px;
-      padding: 16px;
-      overflow: auto;
-      font-family: var(--font-mono, monospace);
-      font-size: 0.85em;
-      line-height: 1.6;
-      white-space: pre-wrap;
-      word-break: break-all;
-    }
-    .preview-code code { background: none; }
-    .preview-meta { display: grid; grid-template-columns: 100px 1fr; gap: 6px 12px; }
-    .preview-meta dt { color: var(--text-muted); font-weight: 500; }
-    .preview-meta dd { margin: 0; }
 
     /* ── Sidebar + layout ─────────────────────────────────────── */
     .fm-layout {
@@ -794,7 +749,7 @@ function xlsxCellText(v: unknown): string {
                     @if (!previewLoading() && previewError() === null && previewKind() !== 'unknown') {
                       <button class="btn-ghost btn btn-sm preview-fs-btn" type="button" (click)="previewFullscreen.set(true)" [attr.title]="'files.preview.fullscreen' | transloco" [attr.aria-label]="'files.preview.fullscreen' | transloco"><ph-icon name="corners-out" [size]="16"/></button>
                     }
-                    <ng-container [ngTemplateOutlet]="previewContent" [ngTemplateOutletContext]="{ $implicit: pf }"></ng-container>
+                    <app-file-preview [preview]="previewModel()" />
                   </div>
                   @if (selectedMeta()?.description) {
                     <div class="detail-desc">
@@ -952,44 +907,6 @@ function xlsxCellText(v: unknown): string {
     </ng-template>
 
     <!-- Preview content, shared by the docked pane and the full-screen overlay. -->
-    <ng-template #previewContent let-pf>
-      @if (previewLoading()) {
-        <div class="loading-overlay"><span class="spinner"></span></div>
-      } @else if (previewError() !== null) {
-        <div class="alert alert-error" role="alert">{{ 'files.preview.failed' | transloco }} {{ previewError() }}</div>
-      } @else {
-        @switch (previewKind()) {
-          @case ('markdown') { <div class="md-rendered" [innerHTML]="previewHtml()"></div> }
-          @case ('text') { <pre class="preview-code"><code [innerHTML]="previewHtml()"></code></pre> }
-          @case ('image') { <img [src]="previewMediaUrl()" [alt]="pf.name" /> }
-          @case ('pdf') { <iframe [src]="previewSafeUrl()"></iframe> }
-          @case ('xlsx') {
-            @if (previewTable(); as t) {
-              @if (t.note) { <div class="xlsx-note">{{ t.note }}</div> }
-              <div class="xlsx-wrap">
-                <table class="xlsx-grid">
-                  @if (t.header.length) {
-                    <thead><tr>@for (h of t.header; track $index) { <th>{{ h }}</th> }</tr></thead>
-                  }
-                  <tbody>
-                    @for (row of t.rows; track $index) {
-                      <tr>@for (cell of row; track $index) { <td>{{ cell }}</td> }</tr>
-                    }
-                  </tbody>
-                </table>
-              </div>
-            }
-          }
-          @default {
-            <dl class="preview-meta">
-              <dt>{{ 'files.preview.name' | transloco }}</dt><dd>{{ pf.name }}</dd>
-              <dt>{{ 'files.preview.size' | transloco }}</dt><dd>{{ formatSize(pf.size) }}</dd>
-              <dt>{{ 'files.preview.modified' | transloco }}</dt><dd>{{ pf.modified | date:'dd.MM.yyyy HH:mm' }}</dd>
-            </dl>
-          }
-        }
-      }
-    </ng-template>
 
     <!-- Full-screen preview overlay (the one intentional fixed overlay — for the full-screen button).
          NO BACKTICKS IN THIS TEMPLATE: one ends the string and the error points at @Component, never at the comment.
@@ -1006,7 +923,7 @@ function xlsxCellText(v: unknown): string {
           <button class="icon-btn" (click)="previewFullscreen.set(false)" [attr.aria-label]="'files.preview.exitFullscreen' | transloco"><ph-icon name="x" [size]="18"/></button>
         </div>
         <div class="preview-fs-body preview-body">
-          <ng-container [ngTemplateOutlet]="previewContent" [ngTemplateOutletContext]="{ $implicit: pf }"></ng-container>
+          <app-file-preview [preview]="previewModel()" />
         </div>
       </div>
     }
@@ -1160,6 +1077,28 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   previewError = signal<string | null>(null);
   /** Parsed spreadsheet preview (first sheet, capped) when previewKind is 'xlsx'. */
   previewTable = signal<XlsxPreview | null>(null);
+
+  /**
+   * The eight preview signals as the one object the renderer takes.
+   *
+   * Computed here rather than passed as eight inputs: the states are mutually exclusive and saying so once, in
+   * a place that can see all of them, is what stops the child re-deriving "am I loading or erroring" from
+   * flags it receives separately. Null when nothing is open, which is the child's own empty case.
+   */
+  previewModel = computed<FilePreview | null>(() => {
+    const file = this.previewFile();
+    if (!file) return null;
+    return {
+      file,
+      loading: this.previewLoading(),
+      error: this.previewError(),
+      kind: this.previewKind(),
+      html: this.previewHtml(),
+      mediaUrl: this.previewMediaUrl(),
+      safeUrl: this.previewSafeUrl(),
+      table: this.previewTable(),
+    };
+  });
   /** Blob object URL backing the current image/PDF preview; revoked on close/next. */
   private _previewObjectUrl: string | null = null;
   /** True while the preview is expanded to a full-screen overlay (Escape collapses it first). */
@@ -1646,12 +1585,14 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     }
   }
 
-  formatSize(bytes: number): string {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-    return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
-  }
+  /**
+   * The shared rule, exposed for this page's template.
+   *
+   * A template can only call a member, so the import needs a name on the class — but it is the SAME function
+   * the preview uses, not a second copy of it. Extracting the preview and leaving four lines of arithmetic
+   * behind in both places is precisely the shape this codebase keeps paying for.
+   */
+  protected readonly formatSize = formatSize;
 
   private join(base: string, name: string): string {
     return base.endsWith('/') ? `${base}${name}` : `${base}/${name}`;

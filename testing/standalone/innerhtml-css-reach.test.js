@@ -43,7 +43,9 @@ const ROOT = 'client/src/app';
  */
 const RENDERED_SURFACES = new Map([
   ['client/src/app/pages/settings/help.component.ts', '.doc'],
-  ['client/src/app/pages/files/file-manager.component.ts', '.md-rendered'],
+  // Moved out of `file-manager.component.ts` when the preview became its own component (G-3). The page no
+  // longer renders innerHTML at all, so listing it here would make the map claim a surface that is gone.
+  ['client/src/app/pages/files/file-preview.component.ts', '.md-rendered'],
   // Inline SVG built from a path string; the component styles the host, never the injected markup.
   ['client/src/app/shared/ph-icon.component.ts', null],
   // Short highlighted fragments injected into a label; no descendant rules target them.
@@ -61,12 +63,43 @@ function sources(dir = ROOT, out = []) {
   return out;
 }
 
-/** The `styles: [\`…\`]` block of a component, comments stripped — prose about a selector is not a rule. */
-function stylesBlock(src) {
-  const i = src.indexOf('styles: [`');
-  if (i < 0) return '';
-  const j = src.indexOf('`],', i);
-  const raw = j < 0 ? '' : src.slice(i + 'styles: [`'.length, j);
+/**
+ * A component's CSS, comments stripped — prose about a selector is not a rule.
+ *
+ * **It resolves an imported const, not just an inline block**, and that gap was found by the extraction that
+ * needed it: this file read `styles: [\`…\`]` only, so a component whose styles live in a `.styles.ts` module
+ * returned the empty string and every rule below passed by examining nothing. The repo's own convention is to
+ * move styles out as a file grows, so the gate was set to go quiet on exactly the components most likely to
+ * have been recently touched.
+ */
+function stylesBlock(src, file) {
+  const inline = src.indexOf('styles: [`');
+  if (inline >= 0) {
+    const j = src.indexOf('`],', inline);
+    const raw = j < 0 ? '' : src.slice(inline + 'styles: [`'.length, j);
+    return raw.replace(/\/\*[\s\S]*?\*\//g, '');
+  }
+
+  // `styles: [SOME_CONST]` — follow the import to the module that declares it and read the template literal.
+  const named = src.match(/styles:\s*\[\s*([A-Z][A-Z0-9_]*)\s*\]/);
+  if (!named) return '';
+  /*
+   * Found by string search rather than a built regex. The first version interpolated the const name into a
+   * `new RegExp(\`import\s*\{…\`)`, and inside a template literal `\s` and `\b` are not escapes — they collapse
+   * to `s` and `b`, so the pattern matched nothing and this returned the empty string. Which the gate cannot
+   * tell from "this component styles none of its content", so it passed. A mutation run caught it.
+   */
+  const line = src.split('\n').find(l => l.startsWith('import') && l.includes(named[1]) && l.includes('from'));
+  const from = line?.match(/from\s+'([^']+)'/);
+  if (!from) return '';
+  const dir = file.slice(0, file.lastIndexOf('/'));
+  const path = `${dir}/${from[1].replace(/^\.\//, '')}.ts`;
+  let mod;
+  try { mod = readFileSync(path, 'utf8'); } catch { return ''; }
+  const at = mod.indexOf(`${named[1]} = \``);
+  if (at < 0) return '';
+  const end = mod.indexOf('`;', at);
+  const raw = end < 0 ? '' : mod.slice(at + `${named[1]} = \``.length, end);
   return raw.replace(/\/\*[\s\S]*?\*\//g, '');
 }
 
@@ -107,7 +140,7 @@ describe('CSS for [innerHTML] content can reach it', () => {
     const dead = [];
     for (const [file, root] of RENDERED_SURFACES) {
       if (!root) continue;
-      const css = stylesBlock(readFileSync(file, 'utf8'));
+      const css = stylesBlock(readFileSync(file, 'utf8'), file);
       for (const line of css.split('\n')) {
         const selector = line.split('{')[0];
         if (!selector.includes(root) || selector.includes('::ng-deep')) continue;

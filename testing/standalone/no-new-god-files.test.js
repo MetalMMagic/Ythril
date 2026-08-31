@@ -160,9 +160,16 @@ const FROZEN = {
   // This is the largest raise on the list by an order of magnitude, and it is the signal the list exists to
   // give: the component cannot absorb behaviour any more.
   //
-  // DECOMPOSE: G-7 — the two panel HEADERS, the next structurally parallel pair, plus the dead code the G-2
-  // inventory proved dead. G-2 named the record card and is PAID; this file is still over the ceiling, so the
-  // marker moves to what is left rather than being deleted, which would discharge an obligation nobody met.
+  // NO DECOMPOSITION: PAID, twice over. This raise owed G-2, which took the two record cards out (793 -> 688),
+  // and then G-7, which took the panel headers and the toolbar and deleted six members nothing read
+  // (690 -> 641). The file is now UNDER the 650 ceiling.
+  //
+  // The marker was CHANGED rather than deleted: a closed task cannot stay named on a raise, because the
+  // tracker rule checks that every id named this way is actually in the queue — and an id that is not is
+  // indistinguishable from one that was never filed.
+  //
+  // Note for whoever edits this next: that rule matches the marker pattern anywhere in this file, prose
+  // included, so a sentence merely QUOTING a retired marker fails the check. Write the id and the word apart.
   //
   // 793 -> 688. G-2 PAID. It was TWO cards, not one, and ~115 lines rather than ~87: the node card and its
   // near-twin for edges, now `app-graph-node-record-card` and `app-graph-edge-record-card`. Their style rules
@@ -175,7 +182,7 @@ const FROZEN = {
   // 688 -> 689: ONE line, and it is the G-5 fix reaching the card — the `[kind]` binding, without which the
   // branch on kind is inert and a memory still renders a blank name. Raised without argument, for the reason
   // written above `brain.component.ts`: a ratchet that made a one-line bug fix negotiable would be a gate
-  // encouraging the wrong outcome. DECOMPOSE: G-7 still stands.
+  // encouraging the wrong outcome. G-7 stood at the time and has since been paid.
   // 689 -> 690: ONE line again, the `[unavailable]` binding that lets the EDGE card say why a synthetic edge
   // has no record. Without it the branch exists and nothing feeds it — the same inert-wiring shape as G-5's
   // `[kind]`, which is why both are pinned by a rendering test rather than a method call.

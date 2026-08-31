@@ -32,6 +32,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **The largest file in the repo has characterization tests before it is split.** `file-manager.component.ts`
+  is 1 618 code lines and its spec never mentioned **69 of its 117 members** — one component doing the
+  browser, the upload flow, the preview, the extract tab and the per-file metadata drawer, with each of those
+  a seam where a lost binding could hide.
+
+  Twenty-three cases, chosen for where a split would actually break something rather than for coverage:
+  folders sort ahead of files whatever column is chosen and a third click *clears* the sort rather than
+  cycling; breadcrumbs carry the accumulated path and not just a label; the preview's object URL is revoked
+  exactly once and forgotten, which is invisible in both failure directions; and the metadata edit model
+  copies the record's arrays while turning `entityIds` alone into a comma-joined string, an asymmetry a
+  uniform rewrite would quietly lose.
+
+  Every case is mutation-tested by exit code, and the first run found one of its own **fixtures** was worthless
+  — the folder in it was also the largest file, so folders-first and size-descending wanted the same order and
+  deleting the rule left the test green.
+
 - **The graph page is under the size ceiling for the first time since it joined the ratchet** — 690 code
   lines to 641, against a limit of 650. Three things, and the third was the surprise.
 

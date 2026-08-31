@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **The working order is a checklist now, and the checklist is a gate.** The order a change is supposed to be
+  made in — plan, write the tests and watch them fail, implement, run them, run the full suite, do the
+  documentation, then push — was written down in two places and enforced in none, so it held exactly as well
+  as remembering it did.
+
+  It is now seven boxes in a file the tracker gate reads, inside the preflight that stands in front of every
+  push. **The reset needs nothing to fire:** the checklist names the branch it belongs to, and one naming a
+  different branch counts as fully unticked — so pushing and branching for the next item blanks it, while two
+  commits on one branch keep their ticks, because a CI fix is not a new plan. A pre-push hook would have been
+  the obvious build and a second thing that can fail to fire, leaving a ticked list in front of the next job.
+
+  **Four of the seven rows are checked against something outside the file**, because a checklist you tick
+  yourself is advice with boxes on it: the plan row names an item the ordered queue must actually hold (or
+  says `owner-directed`, or `closed by this change` — the convention, since a fix in the working tree already
+  fails the verify-line rule, so an item is closed in the change that ships it and has left the queue by the
+  time this runs), the tests row carries the failure the test gave *before* the implementation existed
+  (or `NO NEW BEHAVIOUR:` naming the spec that already covers it, which must exist), the CHANGELOG row
+  requires `CHANGELOG.md` to differ from `main`, and **the guides are an explicit checkpoint of their own** —
+  `docs/integration-guide/` and `docs/userguide/` are two of the five places a capability lives and the two
+  that fail silently, since each is somebody's authoritative source and the one that is wrong is invisible to
+  whoever reads it, so a `docs/*guide*` path must have moved or the row must say `NO GUIDE READER AFFECTED`
+  with a reason attached. The remaining rows are attested, and the gate removes *"I
+  forgot the order existed"* rather than dishonesty.
+
 - **The work queue can no longer be pushed stale.** Every rule in the tracker gate checked a claim an
   individual ROW made about the code, so a row that said nothing false stayed green while the queue as a whole
   drifted: a bug fixed with no row filed for it, a state header naming a pull request from twelve hours

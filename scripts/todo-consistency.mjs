@@ -71,6 +71,10 @@ const NOT_A_QUEUE = new Map([
   ['_PARKED-DECISIONS.md', 'owner DECISIONS, not work — no verify line, not in the ordered index (see rule 5)'],
   ['_DEPRECATIONS.md', 'a removal checklist keyed to a future major, not the current queue'],
   ['_CLA-BOT-SETUP.md', 'setup instructions'],
+  // Its boxes are the steps of the CURRENT job, not work in the queue. Reading them as items would demand a
+  // verify line on "implement" and an index entry for "full suite" — and would make the ordered queue grow a
+  // row every time a job started. Its own rule holds it instead: the branch must match and every box ticked.
+  ['_WORKING-ORDER.md', 'the current job\'s six steps, not a queue — see the working-order rule'],
   ['_NEXT-PR-PLAN.md', 'the working plan for the PR in flight; cleared on push'],
 ]);
 
@@ -605,6 +609,146 @@ console.log(`\n${YELLOW}todo/ consistency${R}  ${DIM}(owner rules 2026-08-02 and
         + '      a header that names the current PR is itself the update.');
     } else {
       console.log(`${GREEN}  ✓${R} ${ORDERED} was written after the newest commit`);
+    }
+  }
+}
+
+// ── the working order must be checked off for THIS branch
+//
+// THE COMPLAINT THIS EXISTS FOR, owner 2026-08-30: *"how can i make sure you follow such rules? ... same with
+// the rule on 'plan, write tests, implement, execute tests, <optional:iterate>, full test suite,
+// documentation work, push pr'"*, and 2026-08-31: *"can we make the flow i described a checklist and gate if
+// the checklist is checked and reset it for the next job on pushing the pr?"*
+//
+// THE RESET IS DERIVED, NOT PERFORMED. The obvious build is a pre-push hook that blanks the boxes. This repo
+// has no hooks, a hook is not committed, and a reset that has to FIRE is a second thing that can fail to fire
+// — leaving a ticked list in front of the next job, which is the worst of the three states. So the checklist
+// names the branch it belongs to, and one naming another branch counts as fully unchecked. Pushing and
+// branching for the next item resets it because the name no longer matches. Two commits on ONE branch keep
+// their ticks, which is right: a CI fix is not a new plan.
+//
+// TWO ROWS ARE EVIDENCE RATHER THAN ATTESTATION, because a checklist you tick yourself is advice with boxes
+// on it. The plan row names an id the ordered queue must actually hold; the documentation row requires
+// CHANGELOG.md to differ from main. The rest are attested, and this gate removes "I forgot the order exists"
+// rather than dishonesty — the same trade the mtime rule above makes.
+{
+  const WORKING = '_WORKING-ORDER.md';
+  let branch = null;
+  try {
+    branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'ignore'] })
+      .toString().trim();
+  } catch { /* no git — nothing to check the checklist against */ }
+
+  // On main there is no job in progress: a release cut, a hotfix straight to trunk, or a fresh clone.
+  if (branch && branch !== 'main' && branch !== 'HEAD') {
+    const path = join(TODO, WORKING);
+    if (!existsSync(path)) {
+      fail(`${WORKING} is missing, so nothing records that this change followed the working order.\n\n`
+        + `      Copy the template from docs/ or write the six rows: plan, tests first, implement, those `
+        + `tests pass,\n`
+        + `      full suite, documentation. Name the branch at the top.`);
+    } else {
+      const src = readFileSync(path, 'utf8');
+      const claimed = src.match(/^\s*(?:\*\*)?BRANCH:?(?:\*\*)?\s*`?([^`\s]+)`?\s*$/m)?.[1];
+
+      if (claimed !== branch) {
+        fail(`${WORKING} belongs to \`${claimed ?? '(no BRANCH line)'}\`, and you are on \`${branch}\`.\n\n`
+          + `      That is the reset: a checklist from the last job says nothing about this one, so every box `
+          + `counts as\n`
+          + `      unticked. Put this branch at the top and work the rows down.`);
+      } else {
+        const unticked = src.split('\n').filter(l => /^\s*[-*]\s*\[ \]/.test(l));
+        if (unticked.length) {
+          fail(`${WORKING} has ${unticked.length} step(s) not done yet:\n\n`
+            + unticked.map(l => `      ${l.trim()}`).join('\n')
+            + `\n\n      The order is the point — tests are written and seen to FAIL before the code exists, `
+            + `or they are\n      only a description of what the code already does.`);
+        }
+
+        // The plan row must name work the queue actually holds. `owner-directed` is the escape hatch for work
+        // that arrives by message rather than through the queue, and it is a real category — most of tonight's
+        // did. Without it the honest move and the bypass would be the same keystroke.
+        //
+        // `closed by this change` is the third form, and it is the convention rather than a loophole. A fix
+        // sitting in the working tree already fails the verify-line rule — "still open while grep returns 0"
+        // stops being true the moment the code lands — so an item is closed in the same change that ships it,
+        // and has left the queue by the time this runs. Found the first time this checklist was used on a bug
+        // fix, which was the change immediately after the one that added it. The CHANGELOG row still applies,
+        // so the claim is not free.
+        const plan = src.match(/^\s*[-*]\s*\[[x~]\]\s*\**\s*1[^—\n]*—\s*(.+)$/m)?.[1]?.trim();
+        if (plan && !/owner-directed/i.test(plan) && !/closed by this change/i.test(plan)) {
+          const id = plan.match(/\b([A-Z]+-[A-Z0-9-]+)\b/)?.[1];
+          const known = id && orderedHomeRows(readFileSync(join(TODO, ORDERED), 'utf8')).some(r => r.id === id);
+          if (!known) {
+            fail(`${WORKING}'s plan row names ${id ? `\`${id}\`` : 'no item id'}, which ${ORDERED} does not `
+              + `hold.\n\n      File it in a tracker and index it, say \`owner-directed\` if it came by `
+              + `message, or\n      \`closed by this change\` if this is the change that ships it.`);
+          }
+        }
+
+        // The tests row has to SAY something. Either the failure the test gave before the code existed — the
+        // whole point of writing it first — or `NO NEW BEHAVIOUR:` naming the spec that already covers this,
+        // which a pure extraction genuinely needs. A gate that cannot say "no new test was owed here" teaches
+        // its own bypass, and the bypass then gets used for the cases that DID owe one.
+        const tests = src.match(/^\s*[-*]\s*\[[x~]\]\s*\**\s*2[^—\n]*—\s*(.+)$/m)?.[1]?.trim();
+        if (tests !== undefined) {
+          const exempt = tests.match(/NO NEW BEHAVIOUR:\s*`?([^`\s,]+)`?/);
+          if (exempt && !existsSync(join(ROOT, exempt[1]))) {
+            fail(`${WORKING}'s tests row claims \`${exempt[1]}\` already covers this, and that file does not `
+              + `exist.`);
+          } else if (!exempt && tests.length < 20) {
+            fail(`${WORKING}'s tests row says nothing: it must carry the failure the test gave BEFORE the `
+              + `implementation\n      existed, or \`NO NEW BEHAVIOUR: <spec path>\` naming what already `
+              + `covers it.\n\n      A test written afterwards is a description of the code, not a check on `
+              + `it.`);
+          }
+        }
+
+        // Rows 6 and 7, both checked against the diff. Compared against the working tree rather than HEAD,
+        // because preflight runs before the commit as often as after it.
+        let changed = '';
+        try {
+          changed = execFileSync('git', ['diff', '--name-only', 'main'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'ignore'] }).toString();
+        } catch { /* main not present locally — nothing to compare against */ }
+
+        // The CHANGELOG row: the one surface every change owes, without exception.
+        if (changed && /^\s*[-*]\s*\[[x~]\]\s*\**\s*6\b/m.test(src) && !/^CHANGELOG\.md$/m.test(changed)) {
+          fail(`${WORKING} ticks the CHANGELOG row, but CHANGELOG.md does not differ from main.\n\n`
+            + `      Every change owes an [Unreleased] entry — it is the surface the owner reads to know `
+            + `what shipped.`);
+        }
+
+        // THE GUIDES ROW, owner-directed 2026-08-31. `docs/integration-guide/` and `docs/userguide/` are two
+        // of the five places CLAUDE.md says a capability lives, and they are the two that fail SILENTLY: each
+        // is somebody's authoritative source, and the one that is wrong is invisible to whoever reads it.
+        // The fleet integrator designed around a stale sentence in a schema; an operator could not find an env
+        // var documented on the wrong page. A CHANGELOG entry does not reach either reader.
+        //
+        // So the row is checked the same way row 6 is — a guide path must differ from main — with an explicit
+        // way to say the change reaches no reader of either guide. `_THE_LOOP.md` already narrows that door:
+        // a new parameter, a schema description, a UI control, a config key or anything an integrator could
+        // build against does NOT fit through it, whatever the size of the diff.
+        const guides = src.match(/^\s*[-*]\s*\[[x~]\]\s*\**\s*7[^—\n]*—\s*([\s\S]*?)(?=\n\s*[-*]\s*\[|\n\n|$)/m)?.[1]?.trim();
+        if (changed && guides !== undefined) {
+          const exempt = guides.match(/NO GUIDE READER AFFECTED\s*[—:-]\s*(.+)/s)?.[1]?.trim();
+          if (exempt) {
+            if (exempt.length < 25) {
+              fail(`${WORKING}'s guides row claims no guide reader is affected without saying why.\n\n`
+                + `      Name what the change is — internal refactor, test-only, a comment — because silence `
+                + `and\n      forgetting look identical, and the docs gates cannot tell them apart either.`);
+            }
+          } else if (!/^docs\/.*guide.*$/mi.test(changed)) {
+            fail(`${WORKING} ticks the guides row, but no docs/*guide* path differs from main.\n\n`
+              + `      \`docs/integration-guide/\` is the integrator's reference and \`docs/userguide/\` is `
+              + `what an operator\n      reads in the product. A parameter that exists on both APIs and on `
+              + `neither page is a capability\n      nobody using it can discover.\n\n`
+              + `      If it genuinely reaches neither reader, say `
+              + `\`NO GUIDE READER AFFECTED — <what this is>\`.`);
+          }
+        }
+
+        if (!failures.length) console.log(`${GREEN}  ✓${R} the working order is checked off for ${branch}`);
+      }
     }
   }
 }

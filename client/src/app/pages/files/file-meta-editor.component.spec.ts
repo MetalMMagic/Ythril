@@ -13,11 +13,15 @@
  * silently empty, and only for a user who edited them.
  */
 import { TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { of } from 'rxjs';
 import { getTranslocoModule } from '../../testing/transloco-testing';
 import { BrainApi } from '../../core/brain-api.service';
 import { EntityRefPicker } from '../brain/entity-ref-picker.service';
+import { EntityRefFieldComponent } from '../brain/entity-ref-field.component';
+import { MemoryRefFieldComponent } from '../brain/memory-ref-field.component';
+import { ChronoRefFieldComponent } from '../brain/chrono-ref-field.component';
 import { BrainStore } from '../brain/brain-store.service';
 import { FileMetaEditorComponent, type FileMetaModel } from './file-meta-editor.component';
 
@@ -66,13 +70,29 @@ describe('FileMetaEditorComponent', () => {
     expect(fixture.nativeElement.querySelector('form')).toBeNull();
   });
 
-  it('a write into the model reaches the object the page passed in', () => {
-    // The contract stated as its consequence: whatever the widgets do to `target`, the page sees.
+  it('the reference widgets RECEIVE the object the page passed in, not a copy of it', () => {
+    /*
+     * Asserted on what the TEMPLATE BINDS, not on the input signal — and that distinction is the whole test.
+     *
+     * The first version read `componentInstance.model()` and compared it to the object passed in. That is the
+     * input, which a copy introduced anywhere downstream leaves untouched: a `computed(() => ({ ...model() }))`
+     * bound to `[target]` passed all 84 tests, including this one. The CHANGELOG for #1100 claimed "a spec now
+     * fails on exactly that mutation" and the code did not support it.
+     *
+     * Reaching the widget is what closes it: `[target]` is the only path a reference edit can travel, so the
+     * object the widget holds is the only object whose identity matters.
+     */
     const m = model();
     const fixture = mount(m);
-    const inner = (fixture.componentInstance.model() as FileMetaModel);
-    expect(inner, 'the editor exposed a copy, so reference edits would never reach the page').toBe(m);
-    inner.entityIds = 'e1, e2';
+    for (const cls of [EntityRefFieldComponent, MemoryRefFieldComponent, ChronoRefFieldComponent]) {
+      const widget = fixture.debugElement.query(By.directive(cls));
+      expect(widget, `${cls.name} did not render`).toBeTruthy();
+      expect(widget.componentInstance.target(), `${cls.name} was handed a COPY, so its edits never reach the page`)
+        .toBe(m);
+    }
+    // And the consequence, stated as a consequence: whatever a widget writes, the page sees.
+    (fixture.debugElement.query(By.directive(EntityRefFieldComponent)).componentInstance.target() as FileMetaModel)
+      .entityIds = 'e1, e2';
     expect(m.entityIds).toBe('e1, e2');
   });
 

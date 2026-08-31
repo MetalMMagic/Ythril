@@ -30,6 +30,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are exactly the ones the scan never read, so a spill file would be the same short graph under a name that
   promises otherwise. Both API doors, both MCP tool descriptions, and both guides say so.
 
+### Fixed
+
+- **Four defects the file-manager split introduced, and the gates that now catch them.** An adversarial review
+  of #1098–#1102 confirmed four — all of them silent, which is what the whole exercise was supposed to avoid.
+
+  **The New-folder form lost its styling.** `.rename-form` has two consumers: the rename box inside the table
+  and the New-folder box in the toolbar. Only the first moved, and the rule went with it into the listing's
+  scoped styles, so the page's own form had no rule that could reach it. `shared-styles-reach-their-renderers`
+  is written for exactly this failure and had never been asked about the module the split created — it names
+  the class the moment it is.
+
+  **The upload panel became an inline box.** `.upload-panel` was a `div`, which is block; a custom element is
+  **inline**, so the border, radius, overflow and 16px margin moved onto its `:host` were being applied to a
+  box that shrink-wraps its content and ignores vertical margin. It rendered, which is why nothing caught it.
+  A new gate requires any `:host` carrying box geometry to state its display.
+
+  **The extract face's CSS was copied, not moved** — 21 dead lines stayed on the page as a second copy,
+  because the deletion used line numbers that had already shifted. Bounds are taken from content now.
+
+  **`.upload-zone` matched no element at all**, and was left behind on the stated grounds that it is "the drop
+  target on the page". It is not — that is `.fm-main` with a drag-over binding — and nothing in the client
+  carries the class. Deleted.
+
+  Eight entries in the page's `imports` array outlived the markup that used them, and `formatSize` survived on
+  the page only because a spec reached through to it. Both are gone.
+
 ### Internal
 
 - **The file-upload route is its own module** — `api/files.ts` from 647 code lines to 455, under the ceiling
@@ -47,10 +73,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   1 216 over five cuts**.
 
   This one is the page's core rather than one panel of it, so its interface is inherently the widest of the
-  five. It came to nine bindings instead of sixteen by answering the three per-row questions before they
-  arrive: whether a row is being renamed, whether a re-embed for it is already in flight, and whether
-  re-embedding is offered at all. Those were evaluated inside the table's loop, which meant the table needed
+  five: the shipped element carries **fourteen** bindings. What the row view model removed is the three
+  per-row questions — whether a row is being renamed, whether a re-embed for it is already in flight, and
+  whether re-embedding is offered at all — which were evaluated inside the table's loop, so the table needed
   the page's requeue policy, its rename state and its path helper just to decide which buttons to draw.
+
+  *(The original entry said "nine bindings instead of sixteen". Nine was the input side counted alone, and
+  sixteen was what a straight move would have needed; put together they described an element that does not
+  exist. Corrected after review.)*
 
   The row actions stayed as **separate outputs** rather than one event carrying a tag. Fewer bindings would
   have been worse to read: the page would gain a `switch` where it now has seven one-line handlers, and a
@@ -78,7 +108,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it, so a defensive copy — the instinct an extraction usually rewards — would leave the page holding the
   original and every reference edit would vanish on save. Nothing else would look wrong: the form renders
   identically, the save fires, and the description and tags arrive correctly, because those go through
-  `ngModel`. Only a user who edited the references would notice. A spec now fails on exactly that mutation.
+  `ngModel`. Only a user who edited the references would notice.
+
+  *(The original entry claimed "a spec now fails on exactly that mutation" and the spec did not: it asserted
+  the input signal rather than what the template binds, so a copy introduced between the two passed all 84
+  tests. It now reaches each reference widget and asserts the identity of the object it was handed.)*
 
 - **The file manager's upload panel is its own component** — 1 545 code lines to 1 422, G-3's second cut.
 

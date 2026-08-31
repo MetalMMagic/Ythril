@@ -185,6 +185,34 @@ describe('graph-details — derivation boundaries', () => {
     expect(filterAndSortDetails(rows, { type: 'all', text: '', field: 'createdAt', asc: false })).toHaveLength(1);
   });
 
+  /*
+   * Moved down from `graph.component.characterization.spec.ts` in G-7, not deleted.
+   *
+   * Both cases reached through the component to exercise this pure function, and the component lost its sort
+   * controls when the detail table became `graph-linked-records` — which filters but does not sort. Reaching
+   * through a component for a function's behaviour is what let the assertions go on passing after the only
+   * way a user could trigger them had gone.
+   */
+  it('composes kind + text + sort rather than letting one win', () => {
+    const rows = buildDetailRows(
+      [{ _id: 'm1', fact: 'apple', createdAt: '2026-01-02' },
+       { _id: 'm2', fact: 'banana', createdAt: '2026-01-01' }],
+      [{ _id: 'c1', title: 'apricot', tags: [], createdAt: '2026-01-03' }],
+    );
+    const out = filterAndSortDetails(rows, { type: 'memory', text: 'a', field: 'description', asc: true });
+    expect(out.map(r => r.id)).toEqual(['m1', 'm2']);
+  });
+
+  it('sorts description case-insensitively', () => {
+    const rows = buildDetailRows(
+      [{ _id: 'a', fact: 'beta', createdAt: '2026-01-01' },
+       { _id: 'b', fact: 'Alpha', createdAt: '2026-01-02' }],
+      [],
+    );
+    const out = filterAndSortDetails(rows, { type: 'all', text: '', field: 'description', asc: true });
+    expect(out.map(r => r.id)).toEqual(['b', 'a']);
+  });
+
   it('starts a new column ascending from either previous direction', () => {
     expect(nextSort({ field: 'createdAt', asc: false }, 'description')).toEqual({ field: 'description', asc: true });
     expect(nextSort({ field: 'createdAt', asc: true }, 'description')).toEqual({ field: 'description', asc: true });

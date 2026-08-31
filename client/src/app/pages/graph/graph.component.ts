@@ -39,6 +39,8 @@ import { EntitySearchComponent } from '../../shared/entity-search.component';
 import { PropertiesViewComponent } from '../../shared/properties-view.component';
 import { GraphLinkedRecordsComponent } from './graph-linked-records.component';
 import { GraphNodeRecordCardComponent, GraphEdgeRecordCardComponent } from './graph-record-card.component';
+import { GraphPanelHeaderComponent } from './graph-panel-header.component';
+import { GraphToolbarComponent } from './graph-toolbar.component';
 import { TranslocoPipe } from '@jsverse/transloco';
 // The record drawer and its state are shared with the Brain page rather than forked here: this page
 // used to carry a copy that had drifted behind (no schema-driven properties, no confidence field, no
@@ -48,7 +50,7 @@ import { RecordDrawerState } from '../brain/record-drawer-state.service';
 import { BrainStore } from '../brain/brain-store.service';
 import { EntityRefPicker } from '../brain/entity-ref-picker.service';
 import {
-  DetailRow, DetailRef, buildDetailRows, filterAndSortDetails, nextSort,
+  DetailRow, DetailRef, buildDetailRows, filterAndSortDetails,
 } from './graph-details';
 import {
   TraversalCache, emptyCache, decideFetch, applyResult, filterToDepth,
@@ -76,7 +78,7 @@ import { lookupForNode, lookupForEdge } from './graph-record-lookup';
   // `openBrainDrawer` alongside the `drawerRecord` signal that guards the drawer's `@if`, the same
   // load-bearing coupling pinned by the brain spec.
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ProxySpaceBadgeComponent, CommonModule, FormsModule, EntryPopupComponent, EntitySearchComponent, PropertiesViewComponent, PhIconComponent, ErrorStateComponent, TranslocoPipe, RecordDrawerComponent, GraphLinkedRecordsComponent, GraphNodeRecordCardComponent, GraphEdgeRecordCardComponent],
+  imports: [ProxySpaceBadgeComponent, CommonModule, FormsModule, EntryPopupComponent, EntitySearchComponent, PropertiesViewComponent, PhIconComponent, ErrorStateComponent, TranslocoPipe, RecordDrawerComponent, GraphLinkedRecordsComponent, GraphNodeRecordCardComponent, GraphEdgeRecordCardComponent, GraphPanelHeaderComponent, GraphToolbarComponent],
   // Its own drawer collaborators, so the standalone `/graph` route works with nothing above it. When
   // this page is embedded as Brain's Graph tab these SHADOW Brain's instances, which is deliberate:
   // the drawer then patches this page's per-node lists, exactly as the forked drawer did. The cost is
@@ -94,45 +96,19 @@ import { lookupForNode, lookupForEdge } from './graph-record-lookup';
       </div>
     }
 
-    <!-- ═══ Toolbar ════════════════════════════════════════════════════════ -->
-    <div class="graph-toolbar">
-      <div class="search-wrapper">
-        <app-entity-search
-          mode="bar"
-          [spaceId]="activeSpaceId()"
-          placeholder="entitySearch.defaultPlaceholder"
-          defaultMode="semantic"
-          (selected)="selectRoot($event)"
-          (queryChange)="onSearchQueryChange($event)"
-        />
-      </div>
-
-      <div class="toolbar-divider"></div>
-
-      <div class="depth-control">
-        <span class="toolbar-label">{{ 'graph.toolbar.depth' | transloco }}</span>
-        <input type="range" min="1" max="10" [ngModel]="depth()" (ngModelChange)="onDepthChange($event)" />
-        <span class="depth-value">{{ depth() }}</span>
-      </div>
-
-      <div class="pill-group">
-        <button type="button" [class.active]="direction() === 'outbound'" [attr.aria-pressed]="direction() === 'outbound'" (click)="setDirection('outbound')">{{ 'graph.toolbar.direction.out' | transloco }}</button>
-        <button type="button" [class.active]="direction() === 'inbound'" [attr.aria-pressed]="direction() === 'inbound'" (click)="setDirection('inbound')">{{ 'graph.toolbar.direction.in' | transloco }}</button>
-        <button type="button" [class.active]="direction() === 'both'" [attr.aria-pressed]="direction() === 'both'"    (click)="setDirection('both')">{{ 'graph.toolbar.direction.both' | transloco }}</button>
-      </div>
-
-      <div class="pill-group">
-        <button type="button" [class.active]="!hideLabels()" [attr.aria-pressed]="!hideLabels()" (click)="onHideLabelsChange(!hideLabels())" [attr.title]="'graph.toolbar.toggleLabels' | transloco">{{ 'graph.toolbar.labels' | transloco }}</button>
-      </div>
-
-      <div class="toolbar-spacer"></div>
-
-      @if (rootEntity()) {
-        <span class="graph-stats">{{ 'graph.stats.nodesEdges' | transloco: { nodes: nodeCount(), edges: edgeCount() } }}</span>
-      }
-      <button class="toolbar-btn" [attr.title]="'graph.toolbar.fitViewport' | transloco" (click)="fitGraph()"><ph-icon name="corners-out" [size]="16"/></button>
-      <button class="toolbar-btn" [attr.title]="'graph.toolbar.resetGraph' | transloco"     (click)="resetGraph()"><ph-icon name="arrows-clockwise" [size]="16"/></button>
-    </div>
+    <app-graph-toolbar
+      [spaceId]="activeSpaceId()"
+      [stats]="rootEntity() ? { nodes: nodeCount(), edges: edgeCount() } : null"
+      [depth]="depth()"
+      [direction]="direction()"
+      [hideLabels]="hideLabels()"
+      (depthChange)="onDepthChange($event)"
+      (directionChange)="setDirection($event)"
+      (hideLabelsChange)="onHideLabelsChange($event)"
+      (rootSelected)="selectRoot($event)"
+      (queryChange)="onSearchQueryChange($event)"
+      (fit)="fitGraph()"
+      (reset)="resetGraph()" />
 
     <!-- ═══ Canvas row (canvas + optional side panel) ══════════════════════ -->
     <div class="canvas-row">
@@ -168,17 +144,12 @@ import { lookupForNode, lookupForEdge } from './graph-record-lookup';
       <!-- ── Side panel (node selected) ────────────────────────────────── -->
       @if (selectedNode()) {
         <div class="side-panel">
-          <div class="side-panel-header">
-            <div class="side-panel-title">
-              <span class="side-dot" [style.background]="panelColor()"></span>
-              <h3>{{ selectedNode()!.name }}</h3>
-              <span class="badge">{{ selectedNode()!.type || 'entity' }}</span>
-            </div>
-            <div class="side-panel-header-actions">
-              <button class="btn btn-sm btn-ghost" style="display:inline-flex;align-items:center" (click)="openEntityPopup(selectedNode()!)"><ph-icon name="eye" [size]="14"/></button>
-              <button class="icon-btn" [attr.title]="'common.close' | transloco" (click)="selectedNode.set(null)"><ph-icon name="x" [size]="16"/></button>
-            </div>
-          </div>
+          <app-graph-panel-header
+            [color]="panelColor()"
+            [title]="panelTitle()"
+            [badge]="selectedNode()!.type || 'entity'"
+            (view)="openEntityPopup(selectedNode()!)"
+            (close)="selectedNode.set(null)" />
           <div class="side-panel-body">
 
             <!-- Record card. Its 57 lines are now app-graph-node-record-card — same DOM, same classes, and
@@ -205,19 +176,13 @@ import { lookupForNode, lookupForEdge } from './graph-record-lookup';
       <!-- ── Side panel (edge selected) ────────────────────────────────── -->
       @if (selectedEdge()) {
         <div class="side-panel">
-          <div class="side-panel-header">
-            <div class="side-panel-title">
-              <span class="side-dot" [style.background]="panelColor()"></span>
-              <h3>{{ selectedEdge()!.label || 'edge' }}</h3>
-              <span class="badge">{{ 'graph.drawer.badge.edge' | transloco }}</span>
-            </div>
-            <div class="side-panel-header-actions">
-              @if (selectedEdgeRecord()) {
-                <button class="btn btn-sm btn-ghost" style="display:inline-flex;align-items:center" (click)="popupRecord.set(asRecord(selectedEdgeRecord()!)); popupType.set('edge')"><ph-icon name="eye" [size]="14"/></button>
-              }
-              <button class="icon-btn" [attr.title]="'common.close' | transloco" (click)="selectedEdge.set(null); selectedEdgeRecord.set(null)"><ph-icon name="x" [size]="16"/></button>
-            </div>
-          </div>
+          <app-graph-panel-header
+            [color]="panelColor()"
+            [title]="panelTitle()"
+            [badge]="'graph.drawer.badge.edge' | transloco"
+            [canView]="!!selectedEdgeRecord()"
+            (view)="popupRecord.set(asRecord(selectedEdgeRecord()!)); popupType.set('edge')"
+            (close)="selectedEdge.set(null); selectedEdgeRecord.set(null)" />
           <div class="side-panel-body">
 
             <!-- Edge record card. A SECOND component rather than a mode of the node one: it has weight,
@@ -373,9 +338,6 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
 
   detailTypeFilter = signal<'all' | 'memory' | 'chrono'>('all');
   detailDescFilter = signal('');
-  sortField = signal<'description' | 'createdAt'>('createdAt');
-  sortAsc = signal(false);
-
   nodeCount = signal(0);
   edgeCount = signal(0);
 
@@ -397,11 +359,16 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
   // ── Computed ────────────────────────────────────────────────────────────────
   allDetails = computed<DetailRow[]>(() => buildDetailRows(this.nodeMemories(), this.nodeChrono()));
 
+  /*
+   * The sort arguments are FIXED, and saying so is the honest version of what was already happening. Nothing
+   * could change them once the detail table moved to `graph-linked-records`, which filters but does not sort —
+   * and the order is discarded anyway, because the only reader of this turns it into a Set of ids.
+   */
   filteredDetails = computed<DetailRow[]>(() => filterAndSortDetails(this.allDetails(), {
     type: this.detailTypeFilter(),
     text: this.detailDescFilter(),
-    field: this.sortField(),
-    asc: this.sortAsc(),
+    field: 'createdAt',
+    asc: false,
   }));
 
   /** True when the panel is showing less than everything — drives the "no matches" empty state. */
@@ -427,11 +394,6 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     if (!this.detailFilterActive()) return this.nodeChrono();
     const ids = this.visibleDetailIds();
     return this.nodeChrono().filter(c => ids.has(c._id));
-  });
-
-  nodeColor = computed(() => {
-    const n = this.selectedNode();
-    return n ? this.typeColor(n.type || 'default') : this.theme.fallback;
   });
 
   panelTitle = computed(() => {
@@ -612,10 +574,6 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     this.resetGraph();
   }
 
-  onSearchInput(query: string): void {
-    this.searchQuery.set(query);
-  }
-
   onDepthChange(val: number | string): void {
     this.depth.set(+val);
     if (this.rootEntity()) {
@@ -792,16 +750,6 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     });
   }
 
-  toggleSort(field: 'description' | 'createdAt'): void {
-    const next = nextSort({ field: this.sortField(), asc: this.sortAsc() }, field);
-    this.sortField.set(next.field);
-    this.sortAsc.set(next.asc);
-  }
-
-  sortArrow(field: 'description' | 'createdAt'): string {
-    return this.sortField() === field ? (this.sortAsc() ? '▲' : '▼') : '';
-  }
-
   openEntityPopup(node: TraverseNode): void {
     const spaceId = this.activeSpaceId();
     if (!spaceId) return;
@@ -906,10 +854,6 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
 
   asRecord(obj: unknown): Record<string, unknown> {
     return obj as Record<string, unknown>;
-  }
-
-  objectKeys(obj: Record<string, unknown>): string[] {
-    return Object.keys(obj);
   }
 
   closePopup(): void {

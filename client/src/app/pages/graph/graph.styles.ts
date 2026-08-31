@@ -59,138 +59,6 @@ export const GRAPH_STYLES = `
 
     /* ── Toolbar ───────────────────────────────────────────────────────────── */
 
-    .graph-toolbar {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 12px;
-      padding: 12px 16px;
-      background: var(--bg-surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      margin-bottom: 8px;
-      flex-shrink: 0;
-    }
-
-    .graph-toolbar select,
-    .graph-toolbar input[type="search"],
-    .graph-toolbar input[type="text"] {
-      background: var(--bg-elevated);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      color: var(--text-primary);
-      font-family: var(--font);
-      font-size: 13px;
-      padding: 6px 10px;
-      outline: none;
-      transition: border-color var(--transition);
-    }
-    .graph-toolbar select:focus,
-    .graph-toolbar input:focus {
-      border-color: var(--accent);
-    }
-
-    .graph-toolbar select { min-width: 140px; }
-
-    .search-wrapper {
-      position: relative;
-      flex: 1;
-      min-width: 200px;
-      max-width: 360px;
-    }
-
-    .toolbar-divider {
-      width: 1px;
-      height: 22px;
-      background: var(--border);
-      flex-shrink: 0;
-    }
-    .toolbar-spacer { flex: 1; }
-    .toolbar-label {
-      font-size: 12px;
-      color: var(--text-muted);
-      white-space: nowrap;
-    }
-
-    .depth-control {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .depth-control input[type="range"] {
-      accent-color: var(--accent);
-      width: 80px;
-      cursor: pointer;
-    }
-    .depth-value {
-      font-family: var(--font-mono);
-      font-size: 12px;
-      color: var(--text-primary);
-      min-width: 14px;
-      text-align: center;
-    }
-
-    .pill-group {
-      display: flex;
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      overflow: hidden;
-      flex-shrink: 0;
-    }
-    .pill-group button {
-      padding: 5px 12px;
-      font-size: 12px;
-      background: var(--bg-elevated);
-      color: var(--text-secondary);
-      border: none;
-      cursor: pointer;
-      transition: background var(--transition), color var(--transition);
-      white-space: nowrap;
-    }
-    .pill-group button + button { border-left: 1px solid var(--border); }
-    .pill-group button.active {
-      background: var(--accent-dim);
-      color: var(--accent);
-    }
-    .pill-group button:hover:not(.active) {
-      background: var(--bg-overlay);
-      color: var(--text-primary);
-    }
-
-    .toolbar-toggle {
-      display: flex;
-      align-items: center;
-      gap: 5px;
-      color: var(--text-secondary);
-      font-size: 12px;
-      cursor: pointer;
-      white-space: nowrap;
-    }
-    .toolbar-toggle input[type="checkbox"] { accent-color: var(--accent); }
-
-    .toolbar-btn {
-      padding: 5px 10px;
-      background: var(--bg-elevated);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      color: var(--text-secondary);
-      font-size: 14px;
-      cursor: pointer;
-      line-height: 1;
-      transition: border-color var(--transition), color var(--transition), background var(--transition);
-    }
-    .toolbar-btn:hover {
-      border-color: var(--accent);
-      color: var(--text-primary);
-      background: var(--accent-dim);
-    }
-    .graph-stats {
-      font-size: 12px;
-      color: var(--text-muted);
-      white-space: nowrap;
-      font-family: var(--font-mono);
-    }
-
     /* ── Canvas zone ──────────────────────────────────────────────────────── */
 
     .canvas-row {
@@ -304,43 +172,6 @@ export const GRAPH_STYLES = `
       background: var(--bg-surface);
       overflow: hidden;
       min-height: 0;
-    }
-
-    .side-panel-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 10px 14px;
-      border-bottom: 1px solid var(--border);
-      flex-shrink: 0;
-      gap: 8px;
-    }
-    .side-panel-title {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      min-width: 0;
-    }
-    .side-dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      flex-shrink: 0;
-    }
-    .side-panel-title h3 {
-      margin: 0;
-      font-size: 14px;
-      font-weight: 600;
-      color: var(--text-primary);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .side-panel-header-actions {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      flex-shrink: 0;
     }
 
     /* Side panel body: two columns */
@@ -557,5 +388,199 @@ export const GRAPH_RECORD_CARD_STYLES = `
     color: var(--text-secondary);
     border: 1px solid var(--border);
     margin: 2px 3px 2px 0;
+  }
+`;
+
+/**
+ * The panel header's own rules, moved out of GRAPH_STYLES with its markup.
+ *
+ * They had to move: a parent's styles are scoped to the parent's own template, so a header rendered by a child
+ * component would have taken none of them — no border, no spacing, an unstyled h3 — and no unit test can see
+ * that. `shared-styles-reach-their-renderers` is the gate for the case where the class is owned by a SHARED
+ * module; these are owned here, which is why they travel with the component instead.
+ *
+ * `.side-panel-header` became `:host`, for the reason the record card records: the host is the element the
+ * panel lays out, and a wrapper inside would leave it unsized.
+ */
+export const GRAPH_PANEL_HEADER_STYLES = `
+  :host {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    gap: 8px;
+  }
+  .side-panel-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .side-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .side-panel-title h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .side-panel-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  /* The view button was two identical inline styles, one per copy of this bar. */
+  .view-btn { display: inline-flex; align-items: center; }
+`;
+
+/**
+ * The toolbar's own rules, moved out of GRAPH_STYLES with its markup (G-7).
+ *
+ * `.graph-toolbar` became `:host`, and the descendant selectors written against it became plain element
+ * selectors — inside the component they are already scoped to its template, and leaving them qualified would
+ * have meant matching nothing, since the host does not carry the class it is selected by from outside.
+ */
+export const GRAPH_TOOLBAR_STYLES = `
+  :host {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    margin-bottom: 8px;
+    flex-shrink: 0;
+  }
+
+  select,
+  input[type="search"],
+  input[type="text"] {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-family: var(--font);
+    font-size: 13px;
+    padding: 6px 10px;
+    outline: none;
+    transition: border-color var(--transition);
+  }
+  select:focus,
+  input:focus {
+    border-color: var(--accent);
+  }
+
+  select { min-width: 140px; }
+
+  .search-wrapper {
+    position: relative;
+    flex: 1;
+    min-width: 200px;
+    max-width: 360px;
+  }
+
+  .toolbar-divider {
+    width: 1px;
+    height: 22px;
+    background: var(--border);
+    flex-shrink: 0;
+  }
+  .toolbar-spacer { flex: 1; }
+  .toolbar-label {
+    font-size: 12px;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+
+  .depth-control {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .depth-control input[type="range"] {
+    accent-color: var(--accent);
+    width: 80px;
+    cursor: pointer;
+  }
+  .depth-value {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-primary);
+    min-width: 14px;
+    text-align: center;
+  }
+
+  .pill-group {
+    display: flex;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .pill-group button {
+    padding: 5px 12px;
+    font-size: 12px;
+    background: var(--bg-elevated);
+    color: var(--text-secondary);
+    border: none;
+    cursor: pointer;
+    transition: background var(--transition), color var(--transition);
+    white-space: nowrap;
+  }
+  .pill-group button + button { border-left: 1px solid var(--border); }
+  .pill-group button.active {
+    background: var(--accent-dim);
+    color: var(--accent);
+  }
+  .pill-group button:hover:not(.active) {
+    background: var(--bg-overlay);
+    color: var(--text-primary);
+  }
+
+  .toolbar-toggle {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .toolbar-toggle input[type="checkbox"] { accent-color: var(--accent); }
+
+  .toolbar-btn {
+    padding: 5px 10px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-size: 14px;
+    cursor: pointer;
+    line-height: 1;
+    transition: border-color var(--transition), color var(--transition), background var(--transition);
+  }
+  .toolbar-btn:hover {
+    border-color: var(--accent);
+    color: var(--text-primary);
+    background: var(--accent-dim);
+  }
+  .graph-stats {
+    font-size: 12px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    font-family: var(--font-mono);
   }
 `;

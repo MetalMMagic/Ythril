@@ -226,52 +226,16 @@ describe('GraphComponent — detail rows are derived, not stored', () => {
     expect(c.filteredDetails().map((r: any) => r.id)).toEqual(['c1']);
   });
 
-  it('composes kind + text + sort rather than letting one win', () => {
-    const c = withRows();
-    c.detailTypeFilter.set('memory');
-    c.detailDescFilter.set('a');            // matches both memories
-    c.sortField.set('description');
-    c.sortAsc.set(true);
-    expect(c.filteredDetails().map((r: any) => r.id)).toEqual(['m1', 'm2']);
-  });
-
-  it('sorts description case-insensitively', () => {
-    const c = create().c;
-    c.nodeMemories.set([
-      { _id: 'a', fact: 'beta', tags: [], createdAt: '2026-01-01' },
-      { _id: 'b', fact: 'Alpha', tags: [], createdAt: '2026-01-02' },
-    ]);
-    c.sortField.set('description');
-    c.sortAsc.set(true);
-    expect(c.filteredDetails().map((r: any) => r.id)).toEqual(['b', 'a']);
-  });
-
-  it('toggleSort flips the SAME field but starts a NEW field ascending', () => {
-    // The asymmetry is the whole behaviour: re-clicking reverses, first-clicking does not inherit the
-    // previous column's direction.
-    const c = create().c;
-    expect([c.sortField(), c.sortAsc()]).toEqual(['createdAt', false]);
-
-    // Switching column while the current direction is DESC: the new column starts ASC regardless.
-    // (Asserting the switch from an already-ASC state would pass even if the reset were dropped.)
-    c.toggleSort('description');
-    expect([c.sortField(), c.sortAsc()]).toEqual(['description', true]);
-
-    c.toggleSort('description');
-    expect(c.sortAsc()).toBe(false);            // same column reverses
-    c.toggleSort('description');
-    expect(c.sortAsc()).toBe(true);
-
-    // And back the other way: ASC on the old column must not carry into the new one.
-    c.toggleSort('createdAt');
-    expect([c.sortField(), c.sortAsc()]).toEqual(['createdAt', true]);
-  });
-
-  it('sortArrow marks only the active column', () => {
-    const c = create().c;
-    expect(c.sortArrow('description')).toBe('');
-    expect(c.sortArrow('createdAt')).not.toBe('');
-  });
+  /*
+   * Four cases moved out in G-7 — two down to `graph-modules.spec.ts` and two deleted with their subject.
+   *
+   * `toggleSort` and `sortArrow` were unreachable: the detail table became `graph-linked-records`, which
+   * filters but does not sort, so nothing on the page could call either one. Their assertions kept passing,
+   * which is the worst state for a test to be in — green is read as "the behaviour is still there".
+   *
+   * The two sort cases that were really about `filterAndSortDetails` now test it directly, where the sorting
+   * lives and where a caller can still reach it.
+   */
 });
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────

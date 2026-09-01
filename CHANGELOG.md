@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **One traverse hop read every edge touching the frontier, with no limit — on both traversals.** A hub entity
+  with a hundred thousand edges pulled a hundred thousand documents into memory, per hop, per member space.
+
+  **And the cap that looks like it prevents that counts something else.** `limit` bounds nodes EMITTED: a
+  neighbour already visited, or of a kind that does not hydrate, is skipped without spending any of it. So the
+  ceiling counted hydrated rows and never documents read — defeating the invariant `graph-spill.ts` states in
+  its own words, *"one hub with a hundred thousand edges would turn a bounded read into an unbounded one"*, one
+  layer below the ceiling that was supposed to hold it.
+
+  The case that isolates it is a hub whose edges all lead back to already-visited nodes: nothing new is emitted,
+  so every truncation signal stayed quiet *precisely* when the read was largest — and a hub's edges mostly do
+  lead back where you came from. That answered `truncated: false` having read the entire hub.
+
+  Both hops are bounded now, with a `+ 1` probe so truncation is detected rather than guessed, and reported
+  through the flag the result already carries. Not silently trimmed: the owner's completeness ruling is that a
+  cost the caller can see is a different thing from one they cannot, and a mutant that bounds the read without
+  reporting is one of the four this is tested against.
+
+  **`truncated: true` therefore has three causes now**, where an integrator may have read it as one. The
+  guide says so.
+
+  It was missing in both traversals — the standalone walk and recall's seed expansion — which is the defect
+  class this repo produces most, and these two have drifted before: `frontierEdgeQuery` exists because one
+  followed every edge both ways while the other applied the direction, twenty lines apart. The link-record scan
+  sitting between them already had the budget and the flag; the edge read beside it did not.
+
+### Fixed
+
 - **An edge's derived id now distinguishes endpoints of different KINDS, and so do the two other places that
   express edge identity.** Each collection assigns its own UUIDs, so a memory may hold the same id as an entity:
   `(X) -[mentions]-> (Y as entity)` and the same triplet with Y a memory are two relationships that derived one

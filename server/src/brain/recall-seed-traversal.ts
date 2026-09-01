@@ -201,6 +201,7 @@ export async function traverseFromSeeds(
   }
 
   while (frontier.length > 0 && depth < maxDepth) {
+    const hopBudget = Math.max(0, limit - results.length);
     const edges = await col<EdgeDoc>(`${spaceId}_edges`)
       // An EDGE is a searchable record with a vector of its own, and this query fetched it whole: the edge
       // document is returned verbatim as `_graph[].edge`, so a `recall(traverse: n)` shipped a full float
@@ -224,7 +225,16 @@ export async function traverseFromSeeds(
       // ENTITY read on a redundant spaceId was actively harmful.
       .find(asFilter<EdgeDoc>(frontierEdgeQuery(spaceId, frontier, narrowing)))
       .project(NEVER_RETURNED_PROJECTION)
+      // Bounded for the same reason as the standalone walk's, and with the same `+ 1` truncation probe (W-11):
+      // unbounded, one hub read its whole edge set per hop, and the node cap counts hydrated rows rather than
+      // documents. The rule belongs on BOTH paths — these two have drifted before, twenty lines apart, which is
+      // why `frontierEdgeQuery` exists at all.
+      .limit(hopBudget + 1)
       .toArray() as EdgeDoc[];
+    if (edges.length > hopBudget) {
+      capped = true;
+      edges.length = hopBudget;
+    }
 
     const newNeighborIds: string[] = [];
     for (const edge of edges) {

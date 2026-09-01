@@ -427,6 +427,16 @@ POST /api/brain/spaces/:spaceId/traverse
 | `includeFiles` | — | `false` | Also reach files whose `entityIds` reference a traversed node, marked `kind: "file"` and carrying **file meta only**. Opt-in. A non-boolean is a `400` |
 | `includeEdges` | — | `true` | Whether the response carries the `edges` list. **This does not change the walk** — edges are how the graph is traversed. A non-boolean is a `400` |
 
+**`truncated: true` has three causes, and one of them is new in 3.7.** The node cap filled; a link scan spent
+its budget; or **a hop's EDGE read spent its budget**. The third used to be impossible to report because the
+read was unbounded — one hub entity pulled its entire edge set into memory per hop, and the node cap could not
+prevent it, because that cap counts nodes EMITTED and a neighbour already visited or of a non-entity kind is
+skipped without spending any of it.
+
+So a walk through a hub now answers `truncated: true` where it previously answered a complete-looking result it
+had paid a very large read for. Treat the flag as *"there was more graph than this answer contains"* rather
+than as *"the node cap filled"* — the two were the same thing until this release and are not any more.
+
 **`direction` narrows stored edges and never links.** A link is an `entityIds` ARRAY today — the field a memory, chrono
 entry or file carries — and it holds one orientation only: the record names the entity. There is nothing for
 `direction` to select between. With

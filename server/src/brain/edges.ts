@@ -740,16 +740,50 @@ export async function traverseGraph(
   // Three return sites below, and every one of them owed the same decision about the edge list. A rule copied
   // three times is a rule that will eventually disagree with itself, so it is written once here.
   const answer = (truncated: boolean): TraverseResult =>
-    ({ nodes: resultNodes, edges: includeEdges ? resultEdges : [], truncated });
+    ({ nodes: resultNodes, edges: includeEdges ? resultEdges : [], truncated: truncated || edgeScanCapped });
+
+  /**
+   * Set when a hop's EDGE read hit its budget (W-11). Read by every return site through `answer` above, for the
+   * reason that comment gives: three return sites each owing the same decision is a rule that will disagree
+   * with itself.
+   *
+   * Separate from the link scan's `scanCapped` only because they are set in different places; they mean the
+   * same thing and are reported through the same flag.
+   */
+  let edgeScanCapped = false;
 
   while (frontier.length > 0 && currentDepth < maxDepth) {
     // Batch-fetch all edges for the current frontier across all member spaces
     const adjacentEdges: EdgeDoc[] = [];
     for (const mid of memberIds) {
-      // Through the shared builder, so this path and recall's cannot drift apart again.
+      /*
+       * BOUNDED, and the bound is documents rather than nodes (W-11).
+       *
+       * This was `.find(...).toArray()` with no limit, so one hub entity read its entire edge set into memory
+       * per hop per member space. `limit` reads as the ceiling and is not: it counts nodes EMITTED, and a
+       * neighbour that is already visited or is not an entity is skipped without spending any of it. So the
+       * flag stayed quiet in exactly the case where the read was largest — a hub whose edges mostly lead back
+       * where you came from.
+       *
+       * `+ 1` is how truncation is DETECTED rather than guessed: reading one more than the budget says whether
+       * there was more, without reading how much more.
+       *
+       * Same shape as `linkedRecordsAtFrontier` beside it, deliberately — that scan already took a budget and
+       * returned `scanCapped`, and its docblock carries the reasoning this comment is short for. Two
+       * implementations of one rule is what `frontierEdgeQuery` was extracted to stop; the BOUND is the same
+       * kind of rule and belongs on both.
+       */
+      const hopBudget = Math.max(0, limit - resultNodes.length);
       const q = frontierEdgeQuery(mid, frontier, { edgeLabels, direction });
       const edges = await col<EdgeDoc>(`${mid}_edges`)
-        .find(asFilter<EdgeDoc>(q), { projection: NEVER_RETURNED_PROJECTION }).toArray() as EdgeDoc[];
+        .find(asFilter<EdgeDoc>(q), { projection: NEVER_RETURNED_PROJECTION })
+        .limit(hopBudget + 1).toArray() as EdgeDoc[];
+      if (edges.length > hopBudget) {
+        // A capped scan is a truncation even when the answer never fills up: the budget was spent on documents
+        // that are then discarded, so "it did not fill up" says nothing about whether it is complete.
+        edgeScanCapped = true;
+        edges.length = hopBudget;
+      }
       adjacentEdges.push(...edges);
     }
 

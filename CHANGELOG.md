@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **One space wipe instead of four.** `bulkDeleteEntities`, `bulkDeleteMemories`, `bulkDeleteEdges` and
+  `bulkDeleteChrono` were the same thirty lines in four of the largest files in the server (`R-4`). They are now
+  one function in `brain/bulk-wipe.ts` with three-line callers: `entities` 372 → 349 code lines, `memory`
+  291 → 264, `chrono` 410 → 386, `edge-bulk-delete` 33 → 3, against 38 for the shared helper.
+
+  The subtle part is why it mattered. A wipe reserves its whole tombstone seq range in ONE round trip — it used
+  to call `nextSeq()` per document, so a 100k-document wipe paid 100k awaited round trips before the delete
+  began. Gaps in the range are harmless because sync compares with `>`; reuse would not be, so the block is
+  taken up front and never rolled back. That is precisely the kind of reasoning that gets fixed in one copy of
+  four and left alone in the other three.
+
+  **What legitimately differs is kept, as options.** The entity wipe clears every face label in the space —
+  wholesale rather than by id list, because on a 100k-entity wipe an `$in` would build a 100k-element query for
+  a filter meaning "all of them" — and the memory wipe orders its tombstone range newest-first. Two
+  characterization cases were added for that ordering, because nothing covered it and the extraction was exactly
+  what could have dropped it in silence.
+
+  Seven mutants died, including the two the extraction newly made possible: a caller losing its cascade, and
+  that cascade being wired to every caller instead of one. Three dead imports came out with the old bodies —
+  `asBulk` and `reserveSeqBlock` were left naming nothing in three files, and the build never said a word.
+
+### Changed
+
 - **The file tree's state and requests moved into a store** — G-3's seventh cut and the first store rather than
   a component, taking the largest file in the repo from 1 118 to 1 070 code lines.
 

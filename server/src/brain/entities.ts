@@ -2,8 +2,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { brainWriteSeqTotal } from '../metrics/registry.js';
 import { authorRef } from '../config/author.js';
 import { findInsertContradictions, type ContradictionWarning } from './insert-contradictions.js';
-import { col, asFilter, asDoc, asUpdate, asBulk } from '../db/mongo.js';
-import { nextSeq, reserveSeqBlock } from '../util/seq.js';
+import { col, asFilter, asDoc, asUpdate } from '../db/mongo.js';
+import { nextSeq } from '../util/seq.js';
 import { parseLimit, parseSkip } from '../util/pagination.js';
 import { toMongoSort, type SortSpec } from './list-sort.js';
 import { NEVER_RETURNED_PROJECTION, withoutVector } from './read-projection.js';
@@ -26,6 +26,7 @@ import { log } from '../util/log.js';
 import type { EntityDoc, EdgeDoc, MemoryDoc, ChronoEntry, TombstoneDoc, FileMetaDoc } from '../config/types.js';
 import { PROPERTIES_SCAN_MAX_MS, textContains } from './tag-filter.js';
 import { mirrorLegacySuppression } from './suppress-embeddings.js';
+import { wipeSpaceCollection } from './bulk-wipe.js';
 
 /** A backlink entry describing an item that references a given entity. */
 export interface BacklinkEntry {
@@ -508,48 +509,22 @@ export async function deleteEntity(
   return true;
 }
 
-/** Bulk-delete all entities in a space, writing a tombstone per deleted doc. */
+/**
+ * Bulk-delete every entity in a space, writing a tombstone per deleted doc.
+ *
+ * The cascade is the reason this passes `afterDelete` rather than being one line: every entity in the space is
+ * gone, so every face label is dangling BY DEFINITION. Cleared wholesale rather than by handing `ids` to a
+ * `$in`, which on a 100k-entity wipe would build a 100k-element query for a filter that means "all of them" —
+ * the same round-trip trap the shared helper's seq-block reservation exists to avoid.
+ *
+ * It is also the one thing that makes this wipe different from the other three, and the thing an extraction
+ * treating them as identical drops. `the-bulk-wipe-writes-a-tombstone-per-record-db.test.js` asserts it here
+ * and asserts its ABSENCE on a memory wipe, so a shared hook wired to the wrong callers fails too.
+ */
 export async function bulkDeleteEntities(spaceId: string): Promise<number> {
-  const coll = col<EntityDoc>(`${spaceId}_entities`);
-  const ids = await coll.find({}, { projection: { _id: 1, seq: 1 } }).toArray() as { _id: string; seq?: number }[];
-  if (ids.length === 0) return 0;
-
-  const now = new Date().toISOString();
-  const instanceId = getConfig().instanceId;
-  const tombstones: TombstoneDoc[] = [];
-
-  // Reserve the whole tombstone seq range in ONE round trip. This used to call nextSeq()
-  // per document — a sequential round trip each — so a 100k-document wipe paid 100k awaited
-  // round trips before the delete even began. Gaps are harmless (sync compares seqs with `>`);
-  // reuse would not be, which is why the block is reserved up-front and never rolled back.
-  const firstSeq = await reserveSeqBlock(spaceId, ids.length);
-  let seqCursor = firstSeq;
-
-  for (const doc of ids) {
-    const seq = seqCursor++;
-    tombstones.push({
-      _id: doc._id,
-      type: 'entity',
-      spaceId,
-      deletedAt: now,
-      instanceId,
-      seq,
-      ...(doc.seq !== undefined ? { originalSeq: doc.seq } : {}),
-    });
-  }
-
-  const ops = tombstones.map(t => ({
-    replaceOne: { filter: { _id: t._id }, replacement: t, upsert: true },
-  }));
-  await col<TombstoneDoc>(`${spaceId}_tombstones`).bulkWrite(asBulk<TombstoneDoc>(ops));
-  await coll.deleteMany({});
-  // Same cascade as the single delete — a bulk wipe must not be the path that leaves labels behind.
-  // Every entity in the space is gone, so every face label is dangling by definition: clear them
-  // wholesale rather than passing `ids` to a `$in`, which on a 100k-entity wipe would build a 100k
-  // element query for a filter that means "all of them" — the same round-trip trap the seq-block
-  // reservation above exists to avoid.
-  await unlabelAllFaces(spaceId);
-  return ids.length;
+  return await wipeSpaceCollection(spaceId, 'entities', 'entity', {
+    afterDelete: () => unlabelAllFaces(spaceId).then(() => undefined),
+  });
 }
 
 /**

@@ -12,10 +12,12 @@ capability half and `REST_ONLY_CAPABILITIES` is EMPTY — a row added there is a
 **Parameters count too, and this is the half that hides.** A capability present on both surfaces still violates the rule
 if one door accepts less:
 
-- `recall`'s `filter` accepts one operator object per key, ANDed. `query`'s accepts `$or`/`$and`/`$not`/`$regex`/
-  `$elemMatch` nested to depth 8. Same store, same policy, two grammars — so a caller who wants meaning-ranking *and* a
-  real predicate has to make two calls. Reported by the fleet integrator 2026-08-13T1035Z §2, and it is a parity defect rather than a
-  feature request.
+- **The example this rule was written from, and it is FIXED — kept because the shape recurs.** `recall`'s `filter`
+  accepted one operator object per key, ANDed, while `query`'s took `$or`/`$and`/`$not`/`$regex`/`$elemMatch` nested to
+  depth 8. Same store, same policy, two grammars — so a caller who wanted meaning-ranking *and* a real predicate had to
+  make two calls. Reported by the fleet integrator 2026-08-13T1035Z §2 as a parity defect rather than a feature request,
+  and `recall` now accepts either grammar (mixing them is refused rather than resolved). What to take from it: both
+  doors were individually defensible and the gap was only visible from outside.
 - A parameter added to one surface alone is the same defect arriving as an omission. When `/query` gained `skip`, `sort`,
   `dir` and `total`, the MCP tool gained them in the same commit.
 
@@ -35,9 +37,12 @@ agree:
 1. **the REST route**
 2. **the MCP tool** — same parameters, same defaults, same caps, same refusals
 3. **`docs/integration-guide/`** — the integrator's reference
-4. **`docs/userguide/02-brain.md` → Brain → Search** — what an operator reads in the product. A parameter that exists on
-   both APIs and is absent from that page is a capability nobody using the UI knows about; a control described there that
-   no longer matches the API is worse
+4. **`docs/userguide/` — the page an operator would actually open for this capability.** Six pages, and which one it is
+   follows the surface the operator uses: a search parameter is `02-brain.md` → Brain → Search, a token control is
+   `04-settings.md`, retention and audit are `05-storage-data-and-audit.md`. Do not read this row as "the Brain page" —
+   that is only where it was learned, and a capability documented on the wrong page is the failure it prevents. A
+   parameter that exists on both APIs and is absent from the operator's page is a capability nobody using the UI knows
+   about; a control described there that no longer matches the API is worse
 5. **token rights** — `auth/space-rights.ts`. A new route with no rights row is either unreachable or ungoverned, and both
    fail silently
 
@@ -66,26 +71,61 @@ three routes; an empty allowlist read as "unrestricted" on three more; REST vali
 shape; a paging window inline in one route and correct in another. When you find yourself writing the same rule a second
 time, extract it instead — `spaces/page-across-members.ts` exists because of this.
 
-## A field added to a replicated document must reach its `Incoming*` schema — same commit
+**It is not only a server pattern, and the count is usually higher than it looks.** An edge endpoint's shape rule had
+FIVE copies — the REST route, the MCP tool, the bulk importer, sync's link-violation check, and the embed-text resolver —
+each correct while every endpoint was an entity, and each about to be wrong in a different way. The one to check hardest
+is the copy that RECORDS rather than refuses: sync's would have logged two link violations per legitimate edge, which an
+operator reads as real damage. `bulkDelete{Edges,Entities,Memories,Chrono}` is the same rule four times and is still
+open (`R-4`).
 
-Found while shipping M-1, 2026-09-01, and it is a rule rather than an incident because the loss is invisible
-from both ends.
+## A field on a replicated document is HASHED and replicated, or excluded from the hash — never neither
 
-`api/sync/_shared.ts` validates every PUSHED document with a bare `z.object({...})`, and **zod strips keys the
-schema does not declare.** The pull path validates nothing. So a field on `EdgeDoc`, `MemoryDoc`, `EntityDoc`
-or `ChronoEntry` that is missing from its `Incoming*` twin is **kept when the record arrives by pull and
-deleted when the same record arrives by push** — same version of the code, same document, one direction, no
-error, no statistic, and a 200 on the way back.
+Found while shipping M-1 and finished by W-10, 2026-09-01. A rule rather than an incident because both halves
+are invisible from both ends.
 
-- **Not every field should cross.** A recomputable vector and a local TTL stamp are correctly absent. That is
-  why the gate is a declared list with a reason per row rather than a demand for parity:
-  `a-replicated-field-reaches-its-incoming-schema.test.js`. Adding a field means either declaring it on the
-  schema or writing there why it must not travel.
-- **The reason has to be true, and the gate cannot check that.** `excludeFromVectorSearch` is kept on the
-  document, and its removal deferred, on the stated grounds that *"a peer on an older build must keep finding
-  the key it knows"* — while the ingest schema strips it for all four types. A deprecated field carried for a
-  guarantee that does not exist is worse than either choice made deliberately (`W-8`).
-- **The same question applies to what a receiver does after the write.** No sync path enqueues an embed job,
-  and there is no periodic backfill — `enqueueEmbedJob`'s docblock is explicit that the repair is on demand.
-  Only memories ship their vector, so a synced entity, edge or chrono ranks in no recall on the peer until an
-  operator rebuilds that space's indexes (`W-9`).
+**Stripping.** `api/sync/_shared.ts` validates every PUSHED document with a bare `z.object({...})`, and **zod
+strips keys the schema does not declare.** The pull path validates nothing. So a field on `EdgeDoc`,
+`MemoryDoc`, `EntityDoc` or `ChronoEntry` that is missing from its `Incoming*` twin is **kept when the record
+arrives by pull and deleted when the same record arrives by push** — same version of the code, same document,
+one direction, no error, no statistic, and a 200 on the way back.
+
+**Hashing.** `brain/merkle.ts` hashes every field of every brain document except the five it excludes. That
+hash is what tells an operator whether two instances hold the same data.
+
+Put them together and the rule has no judgement left in it: **a field that is hashed must replicate.** If it
+does not, the sender's copy has the key, the receiver's does not, and a network with `merkle: true` logs a
+`MERKLE_DIVERGENCE` warning every cycle for a space where nothing is wrong. The check is advisory, so nothing
+ever contradicts it — and a permanent false alarm teaches an operator to ignore the one signal that means data
+really is missing.
+
+`a-replicated-field-reaches-its-incoming-schema.test.js` derives its exemptions from `merkle.ts` rather than
+keeping a list. Adding a field means declaring it on the ingest schema, or excluding it from the hash in BOTH
+places `merkle.ts` states the set (`DERIVED_FIELDS`, and the projection).
+
+- **What is legitimately excluded, and why the two categories differ.** A vector and its model name are derived
+  by the LOCAL embedding model; the two retention stamps are computed from the LOCAL space policy. Neither can
+  travel: peers running different models hold different vectors for identical content, and shipping a retention
+  stamp would let one instance decide when another deletes its data.
+- **What a local schedule DID to a record is not local.** `contentRedacted` and `contentRedactedAt` say that an
+  entry had a description and no longer has it. They replicate and they are hashed — excluded, a redacted entry
+  would hash identically to one that still has its detail, which is real divergence going unreported.
+- **Deriving the rule is what found the fields nobody had reported.** A hand-written list of exemptions named
+  none of `MemoryDoc.type` (it selects the memory's type schema, so a pushed memory was validated against
+  nothing on the receiver) or the two chrono redaction marks. A reason once written is never re-read; a rule
+  read out of the code that governs the behaviour cannot go stale the same way.
+
+## What a receiver does after the write is the RECEIVER's decision
+
+Owner's ruling, 2026-09-01: *"dont transfer embeddings... on transfer the receiver applies its rules. if the
+space has supressembeddings dont embed at all. if it should embed use the receivers embedding mechanism."*
+
+No ingest schema declares `embedding` or `embeddingModel`, on any of the four types. Every arriving document is
+written and queued for embedding in one call — `ingestBrainDoc` in `api/sync/_shared.ts` is the only thing in
+the ingest router permitted to write a brain document, so a new ingest site cannot be written without the
+queue. Whether to embed is then `embeddingSuppressedFor`, resolving `record > schema > space` against THIS
+instance's configuration.
+
+- **The record tier has to cross the wire for that to be true.** Both spellings of the suppression mark
+  replicate. Stripped, a record its author retired from meaning-ranked search would re-enter it on every peer.
+- **A vector from another instance is not a saving.** Ranking one model's vectors against another's does not
+  fail — it returns plausible results in the wrong order, which is the kind of wrong nobody reports.

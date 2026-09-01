@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The contributor guidelines say what the code now does, and a gate reads them.** `CLAUDE.md` carried three
+  claims that this release's own PRs had made false — one of them written the same morning and stale by
+  lunchtime, six changes having landed between writing it and reading it back. It ships no behaviour; it is what
+  a contributor acts on, which is why a false rule there is a decision taken against something that is not true.
+
+  What was wrong: the replicated-field rule still described a hand-kept exemption list and claimed no sync path
+  enqueues an embed job (it always did — the function is named `enqueueIngestedRecord`, and grepping for the
+  other name is how I got that wrong); the MCP/REST parity section presented `recall`'s filter grammar gap as
+  current when it has been fixed; and rule 4 of the five-places rule named one userguide page when this
+  release's capabilities landed on two others.
+
+  `docs-name-real-identifiers.test.js` now includes `CLAUDE.md` in the set it checks — every backticked
+  camelCase name has to exist somewhere in the repository — and excludes it from its own haystack, since a
+  document that is its own haystack validates every name it invents. Mutation-tested by exit code.
+
+  The wider sweep the file cannot mechanically do — a claim that is FALSE rather than absent — is filed as
+  **Q-1**, last in the queue and gating the release tag: it is only worth doing against the code as it ships.
+
+### Changed
+
 - **The file manager's directory tree is its own component.** Sixth cut of G-3: `file-tree.component.ts` takes
   the recursive template, six CSS rules and the `TreeNode` interface, and the largest file in the repo goes
   1 176 → 1 118 code lines. The frozen size came down with it — a ceiling far above the real size is headroom

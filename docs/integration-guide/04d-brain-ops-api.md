@@ -455,7 +455,18 @@ POST /api/brain/spaces/:spaceId/bulk
 Content-Type: application/json
 ```
 
-Batch-upsert memories, entities, edges, and/or chrono entries in a single HTTP call. All four arrays are optional. Processing order: **memories → entities → edges → chrono** — so edges that reference entities inserted in the same batch will resolve correctly.
+Batch-upsert memories, entities, edges, and/or chrono entries in a single HTTP call. All four arrays are
+optional. Processing order: **memories → entities → edges → chrono**, which matters for records this call
+UPDATES — an entity addressed by an id that already exists is written before an edge in the same batch reads
+it.
+
+**A batch cannot reference a record it creates.** An `id` you send ADDRESSES an existing record; it never
+becomes a new record's identity, which is minted here — a supplied id would make you a co-author of our
+primary key, and across a sync two instances deriving ids from one key would collide by design. So an entity
+inserted by this call comes back under a different id than the one you sent, and an edge in the same payload
+naming the id you chose points at nothing. References here are checked for shape and never for existence, so
+that edge is **accepted, stored dangling, and reported in `inserted` with an empty `errors`**. Build a graph in
+two calls: entities first, take their ids from the response, edges second.
 
 Each array is capped at 500 entries. Per-item validation failures are recorded in `errors` without aborting the remaining items.
 

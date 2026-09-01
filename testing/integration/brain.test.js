@@ -1363,7 +1363,13 @@ describe('Brain — POST /api/brain/spaces/:spaceId/bulk', () => {
     assert.equal(r.body.inserted.entities, 0);
   });
 
-  it('Processes edges referencing entities from same batch', async () => {
+  it('Processes edges referencing entities from an EARLIER call, by their minted ids', async () => {
+    /*
+     * Two calls, and the title used to say one batch — which this case has never done. A bulk payload
+     * CANNOT reference a record it creates: a supplied id addresses an existing record and never becomes a
+     * new one's identity, so the ids have to be read back before the edges are sent. That is exactly what
+     * happens below, and the old title was the only thing claiming otherwise (W-12).
+     */
     const entityName = `BulkEdgeEnt-${RUN}`;
     const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/bulk', {
       entities: [{ name: `${entityName}-A`, type: 'concept' }, { name: `${entityName}-B`, type: 'concept' }],

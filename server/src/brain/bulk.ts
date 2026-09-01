@@ -78,8 +78,15 @@ function slice(v: unknown): Record<string, unknown>[] {
 
 /**
  * Process a batch of memories/entities/edges/chrono for one space. Deterministic order
- * (memories → entities → edges → chrono) so edges/chrono can reference records created earlier
- * in the same batch. Per-item failures are collected, never fatal. Returns counts + errors.
+ * (memories → entities → edges → chrono), which matters only for records the batch UPDATES: an entity
+ * addressed by an existing id is written before an edge below reads it. Per-item failures are collected,
+ * never fatal. Returns counts + errors.
+ *
+ * **The order does not buy a forward reference, and four surfaces said it did until 2026-09-01.** `upsertEntity`
+ * mints the identity on insert — a supplied id addresses an existing record and never becomes a new one's — so
+ * an id a caller invents for an entity in this payload is not the id that entity gets, and an edge naming it
+ * points at nothing. Combined with shape-not-existence below, that edge is stored dangling and counted as
+ * inserted. Callers build a graph in two passes, taking ids from the first response.
  */
 export async function bulkWrite(spaceId: string, input: BulkInput): Promise<BulkResult> {
   const metaRaw = getConfig().spaces.find(s => s.id === spaceId)?.meta;

@@ -74,7 +74,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the editor gate's `NO_CONTROL` with reasons, and the control is filed as `G-12`: two lists side by side imply
   pairing to most people, so that UI has to say what it does.
 
-### Fixed
+- **Five surfaces told a caller a bulk payload could reference a record the same payload creates. It could
+  not, and had not been able to for three weeks.** The claim was on the integrator's reference, the REST
+  route's docblock, the writer's own docblock, the `bulk_write` tool description, and — separately — the
+  per-field description on `memories.entityIds`. All five hung it on the processing order, memories → entities
+  → edges → chrono, as the reason it worked.
+
+  The **ID-IS-ID** ruling of 2026-08-12 made it false: the identity is minted on insert, always, because a
+  supplied id would make the caller a co-author of the primary key and let two instances deriving ids from one
+  key collide across a sync. A supplied id ADDRESSES an existing record; it never becomes a new one's. So an
+  entity inserted by a batch is stored under a fresh UUID and an edge in the same payload naming the id the
+  caller chose points at nothing.
+
+  **And nothing objected.** References on this door are checked for shape and never for existence — correct
+  behaviour, and a space may permit dangling references — so the edge was accepted, counted in `inserted`, and
+  reported with an empty `errors`. An agent that followed the sentence built a broken graph and was told the
+  import succeeded.
+
+  The sentences moved, not the behaviour: ID-IS-ID is an explicit ruling with a stated reason. All five now say
+  a graph takes two calls, with the ids coming from the first one's response, and keep the processing order for
+  what it is still good for — a record the batch UPDATES is written before an edge below reads it. The
+  `memories.entityIds` copy was never even order-plausible, because memories are written first of all.
+
+  **A gate, in two directions, because one alone goes vacuous.** From the database, that a supplied id is not
+  adopted; from the source, that no surface offers the forward reference and each still says where a new
+  record's id comes from. A coverage check could not have caught this — every surface MENTIONED forward
+  references and they all agreed with each other. The fifth copy was found only because a tracker's verify line
+  counted the phrase and got two where the row said one.
+
+  The gate reads each file as one flattened line, which the first draft did not: a docblock wraps a sentence
+  across ` * ` leaders and a tool description is a chain of concatenated literals, so *"reference records
+  created earlier"* and *"in the same batch"* sat on different lines and one of the five copies was missed.
+
 
 - **A chrono-only retention setting was accepted on every other collection and silently ignored.** Three places
   said it was rejected — `TypeSchema.retention`'s docblock, `chrono-retention.ts`, and

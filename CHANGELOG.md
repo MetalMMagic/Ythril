@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A chrono-only retention setting was accepted on every other collection and silently ignored.** Three places
+  said it was rejected — `TypeSchema.retention`'s docblock, `chrono-retention.ts`, and
+  `docs/integration-guide/04f-write-semantics.md`, which is an integrator's reference — and one more assumed it:
+  the client sends `contentDays` only for chrono *"because the API refuses it elsewhere and a control that cannot
+  work is worse than none"*.
+
+  Nothing refused anything. `CONTENT_TIER_COLLECTIONS` was read in exactly one place — the resolver, which
+  returns `undefined` for a non-chrono collection long after the write was accepted. So an operator could set a
+  content window on an entity type, get a `200`, see it in their own config, and watch it do nothing for ever.
+
+  The code moved rather than the sentence: a behaviour the product already promises to a user is not a decision
+  to re-open. Four claims became true and none needed editing.
+
+  It is refused at `TypeSchemasZ`, the only layer that sees BOTH the field and the collection it was filed under
+  — a type object cannot know whether it arrived under `entity` or `edge`, and the resolver knows the collection
+  but runs after the write is accepted. The refusal names the field, the collection it belongs to, why, and
+  `retention.days` as the setting that works everywhere; it reports at the path the operator wrote, so an editor
+  can show it beside the field rather than at the top of the object.
+
+  Written as a LIST with one row, because the next collection-scoped fields are already specified (`S-1`'s
+  edge-only `endpoints` and `functional`) and an inline `if` is how the second one gets forgotten — which is
+  exactly how the first came to be documented and absent.
+
+### Fixed
+
 - **One traverse hop read every edge touching the frontier, with no limit — on both traversals.** A hub entity
   with a hundred thousand edges pulled a hundred thousand documents into memory, per hop, per member space.
 

@@ -26,6 +26,7 @@ import { execSync, execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 
 import { join } from 'node:path';
+import { Socket } from 'node:net';
 
 /** Gates that read SOURCE only — no build required, so they run first and fail fastest. */
 const SOURCE_GATES = [
@@ -125,6 +126,9 @@ console.log(`\n── standalone tests that need no running instance (${pure.len
 // drift back over the limit as names grow. 8 000 characters is a quarter of the ceiling, which leaves room
 // for the interpreter prefix and any future flag.
 const CMD_BUDGET = 8_000;
+/** How many standalone suites stood down for want of the test database. Reported in the verdict. */
+let skippedForDb = 0;
+
 const batches = [[]];
 let batchLen = 0;
 for (const f of pure) {
@@ -144,6 +148,49 @@ for (const [i, batch] of batches.entries()) {
 }
 if (standaloneFailed) {
   failures.push({ name: 'test:standalone (offline subset)', why: 'server contracts and pure logic — no Docker needed, so no reason to learn this from CI' });
+}
+
+/*
+ * ── how many of those suites could not actually run ──
+ *
+ * `_mongo-harness.mjs` skips its suite with an actionable message when the test database is down, and THROWS
+ * in CI rather than reporting a green no-op. That is the right split. What was missing is here: preflight said
+ * "PASSED" while thirty-one suites had quietly stood down, and "passed" read as "everything ran".
+ *
+ * It cost a 21-minute CI round trip on A-3. Removing one positional from `remember()` shifted the argument
+ * after it, and the only suites that call `remember()` with that many positionals are database ones — so the
+ * seven failures were invisible locally and arrived as behaviour failures ("waitForEmbedding still fails
+ * loudly") rather than as a signature mismatch.
+ *
+ * Derived from IMPORTS plus one TCP probe rather than by parsing test output: a suite that needs the harness
+ * cannot have run if the port is closed, and that is knowable without reading a single line of the report.
+ */
+{
+  const needsDb = pure.filter(f => {
+    try { return readFileSync(`testing/standalone/${f}`, 'utf8').includes('_mongo-harness'); }
+    catch { return false; }
+  });
+  const port = Number(process.env['YTHRIL_TEST_MONGO_PORT'] ?? 27117);
+  const host = process.env['YTHRIL_TEST_MONGO_HOST'] ?? '127.0.0.1';
+
+  const reachable = await new Promise(resolve => {
+    const sock = new Socket();
+    const done = (v) => { sock.destroy(); resolve(v); };
+    sock.setTimeout(1500);
+    sock.once('connect', () => done(true));
+    sock.once('timeout', () => done(false));
+    sock.once('error', () => done(false));
+    sock.connect(port, host);
+  });
+
+  if (reachable) {
+    console.log(`  ${needsDb.length} database suite(s) ran — the test stack is up on ${host}:${port}.`);
+  } else if (needsDb.length > 0) {
+    console.log(`
+  ${needsDb.length} standalone suite(s) SKIPPED themselves: no test database on ${host}:${port}.`);
+    console.log('  They run in CI, where the harness throws rather than skipping. `npm run test:up` runs them here.');
+    skippedForDb = needsDb.length;
+  }
 }
 
 // ── every test file PARSES, including the ones only CI runs ────────────────────────────────────────────────
@@ -298,6 +345,10 @@ try {
 console.log('\n' + '='.repeat(76));
 if (failures.length === 0) {
   console.log('Preflight PASSED. Docker-dependent suites (integration, sync, red-team) still run in CI.');
+  if (skippedForDb > 0) {
+    console.log(`  ...but ${skippedForDb} standalone suite(s) did NOT run — no test database. `
+      + '`npm run test:up`, then re-run, if this change touches a signature or a stored shape.');
+  }
   process.exit(0);
 }
 console.log(`Preflight FAILED — ${failures.length} gate(s):\n`);

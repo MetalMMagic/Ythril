@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **A memory's and a file's embedding is built from its own content, not from the names of what it links to** —
+  worth **+1.5 points of strict evidence recall**, measured on a 199-question benchmark: the same turn scored
+  0.8528 without the names and 0.8369 with them. `chronoEmbedText` never did it, so chrono was the control that
+  showed the difference was the names rather than the corpus.
+
+  The reason is not subtle. A memory linked to five entities carried five names it does not say, so a query
+  naming any of them matched a record that never mentioned them, and the record's own sentence was diluted by
+  tokens its author did not write.
+
+  **An edge is the opposite case and is unchanged**: `ServiceA depends_on ServiceB` is the whole of what an edge
+  says, and without its endpoints it embeds a bare label. Links are also still how you REACH a record —
+  `traverse`, and recall's expansion with `includeMemories` — what changed is that they no longer pretend to be
+  its content.
+
+  **OPERATORS: this changes the text every linked memory and file embeds, so their stored vectors are now built
+  from a different string.** Existing records keep working and keep matching; they are simply still weighted the
+  old way until re-embedded. Run a reindex when convenient — Settings → Spaces → rebuild search indexes, or
+  `POST /api/spaces/:id/reembed` — and nothing needs doing urgently.
+
+  Two Mongo round-trips per embedded record went with it: the writer and the reindex job both resolved a
+  record's linked entities purely to build that prefix.
+
+- **`npm run preflight` now says when a database suite did not run.** Thirty-one standalone suites need the test
+  MongoDB and stand down with a message when it is absent — correctly, and in CI the harness throws rather than
+  reporting a green no-op. What was missing is that preflight then printed *"PASSED"* in exactly the same words
+  as a run that had executed all of them.
+
+  It cost a 21-minute CI round trip on the change above: removing a positional parameter shifted the argument
+  after it, and the only callers passing that many positionals are database suites. The seven failures arrived
+  as behaviour (*"waitForEmbedding: true still fails loudly"*) rather than as a signature mismatch.
+
+  Derived from imports plus one TCP probe rather than by parsing test output: a suite that needs the harness
+  cannot have run if the port is closed, and that is knowable without reading a line of the report.
+
 ### Fixed
 
 - **`direction` narrows stored edges only, and now every surface that offers it says so.** A link is an

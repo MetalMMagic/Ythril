@@ -117,7 +117,7 @@ export async function bulkWrite(spaceId: string, input: BulkInput): Promise<Bulk
     try {
       if (schemaFails('memory', i, validateMemory(meta ?? {}, { type, properties }))) continue;
       await remember(spaceId, fact, memEntityIds, strArray(item['tags']),
-        typeof item['description'] === 'string' ? item['description'] : undefined, properties, undefined, type,
+        typeof item['description'] === 'string' ? item['description'] : undefined, properties, type,
         undefined, undefined, ttlDays);
       inserted.memories++;
     } catch (err) { errors.push({ type: 'memory', index: i, reason: err instanceof Error ? err.message : String(err) }); }

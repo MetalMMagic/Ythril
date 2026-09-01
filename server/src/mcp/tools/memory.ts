@@ -109,7 +109,8 @@ export const rememberTool: ToolHandler = {
     }
     // Names still go into the embedded text (they are what a search actually matches on), but they
     // are now derived FROM the ids rather than being the input.
-    const resolvedNames = (await findEntitiesByIds(ts, entityIds)).map(e => e.name);
+    // The entity-name lookup that used to feed the embedding is gone with it (A-3): one fewer round trip
+    // per remembered memory, and the names were never part of what the record says.
     // Insert-time duplicate check defaults ON for the interactive remember tool.
     // NOTE: `checkDuplicates` defaults to TRUE on this tool, and a duplicate check needs the vector
     // before the insert — so an MCP remember still embeds inline unless the caller passes
@@ -119,7 +120,7 @@ export const rememberTool: ToolHandler = {
     const remContraCheck = a['checkContradictions'] === true;
     const remDupeThreshold = typeof a['dupeThreshold'] === 'number' ? a['dupeThreshold'] : undefined;
     const remTtlDays = ttlDaysFromArgs(a);
-    const mem = await remember(ts, fact, entityIds, tags, description, props, resolvedNames, memType,
+    const mem = await remember(ts, fact, entityIds, tags, description, props, memType,
       {
         checkDuplicates: remDupeCheck, checkContradictions: remContraCheck, dupeThreshold: remDupeThreshold,
         ...(a['waitForEmbedding'] === true ? { waitForEmbedding: true } : {}),

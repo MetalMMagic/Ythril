@@ -97,8 +97,10 @@ const NOT_A_QUEUE = new Map([
  * resolved history for weeks while every checked page stayed clean.
  */
 const MANUAL_VERIFY = new Map([
-  ['A-3', { why: 'Tier 0-R is a corpus benchmark; no count says "S0+ and S0 converge at traverse 0".',
-    by: '2026-11-15' }],
+  // Empty on purpose. A-3 was the only row here — its verify was a corpus benchmark re-run, which no `grep -c`
+  // can express — and it shipped, so the exemption went with it. The rule below is what made that happen
+  // rather than leaving a stale row behind, which is exactly how `_PARKED-DECISIONS.md` accumulated resolved
+  // history for weeks.
 ]);
 
 const failures = [];

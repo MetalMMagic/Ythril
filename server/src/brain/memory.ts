@@ -32,15 +32,6 @@ import { writeFilterFor, writeOutcome } from './write-precondition.js';
 import { mirrorLegacySuppression } from './suppress-embeddings.js';
 import { NEVER_RETURNED_PROJECTION, withoutVector } from './read-projection.js';
 
-/** Resolve entity IDs to their names from the database. */
-async function resolveEntityNames(spaceId: string, entityIds: string[]): Promise<string[]> {
-  if (entityIds.length === 0) return [];
-  const docs = await col<EntityDoc>(`${spaceId}_entities`)
-    .find(asFilter<EntityDoc>({ _id: { $in: entityIds } }), { projection: { name: 1 } })
-    .toArray() as Array<{ name: string }>;
-  return docs.map(d => d.name);
-}
-
 /** Store a new memory with semantic embedding */
 export async function remember(
   spaceId: string,
@@ -49,7 +40,6 @@ export async function remember(
   tags: string[] = [],
   description?: string,
   properties?: Record<string, string | number | boolean>,
-  entityNames?: string[],
   type?: string,
   /**
    * `onValidation` rides in here rather than becoming a thirteenth positional, because the docblock below
@@ -117,8 +107,8 @@ export async function remember(
   opts?.onValidation?.(check);
   properties = withDefaults;
 
-  const names = entityNames ?? await resolveEntityNames(spaceId, entityIds);
-  const embedText = memoryEmbedText(fact, tags, names, description, properties);
+  // No entity names: a memory embeds its own content. See `memoryEmbedText` for the measurement.
+  const embedText = memoryEmbedText(fact, tags, description, properties);
 
   // ── Embed now, or hand it to the queue?
   //

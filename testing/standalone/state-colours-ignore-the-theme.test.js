@@ -110,7 +110,8 @@ describe('semantic state colours do not follow the theme', () => {
     // theme would stop working for the thing it is actually for.
     const nav = [
       ['client/src/app/pages/settings/space-dialog.styles.ts', '.sp-tab.active'],
-      ['client/src/app/pages/files/file-manager.component.ts', '.tree-node.active'],
+      // Moved with the tree itself in G-3's sixth cut; the rule is unchanged, only its file is.
+      ['client/src/app/pages/files/file-tree.component.ts', '.tree-node.active'],
       ['client/src/app/pages/brain/sortable-header.component.ts', '.sort-caret.active'],
     ];
     for (const [file, sel] of nav) {

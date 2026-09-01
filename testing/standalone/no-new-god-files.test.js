@@ -128,10 +128,16 @@ const FROZEN = {
   // core, and the widest interface of the five. Nine bindings rather than sixteen, because the three per-row
   // questions (`canRequeue`, is-renaming, is-requeueing) are answered on the page and arrive as row flags.
   //
-  // 1618 -> 1216 over five cuts. DECOMPOSE: G-3 stays open. What is left is the shell — the space selector,
-  // the breadcrumb toolbar, the new-folder and upload controls, the tree sidebar — plus every request the
-  // extracted pieces deliberately did not take with them.
-  'client/src/app/pages/files/file-manager.component.ts': 1216,
+  // 1216 -> 1118. G-3's sixth cut: the directory tree became `file-tree.component.ts` — the recursive
+  // template, six CSS rules and the `TreeNode` interface. The narrowest interface of the six (two inputs, one
+  // output), because the page keeps the tree's STATE and its requests: the sidebar sits inside an
+  // `@if (sidebarOpen())`, so a component owning the listing request would cancel it on close and lose the
+  // loaded tree. Ten characterization cases went in first, as #1114, and none needed editing.
+  //
+  // 1618 -> 1118 over six cuts. DECOMPOSE: G-3 stays open. What is left is the shell — the space selector,
+  // the breadcrumb toolbar, the new-folder and upload controls — plus every request the extracted pieces
+  // deliberately did not take with them. That remainder is a store, not another component.
+  'client/src/app/pages/files/file-manager.component.ts': 1118,
   'client/src/app/pages/schema-library/schema-library.component.ts': 1112,
   'server/src/sync/engine.ts': 966,
   // 958 -> 684: the per-type editor body moved into `schema-type-editor.component` so the Brain Overview

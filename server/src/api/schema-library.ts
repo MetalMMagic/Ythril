@@ -37,6 +37,7 @@ import { isSsrfSafeUrl, ssrfSafeFetch } from '../util/ssrf.js';
 import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
 import type { SchemaLibraryEntry, SchemaCatalog } from '../config/types.js';
+import { EndpointMemberZ } from '../spaces/body-schemas.js';
 
 export const schemaLibraryRouter = Router();
 
@@ -114,6 +115,26 @@ const LibraryTypeSchemaZ = z.object({
   // Kept in step with `TypeSchemaZ` in `api/spaces.ts` deliberately: a library entry that cannot express a field the
   // inline schema can is a surface that silently drops it.
   suppressEmbeddings: z.boolean().optional(),
+  /*
+    * ACCEPTED here, unlike `retention` below, and the distinction is shape versus policy.
+    *
+    * A retention window is a decision about one space's data, so it cannot travel with an entry that any number
+    * of spaces reference. What may sit at each end of a `reports_to` edge, and whether a subject may have more
+    * than one, are facts about the SHAPE — which is the thing a library entry exists to carry. Refusing them
+    * would make this surface silently less expressive than the inline one, which the comment above this object
+    * already names as the failure to avoid.
+    *
+    * `EndpointMemberZ` is imported rather than restated: the grammar is reserved (`entity:` accepted, other
+    * knowledge-type prefixes refused with a reason), and a second spelling of a reserved grammar is a second
+    * thing to keep in step. `PropertySchemaZ` above is exactly that, and is filed.
+    */
+  endpoints: z.object({
+    from: z.array(EndpointMemberZ).min(1).max(50).optional(),
+    to: z.array(EndpointMemberZ).min(1).max(50).optional(),
+  }).strict().refine(v => v.from !== undefined || v.to !== undefined, {
+    message: 'endpoints needs from, to, or both — an empty object constrains nothing and is more likely a typo',
+  }).optional(),
+  functional: z.boolean().optional(),
   retention: z.never({
     message: 'retention cannot be set on a schema-library entry: one entry is referenced by any number of spaces, '
       + 'and a delete window belongs to a type in a space rather than to the shape. Set it on the type after '

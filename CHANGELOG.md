@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **An edge label can declare what kind of entity sits at each end, and whether a subject may have more than
+  one.** `endpoints` and `functional` on an edge type schema, on both API doors and on a schema-library entry,
+  refused on the other three collections rather than silently ignored.
+
+  The gap was measurable: `benchmarks/INGESTION.md` declares `"from"` and `"to"` for all fourteen of its labels
+  — twenty-eight endpoint declarations with nowhere to put them — and nothing could express that `reports_to`
+  goes person to person, so a `reports_to` from a document to a deadline stored silently. `functional` is the
+  same gap for cardinality: one manager versus many colleagues, with no way to say which.
+
+  **Two arrays mean the CROSS PRODUCT** (owner ruling, 2026-08-31), and a test asserts it is ALLOWED rather than
+  leaving the shape to imply pairing. A caller who needs exactly one pair declares a label per pair.
+
+  **`UNTYPED` is a member of the vocabulary**, because an entity with no type is ordinary and refusing it by
+  silence would make the feature unusable in the spaces least finished with their typing. An untyped entity at an
+  end that names a type IS a violation, which needed `null` and `undefined` to mean different things: resolved
+  and untyped, versus the caller did not look. The first draft collapsed them and every untyped entity slipped
+  past every rule.
+
+  **Shipped with a consumer.** `POST /validate-schema` reports each stored edge that breaks either rule, with
+  `fromType`, `toType` or `functional` as the field. A declaration nothing reads is the inert-feature failure, so
+  the field was deliberately held back from an earlier commit until it had one. Write-time refusal is separate
+  and tracked. A dangling endpoint is NOT reported as a type violation — `strictLinkage: false` makes that a
+  deliberate state with its own row, and folding it in would make one setting's escape hatch look like another
+  setting's breach.
+
+  **The editor carries both through a save even though it cannot set them.** It rebuilds a type object from
+  state, so a field the state does not hold is deleted — an operator who declared endpoint types through the API
+  and later renamed a property in the UI would have lost the declaration with no message. The two are declared in
+  the editor gate's `NO_CONTROL` with reasons, and the control is filed as `G-12`: two lists side by side imply
+  pairing to most people, so that UI has to say what it does.
+
 ### Fixed
 
 - **A chrono-only retention setting was accepted on every other collection and silently ignored.** Three places

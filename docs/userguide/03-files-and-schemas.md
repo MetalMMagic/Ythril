@@ -138,6 +138,31 @@ Open **Conflicts** from the sidebar to see them. For each conflict choose what t
 
 ---
 
+### An edge label can say what it connects (3.7)
+
+A space can already list which **edge labels** it accepts. From 3.7 a label can also say what kind of thing sits
+at each end of it, and whether one thing may have more than one.
+
+Two settings, and both are for **edges only** — the other record types have no ends:
+
+- **Endpoints.** *"A `reports_to` edge goes from a person to a person."* Either end can be left open: saying only
+  that `mentions` starts at a document leaves what it points at unrestricted, which is usually what you want. An
+  entity with no type counts as `UNTYPED`, and you have to say so to allow it.
+- **One or many.** *"A person reports to at most one manager."* Set it on `reports_to` and leave it off
+  `works_with`.
+
+**If you list two things on each side, any combination of them is allowed.** Saying a `belongs_to` goes from a
+document or a person, to a project or a team, also permits a document belonging to a team. If you need exactly
+one pairing, make a second label — that is what the two labels are for.
+
+**Nothing is deleted or refused retroactively.** Declaring a rule on a label you have already used does not touch
+the edges you already have. To find out which of them break the new rule, use **Validate** on the space's Schema
+tab: it lists each edge and which end is wrong. An edge pointing at something that no longer exists is reported
+separately, as a dangling link, and not as a wrong type.
+
+> **These two are set through the API today** — there is no control for them on the Schema tab yet. The editor
+> keeps them: editing anything else about a type will not lose a declaration you made through the API.
+
 ## Schema Library
 
 The Schema Library is an instance-wide store of reusable data definitions. Instead of copying the same schema into every space, define it once here and reference it from any space.

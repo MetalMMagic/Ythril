@@ -46,10 +46,23 @@ const read = (p) => readFileSync(join(ROOT, p), 'utf8');
  * An entry here is a decision, not a shortcut: the field must still be PRESERVED across a save (which the
  * round-trip specs pin), it just has no input of its own.
  */
-// Empty since 3.0: `tagSuggestions` was the only entry, and removing the FIELD removed the reason for
-// the exemption. An entry here is a field the API accepts that the UI cannot edit — the gate below
-// checks each one still exists, so a stale exemption fails rather than quietly excusing nothing.
-const NO_CONTROL = {};
+// `tagSuggestions` was the only entry until 3.7, and removing the FIELD removed the reason for the exemption.
+// An entry here is a field the API accepts that the UI cannot edit — the gate below checks each one still
+// exists, so a stale exemption fails rather than quietly excusing nothing.
+//
+// **Declared even though the carry-through would have satisfied the check.** `typeSchemaFromState` now writes
+// both of these so a save cannot delete them, and the sweep below looks for exactly `ts.<field> =` — so the gate
+// would have gone green while its INTENT, that an operator can set the field, stayed unmet. Taking that pass
+// would be the "shape gate passes on a wrong rule" failure this repo keeps paying for. The entry says what is
+// true instead.
+const NO_CONTROL = {
+  endpoints: 'Carried through a save but not editable: a picker over the entity type names in this space, twice, with '
+    + 'an UNTYPED option — a real piece of UI design rather than a checkbox, filed as G-12. Declared via the API '
+    + 'meanwhile, and preserved by the editor so a save cannot delete it.',
+  functional: 'Carried through a save but not editable. It is a checkbox, but it belongs beside the endpoints '
+    + 'picker rather than alone — an operator setting cardinality without seeing the ends it applies to is being '
+    + 'asked half a question. Filed as G-12 with endpoints.',
+};
 
 /** The keys of the inline (non-$ref) branch of `TypeSchemaZ` in the spaces API. */
 function apiTypeSchemaKeys() {

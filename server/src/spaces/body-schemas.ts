@@ -73,6 +73,30 @@ export const PropertySchemaZ = z.object({
   message: 'mergeFn is incompatible with the declared type (numeric fns require type "number", boolean fns require type "boolean")',
 });
 
+/**
+ * One member of an `endpoints` list: an entity type name, or the explicit `UNTYPED` bucket.
+ *
+ * The `entity:` prefix is accepted and means the same as a bare name. It exists so the vocabulary can widen if
+ * memory or chrono links ever become edges — and any OTHER knowledge-type prefix is refused with a message that
+ * says why, rather than being read as a type name that happens to contain a colon.
+ *
+ * Refusing rather than stripping matters here: the object is `.strict()`, so a caller who writes
+ * `memory:note` today gets told the grammar is reserved instead of silently declaring an entity type called
+ * "memory:note" that nothing will ever match.
+ */
+export const EndpointMemberZ = z.string().min(1).max(200).refine(
+  (v) => {
+    const colon = v.indexOf(':');
+    if (colon < 0) return true;
+    return v.slice(0, colon) === 'entity';
+  },
+  {
+    message: 'an endpoints member is an entity type name, optionally written "entity:<type>". Other knowledge-type '
+      + 'prefixes (memory:, chrono:, edge:) are reserved for when those records can be edge endpoints, and are '
+      + 'refused now so they cannot be read as type names later. Use "UNTYPED" for entities with no type.',
+  },
+);
+
 export const TypeSchemaZ = z.union([
   // Reference to a schema library entry
   z.object({
@@ -94,6 +118,26 @@ export const TypeSchemaZ = z.union([
     // space setting — which is why this is a plain optional boolean and not defaulted to `false` here. A default
     // would turn "said nothing" into "said no" at the edge, and the tier resolver would never see the space.
     suppressEmbeddings: z.boolean().optional(),
+    /*
+     * Edge-collection only, and refused elsewhere rather than ignored — the same treatment
+     * `retention.contentDays` gets off chrono. Enforced in `schema-validation.ts`, which is where the
+     * collection is known; a Zod schema for one type object cannot see which collection it was filed under.
+     *
+     * `.strict()` above is why this line has to exist at all: without it every PATCH carrying `endpoints` is a
+     * 400 and the field silently does not exist.
+     */
+    endpoints: z.object({
+      from: z.array(EndpointMemberZ).min(1).max(50).optional(),
+      to: z.array(EndpointMemberZ).min(1).max(50).optional(),
+    }).strict().refine(v => v.from !== undefined || v.to !== undefined, {
+      message: 'endpoints needs from, to, or both — an empty object constrains nothing and is more likely a typo',
+    }).optional(),
+    /*
+     * Ships with `endpoints` deliberately: two attributes of one capability, and shipping them apart pays the
+     * five-places tax twice on the same object. Reported or refused follows the space `validationMode`, like
+     * every other rule here, rather than inventing a second control.
+     */
+    functional: z.boolean().optional(),
   }).strict(),
 ]);
 
@@ -111,16 +155,15 @@ export const TypeSchemaZ = z.union([
  * So an operator could set a content window on an entity type, get a 200, see it in their config, and watch it
  * do nothing for ever.
  *
- * ## A list rather than one inline guard
+ * ## One list rather than three guards
  *
- * One row today, and it is a list because the next collection-scoped field is already specified: `S-1`'s
- * `endpoints` and `functional` are edge-only for the same reason this is chrono-only, and each names something
- * the other collections do not have. Written as an inline `if`, the second is the one somebody forgets — which
- * is precisely how the first came to be documented and absent.
+ * `endpoints` and `functional` are edge-only for the same reason `contentDays` is chrono-only: each names
+ * something the other collections do not have. Written as three separate checks, the third is the one somebody
+ * forgets — which is precisely how the first came to be documented and absent for months.
  *
- * The REASON travels with the row so the refusal can say it. An operator who sets a content window on an entity
- * type is making a reasonable guess about where the setting lives rather than a typo, and "unrecognised key"
- * would leave them no better off.
+ * The REASON travels with the row so the refusal can say it. An operator who sets `endpoints` on an entity type
+ * is making a reasonable guess about where the constraint lives rather than a typo, and "unrecognised key" would
+ * leave them no better off.
  */
 const COLLECTION_SCOPED_FIELDS: ReadonlyArray<{
   /** Dotted path within one type object. */
@@ -130,6 +173,17 @@ const COLLECTION_SCOPED_FIELDS: ReadonlyArray<{
   /** Why it is scoped, in the refusal message. */
   why: string;
 }> = [
+  {
+    path: 'endpoints',
+    only: 'edge',
+    why: 'it declares what may sit at each END of a relationship, and only an edge has ends',
+  },
+  {
+    path: 'functional',
+    only: 'edge',
+    why: 'it limits how many edges with this label one subject may have, and only an edge has a subject and an '
+      + 'object',
+  },
   {
     path: 'retention.contentDays',
     only: 'chrono',

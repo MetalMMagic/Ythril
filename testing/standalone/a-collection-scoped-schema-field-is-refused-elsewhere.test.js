@@ -66,6 +66,54 @@ describe('the checker itself works before it is trusted', () => {
   });
 });
 
+describe('endpoints and functional are EDGE only', () => {
+  /*
+   * Restored after a split, and the gap is worth recording: these cases were written with the fields, taken out
+   * when the fields were deferred to their own commit, and NOT put back when the fields landed. A mutation run
+   * found it — changing `endpoints`' collection from edge to memory left every suite green.
+   *
+   * A list-driven rule needs a case per ROW, not per mechanism: the mechanism was covered by contentDays and
+   * the rows were not.
+   */
+  for (const c of ['entity', 'memory', 'chrono']) {
+    it(`endpoints is refused on ${c}`, () => {
+      const msg = reject(under(c, { endpoints: { from: ['person'] } }));
+      assert.ok(msg, `${c} accepted endpoints, which names ends that ${c} records do not have`);
+      assert.match(msg, /edge/, 'the refusal must name the collection the field belongs to');
+      assert.match(msg, new RegExp(c), 'and the collection it was wrongly set on');
+    });
+
+    it(`functional is refused on ${c}`, () => {
+      const msg = reject(under(c, { functional: true }));
+      assert.ok(msg, `${c} accepted functional`);
+      assert.match(msg, /edge/);
+    });
+  }
+
+  it('and both are accepted on edge', () => {
+    assert.equal(reject(under('edge', { endpoints: { from: ['person'], to: ['team'] } })), null);
+    assert.equal(reject(under('edge', { functional: true })), null);
+    assert.equal(reject(under('edge', { endpoints: { to: ['UNTYPED'] }, functional: false })), null);
+  });
+
+  it('an endpoints object with neither side is refused', () => {
+    // It constrains nothing, so it is far more likely a typo than an intention — the same reasoning
+    // `retention` uses for needing days, contentDays, or both.
+    assert.ok(reject(under('edge', { endpoints: {} })));
+  });
+
+  it('a reserved knowledge-type prefix is refused with a REASON', () => {
+    /*
+     * `memory:note` must not be read as an entity type that happens to contain a colon. Refused now so the
+     * vocabulary can widen later without the grammar changing under anybody already using it.
+     */
+    const msg = reject(under('edge', { endpoints: { from: ['memory:note'] } }));
+    assert.ok(msg, 'a reserved prefix was accepted as a type name');
+    assert.match(msg, /reserved/i, 'the refusal must say the grammar is reserved rather than that it is invalid');
+    assert.match(msg, /UNTYPED/, 'and point at the member for entities with no type');
+  });
+});
+
 describe('retention.contentDays is CHRONO only, which was promised and not done', () => {
   for (const c of ['entity', 'memory', 'edge']) {
     it(`contentDays is refused on ${c}`, () => {

@@ -10,6 +10,17 @@ The Schema Library is an instance-level store of reusable `TypeSchema` definitio
 
 Library entries are stored in `schema-library.json` (sibling to `config.json`). Max 500 entries per instance.
 
+**A library entry's `propertySchemas` are validated by exactly the same grammar as an inline one** — the same
+`type`/`enum`/`minimum`/`maximum`/`pattern`/`required`/`default`/`mergeFn` rules, the same `mergeFn`-versus-`type`
+compatibility check, and the same refusal of an unknown key. Documented as a guarantee rather than a
+coincidence: it used to be a second copy of the grammar in a second file, so a value one door accepted and the
+other refused was possible and would have been invisible from both. It is now one object, shared, with a test
+that parses the same values through both doors and requires the same verdict.
+
+**One field differs, deliberately: `retention` is REFUSED on a library entry.** A delete window belongs to a
+type in one space, not to a shape any number of spaces reference — and nothing resolves a `$ref` when a window
+is read, so a window stored here would never fire. The refusal says so rather than accepting and ignoring it.
+
 **Entry structure:**
 
 ```json

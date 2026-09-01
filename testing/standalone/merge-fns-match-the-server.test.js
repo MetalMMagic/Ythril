@@ -72,11 +72,24 @@ describe('the merge-function lists agree across the API and the editor', () => {
     assert.deepEqual([...clientBoolean].sort(), [...serverBoolean].sort());
   });
 
-  it('the two SERVER copies of the rule agree with each other', () => {
-    // `schema-library.ts` carries its own copy, deliberately kept in step so a library entry can express what
-    // an inline schema can. Deliberate or not, two copies still drift.
-    assert.deepEqual(setLiteral(read(LIBRARY), 'numericFns'), setLiteral(read(SERVER), 'numericFns'));
-    assert.deepEqual(setLiteral(read(LIBRARY), 'booleanFns'), setLiteral(read(SERVER), 'booleanFns'));
+  it('the server has only ONE copy of the rule now', () => {
+    /*
+     * This used to assert that the library's own copy AGREED with the inline one — the best available check
+     * while there were two, and its own comment said so: *"deliberate or not, two copies still drift"*.
+     *
+     * There is one now. `schema-library.ts` imports the shared `PropertySchemaZ` instead of restating the
+     * grammar, so agreement is not something to check — it is something that cannot fail. What is worth
+     * checking is that the second copy has not come back, which is a stronger claim than the two matching.
+     *
+     * `one-property-schema-grammar.test.js` holds the rest: that both doors return the same verdict for the
+     * same value, refusals included.
+     */
+    assert.equal(setLiteral(read(LIBRARY), 'numericFns'), null,
+      'the schema library declares its own merge-function sets again — import the grammar instead');
+    assert.equal(setLiteral(read(LIBRARY), 'booleanFns'), null,
+      'the schema library declares its own merge-function sets again — import the grammar instead');
+    assert.match(read(LIBRARY), /PropertySchemaZ.*from '\.\.\/spaces\/body-schemas\.js'/,
+      'and it no longer imports the shared one, so whatever it validates with is a copy');
   });
 
   it('string and date still accept NO merge function on the server', () => {

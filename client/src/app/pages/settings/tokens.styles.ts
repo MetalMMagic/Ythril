@@ -162,16 +162,6 @@ export const TOKENS_PAGE_STYLES = `
     .capability-table tr.active-row { background: var(--bg-elevated); }
     .cap-yes { color: var(--success); }
     .cap-no  { color: var(--text-muted); }
-    .token-status-dot {
-      display: inline-block;
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      margin-right: 5px;
-      flex-shrink: 0;
-    }
-    .dot-active { background: var(--success); }
-    .dot-expired { background: var(--error); }
     .styled-input {
       padding: 5px 8px;
       border: 1px solid var(--border);
@@ -206,9 +196,4 @@ export const TOKENS_PAGE_STYLES = `
       justify-content: space-between;
       margin-bottom: 16px;
     }
-  /* A token with no rights matrix. Muted and small: it is an absence, not a level — the pen beside it
-     is the thing to act on. Before 3.0.1 this row showed nothing at all and no pen, so a rightless
-     token could be seen and not fixed. */
-  .no-rights { margin-left: 8px; font-size: 11px; color: var(--text-muted); font-style: italic;
-               vertical-align: middle; }
 `;

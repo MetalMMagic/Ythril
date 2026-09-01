@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The token list sorts on every column but the buttons, and searches on Label and Spaces.** Owner-requested,
+  2026-09-01, with the Brain tables as the reference — so it reuses their header primitive: click a heading to
+  sort, click again to reverse, and two search boxes dock under the two headings that have them.
+
+  Sorting is client-side, and that is written down rather than left to be discovered: the token list arrives in
+  one response and never pages, so there is nothing to ask the server for. Adding `sort`/`dir` to the auth API
+  would owe all five places a capability lives, for a list that has no pages to span.
+
+  **Two orderings are decisions rather than defaults**, each with a case naming it. **Spaces sorts by reach** —
+  library-access, then fewest spaces, then unrestricted last — because sorting badge text alphabetically answers
+  no question anybody has, and because `spaces: []` means ALL spaces, so ordering by length would file the
+  broadest token as the narrowest. **Blanks stay at the bottom in both directions**: *never used* and *no
+  expiry* are absences, and sorted as values they would head an ascending list as though least-recently-used,
+  or bury the tokens expiring soonest under the permanent ones.
+
+  Filtering to nothing now says so and offers to clear the search, instead of showing the "you have no tokens
+  yet" state — which would tell an operator their tokens had been revoked.
+
+### Fixed
+
+- **Every sortable table header in the app was lower-case, alone among the tables.** The shared header renders
+  its label inside a `<button>`, and a button does not inherit `text-transform` from its `th` the way a span
+  does — nor is it part of the `font` shorthand the component was already inheriting. So the four Brain tabs
+  and the file listing had mixed-case headings while every other table in the product had uppercase ones.
+  Found by photographing the new token table, which sits directly under an uppercase one.
+
+- **A header with a search box docked under it sat higher than its neighbours.** A filtered column is taller,
+  and the default middle alignment then centres the shorter cells against it, so the labels in one header row
+  landed at two different heights. Invisible in the Brain tabs, where nearly every column has a filter;
+  obvious on the token table, where two of seven do.
+
+  Both of these measured perfectly — the right number of columns, the right number of boxes, correct borders
+  and radii — and both are only visible in a screenshot.
+
+- **The token table's empty row spanned seven of its eight columns**, so the empty state stopped one cell short
+  and the panel had a notch cut out of its right edge.
+
+### Changed
+
+- **The token list table is its own component** (`token-table.component.ts`), with its ordering and matching
+  rules in `token-table.ts` beside a spec that names each one. The page was at its frozen size ceiling, so the
+  feature could not be added to it — and the gate's message is the argument rather than the rule: every change
+  lands in the same place because that is where the code already is. What stays behind is the page's requests,
+  its create dialog and its rights editor.
+
+  The two expiry predicates moved to the shared module in the same pass, because the table's badges and the
+  page's active/expiring/expired rollup are two consumers of one rule.
+
 ### Fixed
 
 - **Characterization tests for the file tree, and they found that clicking a folder lists that directory

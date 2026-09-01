@@ -45,6 +45,13 @@ const EXEMPT: Record<string, string> = {
     'the HOST and passed in as `linkedProps` — and a type that has no properties yet, which is local form ' +
     'state the operator is in the middle of filling in. The fetch that can actually fail is the schema ' +
     "tab's library picker, which has its own failure branch (asserted separately below).",
+  'src/app/pages/settings/token-table.component.ts':
+    'Presentational: it receives its rows as an input and makes no request of its own. It cannot be rendered ' +
+    'on a failed load at all — the Tokens page chain is `@if (loading()) … @else if (loadError() !== null) ' +
+    '{ <app-error-state/> } @else { <app-token-table/> }`, so a 500 reaches the error branch and this ' +
+    'component is never created. Its two empty states are "you have no tokens yet" and "the search matched ' +
+    'nothing", and the second exists BECAUSE the distinction matters: an operator who filters to nothing must ' +
+    'not be told their tokens are gone.',
   'src/app/pages/graph/graph-linked-records.component.ts':
     'Presentational: it receives its rows as an input and makes no request of its own, so it has no failure to distinguish. ' +
     'The panel that DOES fetch (graph.component) has the error state.',

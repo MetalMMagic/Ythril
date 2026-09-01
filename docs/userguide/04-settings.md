@@ -125,6 +125,32 @@ All access to Ythril — from the web UI, REST API, or AI assistants — require
 
 Tokens can also be **space-scoped** — restricted to a specific list of spaces. Spaces outside that list are invisible to the token. Library Access tokens are always space-less.
 
+### Finding a token in the list
+
+**Every column sorts except the buttons.** Click a column heading to order the list by it; click the same one
+again to reverse it. The caret beside the heading fills in to show which column is active and which way it is
+pointing. Sorting happens in the browser — the list is not paged, so what you see is the whole of it.
+
+**Two columns have a search box docked under the heading**: **Label** and **Spaces**. Both match on any part of
+what you type, ignoring capitals, and the two narrow the list together rather than as alternatives. Clearing a
+box widens it again. Searching **Spaces** also matches the words the badge shows, so typing `all` finds the
+tokens that are not restricted to any space — the ones with the widest reach, which have no space names to
+match on.
+
+If a search leaves nothing, the table says so and offers to clear it. That is deliberately a different message
+from the empty state you see with no tokens at all: filtering to nothing does not mean your tokens are gone.
+
+**Two of the orderings are worth knowing, because a sensible-looking alternative would be wrong.**
+
+- **Spaces sorts by reach, not alphabetically.** Library-Access tokens first, then the tokens restricted to
+  fewest spaces, and the unrestricted ones last. So one click puts your broadest tokens at one end, which is
+  the question this column is usually being asked.
+- **Blanks stay at the bottom, whichever way you sort.** *Never used* and *No expiry* are absences rather than
+  values. Sorted as though they were dates, every never-used token would head the list as if it were the
+  least recently used, and a block of permanent tokens would bury the ones expiring soonest.
+
+Sorting is a view, not a setting: it is not remembered, and reloading the page returns to the server's order.
+
 ### Creating a token
 
 Click **Create Token**. The dialog asks for three things: a **label**, an optional **expiry date**, and the

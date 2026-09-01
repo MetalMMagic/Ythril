@@ -71,6 +71,55 @@ describe('docLeaf — content sensitivity', () => {
     assert.equal(docLeaf('memories', withVec), docLeaf('memories', otherVec));
   });
 
+  it('a RETENTION STAMP is excluded, because each instance computes its own', () => {
+    /*
+     * W-10. `_expireAt` is when THIS instance will delete the record, derived from its own space policy at its
+     * own write time. It is not on any `Incoming*` schema, so it is stripped on push — and it was hashed, so
+     * the sender's copy carried the key, the receiver's did not, and the two roots differed FOR EVER on
+     * identical content.
+     *
+     * The symptom is worse than a wrong number: on any network with `merkle: true`, every cycle logged a
+     * `MERKLE_DIVERGENCE` warning for every space with a retention policy. A permanent false alarm trains an
+     * operator to ignore the one signal that means data really is missing, and because the check is advisory
+     * nothing else ever contradicted it.
+     *
+     * It cannot simply replicate instead. Two peers with different retention legitimately hold different
+     * stamps, and shipping the sender's would let one instance decide when another deletes its data — which is
+     * word for word the reasoning `DERIVED_FIELDS` already gives for the embedding vector.
+     */
+    const mine = { ...base(), _expireAt: new Date('2026-10-01T00:00:00.000Z') };
+    const theirs = { ...base(), _expireAt: new Date('2027-03-01T00:00:00.000Z') };
+    assert.equal(docLeaf('memories', base()), docLeaf('memories', mine),
+      'a record with a retention stamp hashes differently from the same record without one, so a peer that '
+      + 'strips the stamp can never agree with the peer that set it');
+    assert.equal(docLeaf('memories', mine), docLeaf('memories', theirs),
+      'two instances with different retention policies disagree about identical content');
+  });
+
+  it('and so is the chrono CONTENT-window stamp, for the same reason', () => {
+    // `_contentExpireAt` is the same idea one level down: when this instance drops a chrono entry's detail
+    // while keeping the entry. Same locality, same answer — and it was missed the first time because the rule
+    // was a hand-written list rather than one derived from what the hash sees.
+    const a = { ...base(), _contentExpireAt: new Date('2026-10-01T00:00:00.000Z') };
+    const b = { ...base(), _contentExpireAt: new Date('2028-01-01T00:00:00.000Z') };
+    assert.equal(docLeaf('chrono', base()), docLeaf('chrono', a));
+    assert.equal(docLeaf('chrono', a), docLeaf('chrono', b));
+  });
+
+  it('but the MARKS a lapsed window leaves behind are still hashed', () => {
+    /*
+     * The other half, and the reason this is not simply "exclude anything expiry-shaped". `contentRedacted`
+     * and `contentRedactedAt` are what the record SAYS ABOUT ITSELF — that it had a description and the
+     * description is gone — and they replicate, as of the same release. Excluding them would make a redacted
+     * entry hash identically to one that still has its detail, which is real divergence going unreported.
+     */
+    assert.notEqual(
+      docLeaf('chrono', base()),
+      docLeaf('chrono', { ...base(), contentRedacted: true }),
+      'a redacted entry hashes the same as an unredacted one, so the check would miss content that is gone',
+    );
+  });
+
   it('the same content in a different collection produces a different leaf', () => {
     assert.notEqual(docLeaf('memories', base()), docLeaf('entities', base()));
   });

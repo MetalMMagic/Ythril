@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The divergence check reported every space with a retention policy as divergent, for ever.** The Merkle root
+  hashed `_expireAt` and `_contentExpireAt` — the retention stamps — and neither is on any ingest schema, so both
+  are stripped on push. The sender's copy carried the key, the receiver's did not, and the two roots could never
+  agree about identical content. On any network with `merkle: true` that meant a `MERKLE_DIVERGENCE` warning
+  every cycle, and because the check is advisory nothing ever contradicted it. A permanent false alarm is worse
+  than a wrong number: it teaches an operator to ignore the one signal that means data really is missing.
+
+  Excluded rather than replicated, on the same reasoning `DERIVED_FIELDS` already gave for the embedding vector:
+  each instance computes its stamp from its own policy, and shipping the sender's would let one peer decide when
+  another deletes its data.
+
+  **The marks a lapsed content window leaves behind are still hashed**, and that is the half a blanket
+  "exclude anything expiry-shaped" would have got wrong. `contentRedacted` and `contentRedactedAt` say what the
+  record IS — that it had a description and the description is gone — and they replicate. Excluded, a redacted
+  entry would hash identically to one that still has its detail: real divergence going unreported. There is a
+  case for it beside the two that drove the fix.
+
+  This empties the exemption list in `a-replicated-field-reaches-its-incoming-schema.test.js`, which is how it
+  was meant to go: an entry there names a live defect with the right answer beside it, and the gate's own
+  stale-row check refused to let the rows outlive the fix.
+
 ### Changed
 
 - **The file manager's directory tree is its own component.** Sixth cut of G-3: `file-tree.component.ts` takes

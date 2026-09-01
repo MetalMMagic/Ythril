@@ -231,14 +231,19 @@ because zod strips what a schema does not declare:
 
 None of these was reported by anybody. They were found by deriving one rule from two mechanisms that were
 already in the code: **a field the divergence check hashes must replicate.** If it does not, the sender's copy
-has the key, the receiver's does not, and the two Merkle roots differ for ever — so the sync view reports a
-space as divergent when nothing is wrong with it, which teaches an operator to ignore the one signal that
-means data really is missing.
+has the key, the receiver's does not, and the two Merkle roots differ for ever — so a network with
+`merkle: true` logs a `MERKLE_DIVERGENCE` warning every cycle for a space where nothing is wrong. A permanent
+false alarm teaches an operator to ignore the one signal that means data really is missing.
 
-Two fields are knowingly still in that state and are being fixed separately: `_expireAt` and
-`_contentExpireAt`, the retention stamps. They cannot simply replicate — each instance computes its own from
-its own policy, and shipping the sender's would let one peer decide when another deletes its data — so the
-answer is to exclude them from the hash, exactly as the vector fields already are.
+**The two retention stamps went the other way, and that is now settled.** `_expireAt` and `_contentExpireAt`
+are excluded from the hash rather than replicated. They cannot travel — each instance computes its own from its
+own policy, and shipping the sender's would let one peer decide when another deletes its data — so before this
+release, a network with `merkle: true` logged a `MERKLE_DIVERGENCE` warning every cycle for every space with a
+retention policy, when nothing was wrong with any of them.
+
+The marks a lapsed content window leaves behind, `contentRedacted` and `contentRedactedAt`, are the opposite
+case and DO replicate and DO get hashed: they say what the record is, not when the instance will act. Excluded,
+a redacted entry would hash identically to one that still has its detail — real divergence going unreported.
 
 ### Schema mismatches are reported, never refused
 
@@ -320,7 +325,14 @@ GET /api/sync/merkle?spaceId=general&networkId=net-uuid
 }
 ```
 
-Each brain-document leaf hashes the document's **content** (canonical JSON, keys sorted, embedding vectors excluded so peers running different embedding models don't diverge), not just its `_id`/`seq` — so a mismatch detects tampered content, not only missing or version-skewed documents. File leaves hash the file's SHA-256. The check is advisory: a root mismatch is reported as `MERKLE_DIVERGENCE`, it does not block sync.
+Each brain-document leaf hashes the document's **content** (canonical JSON, keys sorted), not just its
+`_id`/`seq` — so a mismatch detects tampered content, not only missing or version-skewed documents.
+
+Five fields are excluded, and the rule behind the list is worth knowing if you are comparing roots yourself:
+**a field that is hashed must replicate.** `embedding`, `embeddingModel` and `matchedText` are derived by the
+local model, so peers running different models legitimately differ. `_expireAt` and `_contentExpireAt` are
+retention stamps each instance computes from its own policy. Everything else is hashed, and everything else
+crosses the wire — a field in neither category means two peers can never agree about identical content. File leaves hash the file's SHA-256. The check is advisory: a root mismatch is reported as `MERKLE_DIVERGENCE`, it does not block sync.
 
 ### Gossip Endpoints
 

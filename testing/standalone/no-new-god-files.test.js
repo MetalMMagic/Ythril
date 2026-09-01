@@ -134,10 +134,17 @@ const FROZEN = {
   // `@if (sidebarOpen())`, so a component owning the listing request would cancel it on close and lose the
   // loaded tree. Ten characterization cases went in first, as #1114, and none needed editing.
   //
-  // 1618 -> 1118 over six cuts. DECOMPOSE: G-3 stays open. What is left is the shell — the space selector,
-  // the breadcrumb toolbar, the new-folder and upload controls — plus every request the extracted pieces
-  // deliberately did not take with them. That remainder is a store, not another component.
-  'client/src/app/pages/files/file-manager.component.ts': 1118,
+  // 1118 -> 1070. G-3's seventh cut, and the first STORE rather than a component: `file-tree.store.ts` owns the
+  // tree's state and its two requests. A store because the sidebar renders inside an `@if (sidebarOpen())`, so
+  // a component owning `listFiles` would cancel it on destroy and lose the loaded tree — a store the page
+  // provides has the page's lifetime. Navigation deliberately stayed behind: `onTreeClick` calls `navigate`
+  // and then `toggle`, which is one gesture with two effects, and the two calls side by side are what keep
+  // `G-10`'s duplicate listing findable.
+  //
+  // 1618 -> 1070 over seven cuts. DECOMPOSE: G-3 stays open. Eleven `filesApi` call sites remain — the
+  // directory listing with its load-versus-refresh rule, the preview, the extract tab, the file-meta editor —
+  // and each is a store of the same shape as this one.
+  'client/src/app/pages/files/file-manager.component.ts': 1070,
   'client/src/app/pages/schema-library/schema-library.component.ts': 1112,
   'server/src/sync/engine.ts': 966,
   // 958 -> 684: the per-type editor body moved into `schema-type-editor.component` so the Brain Overview

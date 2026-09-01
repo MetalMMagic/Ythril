@@ -92,13 +92,30 @@ const SELF = 'testing/standalone/docs-name-real-identifiers.test.js';
 function haystack() {
   const files = git(['ls-files']).split('\n').filter(Boolean)
     .filter((f) => /\.(ts|tsx|js|mjs|cjs|html|css|json|py|ya?ml|sh|toml|conf)$/.test(f) || /Dockerfile|Makefile/.test(f))
-    .filter((f) => !f.startsWith('docs/') && f !== SELF);
+    .filter((f) => !f.startsWith('docs/') && f !== SELF && !RULE_SHEETS.includes(f));
   return { files, text: files.map((f) => { try { return readFileSync(f, 'utf8'); } catch { return ''; } }).join('\n') };
 }
 
+/**
+ * `CLAUDE.md` is checked too, and it is the highest-value file in the set.
+ *
+ * It is the contributor's rule sheet — read by whoever is about to make a decision, so a stale identifier there
+ * is not a documentation problem but a decision taken against a rule that no longer holds. It also rots faster
+ * than the guides, because it cites the code it is making rules ABOUT: on 2026-09-01 an audit found a section
+ * written that morning already stale, three PRs having landed between writing it and reading it back.
+ *
+ * Added when that audit had to be done BY HAND. Everything it found mechanically was a NAME — a symbol that had
+ * moved, a file that had been split — which is the question this gate already asks, and it was asking it of
+ * every file except the one that tells people how to write code here.
+ *
+ * Excluded from the haystack below for the same reason this file is: a document that is its own haystack
+ * validates every name it invents.
+ */
+const RULE_SHEETS = ['CLAUDE.md'];
+
 /** Every backticked camelCase identifier in the docs, mapped to the files that name it. */
 function documentedIdentifiers() {
-  const docs = git(['ls-files', 'docs/*.md', 'docs/*/*.md']).split('\n').filter(Boolean);
+  const docs = [...git(['ls-files', 'docs/*.md', 'docs/*/*.md']).split('\n').filter(Boolean), ...RULE_SHEETS];
   const found = new Map();
   const IDENT = /`([a-z][a-z0-9]*(?:[A-Z][a-zA-Z0-9]*)+)`/g;
   for (const d of docs) {

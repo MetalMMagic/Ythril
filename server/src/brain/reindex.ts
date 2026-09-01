@@ -169,15 +169,8 @@ export function startReindex(plan: ReindexPlan): void {
                 if (batch.length === 0) break;
                 for (const doc of batch) {
                   try {
-                    const entityIds: string[] = Array.isArray(doc.entityIds) ? doc.entityIds : [];
-                    const entityDocs = entityIds.length > 0
-                      ? await col<EntityDoc>(`${mid}_entities`)
-                          .find(asFilter<EntityDoc>({ _id: { $in: entityIds } }), { projection: { name: 1 } })
-                          .toArray() as Array<{ name: string }>
-                      : [];
-                    const entityNames = entityDocs.map(e => e.name);
                     if (embeddingSuppressedFor(mid, 'memory', doc as unknown as Record<string, unknown>)) { suppressed++; continue; }
-                    const result = await embed(memoryEmbedText(doc.fact, doc.tags ?? [], entityNames, doc.description, doc.properties));
+                    const result = await embed(memoryEmbedText(doc.fact, doc.tags ?? [], doc.description, doc.properties));
                     await col<MemoryDoc>(`${mid}_memories`).updateOne(
                       { _id: doc._id },
                       { $set: { embedding: result.vector, embeddingModel: result.model } },
@@ -290,17 +283,10 @@ export function startReindex(plan: ReindexPlan): void {
                 if (batch.length === 0) break;
                 for (const doc of batch) {
                   try {
-                    const entityIds: string[] = Array.isArray(doc.entityIds) ? doc.entityIds : [];
-                    const entityDocs = entityIds.length > 0
-                      ? await col<EntityDoc>(`${mid}_entities`)
-                          .find(asFilter<EntityDoc>({ _id: { $in: entityIds } }), { projection: { name: 1 } })
-                          .toArray() as Array<{ name: string }>
-                      : [];
-                    const entityNames = entityDocs.map(e => e.name);
                     // `excerpt` included, or a reindex would silently re-embed every converted document
                     // without the document's own text — dropping exactly the phrases a reader searches for.
                     if (embeddingSuppressedFor(mid, 'file', doc as unknown as Record<string, unknown>)) { suppressed++; continue; }
-                    const result = await embed(fileEmbedText(doc.path, doc.tags ?? [], doc.description, doc.properties, entityNames, doc.excerpt));
+                    const result = await embed(fileEmbedText(doc.path, doc.tags ?? [], doc.description, doc.properties, doc.excerpt));
                     await col<FileMetaDoc>(`${mid}_files`).updateOne(
                       { _id: doc._id },
                       { $set: { embedding: result.vector, embeddingModel: result.model } },

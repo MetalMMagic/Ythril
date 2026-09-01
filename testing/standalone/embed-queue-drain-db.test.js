@@ -163,8 +163,7 @@ describe('brain embedding queue drains (real MongoDB, real embed() over a stub e
   });
 
   it('waitForEmbedding: true embeds inline and queues nothing', async () => {
-    const doc = await memory.remember(SPACE, 'searchable right now', [], [], undefined, undefined,
-      undefined, undefined, { waitForEmbedding: true });
+    const doc = await memory.remember(SPACE, 'searchable right now', [], [], undefined, undefined, undefined, { waitForEmbedding: true });
 
     assert.ok(Array.isArray((await memories().findOne({ _id: doc._id })).embedding),
       'the record is searchable the moment the call returns');
@@ -181,8 +180,7 @@ describe('brain embedding queue drains (real MongoDB, real embed() over a stub e
   const CREATORS = [
     {
       name: 'memory', collection: 'memories',
-      create: (opts) => memory.remember(SPACE, 'creator table memory', [], ['prod'], undefined, undefined,
-        undefined, undefined, opts),
+      create: (opts) => memory.remember(SPACE, 'creator table memory', [], ['prod'], undefined, undefined, undefined, opts),
     },
     {
       name: 'entity', collection: 'entities',
@@ -228,7 +226,7 @@ describe('brain embedding queue drains (real MongoDB, real embed() over a stub e
     // design and does not work: `ne` is not natively pushable (`brain/filter.ts:74`), so it would force
     // every recall onto an exhaustive scan, and the positive form would need a backfill of a synced
     // collection. No vector means no vector hit, natively, at zero query cost.
-    const doc = await memory.remember(SPACE, 'retired fact', [], [], undefined, undefined, undefined,
+    const doc = await memory.remember(SPACE, 'retired fact', [], [], undefined, undefined,
       undefined, { waitForEmbedding: true });
     const coll = mongo.col(`${SPACE}_memories`);
     assert.ok(Array.isArray((await coll.findOne({ _id: doc._id })).embedding),

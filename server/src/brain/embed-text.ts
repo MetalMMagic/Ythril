@@ -28,17 +28,29 @@ export function propsEmbedText(
 // (values-only properties for memory/entity; properties dropped and raw entity IDs
 // embedded for edges/chrono on reindex).
 
-/** Memory: tags + linked-entity names + fact + description + properties (key value). */
+/**
+ * Memory: tags + fact + description + properties (key value). **NOT the names of what it links to.**
+ *
+ * Those used to be prepended, and it cost 1.5 points of strict evidence recall on a 199-question benchmark —
+ * the same turn scored 0.8528 without them and 0.8369 with them. `chronoEmbedText` never did it, so chrono was
+ * the control that showed the difference was the names rather than the corpus.
+ *
+ * The reason is not subtle: a memory linked to five entities carried five names it does not say. A query naming
+ * any of them matched a record that never mentioned them, and the record's own sentence was diluted by tokens
+ * its author did not write. An EDGE is the opposite case and still embeds its endpoints — `ServiceA
+ * depends_on ServiceB` is the whole of what an edge says, and without them it is a bare label.
+ *
+ * Links are still how you REACH this record: `traverse`, and recall's own expansion with `includeMemories`,
+ * both follow them. What changed is that they no longer pretend to be its content.
+ */
 export function memoryEmbedText(
   fact: string,
   tags: string[] = [],
-  entityNames: string[] = [],
   description?: string,
   properties?: Record<string, string | number | boolean>,
 ): string {
   const parts: string[] = [];
   if (tags.length > 0) parts.push(tags.join(' '));
-  if (entityNames.length > 0) parts.push(entityNames.join(' '));
   parts.push(fact);
   if (description?.trim()) parts.push(description.trim());
   const propsText = propsEmbedText(properties);
@@ -109,7 +121,6 @@ export function fileEmbedText(
   tags: string[] = [],
   description?: string,
   properties?: Record<string, string | number | boolean>,
-  entityNames: string[] = [],
   /**
    * A converted document's own opening prose, when it has one.
    *
@@ -122,7 +133,6 @@ export function fileEmbedText(
   excerpt?: string,
 ): string {
   const parts: string[] = [filePath];
-  if (entityNames.length > 0) parts.push(entityNames.join(' '));
   if (tags.length > 0) parts.push(tags.join(' '));
   if (description?.trim()) parts.push(description.trim());
   if (properties) {

@@ -23,11 +23,22 @@ describe('embed-text builders — property keys and field coverage', () => {
     assert.equal(propsEmbedText(undefined), '');
   });
 
-  it('memory: includes tags, entity names, fact, description, and key+value properties', () => {
-    const t = memoryEmbedText('the fact', ['t1'], ['Alice'], 'desc', { occupation: 'pilot' });
+  it('memory: includes tags, fact, description, and key+value properties — and NOT linked entity names', () => {
+    /*
+     * The `['Alice']` argument that used to sit here was the linked entities' names, prepended to the content
+     * before embedding. A-3 removed it: measured on a 199-question benchmark it cost 1.5 points of strict
+     * evidence recall (0.8369 with the names, 0.8528 without), because a memory linked to five entities
+     * carried five names it does not say and a query naming any of them matched a record that never
+     * mentioned them.
+     *
+     * The negative assertion is the point of this case now. `entity-names-are-not-in-the-embed-text.test.js`
+     * guards the SHAPE — no parameter, no fold, no resolution in any of the three writers — and this guards
+     * the output, so a rebuild of the prepend from some other source still fails here.
+     */
+    const t = memoryEmbedText('the fact', ['t1'], 'desc', { occupation: 'pilot' });
     assert.match(t, /the fact/);
-    assert.match(t, /Alice/);
     assert.match(t, /occupation pilot/, `properties must fold key+value: ${t}`);
+    assert.doesNotMatch(t, /Alice/, `a memory must not embed the names of what it links to: ${t}`);
   });
 
   it('entity: includes name, type, and key+value properties', () => {
@@ -50,10 +61,13 @@ describe('embed-text builders — property keys and field coverage', () => {
     assert.match(t, /venue stadium/, `chrono properties must be included (were dropped on reindex): ${t}`);
   });
 
-  it('file: path + names + tags + description, properties values-only (documented holdout)', () => {
-    const t = fileEmbedText('docs/a.pdf', ['spec'], 'desc', { format: 'pdf' }, ['Alice']);
+  it('file: path + tags + description, properties values-only (documented holdout), and NO linked names', () => {
+    // Same removal as the memory case above, and for the same measurement: the fifth argument was the linked
+    // entities' names. A file's path, tags and description are what it says; the names of the people it was
+    // linked to are not.
+    const t = fileEmbedText('docs/a.pdf', ['spec'], 'desc', { format: 'pdf' });
     assert.match(t, /docs\/a\.pdf/);
-    assert.match(t, /Alice/);
+    assert.doesNotMatch(t, /Alice/, `a file must not embed the names of what it links to: ${t}`);
     // Files deliberately still embed property values only (no key) — pinned so a future
     // migration to propsEmbedText is a conscious, tested change.
     assert.match(t, /\bpdf\b/);

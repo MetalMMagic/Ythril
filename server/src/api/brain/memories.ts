@@ -130,7 +130,7 @@ memoriesRouter.post('/spaces/:spaceId/memories', globalRateLimit, requireSpaceAu
 
   const doc = await remember(
     targetSpace, fact, safeEntityIds, safeTags, safeDesc, safeProps,
-    undefined, safeMemoryType, Object.keys(writeOpts).length > 0 ? writeOpts : undefined,
+    safeMemoryType, Object.keys(writeOpts).length > 0 ? writeOpts : undefined,
     webhookToken(req), ttlDaysFromBody(req.body), safeId,
   );
   const body: Record<string, unknown> = { ...doc };

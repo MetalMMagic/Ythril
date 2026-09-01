@@ -279,9 +279,16 @@ export async function findEntitiesByName(spaceId: string, name: string): Promise
 /**
  * Fetch several entities by id in one query.
  *
- * Callers linking records hold ids, but the embedded text wants names — an entity's name is what a
- * semantic search actually matches on, so dropping it from the embed text would quietly degrade
- * recall for every linked record. One `$in` beats a lookup per id.
+ * One `$in` beats a lookup per id, and the projection is the shared one, so a caller cannot leak a vector.
+ *
+ * **It no longer feeds any embedding, and the sentence that used to be here was wrong.** It read: *"the
+ * embedded text wants names — an entity's name is what a semantic search actually matches on, so dropping it
+ * from the embed text would quietly degrade recall for every linked record."* Measured on a 199-question
+ * benchmark, the opposite is true: dropping the names IMPROVED strict evidence recall by 1.5 points (0.8369
+ * with them, 0.8528 without). A memory linked to five entities carried five names it does not say.
+ *
+ * Left in place because a projection-safe batch fetch by id is worth having and re-implementing it badly is
+ * the likelier failure — but do not reach for it to build embed text. See `memoryEmbedText`.
  */
 export async function findEntitiesByIds(spaceId: string, ids: readonly string[]): Promise<EntityDoc[]> {
   if (ids.length === 0) return [];

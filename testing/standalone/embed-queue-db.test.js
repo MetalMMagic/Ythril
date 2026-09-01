@@ -109,7 +109,7 @@ describe('brain embedding queue (real MongoDB, no reachable model)', { skip }, (
     // The old behaviour, kept reachable on request rather than removed. A caller who needs the record
     // searchable when the call returns must hear that it is not.
     await assert.rejects(
-      () => memory.remember(SPACE, 'must be searchable now', [], [], undefined, undefined, undefined,
+      () => memory.remember(SPACE, 'must be searchable now', [], [], undefined, undefined,
         undefined, { waitForEmbedding: true }),
       'an explicit wait must surface the embedder failure, not swallow it',
     );
@@ -119,7 +119,7 @@ describe('brain embedding queue (real MongoDB, no reachable model)', { skip }, (
     // It needs the vector BEFORE the insert so the new record cannot self-match — a question that
     // cannot be answered later. So it must fail here rather than silently skip the check.
     await assert.rejects(
-      () => memory.remember(SPACE, 'is this a duplicate', [], [], undefined, undefined, undefined,
+      () => memory.remember(SPACE, 'is this a duplicate', [], [], undefined, undefined,
         undefined, { checkDuplicates: true }),
       'checkDuplicates cannot be honoured without a vector, so it must not report "no duplicates"',
     );
@@ -162,7 +162,7 @@ describe('brain embedding queue (real MongoDB, no reachable model)', { skip }, (
     const id = `memory:${doc._id}`;
     await jobs().updateOne({ _id: id }, { $set: { status: 'failed', attempts: 99, lastError: 'old' } });
 
-    await memory.remember(SPACE, 'second version', [], [], undefined, undefined, undefined,
+    await memory.remember(SPACE, 'second version', [], [], undefined, undefined,
       undefined, undefined, undefined, undefined, doc._id);
 
     const job = await jobs().findOne({ _id: id });
@@ -174,7 +174,7 @@ describe('brain embedding queue (real MongoDB, no reachable model)', { skip }, (
   it('one job per record, however many times it is written', async () => {
     const doc = await memory.remember(SPACE, 'v1', [], []);
     for (const fact of ['v2', 'v3', 'v4']) {
-      await memory.remember(SPACE, fact, [], [], undefined, undefined, undefined,
+      await memory.remember(SPACE, fact, [], [], undefined, undefined,
         undefined, undefined, undefined, undefined, doc._id);
     }
     assert.equal(await jobs().countDocuments({}), 1,

@@ -90,8 +90,10 @@ describe('sanitiseDescription — what a chat model actually returns', () => {
 
 describe('the extractive text is not lost', () => {
   it('is a separate embedding input, so a remembered phrase still finds the parent', () => {
+    // The `[]` that used to sit between properties and the excerpt was the entity-names argument, removed in
+    // A-3: a file embedded the names of what it linked to, which cost 1.5 points of strict evidence recall.
     const withExcerpt = fileEmbedText('invoices/2026-03.pdf', ['invoice'], 'An invoice from Northwind to Acme.',
-      undefined, [], 'Payment reference NW-8831-2026 is due within 30 days.');
+      undefined, 'Payment reference NW-8831-2026 is due within 30 days.');
     assert.match(withExcerpt, /NW-8831-2026/);
     assert.match(withExcerpt, /An invoice from Northwind/);
   });
@@ -100,14 +102,14 @@ describe('the extractive text is not lost', () => {
     // The no-model case: the extractive text is the description. Embedding it twice would weight one
     // paragraph of one record against everything else in the space.
     const same = 'Payment reference NW-8831-2026 is due within 30 days.';
-    const text = fileEmbedText('invoices/2026-03.pdf', [], same, undefined, [], same);
+    const text = fileEmbedText('invoices/2026-03.pdf', [], same, undefined, same);
     assert.equal(text.split('NW-8831-2026').length - 1, 1, text);
   });
 
   it('changes nothing for a record that has no excerpt', () => {
     // Every existing file record is in this case, and a changed embedding input means a changed vector.
-    const before = fileEmbedText('a/b.pdf', ['x'], 'desc', { k: 'v' }, ['Acme']);
-    const after = fileEmbedText('a/b.pdf', ['x'], 'desc', { k: 'v' }, ['Acme'], undefined);
+    const before = fileEmbedText('a/b.pdf', ['x'], 'desc', { k: 'v' });
+    const after = fileEmbedText('a/b.pdf', ['x'], 'desc', { k: 'v' }, undefined);
     assert.equal(before, after);
   });
 

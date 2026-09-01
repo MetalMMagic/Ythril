@@ -34,15 +34,9 @@ export const COLLECTION: Record<BrainEmbedRecordType, string> = {
   memory: 'memories', entity: 'entities', edge: 'edges', chrono: 'chrono', file: 'files',
 };
 
-/** Resolve entity ids to names, for the two types whose embedding text names their links. */
-async function entityNames(spaceId: string, ids: unknown): Promise<string[]> {
-  const list = Array.isArray(ids) ? ids.filter((x): x is string => typeof x === 'string') : [];
-  if (list.length === 0) return [];
-  const docs = await col<EntityDoc>(`${spaceId}_entities`)
-    .find(asFilter<EntityDoc>({ _id: { $in: list } }), { projection: { name: 1 } })
-    .toArray() as Array<{ name: string }>;
-  return docs.map(d => d.name);
-}
+// `entityNames` was here: it resolved a record's linked entity ids to names for the memory and file builders,
+// which is the round-trip A-3 removed along with the prepend. Both of its consumers are gone, so it goes rather
+// than sitting unused — and with it one Mongo query per embedded memory and per embedded file.
 
 /**
  * The exact string this record's vector is built from.
@@ -58,7 +52,7 @@ export async function buildEmbedText(
   switch (recordType) {
     case 'memory': {
       const m = doc as unknown as MemoryDoc;
-      return memoryEmbedText(m.fact, m.tags ?? [], await entityNames(spaceId, m.entityIds), m.description, m.properties);
+      return memoryEmbedText(m.fact, m.tags ?? [], m.description, m.properties);
     }
     case 'entity': {
       const e = doc as unknown as EntityDoc;
@@ -77,10 +71,7 @@ export async function buildEmbedText(
       // `_id` IS the normalised path — `toDocId(filePath)` — so the path the vector is built from is the
       // stored one, not one the caller passed in and that may since have been renamed.
       const f = doc as unknown as FileMetaDoc & { _id: string };
-      return fileEmbedText(
-        f._id, f.tags ?? [], f.description, f.properties,
-        await entityNames(spaceId, f.entityIds), f.excerpt,
-      );
+      return fileEmbedText(f._id, f.tags ?? [], f.description, f.properties, f.excerpt);
     }
   }
 }

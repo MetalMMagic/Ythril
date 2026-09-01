@@ -27,7 +27,7 @@ import { frontierEdgeQuery, type TraverseNarrowing } from './frontier-query.js';
 import { linkedRecordsAtFrontier, entitiesLinkedFromRecords, linkedRecordName, linkedRecordType, type LinkedRecord, type LinkInclusion }
   from './link-frontier.js';
 import { getEntityById } from './entities.js';
-import { resolveEdgeEndpointNames } from './edge-endpoint-names.js';
+import { resolveEdgeEndpointNames, resolveEdgeEndsForWrite } from './edge-endpoint-names.js';
 import { storedEdgeKind } from './entity-refs.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { EdgeDoc, EntityDoc, TombstoneDoc, ChronoEntry, MemoryDoc, FileMetaDoc } from '../config/types.js';
@@ -212,7 +212,14 @@ export async function upsertEdge(
     ? properties
     : applyPropertyDefaults(meta?.typeSchemas?.edge?.[label], properties);
 
-  const check = classifyEdgeUpsertAgainst(meta, existing, { label, properties: withDefaults });
+  /*
+   * The endpoint rules need what the payload does not carry: the TYPE of the entity at each end, and how many
+   * other edges share this subject. Resolved here because this function is async and already talks to the
+   * database; `classifyEdgeUpsertAgainst` is reached from paths that legitimately cannot look, so it takes what
+   * it is given and reports nothing about what it is not.
+   */
+  const resolvedEnds = await resolveEdgeEndsForWrite(spaceId, from, to, label, opts ?? {});
+  const check = classifyEdgeUpsertAgainst(meta, existing, { label, properties: withDefaults }, resolvedEnds);
   if (check.blocked) throw new EdgeSchemaViolation(check);
   opts?.onValidation?.(check);
 
@@ -512,8 +519,16 @@ export async function updateEdgeById(
     const finalLabel = ('label' in $set ? $set['label'] : existing.label) as string;
     const finalProps = ('properties' in $unset ? {}
       : ('properties' in $set ? $set['properties'] : existing.properties)) as Record<string, string | number | boolean> | undefined;
+    /*
+     * The same resolution as the upsert path. A patch cannot move an endpoint — the triplet is the identity —
+     * but it CAN change the label, and the rules belong to the label: patching `works_with` to `reports_to`
+     * has to be checked against `reports_to`'s ends.
+     */
+    const resolvedEnds = await resolveEdgeEndsForWrite(spaceId, existing.from, existing.to, finalLabel,
+      { ...(existing.fromKind ? { fromKind: existing.fromKind } : {}),
+        ...(existing.toKind ? { toKind: existing.toKind } : {}) });
     const check = classifyEdgeUpsertAgainst(getSpaceMeta(spaceId), existing,
-      { label: finalLabel, properties: finalProps });
+      { label: finalLabel, properties: finalProps }, resolvedEnds);
     if (check.blocked) throw new SchemaViolationError(check);
     onValidation?.(check);
   }

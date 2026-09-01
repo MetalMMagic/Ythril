@@ -19,6 +19,7 @@ export const upsert_edgeTool: ToolHandler = {
     + 'IDENTITY IS THE TRIPLET `(from, to, label)` — there is no id anywhere in the call, so EVERY repeat of the same triplet is an update of the existing edge and nothing in the arguments suggests it. Properties merge over what is stored; an absent `properties` means "leave them alone", not "clear them". Change the label and you have a second, different edge rather than a renamed one.\n\n'
     + 'DIRECTION IS PART OF THE MEANING. `from`/`to` are not interchangeable, and `depends_on` reversed is a different claim about the world. A traversal follows them separately (`direction: outbound|inbound|both`), so a reversed edge is not merely untidy — it is unreachable from the side that should have found it.\n\n'
     + 'Both endpoints must be entity ids that exist when the space uses strict linkage; that is a refusal, not a dangling edge. And an edge IS a searchable record: it carries its own embedding and competes with knowledge for a recall\'s result slots, which is why `recall` has a `types` filter.\n\n'
+    + 'A LABEL CAN DICTATE WHAT SITS AT EACH END, AND HOW MANY. A space may declare that `reports_to` runs from a person to a person, and that a person reports to at most one manager; this write is REFUSED when it breaks either, with `fromType`, `toType` or `functional` as the violation field and the admitted types in the reason. Read `typeSchemas.edge` from `get_space_meta` before inventing a label, or expect the refusal to teach you the model one edge at a time. Re-writing the same triplet is never a cardinality breach — an edge is not its own duplicate — and an endpoint that resolves to nothing is not a type breach, because a space may permit dangling references.\n\n'
     + 'IF THE SPACE VALIDATES: `introduced` are violations this write caused and are what refuses it; `preExisting` were already stored, are reported, and do NOT block. Branch on `introduced`.',
   mutating: true,
   spaceRequired: true,
@@ -151,6 +152,10 @@ export const update_edgeTool: ToolHandler = {
     + 'IT CANNOT REPOINT AN EDGE. There is no `from`/`to` here, deliberately: an edge that changes either end '
     + 'is a different relationship, not an edited one, and rewriting it in place would silently invalidate '
     + 'anything already traversed through it. Delete this edge and `upsert_edge` the new one.\n\n'
+    + 'CHANGING THE `label` MOVES THE EDGE UNDER A DIFFERENT RULE. A space can declare what sits at each end of '
+    + 'a label and whether a subject may have more than one; the ends cannot change here, but the label can, so '
+    + 'the check is against the NEW label\'s rule and this update is refused when the existing ends do not fit '
+    + 'it. A violation the edge already had does not block an edit that leaves the ends and the label alone.\n\n'
     + 'MERGE, NOT REPLACE, for `tags` and `properties`. Sending `tags: ["b"]` on an edge tagged `["a"]` leaves '
     + 'it tagged `["a","b"]`. Note that `update_memory` REPLACES tags instead — one word of difference between '
     + 'tools that otherwise take the same arguments. To remove a tag or a property here, use `deleteFields` '

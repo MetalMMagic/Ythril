@@ -20,6 +20,7 @@ import { isStrictLinkage } from '../spaces/proxy.js';
 import { remember } from './memory.js';
 import { upsertEntity } from './entities.js';
 import { upsertEdge, findEdgeByTriplet } from './edges.js';
+import { resolveEdgeEndsForWrite } from './edge-endpoint-names.js';
 import { mergeTagsAndProperties, mergePropertiesOrKeep } from './merge-fields.js';
 import { createChrono } from './chrono.js';
 import type { EntityDoc, ChronoType, ChronoStatus } from '../config/types.js';
@@ -196,7 +197,21 @@ export async function bulkWrite(spaceId: string, input: BulkInput): Promise<Bulk
        * the guarantee — the distinction matters, because the enforcement is no longer THIS line's job.
        */
       const existing = await findEdgeByTriplet(spaceId, from, to, label, fromKind, toKind);
-      if (schemaFails('edge', i, validateEdge(meta ?? {}, { label, properties: mergePropertiesOrKeep(existing?.properties, properties) ?? {} }))) continue;
+      /*
+       * The endpoint facts, resolved for the REPORT as well as the write.
+       *
+       * `upsertEdge` resolves and enforces on its own; if this line handed the validator nothing, an endpoint
+       * refusal would still happen — as a throw, flattened by the catch below into a message naming the field.
+       * The item's reason would stop saying which types are allowed, which on a per-item contract is the whole
+       * value of the report. One rule, and this is the copy that would have carried less.
+       *
+       * An endpoint that does not resolve is left ABSENT rather than reported, which is what keeps bulk's own
+       * contract intact: references here are checked for shape and never for existence, so a well-formed id
+       * pointing at nothing is stored on purpose. An unresolved end cannot break an endpoint rule.
+       */
+      const resolvedEnds = await resolveEdgeEndsForWrite(spaceId, from, to, label, { fromKind, toKind });
+      if (schemaFails('edge', i, validateEdge(meta ?? {},
+        { label, properties: mergePropertiesOrKeep(existing?.properties, properties) ?? {} }, resolvedEnds))) continue;
       await upsertEdge(spaceId, from, to, label,
         typeof item['weight'] === 'number' ? item['weight'] : undefined,
         typeof item['type'] === 'string' ? item['type'] : undefined,

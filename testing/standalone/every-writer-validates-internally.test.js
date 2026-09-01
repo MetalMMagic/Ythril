@@ -63,8 +63,8 @@ const WRITERS = [
   { file: 'server/src/brain/memory.ts', fn: 'updateMemory', classifier: /classifyMemoryUpsertAgainst\(|classifyUpdateViolations\(/ },
   { file: 'server/src/brain/chrono.ts', fn: 'createChrono', classifier: /classifyChronoUpsertAgainst\(/ },
   { file: 'server/src/brain/chrono.ts', fn: 'updateChrono', classifier: /classifyChronoUpsertAgainst\(|classifyUpdateViolations\(/ },
-  { file: 'server/src/brain/edges.ts', fn: 'upsertEdge', classifier: /classifyEdgeUpsertAgainst\(/ },
-  { file: 'server/src/brain/edges.ts', fn: 'updateEdgeById', classifier: /classifyEdgeUpsertAgainst\(|classifyUpdateViolations\(/ },
+  { file: 'server/src/brain/edges.ts', fn: 'upsertEdge', classifier: /classifyEdgeUpsertAgainst\(/, resolvesEnds: true },
+  { file: 'server/src/brain/edges.ts', fn: 'updateEdgeById', classifier: /classifyEdgeUpsertAgainst\(|classifyUpdateViolations\(/, resolvesEnds: true },
 ];
 
 /** Every surface that CALLS a writer — a door. None of them may hold its own copy of the rule. */
@@ -124,6 +124,73 @@ describe('the schema is enforced inside the writer', () => {
         `${w.fn} gives a caller no way to see the warnings a warn-mode space must report`);
     });
   }
+});
+
+describe('an edge writer LOOKS UP what the endpoint rules need', () => {
+  /*
+   * The half of the edge rules that no source read of the validator can prove.
+   *
+   * `endpoints` and `functional` are decided from the entity TYPE at each end and a count of the other edges
+   * sharing a subject. Neither is in the payload, and `validateEdge` is pure — so it reports on those only
+   * when the caller hands over what it found, and reports NOTHING when the caller hands over an empty object.
+   * That default is deliberate: the bulk importer legitimately cannot resolve a forward reference, and two
+   * gates call the validator with plain objects.
+   *
+   * Which makes the silent failure available: a writer that validates, branches on `blocked`, satisfies every
+   * case above, and never resolves. Every endpoint rule in every space then passes, the dry run still reports
+   * the violations it finds in storage, and nothing is red. This is the shape of `documented but inert` — the
+   * product promises a refusal and the code declines to look.
+   */
+  for (const w of WRITERS.filter(x => x.resolvesEnds)) {
+    it(`${w.fn} resolves the endpoints before it validates`, () => {
+      const body = bodyOf(src(w.file), w.fn);
+      const at = body.indexOf('resolveEdgeEndsForWrite(');
+      assert.ok(at > 0,
+        `${w.fn} validates without resolving its endpoints, so \`endpoints\` and \`functional\` are accepted `
+        + 'declarations that refuse nothing — the schema promises a rule the write path never checks');
+      const validatedAt = body.search(/classify(?:Edge)?Upsert\w*\(|classifyUpdateViolations\(/);
+      assert.ok(at < validatedAt,
+        `${w.fn} resolves its endpoints AFTER classifying, so the classification cannot have used them`);
+    });
+
+    it(`${w.fn} passes what it resolved into the classification`, () => {
+      /*
+       * Resolving and then not passing it is the same inert state with a database round-trip attached — and it
+       * is the likelier accident of the two, because a refactor that reorders arguments leaves the call
+       * compiling. The variable has to reach the classifier's argument list.
+       */
+      const body = bodyOf(src(w.file), w.fn);
+      const assigned = /(?:const|let)\s+(\w+)\s*=\s*await\s+resolveEdgeEndsForWrite\(/.exec(body);
+      assert.ok(assigned, `${w.fn} does not keep what resolveEdgeEndsForWrite returned`);
+      const at = body.indexOf('classifyEdgeUpsertAgainst(');
+      const call = body.slice(at, body.indexOf(');', at));
+      assert.ok(call.includes(assigned[1]),
+        `${w.fn} resolves its endpoints into \`${assigned[1]}\` and then classifies without it`);
+    });
+  }
+
+  it('the bulk importer reports on the same facts it is enforced against', () => {
+    /*
+     * Bulk keeps its own `validateEdge` call, and correctly so: its contract is per-item, so it must say which
+     * index failed and carry on rather than let a throw end the batch. But that makes it the second
+     * implementation of one rule, which is the defect this repo produces most — and here the weaker copy loses
+     * something specific. Fed nothing, it reports the property violations and stays silent about the endpoint
+     * ones; the write underneath then throws, the catch flattens it to a summary naming the FIELD, and the
+     * item's reason no longer says which types are allowed.
+     *
+     * What bulk cannot do is resolve a reference to an entity created in the same payload: since the ID-IS-ID
+     * ruling a supplied id addresses an existing record but never becomes a new one's identity, so an id named
+     * by an edge in the same batch belongs to nothing. That end stays absent, and an absent end is never a
+     * violation — which is exactly how bulk keeps accepting the dangling references it accepts by design.
+     */
+    const body = bodyOf(src('server/src/brain/bulk.ts'), 'bulkWrite');
+    const at = body.indexOf('validateEdge(');
+    assert.ok(at > 0, 'bulk no longer validates an edge — if the reporting copy went away, drop this case');
+    const call = body.slice(at, body.indexOf('))', at));
+    assert.match(call, /resolve|Ends/,
+      'bulk reports edge violations from the payload alone, so an endpoint refusal reaches the caller as a '
+      + 'flattened message from the catch instead of a per-item reason naming what is allowed');
+  });
 });
 
 describe('and no door keeps its own copy of the rule', () => {

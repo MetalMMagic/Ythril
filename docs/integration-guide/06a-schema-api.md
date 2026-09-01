@@ -363,11 +363,25 @@ records can ever be edge endpoints, so it cannot later be read as a type name th
 **`functional: true` means one `to` per `(from, label)`.** Not per `(from, to)` — that is already guaranteed by
 edge identity — and not per `to`, which is the inverse relation and has its own name.
 
-**Where the rules are reported.** [`POST /api/spaces/:id/validate-schema`](06-spaces-api.md) lists every stored
-edge that breaks either rule, with `fromType`, `toType` or `functional` as the field. A **dangling** endpoint is
-not reported as a type violation: with `strictLinkage: false` that is a deliberate documented state, and
-`ErModel.danglingEdges` already has a row for it — folding it in would make one setting's escape hatch look like
-another setting's breach.
+**Where the rules are enforced.** A write that would break either one is **refused**, on every door — the two
+edge routes, `upsert_edge`, `update_edge`, and per item through `/bulk`. The violation names `fromType`, `toType`
+or `functional` as its field, and the reason says which types the label admits. In a `warn` space it is reported
+in the response instead of refused, like every other schema rule.
+
+**A rule you declare later does not freeze the edges you already have.** Refusal is on what a write INTRODUCES:
+if a stored edge already breaks the rule, an edit that leaves the ends alone still goes through, so declaring a
+schema can never make a record unmaintainable. Re-writing the same `(from, to, label)` is likewise not a
+`functional` breach — an edge is not its own duplicate.
+
+**An endpoint that resolves to nothing is not a type violation.** With `strictLinkage: false` a dangling
+reference is a deliberate documented state, and `ErModel.danglingEdges` has a row for it; a `to` that cannot be
+resolved is left unchecked rather than refused, so one setting's escape hatch is not read as another setting's
+breach. Endpoint types are also only resolved for **entity** ends: a memory, chrono or file end has no type in
+this vocabulary.
+
+**And the stored edges are still auditable.** [`POST /api/spaces/:id/validate-schema`](06-spaces-api.md) lists
+every stored edge that breaks either rule — what the enforcement cannot reach, because it was written before the
+rule existed, arrived from a peer, or came in while the space was in `warn`.
 
 Both fields are also accepted on a **schema-library** entry, unlike `retention`. The difference is shape versus
 policy: what may sit at the end of a `reports_to` is a fact about the relationship, and travels with an entry any

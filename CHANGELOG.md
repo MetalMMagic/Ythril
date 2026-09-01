@@ -9,6 +9,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A write that breaks an edge label's endpoint or cardinality rule is now refused, not merely reported later.**
+  Both edge writers enforce it, so all three doors do: the two REST routes, `upsert_edge`, `update_edge`, and per
+  item through `/bulk`. The violation names `fromType`, `toType` or `functional`, and the reason says which types
+  the label admits — a refusal that only named the field would tell a caller their write was wrong without
+  telling them what right looks like.
+
+  Reporting alone was an audit an operator had to go and ask for. Between two asks, nothing stopped the next
+  write creating exactly the violation the audit would find, which is a schema that describes the data rather
+  than governing it.
+
+  **The rules need facts that are not in the payload** — the entity type at each end, and how many other edges
+  carry the label from the same subject — so the writer looks them up and hands over what it FOUND. The validator
+  stays pure and synchronous, which is what lets two source gates call it with plain objects. An absent fact is
+  never a violation, deliberately: an endpoint that resolves to nothing is a dangling reference, which
+  `strictLinkage: false` makes a documented state with its own report, and reporting it here would let one
+  setting's escape hatch read as another setting's breach.
+
+  **A rule declared later does not freeze the edges it describes.** The refusal is on what a write INTRODUCES, so
+  an edit that leaves the ends alone still goes through — the same `preExisting`/`introduced` split that already
+  keeps a tightened property schema from making its own records unmaintainable. Re-writing the same
+  `(from, to, label)` is likewise not a cardinality breach: the count excludes the edge being written, without
+  which a `functional` label could be written once and never touched again.
+
+  **The bulk importer's own per-item check is fed the same facts.** It keeps its copy because its contract is to
+  name the index that failed and carry on rather than let a throw end the batch — but fed nothing it would have
+  reported the property violations, stayed silent on the endpoint ones, and let the write underneath throw a
+  summary that the catch flattens. The caller would have learnt which field was wrong and not what was allowed.
+
+  Two gates hold it. A database suite proves the write path actually looks — a source read cannot tell a
+  resolution that happens from one that is written and never reached — and the writer sweep now asserts each edge
+  writer resolves BEFORE it classifies and passes what it resolved. Without the second, a writer that validates,
+  branches correctly and never resolves satisfies every other case while every endpoint rule in every space
+  silently passes.
+
 - **An edge label can declare what kind of entity sits at each end, and whether a subject may have more than
   one.** `endpoints` and `functional` on an edge type schema, on both API doors and on a schema-library entry,
   refused on the other three collections rather than silently ignored.
@@ -29,8 +63,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   **Shipped with a consumer.** `POST /validate-schema` reports each stored edge that breaks either rule, with
   `fromType`, `toType` or `functional` as the field. A declaration nothing reads is the inert-feature failure, so
-  the field was deliberately held back from an earlier commit until it had one. Write-time refusal is separate
-  and tracked. A dangling endpoint is NOT reported as a type violation — `strictLinkage: false` makes that a
+  the field was deliberately held back from an earlier commit until it had one. Write-time refusal followed in
+  the same release, below. A dangling endpoint is NOT reported as a type violation — `strictLinkage: false` makes that a
   deliberate state with its own row, and folding it in would make one setting's escape hatch look like another
   setting's breach.
 

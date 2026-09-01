@@ -4,10 +4,13 @@
  * Split out of the api/brain.ts monolith (A17.3); handlers are unchanged.
  */
 import { Router } from 'express';
-import { assertRefsResolve } from '../../brain/entity-refs.js';
+import { assertRefsResolve, edgeEndpointKind, collectionForRefKind, endpointNameField } from '../../brain/entity-refs.js';
+import { REF_KINDS } from '../../config/types-knowledge.js';
+import type { RefKind } from '../../config/types-knowledge.js';
 import { requireSpaceAuth, denyReadOnly } from '../../auth/middleware.js';
 import { globalRateLimit, bulkWipeRateLimit } from '../../rate-limit/middleware.js';
-import { listEdges, deleteEdge, upsertEdge, getEdgeById, updateEdgeById, bulkDeleteEdges, EdgeSchemaViolation } from '../../brain/edges.js';
+import { listEdges, deleteEdge, upsertEdge, getEdgeById, updateEdgeById, EdgeSchemaViolation } from '../../brain/edges.js';
+import { bulkDeleteEdges } from '../../brain/edge-bulk-delete.js';
 import { EdgeIdentityTaken } from '../../brain/edge-rekey.js';
 import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } from '../../brain/delete-fields.js';
 import { getConfig } from '../../config/loader.js';
@@ -40,7 +43,7 @@ edgesRouter.post('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, de
   }
   const wt = resolveWriteTarget(spaceId, req.query['targetSpace'] as string | undefined);
   if (!wt.ok) { res.status(400).json({ error: wt.error }); return; }
-  const { from, to, label, weight, type, description, properties, tags } = req.body ?? {};
+  const { from, to, label, weight, type, description, properties, tags, fromKind, toKind } = req.body ?? {};
   if (!from || typeof from !== 'string') {
     res.status(400).json({ error: '`from` string required' });
     return;
@@ -51,10 +54,24 @@ edgesRouter.post('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, de
     res.status(400).json({ error: '`to` string required' });
     return;
   }
+  /*
+   * The endpoint kinds are validated BEFORE strict linkage runs, and unconditionally — a kind that is not one
+   * of the four is a malformed request in every space, strict or not, and letting it through would store a
+   * value nothing can resolve.
+   */
+  for (const [field, value] of [['fromKind', fromKind], ['toKind', toKind]] as const) {
+    if (value === undefined) continue;
+    if (typeof value !== 'string' || !(REF_KINDS as readonly string[]).includes(value)) {
+      res.status(400).json({ error: `\`${field}\` must be one of: ${REF_KINDS.join(', ')}` });
+      return;
+    }
+  }
   if (isStrictLinkage(wt.target)) {
     try {
-      await assertRefsResolve(wt.target, 'from', 'entity', [from as string]);
-      await assertRefsResolve(wt.target, 'to', 'entity', [to as string]);
+      // Each endpoint is resolved in the collection its own kind names. Passing `'entity'` here regardless —
+      // which is what this did — would refuse every file-ended edge with "expects entity IDs (UUID v4)".
+      await assertRefsResolve(wt.target, 'from', edgeEndpointKind(fromKind as RefKind | undefined), [from as string]);
+      await assertRefsResolve(wt.target, 'to', edgeEndpointKind(toKind as RefKind | undefined), [to as string]);
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
       return;
@@ -112,7 +129,12 @@ edgesRouter.post('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, de
       wt.target, from.trim(), to.trim(), label.trim(), weight, type?.trim(),
       typeof description === 'string' ? description : undefined, safeProps, safeTags,
       webhookToken(req), ttlDaysFromBody(req.body),
-      { ...(waitForEmbedding === true ? { waitForEmbedding: true } : {}), onValidation: c => { check = c; } },
+      {
+        ...(waitForEmbedding === true ? { waitForEmbedding: true } : {}),
+        ...(fromKind !== undefined ? { fromKind: fromKind as RefKind } : {}),
+        ...(toKind !== undefined ? { toKind: toKind as RefKind } : {}),
+        onValidation: c => { check = c; },
+      },
     );
   } catch (err) {
     if (err instanceof EdgeSchemaViolation) {
@@ -176,15 +198,37 @@ edgesRouter.get('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, asy
   // Names are resolved for the PAGE, not for a whole per-member fetch: enriching rows that the window discards is work
   // whose result is thrown away.
   const all = page.rows as unknown as Awaited<ReturnType<typeof listEdges>>;
-  // Batch-resolve entity names for from/to so the client can display names instead of raw UUIDs
-  const allEntityIds = [...new Set(all.flatMap(e => [e.from, e.to]))];
+  /*
+   * Batch-resolve each endpoint's display name so the client shows a name rather than a raw id.
+   *
+   * Grouped BY KIND, one `$in` per kind that actually appears. It used to be a single lookup in
+   * `${mid}_entities`, which was right while every endpoint was an entity and shows a bare UUID for a chrono
+   * or memory endpoint now that they can be one. The kind also decides which FIELD is the name — an entity
+   * has `name`, a chrono entry `title`, a memory `fact` — so one query could not have served them anyway.
+   *
+   * A file needs no lookup at all: its id IS its path, and `fromName` stays absent so the client falls back
+   * to showing that path, which is what a reader wants to see.
+   */
   const nameMap = new Map<string, string>();
-  if (allEntityIds.length) {
-    const nameDocs = await collectAcrossMembers(spaceId, mid =>
-      col<{ _id: string; name: string }>(`${mid}_entities`)
-        .find(asFilter<{ _id: string; name: string }>({ _id: { $in: allEntityIds } }), { projection: { _id: 1, name: 1 } })
+  const byKind = new Map<'entity' | 'memory' | 'chrono', Set<string>>();
+  for (const e of all) {
+    for (const [id, kind] of [[e.from, edgeEndpointKind(e.fromKind)], [e.to, edgeEndpointKind(e.toKind)]] as const) {
+      if (kind === 'file') continue;
+      if (!byKind.has(kind)) byKind.set(kind, new Set());
+      byKind.get(kind)!.add(id);
+    }
+  }
+  for (const [kind, ids] of byKind) {
+    if (ids.size === 0) continue;
+    const field = endpointNameField(kind);
+    const docs = await collectAcrossMembers(spaceId, mid =>
+      col<Record<string, unknown>>(`${mid}_${collectionForRefKind(kind)}`)
+        .find(asFilter<Record<string, unknown>>({ _id: { $in: [...ids] } }), { projection: { _id: 1, [field]: 1 } })
         .toArray());
-    for (const d of nameDocs) nameMap.set(String(d._id), d.name);
+    for (const d of docs) {
+      const value = d[field];
+      if (typeof value === 'string' && value.trim()) nameMap.set(String(d['_id']), value.trim());
+    }
   }
   const enriched = all.map(e => ({ ...e, fromName: nameMap.get(e.from), toName: nameMap.get(e.to) }));
   let total = 0;
@@ -227,7 +271,7 @@ edgesRouter.patch('/spaces/:spaceId/edges/:id', globalRateLimit, requireSpaceAut
   if (!wt.ok) { res.status(400).json({ error: wt.error }); return; }
   const ifMatch = ifMatchFromRequest(req);
   if (!ifMatch.ok) { res.status(400).json({ error: ifMatch.error }); return; }
-  const { label, description, tags, properties, weight, type, deleteFields } = req.body ?? {};
+  const { label, description, tags, properties, weight, type, deleteFields, fromKind, toKind } = req.body ?? {};
   // Validate deleteFields
   const dfResult = validateDeleteFields(deleteFields);
   if (!dfResult.ok) { res.status(400).json({ error: dfResult.error }); return; }
@@ -235,7 +279,7 @@ edgesRouter.patch('/spaces/:spaceId/edges/:id', globalRateLimit, requireSpaceAut
   if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
   const ttlDaysProvided = !!req.body && typeof req.body === 'object' && 'ttlDays' in req.body;
   const dfPaths: string[] | undefined = Array.isArray(deleteFields) && deleteFields.length > 0 ? deleteFields : undefined;
-  const updates: { label?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; weight?: number; type?: string; suppressEmbeddings?: boolean } = {};
+  const updates: { label?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; weight?: number; type?: string; suppressEmbeddings?: boolean; fromKind?: RefKind; toKind?: RefKind } = {};
   if (label !== undefined) {
     if (typeof label !== 'string' || !label.trim()) { res.status(400).json({ error: '`label` must be a non-empty string' }); return; }
     updates.label = label.trim();
@@ -259,6 +303,17 @@ edgesRouter.patch('/spaces/:spaceId/edges/:id', globalRateLimit, requireSpaceAut
   if (type !== undefined) {
     if (typeof type !== 'string') { res.status(400).json({ error: '`type` must be a string' }); return; }
     updates.type = type.trim();
+  }
+  // Correcting the kind of an endpoint, with the same refusal text and the same allowed set as the create
+  // door — a `400` on one door and a silent default on the other makes the behaviour depend on which client
+  // the caller picked.
+  for (const [field, value] of [['fromKind', fromKind], ['toKind', toKind]] as const) {
+    if (value === undefined) continue;
+    if (typeof value !== 'string' || !(REF_KINDS as readonly string[]).includes(value)) {
+      res.status(400).json({ error: `\`${field}\` must be one of: ${REF_KINDS.join(', ')}` });
+      return;
+    }
+    updates[field] = value as RefKind;
   }
   // A boolean, and the ONLY field a caller may send on its own — retiring a record from vector search is a
   // complete edit in itself. It was wired into the update functions and into no PATCH handler, so it

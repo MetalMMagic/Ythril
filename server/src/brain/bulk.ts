@@ -27,7 +27,9 @@ import type { EntityDoc, ChronoType, ChronoStatus } from '../config/types.js';
 /** Max items processed per collection in a single bulk call. */
 export const BULK_MAX_PER_TYPE = 500;
 
-import { UUID_V4_RE } from './entity-refs.js';
+import { UUID_V4_RE, edgeEndpointKind, isWellFormedRef } from './entity-refs.js';
+import { REF_KINDS } from '../config/types-knowledge.js';
+import type { RefKind } from '../config/types-knowledge.js';
 import { NEVER_RETURNED_PROJECTION } from './read-projection.js';
 const CHRONO_STATUSES = new Set<ChronoStatus>(['upcoming', 'active', 'completed', 'overdue', 'cancelled']);
 const MAX_FACT_LENGTH = 50_000;
@@ -159,10 +161,26 @@ export async function bulkWrite(spaceId: string, input: BulkInput): Promise<Bulk
     const from = typeof item['from'] === 'string' ? item['from'].trim() : '';
     const to = typeof item['to'] === 'string' ? item['to'].trim() : '';
     const label = typeof item['label'] === 'string' ? item['label'].trim() : '';
+    /*
+     * The endpoint kinds, and they have to be read HERE rather than left to `upsertEdge`, because the shape
+     * check two lines down is this door's own copy: a `file` endpoint is a path, so a bulk import of
+     * file-ended edges would be refused item by item against a UUID pattern while the same edges go through
+     * one at a time on the other two doors.
+     *
+     * An unknown kind is an item error rather than a throw — bulk's contract is per-item, so it says which
+     * index is wrong and carries on with the rest.
+     */
+    const rawFromKind = item['fromKind'];
+    const rawToKind = item['toKind'];
+    const badKind = ([['fromKind', rawFromKind], ['toKind', rawToKind]] as const)
+      .find(([, v]) => v !== undefined && (typeof v !== 'string' || !(REF_KINDS as readonly string[]).includes(v)));
+    if (badKind) { errors.push({ type: 'edge', index: i, reason: `\`${badKind[0]}\` must be one of: ${REF_KINDS.join(', ')}` }); continue; }
+    const fromKind = edgeEndpointKind(rawFromKind as RefKind | undefined);
+    const toKind = edgeEndpointKind(rawToKind as RefKind | undefined);
     if (!from) { errors.push({ type: 'edge', index: i, reason: 'missing required field: from' }); continue; }
-    if (strict && !UUID_V4_RE.test(from)) { errors.push({ type: 'edge', index: i, reason: '`from` must be a valid UUID v4 (entity ID), not a name' }); continue; }
+    if (strict && !isWellFormedRef(fromKind, from)) { errors.push({ type: 'edge', index: i, reason: `\`from\` must be a valid ${fromKind} reference, not a name` }); continue; }
     if (!to) { errors.push({ type: 'edge', index: i, reason: 'missing required field: to' }); continue; }
-    if (strict && !UUID_V4_RE.test(to)) { errors.push({ type: 'edge', index: i, reason: '`to` must be a valid UUID v4 (entity ID), not a name' }); continue; }
+    if (strict && !isWellFormedRef(toKind, to)) { errors.push({ type: 'edge', index: i, reason: `\`to\` must be a valid ${toKind} reference, not a name` }); continue; }
     if (!label) { errors.push({ type: 'edge', index: i, reason: 'missing required field: label' }); continue; }
     const properties = optProps(item['properties']);
     const ttlDays = bulkTtlDays(item['ttlDays']);
@@ -182,7 +200,11 @@ export async function bulkWrite(spaceId: string, input: BulkInput): Promise<Bulk
         typeof item['weight'] === 'number' ? item['weight'] : undefined,
         typeof item['type'] === 'string' ? item['type'] : undefined,
         typeof item['description'] === 'string' ? item['description'] : undefined,
-        properties, optStrArray(item['tags']), undefined, ttlDays);
+        properties, optStrArray(item['tags']), undefined, ttlDays,
+        {
+          ...(rawFromKind !== undefined ? { fromKind } : {}),
+          ...(rawToKind !== undefined ? { toKind } : {}),
+        });
       if (existing) updated.edges++; else inserted.edges++;
     } catch (err) { errors.push({ type: 'edge', index: i, reason: err instanceof Error ? err.message : String(err) }); }
   }

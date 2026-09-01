@@ -41,7 +41,7 @@ import { embed } from './embedding.js';
 import { embeddingSuppressedFor } from './suppress-embeddings.js';
 import { memoryEmbedText, entityEmbedText, edgeEmbedText, chronoEmbedText, fileEmbedText } from './embed-text.js';
 import { clearReindexFlag } from '../spaces/_shared.js';
-import { resolveEdgeEntityNames } from './edges.js';
+import { resolveEdgeEndpointNames } from './edge-endpoint-names.js';
 import { reindexInProgress } from '../metrics/registry.js';
 import { log } from '../util/log.js';
 import type { SpaceConfig, MemoryDoc, EntityDoc, EdgeDoc, ChronoEntry, FileMetaDoc } from '../config/types.js';
@@ -225,7 +225,7 @@ export function startReindex(plan: ReindexPlan): void {
                   try {
                     // Resolve from/to to entity NAMES (not IDs) and include properties — matching
                     // edgeEmbedText so a reindex reproduces exactly what upsertEdge embedded.
-                    const [fromName, toName] = await resolveEdgeEntityNames(mid, doc.from, doc.to);
+                    const [fromName, toName] = await resolveEdgeEndpointNames(mid, doc.from, doc.to, doc.fromKind, doc.toKind);
                     if (embeddingSuppressedFor(mid, 'edge', doc as unknown as Record<string, unknown>)) { suppressed++; continue; }
                     const result = await embed(edgeEmbedText(fromName, doc.label, toName, doc.tags ?? [], doc.type, doc.description, doc.properties));
                     await col<EdgeDoc>(`${mid}_edges`).updateOne(

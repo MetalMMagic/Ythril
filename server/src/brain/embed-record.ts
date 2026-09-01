@@ -18,7 +18,7 @@
 import { col, asFilter } from '../db/mongo.js';
 import { embed } from './embedding.js';
 import { memoryEmbedText, entityEmbedText, edgeEmbedText, chronoEmbedText, fileEmbedText } from './embed-text.js';
-import { resolveEdgeEntityNames } from './edges.js';
+import { resolveEdgeEndpointNames } from './edge-endpoint-names.js';
 import { embeddingSuppressedFor } from './suppress-embeddings.js';
 import { getSpaceMeta } from '../spaces/schema-validation.js';
 import type { KnowledgeType } from '../config/types-knowledge.js';
@@ -60,7 +60,7 @@ export async function buildEmbedText(
     }
     case 'edge': {
       const e = doc as unknown as EdgeDoc;
-      const [fromName, toName] = await resolveEdgeEntityNames(spaceId, e.from, e.to);
+      const [fromName, toName] = await resolveEdgeEndpointNames(spaceId, e.from, e.to, e.fromKind, e.toKind);
       return edgeEmbedText(fromName, e.label, toName, e.tags ?? [], e.type, e.description, e.properties);
     }
     case 'chrono': {

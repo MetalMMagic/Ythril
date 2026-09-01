@@ -94,7 +94,7 @@ export interface TokenRecord {
 // Moved to `types-knowledge.ts` — a LEAF that imports nothing, so it cannot become half of a cycle. See that
 // file for why that matters. Imported as well as re-exported, because `export ... from` does not bring a name
 // into local scope and `TtlBucket` below is built from `KnowledgeType`.
-import type { MergeFn, NumericMergeFn, BooleanMergeFn, PropertySchema, TypeSchema, ValidationMode, KnowledgeType, SpaceMeta, StampSkewable } from './types-knowledge.js';
+import type { MergeFn, NumericMergeFn, BooleanMergeFn, PropertySchema, TypeSchema, ValidationMode, KnowledgeType, RefKind, SpaceMeta, StampSkewable } from './types-knowledge.js';
 export type { MergeFn, NumericMergeFn, BooleanMergeFn, PropertySchema, TypeSchema, ValidationMode, KnowledgeType, SpaceMeta };
 
 /**
@@ -1456,6 +1456,28 @@ export interface EdgeDoc extends StampSkewable {
   spaceId: string;
   from: string;
   to: string;
+  /**
+   * What kind of record each endpoint is — because `from: "abc"` is only unambiguous while every endpoint is
+   * an entity, and that stopped being true the moment a file's meta record could be one end of a link.
+   *
+   * The case that forced it: a photo taken at a party. Its file meta wants to link to the people in it
+   * (entities), to the party itself (a chrono event), and to what happened there (a memory). Three
+   * collections, and `to` carries a bare id, so nothing in the edge says which one to look in. Guessing by
+   * trying each collection in turn is not a fix — two records in different collections may legitimately share
+   * an id, and then the answer depends on the order the code happened to try them.
+   *
+   * **Absent means `entity`.** Not a default written on write — genuinely absent, and read as entity wherever
+   * it is consumed. Every edge in every existing space means exactly that, and a synced collection must not
+   * be backfilled: a data migration that rewrites replicated documents ships a whole space's worth of edges
+   * to every peer as changes. Lazy and self-healing is the standing rule for anything that syncs, and here
+   * the lazy reading costs nothing because it is a two-line coalesce at the point of use.
+   *
+   * A kind that is *stated* and wrong is a different matter from one that is absent, and it is refused:
+   * `assertRefsResolve` looks the endpoint up in the collection the kind names, so an edge whose `toKind` says
+   * `chrono` and whose `to` is an entity id is rejected at the write rather than stored as a dead link.
+   */
+  fromKind?: RefKind;
+  toKind?: RefKind;
   label: string;
   type?: string;
   weight?: number;

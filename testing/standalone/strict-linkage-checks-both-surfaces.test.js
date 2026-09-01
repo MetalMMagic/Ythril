@@ -22,6 +22,22 @@
  * This gate is written against BOTH surfaces for that reason. Pinning only the MCP tool would leave the
  * next surface free to reintroduce it.
  *
+ * ## What 3.7 changed, and why the rule got STRONGER rather than weaker
+ *
+ * This gate used to read *"resolves to an entity"*, asserting the literal `'entity'` as the second argument on
+ * both surfaces. That was right while both endpoints were always entities. From 3.7 an endpoint declares its
+ * kind, and the literal is now exactly what must NOT be there: passing `'entity'` regardless refuses a
+ * legitimate file endpoint with a message about UUIDs, and looks a chrono endpoint up in the wrong collection.
+ *
+ * So the requirement is now *the endpoint is looked up in the collection its own kind names*. That still fails
+ * on the canary's original defect — a shape check with no existence check — and additionally fails on
+ * hardcoding a kind. The old form is asserted ABSENT, because it is the failure now.
+ *
+ * The bulk importer is deliberately not on this list, and `assertRefsResolve`'s own docblock says why: a bulk
+ * payload may reference a record created earlier in the same payload, so a database check would refuse valid
+ * forward references. Bulk keeps the shape check alone, and
+ * `an-edge-endpoint-kind-is-accepted-on-every-door` holds that ITS shape check honours the kind.
+ *
  * Run: node --test testing/standalone/strict-linkage-checks-both-surfaces.test.js
  */
 import { describe, it } from 'node:test';
@@ -46,18 +62,18 @@ describe('strict linkage is enforced by existence on every edge write surface', 
   it('the detector distinguishes a shape check from an existence check', () => {
     // Mutation-check the matcher: the whole finding is that one surface had the first and not the second,
     // so a gate that cannot tell them apart would have passed on the bug.
-    const shapeOnly = "if (!UUID_V4_RE.test(to)) throw new Error('bad');";
-    const existence = "await assertRefsResolve(wt.target, 'to', 'entity', [to]);";
+    const shapeOnly = "if (!isWellFormedRef(toKind, to)) throw new Error('bad');";
+    const existence = "await assertRefsResolve(wt.target, 'to', toKind, [to]);";
     assert.equal(/assertRefsResolve\([^)]*'to'/.test(shapeOnly), false);
     assert.ok(/assertRefsResolve\([^)]*'to'/.test(existence));
   });
 
-  it('both surfaces check that `from` AND `to` resolve to an entity', () => {
+  it('both surfaces check that `from` AND `to` EXIST', () => {
     const missing = [];
     for (const [surface, file] of Object.entries(EDGE_WRITE_SURFACES)) {
       const src = code(file);
       for (const side of ['from', 'to']) {
-        const re = new RegExp(`assertRefsResolve\\([^)]*'${side}'[^)]*'entity'`);
+        const re = new RegExp(`assertRefsResolve\\([^)]*'${side}'`);
         if (!re.test(src)) missing.push(`${surface}.${side}`);
       }
     }
@@ -65,6 +81,25 @@ describe('strict linkage is enforced by existence on every edge write surface', 
       'A UUID v4 that names a chrono passes a shape check and stores an edge that every graph query '
       + 'ignores — the caller gets an id for a link that does not exist. Shape is not existence: use '
       + 'assertRefsResolve on BOTH endpoints, as the REST route always has.');
+  });
+
+  it('and each endpoint is looked up in the collection its own KIND names', () => {
+    /*
+     * The half 3.7 added. A hardcoded `'entity'` is not a smaller version of the guarantee, it is a different
+     * and wrong one: a file endpoint is a path, so it fails a UUID check and is absent from the entities
+     * collection — every legitimate file-ended edge would be refused, on a field the document, the sync
+     * schema and both guides all say is supported.
+     */
+    for (const [surface, file] of Object.entries(EDGE_WRITE_SURFACES)) {
+      const src = code(file);
+      assert.doesNotMatch(src, /assertRefsResolve\([^)]*'(from|to)'[^)]*'entity'/,
+        `${surface} resolves an edge endpoint as an entity regardless of the kind the edge declares`);
+      for (const side of ['from', 'to']) {
+        const re = new RegExp(`assertRefsResolve\\([^)]*'${side}',\\s*(${side}Kind|edgeEndpointKind\\()`);
+        assert.match(src, re,
+          `${surface} does not pass the declared kind when resolving \`${side}\``);
+      }
+    }
   });
 
   it('a shape check alone is never the whole guard', () => {

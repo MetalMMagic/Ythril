@@ -27,8 +27,10 @@ import { frontierEdgeQuery, type TraverseNarrowing } from './frontier-query.js';
 import { linkedRecordsAtFrontier, entitiesLinkedFromRecords, linkedRecordName, linkedRecordType, type LinkedRecord, type LinkInclusion }
   from './link-frontier.js';
 import { getEntityById } from './entities.js';
+import { resolveEdgeEndpointNames } from './edge-endpoint-names.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { EdgeDoc, EntityDoc, TombstoneDoc, ChronoEntry, MemoryDoc, FileMetaDoc } from '../config/types.js';
+import type { RefKind } from '../config/types-knowledge.js';
 import { tagContains, textContains, propertiesValueContains, PROPERTIES_SCAN_MAX_MS } from './tag-filter.js';
 import { writeFilterFor, writeOutcome } from './write-precondition.js';
 import { mirrorLegacySuppression } from './suppress-embeddings.js';
@@ -105,15 +107,6 @@ export function syntheticEdgeId(label: string, from: string, to: string): string
 }
 
 
-/** Resolve entity IDs to names for embedding. Falls back to the raw ID if the entity is not found. */
-export async function resolveEdgeEntityNames(spaceId: string, fromId: string, toId: string): Promise<[string, string]> {
-  const [fromDoc, toDoc] = await Promise.all([
-    getEntityById(spaceId, fromId),
-    getEntityById(spaceId, toId),
-  ]);
-  return [fromDoc?.name ?? fromId, toDoc?.name ?? toId];
-}
-
 /**
  * Upsert a directed edge (from → to with label).
  * One edge per (from, to, label) triplet.
@@ -175,7 +168,19 @@ export async function upsertEdge(
    * second time for presentation: that would be two `findEdgeByTriplet` lookups per write, and it is how the
    * rule ended up written twice in the first place.
    */
-  opts?: { waitForEmbedding?: boolean; onValidation?: (check: UpdateValidation) => void },
+  /**
+   * `fromKind`/`toKind` ride in here rather than as a twelfth and thirteenth positional, for the reason the
+   * note above already gives. They are data about the record rather than write options, which is not ideal —
+   * but a signature this long is how a caller comes to pass `description` where `type` was meant, and that is
+   * the worse failure. Omitting them means both endpoints are entities, which is what every existing caller
+   * means.
+   */
+  opts?: {
+    waitForEmbedding?: boolean;
+    onValidation?: (check: UpdateValidation) => void;
+    fromKind?: RefKind;
+    toKind?: RefKind;
+  },
 ): Promise<EdgeDoc> {
   const collection = col<EdgeDoc>(`${spaceId}_edges`);
   const existing = await findEdgeByTriplet(spaceId, from, to, label);
@@ -228,7 +233,7 @@ export async function upsertEdge(
   // `label`, not `type`, which `schemaKeyFor` already encodes; passing `type` here would look up a schema
   // that is never there and silently never suppress.
   if (opts?.waitForEmbedding === true && !embeddingSuppressedFor(spaceId, 'edge', { label })) {
-    const [fromName, toName] = await resolveEdgeEntityNames(spaceId, from, to);
+    const [fromName, toName] = await resolveEdgeEndpointNames(spaceId, from, to, opts?.fromKind, opts?.toKind);
     const embedText = edgeEmbedText(fromName, label, toName, effectiveTags, effectiveType, effectiveDesc, effectiveProps);
     const embResult = await embed(embedText);
     embeddingFields = { embedding: embResult.vector, embeddingModel: embResult.model, matchedText: embedText };
@@ -236,6 +241,8 @@ export async function upsertEdge(
 
   if (existing) {
     const $set: Record<string, unknown> = { updatedAt: now, seq, ...embeddingFields };
+    if (opts?.fromKind !== undefined) $set['fromKind'] = opts.fromKind;
+    if (opts?.toKind !== undefined) $set['toKind'] = opts.toKind;
     if (weight !== undefined) $set['weight'] = weight;
     if (type !== undefined) $set['type'] = type;
     if (description !== undefined) $set['description'] = description;
@@ -274,6 +281,17 @@ export async function upsertEdge(
     spaceId,
     from,
     to,
+    /*
+     * Stored only when stated. Absent is the reading every edge already has, so an entity-to-entity edge
+     * written today is byte-identical to one written before the field existed — which is what keeps this off
+     * every peer's sync feed as a change.
+     *
+     * `edgeIdFor` deliberately does NOT take them: the id is derived from `(from, to, label)` and folding two
+     * more values in would change the id of every edge in every space, which is a rewrite of a replicated
+     * collection to buy protection against a collision between a UUID and a file path.
+     */
+    ...(opts?.fromKind !== undefined ? { fromKind: opts.fromKind } : {}),
+    ...(opts?.toKind !== undefined ? { toKind: opts.toKind } : {}),
     label,
     tags: tags ?? [],
     ...(type !== undefined ? { type } : {}),
@@ -377,7 +395,7 @@ export async function getEdgeById(spaceId: string, id: string): Promise<EdgeDoc 
 export async function updateEdgeById(
   spaceId: string,
   id: string,
-  updates: { label?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; weight?: number; type?: string; suppressEmbeddings?: boolean },
+  updates: { label?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; weight?: number; type?: string; suppressEmbeddings?: boolean; fromKind?: RefKind; toKind?: RefKind },
   deleteFieldsPaths?: string[],
   actor?: WebhookActor,
   ttlDays?: number | null,
@@ -396,6 +414,18 @@ export async function updateEdgeById(
   const $unset: Record<string, unknown> = {};
 
   if (updates.suppressEmbeddings !== undefined) $set['suppressEmbeddings'] = updates.suppressEmbeddings;
+  /*
+   * Correcting an endpoint's KIND is a patch, and it has to be, because there is no other way to fix one.
+   * An edge's identity is its `(from, to, label)` triplet, so an endpoint cannot be moved by a patch — and
+   * delete-and-recreate does not work across a sync network either, since a tombstone only deletes its
+   * ISSUER's own content, so a peer-authored edge would survive its own deletion and come back.
+   *
+   * The re-embed is enqueued after this write and reads the STORED document, so a corrected kind changes the
+   * edge's embedding on the next pass without this function computing anything: the endpoint resolves in the
+   * collection the new kind names.
+   */
+  if (updates.fromKind !== undefined) $set['fromKind'] = updates.fromKind;
+  if (updates.toKind !== undefined) $set['toKind'] = updates.toKind;
   const newLabel = updates.label ?? existing.label;
   let newDesc = updates.description !== undefined ? updates.description : existing.description;
   let newTags = mergeTagsOrKeep(existing.tags, updates.tags);
@@ -594,43 +624,6 @@ export async function updateEdgeById(
   await enqueueEmbedJob(spaceId, 'edge', result._id);
   if (actor) emitWebhookEvent({ event: 'edge.updated', spaceId, entry: { ...result, embedding: undefined }, ...actor });
   return result;
-}
-
-/** Bulk-delete all edges in a space, writing a tombstone per deleted doc. */
-export async function bulkDeleteEdges(spaceId: string): Promise<number> {
-  const coll = col<EdgeDoc>(`${spaceId}_edges`);
-  const ids = await coll.find({}, { projection: { _id: 1 } }).toArray();
-  if (ids.length === 0) return 0;
-
-  const now = new Date().toISOString();
-  const instanceId = getConfig().instanceId;
-  const tombstones: TombstoneDoc[] = [];
-
-  // Reserve the whole tombstone seq range in ONE round trip. This used to call nextSeq()
-  // per document — a sequential round trip each — so a 100k-document wipe paid 100k awaited
-  // round trips before the delete even began. Gaps are harmless (sync compares seqs with `>`);
-  // reuse would not be, which is why the block is reserved up-front and never rolled back.
-  const firstSeq = await reserveSeqBlock(spaceId, ids.length);
-  let seqCursor = firstSeq;
-
-  for (const doc of ids) {
-    const seq = seqCursor++;
-    tombstones.push({
-      _id: doc._id,
-      type: 'edge',
-      spaceId,
-      deletedAt: now,
-      instanceId,
-      seq,
-    });
-  }
-
-  const ops = tombstones.map(t => ({
-    replaceOne: { filter: { _id: t._id }, replacement: t, upsert: true },
-  }));
-  await col<TombstoneDoc>(`${spaceId}_tombstones`).bulkWrite(asBulk<TombstoneDoc>(ops));
-  await coll.deleteMany({});
-  return ids.length;
 }
 
 /**

@@ -32,6 +32,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Characterization tests for the four space wipes, before they become one.** `bulkDeleteEntities`,
+  `bulkDeleteMemories`, `bulkDeleteEdges` and `bulkDeleteChrono` are the same thirty lines four times (`R-4`),
+  and before this the only assertion on any of them was in `face-label-cascade.test.js` — which covers the
+  ENTITY one incidentally, because face labels are what that file is about. The tombstone behaviour of the other
+  three, which is the entire point of a wipe on a replicated collection, was asserted nowhere.
+
+  A wipe is not a delete: it is a delete plus one tombstone per document, because a peer holding those records
+  has to be told they are gone. A wipe that empties the collection and writes no tombstones is one the next sync
+  cycle silently UNDOES, record by record, from the peer's copy.
+
+  **The pass found that the four are not identical**, which the tracker row had wrong: it said the differences
+  were webhook emissions, and none of them emits a webhook. The entity wipe also clears every face label in the
+  space — wholesale rather than by id list, for the reason its own comment gives — and the memory wipe orders
+  its tombstone range newest-first. An extraction treating the four as the same drops the first of those, and
+  what is left behind is a file-meta record pointing at an entity that no longer exists.
+
+  Twenty cases against a real MongoDB, and all five mutants died: the dropped cascade, the wrong tombstone type,
+  no tombstones at all, the lost empty-collection early return, and one seq reused for every tombstone. Two of
+  those mutants reported NO-OP on the first run and proved nothing — the working tree is CRLF, so a multi-line
+  search string written with a bare LF matches nothing while looking exactly like a pass.
+
+  Nothing in the product changed.
+
+### Fixed
+
 - **The divergence check reported every space with a retention policy as divergent, for ever.** The Merkle root
   hashed `_expireAt` and `_contentExpireAt` — the retention stamps — and neither is on any ingest schema, so both
   are stripped on push. The sender's copy carried the key, the receiver's did not, and the two roots could never

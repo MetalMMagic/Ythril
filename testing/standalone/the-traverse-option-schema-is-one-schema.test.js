@@ -144,4 +144,26 @@ describe('the description matches the schema', () => {
         `${tool.name}'s description tells a caller to send ${unmet.join(', ')}, which its schema refuses`);
     }
   });
+
+  it('and every flag the schema ACCEPTS is one the description names', () => {
+    /*
+     * The other direction, and the reason it took until A-7 to exist: the check above derives what is
+     * `promised` FROM the description, so a description mentioning no flag at all had nothing to be unmet and
+     * passed. One-directional by construction — which is how `find_similar` accepted all three link flags from
+     * #1083 while its own description still described the pre-3.6 shape.
+     *
+     * The docblock above already claimed both mattered: *"a schema key no description mentions is a capability
+     * nobody discovers."* It was true and only half-checked, which is the worst state for a stated rule to be
+     * in, because the prose reads as protection.
+     */
+    for (const tool of TOOLS) {
+      const desc = tool.inputSchema(STUB).properties?.traverse?.description ?? '';
+      const props = traverseObjectBranch(tool).properties ?? {};
+      const accepted = Object.keys(props).filter(k => /^include[A-Z]/.test(k));
+      const unmentioned = accepted.filter(k => !desc.includes(k));
+      assert.deepEqual(unmentioned, [],
+        `${tool.name} accepts ${unmentioned.join(', ')} and its description never names them — a caller `
+        + 'reading the reference while constructing arguments cannot discover a capability that is live');
+    }
+  });
 });

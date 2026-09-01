@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`find_similar`'s `traverse` description described a shape the tool stopped having in 3.6.** It accepted
+  `includeChrono`, `includeMemories` and `includeFiles` — the capability went live in #1083, which built both
+  tools' schemas from one field list — while its own reference still read *"identical to `recall`'s shape:
+  `edge` is the whole edge document, `node` the reached entity"*. Both halves are false with a flag on: a
+  linked node is a chrono, memory or file carrying `kind`, and its reaching edge is synthetic, with no
+  `author`/`createdAt`/`seq`. Recall's description was qualified at the time; this one was not.
+
+  A schema description is what a caller reads *while constructing arguments*, so the integration guide promised
+  a capability the tool's own reference denied.
+
+  **The gate that should have caught it could not, by construction.** It derived what the description
+  *promised* from the description itself, so one naming no flags at all had nothing to be unmet and passed —
+  while its own docblock already said both directions mattered: *"a schema key no description mentions is a
+  capability nobody discovers."* True, and half-checked, which is the worst state for a stated rule because
+  the prose reads as protection. Both directions are now asserted, and the vacuous case fails.
+
+
 ### Changed
 
 - **A memory's and a file's embedding is built from its own content, not from the names of what it links to** —

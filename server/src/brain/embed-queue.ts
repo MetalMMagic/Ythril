@@ -39,6 +39,7 @@ import { withJitter } from '../util/backoff.js';
 import { createWorkSignal } from '../util/work-signal.js';
 import { newClaimToken } from '../files/media/lease.js';
 import { isSpillPath } from './spill-path.js';
+import { embeddingSuppressedFor } from './suppress-embeddings.js';
 import type { BrainEmbedJobDoc, BrainEmbedRecordType } from '../config/types.js';
 
 /** Attempts before a job is left `failed` for an operator (or a rewrite) to deal with. */
@@ -537,30 +538,53 @@ export const resetEmbedPendingHint = (): void => _signal.reset();
 export const _asEmbedJobDoc = asDoc<BrainEmbedJobDoc>;
 
 /**
- * Enqueue a record that arrived from a peer, if it needs a vector.
+ * Offer a record that arrived from a peer to THIS instance's embedder.
  *
  * ## The bug this closes
  *
- * `embedding` is a DERIVED field, deliberately excluded from replication (`merkle.ts` `DERIVED_FIELDS`)
- * because two peers may run different models. Sync ingest is a plain `replaceOne` of the incoming
- * document. Put those together and a record replicated from a peer arrives with **no vector on the
- * receiving instance** — and nothing ever gave it one.
+ * `embedding` is a DERIVED field, deliberately excluded from replication because two peers may run different
+ * models. Sync ingest is a `replaceOne` of the incoming document. Put those together and a record replicated
+ * from a peer arrives with **no vector on the receiving instance** — and, before this existed, nothing ever
+ * gave it one.
  *
- * A vectorless record is invisible to recall on that instance: the vector search never returns it, and
- * the lexical channel needs an embedding to compute a real similarity and skips what it cannot score. So
- * an instance could hold a peer's entire knowledge base and answer nothing from it, silently, until an
- * operator happened to run a manual whole-space `POST /reindex`. Nothing measured it and nothing
- * reported it.
+ * A vectorless record is invisible to recall on that instance: the vector search never returns it, and the
+ * lexical channel needs an embedding to compute a real similarity and skips what it cannot score. So an
+ * instance could hold a peer's entire knowledge base and answer nothing from it, silently, until an operator
+ * happened to run a manual whole-space reindex. Nothing measured it and nothing reported it.
  *
- * Guarded on the vector rather than enqueued unconditionally: a peer that DOES send one (an older build,
- * or a future change of mind about derived fields) should not have it thrown away and recomputed.
+ * ## Why it no longer looks at the arriving vector
+ *
+ * It used to return early when the incoming document already carried one, on the reasoning that a peer which
+ * sent a vector should not have it thrown away. Owner's ruling, 2026-09-01, is the other way round:
+ *
+ * > *"dont transfer embeddings... It CAN break so it WILL break. on transfer the receiver applies its rules...
+ * > if it should embed use the receivers embedding mechanism. everything else makes no sense."*
+ *
+ * So no ingest schema declares `embedding` any more — memories were the last that did — and a vector cannot
+ * arrive at all. The old branch would be unreachable, and worse than unreachable: it read as a statement that
+ * a peer may send a usable vector, which is the belief being overturned. Two instances ranking one collection
+ * against vectors from two different models is a failure that produces plausible-looking results, which is the
+ * kind that is never reported.
+ *
+ * ## And the receiver's own rules decide
+ *
+ * `embeddingSuppressedFor` resolves `record > schema > space`: the record's own mark, then the type schema,
+ * then the space — the last two from THIS instance's configuration. Asking it here is what makes "the receiver
+ * applies its rules" true of an arriving record and not only of a locally written one.
+ *
+ * It is asked here rather than left to the embed worker, which checks it again before writing a vector. That
+ * is not duplication for its own sake: a suppressed record would otherwise be queued, claimed, and discarded
+ * on every sync of every suppressed record, and a queue full of work that exists to be thrown away is how a
+ * real backlog becomes invisible.
  */
 export async function enqueueIngestedRecord(
   spaceId: string,
   recordType: BrainEmbedRecordType,
-  doc: { _id: string; embedding?: number[] },
+  doc: { _id: string; suppressEmbeddings?: boolean; excludeFromVectorSearch?: boolean },
 ): Promise<void> {
-  const vec = doc.embedding;
-  if (Array.isArray(vec) && vec.length > 0) return;
+  // Cast for the resolver's `Record<string, unknown>` signature, exactly as `reindex.ts` does. The parameter
+  // above is narrow on purpose: it names the two fields this decision reads, so a caller can see at the call
+  // site that the record's own mark is what travels here.
+  if (embeddingSuppressedFor(spaceId, recordType, doc as unknown as Record<string, unknown>)) return;
   await enqueueEmbedJob(spaceId, recordType, doc._id);
 }

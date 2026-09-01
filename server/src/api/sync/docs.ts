@@ -6,7 +6,6 @@
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { col, asFilter, asDoc, asUpdate } from '../../db/mongo.js';
-import { enqueueIngestedRecord } from '../../brain/embed-queue.js';
 import { syncRateLimit } from '../../rate-limit/middleware.js';
 import { getAllowedChronoTypes } from '../../spaces/schema-validation.js';
 import { getConfig } from '../../config/loader.js';
@@ -16,7 +15,7 @@ import { log } from '../../util/log.js';
 import { reportServerFailure } from '../../util/report-failure.js';
 import { nextSeq, bumpSeq, isSeqImplausible, MAX_INGEST_SEQ } from '../../util/seq.js';
 import type { MemoryDoc, EntityDoc, EdgeDoc, ChronoEntry, TombstoneDoc } from '../../config/types.js';
-import { checkEdgeLinkViolations, checkEntityIdLinkViolations, MAX_FORK_DEPTH, IncomingMemoryDoc, IncomingEntityDoc, IncomingEdgeDoc, IncomingChronoDoc, encodeCursor, decodeCursor, forkChainDepth, rejectImplausibleSeq, callerPeerId, spaceAllowed, isNonPeerSyncWrite, NON_PEER_WRITE_MESSAGE, isDirectionalWriteBlocked, violationsAgainstLocalSchema, withSchemaViolations, isDuplicateKeyOnly } from './_shared.js';
+import { checkEdgeLinkViolations, checkEntityIdLinkViolations, MAX_FORK_DEPTH, IncomingMemoryDoc, IncomingEntityDoc, IncomingEdgeDoc, IncomingChronoDoc, encodeCursor, decodeCursor, forkChainDepth, rejectImplausibleSeq, callerPeerId, spaceAllowed, isNonPeerSyncWrite, NON_PEER_WRITE_MESSAGE, isDirectionalWriteBlocked, violationsAgainstLocalSchema, withSchemaViolations, isDuplicateKeyOnly, ingestBrainDoc } from './_shared.js';
 
 export const syncDocsRouter = Router();
 
@@ -125,10 +124,7 @@ syncDocsRouter.post('/memories', syncRateLimit, requireAuth, denyReadOnly, async
 
     if (!existing) {
       // No local copy — insert directly
-      await col<MemoryDoc>(`${spaceId}_memories`).insertOne(asDoc<MemoryDoc>(incoming));
-      // A peer strips `embedding` before sending — it is derived, and the peer may run a
-      // different model — so this record landed unsearchable. Queue it a vector.
-      await enqueueIngestedRecord(spaceId, 'memory', incoming);
+      await ingestBrainDoc<MemoryDoc>(spaceId, 'memory', 'memories', incoming);
       const peerInst = (req.authToken as Record<string, unknown>)?.['peerInstanceId'] as string ?? 'unknown';
       checkEntityIdLinkViolations(spaceId, incoming._id, 'memory', incoming.entityIds, peerInst).catch(() => {});
       res.status(200).json(withSchemaViolations({ status: 'inserted' }, violations));
@@ -137,10 +133,7 @@ syncDocsRouter.post('/memories', syncRateLimit, requireAuth, denyReadOnly, async
 
     if (incoming.seq > existing.seq) {
       // Remote is newer — overwrite
-      await col<MemoryDoc>(`${spaceId}_memories`).replaceOne(asFilter<MemoryDoc>({ _id: incoming._id }), asDoc<MemoryDoc>(incoming));
-      // A peer strips `embedding` before sending — it is derived, and the peer may run a
-      // different model — so this record landed unsearchable. Queue it a vector.
-      await enqueueIngestedRecord(spaceId, 'memory', incoming);
+      await ingestBrainDoc<MemoryDoc>(spaceId, 'memory', 'memories', incoming);
       const peerInst = (req.authToken as Record<string, unknown>)?.['peerInstanceId'] as string ?? 'unknown';
       checkEntityIdLinkViolations(spaceId, incoming._id, 'memory', incoming.entityIds, peerInst).catch(() => {});
       res.status(200).json(withSchemaViolations({ status: 'updated' }, violations));
@@ -170,10 +163,7 @@ syncDocsRouter.post('/memories', syncRateLimit, requireAuth, denyReadOnly, async
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
-      await col<MemoryDoc>(`${spaceId}_memories`).insertOne(asDoc<MemoryDoc>(fork));
-      // A peer strips `embedding` before sending — it is derived, and the peer may run a
-      // different model — so this record landed unsearchable. Queue it a vector.
-      await enqueueIngestedRecord(spaceId, 'memory', fork);
+      await ingestBrainDoc<MemoryDoc>(spaceId, 'memory', 'memories', fork);
       res.status(200).json(withSchemaViolations({ status: 'forked', forkId: fork._id }, violations));
       return;
     }
@@ -283,10 +273,7 @@ syncDocsRouter.post('/entities', syncRateLimit, requireAuth, denyReadOnly, async
     // Merge tags on conflict
     const existing = await col<EntityDoc>(`${spaceId}_entities`).findOne(asFilter<EntityDoc>({ _id: incoming._id })) as EntityDoc;
     if (existing && incoming.seq > existing.seq) {
-      await col<EntityDoc>(`${spaceId}_entities`).replaceOne(asFilter<EntityDoc>({ _id: incoming._id }), asDoc<EntityDoc>(incoming));
-      // A peer strips `embedding` before sending — it is derived, and the peer may run a
-      // different model — so this record landed unsearchable. Queue it a vector.
-      await enqueueIngestedRecord(spaceId, 'entity', incoming);
+      await ingestBrainDoc<EntityDoc>(spaceId, 'entity', 'entities', incoming);
     }
 
     res.status(200).json(withSchemaViolations({ status: 'ok' }, violations));
@@ -401,14 +388,7 @@ syncDocsRouter.post('/edges', syncRateLimit, requireAuth, denyReadOnly, async (r
        * is told which it was rather than left to infer it from a status code.
        */
       try {
-        await col<EdgeDoc>(`${spaceId}_edges`).replaceOne(
-          asFilter<EdgeDoc>({ _id: incoming._id }),
-          asDoc<EdgeDoc>(incoming),
-          { upsert: true },
-        );
-        // A peer strips `embedding` before sending — it is derived, and the peer may run a
-        // different model — so this record landed unsearchable. Queue it a vector.
-        await enqueueIngestedRecord(spaceId, 'edge', incoming);
+        await ingestBrainDoc<EdgeDoc>(spaceId, 'edge', 'edges', incoming);
       } catch (err) {
         if (!isDuplicateKeyOnly(err)) throw err;
         duplicateTriplet = true;
@@ -552,14 +532,7 @@ syncDocsRouter.post('/chrono', syncRateLimit, requireAuth, denyReadOnly, async (
 
     const existing = await col<ChronoEntry>(`${spaceId}_chrono`).findOne(asFilter<ChronoEntry>({ _id: incoming._id })) as ChronoEntry | null;
     if (!existing || incoming.seq > existing.seq) {
-      await col<ChronoEntry>(`${spaceId}_chrono`).replaceOne(
-        asFilter<ChronoEntry>({ _id: incoming._id }),
-        asDoc<ChronoEntry>(incoming),
-        { upsert: true },
-      );
-      // A peer strips `embedding` before sending — it is derived, and the peer may run a
-      // different model — so this record landed unsearchable. Queue it a vector.
-      await enqueueIngestedRecord(spaceId, 'chrono', incoming);
+      await ingestBrainDoc<ChronoEntry>(spaceId, 'chrono', 'chrono', incoming);
     }
 
     // Fire-and-forget: check strict linkage violations after ingest
@@ -673,16 +646,10 @@ syncDocsRouter.post('/batch-upsert', syncRateLimit, requireAuth, denyReadOnly, a
       const existing = await col<MemoryDoc>(`${spaceId}_memories`)
         .findOne(asFilter<MemoryDoc>({ _id: incoming._id })) as MemoryDoc | null;
       if (!existing) {
-        await col<MemoryDoc>(`${spaceId}_memories`).insertOne(asDoc<MemoryDoc>(incoming));
-        // A peer strips `embedding` before sending — it is derived, and the peer may run a
-        // different model — so this record landed unsearchable. Queue it a vector.
-        await enqueueIngestedRecord(spaceId, 'memory', incoming);
+        await ingestBrainDoc<MemoryDoc>(spaceId, 'memory', 'memories', incoming);
         memStats.inserted++;
       } else if (incoming.seq > existing.seq) {
-        await col<MemoryDoc>(`${spaceId}_memories`).replaceOne(asFilter<MemoryDoc>({ _id: incoming._id }), asDoc<MemoryDoc>(incoming));
-        // A peer strips `embedding` before sending — it is derived, and the peer may run a
-        // different model — so this record landed unsearchable. Queue it a vector.
-        await enqueueIngestedRecord(spaceId, 'memory', incoming);
+        await ingestBrainDoc<MemoryDoc>(spaceId, 'memory', 'memories', incoming);
         memStats.updated++;
       } else if (incoming.seq === existing.seq && incoming.fact !== existing.fact) {
         // Cap fork chains to prevent unbounded growth
@@ -714,10 +681,7 @@ syncDocsRouter.post('/batch-upsert', syncRateLimit, requireAuth, denyReadOnly, a
           ...incoming, _id: uuidv4(), forkOf: incoming._id, seq: forkSeq,
           createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
         };
-        await col<MemoryDoc>(`${spaceId}_memories`).insertOne(asDoc<MemoryDoc>(fork));
-        // A peer strips `embedding` before sending — it is derived, and the peer may run a
-        // different model — so this record landed unsearchable. Queue it a vector.
-        await enqueueIngestedRecord(spaceId, 'memory', fork);
+        await ingestBrainDoc<MemoryDoc>(spaceId, 'memory', 'memories', fork);
         memStats.forked++;
       } else {
         memStats.skipped++;
@@ -736,12 +700,7 @@ syncDocsRouter.post('/batch-upsert', syncRateLimit, requireAuth, denyReadOnly, a
       const existing = await col<EntityDoc>(`${spaceId}_entities`)
         .findOne(asFilter<EntityDoc>({ _id: incoming._id })) as EntityDoc | null;
       if (!existing || incoming.seq > existing.seq) {
-        await col<EntityDoc>(`${spaceId}_entities`).replaceOne(
-          asFilter<EntityDoc>({ _id: incoming._id }), asDoc<EntityDoc>(incoming), { upsert: true },
-        );
-        // A peer strips `embedding` before sending — it is derived, and the peer may run a
-        // different model — so this record landed unsearchable. Queue it a vector.
-        await enqueueIngestedRecord(spaceId, 'entity', incoming);
+        await ingestBrainDoc<EntityDoc>(spaceId, 'entity', 'entities', incoming);
         entStats.upserted++;
       } else {
         entStats.skipped++;
@@ -764,12 +723,7 @@ syncDocsRouter.post('/batch-upsert', syncRateLimit, requireAuth, denyReadOnly, a
         // triplet anywhere in a 500-record page would 500 the WHOLE batch, so every other record in it is
         // discarded too — and the sender re-sends that identical page for ever.
         try {
-          await col<EdgeDoc>(`${spaceId}_edges`).replaceOne(
-            asFilter<EdgeDoc>({ _id: incoming._id }), asDoc<EdgeDoc>(incoming), { upsert: true },
-          );
-          // A peer strips `embedding` before sending — it is derived, and the peer may run a
-          // different model — so this record landed unsearchable. Queue it a vector.
-          await enqueueIngestedRecord(spaceId, 'edge', incoming);
+          await ingestBrainDoc<EdgeDoc>(spaceId, 'edge', 'edges', incoming);
           edgeStats.upserted++;
         } catch (err) {
           if (!isDuplicateKeyOnly(err)) throw err;
@@ -804,12 +758,7 @@ syncDocsRouter.post('/batch-upsert', syncRateLimit, requireAuth, denyReadOnly, a
       const existing = await col<ChronoEntry>(`${spaceId}_chrono`)
         .findOne(asFilter<ChronoEntry>({ _id: incoming._id })) as ChronoEntry | null;
       if (!existing || incoming.seq > existing.seq) {
-        await col<ChronoEntry>(`${spaceId}_chrono`).replaceOne(
-          asFilter<ChronoEntry>({ _id: incoming._id }), asDoc<ChronoEntry>(incoming), { upsert: true },
-        );
-        // A peer strips `embedding` before sending — it is derived, and the peer may run a
-        // different model — so this record landed unsearchable. Queue it a vector.
-        await enqueueIngestedRecord(spaceId, 'chrono', incoming);
+        await ingestBrainDoc<ChronoEntry>(spaceId, 'chrono', 'chrono', incoming);
         chronoStats.upserted++;
       } else {
         chronoStats.skipped++;

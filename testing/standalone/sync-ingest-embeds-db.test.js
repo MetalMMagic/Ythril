@@ -15,9 +15,26 @@
  *
  * ## What this pins
  *
- * The decision, not the route. `enqueueIngestedRecord` is what every ingest write site calls, so this
- * tests the thing all twelve of them share: an unembedded arrival is queued, an arrival that already
- * carries a vector is left alone, and the job names the right record.
+ * The decision, not the route. `enqueueIngestedRecord` is what every ingest write site reaches, so this tests
+ * the thing all of them share: an arrival is queued, the job names the right record, and a record the
+ * RECEIVER does not want embedded is not queued at all.
+ *
+ * ## 3.7 changed what the decision is
+ *
+ * Owner's ruling, 2026-09-01: *"dont transfer embeddings... It CAN break so it WILL break. on transfer the
+ * receiver applies its rules. if the space has supressembeddings dont embed at all. if it should embed use the
+ * receivers embedding mechanism."*
+ *
+ * Two consequences, and each replaced a case in this file:
+ *
+ * - **The arriving vector is no longer consulted.** It used to return early when the incoming document had
+ *   one, so a peer that sent a vector did not have it thrown away. No ingest schema declares `embedding` any
+ *   more — memories were the last — so a vector cannot arrive at all, and a branch reading it would be both
+ *   unreachable and a statement of the belief the ruling overturns.
+ * - **The receiver's own suppression decides.** `embeddingSuppressedFor` resolves `record > schema > space`,
+ *   the last two from THIS instance's configuration. Asked here rather than only in the embed worker, because
+ *   otherwise every suppressed record is queued, claimed and discarded on every sync — and a queue full of
+ *   work that exists to be thrown away is how a real backlog becomes invisible.
  *
  * Run: `npm run test:up` first, then
  *      node --test testing/standalone/sync-ingest-embeds-db.test.js
@@ -28,7 +45,6 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
 import { openTestMongo, closeTestMongo, mongoSkipReason } from './_mongo-harness.mjs';
 
 const skip = await mongoSkipReason();
@@ -68,39 +84,55 @@ describe('a synced-in record is queued for embedding', { skip }, () => {
     assert.equal(job.recordId, 'm-1');
   });
 
-  it('an arrival that already carries a vector is left alone', async () => {
-    // A peer that DOES send one — an older build, or a future change of mind about derived fields —
-    // should not have it thrown away and recomputed.
+  it('an arrival that carries a vector is queued ANYWAY', async () => {
+    /*
+     * The inversion the ruling makes. A peer on an older build still sends one; the ingest schema strips it,
+     * so the stored record has no vector — and skipping the queue on the strength of a field that was
+     * discarded would leave the record permanently unsearchable here.
+     *
+     * The deeper reason is not the strip: a vector computed by another instance's model cannot be ranked
+     * against this instance's own, and a mixed-model search produces plausible nonsense rather than an error.
+     */
     await queue.enqueueIngestedRecord(SPACE, 'entity', { _id: 'e-1', embedding: [0.1, 0.2, 0.3] });
-    assert.equal(await jobs().countDocuments({}), 0);
+    assert.ok(await jobs().findOne({ _id: 'entity:e-1' }),
+      'the arriving vector was trusted. It was computed by the sending peer with ITS model, and the ingest '
+      + 'schema stripped it in any case, so the stored record has no vector at all');
   });
 
-  it('an empty vector counts as no vector', async () => {
-    await queue.enqueueIngestedRecord(SPACE, 'edge', { _id: 'g-1', embedding: [] });
-    assert.ok(await jobs().findOne({ _id: 'edge:g-1' }), 'an empty array is not an embedding');
+  it('a record its author marked "never embed" is NOT queued', async () => {
+    /*
+     * The record tier of the receiver's resolution, and the reason the mark now crosses the wire: stripped, it
+     * would arrive absent, and a record deliberately kept out of meaning-ranked search would enter one on
+     * every peer.
+     *
+     * Exercised against a real queue rather than read off the source, because "the code consults the resolver"
+     * is a decision being MADE, not a decision coming out right.
+     */
+    await queue.enqueueIngestedRecord(SPACE, 'edge', { _id: 'g-1', suppressEmbeddings: true });
+    assert.equal(await jobs().countDocuments({}), 0,
+      'a suppressed record was queued. The job would be claimed and discarded on every sync of that record, '
+      + 'and a queue full of work that exists to be thrown away hides a real backlog');
   });
 
-  it('every sync-ingest write site enqueues', () => {
-    // Scoped from the SHAPE of a write, not a list of route names — a name list is how the merge-rule
-    // sweep missed its twelfth copy. Every `.replaceOne(`/`.insertOne(` into a synced brain collection
-    // must be followed by an enqueue, or a record can still arrive and never be embedded.
-    const src = execFileSync('git', ['show', 'HEAD:server/src/api/sync/docs.ts'], { encoding: 'utf8' }).length
-      ? fs.readFileSync('server/src/api/sync/docs.ts', 'utf8')
-      : '';
-    // Line comments out FIRST: a `/*` inside a `//` comment otherwise opens a phantom block and swallows real
-    // code — 5,907 characters of `api/data.ts` in the case that found this. See `_strip-comments.mjs`.
-    const code = src.split(/\r?\n/).filter(l => !/^\s*\/\//.test(l)).join('\n')
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .split(/\r?\n/);
-
-    const writes = code.filter(l =>
-      /col<\w+>\(`\$\{spaceId\}_(memories|entities|edges|chrono)`\)\.(replaceOne|insertOne)\(/.test(l)).length;
-    const enqueues = code.filter(l => /enqueueIngestedRecord\(/.test(l)).length;
-
-    assert.ok(writes > 0, 'the detector must actually find the writes it is gating');
-    assert.equal(enqueues, writes,
-      `${writes} sync-ingest write(s) into a synced brain collection, but ${enqueues} enqueue(s). `
-      + 'A write without one leaves a record that is stored, replicated, and permanently unsearchable '
-      + 'on this instance.');
+  it('and the pre-3.1 spelling of that mark is honoured too', async () => {
+    // A peer on an older build sends `excludeFromVectorSearch`. Reading one and not the other would make the
+    // outcome depend on which version the sender happens to run.
+    await queue.enqueueIngestedRecord(SPACE, 'chrono', { _id: 'c-1', excludeFromVectorSearch: true });
+    assert.equal(await jobs().countDocuments({}), 0,
+      'the legacy spelling of the suppression mark was ignored on the ingest path');
   });
+
+  it('but `false` is "not stated" and still queues', async () => {
+    // The tier resolution treats `false` as absent so it falls through to the schema and the space rather than
+    // overriding them. That is stated in the field's own docblock, so it is worth one case.
+    await queue.enqueueIngestedRecord(SPACE, 'memory', { _id: 'm-2', suppressEmbeddings: false });
+    assert.ok(await jobs().findOne({ _id: 'memory:m-2' }), '`false` was read as a suppression');
+  });
+
+  /*
+   * The structural half of this rule — that `ingestBrainDoc` is the ONLY thing which may write an arriving
+   * brain document — lives in `a-receiver-embeds-by-its-own-rules.test.js` instead, because it needs no
+   * database and this suite self-skips without one. A rule that can only be checked where Mongo happens to be
+   * running is a rule that goes unchecked on the machine where it is broken.
+   */
 });

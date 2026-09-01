@@ -1,27 +1,56 @@
 /**
- * Every field on a replicated document is either declared by its `Incoming*` schema or listed here with a
- * reason — because zod strips what it does not declare, and the loss is silent and one-directional.
+ * Every field on a replicated document is either HASHED and replicated, or excluded from the hash. Never
+ * neither — because a field that is hashed and stripped makes two peers permanently disagree about identical
+ * content.
  *
- * ## The mechanism, which this repo has already paid for once
+ * ## The two mechanisms, and why they have to be checked together
  *
- * `docs.ts` runs each pushed document through `safeParse` before `replaceOne`. Zod 4 STRIPS unlisted keys, so a
- * field the schema does not name simply does not arrive. The pull path validates nothing, so the same edge
- * keeps its field when it arrives by pull and loses it when pushed: **same version, push-only,
- * direction-dependent.**
+ * **Stripping.** `docs.ts` runs every pushed document through `safeParse` before writing it, and zod strips
+ * keys the schema does not declare. The pull path validates nothing. So a field missing from its `Incoming*`
+ * twin is kept when the record arrives by pull and deleted when the same record arrives by push: same version,
+ * push-only, direction-dependent, no error and a 200 on the way back.
  *
- * `sync-carries-suppressed-memories.test.js` documents the harder version of this — a REQUIRED field the sender
- * legitimately omits, where the whole document is dropped, "counted in no statistic, logged nowhere, and the
- * receiver answers 200". This file is the other half: a field the sender sends and the receiver discards.
+ * **Hashing.** `computeMerkleRoot` hashes every field of every brain document except the three it excludes at
+ * the projection (`embedding`, `embeddingModel`, `matchedText`). That hash is what tells an operator whether
+ * two instances hold the same data.
  *
- * ## Why a declared list rather than "every field must be present"
+ * Put them together and the rule falls out with no judgement left in it: **a field that is hashed must
+ * replicate.** If it does not, the sender's copy has the key and the receiver's does not, the roots differ for
+ * ever, and the symptom is the sync view reporting divergence on a space where nothing is wrong. That is worse
+ * than a wrong number, because it teaches an operator to ignore the one signal that means data is missing.
  *
- * Several omissions are correct. A vector is recomputed rather than shipped; `_expireAt` is a local TTL index
- * field. A gate demanding parity would fire on those and get switched off.
+ * ## Why the rule is DERIVED rather than a list kept by hand
  *
- * So each omission is a ROW with a reason, and the rule becomes: adding a field to a replicated document means
- * either declaring it on the `Incoming*` schema or writing here why it must not cross the wire. Both are
- * decisions; the current state is neither, which is how `suppressEmbeddings` came to be stripped for all four
- * types with nothing saying so (W-8).
+ * The first version of this file carried a hand-written table of fields that deliberately do not replicate,
+ * with a reason per row. It caught the case it was written for, and it had the flaw every such list has: a
+ * reason once written is never re-read, and `suppressEmbeddings` sat in it as *"NOT a decision"* for exactly as
+ * long as nobody looked.
+ *
+ * Now the exemptions come from `merkle.ts` itself. A field excluded from the hash is free not to replicate,
+ * because the two peers were never going to compare it. Everything else must be declared. Adding a field means
+ * declaring it on the ingest schema, or excluding it from the hash — and both of those are edits somebody has
+ * to make deliberately in the file that governs the behaviour.
+ *
+ * ## The exemptions, and why they are named rather than absorbed
+ *
+ * Two retention stamps — `_expireAt` and `_contentExpireAt` — are hashed and do not replicate today. That is a
+ * live defect (`W-10`), not a decision, and the honest thing is to name them here rather than either fail on
+ * untouched code or quietly widen the rule to fit them. When W-10 is fixed — almost certainly by excluding the
+ * stamps from the hash, since a retention schedule is as local as a vector — those rows have to go, and the
+ * stale-row test below is what fails until they do.
+ *
+ * ## What deriving it caught on the first run
+ *
+ * Three fields, none of them suspected, all silently deleted on push and all hashed:
+ *
+ * - **`MemoryDoc.type`** — the field that selects a memory's type schema. A memory arriving without it is
+ *   validated against nothing on the receiver and misses every type filter.
+ * - **`ChronoEntry.contentRedacted` / `contentRedactedAt`** — the marks that exist so a reader can tell *"this
+ *   entry never had a description"* from *"it had one and its retention window lapsed"*. The description is
+ *   already gone by then, so stripping the marks destroys precisely the distinction they were added for.
+ *
+ * The hand-written version of this file did not name any of them, and would not have. That is the argument for
+ * a derived rule in one sentence.
  *
  * Run: node --test testing/standalone/a-replicated-field-reaches-its-incoming-schema.test.js
  */
@@ -31,6 +60,7 @@ import { readFileSync } from 'node:fs';
 
 const TYPES = 'server/src/config/types.ts';
 const SHARED = 'server/src/api/sync/_shared.ts';
+const MERKLE = 'server/src/brain/merkle.ts';
 
 /** Fields of a `*Doc` interface, in declaration order. */
 function docFields(src, name) {
@@ -49,70 +79,105 @@ function incomingKeys(src, name) {
 }
 
 /**
- * Fields deliberately not replicated, per document type, each with the reason.
+ * The fields the divergence hash does NOT see, read out of `merkle.ts` rather than copied.
  *
- * A row here is a claim somebody made on purpose. `suppressEmbeddings` and `excludeFromVectorSearch` are listed
- * as OPEN rather than as decided, because they are neither — W-8 asks for the ruling, and pretending the
- * current behaviour was chosen would close a question nobody answered.
+ * Both spellings have to agree, and that is itself worth asserting: `DERIVED_FIELDS` is the set skipped while
+ * canonicalising a document, and the `.project({...: 0})` is the set never fetched from MongoDB. They are two
+ * statements of one intention, and a field in only one of them is either hashed when it should not be, or
+ * fetched for nothing.
  */
-const NOT_REPLICATED = {
-  EdgeDoc: {
-    embedding: 'recomputed by the receiver; a vector is derived data and shipping it wastes the wire',
-    embeddingModel: 'set and unset with the vector',
-    matchedText: 'the exact string the local vector was built from — meaningless beside a different vector',
-    _expireAt: 'a local TTL index field; each instance stamps its own from the space policy',
-    suppressEmbeddings: 'W-8: NOT a decision. Stripped today with nothing stating it, and the ruling is open.',
-    excludeFromVectorSearch: 'W-8: the pre-3.1 spelling of the above, with the same open question.',
-  },
+function merkleExcluded(src) {
+  const set = src.match(/const DERIVED_FIELDS = new Set\(\[([^\]]*)\]\)/);
+  const proj = src.match(/\.project\(\{([^}]*)\}\)/);
+  const names = s => [...(s ?? '').matchAll(/([a-zA-Z_]\w*)/g)].map(m => m[1]).filter(n => n !== '0');
+  return { fromSet: names(set?.[1]), fromProjection: names(proj?.[1]) };
+}
+
+/**
+ * Hashed, not replicated, and not a decision — one row, pointing at the item that will remove it.
+ *
+ * Anything added here needs an open tracker row and a reason that says what the RIGHT answer is, not merely
+ * what today's behaviour happens to be. A row without one is how an exemption becomes permanent.
+ */
+const HASHED_BUT_NOT_REPLICATED = {
+  _expireAt: 'W-10 — the record TTL stamp is hashed and stripped, so two peers disagree for ever about '
+    + 'identical content. Local by nature (each instance stamps its own retention from its own policy), so '
+    + 'the fix is to exclude it from the hash as the derived fields are, not to replicate it.',
+  _contentExpireAt: 'W-10 — the same stamp for a chrono entry CONTENT window, with the same answer. The '
+    + 'marks it produces (`contentRedacted`, `contentRedactedAt`) DO replicate, because those are what the '
+    + 'record says about itself; the schedule that produced them belongs to the instance.',
 };
 
-describe('a replicated field reaches its Incoming schema', () => {
+/** Every replicated document and the schema that guards its push door. */
+const REPLICATED = [
+  ['MemoryDoc', 'IncomingMemoryDoc'],
+  ['EntityDoc', 'IncomingEntityDoc'],
+  ['EdgeDoc', 'IncomingEdgeDoc'],
+  ['ChronoEntry', 'IncomingChronoDoc'],
+];
+
+describe('a hashed field replicates, and a non-replicated field is not hashed', () => {
   const types = readFileSync(TYPES, 'utf8');
   const shared = readFileSync(SHARED, 'utf8');
+  const merkle = readFileSync(MERKLE, 'utf8');
+  const { fromSet, fromProjection } = merkleExcluded(merkle);
 
-  it('the extractors find both shapes (the check itself works)', () => {
-    // A rename that broke either would make every assertion below pass by comparing two empty lists.
-    assert.ok((docFields(types, 'EdgeDoc') ?? []).length > 8, 'EdgeDoc fields not found — re-anchor');
-    assert.ok((incomingKeys(shared, 'IncomingEdgeDoc') ?? []).length > 8, 'IncomingEdgeDoc keys not found');
+  it('the extractors find what they are looking for (the check itself works)', () => {
+    // Floors every assertion below. A rename that broke any of these would make the comparisons run over
+    // empty lists and pass, which is the failure mode a source-reading gate dies of.
+    for (const [doc, inc] of REPLICATED) {
+      assert.ok((docFields(types, doc) ?? []).length > 6, `${doc} fields not found — re-anchor`);
+      assert.ok((incomingKeys(shared, inc) ?? []).length > 6, `${inc} keys not found — re-anchor`);
+    }
+    assert.ok(fromSet.length >= 3, 'DERIVED_FIELDS not found in merkle.ts — re-anchor');
+    assert.ok(fromProjection.length >= 3, 'the merkle projection was not found — re-anchor');
   });
 
-  for (const [docName, exempt] of Object.entries(NOT_REPLICATED)) {
-    const incName = `Incoming${docName.replace(/Doc$/, '')}Doc`;
+  it('the two statements of "the hash does not see this" agree', () => {
+    assert.deepEqual([...fromSet].sort(), [...fromProjection].sort(),
+      'merkle.ts skips one set of fields while canonicalising and fetches a different set. A field in only '
+      + 'one is either hashed when it must not be, or pulled out of MongoDB for nothing');
+  });
 
-    it(`${docName}: every field is declared by ${incName} or listed as not replicated`, () => {
+  for (const [docName, incName] of REPLICATED) {
+    it(`${docName}: every hashed field is declared by ${incName}`, () => {
       const fields = docFields(types, docName);
       const keys = incomingKeys(shared, incName);
-      const undeclared = fields.filter(f => !keys.includes(f) && !(f in exempt));
+      const undeclared = fields.filter(f =>
+        !keys.includes(f) && !fromSet.includes(f) && !(f in HASHED_BUT_NOT_REPLICATED));
       assert.deepEqual(undeclared, [],
-        `${undeclared.join(', ')} on ${docName} would be STRIPPED on push and kept on pull — same version, `
-        + `one direction. Declare them on ${incName}, or add a row to NOT_REPLICATED saying why they must not `
-        + 'cross the wire.');
-    });
-
-    it(`${docName}: the not-replicated list has no stale rows`, () => {
-      /*
-       * The other direction, and the reason the exemption is not free: a row naming a field that no longer
-       * exists, or one the schema has since learned, is a reason nobody will re-read. That is how a stale
-       * `NOT_A_QUEUE` reason let `_PARKED-DECISIONS.md` accumulate resolved history for weeks.
-       */
-      const fields = docFields(types, docName);
-      const keys = incomingKeys(shared, incName);
-      const stale = Object.keys(exempt).filter(f => !fields.includes(f) || keys.includes(f));
-      assert.deepEqual(stale, [],
-        `${stale.join(', ')} is listed as not replicated but is either gone from ${docName} or now declared `
-        + `by ${incName} — remove the row`);
+        `${undeclared.join(', ')} on ${docName} is HASHED by the divergence check and STRIPPED on push. So `
+        + `the two peers hash it differently for ever, and the sync view reports a space as divergent when it `
+        + `is not. Declare them on ${incName}, or exclude them from the hash in merkle.ts (both places).`);
     });
   }
 
+  it('the exemption list has no stale rows', () => {
+    /*
+     * The other direction, and the reason an exemption is not free. A row naming a field that is now declared,
+     * or now excluded from the hash, is a reason nobody will re-read — and this file exists partly because
+     * that already happened once, to a row that read "NOT a decision" for as long as nobody looked at it.
+     */
+    const stale = Object.keys(HASHED_BUT_NOT_REPLICATED).filter(f => {
+      if (fromSet.includes(f)) return true;
+      return REPLICATED.every(([doc, inc]) => {
+        const fields = docFields(types, doc) ?? [];
+        return !fields.includes(f) || (incomingKeys(shared, inc) ?? []).includes(f);
+      });
+    });
+    assert.deepEqual(stale, [],
+      `${stale.join(', ')} is exempt but no longer needs to be — it is now either excluded from the hash or `
+      + 'declared on every schema. Remove the row, and close the tracker item it names.');
+  });
+
   it('and the endpoint KINDS cross the wire, which is the whole of M-1', () => {
     /*
-     * The field this file was written for. `from`/`to` are bare ids, unambiguous only while both ends are
-     * always entities — the owner's case is a party photo whose file meta links to person entities, a chrono
-     * event and a memory, so `to: "abc"` becomes ambiguous across four collections and `{from, to, label}`
-     * stops being well defined when two records in different collections can share an id.
+     * `from`/`to` are bare ids, unambiguous only while both ends are always entities — the owner's case is a
+     * party photo whose file meta links to person entities, a chrono event and a memory, so `to: "abc"`
+     * becomes ambiguous across four collections.
      *
-     * Asserted on BOTH shapes in one case on purpose: the field existing on `EdgeDoc` alone is the defect, not
-     * a step towards the fix.
+     * Asserted on BOTH shapes in one case on purpose: the field existing on `EdgeDoc` alone is the defect,
+     * not a step towards the fix.
      */
     for (const f of ['fromKind', 'toKind']) {
       assert.ok(docFields(types, 'EdgeDoc').includes(f), `EdgeDoc does not declare ${f}`);

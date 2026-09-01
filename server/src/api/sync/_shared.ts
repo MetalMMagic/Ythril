@@ -12,13 +12,14 @@ import { getConfig } from '../../config/loader.js';
 import { reachesSpace } from '../../auth/space-reach.js';
 import { isInstanceAdmin } from '../../auth/instance-admin.js';
 import { REF_KINDS } from '../../config/types-knowledge.js';
+import { enqueueIngestedRecord } from '../../brain/embed-queue.js';
 import { isWellFormedRef, collectionForRefKind, edgeEndpointKind } from '../../brain/entity-refs.js';
 import type { TokenRights } from '../../config/rights-shape.js';
 import { log } from '../../util/log.js';
 import { isSeqImplausible, MAX_INGEST_SEQ } from '../../util/seq.js';
 import { isStrictLinkage } from '../../spaces/proxy.js';
 import { emitWebhookEvent } from '../../webhooks/dispatcher.js';
-import type { MemoryDoc, EntityDoc, EdgeDoc, LinkViolationDoc } from '../../config/types.js';
+import type { MemoryDoc, EntityDoc, EdgeDoc, LinkViolationDoc, BrainEmbedRecordType } from '../../config/types.js';
 
 export const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -115,6 +116,49 @@ export async function checkEntityIdLinkViolations(
   }
 }
 
+/**
+ * Write one arriving brain document and offer it to this instance's embedder — in that order, together.
+ *
+ * ## Why the two are one function
+ *
+ * There were THIRTEEN ingest write sites in `api/sync/docs.ts`: four single-document routes, four batch
+ * loops, and the fork paths, because a document arrives four ways and each type has its own conflict rules.
+ * Each one wrote the document and then queued its embedding as a separate following statement, which works for
+ * exactly as long as everyone writing the fourteenth remembers the second line.
+ *
+ * Forgetting it produces a record that is stored, listed, traversable, and absent from every meaning-ranked
+ * search on that peer — with no error, no counter and nothing to grep for. That was the state of every synced
+ * record before the queue call existed at all, and it went unnoticed until an operator went looking.
+ *
+ * So there is no way to write an arriving document without queueing it: this is the only thing in the ingest
+ * router that may call `replaceOne` or `insertOne` on a brain collection, and
+ * `a-receiver-embeds-by-its-own-rules.test.js` fails on any that reappears.
+ *
+ * ## `upsert: true`, always
+ *
+ * Three of the four types passed it and memories did not, which is a difference with no reason behind it: the
+ * caller has already decided the incoming document should land, and `replaceOne` without upsert silently
+ * writes nothing when the local copy has been deleted in the meantime. It is a `replaceOne` rather than an
+ * `insertOne` even on the no-local-copy path for the same reason — the two paths differ in what they REPORT,
+ * not in what the database should end up holding.
+ *
+ * Whether to embed is not decided here: `enqueueIngestedRecord` asks this instance's own
+ * `record > schema > space` resolution, per the owner's 2026-09-01 ruling that the receiver applies its rules.
+ */
+export async function ingestBrainDoc<T extends { _id: string; suppressEmbeddings?: boolean; excludeFromVectorSearch?: boolean }>(
+  spaceId: string,
+  recordType: BrainEmbedRecordType,
+  collection: string,
+  incoming: T,
+): Promise<void> {
+  await col<T>(`${spaceId}_${collection}`).replaceOne(
+    asFilter<T>({ _id: incoming._id }),
+    asDoc<T>(incoming),
+    { upsert: true },
+  );
+  await enqueueIngestedRecord(spaceId, recordType, incoming);
+}
+
 // ── Safety limits ─────────────────────────────────────────────────────────
 
 /**
@@ -152,24 +196,36 @@ export const AuthorRefSchema = z.object({
 
 export const IncomingMemoryDoc = z.object({
   _id: z.string().min(1),
+  /*
+   * A memory's TYPE, which was hashed by the divergence check and stripped on push — found by deriving the
+   * rule from `merkle.ts` rather than from a list kept by hand, 2026-09-01.
+   *
+   * Not cosmetic: the type is what selects the memory's type schema, so a memory arriving without it is
+   * validated against nothing on the receiver, misses every type filter, and hashes differently from the
+   * sender's copy for ever. Optional, because a memory is not required to have one.
+   */
+  type: z.string().optional(),
+  /*
+   * The RECORD tier of suppression, and it has to cross the wire for the rest of the rule to work.
+   *
+   * Suppression resolves `record > schema > space`. The schema and space tiers are the RECEIVER's and always
+   * were — read from its own configuration — which is most of what the owner's 2026-09-01 ruling asks for:
+   * *"on transfer the receiver applies its rules."* The record tier is a field on the document, so it reaches
+   * the receiver only if declared here, and it was not.
+   *
+   * Stripped, the rule would be half-implemented in the worst direction: an author marks one record "never
+   * embed this", it syncs, the receiver finds no mark and embeds it — so a record deliberately kept out of
+   * meaning-ranked search enters one on every peer. That is not the receiver applying its rules; it is the
+   * receiver being denied a fact it needs.
+   *
+   * BOTH spellings, because a peer sends whichever its build knows and the resolver reads them together.
+   * Optional, because absent means included — and requiring a field here is exactly how every suppressed
+   * memory came to be dropped from its batch in silence.
+   */
+  suppressEmbeddings: z.boolean().optional(),
+  excludeFromVectorSearch: z.boolean().optional(),
   spaceId: z.string().min(1),
   fact: z.string(),
-  /*
-   * OPTIONAL, because `MemoryDoc.embedding` is optional and requiring it here deleted records.
-   *
-   * A memory has no vector in two ordinary situations: its type or space suppresses embeddings, in which case
-   * `embedStoredRecord` `$unset`s both this and `embeddingModel`; or its embed job has not run yet. Both are
-   * valid stored documents. Requiring them here made `safeParse` reject them, and the rejection is a `flatMap`
-   * returning `[]` — so the document was removed from the batch, counted in no statistic, and the receiver
-   * still answered 200. The sender then advanced its watermark, and `embedStoredRecord` deliberately does not
-   * bump `seq` when the vector finally lands, so the record was never offered again. Permanent, silent, and
-   * one-directional.
-   *
-   * `IncomingEntityDoc`, `IncomingEdgeDoc` and `IncomingChronoDoc` never declared `embedding` at all — zod
-   * strips unlisted keys, so their vector is discarded and the document survives. Memories were the only type
-   * that required it, which is why they were the only type that vanished.
-   */
-  embedding: z.array(z.number()).optional(),
   tags: z.array(z.string()).max(100),
   entityIds: z.array(z.string()).max(500),
   description: z.string().optional(),
@@ -178,13 +234,14 @@ export const IncomingMemoryDoc = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   seq: z.number().int().nonnegative().max(MAX_SYNC_SEQ),
-  /** Optional for the same reason as `embedding` above — the two are set and unset together. */
-  embeddingModel: z.string().optional(),
   forkOf: z.string().optional(),
 });
 
 export const IncomingEntityDoc = z.object({
   _id: z.string().min(1),
+  /** See `IncomingMemoryDoc`: the record tier of suppression, which the receiver needs in order to honour it. */
+  suppressEmbeddings: z.boolean().optional(),
+  excludeFromVectorSearch: z.boolean().optional(),
   spaceId: z.string().min(1),
   name: z.string().min(1),
   type: z.string().min(1),
@@ -207,6 +264,9 @@ const RefKindSchema = z.enum(REF_KINDS);
 
 export const IncomingEdgeDoc = z.object({
   _id: z.string().min(1),
+  /** See `IncomingMemoryDoc`: the record tier of suppression, which the receiver needs in order to honour it. */
+  suppressEmbeddings: z.boolean().optional(),
+  excludeFromVectorSearch: z.boolean().optional(),
   spaceId: z.string().min(1),
   from: z.string().min(1),
   to: z.string().min(1),
@@ -237,6 +297,20 @@ export const IncomingEdgeDoc = z.object({
 
 export const IncomingChronoDoc = z.object({
   _id: z.string().min(1),
+  /*
+   * The content-redaction marks. Their whole purpose is to let a reader tell *"this entry never had a
+   * description"* from *"it had one, and its retention window lapsed"* — and stripping them on push destroys
+   * exactly that distinction on the receiving side, where the description is already gone.
+   *
+   * The retention STAMP that drives them (`_contentExpireAt`) deliberately does not travel: like `_expireAt`,
+   * it is computed from each instance's own policy, and shipping it would let one peer dictate when another
+   * deletes its data. That it is nonetheless hashed is `W-10`.
+   */
+  contentRedacted: z.boolean().optional(),
+  contentRedactedAt: z.string().optional(),
+  /** See `IncomingMemoryDoc`: the record tier of suppression, which the receiver needs in order to honour it. */
+  suppressEmbeddings: z.boolean().optional(),
+  excludeFromVectorSearch: z.boolean().optional(),
   spaceId: z.string().min(1),
   title: z.string().min(1),
   description: z.string().optional(),

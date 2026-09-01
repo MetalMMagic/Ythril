@@ -264,6 +264,17 @@ these three levels before treating it as a fault.
 > The per-record setting is API-only today — there is no checkbox for it in the UI. It was called
 > `excludeFromVectorSearch` before version 3.1.0.
 
+**In a network, each instance searches with its own model, and from 3.7 that is explicit.** A record that
+arrives from another instance is prepared for search **here**, using this instance's own model — the sending
+instance's version is never used, because two instances configured with different models produce numbers that
+cannot be compared, and the result would be a search that looks fine and ranks wrongly.
+
+The three levels above are read **here** as well, so this instance decides what its own search contains. The
+one part that travels with the record is the per-record setting: if the author of a record marked it *"keep this
+out of semantic search"*, that mark arrives with it and is respected. Before 3.7 the mark was silently dropped
+in one direction — so a record its author had deliberately retired from search would quietly re-enter it on
+every other instance, the next time anybody rebuilt that space's search index.
+
 #### Advanced Query
 
 Runs a structured MongoDB-style query against one collection. Select a collection (`memories`, `entities`, `edges`, `chrono`, or `files`), optionally set a **limit** and **max time (ms)**, enter a filter as JSON, and click **Run**. Results appear below.

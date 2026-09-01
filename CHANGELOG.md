@@ -7,6 +7,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **A vector never crosses the wire, and a peer embeds what it receives with its own model.** Owner's ruling,
+  2026-09-01: *"dont transfer embeddings… It CAN break so it WILL break. on transfer the receiver applies its
+  rules."* Memories were the last record type that shipped their `embedding` and `embeddingModel`; now no
+  ingest schema declares either, so all four are alike. A peer on an older build can still send one — it is
+  dropped rather than refused, and the record lands.
+
+  The reason is not tidiness. A vector is derived from text by one particular model, and two instances running
+  different models hold legitimately different vectors for identical content. Ranking one against the other
+  does not fail, it returns plausible results in the wrong order, which is the kind of wrong nobody reports.
+
+  Every arriving record is queued for embedding against the receiving instance's own model, at the moment it is
+  written. That already happened; what changed is that it no longer skips a record that arrived carrying a
+  vector, because a vector can no longer arrive.
+
+### Fixed
+
+- **A record marked "never embed this" lost that mark when it synced, so a peer put it back into semantic
+  search.** Suppression resolves `record > schema > space`. The schema and space tiers are the receiver's own
+  configuration and always were; the record tier is a field on the document, and no ingest schema declared it —
+  so zod stripped it on every push. The effect was latent: the record also arrives without a vector, so it is
+  unsearchable at first, and the divergence surfaced the next time anybody rebuilt that space's search indexes,
+  at which point the receiver read the record, found no mark, and embedded it.
+
+  Both spellings now replicate on all four types, and a suppressed record is not queued on arrival at all —
+  rather than queued and discarded when the job runs, which would leave a queue full of work whose only purpose
+  is to be thrown away.
+
+  It also closes a second thing nobody was looking for: the deprecated `excludeFromVectorSearch` was being kept
+  on the document, and its removal deferred, on the stated grounds that *"a peer on an older build must keep
+  finding the key it knows"* — while the ingest schema stripped it. The guarantee that justified carrying it
+  did not exist.
+
+- **A memory's `type` was deleted whenever the memory arrived by push.** The field selects the memory's type
+  schema, so a memory that crossed a push door was then validated against nothing on the receiver and missed
+  every type filter. Kept on pull, deleted on push: same version of the code, same document, one direction, no
+  error and a 200 on the way back.
+
+- **A chrono entry lost the marks that say its description expired**, so a reader could no longer tell *"this
+  entry never had a description"* from *"it had one and its retention window lapsed"* — which is the entire
+  purpose of `contentRedacted` and `contentRedactedAt`. Same mechanism as above.
+
+  Neither of these was reported. Both were found by deriving one rule from two mechanisms already in the code:
+  **a field the divergence check hashes must replicate.** If it does not, the sender's copy has the key, the
+  receiver's does not, and the two Merkle roots differ for ever — so the sync view reports a space as divergent
+  when nothing is wrong with it, which trains an operator to ignore the one signal that means data really is
+  missing. `a-replicated-field-reaches-its-incoming-schema.test.js` now derives its exemptions from
+  `merkle.ts` rather than from a list kept by hand; the hand-kept version named none of these three and would
+  not have.
+
+- **The thirteen sync-ingest write sites are one function.** Each wrote the document and then queued its
+  embedding as a separate following statement, which holds for as long as everyone writing the fourteenth
+  remembers the second line — and a record written without the queue is stored, listed, traversable and absent
+  from every meaning-ranked search on that peer, with nothing to grep for. `ingestBrainDoc` does both, and it is
+  now the only thing in the ingest router permitted to write a brain document.
+
+  The gate that covered this compared two counts, thirteen against thirteen. Equal counts are a weaker claim
+  than they look — and they go VACUOUS: nought writes and nought enqueues are equal too, so extracting the
+  write made that check pass by looking at nothing. Its floor caught it, and the rule is structural now.
+
 ### Added
 
 - **An edge can now say what KIND of record each endpoint is, so a link is no longer entity-to-entity only.**

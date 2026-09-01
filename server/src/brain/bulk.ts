@@ -28,6 +28,7 @@ import type { EntityDoc, ChronoType, ChronoStatus } from '../config/types.js';
 export const BULK_MAX_PER_TYPE = 500;
 
 import { UUID_V4_RE, edgeEndpointKind, isWellFormedRef } from './entity-refs.js';
+import { storedEdgeKind } from './entity-refs.js';
 import { REF_KINDS } from '../config/types-knowledge.js';
 import type { RefKind } from '../config/types-knowledge.js';
 import { NEVER_RETURNED_PROJECTION } from './read-projection.js';
@@ -194,7 +195,7 @@ export async function bulkWrite(spaceId: string, input: BulkInput): Promise<Bulk
        * below would flatten it to a message. So this stays as the reporting path while the write function is
        * the guarantee — the distinction matters, because the enforcement is no longer THIS line's job.
        */
-      const existing = await findEdgeByTriplet(spaceId, from, to, label);
+      const existing = await findEdgeByTriplet(spaceId, from, to, label, fromKind, toKind);
       if (schemaFails('edge', i, validateEdge(meta ?? {}, { label, properties: mergePropertiesOrKeep(existing?.properties, properties) ?? {} }))) continue;
       await upsertEdge(spaceId, from, to, label,
         typeof item['weight'] === 'number' ? item['weight'] : undefined,

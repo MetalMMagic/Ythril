@@ -19,18 +19,35 @@
  */
 import { col, asFilter } from '../db/mongo.js';
 import { NEVER_RETURNED_PROJECTION } from './read-projection.js';
+import { storedEdgeKind } from './entity-refs.js';
 import type { EdgeDoc } from '../config/types.js';
+import type { RefKind } from '../config/types-knowledge.js';
 
 /**
  * The stored edge with this identity, or `null`.
  *
  * Projected through `NEVER_RETURNED_PROJECTION` like every other read: the embedding vector never leaves the
  * database, and a validation path that accidentally carried one would put it into an error response.
+ *
+ * ## The KINDS are part of the identity too (M-3)
+ *
+ * Since M-1 an endpoint can be an entity, a memory, a chrono entry or a file, and each collection assigns its
+ * own UUIDs — so `(X, Y, mentions)` with Y an entity and the same triplet with Y a memory are two
+ * relationships. Filtering on the triplet alone, an upsert would read one of them and write the other.
+ *
+ * **`null` rather than `undefined`, and that distinction is the whole of the filter.** A `undefined` value is
+ * DROPPED by the driver, so it is not a constraint at all — the query would match an edge of any kind and the
+ * check would silently pass. `null` matches a missing field, which is what an entity endpoint stores:
+ * `storedEdgeKind` normalises `'entity'` to absent so there is exactly one representation to match.
  */
 export async function findEdgeByTriplet(
   spaceId: string, from: string, to: string, label: string,
+  fromKind?: RefKind, toKind?: RefKind,
 ): Promise<EdgeDoc | null> {
   return await col<EdgeDoc>(`${spaceId}_edges`)
-    .findOne(asFilter<EdgeDoc>({ spaceId, from, to, label }),
-      { projection: NEVER_RETURNED_PROJECTION }) as EdgeDoc | null;
+    .findOne(asFilter<EdgeDoc>({
+      spaceId, from, to, label,
+      fromKind: storedEdgeKind(fromKind) ?? null,
+      toKind: storedEdgeKind(toKind) ?? null,
+    } as never), { projection: NEVER_RETURNED_PROJECTION }) as EdgeDoc | null;
 }

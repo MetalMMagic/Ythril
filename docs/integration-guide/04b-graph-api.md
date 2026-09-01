@@ -311,7 +311,18 @@ kept on pull and deleted on push — same version, one direction, silently — w
 #### An edge's `_id` is DERIVED from the relationship, and moves when the relationship does
 
 Since 3.6 an edge's `_id` is `uuidv5` over `(from, to, label)`, each part length-prefixed so no part can forge
-the separator. Two peers creating the same relationship therefore arrive at the same id **without talking**,
+the separator — and since 3.7 over the endpoint KINDS as well, because each collection assigns its own UUIDs
+and a memory may hold the same id as an entity. `(X) -[mentions]-> (Y as entity)` and the same triplet with Y a
+memory are two relationships, so they must be two ids.
+
+**An entity-to-entity edge derives exactly the id it did before**, and that is a requirement rather than a
+courtesy: a peer on an older build derives without the kinds, so appending them unconditionally would give the
+two peers different ids for the same ordinary edge. They are appended only when at least one endpoint is not an
+entity — a combination that could not exist before 3.7 and therefore has no older peer to disagree with. If you
+derive ids yourself, omit the kinds for an entity-to-entity edge; do not send `"entity"`.
+
+The unique index moved with it, to `(from, to, label, fromKind, toKind)`. An entity endpoint stores nothing —
+`"entity"` is normalised to absent — so every edge written before 3.7 keys identically to a new ordinary one. Two peers creating the same relationship therefore arrive at the same id **without talking**,
 and the sync collision is an idempotent no-op instead of a duplicate key on every cycle. `spaceId` is
 deliberately not part of the key: space aliasing lets one logical space carry a different local id on each
 peer, so including it would derive differently on the two sides — which is the defect this removes.

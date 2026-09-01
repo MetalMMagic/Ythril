@@ -8,6 +8,7 @@ import { assertRefsResolve, edgeEndpointKind, collectionForRefKind, endpointName
 import { REF_KINDS } from '../../config/types-knowledge.js';
 import type { RefKind } from '../../config/types-knowledge.js';
 import { requireSpaceAuth, denyReadOnly } from '../../auth/middleware.js';
+import { unknownFieldWarnings } from './unknown-fields.js';
 import { globalRateLimit, bulkWipeRateLimit } from '../../rate-limit/middleware.js';
 import { listEdges, deleteEdge, upsertEdge, getEdgeById, updateEdgeById, EdgeSchemaViolation } from '../../brain/edges.js';
 import { bulkDeleteEdges } from '../../brain/edge-bulk-delete.js';
@@ -34,6 +35,19 @@ export const edgesRouter = Router();
 
 
 // POST /api/brain/spaces/:spaceId/edges — create/upsert an edge
+/**
+ * The body keys the edges create reads.
+ *
+ * Declared so the route can say what it did NOT understand — see `unknownFieldWarnings`. It is a
+ * second list beside the destructure below, which is exactly the kind of pair that drifts, so
+ * `a-create-says-which-fields-it-did-not-understand.test.js` requires every destructured name to
+ * appear here. A field added below and not here would produce an "unknown field" warning about a
+ * parameter that works.
+ *
+ * The shared write options — ttlDays, waitForEmbedding, the duplicate flags and the two suppression
+ * spellings — are NOT listed: they are read by helpers, and live in `SHARED_WRITE_BODY_KEYS`.
+ */
+const EDGES_CREATE_BODY_KEYS = ['from', 'to', 'label', 'weight', 'type', 'description', 'properties', 'tags', 'fromKind', 'toKind'];
 edgesRouter.post('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
   const cfg = getConfig();
@@ -151,7 +165,10 @@ edgesRouter.post('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, de
     throw err;
   }
   const result: Record<string, unknown> = { ...edge };
-  if (check && check.warnings.length > 0) result['warnings'] = check.warnings;
+  // The schema warnings a `warn` space produces, plus the keys this route did not understand — one
+  // array, one shape. A second channel for the second kind would be worse than the silence it replaces.
+  const warnings = [...(check?.warnings ?? []), ...unknownFieldWarnings(req.body, EDGES_CREATE_BODY_KEYS)];
+  if (warnings.length > 0) result['warnings'] = warnings;
   res.status(201).json(result);
 });
 

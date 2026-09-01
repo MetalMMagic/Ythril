@@ -125,6 +125,40 @@ POST /api/brain/spaces/:spaceId/memories
 }
 ```
 
+#### A create tells you which fields it did not understand
+
+**Every brain create returns a `warnings` array naming any body key it does not accept**, and stores the record
+anyway. `{"fact": "...", "totallyMadeUpField": "xyzzy"}` returns `201` with:
+
+```json
+"warnings": [
+  {
+    "field": "totallyMadeUpField",
+    "value": "xyzzy",
+    "reason": "unknown field — ignored. This route accepts: checkContradictions, checkDuplicates, description, dupeThreshold, entityIds, excludeFromVectorSearch, fact, id, properties, suppressEmbeddings, tags, ttlDays, type, waitForEmbedding"
+  }
+]
+```
+
+**It is a warning, never a refusal.** A `400` would break every forward-compatible client the day a field is
+removed, and the point is not to reject the write — it is that until 3.7 a caller could not tell *"this
+parameter is not implemented"* from *"this parameter was applied"*, because both were a `201` and an id. That
+is not hypothetical: it is how a caller sending `suppressEmbeddings` on a create believed it worked for two
+weeks while the field was being dropped.
+
+The rows share the `warnings` array with schema violations in a `warn` space, and the same
+`{field, value, reason}` shape. An object or array value is named by its type rather than reflected back, and a
+long string is truncated: a warning is not a place to echo a payload.
+
+**MCP refuses where REST warns**, and the difference is deliberate. A tool's input schema is
+`additionalProperties: false` and the dispatcher enforces it, so an unknown argument there is an error before
+any handler runs. An MCP schema is published to its caller and a REST body shape is not, so the strict door can
+afford to refuse and the open one has to explain. **Test through one and deploy through the other and you will
+get two different answers to the same mistake** — which is worth knowing before it surprises you.
+
+The UPDATE routes do not do this yet: they carry no `warnings` array at all, so adding one there is a response
+shape change rather than a new row in an existing field.
+
 **Constraints**: `id` optional — a **UUID v4** naming an **existing** record to update. It is not a way to choose an id: identity is server-generated, so an id that matches nothing is ignored rather than adopted, and the record is created with a fresh one. Anything that is not a UUID v4 is a `400`. To carry your own reference, put it in `name` or `description`. See [Retry Safety](#retry-safety). **Constraints**: `fact` max 50 000 chars. `type` optional string — stored on the document and validated against the space's `typeSchemas.memory` allowlist when set. `tags` must be an array of strings. `description` optional string. `properties` optional object; property values should be a string, number, or boolean (unlike the entity endpoint, the memory/edge/chrono write paths don't reject non-primitive values at the API layer — schema validation is the gate when the space defines the property). Every id in `entityIds` must be a UUID v4 **and** name an entity that exists — passing a name, a malformed id, or an id that resolves to nothing returns `400` and stores nothing. This is the default; a space can opt out with `meta.strictLinkage: false` (see [Reference integrity](12-admin-api.md#reference-integrity)). `ttlDays` optional — see [Record Expiry (TTL)](04f-write-semantics.md#record-expiry-ttl). `waitForEmbedding` optional boolean — see below.
 
 #### Catching a near-duplicate at write time (`checkDuplicates`, `checkContradictions`)

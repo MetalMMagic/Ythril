@@ -199,6 +199,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   routes' shared helper import it, and `recall.ts` only declared it — and adding one optional field pushed
   that file past its frozen size. That was the god-file gate working: every addition to what a CREATE accepts
   had been landing in the recall module because that is where the type already was. The freeze goes DOWN.
+- **A brain create accepted any field you invented and answered `201`.** There was no body schema: each route
+  destructured the keys it knew, hand-validated those, and dropped the rest. `"totallyMadeUpField": "xyzzy"`
+  came back with a record id and nothing else.
+
+  So a caller could not tell *"this parameter is not implemented"* from *"this parameter was applied"* — both
+  are a success and an id. That is how `suppressEmbeddings`-on-create stayed hidden for two weeks: the
+  integrator sent it, got a 200, and believed it.
+
+  All four creates now return a `warnings` row naming each key they did not understand, **and what they do
+  accept** — a warning that only says "unknown field" tells a caller their write was wrong without telling them
+  what right looks like. The rows share the `warnings` array with schema violations and the same
+  `{field, value, reason}` shape; a second channel for the second kind would be worse than the silence it
+  replaces.
+
+  **A warning, not a `400`**, which is what the reporter asked for and were explicit about: a strict rejection
+  might break existing callers. It is also better on its own terms — a refusal answers a different question,
+  and would turn every forward-compatible client into a broken one the day a field is removed.
+
+  **MCP refuses where REST warns.** A tool's input schema is `additionalProperties: false` and the dispatcher
+  enforces it, so an unknown argument is an error there before any handler runs. That asymmetry is now
+  documented rather than discovered: test through one door and deploy through the other and you get two
+  different answers to the same mistake.
+
+  The shared write options — `ttlDays`, `waitForEmbedding`, the duplicate flags, both suppression spellings —
+  are known to every route without any of them restating the list, because they are read by helpers rather than
+  by a route body. A warnings array that cried wolf on the commonest write there is would be one nobody reads.
+
+  Gated in two directions, and the second is what makes it stay true: every name a create route READS must be
+  declared, whether it comes from the destructure or from `req.body?.['id']`. Two mutants survived the first
+  draft of that check — one because the destructure regex stopped at the `properties = {}` default and silently
+  matched the PATCH handler's instead, one because the key-read pattern could not parse an optional chain
+  followed by a bracket. Both are gates that changed subject rather than failing.
+
+  The UPDATE routes still do not report unknown fields: they carry no `warnings` array at all, so that is a
+  response-shape change rather than a new row in an existing field, and it is filed separately.
 
 - **A merge could move an edge onto an end its label forbids, and said nothing.** Since the endpoint rules
   became write-time refusals, every path that CREATES an edge enforces them — they all go through `upsertEdge`.

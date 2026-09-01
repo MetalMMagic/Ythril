@@ -35,7 +35,7 @@
  */
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 import { ActivatedRoute } from '@angular/router';
 import { FilesApi } from '../../core/files-api.service';
 import { SpacesApi } from '../../core/spaces-api.service';
@@ -318,3 +318,232 @@ describe('FileManagerComponent — the metadata edit model (characterization for
  *
  * The boundary cases are unchanged there, plus the ones that were awkward to assert from a component.
  */
+
+/**
+ * The tree sidebar — characterization, and the last uncovered seam in this page.
+ *
+ * ## Why it gets its own block, written before the cut rather than after
+ *
+ * G-3's remaining work is the shell, and the tree is the largest thing the shell still renders inline: a
+ * recursive template, five CSS rules, an interface, a signal and three methods. It is also the ONLY part of
+ * this page with no assertion anywhere — the blocks above pin sorting, paths, the object URL and the metadata
+ * model, and the tree is not mentioned in any of them.
+ *
+ * That combination is what the repo rule is about: weak coverage plus a refactor means characterization tests
+ * first, proven green against the ORIGINAL code, as their own change. Every one of these cases passed before a
+ * line of the extraction was written.
+ *
+ * ## What is actually fragile here
+ *
+ * The tree's nodes are MUTATED IN PLACE — `node.expanded = false`, `node.children = [...]`, `node.loading =
+ * true` — and the page is `OnPush`. So every mutation is followed by `treeRoot.set([...treeRoot()])`, whose
+ * only purpose is to hand Angular a new array reference so the view is marked dirty. Nothing about the code
+ * says that out loud, and an extraction that moves this into a store with immutable updates, or that drops one
+ * spread, produces a tree which silently never redraws. There is no error, no console warning: the data is
+ * right and the screen is stale.
+ *
+ * The other fragile part is quieter. Collapsing a node does not discard its loaded children, so re-expanding
+ * costs no request — and an extraction that rebuilds nodes from a fresh listing would re-fetch every time, on
+ * a page where the request is invisible and the only symptom is a slower click.
+ */
+describe('FileManagerComponent — the tree sidebar (characterization for G-3)', () => {
+  /** A fixture whose directory listings are scriptable per path, so an expand can be driven. */
+  function createWithTree(listing: Record<string, unknown[]>) {
+    const requested: string[] = [];
+    const api = {
+      ...makeApi(),
+      listFiles: (_space: string, path: string) => {
+        requested.push(path);
+        return of({ entries: listing[path] ?? [], path });
+      },
+    } as any;
+    TestBed.configureTestingModule({
+      imports: [FileManagerComponent, getTranslocoModule()],
+      providers: [
+        { provide: FilesApi, useValue: api },
+        { provide: SpacesApi, useValue: api },
+        { provide: BrainApi, useValue: api },
+        { provide: AuthService, useValue: { token: () => 't' } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => null } }, queryParamMap: of() } },
+      ],
+    });
+    const fixture = TestBed.createComponent(FileManagerComponent);
+    fixture.detectChanges();
+    return { c: fixture.componentInstance as any, fixture, requested };
+  }
+
+  it('the root holds directories only — a file is not a tree node', () => {
+    /*
+     * The filter is one `.filter(e => e.isDirectory)` inside the subscribe, and it is the whole reason the tree
+     * is a tree. Losing it puts every file in the space into the sidebar, which looks like a listing bug rather
+     * than a tree bug and would be blamed on the wrong component.
+     */
+    const { c } = createWithTree({ '/': [dir('docs'), file('a.txt'), dir('img')] });
+    expect(c.treeRoot().map((n: any) => n.name)).toEqual(['docs', 'img']);
+  });
+
+  it('a root node starts collapsed with children UNLOADED, which is not the same as empty', () => {
+    /*
+     * `children: null` means "not fetched yet" and `[]` would mean "fetched, and there are none". The
+     * difference decides whether expanding issues a request, so a store that initialised children to `[]`
+     * would give a tree whose folders can never be opened — and no error.
+     */
+    const { c } = createWithTree({ '/': [dir('docs')] });
+    const node = c.treeRoot()[0];
+    expect(node.expanded).toBe(false);
+    expect(node.loading).toBe(false);
+    expect(node.children).toBeNull();
+  });
+
+  it('a node path is built with the page join, so it matches what the breadcrumb produces', () => {
+    // The docblock at the top of this file already names this: `join` and the breadcrumb accumulator are the
+    // only two places that build a path, and a tree with its own copy is how they start to disagree.
+    const { c } = createWithTree({ '/': [dir('docs')] });
+    expect(c.treeRoot()[0].path).toBe(c.join('/', 'docs'));
+  });
+
+  it('AS-IS: one click on a folder lists that directory TWICE', () => {
+    /*
+     * Found by writing this assertion expecting 1. `onTreeClick` calls `navigate(path)`, which loads the
+     * directory for the main listing, and then `expandTreeNode(node)`, which lists the same path again for the
+     * tree's children. Same URL, same moment, two requests — every time a folder is opened from the sidebar.
+     *
+     * Pinned AS-IS at two rather than quietly asserted as one, because a characterization test's job is to
+     * record what happens. Filed as `G-10`: the second request is avoidable (the listing already holds the
+     * directories) but de-duplicating it is a behaviour change and does not belong inside a file split.
+     *
+     * It also has to be pinned so the extraction cannot make it WORSE without anyone noticing — a tree
+     * component that fetched on its own would make it three.
+     */
+    const { c, requested } = createWithTree({ '/': [dir('docs')], '/docs': [dir('api'), file('note.md')] });
+    c.onTreeClick(c.treeRoot()[0]);
+    const node = c.treeRoot()[0];
+    expect(node.expanded).toBe(true);
+    expect(node.children.map((n: any) => n.name)).toEqual(['api']);
+    expect(requested.filter(p => p === '/docs').length).toBe(2);
+  });
+
+  it('every mutation replaces the ARRAY, because the page is OnPush', () => {
+    /*
+     * The assertion this whole block exists for. Nodes are mutated in place, so the signal's value is the same
+     * objects every time — only a fresh array reference marks the view dirty. An extraction that keeps the
+     * mutation and drops the spread leaves a tree that is correct in memory and frozen on screen.
+     *
+     * Asserted as reference INEQUALITY rather than by reading the rendered DOM, because the DOM is what would
+     * silently agree: a stale view renders the previous state perfectly well.
+     */
+    const { c } = createWithTree({ '/': [dir('docs')], '/docs': [dir('api')] });
+    const before = c.treeRoot();
+    c.onTreeClick(before[0]);
+    expect(c.treeRoot()).not.toBe(before);
+  });
+
+  it('collapsing keeps the loaded children, so re-expanding costs no request', () => {
+    /*
+     * `onTreeClick` on an expanded node sets `expanded = false` and nothing else. The children stay, which is
+     * why the second expand is free — and why an extraction that rebuilds nodes from a fresh listing would
+     * re-request on every toggle. Invisible on a fast network and the only symptom is a slower click.
+     */
+    const { c, requested } = createWithTree({ '/': [dir('docs')], '/docs': [dir('api')] });
+    c.onTreeClick(c.treeRoot()[0]);
+    expect(requested.filter(p => p === '/docs').length).toBe(2);   // the duplicate above
+
+    c.onTreeClick(c.treeRoot()[0]);
+    expect(c.treeRoot()[0].expanded).toBe(false);
+    expect(c.treeRoot()[0].children.map((n: any) => n.name)).toEqual(['api']);
+
+    c.onTreeClick(c.treeRoot()[0]);
+    expect(c.treeRoot()[0].expanded).toBe(true);
+    /*
+     * Three clicks, four requests — and the arithmetic is the assertion. Each click costs the listing's one
+     * (via `navigate`), and only the FIRST costs the tree's: the collapse and the re-expand both find
+     * `children` already there and issue nothing. So the caching is real, and it is worth exactly one request
+     * per toggle rather than the two a rebuild-from-scratch tree would pay.
+     */
+    expect(requested.filter(p => p === '/docs').length).toBe(4);
+  });
+
+  it('clicking a node NAVIGATES as well as toggling — one gesture, two effects', () => {
+    /*
+     * Easy to lose in a split, because a presentational tree component naturally emits one event and the page
+     * naturally handles one thing with it. Both halves are the behaviour: the listing follows the tree.
+     */
+    const { c } = createWithTree({ '/': [dir('docs')], '/docs': [] });
+    c.onTreeClick(c.treeRoot()[0]);
+    expect(c.currentPath()).toBe('/docs');
+    expect(c.breadcrumbs().map((b: any) => b.name ?? b.label ?? b)).toContain('docs');
+  });
+
+  it('AS-IS: a failed expand clears the spinner and leaves the node closed, silently', () => {
+    /*
+     * Marked AS-IS because it is arguably a defect rather than a decision: the error branch resets `loading`
+     * and does NOT set `expanded`, so the caret springs back and nothing anywhere says why. Every other load on
+     * this page has a visible failure state — `loadError`, `refreshFailed`, `spacesError`.
+     *
+     * Pinned exactly as it behaves so the extraction cannot change it by accident. Improving it is a deliberate
+     * edit to this assertion, which is the point of the convention.
+     */
+    const api = {
+      ...makeApi(),
+      listFiles: (_s: string, path: string) =>
+        (path === '/docs' ? throwError(() => new Error('nope')) : of({ entries: [dir('docs')], path })),
+    } as any;
+    TestBed.configureTestingModule({
+      imports: [FileManagerComponent, getTranslocoModule()],
+      providers: [
+        { provide: FilesApi, useValue: api },
+        { provide: SpacesApi, useValue: api },
+        { provide: BrainApi, useValue: api },
+        { provide: AuthService, useValue: { token: () => 't' } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => null } }, queryParamMap: of() } },
+      ],
+    });
+    const fixture = TestBed.createComponent(FileManagerComponent);
+    fixture.detectChanges();
+    const c = fixture.componentInstance as any;
+
+    c.onTreeClick(c.treeRoot()[0]);
+    expect(c.treeRoot()[0].loading).toBe(false);
+    expect(c.treeRoot()[0].expanded).toBe(false);
+    expect(c.treeRoot()[0].children).toBeNull();
+    /*
+     * `loadError` IS set here — not by the tree, but by the main listing, which requested the same failing path
+     * through `navigate`. So today an operator does see something, by accident: the duplicate request is what
+     * puts the error into the listing, and the tree itself shows nothing.
+     *
+     * That is worth knowing before either of the two fixes. De-duplicating the request (`G-10`) removes the
+     * accidental message along with it, and giving the tree its own error state has to come first or the
+     * failure becomes genuinely silent.
+     */
+    expect(c.loadError()).toBeTruthy();
+  });
+
+  it('the sidebar remembers being closed, and loads the tree only when it has none', () => {
+    /*
+     * Two behaviours in one method, and the second is a request decision rather than a UI one: reopening a
+     * sidebar whose tree is already loaded must not re-fetch the root. That is why this belongs with the tree
+     * and not with the toolbar.
+     */
+    const { c, requested } = createWithTree({ '/': [dir('docs')] });
+    const rootsAtStart = requested.filter(p => p === '/').length;
+
+    c.toggleSidebar();
+    expect(c.sidebarOpen()).toBe(false);
+    expect(localStorage.getItem('ythril.sidebar')).toBe('closed');
+
+    c.toggleSidebar();
+    expect(c.sidebarOpen()).toBe(true);
+    expect(localStorage.getItem('ythril.sidebar')).toBe('open');
+    expect(requested.filter(p => p === '/').length).toBe(rootsAtStart);
+  });
+
+  it('switching space rebuilds the tree from the new space root', () => {
+    // The tree is per-space state, and `selectSpace` is the only thing that resets it. A store whose lifetime
+    // outlived the selection would show the previous space's folders.
+    const { c, requested } = createWithTree({ '/': [dir('docs')] });
+    const before = requested.filter(p => p === '/').length;
+    c.selectSpace('work');
+    expect(requested.filter(p => p === '/').length).toBeGreaterThan(before);
+    expect(c.currentPath()).toBe('/');
+  });
+});

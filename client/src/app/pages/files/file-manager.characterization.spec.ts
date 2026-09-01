@@ -379,7 +379,7 @@ describe('FileManagerComponent — the tree sidebar (characterization for G-3)',
      * than a tree bug and would be blamed on the wrong component.
      */
     const { c } = createWithTree({ '/': [dir('docs'), file('a.txt'), dir('img')] });
-    expect(c.treeRoot().map((n: any) => n.name)).toEqual(['docs', 'img']);
+    expect(c.tree.treeRoot().map((n: any) => n.name)).toEqual(['docs', 'img']);
   });
 
   it('a root node starts collapsed with children UNLOADED, which is not the same as empty', () => {
@@ -389,7 +389,7 @@ describe('FileManagerComponent — the tree sidebar (characterization for G-3)',
      * would give a tree whose folders can never be opened — and no error.
      */
     const { c } = createWithTree({ '/': [dir('docs')] });
-    const node = c.treeRoot()[0];
+    const node = c.tree.treeRoot()[0];
     expect(node.expanded).toBe(false);
     expect(node.loading).toBe(false);
     expect(node.children).toBeNull();
@@ -399,7 +399,7 @@ describe('FileManagerComponent — the tree sidebar (characterization for G-3)',
     // The docblock at the top of this file already names this: `join` and the breadcrumb accumulator are the
     // only two places that build a path, and a tree with its own copy is how they start to disagree.
     const { c } = createWithTree({ '/': [dir('docs')] });
-    expect(c.treeRoot()[0].path).toBe(c.join('/', 'docs'));
+    expect(c.tree.treeRoot()[0].path).toBe(c.join('/', 'docs'));
   });
 
   it('AS-IS: one click on a folder lists that directory TWICE', () => {
@@ -416,8 +416,8 @@ describe('FileManagerComponent — the tree sidebar (characterization for G-3)',
      * component that fetched on its own would make it three.
      */
     const { c, requested } = createWithTree({ '/': [dir('docs')], '/docs': [dir('api'), file('note.md')] });
-    c.onTreeClick(c.treeRoot()[0]);
-    const node = c.treeRoot()[0];
+    c.onTreeClick(c.tree.treeRoot()[0]);
+    const node = c.tree.treeRoot()[0];
     expect(node.expanded).toBe(true);
     expect(node.children.map((n: any) => n.name)).toEqual(['api']);
     expect(requested.filter(p => p === '/docs').length).toBe(2);
@@ -433,9 +433,9 @@ describe('FileManagerComponent — the tree sidebar (characterization for G-3)',
      * silently agree: a stale view renders the previous state perfectly well.
      */
     const { c } = createWithTree({ '/': [dir('docs')], '/docs': [dir('api')] });
-    const before = c.treeRoot();
+    const before = c.tree.treeRoot();
     c.onTreeClick(before[0]);
-    expect(c.treeRoot()).not.toBe(before);
+    expect(c.tree.treeRoot()).not.toBe(before);
   });
 
   it('collapsing keeps the loaded children, so re-expanding costs no request', () => {
@@ -445,15 +445,15 @@ describe('FileManagerComponent — the tree sidebar (characterization for G-3)',
      * re-request on every toggle. Invisible on a fast network and the only symptom is a slower click.
      */
     const { c, requested } = createWithTree({ '/': [dir('docs')], '/docs': [dir('api')] });
-    c.onTreeClick(c.treeRoot()[0]);
+    c.onTreeClick(c.tree.treeRoot()[0]);
     expect(requested.filter(p => p === '/docs').length).toBe(2);   // the duplicate above
 
-    c.onTreeClick(c.treeRoot()[0]);
-    expect(c.treeRoot()[0].expanded).toBe(false);
-    expect(c.treeRoot()[0].children.map((n: any) => n.name)).toEqual(['api']);
+    c.onTreeClick(c.tree.treeRoot()[0]);
+    expect(c.tree.treeRoot()[0].expanded).toBe(false);
+    expect(c.tree.treeRoot()[0].children.map((n: any) => n.name)).toEqual(['api']);
 
-    c.onTreeClick(c.treeRoot()[0]);
-    expect(c.treeRoot()[0].expanded).toBe(true);
+    c.onTreeClick(c.tree.treeRoot()[0]);
+    expect(c.tree.treeRoot()[0].expanded).toBe(true);
     /*
      * Three clicks, four requests — and the arithmetic is the assertion. Each click costs the listing's one
      * (via `navigate`), and only the FIRST costs the tree's: the collapse and the re-expand both find
@@ -469,7 +469,7 @@ describe('FileManagerComponent — the tree sidebar (characterization for G-3)',
      * naturally handles one thing with it. Both halves are the behaviour: the listing follows the tree.
      */
     const { c } = createWithTree({ '/': [dir('docs')], '/docs': [] });
-    c.onTreeClick(c.treeRoot()[0]);
+    c.onTreeClick(c.tree.treeRoot()[0]);
     expect(c.currentPath()).toBe('/docs');
     expect(c.breadcrumbs().map((b: any) => b.name ?? b.label ?? b)).toContain('docs');
   });
@@ -502,10 +502,10 @@ describe('FileManagerComponent — the tree sidebar (characterization for G-3)',
     fixture.detectChanges();
     const c = fixture.componentInstance as any;
 
-    c.onTreeClick(c.treeRoot()[0]);
-    expect(c.treeRoot()[0].loading).toBe(false);
-    expect(c.treeRoot()[0].expanded).toBe(false);
-    expect(c.treeRoot()[0].children).toBeNull();
+    c.onTreeClick(c.tree.treeRoot()[0]);
+    expect(c.tree.treeRoot()[0].loading).toBe(false);
+    expect(c.tree.treeRoot()[0].expanded).toBe(false);
+    expect(c.tree.treeRoot()[0].children).toBeNull();
     /*
      * `loadError` IS set here — not by the tree, but by the main listing, which requested the same failing path
      * through `navigate`. So today an operator does see something, by accident: the duplicate request is what
@@ -527,12 +527,12 @@ describe('FileManagerComponent — the tree sidebar (characterization for G-3)',
     const { c, requested } = createWithTree({ '/': [dir('docs')] });
     const rootsAtStart = requested.filter(p => p === '/').length;
 
-    c.toggleSidebar();
-    expect(c.sidebarOpen()).toBe(false);
+    c.tree.toggleSidebar(c.activeSpaceId());
+    expect(c.tree.sidebarOpen()).toBe(false);
     expect(localStorage.getItem('ythril.sidebar')).toBe('closed');
 
-    c.toggleSidebar();
-    expect(c.sidebarOpen()).toBe(true);
+    c.tree.toggleSidebar(c.activeSpaceId());
+    expect(c.tree.sidebarOpen()).toBe(true);
     expect(localStorage.getItem('ythril.sidebar')).toBe('open');
     expect(requested.filter(p => p === '/').length).toBe(rootsAtStart);
   });

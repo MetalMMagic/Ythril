@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The file tree's state and requests moved into a store** — G-3's seventh cut and the first store rather than
+  a component, taking the largest file in the repo from 1 118 to 1 070 code lines.
+
+  A store because a component cannot hold them: the sidebar renders inside an `@if (sidebarOpen())`, so the tree
+  component is destroyed every time the sidebar closes, and a component owning `listFiles` would cancel it on
+  destroy and lose the loaded tree. A store the page provides has the page's lifetime. Provided per page rather
+  than application-wide, so leaving the page forgets a space's directories instead of carrying them into the
+  next.
+
+  Navigation stayed on the page deliberately. `onTreeClick` calls `navigate(path)` and then `toggle(node)` — one
+  gesture with two effects, both of them the behaviour — and the two calls sitting side by side are what keep
+  G-10's duplicate directory listing findable rather than buried inside a store method.
+
+  `joinPath` moved to `file-format.ts` at the same time: the tree and the breadcrumb are the only two things that
+  build a path in that page, and a second copy is how they start to disagree. A characterization case asserts a
+  node's path equals what that function returns, rather than a literal, for exactly that reason.
+
+  91 tests in that folder pass with their SUBJECTS re-pointed and not one assertion edited, which is the claim
+  this change is making. They failed loudly first — `c.treeRoot is not a function` — which is what a subject
+  re-point is supposed to look like.
+
 ### Fixed
 
 - **The divergence check reported every space with a retention policy as divergent, for ever.** The Merkle root

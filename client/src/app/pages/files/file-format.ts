@@ -42,3 +42,18 @@ export function msRange(offsetMs: number | null, durationMs: number | null): str
   };
   return durationMs ? `${clock(offsetMs)}-${clock(offsetMs + durationMs)}` : clock(offsetMs);
 }
+
+/**
+ * A space-relative path built from a directory and a name.
+ *
+ * Trivial, and shared for a reason the file manager's own characterization spec states: `joinPath` and the
+ * breadcrumb accumulator are the only two places that build a path in this page, and they agree about nothing
+ * today. A second copy is how they start to disagree — which is why the tree's nodes are built with THIS
+ * function, and why a case asserts that a node's path equals what this returns rather than a literal.
+ *
+ * Root is `/`, so the endsWith check is not a cosmetic guard: without it every top-level path would be `//x`,
+ * and that string is a different `_id` from `/x` on the server.
+ */
+export function joinPath(base: string, name: string): string {
+  return base.endsWith('/') ? `${base}${name}` : `${base}/${name}`;
+}

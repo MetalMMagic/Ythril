@@ -4,7 +4,9 @@ import { UploadQueueComponent, type UploadItem, type UploadStatus } from './uplo
 import { FileMetaEditorComponent, type FileMetaModel } from './file-meta-editor.component';
 import { FileExtractViewComponent } from './file-extract-view.component';
 import { FileListingComponent, type FileRow } from './file-listing.component';
+import { joinPath } from './file-format';
 import { FileTreeComponent, type TreeNode } from './file-tree.component';
+import { FileTreeStore } from './file-tree.store';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
@@ -123,6 +125,12 @@ function xlsxCellText(v: unknown): string {
   // regardless of zone. Text fields (`newFolderName`, `renameValue`) are ngModel two-way bindings
   // whose input events mark the view dirty. So OnPush re-checks exactly when state changes.
   changeDetection: ChangeDetectionStrategy.OnPush,
+  /*
+   * Per PAGE, not per application. The tree belongs to the space this page is showing, so a singleton would
+   * carry one space's directories into the next — and leaving the page must forget them, which a page-scoped
+   * provider does for free.
+   */
+  providers: [FileTreeStore],
   imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe, ErrorStateComponent, ModalDirective, FilePreviewComponent, UploadQueueComponent, FileMetaEditorComponent, FileExtractViewComponent, FileListingComponent, FileTreeComponent],
   styles: [`
     /* A background refresh, as a 2px indeterminate hairline above the table. Deliberately NOT a spinner and
@@ -350,8 +358,8 @@ function xlsxCellText(v: unknown): string {
             <input type="file" multiple hidden (change)="onFileInput($event)" />
           </label>
 
-          <button class="sidebar-toggle" (click)="toggleSidebar()">
-            @if (sidebarOpen()) { <ph-icon name="caret-left" [size]="12"/> {{ 'files.sidebar.hideTree' | transloco }} }
+          <button class="sidebar-toggle" (click)="tree.toggleSidebar(activeSpaceId())">
+            @if (tree.sidebarOpen()) { <ph-icon name="caret-left" [size]="12"/> {{ 'files.sidebar.hideTree' | transloco }} }
             @else { <ph-icon name="caret-right" [size]="12"/> {{ 'files.sidebar.showTree' | transloco }} }
           </button>
         </div>
@@ -369,9 +377,9 @@ function xlsxCellText(v: unknown): string {
 
         <div class="fm-layout">
           <!-- Directory tree sidebar -->
-          @if (sidebarOpen()) {
+          @if (tree.sidebarOpen()) {
             <app-file-tree
-              [nodes]="treeRoot()"
+              [nodes]="tree.treeRoot()"
               [currentPath]="currentPath()"
               (nodeClick)="onTreeClick($event)" />
           }
@@ -781,8 +789,14 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   requeueingPath = signal('');
 
   // ── Tree sidebar state ───────────────────────────────────────────────────
-  sidebarOpen = signal(localStorage.getItem('ythril.sidebar') !== 'closed');
-  treeRoot = signal<TreeNode[]>([]);
+  /**
+   * The tree's state and its two requests live in `FileTreeStore`, provided by this page.
+   *
+   * A store rather than a component, because the sidebar renders inside an `@if (sidebarOpen())` and a
+   * component owning `listFiles` would cancel it on destroy and lose the loaded tree. A store injected here has
+   * this page's lifetime, which is what the requests need.
+   */
+  readonly tree = inject(FileTreeStore);
 
   private _keyHandler = (e: KeyboardEvent) => this.onPreviewKey(e);
 
@@ -825,7 +839,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     this.currentPath.set('/');
     this.updateBreadcrumbs('/');
     this.loadDir('/');
-    this.loadTreeRoot();
+    this.tree.loadRoot(id);
   }
 
   navigate(path: string): void {
@@ -1101,7 +1115,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
         this.newFolderName = '';
         this.showNewFolder.set(false);
         this.loadDir(this.currentPath());
-        this.loadTreeRoot();
+        this.tree.loadRoot(this.activeSpaceId());
       },
       error: () => this.toast.error(this.transloco.translate('files.error.createFolderFailed')),
     });
@@ -1172,9 +1186,15 @@ export class FileManagerComponent implements OnInit, OnDestroy {
 
 
 
-  private join(base: string, name: string): string {
-    return base.endsWith('/') ? `${base}${name}` : `${base}/${name}`;
-  }
+  /**
+   * Shared with the tree store, which builds every node's path with it.
+   *
+   * Exposed as a member rather than called directly at the six sites below only because it is reached that way
+   * throughout this file; the definition is `file-format.ts`, so the tree and the breadcrumb cannot drift apart
+   * about what a path is — the divergence this page's characterization spec warned about before there was a
+   * second builder.
+   */
+  readonly join = joinPath;
 
   private updateBreadcrumbs(path: string): void {
     const parts = path.split('/').filter(Boolean);
@@ -1189,60 +1209,17 @@ export class FileManagerComponent implements OnInit, OnDestroy {
 
   // ── Tree sidebar ─────────────────────────────────────────────────────────
 
-  toggleSidebar(): void {
-    const open = !this.sidebarOpen();
-    this.sidebarOpen.set(open);
-    localStorage.setItem('ythril.sidebar', open ? 'open' : 'closed');
-    if (open && this.treeRoot().length === 0) this.loadTreeRoot();
-  }
-
-  private loadTreeRoot(): void {
-    const spaceId = this.activeSpaceId();
-    if (!spaceId) return;
-    this.filesApi.listFiles(spaceId, '/').subscribe({
-      next: ({ entries }) => {
-        this.treeRoot.set(
-          entries
-            .filter(e => e.isDirectory)
-            .map(e => ({ name: e.name, path: this.join('/', e.name), expanded: false, loading: false, children: null })),
-        );
-      },
-      error: () => {},
-    });
-  }
-
+  /**
+   * One gesture, TWO effects, and both are the behaviour: the listing follows the tree, and the folder opens.
+   *
+   * Kept on the page rather than folded into the store because the store must not decide what a click means —
+   * and because the two calls sitting side by side is what keeps `G-10` findable. Clicking a folder currently
+   * lists that directory twice, once here and once for the children, and a characterization case pins it at
+   * two so the count cannot drift up unnoticed.
+   */
   onTreeClick(node: TreeNode): void {
     this.navigate(node.path);
-    if (!node.expanded) {
-      this.expandTreeNode(node);
-    } else {
-      node.expanded = false;
-      this.treeRoot.set([...this.treeRoot()]);
-    }
-  }
-
-  private expandTreeNode(node: TreeNode): void {
-    if (node.children !== null) {
-      node.expanded = true;
-      this.treeRoot.set([...this.treeRoot()]);
-      return;
-    }
-    node.loading = true;
-    this.treeRoot.set([...this.treeRoot()]);
-    this.filesApi.listFiles(this.activeSpaceId(), node.path).subscribe({
-      next: ({ entries }) => {
-        node.children = entries
-          .filter(e => e.isDirectory)
-          .map(e => ({ name: e.name, path: this.join(node.path, e.name), expanded: false, loading: false, children: null }));
-        node.loading = false;
-        node.expanded = true;
-        this.treeRoot.set([...this.treeRoot()]);
-      },
-      error: () => {
-        node.loading = false;
-        this.treeRoot.set([...this.treeRoot()]);
-      },
-    });
+    this.tree.toggle(node, this.activeSpaceId());
   }
 
   // ── Preview ──────────────────────────────────────────────────────────────

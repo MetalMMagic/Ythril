@@ -260,10 +260,23 @@ describe('suppressEmbeddings is reachable on every surface that can set it', () 
     // to exist as a declared property so the call validates; it is not allowed to describe the behaviour a
     // second time, or to be mentioned in a tool's own prose where somebody would read it as a live choice.
     for (const [type, file] of Object.entries(MCP_TOOLS)) {
-      const mentions = [...code(file).matchAll(/excludeFromVectorSearch/g)];
-      assert.equal(mentions.length, 1,
-        `the ${type} MCP tool names excludeFromVectorSearch ${mentions.length} times; exactly one is `
-        + 'allowed, the declaration of the shared deprecated alias');
+      /*
+       * EVERY mention is the shared declaration, rather than exactly one of them.
+       *
+       * It was `=== 1`, which held only while a single tool per file declared the alias. From 3.7 the CREATE
+       * tools declare it too — the record tier can be set on a create, and an undeclared property is refused
+       * by the dispatcher before any handler runs — so a correct file now names it twice. Counting
+       * declarations against total mentions asks the question the case is actually about: is the alias ever
+       * spelled out with semantics of its own, or is it always the one shared schema constant?
+       */
+      const src = code(file);
+      const mentions = [...src.matchAll(/excludeFromVectorSearch/g)].length;
+      const declarations = [...src.matchAll(/excludeFromVectorSearch: LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA/g)].length;
+      assert.ok(declarations >= 1, `the ${type} MCP tool declares the alias nowhere`);
+      assert.equal(mentions, declarations,
+        `the ${type} MCP tool names excludeFromVectorSearch ${mentions} times but declares it as the shared `
+        + `alias only ${declarations} — the extra mention describes the behaviour a second time, or reads as `
+        + 'a live choice in prose an agent constructs arguments from');
     }
     for (const [type, { file }] of Object.entries(ROUTES)) {
       assert.doesNotMatch(code(file), /'excludeFromVectorSearch'|`excludeFromVectorSearch`/,

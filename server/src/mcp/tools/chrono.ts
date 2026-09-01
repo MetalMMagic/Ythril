@@ -88,6 +88,8 @@ export const create_chronoTool: ToolHandler = {
             checkDuplicates: { type: 'boolean', default: true, description: 'Run a semantic near-duplicate check before storing (default true). When a highly similar entry already exists, the response flags it (id + summary + score) so you can update it instead of logging the same event twice. The entry is still stored regardless. Set false to skip.' },
             checkContradictions: { type: 'boolean', default: false, description: 'Also flag existing entries that CONTRADICT this one — a near-neighbour claiming a different status, or setting the same single-valued property to a different value. Deterministic only (no model call). The entry is still stored regardless.' },
             dupeThreshold: unitScoreSchema('Cosine-similarity threshold for the duplicate check (0-1, default ~0.92). Lower to flag looser matches.'),
+            suppressEmbeddings: SUPPRESS_EMBEDDINGS_SCHEMA,
+            excludeFromVectorSearch: LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA,
             ttlDays: TTL_DAYS_SCHEMA,
           },
           required: ['space', 'title', 'type', 'startsAt'],
@@ -144,6 +146,8 @@ export const create_chronoTool: ToolHandler = {
 
     let entry;
     try {
+      const chronoSuppress = parseRecordSuppression(a);
+      if (!chronoSuppress.ok) throw new Error(chronoSuppress.error);
       entry = await createChrono(wt.target, {
       id: chronoSuppliedId,
       title,
@@ -159,6 +163,9 @@ export const create_chronoTool: ToolHandler = {
       properties: chronoProps,
       ...(rec.value ? { recurrence: rec.value } : {}),
     }, ctx.actor, ttlDaysFromArgs(a), {
+      // The record tier, which no create door stated until 2026-09-02. `parseRecordSuppression` owns the
+      // grammar — both spellings — so this is one call rather than a second reading of the deprecated name.
+      ...(chronoSuppress.value !== undefined ? { suppressEmbeddings: chronoSuppress.value } : {}),
       // Duplicate check defaults ON for the interactive create tool, as it does for remember/upsert_entity.
       checkDuplicates: a['checkDuplicates'] !== false,
       checkContradictions: a['checkContradictions'] === true,

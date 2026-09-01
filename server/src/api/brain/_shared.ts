@@ -9,9 +9,10 @@ import { tagContains, textContains, propertiesValueContains } from '../../brain/
 import { textSearchOr, SEARCHABLE_FIELDS } from '../../brain/text-search.js';
 import type express from 'express';
 import { getConfig } from '../../config/loader.js';
+import { parseRecordSuppression } from '../../brain/suppress-embeddings.js';
 import { resolveMetaRefs, type SchemaViolation } from '../../spaces/schema-validation.js';
 import type { SpaceMeta } from '../../config/types.js';
-import type { DupeCheckOpts } from '../../brain/recall.js';
+import type { DupeCheckOpts } from '../../brain/write-options.js';
 import { parseIfMatch } from '../../util/if-match.js';
 
 /** Regex that matches a UUID v4 (case-insensitive). */
@@ -127,6 +128,7 @@ export function buildMemoryFilter(query: Record<string, unknown>): Record<string
  * Returns an error string when a flag is present but the wrong type — never a coercion. `"false"` is truthy,
  * and a hygiene check that silently turns itself off is worse than one that was never asked for.
  */
+// The record-suppression grammar lives in one place; this file only decides WHEN to read it.
 export function dupeCheckOptsFromBody(body: unknown): { opts: DupeCheckOpts } | { error: string } {
   const b = (body ?? {}) as Record<string, unknown>;
   const opts: DupeCheckOpts = {};
@@ -147,6 +149,21 @@ export function dupeCheckOptsFromBody(body: unknown): { opts: DupeCheckOpts } | 
     }
     opts.dupeThreshold = t;
   }
+
+  /*
+   * The record tier of `record > schema > space`, read HERE rather than in each create route.
+   *
+   * It was in none of them: `suppressEmbeddings` was documented, worked on update, and was dropped on create,
+   * so a caller who wanted a record retired from meaning-ranked search had to write it twice and live with a
+   * window in between where it was searchable. Reported from outside on 2026-08-30.
+   *
+   * Both spellings, because `parseRecordSuppression` owns that grammar and the update paths already use it —
+   * a create that took only the new name would be a third grammar for one switch, and the deprecated one is
+   * what a 3.0-era caller is sending.
+   */
+  const sup = parseRecordSuppression(body);
+  if (!sup.ok) return { error: sup.error };
+  if (sup.value !== undefined) opts.suppressEmbeddings = sup.value;
 
   return { opts };
 }

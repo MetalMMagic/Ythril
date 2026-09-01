@@ -263,7 +263,14 @@ const FROZEN = {
   //
   // What is left is the import of `isRawFilter` and its type. A file cannot use a guard without importing it, so this line
   // is the irreducible cost of the feature reaching the code that runs it.
-  'server/src/brain/recall.ts': 690,
+  // 690 -> 683. `DupeCheckOpts` moved to `write-options.ts`, and it is a WRITE type: five writers and the
+  // write routes' shared helper import it, while this file only declared it. Adding one optional field —
+  // the record tier of `suppressEmbeddings`, which no create could state — pushed this file past its
+  // freeze, and that was the gate working: every addition to what a CREATE accepts had been landing in the
+  // recall module because that is where the type already was.
+  //
+  // Lowered rather than raised, which is the outcome this list is for.
+  'server/src/brain/recall.ts': 683,
   // 678 -> 687: two conditional notices on the face card — the enable pin stating what it does NOT reach, and
   // "configured but not in use" for a stored endpoint awaiting acknowledgement. Nine lines of markup, and the
   // first attempt wanted THIRTY because the reasoning was written as HTML comments inside the template. That
@@ -407,7 +414,15 @@ const FROZEN = {
   // duplicating it during the extraction that separates its two callers would have been the same defect again.
   //
   // Lowered rather than deleted: an entry here is a ratchet.
-  'server/src/brain/edges.ts': 487,
+  // RAISED 487 -> 490: THREE LINES, for the record tier of `suppressEmbeddings` reaching the edge create.
+  // One declares the option, and two hoist the suppression answer out of the inline-embed condition so the
+  // ENQUEUE below can consult the same one — computing the vector inline and queueing a job anyway stores
+  // exactly what the flag forbids, moments later, with nothing to come back and remove it.
+  //
+  // Raised without argument, for the reason written above `brain.component.ts`: this is the write path
+  // honouring a documented field it silently dropped on create, on all four record types, and a ratchet
+  // that made THAT negotiable would be a gate encouraging the wrong outcome. DECOMPOSE: A-4 still stands.
+  'server/src/brain/edges.ts': 490,
   /*
    * A BARREL of API response shapes, and the one entry here that is not a decomposition debt.
    *

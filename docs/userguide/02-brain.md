@@ -279,7 +279,13 @@ So a **topK** of 10 can legitimately show fewer than ten rows — the passage co
 setting is called **`suppressEmbeddings`** and it exists at three levels, all under that one name: on a single
 record, on a record *type* (**Settings → Spaces → Schema**, where it reads *"Suppress for this type"*), and on
 the whole space (**Settings → Spaces → Danger Zone**). The most specific one wins — record, then type, then
-space. It is meant for records that are **state rather than prose**: a row whose text never changes while its
+space.
+
+**The two you can set in the app are the type and the space.** The per-RECORD one is API-only today: there
+is no control for it on a record's form, either when creating it or when editing it, so an operator who
+wants one record out of search sets it on its type instead — or asks whoever writes to the API. It is worth
+knowing the tier exists, because a record with no embedding and nothing suppressing its type or space was
+set that way through the API. It is meant for records that are **state rather than prose**: a row whose text never changes while its
 numbers are updated constantly, which would otherwise be re-embedded on every write for no gain.
 
 What it does is remove the record's embedding, not hide the record. So a suppressed record is still returned by

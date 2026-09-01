@@ -60,6 +60,8 @@ export const upsert_edgeTool: ToolHandler = {
               additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] },
             },
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
+            suppressEmbeddings: SUPPRESS_EMBEDDINGS_SCHEMA,
+            excludeFromVectorSearch: LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA,
             ttlDays: TTL_DAYS_SCHEMA,
           },
           required: ['space', 'from', 'to', 'label'],
@@ -116,8 +118,13 @@ export const upsert_edgeTool: ToolHandler = {
     let edgeCheck: UpdateValidation | undefined;
     let edge;
     try {
+      // The record tier, which no create door stated until 2026-09-02. `parseRecordSuppression` owns the
+      // grammar — both spellings — so this is one line rather than a second reading of the deprecated name.
+      const supCreate = parseRecordSuppression(a);
+      if (!supCreate.ok) throw new Error(supCreate.error);
       edge = await upsertEdge(wt.target, from, to, label, weight, edgeType, description, edgeProps, edgeTags, ctx.actor, edgeTtlDays,
         {
+          ...(supCreate.value !== undefined ? { suppressEmbeddings: supCreate.value } : {}),
           ...(a['fromKind'] !== undefined ? { fromKind } : {}),
           ...(a['toKind'] !== undefined ? { toKind } : {}),
           onValidation: c => { edgeCheck = c; },

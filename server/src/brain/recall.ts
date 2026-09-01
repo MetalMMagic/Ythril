@@ -651,43 +651,6 @@ export interface SimilarMatch {
 export const DEFAULT_DUPE_THRESHOLD = 0.92;
 const DEFAULT_DUPE_TOPK = 3;
 
-/** Options controlling the optional insert-time duplicate check on remember/upsertEntity. */
-export interface DupeCheckOpts {
-  checkDuplicates?: boolean;
-  /**
-   * Also report near-neighbours that structurally CONTRADICT the incoming record (same single-valued
-   * property, different value). Its own flag rather than a rider on `checkDuplicates`: "is this redundant?"
-   * and "does this conflict with what we already believe?" are different questions, and a caller may well
-   * want the second without the first.
-   *
-   * Only the deterministic judge runs on the write path — no model call, so no added latency or egress per
-   * insert. The nightly scanner still runs the NLI pass. The warning NEVER blocks the write: an agent
-   * correcting an outdated fact should be able to contradict the record it supersedes.
-   */
-  checkContradictions?: boolean;
-  dupeThreshold?: number;
-  dupeTopK?: number;
-  /**
-   * Block the write until this record is embedded, so it is searchable the moment the call returns.
-   *
-   * Default false: the vector is computed by the embedding queue moments later, and the write no longer
-   * pays the model's latency. Set true when the caller will search for what it just wrote, or when a
-   * failure to embed should fail the write rather than be repaired in the background.
-   *
-   * Two consequences worth stating rather than discovering. With this true, a write **fails** when the
-   * embedder is unavailable — that was `remember`'s unconditional behaviour before the queue, now named
-   * and opt-in. With it false, the write **succeeds** and the record is briefly unrecallable: a vectorless
-   * record is invisible to BOTH recall channels, since the lexical one needs an embedding to compute a
-   * real similarity and skips what it cannot score.
-   *
-   * `checkDuplicates` and `checkContradictions` IMPLY this — they need the vector before the insert so the
-   * new record cannot self-match, and that is a question which cannot be answered later.
-   *
-   * It lives here, in the options object the write paths already take, rather than as another positional
-   * parameter: `remember` carries a note saying its twelfth was one too many.
-   */
-  waitForEmbedding?: boolean;
-}
 
 
 /**

@@ -184,8 +184,14 @@ describe('every inline embed honours suppression', () => {
     // `edgeEmbedText(… effectiveType …)`, so a `type` check over that window would read a word belonging to a
     // different call — the same mistake `merge-runs-the-write-paths-validators` records making.
     const args = argumentsOf(edges, at + 'embeddingSuppressedFor'.length, 'the edge suppression check').join(' ');
-    assert.match(args, /\{\s*label\s*\}/, 'the edge must be identified by `label`');
+    // `label` PRESENT rather than the whole object matched: that object now also carries the record tier
+    // (`suppressEmbeddings`), which a create could not state until 2026-09-02. An exact-shape match failed on
+    // that addition while the property this case exists for — keyed by label, not type — was untouched.
+    assert.match(args, /\blabel\b/, 'the edge must be identified by `label`');
     assert.doesNotMatch(args, /\btype\b/, 'passing `type` for an edge finds no schema and never suppresses');
+    assert.match(args, /suppressEmbeddings/,
+      'the RECORD tier is not stated, so a caller\'s own flag has nowhere to be read from and the type '
+      + 'schema answers instead — silently, which is how it went unnoticed on all four creates');
   });
 
   it('the queue path still checks too — it is the last chance, not a replacement', () => {

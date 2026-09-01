@@ -10,7 +10,8 @@ import { NEVER_RETURNED_PROJECTION, withoutVector } from './read-projection.js';
 import { textSearchOr, SEARCHABLE_FIELDS } from './text-search.js';
 import { embed } from './embedding.js';
 import { chronoEmbedText } from './embed-text.js';
-import { SimilarMatch, DupeCheckOpts, checkDuplicates } from './recall.js';
+import { SimilarMatch, checkDuplicates } from './recall.js';
+import type { DupeCheckOpts } from './write-options.js';
 import { findInsertContradictions, type ContradictionWarning } from './insert-contradictions.js';
 import { deriveChronoStatus } from './chrono-status.js';
 import { getConfig } from '../config/loader.js';
@@ -155,7 +156,12 @@ export async function createChrono(
   let embeddingFields: { embedding?: number[]; embeddingModel?: string; matchedText?: string } = { matchedText: embedText };
   // Suppression wins over `waitForEmbedding` — see `embeddingSuppressedFor`. `matchedText` is stored either
   // way, which is the point: a suppressed record stays findable lexically and stops competing on meaning.
-  if (opts?.waitForEmbedding === true && !embeddingSuppressedFor(spaceId, 'chrono', { type: fields.type })) {
+  //
+  // Hoisted, because the enqueue below consults the same answer. The RECORD tier is stated here, which it was
+  // not until 2026-09-02 — see `DupeCheckOpts`.
+  const suppressed = embeddingSuppressedFor(spaceId, 'chrono',
+    { type: fields.type, suppressEmbeddings: opts?.suppressEmbeddings });
+  if (opts?.waitForEmbedding === true && !suppressed) {
     const embResult = await embed(embedText);
     embeddingFields = { embedding: embResult.vector, embeddingModel: embResult.model, matchedText: embedText };
   }
@@ -234,6 +240,8 @@ export async function createChrono(
     seq,
     ...embeddingFields,
   };
+  // Stored, not merely consulted — see the note in `remember`.
+  if (opts?.suppressEmbeddings !== undefined) doc.suppressEmbeddings = opts.suppressEmbeddings;
   if (fields.description !== undefined) doc.description = fields.description;
   if (fields.endsAt !== undefined) doc.endsAt = fields.endsAt;
   if (fields.confidence !== undefined) doc.confidence = fields.confidence;
@@ -248,7 +256,7 @@ export async function createChrono(
   // threshold, so presence is the signal. The write proceeds either way -- a backdated import is legitimate.
   stampSkewOnCreate(doc, getSpaceMeta(spaceId));
   await col<ChronoEntry>(`${spaceId}_chrono`).insertOne(asDoc<ChronoEntry>(doc));
-  if (!embeddingFields.embedding) await enqueueEmbedJob(spaceId, 'chrono', doc._id);
+  if (!embeddingFields.embedding && !suppressed) await enqueueEmbedJob(spaceId, 'chrono', doc._id);
   if (actor) emitWebhookEvent({ event: 'chrono.created', spaceId, entry: { ...doc, embedding: undefined }, ...actor });
   // Advisory only — the entry is stored either way.
   return withoutVector((similar || contradicts) ? { ...doc, ...(similar ? { similar } : {}), ...(contradicts ? { contradicts } : {}) } : doc);

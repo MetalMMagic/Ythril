@@ -26,7 +26,8 @@ import { enqueueEmbedJob, retireEmbedJob } from './embed-queue.js';
 import { embeddingSuppressedFor } from './suppress-embeddings.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { MemoryDoc, EntityDoc, TombstoneDoc } from '../config/types.js';
-import { SimilarMatch, DupeCheckOpts, checkDuplicates } from './recall.js';
+import { SimilarMatch, checkDuplicates } from './recall.js';
+import type { DupeCheckOpts } from './write-options.js';
 import { PROPERTIES_SCAN_MAX_MS } from './tag-filter.js';
 import { writeFilterFor, writeOutcome } from './write-precondition.js';
 import { mirrorLegacySuppression } from './suppress-embeddings.js';
@@ -127,10 +128,11 @@ export async function remember(
   // The duplicate and contradiction checks consequently do not run for a suppressed record. That is not a
   // loss: every record of a suppressed type lacks a vector, so a neighbour search had nothing to find them
   // with in the first place — it would have reported "no duplicates" over a space it could not see.
-  // `{ type }` only: `remember` takes no per-record suppression flag, so the top tier is simply not stated
-  // here and the decision falls through to the type schema and the space — which is what `recordSuppression`
-  // returning `undefined` means. A memory acquires its own flag later, through `updateMemory`.
-  const suppressed = embeddingSuppressedFor(spaceId, 'memory', { type });
+  // The RECORD tier is stated here, which it was not until 2026-09-02: this asked with `{ type }` alone, so
+  // a caller's own flag had nowhere to be read from and the type schema answered instead. `undefined` still
+  // means "not stated" and falls through, which is what makes passing it unconditionally safe.
+  const suppressed = embeddingSuppressedFor(spaceId, 'memory',
+    { type, suppressEmbeddings: opts?.suppressEmbeddings });
   const needsVectorNow = !suppressed
     && (opts?.waitForEmbedding === true || opts?.checkDuplicates === true || opts?.checkContradictions === true);
 
@@ -198,7 +200,9 @@ export async function remember(
     // After the write, never before: a job for a record that failed to store would be a job for
     // nothing. Enqueued even when the vector is already current — the content just changed, so the
     // stored vector is now stale, and the queue is what makes it catch up.
-    if (!embResult) await enqueueEmbedJob(spaceId, 'memory', converged._id);
+    // Not queued when suppressed: skipping the inline embed and queueing anyway stores the vector the flag
+    // forbids a few seconds later, with nothing to come back and remove it.
+    if (!embResult && !suppressed) await enqueueEmbedJob(spaceId, 'memory', converged._id);
     // `memory.updated`, not `created` — a subscriber must be able to tell a converged retry from a new record.
     if (actor) emitWebhookEvent({ event: 'memory.updated', spaceId, entry: { ...converged, embedding: undefined }, ...actor });
     return withoutVector((similar || contradicts)
@@ -225,6 +229,17 @@ export async function remember(
     seq,
     ...(embResult ? { embedding: embResult.vector, embeddingModel: embResult.model } : {}),
   };
+  /*
+   * The flag is STORED, not merely consulted.
+   *
+   * Everything that revisits a record later resolves the tiers from the DOCUMENT — the embed queue, a reindex,
+   * a retry. A create that skipped the embedding without recording WHY would be re-embedded by the first of
+   * those to come past, and the caller would never learn that their flag lasted one write.
+   *
+   * `false` is stored too, and means the same as it does anywhere else: this record does not suppress, which
+   * still does not override a type or a space that does. Only `undefined` — not stated — is left off.
+   */
+  if (opts?.suppressEmbeddings !== undefined) doc.suppressEmbeddings = opts.suppressEmbeddings;
   if (type !== undefined) doc.type = type;
   if (description !== undefined) doc.description = description;
   if (properties !== undefined) doc.properties = properties;
@@ -234,7 +249,7 @@ export async function remember(
   // threshold, so presence is the signal. The write proceeds either way -- a backdated import is legitimate.
   stampSkewOnCreate(doc, getSpaceMeta(spaceId));
   await col<MemoryDoc>(`${spaceId}_memories`).insertOne(asDoc<MemoryDoc>(doc));
-  if (!embResult) await enqueueEmbedJob(spaceId, 'memory', doc._id);
+  if (!embResult && !suppressed) await enqueueEmbedJob(spaceId, 'memory', doc._id);
   // Real-time duplicate-rule evaluation (opt-in per space). Fire-and-forget; the
   // dynamic import avoids a static cycle with dupe-scanner.js.
   if (getConfig().spaces.find(s => s.id === spaceId)?.dupeRulesOnInsert) {

@@ -415,9 +415,18 @@ uses — and `brain/suppress-embeddings.ts` is the one place that resolves them:
 
 | tier | where it lives | name |
 |---|---|---|
-| record | the record itself, via `PATCH` or an MCP `update_*` tool | `suppressEmbeddings` |
+| record | the record itself — **set it on the CREATE**, or later via `PATCH` / an MCP `update_*` tool | `suppressEmbeddings` |
 | type | `typeSchemas.<kind>.<type>` on the space meta | `suppressEmbeddings` |
 | space | space meta (the Danger Zone in the UI) | `suppressEmbeddings` |
+
+**A create can state it, from 3.7.** Until then the field was accepted on update and silently dropped on
+create, on all four record types — so a record that was never meant to be searchable had to be written twice:
+once embedded, once to remove the vector, with a window between them where it WAS searchable. Reported from
+outside on 2026-08-30 by an integrator writing a dedupe marker on every inbound message. Setting it on the
+create now stores the flag, skips the vector, and **queues no embed job** — a queued job would have stored
+what the flag forbids a few seconds later, with nothing to come back and remove it.
+
+Both spellings are accepted on create, as they are on update.
 
 Until 3.1.0 the record tier was spelled differently, so nothing in its name suggested the other two existed.
 One name is the fix, and the consequence still holds: **a record with no vector and no `suppressEmbeddings`

@@ -37,3 +37,38 @@ export function canWriteAnywhere(rights: TokenRights | undefined | null): boolea
   if (floor && AREAS.some(a => satisfies(floor[a], 'write'))) return true;
   return Object.values(rights.perSpace ?? {}).some(areas => AREAS.some(a => satisfies(areas[a], 'write')));
 }
+
+/**
+ * How much power this token holds, as a number, for ORDERING a list of tokens.
+ *
+ * ## What it is for, and what it must not be used for
+ *
+ * Sorting the Tokens table's Permission column. It is cosmetic in exactly the sense the docblock above
+ * describes: it picks a row order, and every action the rows offer is still authorised by the server per space
+ * and per area. Do not branch on it to decide whether something is allowed.
+ *
+ * ## Why it lives here
+ *
+ * Because the ladder does. `AREAS` and `RUNGS` are already in this file with the comparison written against
+ * them, and a rank built anywhere else would be the third copy of `['none','read','write','admin']` in the
+ * repo — the defect class this codebase produces most, and the one where the weaker copy wins silently.
+ *
+ * ## The two things it decides that the ladder does not
+ *
+ * **Instance admin sits above any per-space admin.** They are different kinds of power and the four-rung
+ * ladder does not compare them: an `admin` rung reaches one area of one space, while instance admin reaches
+ * spaces that do not exist yet. So it is ranked above the top of the ladder rather than at it.
+ *
+ * **No matrix at all ranks below a matrix that grants nothing.** They look different in the table — "no
+ * rights" text versus an omitted glyph — and they ARE different: one has never been given a matrix, the other
+ * has one that reaches nothing. Sorting them together would bury the first among the second, and the first is
+ * the one an operator has to act on. That distinction is the same one `api.types.ts` states for the field: a
+ * missing matrix means "not known here", not "reaches nothing".
+ */
+export function rightsRank(rights: TokenRights | undefined | null): number {
+  if (!rights) return -1;
+  if (rights.instanceAdmin) return RUNGS.length;
+  const held = (areas: Record<string, string> | null | undefined): number =>
+    areas ? Math.max(0, ...AREAS.map(a => RUNGS.indexOf((areas[a] ?? 'none') as (typeof RUNGS)[number]))) : 0;
+  return Math.max(held(rights.floor as never), ...Object.values(rights.perSpace ?? {}).map(a => held(a as never)));
+}

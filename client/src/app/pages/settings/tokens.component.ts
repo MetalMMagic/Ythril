@@ -12,24 +12,23 @@ import { computed } from '@angular/core';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { ModalDirective } from '../../shared/modal.directive';
 import { SummaryStripComponent, SummaryItem } from '../../shared/summary-strip.component';
-import { StatusPillComponent } from '../../shared/status-pill.component';
-import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
-import { RightsGlyphComponent, type TokenRights } from './rights-glyph.component';
+import type { TokenRights } from './rights-glyph.component';
 import { TokenCreateDialogComponent } from './token-create-dialog.component';
 import { TokenRightsDialogComponent } from './token-rights-dialog.component';
 import { OwnTokenRightsComponent } from './own-token-rights.component';
-import { TokenQuotaCellComponent } from './token-quota-cell.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
 import { httpErrorReason } from '../../core/http-error';
 import { TOKENS_PAGE_STYLES } from './tokens.styles';
+import { TokenTableComponent } from './token-table.component';
+import { filterTokens, sortTokens, isExpired, isExpiringSoon } from './token-table';
+import type { TokenSortField, SortDir } from './token-table';
 
 @Component({
   selector: 'app-tokens',
   standalone: true,
   imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, ModalDirective,
-            SummaryStripComponent, StatusPillComponent, HscrollTopDirective,
-            ErrorStateComponent, RightsGlyphComponent, TokenCreateDialogComponent,
-            TokenRightsDialogComponent, OwnTokenRightsComponent, TokenQuotaCellComponent],
+            SummaryStripComponent, ErrorStateComponent, TokenCreateDialogComponent,
+            TokenRightsDialogComponent, OwnTokenRightsComponent, TokenTableComponent],
   styles: [TOKENS_PAGE_STYLES],
   template: `
     <!-- New token success banner -->
@@ -111,96 +110,27 @@ import { TOKENS_PAGE_STYLES } from './tokens.styles';
         <app-error-state [message]="'tokens.loadError' | transloco" [reason]="loadError() ?? ''" (retry)="load()" />
         <p style="font-size:12.5px;color:var(--text-muted);margin-top:8px;">{{ 'tokens.listNeedsAdmin' | transloco }}</p>
       } @else {
-        <div class="table-wrapper" hscrollTop>
-          <table>
-            <thead>
-              <tr>
-                <th>{{ 'tokens.table.label' | transloco }}</th><th>{{ 'tokens.table.permission' | transloco }}</th><th>{{ 'tokens.table.created' | transloco }}</th><th>{{ 'tokens.table.lastUsed' | transloco }}</th><th>{{ 'tokens.table.expires' | transloco }}</th><th>{{ 'tokens.table.spaces' | transloco }}</th><th>{{ 'tokens.table.quota' | transloco }}</th><th></th>
-              </tr>
-            </thead>
-            <tbody>
-              @for (t of tokens(); track t.id) {
-                <tr>
-                  <td style="font-weight:500;">
-                    @if (editingId() === t.id) {
-                      <span style="display:inline-flex;align-items:center;gap:6px;">
-                        <input type="text" [(ngModel)]="editLabelValue" maxlength="200" style="width:190px;"
-                          [attr.aria-label]="'tokens.action.editLabelAriaLabel' | transloco"
-                          (keydown.enter)="saveLabel(t)" (keydown.escape)="cancelEditLabel()" />
-                        <button class="icon-btn" [attr.title]="'common.save' | transloco" [attr.aria-label]="'common.save' | transloco"
-                          (click)="saveLabel(t)" [disabled]="!editLabelValue.trim()"><ph-icon name="check" [size]="14"/></button>
-                        <button class="icon-btn" [attr.title]="'common.cancel' | transloco" [attr.aria-label]="'common.cancel' | transloco"
-                          (click)="cancelEditLabel()"><ph-icon name="x" [size]="14"/></button>
-                      </span>
-                    } @else {
-                      <span class="token-status-dot" [class.dot-active]="!isExpired(t)" [class.dot-expired]="isExpired(t)"></span>
-                      {{ t.name }}
-                      <button class="icon-btn" style="margin-left:4px;" [attr.title]="'tokens.action.editLabelTitle' | transloco"
-                        [attr.aria-label]="'tokens.action.editLabelAriaLabel' | transloco" (click)="startEditLabel(t)"><ph-icon name="pencil-simple" [size]="13"/></button>
-                      @if (t.id === selfToken()?.id) { <span style="margin-left:6px;font-size:0.75rem;color:var(--text-muted);">{{ 'tokens.table.currentSession' | transloco }}</span> }
-                    }
-                  </td>
-                  <td>
-                    @if (t.rights) {
-                      <app-rights-glyph [rights]="t.rights" style="margin-left:8px;vertical-align:middle;"/>
-                    } @else {
-                      <span class="no-rights" [attr.title]="'tokens.rights.none' | transloco">{{ 'tokens.rights.none' | transloco }}</span>
-                    }
-                    <button class="icon-btn" type="button" style="margin-left:4px;vertical-align:middle;"
-                            [attr.aria-label]="'tokens.rights.edit' | transloco"
-                            [attr.title]="'tokens.rights.edit' | transloco"
-                            (click)="editRightsFor.set(t)">
-                      <ph-icon name="pencil-simple" [size]="13"/>
-                    </button>
-                  </td>
-                  <td>{{ stamp(t.createdAt) }}</td>
-                  <td>
-                    @if (t.lastUsed) {
-                      {{ stamp(t.lastUsed) }}
-                    } @else {
-                      <span style="font-style:italic;color:var(--text-muted);">{{ 'tokens.table.neverUsed' | transloco }}</span>
-                    }
-                  </td>
-                  <td>
-                    @if (t.expiresAt) {
-                      <span style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;">
-                        @if (isExpired(t)) { <app-status-pill variant="error">{{ 'tokens.table.expired' | transloco }}</app-status-pill> }
-                        @else if (isExpiringSoon(t)) { <app-status-pill variant="warn" [dot]="true">{{ 'tokens.table.expiringSoon' | transloco }}</app-status-pill> }
-                        {{ stamp(t.expiresAt) }}
-                      </span>
-                    } @else {
-                      <app-status-pill variant="ok">{{ 'tokens.table.noExpiry' | transloco }}</app-status-pill>
-                    }
-                  </td>
-                  <td>
-                    @if (t.schemaLibrary) {
-                      <span class="badge badge-gray" style="font-style:italic;">{{ 'tokens.badge.schemaLibraryOnly' | transloco }}</span>
-                    } @else if (!t.spaces || t.spaces.length === 0) {
-                      <span class="badge badge-green">{{ 'tokens.badge.allSpaces' | transloco }}</span>
-                    } @else {
-                      <span class="badge badge-gray">{{ t.spaces.join(', ') }}</span>
-                    }
-                  </td>
-                  <td>
-                    <app-token-quota-cell [perToken]="t.rateLimitPerMinute" [effective]="t.rateLimitEffective" />
-                  </td>
-                  <td style="white-space:nowrap; display:flex; gap:6px; align-items:center;">
-                    <button class="icon-btn" [attr.title]="'tokens.action.rotateTitle' | transloco" [attr.aria-label]="'tokens.action.rotateAriaLabel' | transloco" (click)="regenerate(t)"><ph-icon name="arrows-clockwise" [size]="14"/></button>
-                    <button class="icon-btn danger" [attr.title]="'tokens.action.revokeTitle' | transloco" [attr.aria-label]="'tokens.action.revokeAriaLabel' | transloco" (click)="revoke(t)"><ph-icon name="x" [size]="14"/></button>
-                  </td>
-                </tr>
-              } @empty {
-                <tr><td colspan="7">
-                  <div class="empty-state" style="padding:24px;">
-                    <h3>{{ 'tokens.empty.title' | transloco }}</h3>
-                    <p style="color:var(--text-secondary);font-size:13px;margin:6px 0 14px;">{{ 'tokens.empty.body' | transloco }}</p>
-                    <button class="btn-primary btn btn-sm" (click)="showCreateDialog.set(true)">{{ 'tokens.list.createButton' | transloco }}</button>
-                  </div>
-                </td></tr>
-              }
-            </tbody>
-          </table>
-        </div>
+        <app-token-table
+          [rows]="visibleTokens()"
+          [sortField]="sortField()"
+          [sortDir]="sortDir()"
+          [labelFilter]="labelFilter()"
+          [spacesFilter]="spacesFilter()"
+          [filtered]="isFiltered()"
+          [editingId]="editingId() ?? ''"
+          [selfTokenId]="selfToken()?.id ?? ''"
+          [(editLabelValue)]="editLabelModel"
+          (sort)="setSort($event)"
+          (labelFilterChange)="labelFilter.set($event)"
+          (spacesFilterChange)="spacesFilter.set($event)"
+          (clearFilters)="clearFilters()"
+          (editLabelStart)="startEditLabel($event)"
+          (editLabelSave)="saveLabel($event)"
+          (editLabelCancel)="cancelEditLabel()"
+          (editRights)="editRightsFor.set($event)"
+          (rotate)="regenerate($event)"
+          (revoke)="revoke($event)"
+          (create)="showCreateDialog.set(true)" />
       }
     </div>
   `,
@@ -230,12 +160,6 @@ export class TokensComponent implements OnInit {
    *
    * Rendered in the VIEWER's locale and timezone by the platform, so it needs no timezone label of its own.
    */
-  stamp(v: string | null | undefined): string {
-    if (!v) return '—';
-    const d = new Date(v);
-    return isNaN(d.getTime()) ? String(v) : d.toLocaleString();
-  }
-
   editRightsFor = signal<TokenRecord | null>(null);
 
   /**
@@ -254,7 +178,64 @@ export class TokensComponent implements OnInit {
   copiedRegen = signal(false);
   /** Inline label edit: the id of the token whose label is being edited (null = none), + its draft. */
   editingId = signal<string | null>(null);
-  editLabelValue = '';
+  /*
+   * A signal rather than a plain string, because the table is a child component now and binds it two-way. The
+   * page keeps owning the value — it is what `saveLabel` sends — and only the editing happens elsewhere.
+   */
+  editLabelModel = signal('');
+
+  /**
+   * Which column the list is ordered by, and which way.
+   *
+   * Client-side, deliberately: `listTokens()` returns every token in one response and there is no paged token
+   * endpoint, so there is nothing to ask the server for. `token-table.ts` says why that is not a shortcut.
+   *
+   * The default is the order the server sent, so the page looks exactly as it did until a header is clicked —
+   * `''` is not a column, and `sortTokens` is only reached once one is chosen.
+   */
+  sortField = signal<TokenSortField | ''>('');
+  sortDir = signal<SortDir>('asc');
+
+  /** The two searchable columns the owner asked for. */
+  labelFilter = signal('');
+  spacesFilter = signal('');
+
+  isFiltered = computed(() => !!(this.labelFilter().trim() || this.spacesFilter().trim()));
+
+  /**
+   * What the table renders: filtered, then sorted.
+   *
+   * That order matters and is not interchangeable. Sorting first would order rows that are about to be thrown
+   * away, which is only wasted work — but filtering first also means the sort sees exactly the rows on screen,
+   * so a column's blanks-last rule is true of what the operator is looking at rather than of the whole list.
+   */
+  visibleTokens = computed<TokenRecord[]>(() => {
+    const narrowed = filterTokens(this.tokens(), { label: this.labelFilter(), spaces: this.spacesFilter() });
+    const field = this.sortField();
+    return field ? sortTokens(narrowed, field, this.sortDir()) : narrowed;
+  });
+
+  /**
+   * Click a header: sort by it, or flip the direction if it is already the active column.
+   *
+   * A third click does NOT clear back to the server's order, which the Brain tables do. There it is worth
+   * having, because their order comes from Mongo and is meaningful; here the unsorted order is the order the
+   * rows happened to be returned in, and offering a click that returns to it would be offering a state nobody
+   * wants. Reload is what gets it back.
+   */
+  setSort(field: string): void {
+    if (this.sortField() === field) {
+      this.sortDir.set(this.sortDir() === 'asc' ? 'desc' : 'asc');
+      return;
+    }
+    this.sortField.set(field as TokenSortField);
+    this.sortDir.set('asc');
+  }
+
+  clearFilters(): void {
+    this.labelFilter.set('');
+    this.spacesFilter.set('');
+  }
 
 
   ngOnInit(): void {
@@ -340,16 +321,16 @@ export class TokensComponent implements OnInit {
 
   startEditLabel(t: TokenRecord): void {
     this.editingId.set(t.id);
-    this.editLabelValue = t.name;
+    this.editLabelModel.set(t.name);
   }
 
   cancelEditLabel(): void {
     this.editingId.set(null);
-    this.editLabelValue = '';
+    this.editLabelModel.set('');
   }
 
   saveLabel(t: TokenRecord): void {
-    const name = this.editLabelValue.trim();
+    const name = this.editLabelModel().trim();
     // A blank or unchanged label is a no-op, not a request — just close the editor.
     if (!name || name === t.name) { this.cancelEditLabel(); return; }
     this.authApi.renameToken(t.id, name).subscribe({
@@ -378,17 +359,13 @@ export class TokensComponent implements OnInit {
     });
   }
 
-  isExpired(t: TokenRecord): boolean {
-    return !!(t.expiresAt && new Date(t.expiresAt) < new Date());
-  }
-
-  /** Not yet expired, but expiring within 7 days — the at-risk state that was invisible before. */
-  isExpiringSoon(t: TokenRecord): boolean {
-    if (!t.expiresAt) return false;
-    const exp = new Date(t.expiresAt).getTime();
-    const now = Date.now();
-    return exp > now && exp - now <= 7 * 24 * 60 * 60 * 1000;
-  }
+  /*
+   * Both predicates live in `token-table.ts` now, because the table's badges and this page's rollup are two
+   * consumers of one rule. A copy on each would let the badge and the count disagree about the same token, and
+   * that would read as a rendering glitch rather than as two implementations of one thing.
+   */
+  isExpired = isExpired;
+  isExpiringSoon = isExpiringSoon;
 
   /** Operator-first rollup: active / expiring-soon / expired counts (warn/error only shown when > 0). */
   summary = computed<SummaryItem[]>(() => {

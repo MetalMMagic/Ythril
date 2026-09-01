@@ -77,6 +77,16 @@ When a **type** is selected and the space has a schema defined for that type, th
 
 **Editing:** Click the ⊙ view-details button on any row to open the full editable drawer.
 
+**Merging two entities can leave a link that no longer fits its rule, and you will be told which.** When two
+records turn out to be the same thing, merging moves every link off the record being absorbed and onto the one
+you keep. If a link's label says what kind of thing may sit at each end — *"reports to runs from a person to a
+person"* — and the record you keep is a different kind, that link now breaks its own rule. The merge still goes
+ahead and lists the links it affected.
+
+That is deliberate. Merging is often exactly how you fix a record that was the wrong kind in the first place,
+so a rule added later must never leave you stuck with two copies of something. Fix the listed links
+afterwards, or widen the rule on the space's Schema tab.
+
 **Deleting:** Each row has an inline **✕ → confirm** flow.
 
 **A delete can be refused, and that is usually the right answer.** If anything else in the space still points

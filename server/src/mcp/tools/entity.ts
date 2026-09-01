@@ -5,7 +5,7 @@ import { deleteEntity, findEntitiesByName, getEntityById, updateEntityById, upse
 import { entityDeleteBlockers } from '../../brain/entity-delete-guard.js';
 // The shared write gate, imported rather than reimplemented — see the note in memory.ts.
 import { SchemaViolationError, type UpdateValidation } from '../../brain/write-validation.js';
-import { type PropertyResolution, applyResolutions, computeMergePlan, executeMerge, validateResolution } from '../../brain/merge.js';
+import { type PropertyResolution, type EndpointRuleWarning, applyResolutions, computeMergePlan, executeMerge, validateResolution } from '../../brain/merge.js';
 import { getConfig } from '../../config/loader.js';
 import { isProxySpace, isStrictLinkage, resolveMemberSpaces, resolveWriteTarget, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { resolveMetaRefs, validateEntity } from '../../spaces/schema-validation.js';
@@ -255,12 +255,31 @@ export const update_entityTool: ToolHandler = {
   },
 };
 
+/**
+ * Render the endpoint-rule rows onto a merge's text output.
+ *
+ * One function for the preview and the result, because they are the same sentence at two moments and the
+ * duplicate-edge block above is already written out twice — which is how the two came to differ in wording
+ * elsewhere in this file.
+ */
+function appendEndpointRuleWarnings(lines: string[], warnings: readonly EndpointRuleWarning[]): void {
+  if (warnings.length === 0) return;
+  lines.push('Edges that will break their label\'s rule after relinking (reported, not refused):');
+  for (const w of warnings) {
+    lines.push(`  ⚠ edge ${w.edgeId} [${w.label}] — its ${w.end} end moves to the survivor: ${w.reason}`);
+  }
+  lines.push('  These are NOT refused: a merge is how a mistyped record gets fixed, so a rule declared later '
+    + 'must not make duplicates unmergeable. Fix them with update_edge/delete_edge, or change the label\'s '
+    + 'endpoints in the space schema.');
+}
+
 export const merge_entitiesTool: ToolHandler = {
   name: 'merge_entities',
   description: 'Merge two entities into one. IRREVERSIBLE: the survivor keeps its identity and id, every reference to the absorbed entity is relinked to it, and the absorbed record is then DELETED. There is no unmerge.\n\n'
     + 'TWO-PHASE BY DESIGN, and the 409 is the feature rather than an error. Call it with an empty or partial `resolution` and you get a CONFLICT PLAN back with status 409: every property where the two disagree, with both values. Call it again with a fully resolved map and it executes. A 409 on the first call is the expected path — treat it as the question being asked, not as a failure to retry.\n\n'
     + 'RESOLVE EVERY CONFLICT OR NOTHING HAPPENS. A partial map returns the plan again rather than merging what it can, because a half-merge would leave two records that are neither separate nor one.\n\n'
-    + 'Per type: numeric properties accept `fn:avg|min|max|sum`, booleans accept `fn:and|or|xor`, and strings take "survivor", "absorbed", or "custom" with `customValue` — there is no function that can combine two strings sensibly, so you have to choose. Properties that do NOT conflict are carried over without appearing in the plan.',
+    + 'Per type: numeric properties accept `fn:avg|min|max|sum`, booleans accept `fn:and|or|xor`, and strings take "survivor", "absorbed", or "custom" with `customValue` — there is no function that can combine two strings sensibly, so you have to choose. Properties that do NOT conflict are carried over without appearing in the plan.\n\n'
+    + 'IT CAN LEAVE AN EDGE BREAKING ITS LABEL\'S RULE, AND IT TELLS YOU WHICH. Relinking rewrites the ends of stored edges, so merging two entities of different types can move an edge onto an end its label forbids — and that is a legitimate thing to do, because a merge is how a mistyped record gets fixed. Any such edge is listed on both the plan and the result, naming the end that moved and what the label admits. It is REPORTED, not refused: a rule declared after the data existed must not make duplicates unmergeable. Fix them afterwards with `update_edge`/`delete_edge`, or widen the label\'s endpoints in the space schema.',
   mutating: true,
   spaceRequired: true,
   inputSchema: (s: ToolSchemas) => ({
@@ -356,6 +375,7 @@ export const merge_entitiesTool: ToolHandler = {
           lines.push(`  ⚠ (${w.from} → ${w.to} [${w.label}]) survivor edge: ${w.survivorEdgeId}, absorbed edge: ${w.absorbedEdgeId}`);
         }
       }
+      appendEndpointRuleWarnings(lines, plan.endpointRuleWarnings);
       return {
         content: [{ type: 'text' as const, text: lines.join('\n') }],
         isError: true,
@@ -385,6 +405,10 @@ export const merge_entitiesTool: ToolHandler = {
       const remaining = plan.duplicateEdgeWarnings.length - mergeResult.deletedDuplicateEdgeIds.length;
       lines.push(`⚠ ${remaining} near-duplicate edge(s) remain (differing properties/tags) — resolve via delete_edge.`);
     }
+    // On the RESULT too, not only on the preview: the merge has happened and these edges are now stored
+    // breaking their label's rule. A plan with no property conflicts never produces a preview at all, so
+    // reporting them there alone would mean the commonest merge says nothing.
+    appendEndpointRuleWarnings(lines, plan.endpointRuleWarnings);
     return {
       content: [{ type: 'text' as const, text: lines.join('\n') }],
     };

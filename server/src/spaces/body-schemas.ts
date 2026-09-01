@@ -97,13 +97,84 @@ export const TypeSchemaZ = z.union([
   }).strict(),
 ]);
 
-/** The knowledge-type keys are SINGULAR, and `.strict()` means the plural spelling is a 400 rather than a no-op. */
+/**
+ * Type-schema fields that only mean something on ONE collection.
+ *
+ * ## Why this list exists at all
+ *
+ * `retention.contentDays` is chrono-only, and three places said it was rejected elsewhere — its own docblock,
+ * `chrono-retention.ts`, and `docs/integration-guide/04f-write-semantics.md`, which is an integrator's
+ * authoritative reference. It was accepted, stored and silently ignored: `CONTENT_TIER_COLLECTIONS` was read in
+ * exactly one place, the RESOLVER, which returns `undefined` for a non-chrono collection long after the write
+ * was accepted.
+ *
+ * So an operator could set a content window on an entity type, get a 200, see it in their config, and watch it
+ * do nothing for ever.
+ *
+ * ## A list rather than one inline guard
+ *
+ * One row today, and it is a list because the next collection-scoped field is already specified: `S-1`'s
+ * `endpoints` and `functional` are edge-only for the same reason this is chrono-only, and each names something
+ * the other collections do not have. Written as an inline `if`, the second is the one somebody forgets — which
+ * is precisely how the first came to be documented and absent.
+ *
+ * The REASON travels with the row so the refusal can say it. An operator who sets a content window on an entity
+ * type is making a reasonable guess about where the setting lives rather than a typo, and "unrecognised key"
+ * would leave them no better off.
+ */
+const COLLECTION_SCOPED_FIELDS: ReadonlyArray<{
+  /** Dotted path within one type object. */
+  path: string;
+  /** The one knowledge type it means anything on. */
+  only: 'entity' | 'memory' | 'edge' | 'chrono';
+  /** Why it is scoped, in the refusal message. */
+  why: string;
+}> = [
+  {
+    path: 'retention.contentDays',
+    only: 'chrono',
+    why: 'the fields it drops are a chrono entry\'s — its description, its embedding and its matched text — so on '
+      + 'another collection it names nothing. Use retention.days to delete records of any type',
+  },
+];
+
+/** The value at a dotted path, or `undefined`. Only two levels are needed and only two are supported. */
+function atPath(obj: unknown, path: string): unknown {
+  if (obj === null || typeof obj !== 'object') return undefined;
+  const [head, ...rest] = path.split('.');
+  const here = (obj as Record<string, unknown>)[head!];
+  return rest.length === 0 ? here : atPath(here, rest.join('.'));
+}
+
+/**
+ * The knowledge-type keys are SINGULAR, and `.strict()` means the plural spelling is a 400 rather than a no-op.
+ *
+ * The `superRefine` is where a collection-scoped field is refused, and this is the only layer that CAN: a
+ * `TypeSchemaZ` validates one type object and cannot know whether it arrived under `entity` or `edge`, while the
+ * resolver knows the collection but runs long after the write was accepted.
+ */
 export const TypeSchemasZ = z.object({
   entity: z.record(z.string().min(1).max(200), TypeSchemaZ).optional(),
   memory: z.record(z.string().min(1).max(200), TypeSchemaZ).optional(),
   edge:   z.record(z.string().min(1).max(200), TypeSchemaZ).optional(),
   chrono: z.record(z.string().min(1).max(200), TypeSchemaZ).optional(),
-}).strict();
+}).strict().superRefine((maps, ctx) => {
+  for (const [collection, types] of Object.entries(maps)) {
+    if (!types) continue;
+    for (const [typeName, schema] of Object.entries(types as Record<string, unknown>)) {
+      for (const field of COLLECTION_SCOPED_FIELDS) {
+        if (field.only === collection) continue;
+        if (atPath(schema, field.path) === undefined) continue;
+        ctx.addIssue({
+          code: 'custom',
+          path: [collection, typeName, ...field.path.split('.')],
+          message: `${field.path} may only be set on an ${field.only} type, and this is under ${collection}: `
+            + `${field.why}.`,
+        });
+      }
+    }
+  }
+});
 
 /**
  * Return names of any `$ref` library entries referenced in typeSchemas that do not

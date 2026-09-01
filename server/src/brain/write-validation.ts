@@ -37,6 +37,7 @@ import type { SpaceMeta, ChronoEntry } from '../config/types.js';
 import { col, asFilter } from '../db/mongo.js';
 import { resolveMemberSpaces } from '../spaces/proxy.js';
 import { applyValidation, getSpaceMeta } from '../spaces/schema-validation.js';
+import type { ResolvedEdgeEnds } from '../spaces/schema-validation.js';
 import { mergeTagsAndProperties, mergePropertiesOrKeep } from './merge-fields.js';
 
 /**
@@ -283,12 +284,26 @@ export function classifyEdgeUpsertAgainst(
   meta: SpaceMeta | undefined,
   existing: { label: string; properties?: Record<string, string | number | boolean> } | null,
   incoming: { label: string; properties?: Record<string, string | number | boolean> },
+  /**
+   * What the caller resolved about the endpoints — the entity type at each end, and how many OTHER edges carry
+   * this label from the same subject.
+   *
+   * Optional, and an absent field is never a violation: this module is pure and synchronous, two gates import
+   * it from `dist` with plain objects, and the bulk importer legitimately cannot resolve a reference to a
+   * record created earlier in the same payload. See `ResolvedEdgeEnds`.
+   *
+   * The SAME object goes to both validations, and that is what keeps a pre-existing violation pre-existing: an
+   * upsert lands on the `(from, to, label)` triplet, so `before` and `after` have the same two endpoints. A
+   * space that declares a rule on a label it has already used must not become a space where nobody can fix a
+   * description.
+   */
+  resolved: ResolvedEdgeEnds = {},
 ): UpdateValidation {
   const after = validateEdge(meta ?? {}, {
     label: incoming.label, properties: mergePropertiesOrKeep(existing?.properties, incoming.properties) ?? {},
-  });
+  }, resolved);
   const before = existing
-    ? validateEdge(meta ?? {}, { label: existing.label, properties: existing.properties ?? {} })
+    ? validateEdge(meta ?? {}, { label: existing.label, properties: existing.properties ?? {} }, resolved)
     : INSERT_HAS_NO_PRIOR;
   return classifyUpdateViolations(meta, before, after);
 }

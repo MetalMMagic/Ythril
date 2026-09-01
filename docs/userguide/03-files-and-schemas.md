@@ -155,10 +155,16 @@ Two settings, and both are for **edges only** — the other record types have no
 document or a person, to a project or a team, also permits a document belonging to a team. If you need exactly
 one pairing, make a second label — that is what the two labels are for.
 
+**A new link that breaks the rule is refused.** Whichever way it arrives — the app, the API, an AI assistant,
+or a bulk import — the write is turned away and the message says which end is wrong and what the label does
+accept. If the space is set to *warn* rather than *strict*, it is written and reported instead.
+
 **Nothing is deleted or refused retroactively.** Declaring a rule on a label you have already used does not touch
-the edges you already have. To find out which of them break the new rule, use **Validate** on the space's Schema
-tab: it lists each edge and which end is wrong. An edge pointing at something that no longer exists is reported
-separately, as a dangling link, and not as a wrong type.
+the links you already have, and it does not lock them: you can still edit a link that breaks the rule, as long as
+your edit does not change the ends. So a rule can never make an existing record impossible to maintain. To find
+out which links break a new rule, use **Validate** on the space's Schema tab: it lists each one and which end is
+wrong. A link pointing at something that no longer exists is reported separately, as a dangling link, and not as
+a wrong type — and for the same reason it is not refused when written.
 
 > **These two are set through the API today** — there is no control for them on the Schema tab yet. The editor
 > keeps them: editing anything else about a type will not lose a declaration you made through the API.

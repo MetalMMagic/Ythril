@@ -4,6 +4,7 @@ import { UploadQueueComponent, type UploadItem, type UploadStatus } from './uplo
 import { FileMetaEditorComponent, type FileMetaModel } from './file-meta-editor.component';
 import { FileExtractViewComponent } from './file-extract-view.component';
 import { FileListingComponent, type FileRow } from './file-listing.component';
+import { FileTreeComponent, type TreeNode } from './file-tree.component';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
@@ -51,13 +52,6 @@ hljs.registerLanguage('plaintext', plaintext);
 
 interface BreadcrumbSegment { label: string; path: string; }
 
-interface TreeNode {
-  name: string;
-  path: string;
-  expanded: boolean;
-  loading: boolean;
-  children: TreeNode[] | null;  // null = not yet loaded
-}
 
 
 /** A parsed spreadsheet preview: the first sheet as a capped grid, with a note when truncated. */
@@ -129,7 +123,7 @@ function xlsxCellText(v: unknown): string {
   // regardless of zone. Text fields (`newFolderName`, `renameValue`) are ngModel two-way bindings
   // whose input events mark the view dirty. So OnPush re-checks exactly when state changes.
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe, ErrorStateComponent, ModalDirective, FilePreviewComponent, UploadQueueComponent, FileMetaEditorComponent, FileExtractViewComponent, FileListingComponent],
+  imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe, ErrorStateComponent, ModalDirective, FilePreviewComponent, UploadQueueComponent, FileMetaEditorComponent, FileExtractViewComponent, FileListingComponent, FileTreeComponent],
   styles: [`
     /* A background refresh, as a 2px indeterminate hairline above the table. Deliberately NOT a spinner and
        deliberately not an overlay: the whole point is that nothing on screen moves or disappears while a poll
@@ -284,14 +278,6 @@ function xlsxCellText(v: unknown): string {
       display: flex;
       gap: 0;
     }
-    .fm-sidebar {
-      width: 220px;
-      flex-shrink: 0;
-      border-right: 1px solid var(--border);
-      padding: 8px 0;
-      overflow-y: auto;
-      max-height: calc(100vh - 180px);
-    }
     .fm-main { flex: 1; min-width: 0; }
     .sidebar-toggle {
       background: none;
@@ -305,32 +291,6 @@ function xlsxCellText(v: unknown): string {
     }
     .sidebar-toggle:hover { background: var(--bg-hover); }
 
-    .tree-node {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      padding: 3px 8px;
-      cursor: pointer;
-      font-size: 13px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      border-radius: 4px;
-      margin: 0 4px;
-    }
-    .tree-node:hover { background: var(--bg-hover); }
-    .tree-node.active { background: var(--accent-dim); color: var(--accent); font-weight: 500; }
-    .tree-caret {
-      width: 16px;
-      text-align: center;
-      flex-shrink: 0;
-      font-size: 10px;
-      color: var(--text-muted);
-      transition: transform 0.15s;
-    }
-    .tree-caret.expanded { transform: rotate(90deg); }
-    .tree-children { padding-left: 12px; }
-    .tree-spinner { font-size: 10px; color: var(--text-muted); padding: 2px 8px 2px 28px; }
 
   `],
   template: `
@@ -410,9 +370,10 @@ function xlsxCellText(v: unknown): string {
         <div class="fm-layout">
           <!-- Directory tree sidebar -->
           @if (sidebarOpen()) {
-            <div class="fm-sidebar">
-              <ng-container *ngTemplateOutlet="treeTemplate; context: { $implicit: treeRoot() }"></ng-container>
-            </div>
+            <app-file-tree
+              [nodes]="treeRoot()"
+              [currentPath]="currentPath()"
+              (nodeClick)="onTreeClick($event)" />
           }
 
           <!-- Main file listing -->
@@ -520,26 +481,6 @@ function xlsxCellText(v: unknown): string {
         </div><!-- .fm-layout -->
       }
     }
-
-    <!-- Recursive tree template -->
-    <ng-template #treeTemplate let-nodes>
-      @for (node of nodes; track node.path) {
-        <div class="tree-node"
-             [class.active]="currentPath() === node.path"
-             (click)="onTreeClick(node)">
-          <span class="tree-caret" [class.expanded]="node.expanded"><ph-icon name="caret-right" [size]="10"/></span>
-          <span><ph-icon name="folder" [size]="14"/> {{ node.name }}</span>
-        </div>
-        @if (node.loading) {
-          <div class="tree-spinner">{{ 'files.tree.loading' | transloco }}</div>
-        }
-        @if (node.expanded && node.children) {
-          <div class="tree-children">
-            <ng-container *ngTemplateOutlet="treeTemplate; context: { $implicit: node.children }"></ng-container>
-          </div>
-        }
-      }
-    </ng-template>
 
     <!-- Preview content, shared by the docked pane and the full-screen overlay. -->
 

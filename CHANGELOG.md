@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The file manager's directory tree is its own component.** Sixth cut of G-3: `file-tree.component.ts` takes
+  the recursive template, six CSS rules and the `TreeNode` interface, and the largest file in the repo goes
+  1 176 → 1 118 code lines. The frozen size came down with it — a ceiling far above the real size is headroom
+  the file can regrow into without the gate saying a word.
+
+  The tree's STATE and its two requests stayed on the page deliberately. The sidebar sits inside an
+  `@if (sidebarOpen())`, so a component owning the directory listing would cancel it on destroy and lose the
+  loaded tree, and reopening would re-fetch — which one of the characterization cases pins that it does not.
+  What remains on the shell is a store, not another component.
+
+  Nothing in the product changed, and the ten characterization cases from the previous change are how that is
+  known: 91 tests in that folder pass with not one assertion edited. One of them earned its keep on the first
+  run — the extracted component rendered NOTHING, because a standalone component that does not import
+  `NgTemplateOutlet` treats `*ngTemplateOutlet` as an unknown attribute and raises no error at all.
+
 ### Added
 
 - **The token list sorts on every column but the buttons, and searches on Label and Spaces.** Owner-requested,

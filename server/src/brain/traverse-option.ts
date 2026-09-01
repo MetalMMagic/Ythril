@@ -32,6 +32,30 @@
 export interface TraverseOption {
   depth: number;
   edgeLabels?: string[] | undefined;
+  /**
+   * Which way to walk STORED EDGES. It does not narrow links.
+   *
+   * A link is an `entityIds` ARRAY today — `memory.entityIds` and its two siblings — and it carries ONE
+   * orientation: the record names the entity. So there is nothing for `direction` to select between, and both
+   * traversals reach the entity it names whatever `direction` says. The standalone `traverse` tool has always
+   * done so and recall's expansion matches it.
+   *
+   * The consequence worth stating, because it surprises: `{direction: 'inbound', includeMemories: true}` on a
+   * matched memory still returns the entities that memory NAMES, which is an outbound step from the record.
+   * Honouring direction on links today would make `inbound` hide a memory's own links, which is not what
+   * anyone asks for by narrowing.
+   *
+   * ## M-2 REVISITS THIS, and the reason is written here so nobody has to re-derive it
+   *
+   * The link-records migration turns each link into a record of its own with a `from` and a `to`. At that point
+   * a link DOES have two ends and `direction` genuinely selects — walking from an entity, an inbound link
+   * record reaches the memory that named it and an outbound one reaches nothing. So this rule is true of the
+   * array representation rather than of links in principle, and the migration has to decide it again.
+   *
+   * That is why the gate on this wording asserts both halves separately: the six surfaces stating the rule,
+   * and that neither link scan takes a `direction` parameter. A scan gaining one is M-2 arriving, not a
+   * regression — and it is the signal to rewrite these sentences rather than to make the gate agree.
+   */
   direction?: 'outbound' | 'inbound' | 'both' | undefined;
   /** Follow `chrono.entityIds` as an inbound link, reaching timeline entries about a matched entity. */
   includeChrono?: boolean | undefined;
@@ -193,7 +217,15 @@ export function traverseOptionSchema(maxDepth: number): Record<string, unknown> 
         properties: {
           depth: { type: 'number', minimum: 0, maximum: maxDepth },
           edgeLabels: { type: 'array', items: { type: 'string' } },
-          direction: { type: 'string', enum: ['outbound', 'inbound', 'both'] },
+          direction: {
+            type: 'string',
+            enum: ['outbound', 'inbound', 'both'],
+            description: 'Which way to walk STORED EDGES; default both. It does NOT narrow links — a link is an '
+              + 'entityIds array carrying one orientation only, the record naming the entity, so there is '
+              + 'nothing for direction to select between and both traversals reach the entity it names '
+              + 'whatever this says. So {direction: "inbound", includeMemories: true} on a matched memory '
+              + 'still returns the entities that memory NAMES.',
+          },
           includeChrono: { type: 'boolean' },
           includeMemories: { type: 'boolean' },
           includeFiles: { type: 'boolean' },

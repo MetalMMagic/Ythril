@@ -337,12 +337,24 @@ do. Pass an object instead to walk the graph the way `POST /traverse` always cou
 |---|---|---|---|
 | `depth` | yes | — | Hops, `0`–`5`. `traverse: 2` and `{"depth": 2}` are the same request |
 | `edgeLabels` | no | every label | Follow only these. An empty array means no narrowing, not "match nothing" — the same reading `POST /traverse` takes |
-| `direction` | no | `both` | `outbound`, `inbound` or `both`. A bare number means `both` |
+| `direction` | no | `both` | `outbound`, `inbound` or `both`. A bare number means `both`. **It narrows stored edges only** — see below |
 
 **Why this matters more than it sounds.** On any graph where a few nodes hold most of the edges — a person, a
 project, a recurring topic — one unnarrowed hop off such a node returns whichever neighbours the node cap
 happened to keep, and nothing in the response distinguishes that from a deliberate answer. Narrowing is how you
 ask for the neighbourhood you meant.
+
+**`direction` narrows stored edges only, and never links.** A link is an `entityIds` ARRAY today — the field a memory,
+chrono entry or file carries — and it holds one orientation only: the record names the entity. There is nothing
+for `direction` to select between, so it selects nothing.
+Both walks treat a link as reaching the entity it names, whatever `direction` says: the standalone
+[`POST /traverse`](04b-graph-api.md#traverse-graph) has always done so, and recall's expansion matches it.
+
+The consequence worth knowing, because it surprises: `{"depth": 1, "direction": "inbound", "includeMemories":
+true}` on a matched memory still returns the entities that memory **names**, which is an outbound step from the
+record. Consistency between the two walks is deliberate — honouring `direction` on links would make `inbound`
+hide a memory's own links, which is not what anyone asks for by narrowing. If you want edges in one direction
+and no links at all, leave the three `include*` flags off; they are off by default.
 
 **`limit` is deliberately not accepted here.** In a standalone traverse the caller sets it; in a recall the node
 cap comes from `topK` and the byte budget, and a `traverse.limit` would let one parameter overrule the budget

@@ -114,6 +114,10 @@ export interface TypeSchema {
   /** Skip embedding this type — the schema tier of **record > schema > space**. Absent means NOT STATED and
    *  falls through to the space setting; it does not mean `false`. Turning it off does not backfill. */
   suppressEmbeddings?: boolean;
+  /** EDGE only — what kind of entity may sit at each end. Carried through a save; no control yet. */
+  endpoints?: { from?: string[]; to?: string[] };
+  /** EDGE only — at most one edge with this label per subject. Carried through a save; no control yet. */
+  functional?: boolean;
 }
 
 /** An entry in the instance-level schema library. */

@@ -116,6 +116,68 @@ export interface TypeSchema {
    * operator flipping this off would otherwise reasonably assume recall recovers on its own.
    */
   suppressEmbeddings?: boolean;
+  /**
+   * What KIND of thing may sit at each end of an edge with this label. **Edge collection only** — rejected on
+   * entity, memory and chrono the way `retention.contentDays` is rejected off chrono, rather than silently
+   * ignored.
+   *
+   * ## Each side is independently optional, and that is what keeps it usable
+   *
+   * Absent means unconstrained. `{ from: ['person'] }` pins the subject of `likes` and leaves the object open,
+   * which is the ordinary case: in our own fourteen-label benchmark model `likes`/`dislikes` permit seven of
+   * nine types on `to`, and a rule that has to enumerate seven of nine is not a rule — it is a list somebody
+   * will forget to extend.
+   *
+   * ## Two arrays mean the CROSS PRODUCT, and that is the semantics rather than a gap
+   *
+   * Owner ruling, 2026-08-31. `belongs_to` may be `document -> project` and `person -> team` in one space, and
+   * declaring `from: ['document', 'person'], to: ['project', 'team']` also permits `document -> team`. The
+   * owner: *"no need for restriction. thats obvious logic during definition. if they really want to make sure
+   * 1-1 they need to define multiple edge schemas."*
+   *
+   * So a caller who needs exactly one pair declares a label per pair, which they can already do. **Do not add
+   * a pairs form**: it was considered and declined, and reopening it needs a new reason rather than this one.
+   *
+   * ## The member vocabulary
+   *
+   * Entity type names, in exactly the vocabulary `er_model` prints — plus an explicit `UNTYPED` bucket, because
+   * untyped entities are real and must be admissible by SAYING so rather than by being refused in silence.
+   *
+   * A member may be written `entity:<type>`; a bare name means `entity:`. Any other `KnowledgeType` prefix is
+   * refused at the Zod layer with a message naming why, so the set can widen if memory or chrono links ever
+   * become edges without the grammar having to change.
+   */
+  endpoints?: { from?: string[]; to?: string[] };
+  /**
+   * At most one edge with this label per subject: one `(from, label)` may hold one `to`.
+   *
+   * ## Why that meaning and not one of the other two
+   *
+   * The word is borrowed from its established sense — a functional property has at most one value per subject —
+   * and the two alternatives do not survive contact with this schema. *Per `(from, to)`* is already guaranteed
+   * by the unique index on edge identity, so declaring it would mean nothing. *Per `to`* is the inverse
+   * relation, which has its own name everywhere it exists, and conflating the two would leave an operator
+   * unable to say which they meant.
+   *
+   * The case: `reports_to` is functional (one manager) while `works_with` is not, and today nothing can express
+   * the difference — so a second `reports_to` from the same person stores silently beside the first and both
+   * are returned as fact.
+   *
+   * ## Reported or refused follows the space, like every other schema rule
+   *
+   * Not a new switch. `validationMode` already decides `off` / `warn` / `strict` for every rule in this object,
+   * and a cardinality rule is not special enough to invent a second control an operator has to find. `warn` is
+   * what the deferred consumer expects: `_REFERENCE.md` holds insert-time contradiction warnings for edges on
+   * exactly this trigger — *"edges land when edge labels can declare functional-ness"*.
+   *
+   * **Existing edges that violate it are not rewritten**, which is the same answer every other rule here gives.
+   * A space that declares this on a label it has already used twice reports the conflict on the next write and
+   * in the `validate-schema` dry run; nothing deletes an edge because a schema changed under it.
+   *
+   * Shipped WITH `endpoints` deliberately: they are two attributes of one missing capability, and shipping them
+   * apart pays the five-places tax twice on the same object.
+   */
+  functional?: boolean;
 }
 
 /** Validation mode for write operations against a space's schema. */

@@ -541,6 +541,14 @@ export class SpaceSchemaTabComponent implements OnInit {
       namingPattern:   typeof ts2['namingPattern'] === 'string' ? ts2['namingPattern'] : '',
       retentionDays:        win('days'),
       retentionContentDays: win('contentDays'),
+      /*
+       * Read in so they can be written back out. No control edits either — but `typeSchemaFromState` REBUILDS
+       * the type object, so a field this state never holds is deleted the next time an operator saves any type
+       * schema. Somebody who declared endpoint types through the API and later renamed a property in the editor
+       * would have lost the declaration with no message.
+       */
+      ...(ts2['endpoints'] !== undefined ? { endpoints: ts2['endpoints'] as { from?: string[]; to?: string[] } } : {}),
+      ...(typeof ts2['functional'] === 'boolean' ? { functional: ts2['functional'] } : {}),
       propertySchemas: (() => {
         const ps = ts2['propertySchemas'];
         if (!ps || typeof ps !== 'object' || Array.isArray(ps)) return [];

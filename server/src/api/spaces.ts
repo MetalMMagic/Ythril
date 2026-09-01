@@ -40,6 +40,7 @@ import {
 import { planSpaceMetaUpdate, applySpaceMetaUpdate } from '../spaces/meta-update.js';
 import { refuseFaceWidthChange } from '../spaces/face-width-change.js';
 import { planSpaceCreate, applySpaceCreate } from '../spaces/space-create.js';
+import { validateStoredEdges } from '../spaces/validate-stored-edges.js';
 
 export const spacesRouter = Router();
 
@@ -714,13 +715,9 @@ spacesRouter.post('/:id/validate-schema', globalRateLimit, requireAdminOrSpaceAd
       if (v.length) violations.push({ collection: 'entities', _id: String(doc._id), violations: v });
     }
 
-    // Edges
-    const edges = await col(`${mid}_edges`).find({}).limit(SCAN_LIMIT).toArray();
-    for (const edge of edges) {
-      const doc = edge as unknown as { _id: string; label?: string; properties?: Record<string, unknown> };
-      const v = validateEdge(resolvedMeta, doc);
-      if (v.length) violations.push({ collection: 'edges', _id: String(doc._id), violations: v });
-    }
+    // Edges need two lookups the document cannot supply — see `validateStoredEdges`, which also
+    // explains why they live in a module of their own rather than here.
+    violations.push(...await validateStoredEdges(mid, resolvedMeta, SCAN_LIMIT));
 
     // Memories
     const memories = await col(`${mid}_memories`).find({}).limit(SCAN_LIMIT).toArray();

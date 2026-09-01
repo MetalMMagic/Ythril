@@ -23,6 +23,19 @@ import {
 export interface TypeSchemaState {
   namingPattern:   string;
   /**
+   * Edge-only, and carried rather than edited — there is no control for either yet.
+   *
+   * They are HERE because `typeSchemaFromState` rebuilds the type object from scratch (`const ts: TypeSchema =
+   * {}`), so a field this state does not hold is DELETED the next time an operator saves any type schema in the
+   * UI. An operator who declared endpoint types through the API and later renamed a property in the editor would
+   * have silently lost the declaration.
+   *
+   * That is why "no control" and "not carried" are different decisions, and only the first is on the table:
+   * `type-schema-editable.test.js` exempts a field from needing an input, never from surviving a save.
+   */
+  endpoints?:  { from?: string[]; to?: string[] };
+  functional?: boolean;
+  /**
    * How long records of this type are kept — the SCHEMA tier of record > schema > space.
    *
    * `null` for "not set", not `0`: zero is a real value the API rejects, and an empty number input must mean
@@ -103,6 +116,17 @@ export function typeSchemaFromState(
   // Sent only when STATED. Writing `false` for "not stated" would pin every type to embedding and make the
   // space-wide switch do nothing — the tier the API resolves last would never be reached.
   if (state.suppressEmbeddings !== null) ts.suppressEmbeddings = state.suppressEmbeddings;
+  /*
+   * Carried straight back out, and only for edges — the API refuses both on the other three collections, so
+   * writing a value a type kind cannot hold would turn every save on that type into a 400.
+   *
+   * No control edits these yet. What this loop is for is the round trip: the object is rebuilt from state, so
+   * anything not written here is deleted on save.
+   */
+  if (kt === 'edge') {
+    if (state.endpoints !== undefined) ts.endpoints = state.endpoints;
+    if (state.functional !== undefined) ts.functional = state.functional;
+  }
   if (state.propertySchemas.length) {
     const ps: Record<string, PropertySchema> = {};
     for (const { key, s } of state.propertySchemas) {

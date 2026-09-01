@@ -256,6 +256,12 @@ interface TypeSchema {
   suppressEmbeddings?: boolean;                   // skip embedding this type. Absent = NOT STATED, falls
                                                   //   through to the space setting — it does not mean false.
                                                   //   Does NOT backfill when switched off (see below).
+  endpoints?: { from?: string[]; to?: string[] };  // EDGE only — what kind of entity may sit at each end.
+                                                  //   Each side independently optional; absent = any. Members
+                                                  //   are entity type names, plus `UNTYPED`. Two arrays mean
+                                                  //   the CROSS PRODUCT. See below.
+  functional?: boolean;                           // EDGE only — at most one edge with this label per subject,
+                                                  //   i.e. one `to` per `(from, label)`. Absent = many.
 }
 interface PropertySchema {
   type?: 'string' | 'number' | 'boolean' | 'date';
@@ -325,6 +331,47 @@ What the schema enforces:
 | `suppressEmbeddings` | When `true`, records in this space are **not embedded**, so they never appear in semantic recall. **Default: `false`** — suppression is opt-in. This is the LOWEST of three tiers, all three spelled the same: a per-record `suppressEmbeddings` wins, then a type's own `suppressEmbeddings`, then this. (The record tier was called `excludeFromVectorSearch` before 3.1.0; that spelling is still accepted but no longer offered.) A type schema that says nothing falls through to this value rather than overriding it with `false`. Intended for records that are **state rather than prose** — a row whose text never changes but whose numbers are patched constantly, which would otherwise re-embed identical text on every write. **Switching it off does not backfill on its own** — records written while it was on have no vector and nothing revisits them. Run [`POST /api/spaces/:id/reembed`](06-spaces-api.md#re-embed-backfill) afterwards to queue the missing ones. |
 | `purpose` | Short description of the space (max 4000 chars). Returned by `get_space_meta`. |
 | `usageNotes` | Extended Markdown-formatted guidance for LLM clients (max 50 000 chars — the settings form shows a live count and accepts the same limit). Returned by `get_space_meta`. |
+
+### An edge label can declare its ends, and whether a subject may have more than one (3.7)
+
+Two fields on an **edge** type schema, refused on the other three collections rather than silently ignored —
+they name things an entity, a memory or a chrono entry does not have.
+
+```json
+{ "typeSchemas": { "edge": {
+  "reports_to": { "endpoints": { "from": ["person"], "to": ["person"] }, "functional": true },
+  "belongs_to": { "endpoints": { "from": ["document", "person"], "to": ["project", "team"] } },
+  "mentions":   { "endpoints": { "from": ["document"] } }
+} } }
+```
+
+**Each side is independently optional, and absent means any.** `mentions` above pins the subject and leaves the
+object open, which is the ordinary case: in a fourteen-label model `likes` legitimately permits seven of nine
+types on `to`, and a rule that has to enumerate seven of nine is a list somebody will forget to extend.
+
+**Two arrays mean the CROSS PRODUCT.** `belongs_to` above permits `document → team` as well as the two pairs you
+probably had in mind. That is the semantics, not an omission: if you need exactly one pair, declare a label per
+pair — which you can already do. There is deliberately no pairs form.
+
+**Members are entity type names**, in the same vocabulary [`er_model`](04b-graph-api.md) prints, plus the literal
+`UNTYPED` for entities that have no type. Untyped entities are ordinary, so they are admissible by SAYING so
+rather than by being refused in silence — and an untyped entity at an end that names a type IS a violation. A
+member may also be written `entity:<type>`; a bare name means the same thing. Any other knowledge-type prefix
+(`memory:`, `chrono:`, `edge:`) is refused with a message saying why: the grammar is reserved for if those
+records can ever be edge endpoints, so it cannot later be read as a type name that happens to contain a colon.
+
+**`functional: true` means one `to` per `(from, label)`.** Not per `(from, to)` — that is already guaranteed by
+edge identity — and not per `to`, which is the inverse relation and has its own name.
+
+**Where the rules are reported.** [`POST /api/spaces/:id/validate-schema`](06-spaces-api.md) lists every stored
+edge that breaks either rule, with `fromType`, `toType` or `functional` as the field. A **dangling** endpoint is
+not reported as a type violation: with `strictLinkage: false` that is a deliberate documented state, and
+`ErModel.danglingEdges` already has a row for it — folding it in would make one setting's escape hatch look like
+another setting's breach.
+
+Both fields are also accepted on a **schema-library** entry, unlike `retention`. The difference is shape versus
+policy: what may sit at the end of a `reports_to` is a fact about the relationship, and travels with an entry any
+number of spaces reference; a delete window belongs to a type in one space.
 
 Schema validation runs on:
 

@@ -163,9 +163,58 @@ export const SERVER_WRITTEN_EDGE_LABELS: ReadonlySet<string> = new Set([
   'supersedes',
 ]);
 
+/**
+ * What the CALLER resolved about an edge's endpoints, so this function can stay pure and synchronous.
+ *
+ * Every field is optional and an absent one is NOT a violation. That is the load-bearing rule: this module is
+ * imported from `dist` by two gates that call it with plain objects, and `classifyEdgeUpsertAgainst` is reached
+ * from paths that legitimately have not looked anything up — the bulk importer may reference a record created
+ * earlier in the same payload. Reporting on information the caller did not supply is how a validator becomes
+ * something people switch off.
+ *
+ * STRINGS, never ids and never a database handle. Making this async would break both of those gates, and the
+ * only async caller (`classifyEdgeUpsert`) already does a round trip it can widen.
+ */
+export interface ResolvedEdgeEnds {
+  /**
+   * The `type` of the entity at `from`.
+   *
+   * **`null` and `undefined` are different**, and collapsing them is a hole rather than a simplification.
+   * `null` means RESOLVED and it has no type, which an `endpoints` list matches with `UNTYPED`; `undefined`
+   * means the caller did not look, and is never a violation. Written as one value, every untyped entity slips
+   * past every endpoint rule — silently, and worst in the spaces least finished with their typing.
+   */
+  fromType?: string | null;
+  /** The same for `to`. */
+  toType?: string | null;
+  /**
+   * How many OTHER edges already carry this label from this same subject.
+   *
+   * A count rather than a boolean so the reason can say how many, and named for what it counts: on an update
+   * the edge being written is excluded by the caller, because an edge is not its own duplicate.
+   */
+  otherEdgesFromSubject?: number;
+}
+
+/** `UNTYPED` in an `endpoints` list means an entity with no `type`. */
+const UNTYPED = 'UNTYPED';
+
+/**
+ * Does `type` satisfy one side of an `endpoints` declaration?
+ *
+ * `entity:person` and `person` are the same member — the prefix is reserved so the vocabulary can widen if
+ * memory or chrono links ever become edges, and accepting it now makes that widening a no-op for anyone already
+ * writing it.
+ */
+function endpointAllows(allowed: readonly string[], type: string | null): boolean {
+  const wanted = type ?? UNTYPED;
+  return allowed.some(a => (a.startsWith('entity:') ? a.slice('entity:'.length) : a) === wanted);
+}
+
 export function validateEdge(
   meta: SpaceMeta,
   edge: { label?: string; properties?: Record<string, unknown> },
+  resolved: ResolvedEdgeEnds = {},
 ): SchemaViolation[] {
   const violations: SchemaViolation[] = [];
   if (!meta) return violations;
@@ -180,6 +229,41 @@ export function validateEdge(
         field: 'label',
         value: edge.label,
         reason: `not in edgeLabels allowlist: ${Object.keys(edgeSchemas).join(', ')}`,
+      });
+    }
+  }
+
+  /*
+   * The endpoint types and the cardinality, both of which need what the CALLER resolved.
+   *
+   * Each check is skipped when the information is absent rather than treated as a failure — see
+   * `ResolvedEdgeEnds`. The two are reported independently so an operator fixing one end does not have to
+   * re-run to discover the other, which is the same reasoning the write path already uses for `from`/`to`
+   * existence.
+   */
+  const labelSchema = edge.label ? edgeSchemas?.[edge.label] : undefined;
+  if (labelSchema) {
+    const ends = labelSchema.endpoints;
+    if (ends?.from && resolved.fromType !== undefined && !endpointAllows(ends.from, resolved.fromType)) {
+      violations.push({
+        field: 'fromType',
+        value: resolved.fromType,
+        reason: `'${edge.label}' declares its from endpoint as one of: ${ends.from.join(', ')}`,
+      });
+    }
+    if (ends?.to && resolved.toType !== undefined && !endpointAllows(ends.to, resolved.toType)) {
+      violations.push({
+        field: 'toType',
+        value: resolved.toType,
+        reason: `'${edge.label}' declares its to endpoint as one of: ${ends.to.join(', ')}`,
+      });
+    }
+    if (labelSchema.functional && (resolved.otherEdgesFromSubject ?? 0) > 0) {
+      violations.push({
+        field: 'functional',
+        value: resolved.otherEdgesFromSubject,
+        reason: `'${edge.label}' is declared functional: one subject may have at most one. `
+          + `${resolved.otherEdgesFromSubject} other edge(s) with this label already start here`,
       });
     }
   }

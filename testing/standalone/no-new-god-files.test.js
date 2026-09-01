@@ -408,6 +408,22 @@ const FROZEN = {
   //
   // Lowered rather than deleted: an entry here is a ratchet.
   'server/src/brain/edges.ts': 487,
+  /*
+   * A BARREL of API response shapes, and the one entry here that is not a decomposition debt.
+   *
+   * It crossed the ceiling by two lines when `TypeSchema` gained the two edge-endpoint fields. The gate's own
+   * message asks for a split responsibility or a note, and the honest answer is the note: this file declares
+   * no behaviour. There is no logic to tangle and no path where "every change lands here because this is where
+   * the code already is" produces a defect — which is the failure the ceiling exists to prevent.
+   *
+   * It is the client's mirror of the API's shapes, and its consumers import one module deliberately: splitting
+   * it by domain would mean a component that touches two domains importing from two barrels, and the drift
+   * would be between the halves rather than inside one file.
+   *
+   * **Frozen rather than exempt.** It cannot grow from here without this line being edited, which is the point:
+   * if it reaches a size where a split is genuinely better, the argument happens in a diff.
+   */
+  'client/src/app/core/api.types.ts': 652,
 };
 
 describe('no file grows past what we already carry', () => {

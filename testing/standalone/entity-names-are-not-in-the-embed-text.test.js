@@ -70,7 +70,13 @@ describe('the two builders take no entity names', () => {
     const body = bodyOf(src(BUILDERS), 'edgeEmbedText');
     assert.match(body, /parts\.push\(from, label, to\)/,
       'edgeEmbedText no longer embeds its endpoints, which leaves an edge with nothing but a label');
-    assert.match(src('server/src/brain/edges.ts'), /resolveEdgeEntityNames/,
+    /*
+     * `resolveEdgeEntityNames` until 3.7, when an endpoint stopped having to be an entity. The name was the
+     * whole problem: it described the FIRST kind of endpoint rather than the job, so the three vector-writing
+     * paths and the one read path each resolved both ends in the entities collection. The function now takes
+     * each endpoint's kind and resolves it where that kind lives.
+     */
+    assert.match(src('server/src/brain/edges.ts'), /resolveEdgeEndpointNames/,
       'nothing resolves an edge\'s endpoints to names any more, so it embeds raw ids');
   });
 });

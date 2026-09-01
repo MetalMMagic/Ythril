@@ -11,6 +11,8 @@ import { col, asFilter, asDoc } from '../../db/mongo.js';
 import { getConfig } from '../../config/loader.js';
 import { reachesSpace } from '../../auth/space-reach.js';
 import { isInstanceAdmin } from '../../auth/instance-admin.js';
+import { REF_KINDS } from '../../config/types-knowledge.js';
+import { isWellFormedRef, collectionForRefKind, edgeEndpointKind } from '../../brain/entity-refs.js';
 import type { TokenRights } from '../../config/rights-shape.js';
 import { log } from '../../util/log.js';
 import { isSeqImplausible, MAX_INGEST_SEQ } from '../../util/seq.js';
@@ -55,6 +57,13 @@ export async function recordLinkViolation(
 /**
  * Validate an edge's from/to references against strict linkage rules.
  * Records violations but never blocks the ingest.
+ *
+ * Each endpoint is checked against the kind it DECLARES, not against entity. This function used to test both
+ * ends with its own copy of `UUID_V4_RE` and look both up in `${spaceId}_entities`, which was right while
+ * every endpoint was an entity and became a false alarm generator the moment one could be a file: a
+ * legitimate `to` of `photos/party.jpg` fails a UUID test and is absent from the entities collection, so every
+ * such edge would be recorded as two violations. The shape rule and the collection now come from
+ * `brain/entity-refs.ts`, which is the module that decides both.
  */
 export async function checkEdgeLinkViolations(
   spaceId: string,
@@ -65,14 +74,16 @@ export async function checkEdgeLinkViolations(
 
   for (const field of ['from', 'to'] as const) {
     const val = edge[field];
-    if (!UUID_V4_RE.test(val)) {
+    const kind = edgeEndpointKind(field === 'from' ? edge.fromKind : edge.toKind);
+    if (!isWellFormedRef(kind, val)) {
       await recordLinkViolation(spaceId, edge._id, 'edge', field,
-        `${field} '${val}' is not a valid UUID v4`, peerInstanceId);
+        `${field} '${val}' is not a valid ${kind} reference`, peerInstanceId);
     } else {
-      const exists = await col<EntityDoc>(`${spaceId}_entities`).findOne(asFilter<EntityDoc>({ _id: val }));
+      const coll = `${spaceId}_${collectionForRefKind(kind)}`;
+      const exists = await col<{ _id: string }>(coll).findOne(asFilter<{ _id: string }>({ _id: val }));
       if (!exists) {
         await recordLinkViolation(spaceId, edge._id, 'edge', field,
-          `${field} references non-existent entity '${val}'`, peerInstanceId);
+          `${field} references non-existent ${kind} '${val}'`, peerInstanceId);
       }
     }
   }
@@ -186,11 +197,32 @@ export const IncomingEntityDoc = z.object({
   seq: z.number().int().nonnegative().max(MAX_SYNC_SEQ),
 });
 
+/**
+ * The kinds an edge endpoint may declare, built from `REF_KINDS` rather than spelled out here.
+ *
+ * Written out, this would be the second list of the same four strings, and it would go stale the moment a
+ * fifth kind is added — a valid enum refusing a kind the database happily stores, on the push door only.
+ */
+const RefKindSchema = z.enum(REF_KINDS);
+
 export const IncomingEdgeDoc = z.object({
   _id: z.string().min(1),
   spaceId: z.string().min(1),
   from: z.string().min(1),
   to: z.string().min(1),
+  /**
+   * Declared in the same commit that put them on `EdgeDoc`, and that is the whole point of them being here.
+   *
+   * This object strips what it does not name. A field added to a replicated document and not added here is
+   * kept when the record arrives by PULL and deleted when the same record arrives by PUSH — same version, one
+   * direction, no error and no statistic. So an edge that says its `to` is a chrono event would reach half the
+   * network meaning "an entity with that id", and the half that got the stripped copy would go looking in the
+   * wrong collection.
+   *
+   * Optional, matching the document: absent means entity, on the wire exactly as in the database.
+   */
+  fromKind: RefKindSchema.optional(),
+  toKind: RefKindSchema.optional(),
   label: z.string(),
   type: z.string().optional(),
   weight: z.number().optional(),

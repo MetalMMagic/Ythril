@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **An edge can now say what KIND of record each endpoint is, so a link is no longer entity-to-entity only.**
+  `from` and `to` were bare entity ids, and every reader knew where to look them up because there was only one
+  place. `fromKind` and `toKind` name one of `entity`, `memory`, `chrono` or `file`, on `POST /edges`,
+  `PATCH /edges/:id`, `upsert_edge`, `update_edge`, and both bulk doors.
+
+  The case it exists for is a photo taken at a party: its file meta wants to point at the people in it
+  (entity), at the party (chrono) and at what happened there (memory). Three collections, and a bare `to` says
+  nothing about which one to search — and trying each in turn is not a fix, because two records in different
+  collections can share an id, so the answer would depend on the order the code happened to try them.
+
+  **Omitting the field is correct for an entity and is not the same as sending `"entity"`.** An omitted kind is
+  stored as nothing at all and read as entity everywhere, so every edge written before this release, and every
+  ordinary entity-to-entity edge written after it, is byte-identical. Nothing was migrated, which is the
+  standing rule for a collection that syncs: a data migration over replicated documents would ship a whole
+  space's worth of edges to every peer as changes.
+
+  A file endpoint is the space-relative PATH rather than a UUID — that is what a file's `_id` is — so the shape
+  check branches on kind. It refuses a leading slash, a backslash and a `..` segment, because those can never
+  match a stored `_id` and a traversal segment must not be storable. Under `strictLinkage` the endpoint is
+  looked up in the collection its kind names, so a stated kind that is wrong is a `400` rather than a dead
+  link. A kind that is not one of the four is a `400` in every space.
+
+  **Both fields are declared on the sync ingest schema, in this same commit, and that is the load-bearing
+  part.** `IncomingEdgeDoc` is a zod object, and zod strips what it does not declare — so a field added to a
+  replicated document and not added there is kept when the record arrives by pull and deleted when the same
+  record arrives by push. Same version, one direction, no error and no statistic. The rule now has a gate:
+  every field on `EdgeDoc` is either declared by `IncomingEdgeDoc` or listed as deliberately not replicated
+  with a reason.
+
+  **What an edge embeds follows the kind.** Its vector is built from `from label to` with the endpoints
+  resolved to names — an entity's `name`, a chrono entry's `title`, a memory's `fact`, a file's path — capped at
+  200 characters so a long fact cannot crowd out the relationship itself. Four paths reach that resolver (the
+  inline upsert, the queued embed job, the reindex job, the edge list route) and it was entity-only in all
+  four; it is one function taking the kind now, which is the arrangement that stopped `reindex` embedding raw
+  ids while the writer embedded names.
+
+  The Edges table displays them: a memory endpoint shows its fact, a chrono endpoint its title, a file endpoint
+  its path. The tab's **pickers still offer entities only** — edges with other endpoint kinds are written
+  through the API, and `docs/userguide/02-brain.md` says so rather than leaving it to be discovered.
+
+### Changed
+
+- **`resolveEdgeEntityNames` is `resolveEdgeEndpointNames`, and lives in `brain/edge-endpoint-names.ts`.** The
+  old name described the first kind of endpoint rather than the job, which is how four call sites each came to
+  resolve both ends in the entities collection. `bulkDeleteEdges` moved to `brain/edge-bulk-delete.ts` in the
+  same pass, because `edges.ts` is frozen for size and new behaviour goes beside it rather than inside it.
+
 ### Fixed
 
 - **`find_similar`'s `traverse` description described a shape the tool stopped having in 3.6.** It accepted

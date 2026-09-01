@@ -12,6 +12,7 @@ import { TTL_DAYS_SCHEMA, uuidSchema } from './shared.js';
 import { bulkWrite, bulkWriteTotal } from '../../brain/bulk.js';
 import { resolveWriteTarget } from '../../spaces/proxy.js';
 import { emitWebhookEvent } from '../../webhooks/dispatcher.js';
+import { edgeEndpointKindSchema } from '../../brain/entity-refs.js';
 
 export const bulk_writeTool: ToolHandler = {
   name: 'bulk_write',
@@ -130,15 +131,19 @@ export const bulk_writeTool: ToolHandler = {
                 properties: {
                   from:        {
                     type: 'string',
-                    description: 'The entity the relationship starts at, as a UUID v4. Part of the identity '
+                    description: 'The record the relationship starts at — a UUID v4 unless `fromKind` says '
+                      + 'otherwise, and a space-relative PATH when `fromKind` is `file`. Part of the identity '
                       + '(from + to + label), so the same triplet twice UPDATES rather than duplicating. '
                       + 'Checked for shape only under strict linkage, and never for existence.',
                   },
                   to:          {
                     type: 'string',
-                    description: 'The entity the relationship points at, as a UUID v4. Direction matters: '
+                    description: 'The record the relationship points at — a UUID v4 unless `toKind` says '
+                      + 'otherwise, and a space-relative PATH when `toKind` is `file`. Direction matters: '
                       + 'reversing `from` and `to` is a different edge, not the same one.',
                   },
+                  fromKind:    edgeEndpointKindSchema('from'),
+                  toKind:      edgeEndpointKindSchema('to'),
                   label:       {
                     type: 'string',
                     description: 'What the relationship IS, e.g. "works_at" or "knows". Required, part of '

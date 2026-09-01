@@ -7,7 +7,8 @@ import { type UpdateValidation } from '../../brain/write-validation.js';
 import { getConfig } from '../../config/loader.js';
 import { isStrictLinkage, resolveMemberSpaces, resolveWriteTarget, findFirstAcrossMembers } from '../../spaces/proxy.js';
 import { memberSpacesWithin } from '../../spaces/proxy-scoped.js';
-import { assertRefsResolve } from '../../brain/entity-refs.js';
+import { assertRefsResolve, edgeEndpointKind, edgeEndpointKindSchema, isWellFormedRef } from '../../brain/entity-refs.js';
+import type { RefKind } from '../../config/types-knowledge.js';
 import { resolveMetaRefs, validateEdge } from '../../spaces/schema-validation.js';
 import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
 import { parseRecordSuppression } from '../../brain/suppress-embeddings.js';
@@ -25,8 +26,20 @@ export const upsert_edgeTool: ToolHandler = {
           type: 'object',
           properties: {
             space: s.requiredSpace,
-            from: { type: 'string', minLength: 1, description: 'Source entity ID (a UUID v4; required to be an existing entity ID when the space uses strict linkage).' },
-            to: { type: 'string', minLength: 1, description: 'Target entity ID (a UUID v4; required to be an existing entity ID when the space uses strict linkage).' },
+            from: {
+              type: 'string', minLength: 1,
+              description: 'Source record ID — an entity ID (UUID v4) unless `fromKind` says otherwise, and '
+                + 'a space-relative PATH when `fromKind` is `file`. Required to name a record that exists '
+                + 'when the space uses strict linkage, looked up in the collection `fromKind` names.',
+            },
+            to: {
+              type: 'string', minLength: 1,
+              description: 'Target record ID — an entity ID (UUID v4) unless `toKind` says otherwise, and a '
+                + 'space-relative PATH when `toKind` is `file`. Required to name a record that exists when '
+                + 'the space uses strict linkage, looked up in the collection `toKind` names.',
+            },
+            fromKind: edgeEndpointKindSchema('from'),
+            toKind: edgeEndpointKindSchema('to'),
             label: { type: 'string', minLength: 1, description: 'Relationship label (e.g. "works_at", "knows").' },
             type: { type: 'string', description: 'Optional edge type (e.g. "causal", "attribution").' },
             weight: unitScoreSchema('Optional strength for this relationship, 0 to 1. Nothing derives it '
@@ -68,9 +81,14 @@ export const upsert_edgeTool: ToolHandler = {
       : undefined;
     const wt = resolveWriteTarget(callSpace, a['targetSpace'] as string | undefined);
     if (!wt.ok) throw new Error(wt.error);
+    const fromKind = edgeEndpointKind(a['fromKind'] as RefKind | undefined);
+    const toKind = edgeEndpointKind(a['toKind'] as RefKind | undefined);
     if (isStrictLinkage(wt.target)) {
-      if (!UUID_V4_RE.test(from)) throw new Error('from must be a valid UUID v4 (entity ID), not a name');
-      if (!UUID_V4_RE.test(to)) throw new Error('to must be a valid UUID v4 (entity ID), not a name');
+      // The shape a valid endpoint has depends on its kind: a UUID v4 for three of the four, and a
+      // space-relative path for a file. Testing both ends against `UUID_V4_RE` regardless — which is what
+      // this did — refuses every legitimate file endpoint with a message about entity IDs.
+      if (!isWellFormedRef(fromKind, from)) throw new Error(`from must be a valid ${fromKind} reference, not a name`);
+      if (!isWellFormedRef(toKind, to)) throw new Error(`to must be a valid ${toKind} reference, not a name`);
       // Shape is not existence. A UUID v4 that names a CHRONO passes both checks above, and the edge then
       // stores fine and is invisible to every graph query — `traverse` and `recall(traverse:1)` hydrate
       // neighbours from the entity collection, so a non-entity endpoint yields no node and no edge. The
@@ -78,8 +96,8 @@ export const upsert_edgeTool: ToolHandler = {
       //
       // Reported by the canary, who lost a 33-day incident timeline to it. The REST route has always
       // called this; only the MCP surface checked the shape and stopped there.
-      await assertRefsResolve(wt.target, 'from', 'entity', [from]);
-      await assertRefsResolve(wt.target, 'to', 'entity', [to]);
+      await assertRefsResolve(wt.target, 'from', fromKind, [from]);
+      await assertRefsResolve(wt.target, 'to', toKind, [to]);
     }
 
     // Schema validation of the record this upsert will PRODUCE. An edge's identity is (from, to, label)
@@ -98,7 +116,11 @@ export const upsert_edgeTool: ToolHandler = {
     let edge;
     try {
       edge = await upsertEdge(wt.target, from, to, label, weight, edgeType, description, edgeProps, edgeTags, ctx.actor, edgeTtlDays,
-        { onValidation: c => { edgeCheck = c; } });
+        {
+          ...(a['fromKind'] !== undefined ? { fromKind } : {}),
+          ...(a['toKind'] !== undefined ? { toKind } : {}),
+          onValidation: c => { edgeCheck = c; },
+        });
     } catch (err) {
       if (!(err instanceof EdgeSchemaViolation)) throw err;
       const c = err.check;
@@ -200,6 +222,8 @@ export const update_edgeTool: ToolHandler = {
               description: 'Key-value properties to merge with existing. Values must be string, number, or boolean.',
               additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] },
             },
+            fromKind: edgeEndpointKindSchema('from'),
+            toKind: edgeEndpointKindSchema('to'),
             suppressEmbeddings: SUPPRESS_EMBEDDINGS_SCHEMA,
             excludeFromVectorSearch: LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA,
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
@@ -219,7 +243,7 @@ export const update_edgeTool: ToolHandler = {
     const dfResult = validateDeleteFields(a['deleteFields']);
     if (!dfResult.ok) throw new Error(dfResult.error);
     const dfPaths: string[] | undefined = Array.isArray(a['deleteFields']) && (a['deleteFields'] as string[]).length > 0 ? a['deleteFields'] as string[] : undefined;
-    const updates: { label?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; weight?: number; type?: string; suppressEmbeddings?: boolean } = {};
+    const updates: { label?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; weight?: number; type?: string; suppressEmbeddings?: boolean; fromKind?: RefKind; toKind?: RefKind } = {};
     const sup = parseRecordSuppression(a);
     if (!sup.ok) throw new Error(sup.error);
     if (sup.value !== undefined) updates.suppressEmbeddings = sup.value;
@@ -231,8 +255,13 @@ export const update_edgeTool: ToolHandler = {
     }
     if (typeof a['weight'] === 'number') updates.weight = a['weight'] as number;
     if (typeof a['type'] === 'string') updates.type = (a['type'] as string).trim();
+    // Correcting an endpoint's kind, on the same door as every other correction. The enum is enforced by the
+    // dispatcher before this handler runs, so an unknown value never reaches here — unlike REST, where the
+    // route has to refuse it itself. Same allowed set on both, from one definition.
+    if (typeof a['fromKind'] === 'string') updates.fromKind = a['fromKind'] as RefKind;
+    if (typeof a['toKind'] === 'string') updates.toKind = a['toKind'] as RefKind;
     const ttlDays = ttlDaysFromArgs(a);
-    if (Object.keys(updates).length === 0 && !dfPaths && ttlDays === undefined) throw new Error('At least one of label, description, tags, properties, weight, type, suppressEmbeddings, deleteFields, or ttlDays must be provided');
+    if (Object.keys(updates).length === 0 && !dfPaths && ttlDays === undefined) throw new Error('At least one of label, description, tags, properties, weight, type, fromKind, toKind, suppressEmbeddings, deleteFields, or ttlDays must be provided');
 
     // Validate the edge AS IT WILL BE, against the meta of the member space it actually lives in. This
     // path had no schema validation at all, so `label` could be moved outside the allowlist that

@@ -240,8 +240,10 @@ POST /api/brain/spaces/:spaceId/edges
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `from` | yes | Source entity UUID v4 (not a name when `strictLinkage` is enabled). Returns `400` if not a valid UUID and `strictLinkage` is on. |
-| `to` | yes | Target entity UUID v4 (not a name when `strictLinkage` is enabled). Returns `400` if not a valid UUID and `strictLinkage` is on. |
+| `from` | yes | Source record id — an entity UUID v4 unless `fromKind` says otherwise, and a space-relative PATH when `fromKind` is `file`. Returns `400` for the wrong shape, or for an id that names nothing, when `strictLinkage` is on. |
+| `to` | yes | Target record id, read the same way against `toKind`. |
+| `fromKind` | no | What kind of record `from` points at: `entity`, `memory`, `chrono` or `file`. **Omit for an entity** — see below. |
+| `toKind` | no | The same for `to`. |
 | `label` | yes | Relationship label (e.g. `depends_on`, `related_to`) |
 | `weight` | no | Numeric weight (0–1). Defaults to none. |
 | `type` | no | Free-form edge type string (e.g. `causal`, `hierarchical`). |
@@ -250,6 +252,61 @@ POST /api/brain/spaces/:spaceId/edges
 | `properties` | no | Optional key-value metadata object. Values must be string, number, or boolean. Shallow-merged on upsert. |
 
 Upserts on `(spaceId, from, to, label)`.
+
+#### An endpoint is an entity unless the edge says otherwise (3.7)
+
+An edge used to join two entities and nothing else, so `from` and `to` were bare entity ids and every reader
+knew where to look them up. From 3.7 an endpoint can be **any** of the four kinds of record, and the edge says
+which:
+
+```json
+{
+  "from": "photos/2019/party.jpg",
+  "fromKind": "file",
+  "to": "550e8400-e29b-41d4-a716-446655440000",
+  "toKind": "chrono",
+  "label": "taken_at"
+}
+```
+
+The case it exists for: a photo taken at a party. Its file meta wants to point at the people in it
+(`entity`), at the party itself (`chrono`), and at what happened there (`memory`) — three collections, and a
+bare `to` says nothing about which one to search. Guessing by trying each in turn is not an option, because
+two records in different collections may share an id and the answer would then depend on the order the code
+happened to try them.
+
+**Omitting the field is the correct thing to do for an entity, and is not the same as sending `"entity"`.** An
+omitted kind is stored as nothing at all, and every reader treats an absent kind as `entity` — so every edge
+written before 3.7, and every ordinary entity-to-entity edge written after it, is byte-identical. Nothing was
+migrated and nothing needs to be.
+
+| | `entity` | `memory` | `chrono` | `file` |
+|---|---|---|---|---|
+| **the id is** | UUID v4 | UUID v4 | UUID v4 | space-relative path |
+| **`400` on** | not a UUID | not a UUID | not a UUID | leading `/`, a `..` segment, or a backslash |
+| **looked up in** | entities | memories | chrono | file meta |
+
+A path is checked for shape on every write, and for existence only under `strictLinkage` — the same rule the
+UUID kinds have always had.
+
+**A stated kind that is wrong is refused, not stored.** Under `strictLinkage` the endpoint is looked up in the
+collection its kind names, so `"toKind": "chrono"` with an entity's id is a `400` rather than a dead link. A
+kind that is not one of the four is a `400` in every space, strict or not.
+
+**Correcting one is a `PATCH`.** Both fields are accepted by `PATCH /edges/:id`, and they are the only way to
+fix a wrong or missing kind: an edge's identity is its `(from, to, label)` triplet so the endpoint itself
+cannot be moved, and delete-and-recreate does not survive a sync network — a tombstone removes only its
+ISSUER's own content, so a peer-authored edge comes back. A corrected kind re-embeds on the next pass, because
+the endpoint then resolves in the right collection.
+
+**What the edge embeds changes with the kind.** An edge's vector is built from `from label to` with the
+endpoints resolved to names: an entity's `name`, a chrono entry's `title`, a memory's `fact` (capped at 200
+characters, so a long fact cannot crowd out the relationship itself), and for a file the path, which is
+already its name. An endpoint that resolves to nothing falls back to the raw id, as it always has.
+
+**Both kinds cross the wire.** They are declared on the sync ingest schema, so a peer receives the edge
+meaning what its author meant. A field on a replicated document that the ingest schema does not declare is
+kept on pull and deleted on push — same version, one direction, silently — which is why this is worth stating.
 
 #### An edge's `_id` is DERIVED from the relationship, and moves when the relationship does
 

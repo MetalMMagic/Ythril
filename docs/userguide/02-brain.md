@@ -85,9 +85,20 @@ Results are paginated — use **← Prev / Next →** to page through them. The 
 
 ### Edges
 
-Edges connect two entities and describe the relationship between them (e.g. *service-a* `depends_on` *service-b*).
+Edges connect two records and describe the relationship between them (e.g. *service-a* `depends_on` *service-b*).
 
-Each edge has a **from** entity, a **to** entity, a **label** (the relationship name), and optional **type**, **weight**, **tags**, **description**, and **properties**.
+Each edge has a **from** record, a **to** record, a **label** (the relationship name), and optional **type**, **weight**, **tags**, **description**, and **properties**.
+
+**From 3.7 an endpoint does not have to be an entity.** Either end can be an entity, a memory, a chrono entry
+or a file, and the edge records which kind it is. Think of a photo taken at a party: the photo can point at
+the people in it (entities), at the party itself (a chrono event), and at what happened there (a memory) —
+three different kinds of record, from one file.
+
+> **The Edges tab still creates entity-to-entity edges only.** The pickers offer entities, and an edge you
+> create here has no kind recorded, which means entity — exactly what it meant before 3.7. Edges with other
+> kinds of endpoint are written through the API or by an agent. They **display** properly in this table: a
+> memory endpoint shows its fact, a chrono endpoint its title, a file endpoint its path. Pickers for the other
+> three kinds are not in this release.
 
 **Searching:** The top search bar is **Semantic** (ranks edges by meaning), same as Memories. Plain-text matching (label / endpoint names) is the **freetext box under the Relation column**.
 

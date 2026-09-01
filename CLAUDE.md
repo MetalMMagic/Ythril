@@ -65,3 +65,27 @@ One rule, two implementations, and the weaker one wins silently. It has shipped 
 three routes; an empty allowlist read as "unrestricted" on three more; REST validating existence where MCP checked only
 shape; a paging window inline in one route and correct in another. When you find yourself writing the same rule a second
 time, extract it instead — `spaces/page-across-members.ts` exists because of this.
+
+## A field added to a replicated document must reach its `Incoming*` schema — same commit
+
+Found while shipping M-1, 2026-09-01, and it is a rule rather than an incident because the loss is invisible
+from both ends.
+
+`api/sync/_shared.ts` validates every PUSHED document with a bare `z.object({...})`, and **zod strips keys the
+schema does not declare.** The pull path validates nothing. So a field on `EdgeDoc`, `MemoryDoc`, `EntityDoc`
+or `ChronoEntry` that is missing from its `Incoming*` twin is **kept when the record arrives by pull and
+deleted when the same record arrives by push** — same version of the code, same document, one direction, no
+error, no statistic, and a 200 on the way back.
+
+- **Not every field should cross.** A recomputable vector and a local TTL stamp are correctly absent. That is
+  why the gate is a declared list with a reason per row rather than a demand for parity:
+  `a-replicated-field-reaches-its-incoming-schema.test.js`. Adding a field means either declaring it on the
+  schema or writing there why it must not travel.
+- **The reason has to be true, and the gate cannot check that.** `excludeFromVectorSearch` is kept on the
+  document, and its removal deferred, on the stated grounds that *"a peer on an older build must keep finding
+  the key it knows"* — while the ingest schema strips it for all four types. A deprecated field carried for a
+  guarantee that does not exist is worse than either choice made deliberately (`W-8`).
+- **The same question applies to what a receiver does after the write.** No sync path enqueues an embed job,
+  and there is no periodic backfill — `enqueueEmbedJob`'s docblock is explicit that the repair is on demand.
+  Only memories ship their vector, so a synced entity, edge or chrono ranks in no recall on the peer until an
+  operator rebuilds that space's indexes (`W-9`).

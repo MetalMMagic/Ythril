@@ -124,6 +124,31 @@ export type ValidationMode = 'off' | 'warn' | 'strict';
 /** Knowledge type keys used in typeSchemas. */
 export type KnowledgeType = 'entity' | 'memory' | 'edge' | 'chrono';
 
+/**
+ * What kind of record a reference points AT.
+ *
+ * Deliberately not {@link KnowledgeType}, and the difference is not cosmetic. That union names the four things
+ * a type schema can govern, and `edge` is one of them — an edge is a record with a schema of its own, but
+ * nothing ever points at an edge. This union names the collections a reference can resolve in, so it includes
+ * `file`, whose meta record is pointed at constantly and has no type schema at all.
+ *
+ * Two overlapping unions is how this repo's most expensive class of defect starts, so the overlap is stated
+ * rather than left to be noticed: three members are shared, each union has one the other must not gain.
+ *
+ * It lives here, in `config/`, because `EdgeDoc` needs it and `config/` must not import from `brain/`.
+ * `brain/entity-refs.ts` re-exports it, which is where it used to be defined and where every caller still
+ * expects to find it.
+ *
+ * The runtime list is the definition and the type is derived from it, rather than the other way round. A hand
+ * written union plus a hand written array is two lists, and the sync schema needs the array — so the two would
+ * drift at exactly the moment a kind is added, with the compiler silent because both are individually valid.
+ * This is the first runtime value in an otherwise type-only module for that reason alone.
+ */
+export const REF_KINDS = ['entity', 'memory', 'chrono', 'file'] as const;
+
+/** @see REF_KINDS — derived, never written out a second time. */
+export type RefKind = typeof REF_KINDS[number];
+
 
 /** Structured schema and metadata for a space — all fields optional. */
 /**

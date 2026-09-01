@@ -21,8 +21,15 @@ export const bulkRouter = Router();
  * POST /api/brain/spaces/:spaceId/bulk
  *
  * Batch upsert memories, entities, edges, and chrono entries in a single
- * request.  Processing order: memories → entities → edges → chrono, so edges
- * referencing newly created entities within the same batch resolve correctly.
+ * request.  Processing order: memories → entities → edges → chrono, which matters
+ * for records the batch UPDATES: an entity addressed by an existing id is written
+ * before an edge in the same batch reads it.
+ *
+ * It does NOT let a batch reference a record it creates. A supplied `id` addresses an
+ * existing record and never becomes a new one's identity — that is minted — so an edge
+ * naming an id the caller invented points at nothing, and since references here are
+ * shape-checked and never existence-checked it is stored dangling and counted as
+ * inserted. A graph takes two calls, with the ids coming from the first one's response.
  *
  * All four arrays are optional.  Entries that fail per-item validation are
  * recorded in `errors` and do not abort the remaining batch items.

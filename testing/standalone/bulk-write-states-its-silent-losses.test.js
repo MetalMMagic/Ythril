@@ -15,9 +15,17 @@
  *
  * **3. References are checked for SHAPE, never existence** — unlike `remember` and `update_memory`, which
  * call `assertRefsResolve` under strict linkage and refuse a link that points at nothing. Bulk deliberately
- * does not, because a payload may reference an entity created later in the same call and an existence check
- * would reject valid forward references. The cost is real and worth stating: bulk can store a dangling link
- * the single-record path would have refused.
+ * does not, and the cost is real and worth stating: bulk can store a dangling link the single-record path
+ * would have refused.
+ *
+ * **This file used to say the reason was forward references, and that was W-12.** It was one of six copies of
+ * a claim the ID-IS-ID ruling had made false: a supplied id addresses an existing record but never becomes a
+ * new one's identity, so an entity created by a batch is stored under a minted id and an edge in the same
+ * payload naming the caller's id points at nothing. Two of the cases below asserted the false sentence into
+ * place, which is why correcting the tool broke them — the gate was holding the defect. What the asymmetry is
+ * actually for is a space that permits dangling references, and
+ * `a-bulk-payload-cannot-reference-its-own-new-records-db.test.js` now holds the whole claim across all five
+ * surfaces, in both directions.
  *
  * Run: node --test testing/standalone/bulk-write-states-its-silent-losses.test.js
  */
@@ -86,9 +94,21 @@ describe('the reference-checking asymmetry is stated', () => {
     assert.match(DESC, /SHAPE, NEVER FOR EXISTENCE/, 'the difference from the single-record tools');
   });
 
-  it('says WHY, so nobody "fixes" it into rejecting forward references', () => {
-    assert.match(DESC, /forward reference/i,
-      'the reason is the design constraint — an existence check would break valid batches');
+  it('states the COST of the asymmetry, and what to do about it', () => {
+    /*
+     * The reason used to be given as forward references, which was false — see the note at the top. What is
+     * left is the honest half: the caller has to know a dangling link can land here, and how to find one.
+     */
+    assert.match(DESC, /dangling link/i, 'a caller cannot act on an asymmetry whose consequence is unstated');
+    assert.match(DESC, /`traverse`/, 'and needs to be told how to find one after a large import');
+  });
+
+  it('and does NOT offer a forward reference as the reason', () => {
+    // The claim itself is gated across all five surfaces elsewhere; this is the local floor, so a rewrite of
+    // this description cannot quietly reintroduce it while these cases stay green.
+    assert.doesNotMatch(DESC, /forward reference|created LATER in the same/i,
+      'a supplied id never becomes a new record\'s identity, so a batch cannot reference a record it creates '
+      + '— see a-bulk-payload-cannot-reference-its-own-new-records-db.test.js');
   });
 
   it('and the asymmetry is real: bulk checks format, the single-record path checks resolution', () => {
@@ -105,9 +125,16 @@ describe('the processing order is stated with its consequence', () => {
     assert.match(DESC, /memories → entities → edges → chrono/, 'the order itself');
   });
 
-  it('and says what it buys — an edge naming an entity from the same batch', () => {
-    assert.match(DESC, /edge may name an entity created in the\s*'?\s*\+?\s*'?same batch|same batch/,
-      'the order is only interesting because of what it makes possible');
+  it('and says what it buys — an UPDATED record is written before an edge reads it', () => {
+    /*
+     * This case used to accept `/same batch/`, which is why it stayed green through the correction while
+     * asserting nothing: the phrase survives in the true sentence too. The order is worth stating because of
+     * what it does for records the batch UPDATES — a supplied id that already resolves is written before the
+     * edges pass — and that is a narrower claim than the one it replaces.
+     */
+    assert.match(DESC, /UPDATES|already exists/,
+      'the order is only worth stating for what it does to a record the batch updates');
+    assert.match(DESC, /before an edge/i, 'and the consequence has to be spelled out, not implied by the arrow');
   });
 
   it('and the code really runs in that order', () => {

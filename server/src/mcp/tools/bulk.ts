@@ -29,14 +29,13 @@ export const bulk_writeTool: ToolHandler = {
     + '500 entities in one call is fine. Split larger imports yourself and check the counts add up.\n\n'
     + 'REFERENCES ARE CHECKED FOR SHAPE, NEVER FOR EXISTENCE — and that differs from the single-record tools. '
     + 'In a space with strict linkage `remember` and `update_memory` refuse an `entityIds` value that does not '
-    + 'resolve; here a well-formed UUID that points at nothing is accepted and stored. That is deliberate: a '
-    + 'batch may legitimately reference an entity created LATER in the same payload, and an existence check '
-    + 'would reject valid forward references. The cost is that bulk can write a dangling link the single-record '
-    + 'path would have refused, so verify with `traverse` after a large import if linkage matters.\n\n'
-    + 'ORDER IS memories → entities → edges → chrono, which is why an edge may name an entity created in the '
-    + 'same batch. It also means a MEMORY cannot resolve an entity from the same batch at read time even '
-    + 'though its ids are accepted — the entity exists by the end of the call, so this only matters if you '
-    + 'read between calls.\n\n'
+    + 'resolve; here a well-formed UUID that points at nothing is accepted and stored. So this door can write '
+    + 'a dangling link the single-record path would have refused: verify with `traverse` after a large import '
+    + 'if linkage matters.\n\n'
+    + 'ORDER IS memories → entities → edges → chrono, which matters for records this call UPDATES: an entity '
+    + 'addressed by an id that already exists is written before an edge in the same batch reads it. Memories go '
+    + 'first of all, so a memory\'s `entityIds` cannot name an entity from this same call under any ordering.\n\n'
+    + 'AND YOU CANNOT REFERENCE A RECORD THIS CALL CREATES — the order does not buy you that, and this tool said it did until 2026-09-01. An `id` you send ADDRESSES an existing record and never becomes a new one\'s identity: the id is MINTED here, so an entity you insert comes back under a different id than the one you sent. An edge naming the id you chose points at nothing, and by the rule above it is stored dangling and counted in `inserted` with an empty `errors`. Build a graph in TWO calls: entities first, take their ids from the response, edges second.\n\n'
     + 'PARAMETERS: each collection takes the same fields as its single-record tool — `memories` as `remember`, '
     + '`entities` as `upsert_entity`, `edges` as `upsert_edge`, `chrono` as `create_chrono` — including '
     + '`ttlDays` per item. `targetSpace` is required when `space` is a proxy.\n\n'
@@ -70,8 +69,9 @@ export const bulk_writeTool: ToolHandler = {
                     type: 'array', items: { type: 'string' },
                     description: 'Entity IDs to link this memory to. NEVER checked for existence on this '
                       + 'door — `remember` refuses an id that does not resolve, and here a well-formed UUID '
-                      + 'pointing at nothing is stored as a dangling link. That is deliberate: a batch may '
-                      + 'reference an entity created LATER in the same payload.',
+                      + 'pointing at nothing is stored as a dangling link. The ids have to come from an '
+                      + 'EARLIER call: memories are written before the entities in this same payload, and an '
+                      + 'id you invent for one of them is not the id it gets — identities are minted here.',
                   },
                   description: {
                     type: 'string',

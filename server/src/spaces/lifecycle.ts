@@ -14,7 +14,7 @@ import { invalidateUsageCache } from '../quota/quota.js';
 import { log } from '../util/log.js';
 import type { SpaceConfig, SpaceMeta, MemoryDoc } from '../config/types.js';
 import { VECTOR_INDEXED_COLLECTIONS, buildSpaceVectorIndexes, finalizeSpaceIndexReady } from './vector-index.js';
-import { SPACE_COLLECTIONS, repairStaleSpaceIds, dropLegacyPrefixedIndexes, pendingOpConflictMessage , setReindexNeeded, beginSpaceOp, endSpaceOp, spaceOpInFlight } from './_shared.js';
+import { SPACE_COLLECTIONS, repairStaleSpaceIds, dropLegacyPrefixedIndexes, dropSupersededEdgeIdentityIndex, pendingOpConflictMessage , setReindexNeeded, beginSpaceOp, endSpaceOp, spaceOpInFlight } from './_shared.js';
 import { moveSpaceData, applySpaceRenameToConfig } from './rename.js';
 import { ensureMediaJobIndexes } from '../files/media/job-queue.js';
 import { ensureEmbedJobIndexes } from '../brain/embed-queue.js';
@@ -69,6 +69,9 @@ export async function initSpace(
     dropLegacyPrefixedIndexes(tombstonesColl), dropLegacyPrefixedIndexes(conflictsColl),
     dropLegacyPrefixedIndexes(dupeColl), dropLegacyPrefixedIndexes(contraColl),
     dropLegacyPrefixedIndexes(filesColl),
+    // Before the createIndex below: the old three-field unique index would otherwise sit beside the widened
+    // one and keep refusing the rows it exists to allow. See `dropSupersededEdgeIdentityIndex`.
+    dropSupersededEdgeIdentityIndex(edgesColl),
   ]);
 
   await memoriesColl.createIndex({ seq: 1 });
@@ -85,9 +88,22 @@ export async function initSpace(
   await entitiesColl.createIndex({ name: 1, type: 1 });
   await entitiesColl.createIndex({ seq: 1 });
   await entitiesColl.createIndex({ type: 1 });
-  // Unique within the (already per-space) collection: (from, to, label) — the leading constant
-  // `spaceId` distinguished no documents, so dropping it preserves the identical guarantee.
-  await edgesColl.createIndex({ from: 1, to: 1, label: 1 }, { unique: true });
+  /*
+   * Unique within the (already per-space) collection — the leading constant `spaceId` distinguished no
+   * documents, so dropping it preserved the identical guarantee.
+   *
+   * `fromKind` and `toKind` joined the key in M-3. Each collection assigns its own UUIDs, so a memory and an
+   * entity may hold the same id: `(X, Y, mentions)` with Y an entity and the same triplet with Y a memory are
+   * two relationships, and `edgeIdFor` derives two ids for them. Without the kinds here the index would refuse
+   * the second as a duplicate — an id that is free and a row that cannot be stored, which is the identity
+   * expressed two ways and disagreeing.
+   *
+   * Safe on an existing collection: an entity endpoint stores NOTHING (`storedEdgeKind` normalises `'entity'`
+   * to absent), Mongo indexes a missing field as null, and every edge written before M-1 keys as `(from, to,
+   * label, null, null)` — exactly what a new ordinary edge keys as. So the guarantee for the ordinary case is
+   * unchanged and only the widened cases become storable.
+   */
+  await edgesColl.createIndex({ from: 1, to: 1, label: 1, fromKind: 1, toKind: 1 }, { unique: true });
   // The compound index above serves `from` through its prefix but leaves `to` unindexed, so any
   // "which entities does the graph touch" question scanned the whole collection on the inbound half.
   // Completeness' unlinked-entity join asks it per entity; traversal asks it per hop.

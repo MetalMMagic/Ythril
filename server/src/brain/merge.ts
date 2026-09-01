@@ -211,14 +211,16 @@ async function detectDuplicateEdges(
   for (const e of survivorEdges) {
     // Keyed on the derivation, for the reason spelled out at the relink: a joined string collides two
     // distinct relationships the moment a label contains the separator, and reports them as duplicates.
-    survivorTriplets.set(edgeIdFor(e.from, e.to, e.label), e._id);
+    survivorTriplets.set(edgeIdFor(e.from, e.to, e.label, e.fromKind, e.toKind), e._id);
   }
 
   // For each absorbed edge, compute what its triplet would be after relinking
   for (const e of absorbedEdges) {
     const newFrom = e.from === absorbedId ? survivorId : e.from;
     const newTo = e.to === absorbedId ? survivorId : e.to;
-    const key = edgeIdFor(newFrom, newTo, e.label);
+    // Relinking substitutes one ENTITY id for another, so the kinds are unchanged by it and travel with the
+    // edge. Dropping them would report two edges that differ only in endpoint kind as duplicates of each other.
+    const key = edgeIdFor(newFrom, newTo, e.label, e.fromKind, e.toKind);
     const survivorEdgeId = survivorTriplets.get(key);
     if (survivorEdgeId) {
       warnings.push({
@@ -400,7 +402,7 @@ export async function executeMerge(
        * moves the edge onto — so keying on anything else would be a second answer to the question the unique
        * index already settles.
        */
-      const survivorKeys = new Set(survivorEdges.map(e => edgeIdFor(e.from, e.to, e.label)));
+      const survivorKeys = new Set(survivorEdges.map(e => edgeIdFor(e.from, e.to, e.label, e.fromKind, e.toKind)));
 
       // Phase 1a: delete absorbed edges whose post-relink key collides with
       // an existing survivor edge (would violate the unique index).
@@ -408,7 +410,7 @@ export async function executeMerge(
       for (const edge of absorbedEdges) {
         const newFrom = edge.from === absorbed._id ? survivor._id : edge.from;
         const newTo = edge.to === absorbed._id ? survivor._id : edge.to;
-        const postKey = edgeIdFor(newFrom, newTo, edge.label);
+        const postKey = edgeIdFor(newFrom, newTo, edge.label, edge.fromKind, edge.toKind);
         if (survivorKeys.has(postKey)) {
           // This absorbed edge would collide — delete it as a duplicate.
           await edgeColl.deleteOne(asFilter<EdgeDoc>({ _id: edge._id }), { session });

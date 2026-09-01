@@ -61,11 +61,16 @@ describe('the same relationship derives the same id', () => {
      * remove — and it would appear only on networks that configured aliasing, i.e. exactly where it is
      * hardest to reproduce. The collection is per-space already; the space is in its name.
      *
-     * Asserted through the SIGNATURE rather than by passing a space: a three-argument function cannot take
-     * one, so this cannot rot into "we pass it but ignore it".
+     * Asserted on the PARAMETER NAMES rather than on the count. It was the count — "exactly three, so it
+     * cannot take a space" — and M-3 added the two endpoint kinds, at which point a correct change failed a
+     * gate whose subject was `spaceId`. A count is a proxy for a rule, and the proxy is what went stale.
      */
-    assert.equal(edgeIdFor.length, 3, 'edgeIdFor must take exactly (from, to, label) — no spaceId');
     const s = src('server/src/brain/edge-id.ts');
+    const at = s.indexOf('export function edgeIdFor(');
+    // From the FUNCTION, not from the file: `indexOf('): string')` unanchored finds `part(s: string): string`
+    // above it, and the slice comes out backwards — an empty string passes every `doesNotMatch` there is.
+    const params = s.slice(at, s.indexOf('): string', at));
+    assert.doesNotMatch(params, /space/i, 'the space must not be a parameter of the derivation');
     assert.doesNotMatch(bodyOf(s, 'edgeIdFor'), /spaceId/, 'the space must not be part of the key');
   });
 
@@ -106,14 +111,43 @@ describe('the creation path uses it', () => {
     assert.match(body, /edgeIdFor\(/, 'the creation path must derive the id from the triplet');
   });
 
-  it('the derivation is fed the same three values the unique index uses', () => {
-    // The index is `{ from: 1, to: 1, label: 1 }`. A derivation over a different triple would produce ids that
-    // collide where the index does not, or differ where it does — worse than random, because it would look
-    // deliberate.
+  it('the derivation and the unique index are fed the SAME fields', () => {
+    /*
+     * Derived from the index rather than hardcoded against it. A derivation over a different set produces ids
+     * that collide where the index does not, or differ where it does — worse than random ids, because it looks
+     * deliberate.
+     *
+     * This used to assert the literal `{ from: 1, to: 1, label: 1 }`, and M-3 widened both sides together: the
+     * kinds joined the key because a memory and an entity may share an id. The literal failed on a correct
+     * change while the rule it stood for was more true than before, so the rule is now compared directly and
+     * neither side can move alone.
+     */
     const lifecycle = src('server/src/spaces/lifecycle.ts');
-    assert.match(lifecycle, /createIndex\(\{ from: 1, to: 1, label: 1 \}, \{ unique: true \}\)/,
-      'the unique index moved — re-check what the id is derived from');
-    assert.match(bodyOf(src('server/src/brain/edges.ts'), 'upsertEdge'), /edgeIdFor\(from, to, label\)/);
+    const idx = lifecycle.match(/createIndex\(\{([^}]*)\}, \{ unique: true \}\)/);
+    assert.ok(idx, 'the unique index on the edges collection was not found — re-anchor this gate');
+    const indexed = [...idx[1].matchAll(/(\w+):\s*1/g)].map(m => m[1]);
+    assert.ok(indexed.length >= 3, `only ${indexed.length} fields in the unique index`);
+
+    const derivation = src('server/src/brain/edge-id.ts');
+    const at = derivation.indexOf('export function edgeIdFor(');
+    const params = derivation.slice(at, derivation.indexOf('): string', at));
+    /*
+     * BOTH directions, and the second is the one a mutation run had to reveal.
+     *
+     * Derived-from-the-index alone, narrowing the index back to three fields left this GREEN: it only asked
+     * whether the derivation takes what the index has, and the derivation still took `from`, `to` and `label`.
+     * One-directional by construction — the same shape as the traverse-description gate that passed on a
+     * description naming no flags at all.
+     *
+     * The two failures are opposite and both real. A field the INDEX has and the derivation lacks: two rows the
+     * index keeps apart derive one id, so the second is a duplicate `_id` for a row the index would have
+     * allowed. A field the DERIVATION has and the index lacks: two ids for rows the index calls one, so the
+     * second is refused on the triplet while its `_id` is free.
+     */
+    const declared = [...params.matchAll(/^\s*(\w+)\??:/gm)].map(m => m[1]);
+    assert.deepEqual([...declared].sort(), [...indexed].sort(),
+      'the unique index and the derivation are fed different fields, so the two disagree about what makes an '
+      + 'edge unique — whichever has more produces rows the other refuses');
   });
 });
 

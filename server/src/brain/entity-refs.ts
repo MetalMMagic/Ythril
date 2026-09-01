@@ -183,6 +183,26 @@ export function endpointNameField(kind: Exclude<RefKind, 'file'>): string {
   return NAME_FIELD[kind];
 }
 
+/**
+ * The value to STORE for an endpoint kind: `undefined` for an entity, the kind itself otherwise.
+ *
+ * One canonical representation, and it is not cosmetic. `absent means entity` is the reading everywhere, so a
+ * stored explicit `'entity'` and an absent field describe the same edge — and three separate things then
+ * disagree about whether they are one row:
+ *
+ *  - `edgeIdFor` derives ONE id for both, which is correct, so storing both is a duplicate key on `_id`;
+ *  - the unique index on `(from, to, label, fromKind, toKind)` sees `null` and `'entity'` as different keys,
+ *    so it would happily hold both;
+ *  - `findEdgeByTriplet` filters on `null`, which matches a missing field and not an explicit `'entity'`, so an
+ *    upsert would read one row and write the other.
+ *
+ * Normalising on the way in removes the disagreement at its source rather than teaching each of the three to
+ * tolerate it.
+ */
+export function storedEdgeKind(kind: RefKind | undefined): RefKind | undefined {
+  return kind === undefined || kind === 'entity' ? undefined : kind;
+}
+
 /** Read an edge endpoint's kind. Absent means `entity` — the one place that reading lives. */
 export function edgeEndpointKind(kind: RefKind | undefined): RefKind {
   return kind ?? 'entity';

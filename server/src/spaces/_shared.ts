@@ -182,6 +182,50 @@ export async function dropLegacyPrefixedIndexes(coll: Collection): Promise<void>
   }
 }
 
+/**
+ * Drop the edges unique index that `(from, to, label)` alone used to be — superseded in M-3.
+ *
+ * ## Why a widened `createIndex` is not enough on its own
+ *
+ * `createIndex` with a new key spec creates an ADDITIONAL index. The old one keeps its name, keeps its unique
+ * constraint, and keeps refusing exactly the rows the widened key exists to allow: an edge whose endpoints
+ * differ from another's only in KIND has a free `_id` and is rejected on `(from, to, label)`. On a fresh space
+ * nothing is wrong; on every space that already exists, the capability is unreachable — which is the shape of
+ * defect that ships looking tested.
+ *
+ * ## Why a boot-time migration is allowed here
+ *
+ * The standing rule is that migrations over SYNCED DATA must be lazy and self-healing, because a rewrite of
+ * replicated documents ships a whole space to every peer as changes. An index is not data: it is local state,
+ * rebuilt from the documents, and never replicated. So it is exactly the case the rule exempts.
+ *
+ * ## Matched on the KEY, not the name
+ *
+ * Mongo names an index from its keys, so the old one is almost certainly `from_1_to_1_label_1` — but a name is
+ * a derived string and an index created by hand may carry any name at all. Matching the key SHAPE finds it
+ * either way, and cannot match the five-field replacement, whose shape is different.
+ */
+export async function dropSupersededEdgeIdentityIndex(coll: Collection): Promise<void> {
+  let indexes: Array<{ name?: string; key?: Record<string, unknown>; unique?: boolean }>;
+  try {
+    indexes = await coll.listIndexes().toArray();
+  } catch {
+    return; // the collection may not exist yet — createIndex will build the new shape
+  }
+  for (const idx of indexes) {
+    if (!idx.name || idx.name === '_id_') continue;
+    const keys = Object.keys(idx.key ?? {});
+    if (keys.length === 3 && keys[0] === 'from' && keys[1] === 'to' && keys[2] === 'label') {
+      try {
+        await coll.dropIndex(idx.name);
+        log.info(`M-3: dropped superseded edge identity index ${idx.name} on ${coll.collectionName}`);
+      } catch (err) {
+        log.warn(`M-3: could not drop superseded index ${idx.name} on ${coll.collectionName}: ${err}`);
+      }
+    }
+  }
+}
+
 /** Maximum number of previous meta versions kept for history. */
 export const META_VERSION_CAP = 20;
 

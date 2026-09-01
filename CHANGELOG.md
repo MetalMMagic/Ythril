@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **An edge's derived id now distinguishes endpoints of different KINDS, and so do the two other places that
+  express edge identity.** Each collection assigns its own UUIDs, so a memory may hold the same id as an entity:
+  `(X) -[mentions]-> (Y as entity)` and the same triplet with Y a memory are two relationships that derived one
+  id. The second is then a duplicate key — on every sync cycle — which is the defect deriving the id was
+  introduced to remove, arriving back through the endpoint M-1 widened.
+
+  It matters most for what comes next. A lazy self-healing migration runs independently on every peer, so two
+  peers converting the same link is the ORDINARY case rather than a race; without the kinds in the key they
+  produce two ids for one link, at one record per mention.
+
+  **An entity-to-entity edge derives exactly the id it did before**, byte for byte, and that is a requirement
+  rather than a courtesy: a peer on an older build derives without the kinds, so appending them unconditionally
+  would give two peers different ids for the same ordinary edge — re-opening the duplicate-key loop on precisely
+  the networks that are mid-upgrade. They are appended only when at least one endpoint is not an entity, a
+  combination that could not exist before this release. The test holds it to a hardcoded id rather than a
+  recomputed one, because a test that derives its expectation from the function it checks cannot notice a
+  re-derivation.
+
+  **Filed as an id change; it is three.** Edge identity is expressed in the derived `_id`, in the unique index,
+  and in the triplet lookup that decides insert-versus-update, and shipping one alone leaves them disagreeing:
+  the id says two relationships while the index says one, so the row is refused on the triplet with its `_id`
+  free. The index is now `(from, to, label, fromKind, toKind)` — safe on existing data, because an entity
+  endpoint stores nothing and Mongo indexes a missing field as null, so every edge written before this keys
+  identically to a new ordinary one.
+
+  **And the old index had to be dropped, not merely superseded.** `createIndex` with a new key spec creates an
+  ADDITIONAL index: on every space that already existed, `from_1_to_1_label_1` kept its unique constraint and
+  kept refusing exactly the rows the widened key exists to allow — a free `_id` and a rejected insert. On a
+  fresh space nothing was wrong, which is the shape of defect that ships looking tested. A boot-time drop is
+  allowed here because an index is local state rather than synced data, which is the case the lazy-migration
+  rule exempts, and it is matched on the key SHAPE rather than the name because a name is derived. A database
+  test holds both directions: the old one goes, and the replacement does not go with it.
+
+  `storedEdgeKind` is what makes that true: an explicit `"entity"` is normalised to absent, so there is one
+  stored representation. Without it the same three places disagree again — one id for both forms, two index
+  keys, and a triplet filter that matches only the absent one.
+
 ### Changed
 
 - **One space wipe instead of four.** `bulkDeleteEntities`, `bulkDeleteMemories`, `bulkDeleteEdges` and

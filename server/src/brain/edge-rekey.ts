@@ -119,7 +119,10 @@ export async function rekeyEdge(
   const from = next.from ?? existing.from;
   const to = next.to ?? existing.to;
   const label = next.label ?? existing.label;
-  const newId = edgeIdFor(from, to, label);
+  // The kinds come from the STORED edge: a rekey moves an endpoint or renames a label, and neither changes
+  // what kind of record an endpoint is. Omitting them here would derive the pre-M-3 id and rekey every
+  // widened edge onto a collision.
+  const newId = edgeIdFor(from, to, label, existing.fromKind, existing.toKind);
   // The common case by far is an ordinary field patch. Delete-and-inserting one would write a tombstone and
   // briefly remove the edge from every peer for a description edit.
   if (newId === existing._id) return null;

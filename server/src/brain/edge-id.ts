@@ -72,7 +72,40 @@ const part = (s: string): string => `${s.length}:${s}`;
  *
  * Order matters: `(a)-[knows]->(b)` and `(b)-[knows]->(a)` are two rows under the unique index, so they must
  * be two ids. Sorting the endpoints to make this symmetric would silently merge them.
+ *
+ * ## The endpoint KINDS are part of the identity, and appended only when they have to be (M-3)
+ *
+ * Since M-1 an endpoint can be an entity, a memory, a chrono entry or a file, and **each collection assigns
+ * its own UUIDs** — so a memory and an entity may hold the same id. Without the kinds in the key,
+ * `(X) -[mentions]-> (Y as entity)` and `(X) -[mentions]-> (Y as memory)` are two relationships deriving one
+ * id: a duplicate key under the unique index, on every sync cycle, which is the defect deriving the id was
+ * introduced to remove arriving back through the widened endpoint.
+ *
+ * **They are appended only when at least one kind is not `entity`, and that is a compatibility requirement
+ * rather than an optimisation.** A peer on an older build calls this with three arguments. If the kinds were
+ * appended unconditionally, that peer and this one would derive different ids for the same ordinary edge and
+ * re-open the duplicate-key loop — on precisely the networks that are mid-upgrade, where it is hardest to
+ * attribute. So the entity-to-entity key is BYTE-IDENTICAL to the one this function has always produced, and
+ * `an-edge-id-includes-its-endpoint-kinds.test.js` holds it to a hardcoded id rather than to a recomputed one.
+ *
+ * A combination involving any other kind could not exist before M-1, so it has no older peer to agree with and
+ * is free to derive something new.
+ *
+ * The kinds go at the END for the same reason: prepending them would change the entity-to-entity key.
+ *
+ * The plan document words the rule as `uuidv5(canonical(fromKind, from, toKind, to, label))`, which read
+ * literally re-derives every existing edge. The intent is that the kinds are part of the identity; the
+ * placement above is what delivers that without splitting a live network.
  */
-export function edgeIdFor(from: string, to: string, label: string): string {
-  return uuidv5(`${part(from)}${part(to)}${part(label)}`, EDGE_NAMESPACE);
+export function edgeIdFor(
+  from: string,
+  to: string,
+  label: string,
+  fromKind?: string,
+  toKind?: string,
+): string {
+  const fk = fromKind ?? 'entity';
+  const tk = toKind ?? 'entity';
+  const kinds = fk === 'entity' && tk === 'entity' ? '' : `${part(fk)}${part(tk)}`;
+  return uuidv5(`${part(from)}${part(to)}${part(label)}${kinds}`, EDGE_NAMESPACE);
 }

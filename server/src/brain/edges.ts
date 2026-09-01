@@ -28,6 +28,7 @@ import { linkedRecordsAtFrontier, entitiesLinkedFromRecords, linkedRecordName, l
   from './link-frontier.js';
 import { getEntityById } from './entities.js';
 import { resolveEdgeEndpointNames } from './edge-endpoint-names.js';
+import { storedEdgeKind } from './entity-refs.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { EdgeDoc, EntityDoc, TombstoneDoc, ChronoEntry, MemoryDoc, FileMetaDoc } from '../config/types.js';
 import type { RefKind } from '../config/types-knowledge.js';
@@ -183,7 +184,7 @@ export async function upsertEdge(
   },
 ): Promise<EdgeDoc> {
   const collection = col<EdgeDoc>(`${spaceId}_edges`);
-  const existing = await findEdgeByTriplet(spaceId, from, to, label);
+  const existing = await findEdgeByTriplet(spaceId, from, to, label, opts?.fromKind, opts?.toKind);
 
   /*
    * THE SCHEMA IS ENFORCED HERE, so that no caller can reach the collection around it.
@@ -241,8 +242,6 @@ export async function upsertEdge(
 
   if (existing) {
     const $set: Record<string, unknown> = { updatedAt: now, seq, ...embeddingFields };
-    if (opts?.fromKind !== undefined) $set['fromKind'] = opts.fromKind;
-    if (opts?.toKind !== undefined) $set['toKind'] = opts.toKind;
     if (weight !== undefined) $set['weight'] = weight;
     if (type !== undefined) $set['type'] = type;
     if (description !== undefined) $set['description'] = description;
@@ -250,6 +249,14 @@ export async function upsertEdge(
     if (tags !== undefined) $set['tags'] = effectiveTags;
     if (properties !== undefined) $set['properties'] = effectiveProps;
     const $unset: Record<string, unknown> = {};
+    // Correcting a kind back to `entity` must UNSET it, not store the string: absent is the canonical form,
+    // and leaving `'entity'` behind would make this edge unfindable by its own triplet lookup.
+    for (const side of ['fromKind', 'toKind'] as const) {
+      const given = side === 'fromKind' ? opts?.fromKind : opts?.toKind;
+      if (given === undefined) continue;
+      const stored = storedEdgeKind(given);
+      if (stored) $set[side] = stored; else $unset[side] = '';
+    }
     applyExpiryToUpdate(spaceId, ttlDays, (existing as EdgeDoc)._expireAt != null, $set, $unset,
       { collection: 'edge', existing: existing as unknown as Record<string, unknown> }); // F10
     const updateOp: Record<string, unknown> = { $set };
@@ -277,7 +284,7 @@ export async function upsertEdge(
   }
 
   const doc: EdgeDoc = {
-    _id: edgeIdFor(from, to, label),
+    _id: edgeIdFor(from, to, label, opts?.fromKind, opts?.toKind),
     spaceId,
     from,
     to,
@@ -290,8 +297,14 @@ export async function upsertEdge(
      * more values in would change the id of every edge in every space, which is a rewrite of a replicated
      * collection to buy protection against a collision between a UUID and a file path.
      */
-    ...(opts?.fromKind !== undefined ? { fromKind: opts.fromKind } : {}),
-    ...(opts?.toKind !== undefined ? { toKind: opts.toKind } : {}),
+    /*
+      * Normalised, so there is exactly ONE stored representation of an entity endpoint: absent. An explicit
+      * `'entity'` and an absent field describe the same edge and derive the same `_id`, so storing both is a
+      * duplicate key — while the unique index would see two different keys and the triplet lookup would match
+      * only one of them. `storedEdgeKind` is where that reasoning lives.
+      */
+     ...(storedEdgeKind(opts?.fromKind) ? { fromKind: storedEdgeKind(opts?.fromKind) } : {}),
+     ...(storedEdgeKind(opts?.toKind) ? { toKind: storedEdgeKind(opts?.toKind) } : {}),
     label,
     tags: tags ?? [],
     ...(type !== undefined ? { type } : {}),
@@ -424,8 +437,12 @@ export async function updateEdgeById(
    * edge's embedding on the next pass without this function computing anything: the endpoint resolves in the
    * collection the new kind names.
    */
-  if (updates.fromKind !== undefined) $set['fromKind'] = updates.fromKind;
-  if (updates.toKind !== undefined) $set['toKind'] = updates.toKind;
+  for (const side of ['fromKind', 'toKind'] as const) {
+    const given = updates[side];
+    if (given === undefined) continue;
+    const stored = storedEdgeKind(given);
+    if (stored) $set[side] = stored; else $unset[side] = '';
+  }
   const newLabel = updates.label ?? existing.label;
   let newDesc = updates.description !== undefined ? updates.description : existing.description;
   let newTags = mergeTagsOrKeep(existing.tags, updates.tags);

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Characterization tests for the file tree, and they found that clicking a folder lists that directory
+  twice.** `onTreeClick` loads the directory for the main listing and then lists the same path again for the
+  tree's children — same URL, same moment, on every open. Found by asserting one request and getting two.
+
+  Pinned as it behaves rather than quietly asserted as one, and filed as `G-10`. The second request is
+  avoidable, but it cannot simply go: `expandTreeNode`'s error branch shows nothing, so the duplicate is what
+  accidentally supplies the error message a failed expand has. The tree needs its own failure state first.
+
+  Nothing in the product changed. The tree was the last part of that page with no assertion anywhere — the
+  existing pass covered sorting, paths, the preview object URL and the metadata model — and it is the largest
+  block the shell still renders inline, so the split needs it pinned before anything moves. Ten cases: the
+  directories-only filter, `children: null` meaning "not fetched" rather than "empty", paths built with the
+  page's own `join`, and the one that matters most — every mutation replaces the ARRAY, because nodes are
+  mutated in place and the page is OnPush, so an extraction that drops a spread leaves a tree correct in memory
+  and frozen on screen.
+
 ### Changed
 
 - **A vector never crosses the wire, and a peer embeds what it receives with its own model.** Owner's ruling,

@@ -15,9 +15,10 @@
  * two instances hold the same data.
  *
  * Put them together and the rule falls out with no judgement left in it: **a field that is hashed must
- * replicate.** If it does not, the sender's copy has the key and the receiver's does not, the roots differ for
- * ever, and the symptom is the sync view reporting divergence on a space where nothing is wrong. That is worse
- * than a wrong number, because it teaches an operator to ignore the one signal that means data is missing.
+ * replicate.** If it does not, the sender's copy has the key and the receiver's does not, and the roots differ
+ * for ever — so a network with `merkle: true` logs a `MERKLE_DIVERGENCE` warning every cycle for a space where
+ * nothing is wrong. That is worse than a wrong number: a permanent false alarm teaches an operator to ignore
+ * the one signal that means data is missing.
  *
  * ## Why the rule is DERIVED rather than a list kept by hand
  *
@@ -31,13 +32,12 @@
  * declaring it on the ingest schema, or excluding it from the hash — and both of those are edits somebody has
  * to make deliberately in the file that governs the behaviour.
  *
- * ## The exemptions, and why they are named rather than absorbed
+ * ## The exemption list is empty, and it got there the way it was supposed to
  *
- * Two retention stamps — `_expireAt` and `_contentExpireAt` — are hashed and do not replicate today. That is a
- * live defect (`W-10`), not a decision, and the honest thing is to name them here rather than either fail on
- * untouched code or quietly widen the rule to fit them. When W-10 is fixed — almost certainly by excluding the
- * stamps from the hash, since a retention schedule is as local as a vector — those rows have to go, and the
- * stale-row test below is what fails until they do.
+ * It briefly held the two retention stamps, `_expireAt` and `_contentExpireAt`, which were hashed and stripped
+ * — a live defect rather than a decision, named here with the right answer beside it rather than quietly
+ * widening the rule to fit them. W-10 excluded them from the hash, and the stale-row test below is what
+ * insisted the rows come out on the same run.
  *
  * ## What deriving it caught on the first run
  *
@@ -94,19 +94,17 @@ function merkleExcluded(src) {
 }
 
 /**
- * Hashed, not replicated, and not a decision — one row, pointing at the item that will remove it.
+ * Hashed, not replicated, and not a decision — EMPTY, and that is the state to keep it in.
+ *
+ * It held the two retention stamps until W-10 shipped, which is what an entry here is for: a live defect,
+ * named, with the right answer written next to it, removed by the change that fixes it rather than by somebody
+ * noticing later. The stale-row check below is what forced this list back to empty — excluding the stamps from
+ * the hash made both rows unnecessary and the gate said so on the same run.
  *
  * Anything added here needs an open tracker row and a reason that says what the RIGHT answer is, not merely
  * what today's behaviour happens to be. A row without one is how an exemption becomes permanent.
  */
-const HASHED_BUT_NOT_REPLICATED = {
-  _expireAt: 'W-10 — the record TTL stamp is hashed and stripped, so two peers disagree for ever about '
-    + 'identical content. Local by nature (each instance stamps its own retention from its own policy), so '
-    + 'the fix is to exclude it from the hash as the derived fields are, not to replicate it.',
-  _contentExpireAt: 'W-10 — the same stamp for a chrono entry CONTENT window, with the same answer. The '
-    + 'marks it produces (`contentRedacted`, `contentRedactedAt`) DO replicate, because those are what the '
-    + 'record says about itself; the schedule that produced them belongs to the instance.',
-};
+const HASHED_BUT_NOT_REPLICATED = {};
 
 /** Every replicated document and the schema that guards its push door. */
 const REPLICATED = [
@@ -147,8 +145,9 @@ describe('a hashed field replicates, and a non-replicated field is not hashed', 
         !keys.includes(f) && !fromSet.includes(f) && !(f in HASHED_BUT_NOT_REPLICATED));
       assert.deepEqual(undeclared, [],
         `${undeclared.join(', ')} on ${docName} is HASHED by the divergence check and STRIPPED on push. So `
-        + `the two peers hash it differently for ever, and the sync view reports a space as divergent when it `
-        + `is not. Declare them on ${incName}, or exclude them from the hash in merkle.ts (both places).`);
+        + `the two peers hash it differently for ever, so a network with merkle:true logs a MERKLE_DIVERGENCE `
+        + `warning every cycle for a space where nothing is wrong. Declare them on ${incName}, or exclude them `
+        + 'from the hash in merkle.ts (both places).');
     });
   }
 

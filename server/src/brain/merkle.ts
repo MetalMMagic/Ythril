@@ -42,8 +42,31 @@ function sha256hex(input: string): string {
  * versions of one — legitimately hold different vectors for identical content,
  * so including them would report divergence on every heterogeneous network.
  * The text they are derived from is hashed, which is what actually matters.
+ *
+ * ## The retention stamps are local in exactly the same way (W-10)
+ *
+ * `_expireAt` is when THIS instance will delete the record, computed from its own space policy at its own
+ * write time; `_contentExpireAt` is the same for a chrono entry's content window. Neither is on any
+ * `Incoming*` schema, so both are stripped on push — and while they were hashed, the sender's copy carried
+ * the key and the receiver's did not, so the two roots differed **for ever on identical content**.
+ *
+ * The symptom was worse than a wrong number. On any network with `merkle: true`, every sync cycle logged a
+ * `MERKLE_DIVERGENCE` warning for every space with a retention policy — a permanent false alarm, which
+ * teaches an operator to ignore the one signal that means data really is missing. The check is advisory and
+ * blocks nothing, so nothing else ever contradicted it.
+ *
+ * Replicating them instead is not the answer: two peers with different retention legitimately hold different
+ * stamps, and shipping the sender's would let one instance decide when another deletes its data.
+ *
+ * **What a lapsed window leaves behind is NOT excluded.** `contentRedacted` and `contentRedactedAt` say what
+ * the record IS — that it had a description and the description is gone — and they replicate. Excluding them
+ * would make a redacted entry hash identically to one that still has its detail, which is real divergence
+ * going unreported. The schedule is local; what it did to the record is not.
  */
-const DERIVED_FIELDS = new Set(['embedding', 'embeddingModel', 'matchedText']);
+const DERIVED_FIELDS = new Set([
+  'embedding', 'embeddingModel', 'matchedText',
+  '_expireAt', '_contentExpireAt',
+]);
 
 /**
  * Canonical JSON of a document: keys sorted at every level, derived fields
@@ -124,7 +147,11 @@ export async function computeMerkleRoot(spaceId: string): Promise<MerkleResult> 
     const collName = `${spaceId}_${collType}`;
     const cursor = col<Record<string, unknown>>(collName)
       .find(asFilter({}))
-      .project({ embedding: 0, embeddingModel: 0, matchedText: 0 });
+      // The same set as `DERIVED_FIELDS`, and it has to STAY the same set: this one decides what is fetched,
+      // that one decides what is skipped while canonicalising. A field in only one of them is either hashed
+      // when it must not be, or pulled out of MongoDB for nothing.
+      // `a-replicated-field-reaches-its-incoming-schema.test.js` asserts the two agree.
+      .project({ embedding: 0, embeddingModel: 0, matchedText: 0, _expireAt: 0, _contentExpireAt: 0 });
 
     for await (const doc of cursor) {
       leaves.push(docLeaf(collType, doc as Record<string, unknown>));

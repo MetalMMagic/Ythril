@@ -27,6 +27,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { stripComments } from './_strip-comments.mjs';
 import { join } from 'node:path';
 
 const ROOT = process.cwd();
@@ -101,29 +102,48 @@ describe('the MCP entity delete carries the REST route’s referential guard', (
   const restSrc = read('server/src/api/brain/entities.ts');
   const tool = mcp.slice(mcp.indexOf("name: 'delete_entity'"));
 
-  it('REST really does guard it — otherwise this test asserts a rule that does not exist', () => {
-    assert.match(restSrc, /isStrictLinkage\(mid\)/);
-    assert.match(restSrc, /findEntityBacklinks\(mid, id\)/);
-  });
-
-  it('the tool checks strictLinkage and refuses on a blocking backlink', () => {
-    assert.match(tool, /isStrictLinkage\(mid\)/,
-      'without this an agent can leave dangling references a REST client is refused');
-    assert.match(tool, /findEntityBacklinks\(mid, id\)/);
-    assert.match(tool, /still referenced by/, 'the refusal must name what is pointing at the entity');
-  });
-
-  it('face labels do NOT block, exactly as in REST', () => {
-    // `deleteEntity` unlabels them in the same operation, so they cannot dangle. Blocking on them would make
-    // "delete this person" the one thing an operator cannot do for the subject whose data is biometric.
-    for (const src of [restSrc, tool]) {
-      assert.match(src, /b\.type !== 'face'/);
+  it('both doors call the SAME guard', () => {
+    /*
+     * Stronger than what this used to assert, which was that each door called `isStrictLinkage` and
+     * `findEntityBacklinks` itself. That is satisfiable by two copies of one rule, and it WAS two copies,
+     * which drifted: REST answered `Cannot delete: entity has inbound references` with structured rows, and
+     * the tool threw different prose with none. Identical calls are not one rule; one function is.
+     */
+    for (const [name, src] of [['REST', restSrc], ['the MCP tool', tool]]) {
+      assert.match(src, /entityDeleteBlockers\(mid, id\)/,
+        `${name} does not use the shared delete guard, so its refusal can drift from the other door's`);
     }
   });
 
+  it('and neither re-implements what the guard decides', () => {
+    // The three things that were written out twice: the linkage check, the face exemption, and the
+    // wording. Any of them reappearing in a door means the guard was bypassed rather than extended.
+    //
+    // Comments stripped, because both doors now carry a comment SAYING what the old wording was — a check
+    // that reads the raw file fires on the note explaining the fix, which is this repo's most repeated
+    // gate defect.
+    for (const [name, src] of [['REST', stripComments(restSrc)], ['the MCP tool', stripComments(tool)]]) {
+      assert.doesNotMatch(src, /b\.type !== 'face'/,
+        `${name} filters face rows itself, and that exemption belongs to the guard: it reports them WITHOUT `
+        + 'blocking, so a UI can warn about unlabelling while the delete is refused for another reason');
+      assert.doesNotMatch(src, /still referenced by|inbound references/,
+        `${name} words the refusal itself again`);
+    }
+  });
+
+  it('the guard is where the rule actually lives', () => {
+    // The floor: if that module were gutted, both cases above would still pass while nothing was enforced.
+    const guard = read('server/src/brain/entity-delete-guard.ts');
+    assert.match(guard, /isStrictLinkage\(spaceId\)/, 'the guard does not consult the opt-out');
+    assert.match(guard, /findEntityReferences\(spaceId, entityId\)/, 'the guard does not look for references');
+    assert.match(guard, /b\.type !== 'face'/, 'the face exemption is nowhere');
+  });
+
   it('checks BEFORE deleting, not after', () => {
-    const guard = tool.indexOf('findEntityBacklinks');
+    // Anchored on the shared guard now rather than on the reference scan the tool used to call itself. The
+    // property is the same and it is the one that matters: a check after the delete is not a check.
+    const guard = tool.indexOf('entityDeleteBlockers(');
     const del = tool.indexOf('await deleteEntity(');
-    assert.ok(guard > 0 && del > guard, 'the backlink guard must run before the delete');
+    assert.ok(guard > 0 && del > guard, 'the delete guard must run before the delete');
   });
 });

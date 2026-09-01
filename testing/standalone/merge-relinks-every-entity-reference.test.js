@@ -17,7 +17,7 @@
  *  - the ER model counts `linkedFrom.files` as a first-class relationship, so the number was simply wrong
  *    rather than obviously broken;
  *  - `danglingEdges` in that same model counts dangling **edges** and never looks at files;
- *  - `strictLinkage` blocks deleting an entity that still has inbound backlinks — and a merge deletes the
+ *  - `strictLinkage` blocks deleting an entity anything still references — and a merge deletes the
  *    absorbed entity directly, so it never passes that guard;
  *  - a traversal from the file came back empty, which reads as "nothing linked" rather than as a broken link.
  *
@@ -58,7 +58,7 @@ const withoutComments = (t) =>
  * phase 5 deleted it, and `labelStillResolves` returns null for a label that does not resolve — so the faces
  * simply stopped counting and the surviving person's gallery went empty with nothing logged. `strictLinkage`
  * could not catch it either, because a merge deletes the absorbed entity directly rather than through the
- * guard that refuses a delete with inbound backlinks.
+ * guard that refuses a delete while anything still references the entity.
  *
  * So the discovery is by SHAPE — any field whose name ends in `entityId`/`entityIds`, whatever it is prefixed
  * with. A third spelling added later is covered on the commit that adds it, which is the property the previous

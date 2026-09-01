@@ -16,7 +16,7 @@
  *   2. IT FIRES ON EVERY DELETE PATH. Single delete, bulk wipe, and the TTL sweep (which routes
  *      through `deleteEntity`, so a person entity can expire and detach its faces with no human
  *      action at all). This being fixed in one caller only is the exact shape of the original bug.
- *   3. THE BLIND SPOT THAT HID IT IS CLOSED. `findEntityBacklinks` scanned `_edges`/`_memories`/
+ *   3. THE BLIND SPOT THAT HID IT IS CLOSED. `findEntityReferences` scanned `_edges`/`_memories`/
  *      `_chrono` and not `_files`, so under `strictLinkage` — the strongest setting available — a
  *      person referenced *only* by face labels deleted cleanly and the "something still points at
  *      this" guard stayed silent about the one reference class holding biometric data.
@@ -242,11 +242,11 @@ describe('face labels cascade when their person is deleted', { skip }, () => {
 
   // ── 3. The blind spot ──────────────────────────────────────────────────────
 
-  it('findEntityBacklinks now reports face references', async () => {
+  it('findEntityReferences now reports face references', async () => {
     await files.insertOne(faceChunk('a.jpg#face-chunk0', 'a.jpg', ALICE));
     await files.insertOne(faceChunk('b.jpg#face-chunk0', 'b.jpg', ALICE));
 
-    const links = await brain.findEntityBacklinks(SPACE, ALICE);
+    const links = await brain.findEntityReferences(SPACE, ALICE);
     const faces = links.filter(l => l.type === 'face');
     assert.equal(faces.length, 2, 'faces were the reference class this never looked at');
     assert.deepEqual(faces.map(f => f._id).sort(), ['a.jpg#face-chunk0', 'b.jpg#face-chunk0']);
@@ -254,7 +254,7 @@ describe('face labels cascade when their person is deleted', { skip }, () => {
 
   it('reports nothing for a person with no faces', async () => {
     await files.insertOne(faceChunk('b.jpg#face-chunk0', 'b.jpg', BOB));
-    const links = await brain.findEntityBacklinks(SPACE, ALICE);
+    const links = await brain.findEntityReferences(SPACE, ALICE);
     assert.deepEqual(links.filter(l => l.type === 'face'), []);
   });
 

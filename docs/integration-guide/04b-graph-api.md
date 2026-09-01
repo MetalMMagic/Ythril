@@ -108,25 +108,38 @@ Default limit: 50, max: 500.
 DELETE /api/brain/spaces/:spaceId/entities/:id
 ```
 
-**Response** `204` when no inbound references exist (or the space has opted out with `strictLinkage: false`).
+**Response** `204` when nothing references the entity (or the space has opted out with `strictLinkage: false`).
 
-**Response** `409 Conflict` when the entity still has inbound backlinks (the default; a space that opted out with `strictLinkage: false` deletes regardless). The caller must first delete or relink the backlinked items before the deletion is permitted.
+**Response** `409 Conflict` while anything still references it (the default; a space that opted out with `strictLinkage: false` deletes regardless). Delete or relink those items first. **There is no cascade** — no query parameter deletes an entity together with its references, and an unrecognised one is ignored rather than refused, so probing for a spelling that works will not find one.
 
-Everything that can reference an entity is checked: **edges** on either endpoint, and the `entityIds` of **memories**, **chrono entries** and **files**. Face labels (`file.faceEntityId`) are reported too, with `type: "face"` — but they are deliberately **not blocking**, because a face label is something the system inferred rather than a link somebody wrote. So a `409` body may contain `face` rows alongside the blocking ones, and a body containing *only* `face` rows is not a refusal.
+**BOTH ENDS OF AN EDGE COUNT, and the refusal used to say "inbound".** An edge pointing FROM this entity blocks the delete exactly as one pointing at it does, because either would be left dangling. The old message named a direction the check has never had, so a caller filtered on `to`, found nothing, and could not clear the block. It no longer names one, and each edge row carries the end that matched instead — `from`, `to`, or `both` for a self-loop.
+
+Everything that can reference an entity is checked: **edges** on either endpoint, and the `entityIds` of **memories**, **chrono entries** and **files**. Only an edge has ends, so `end` is absent on the other three — they HOLD a reference in a list rather than terminating at one, and labelling them would send you looking for an edge that does not exist.
+
+Face labels (`file.faceEntityId`) are reported too, with `type: "face"` — but they are deliberately **not blocking**, because a face label is something the system inferred rather than a link somebody wrote. `backlinks` is the blocking set; `references` is everything found, face rows included, so a UI can warn *"this will unlabel N faces"* while showing why the delete was refused.
 
 Response body:
 
 ```json
 {
-  "error": "Cannot delete: entity has inbound references",
+  "error": "Cannot delete: entity still has references — edge e1b2c3d4-... (at its from end), memory m5f6a7b8-.... Delete or relink those first; there is no cascade delete for an entity.",
   "backlinks": [
-    { "type": "edge", "_id": "e1b2c3d4-..." },
+    { "type": "edge", "_id": "e1b2c3d4-...", "end": "from" },
     { "type": "memory", "_id": "m5f6a7b8-..." },
     { "type": "chrono", "_id": "c9d0e1f2-..." },
     { "type": "file", "_id": "f3a4b5c6-..." }
+  ],
+  "references": [
+    { "type": "edge", "_id": "e1b2c3d4-...", "end": "from" },
+    { "type": "memory", "_id": "m5f6a7b8-..." },
+    { "type": "chrono", "_id": "c9d0e1f2-..." },
+    { "type": "file", "_id": "f3a4b5c6-..." },
+    { "type": "face", "_id": "photo.jpg#face-chunk0" }
   ]
 }
 ```
+
+The MCP `delete_entity` tool refuses with the **same sentence**, from the same check. It used to word it differently and return no rows at all, so which client you used decided whether you could see what to clear.
 
 ---
 

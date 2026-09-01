@@ -38,7 +38,7 @@ Two ways to set it, both usable together:
 { "fact": "Temporary scratch note", "ttlDays": 7 }
 ```
 
-The expiry surfaces as `_expireAt` (an ISO timestamp) on the record. The sweep runs periodically on every
+The expiry surfaces as `_expireAt` (an ISO timestamp) on the record — **not `expiresAt`**, which is a different field on different things (a token, a recall graph download, a file-meta thumbnail) and is never present on a brain record. Reading back the wrong one returns nothing whether the expiry was set or not, which is how a working `ttlDays` gets measured as broken: it was, across 120 records, and reported as a bug on 2026-08-30. The sweep runs periodically on every
 instance; expiry is eventual (granularity is days), not to-the-second. A `ttlDays`-only update (no other
 fields) is a valid write — use it to set, extend, or clear an existing record's expiry.
 

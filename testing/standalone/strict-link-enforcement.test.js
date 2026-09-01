@@ -16,6 +16,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 
 // ── UUID v4 regex — replicated from server code ─────────────────────────────
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -164,19 +165,19 @@ describe('Backlink detection for delete protection', () => {
 // ── 409 Conflict response shape ─────────────────────────────────────────────
 
 describe('409 Conflict response payload', () => {
-  it('payload lists blocking items with type and _id', () => {
-    const backlinks = [
-      { type: 'edge', _id: 'edge-1' },
-      { type: 'memory', _id: 'mem-1' },
-    ];
-    const response = {
-      error: 'Cannot delete: entity has inbound references',
-      backlinks,
-    };
-    assert.equal(response.error, 'Cannot delete: entity has inbound references');
-    assert.equal(response.backlinks.length, 2);
-    assert.equal(response.backlinks[0].type, 'edge');
-    assert.equal(response.backlinks[1].type, 'memory');
+  it('is asserted against the real guard, not a hand-built object', () => {
+    /*
+     * This case used to build the 409 body itself and then assert on its own literal, including the exact
+     * message. It is the shape `_AUDIT-ANGLES.md` calls "a mock that would pass even if the real code is
+     * broken": nothing it touched came from the server, so it could not fail when the message was wrong.
+     * And the message WAS wrong for months, claiming "inbound references" about a check that reads BOTH ends
+     * of every edge, while this test was green the whole time.
+     *
+     * `a-delete-refusal-names-the-end-it-checked-db.test.js` asserts the real body against a real database.
+     * What is left here is a pointer, checked so it cannot rot into naming a file that does not exist.
+     */
+    assert.ok(existsSync('testing/standalone/a-delete-refusal-names-the-end-it-checked-db.test.js'),
+      'the suite that replaced this case is gone — restore a real assertion here rather than leaving none');
   });
 
   it('payload is empty array when no backlinks (should not produce 409)', () => {

@@ -178,6 +178,8 @@ export async function upsertEdge(
    */
   opts?: {
     waitForEmbedding?: boolean;
+    /** Retire this edge from meaning-ranked search at creation — see `DupeCheckOpts.suppressEmbeddings`. */
+    suppressEmbeddings?: boolean;
     onValidation?: (check: UpdateValidation) => void;
     fromKind?: RefKind;
     toKind?: RefKind;
@@ -240,7 +242,13 @@ export async function upsertEdge(
   // Suppression wins over `waitForEmbedding` — see `embeddingSuppressedFor`. An edge keys its schema on
   // `label`, not `type`, which `schemaKeyFor` already encodes; passing `type` here would look up a schema
   // that is never there and silently never suppress.
-  if (opts?.waitForEmbedding === true && !embeddingSuppressedFor(spaceId, 'edge', { label })) {
+  //
+  // Hoisted rather than asked inline, because the enqueue below has to consult the same answer: skipping the
+  // inline embed and queueing anyway stores the vector the flag forbids moments later. The RECORD tier is
+  // stated here, which it was not until 2026-09-02 — see `DupeCheckOpts`.
+  const suppressed = embeddingSuppressedFor(spaceId, 'edge',
+    { label, suppressEmbeddings: opts?.suppressEmbeddings });
+  if (opts?.waitForEmbedding === true && !suppressed) {
     const [fromName, toName] = await resolveEdgeEndpointNames(spaceId, from, to, opts?.fromKind, opts?.toKind);
     const embedText = edgeEmbedText(fromName, label, toName, effectiveTags, effectiveType, effectiveDesc, effectiveProps);
     const embResult = await embed(embedText);
@@ -285,7 +293,7 @@ export async function upsertEdge(
     };
     if ('_expireAt' in $set) updatedEdge._expireAt = $set['_expireAt'] as Date;
     else if ('_expireAt' in $unset) delete (updatedEdge as { _expireAt?: unknown })._expireAt;
-    if (!embeddingFields.embedding) await enqueueEmbedJob(spaceId, 'edge', updatedEdge._id);
+    if (!embeddingFields.embedding && !suppressed) await enqueueEmbedJob(spaceId, 'edge', updatedEdge._id);
     if (actor) emitWebhookEvent({ event: 'edge.created', spaceId, entry: { ...updatedEdge, embedding: undefined }, ...actor });
     return withoutVector(updatedEdge);
   }
@@ -324,6 +332,8 @@ export async function upsertEdge(
     seq,
     ...embeddingFields,
   };
+  // Stored, not merely consulted — see the note in `remember`.
+  if (opts?.suppressEmbeddings !== undefined) doc.suppressEmbeddings = opts.suppressEmbeddings;
   // `doc.label`, NOT `doc.type` — an edge has both, and the schema is keyed by label (see validateEdgeWrite).
   // Passing `type` here would look right and read a schema that is never there.
   stampExpiryOnCreate(spaceId, doc, ttlDays, { collection: 'edge', type: doc.label });
@@ -331,7 +341,7 @@ export async function upsertEdge(
   // threshold, so presence is the signal. The write proceeds either way -- a backdated import is legitimate.
   stampSkewOnCreate(doc, getSpaceMeta(spaceId));
   await collection.insertOne(asDoc<EdgeDoc>(doc));
-  if (!embeddingFields.embedding) await enqueueEmbedJob(spaceId, 'edge', doc._id);
+  if (!embeddingFields.embedding && !suppressed) await enqueueEmbedJob(spaceId, 'edge', doc._id);
   if (actor) emitWebhookEvent({ event: 'edge.created', spaceId, entry: { ...doc, embedding: undefined }, ...actor });
   return withoutVector(doc);
 }

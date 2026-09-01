@@ -125,12 +125,18 @@ edgesRouter.post('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, de
   let check: UpdateValidation | undefined;
   let edge;
   try {
+    const supCreate = parseRecordSuppression(req.body);
+    if (!supCreate.ok) { res.status(400).json({ error: supCreate.error }); return; }
+    const createSuppress = supCreate.value;
     edge = await upsertEdge(
       wt.target, from.trim(), to.trim(), label.trim(), weight, type?.trim(),
       typeof description === 'string' ? description : undefined, safeProps, safeTags,
       webhookToken(req), ttlDaysFromBody(req.body),
       {
         ...(waitForEmbedding === true ? { waitForEmbedding: true } : {}),
+        // The record tier, which no create path stated until 2026-09-02 — see `dupeCheckOptsFromBody`, which
+        // is where the other three routes get it. This one builds its options inline.
+        ...(createSuppress !== undefined ? { suppressEmbeddings: createSuppress } : {}),
         ...(fromKind !== undefined ? { fromKind: fromKind as RefKind } : {}),
         ...(toKind !== undefined ? { toKind: toKind as RefKind } : {}),
         onValidation: c => { check = c; },

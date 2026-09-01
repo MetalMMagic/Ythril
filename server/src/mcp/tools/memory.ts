@@ -62,6 +62,8 @@ export const rememberTool: ToolHandler = {
             waitForEmbedding: { type: 'boolean', default: false, description: 'Block until this memory is embedded, so it is searchable the moment this returns (default false). Normally the vector is computed moments later by the embedding queue and the write does not pay the model latency. Set true when you will immediately search for what you just wrote, or when a failure to embed should fail the write rather than be repaired in the background. Note: checkDuplicates (default true) already requires the vector up front, so it implies this.' },
             checkContradictions: { type: 'boolean', default: false, description: 'Also flag existing memories that CONTRADICT this one — a near-neighbour that sets the same single-valued property to a different value (e.g. status="active" vs status="retired"). Different question from checkDuplicates: "is this redundant?" vs "does this conflict with what we already believe?". Deterministic only (no model call, no added latency). The memory is still stored regardless — if you are correcting an outdated fact, that is expected; consider updating or superseding the record named in the warning.' },
             dupeThreshold: unitScoreSchema('Cosine-similarity threshold for the duplicate check (0-1, default ~0.92). Lower to flag looser matches.'),
+            suppressEmbeddings: SUPPRESS_EMBEDDINGS_SCHEMA,
+            excludeFromVectorSearch: LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA,
             ttlDays: TTL_DAYS_SCHEMA,
           },
           required: ['space', 'fact'],
@@ -120,10 +122,15 @@ export const rememberTool: ToolHandler = {
     const remContraCheck = a['checkContradictions'] === true;
     const remDupeThreshold = typeof a['dupeThreshold'] === 'number' ? a['dupeThreshold'] : undefined;
     const remTtlDays = ttlDaysFromArgs(a);
+    // The record tier, which no create door stated until 2026-09-02. `parseRecordSuppression` owns the
+    // grammar — both spellings — so this is one line rather than a second reading of the deprecated name.
+    const supCreate = parseRecordSuppression(a);
+    if (!supCreate.ok) throw new Error(supCreate.error);
     const mem = await remember(ts, fact, entityIds, tags, description, props, memType,
       {
         checkDuplicates: remDupeCheck, checkContradictions: remContraCheck, dupeThreshold: remDupeThreshold,
         ...(a['waitForEmbedding'] === true ? { waitForEmbedding: true } : {}),
+        ...(supCreate.value !== undefined ? { suppressEmbeddings: supCreate.value } : {}),
         onValidation: c => { remCheck = c; },
       }, ctx.actor, remTtlDays,
       typeof a['id'] === 'string' ? a['id'] : undefined);

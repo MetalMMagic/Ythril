@@ -20,7 +20,8 @@ import { mergeTagsAndProperties, mergePropertiesOrKeep, mergeTagsOrKeep } from '
 import { enqueueEmbedJob, retireEmbedJob } from './embed-queue.js';
 import { embeddingSuppressedFor } from './suppress-embeddings.js';
 import { linksToAny, linkClassFor } from './link-adjacency.js';
-import { checkDuplicates, type SimilarMatch, type DupeCheckOpts } from './recall.js';
+import { checkDuplicates, type SimilarMatch } from './recall.js';
+import type { DupeCheckOpts } from './write-options.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import { log } from '../util/log.js';
 import type { EntityDoc, EdgeDoc, MemoryDoc, ChronoEntry, TombstoneDoc, FileMetaDoc } from '../config/types.js';
@@ -174,7 +175,9 @@ export async function upsertEntity(
   // duplicate?" would otherwise get a silent "no".
   // Suppression wins over all three — see `embeddingSuppressedFor`. Computing a vector here and skipping the
   // enqueue stored exactly what the flag forbids, with nothing to come back and remove it.
-  const suppressed = embeddingSuppressedFor(spaceId, 'entity', { type });
+  // The RECORD tier is stated here, which it was not until 2026-09-02 — see `DupeCheckOpts`.
+  const suppressed = embeddingSuppressedFor(spaceId, 'entity',
+    { type, suppressEmbeddings: opts?.suppressEmbeddings });
   const needsVectorNow = !suppressed
     && (opts?.waitForEmbedding === true
       || opts?.checkDuplicates === true || opts?.checkContradictions === true);
@@ -203,7 +206,7 @@ export async function upsertEntity(
     if ('_expireAt' in $set) entity._expireAt = $set['_expireAt'] as Date;
     else if ('_expireAt' in $unset) delete (entity as { _expireAt?: unknown })._expireAt;
     // After the write, never before: a job for a record that failed to store would be a job for nothing.
-    if (!embeddingFields.embedding) await enqueueEmbedJob(spaceId, 'entity', entity._id);
+    if (!embeddingFields.embedding && !suppressed) await enqueueEmbedJob(spaceId, 'entity', entity._id);
     if (actor) emitWebhookEvent({ event: 'entity.updated', spaceId, entry: { ...entity, embedding: undefined }, ...actor });
     return { entity: withoutVector(entity) };
   }
@@ -248,6 +251,9 @@ export async function upsertEntity(
     seq,
     ...embeddingFields,
   };
+  // Stored, not merely consulted — see the note in `remember`: everything that revisits a record later reads
+  // the tiers off the document.
+  if (opts?.suppressEmbeddings !== undefined) doc.suppressEmbeddings = opts.suppressEmbeddings;
   if (description !== undefined) doc.description = description;
   // `typed` is what makes the SCHEMA tier reachable. Omit it and the resolver silently falls through to the
   // space default, so a window set on `typeSchemas.entity.<type>.retention` does nothing at all.
@@ -256,7 +262,9 @@ export async function upsertEntity(
   // threshold, so presence is the signal. The write proceeds either way -- a backdated import is legitimate.
   stampSkewOnCreate(doc, getSpaceMeta(spaceId));
   await collection.insertOne(asDoc<EntityDoc>(doc));
-  if (!embeddingFields.embedding) await enqueueEmbedJob(spaceId, 'entity', doc._id);
+  // Not queued when suppressed, for the reason `remember` states: a queued job stores the vector the flag
+  // forbids moments later, and nothing revisits it.
+  if (!embeddingFields.embedding && !suppressed) await enqueueEmbedJob(spaceId, 'entity', doc._id);
   // Real-time duplicate-rule evaluation (opt-in per space). Fire-and-forget; the
   // dynamic import avoids a static cycle with dupe-scanner.js.
   //

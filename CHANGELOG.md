@@ -172,6 +172,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`suppressEmbeddings` was documented, worked on update, and was silently dropped on create — on all four
+  record types.** A record that was never meant to be searchable had to be written twice: once embedded, once
+  to remove the vector, with a window between the two where it WAS searchable. Reported from outside on
+  2026-08-30 by an integrator writing a dedupe marker on every inbound message.
+
+  **The report named memories; it was every create.** Each one handed `embeddingSuppressedFor` a type-only
+  object — `{ type }`, `{ label }`, `{ type: fields.type }` — so the schema and space tiers were consulted and
+  the record tier was not *overridden* but simply **not stated**: the caller's flag had nowhere to be read
+  from. Fixing the one that was reported and leaving three is this repo's signature defect arriving as an
+  omission, so the gate is derived from the calls rather than from four remembered names.
+
+  Three things now happen, and a fix doing two of them would be worse than none: no vector, **no embed job
+  queued**, and the flag stored on the record. The queue matters most — skipping the inline embed while still
+  queueing a job stores exactly what the flag forbids a few seconds later, with nothing to come back and
+  remove it. Storing it matters because everything that revisits a record resolves the tiers from the
+  DOCUMENT: a reindex or a queue retry would otherwise embed it anyway, and the caller would never learn that
+  their flag lasted one write.
+
+  Both spellings on all eight doors, since `parseRecordSuppression` owns that grammar and the update paths
+  already use it — a create taking only the new name would be a third grammar for one switch. The four MCP
+  create tools DECLARE the parameter, which is not optional: `additionalProperties: false` is enforced before
+  the handler runs, so an accepted-but-undeclared argument is a hard refusal there while REST answers 200.
+
+  **`DupeCheckOpts` moved to `brain/write-options.ts`.** It is a write type — five writers and the write
+  routes' shared helper import it, and `recall.ts` only declared it — and adding one optional field pushed
+  that file past its frozen size. That was the god-file gate working: every addition to what a CREATE accepts
+  had been landing in the recall module because that is where the type already was. The freeze goes DOWN.
+
 - **A merge could move an edge onto an end its label forbids, and said nothing.** Since the endpoint rules
   became write-time refusals, every path that CREATES an edge enforces them — they all go through `upsertEdge`.
   A merge creates nothing: it rewrites the `from` or `to` of every edge touching the absorbed entity, on the

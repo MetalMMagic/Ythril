@@ -49,6 +49,8 @@ export const upsert_entityTool: ToolHandler = {
             checkContradictions: { type: 'boolean', default: false, description: 'Also flag existing entities that CONTRADICT this one — a near-neighbour setting the same single-valued property to a different value. Deterministic only (no model call). The entity is still stored regardless.' },
             checkDuplicates: { type: 'boolean', default: true, description: 'On a NEW entity insert (no id / unknown id), run a semantic near-duplicate check first (default true). Flags highly similar existing entities (id + summary + score) so you can merge or update instead of creating a duplicate. Does not fire on updates. Set false to skip.' },
             dupeThreshold: unitScoreSchema('Cosine-similarity threshold for the duplicate check (0-1, default ~0.92). Lower to flag looser matches.'),
+            suppressEmbeddings: SUPPRESS_EMBEDDINGS_SCHEMA,
+            excludeFromVectorSearch: LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA,
             ttlDays: TTL_DAYS_SCHEMA,
           },
           required: ['space', 'name', 'type'],
@@ -88,8 +90,15 @@ export const upsert_entityTool: ToolHandler = {
     const entTtlDays = ttlDaysFromArgs(a);
     let upserted;
     try {
+      // The record tier, which no create door stated until 2026-09-02. `parseRecordSuppression` owns the
+      // grammar — both spellings — so this is one line rather than a second reading of the deprecated name.
+      const supCreate = parseRecordSuppression(a);
+      if (!supCreate.ok) throw new Error(supCreate.error);
       upserted = await upsertEntity(wt.target, eName, eType, tags, props, description, rawId,
-        { checkDuplicates: entDupeCheck, checkContradictions: entContraCheck, dupeThreshold: entDupeThreshold },
+        {
+          checkDuplicates: entDupeCheck, checkContradictions: entContraCheck, dupeThreshold: entDupeThreshold,
+          ...(supCreate.value !== undefined ? { suppressEmbeddings: supCreate.value } : {}),
+        },
         ctx.actor, entTtlDays, c => { entCheck = c; });
     } catch (err) {
       if (err instanceof SchemaViolationError) {

@@ -205,6 +205,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   `functional` is included, and a merge is the only operation that can break it without writing an edge: two
   people each reporting to somebody is legitimate, and merging them leaves one person with two managers.
+- **The property-schema grammar was written twice, in two files, and a comment admitted it.**
+  `api/schema-library.ts` declared its own `PropertySchemaZ` under the note *"matches spaces.ts
+  PropertySchemaZ"*. A property schema decides what values a caller may STORE, so two copies means a value the
+  inline door accepts and the library door refuses, or the reverse — invisible from either side, and the defect
+  class this codebase produces most.
+
+  **The two were character-identical when this was found, and that is the point.** Nothing was broken yet, and
+  nothing would have said when it broke. Both objects now come from one export, and the library composes it with
+  the one difference it is MEANT to have: `retention` is refused there, because nothing resolves a `$ref` when a
+  window is read, so a window on a library entry would never fire.
+
+  **Gated in both directions**, because both objects existing looked entirely reasonable. From the source, that
+  one module declares the grammar and the library imports it. From behaviour, that seventeen values — eight
+  valid and nine wrong in each of the ways the grammar refuses — parse to the same verdict through both doors.
+  The refusals are the half that matters: two schemas that both accept `{type: 'string'}` prove nothing about
+  each other.
+
+  `LibraryTypeSchemaZ` is exported now, which is what makes the behavioural half possible — the gate that
+  asserted the `retention` refusal had to read the file as TEXT before, and reading text is what let a second
+  copy of the grammar sit there unnoticed.
 
 - **One traverse hop read every edge touching the frontier, with no limit — on both traversals.** A hub entity
   with a hundred thousand edges pulled a hundred thousand documents into memory, per hop, per member space.

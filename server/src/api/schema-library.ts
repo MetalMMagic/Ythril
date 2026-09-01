@@ -35,6 +35,7 @@ import { getSchemaLibrary, saveSchemaLibrary, getConfig, getSchemaCatalogs, save
 import { updateSpace } from '../spaces/spaces.js';
 import { isSsrfSafeUrl, ssrfSafeFetch } from '../util/ssrf.js';
 import { z } from 'zod';
+import { PropertySchemaZ } from '../spaces/body-schemas.js';
 import rateLimit from 'express-rate-limit';
 import type { SchemaLibraryEntry, SchemaCatalog } from '../config/types.js';
 import { EndpointMemberZ } from '../spaces/body-schemas.js';
@@ -67,27 +68,18 @@ const MAX_LIBRARY_ENTRIES = 500;
 const MAX_CATALOGS = 50;
 const CATALOG_PROXY_TIMEOUT_MS = 8_000;
 
-/** Zod schema for a PropertySchema (matches spaces.ts PropertySchemaZ). */
-const PropertySchemaZ = z.object({
-  type: z.enum(['string', 'number', 'boolean', 'date']).optional(),
-  enum: z.array(z.union([z.string(), z.number(), z.boolean()])).optional(),
-  minimum: z.number().optional(),
-  maximum: z.number().optional(),
-  pattern: z.string().max(500).optional(),
-  mergeFn: z.enum(['avg', 'min', 'max', 'sum', 'and', 'or', 'xor']).optional(),
-  required: z.boolean().optional(),
-  default: z.union([z.string(), z.number(), z.boolean()]).optional(),
-}).strict().refine(data => {
-  if (!data.mergeFn) return true;
-  const numericFns = new Set(['avg', 'min', 'max', 'sum']);
-  const booleanFns = new Set(['and', 'or', 'xor']);
-  if (data.type === 'number') return numericFns.has(data.mergeFn);
-  if (data.type === 'boolean') return booleanFns.has(data.mergeFn);
-  if (data.type === 'string' || data.type === 'date') return false;
-  return numericFns.has(data.mergeFn) || booleanFns.has(data.mergeFn);
-}, {
-  message: 'mergeFn is incompatible with the declared type (numeric fns require type "number", boolean fns require type "boolean")',
-});
+/*
+ * The property-schema grammar is IMPORTED, not re-declared.
+ *
+ * This file used to carry its own copy under the comment *"matches spaces.ts PropertySchemaZ"* — a validation
+ * grammar duplicated and acknowledged in a comment rather than shared. The two were character-identical when
+ * that was noticed, which is exactly the danger: nothing was wrong yet, and nothing would have said when it
+ * went wrong. A property schema decides what values a caller may STORE, so two copies means a value the inline
+ * door accepts and this one refuses, or the reverse, invisible from either side.
+ *
+ * The library's schema still DIFFERS in one place, deliberately, and that difference is now the only one it
+ * can have: `retention` is refused below, because nothing resolves a `$ref` when a window is read.
+ */
 
 /**
  * Zod schema for the inline TypeSchema stored in library entries.
@@ -109,7 +101,7 @@ const PropertySchemaZ = z.object({
  * Anything else unrecognised still falls through to `.strict()`, because a generic rejection is the right answer for
  * a genuine typo — this is only for the one field whose absence is a design decision rather than an oversight.
  */
-const LibraryTypeSchemaZ = z.object({
+export const LibraryTypeSchemaZ = z.object({
   namingPattern: z.string().max(500).optional(),
   propertySchemas: z.record(z.string().min(1).max(200), PropertySchemaZ).optional(),
   // Kept in step with `TypeSchemaZ` in `api/spaces.ts` deliberately: a library entry that cannot express a field the
@@ -126,7 +118,8 @@ const LibraryTypeSchemaZ = z.object({
     *
     * `EndpointMemberZ` is imported rather than restated: the grammar is reserved (`entity:` accepted, other
     * knowledge-type prefixes refused with a reason), and a second spelling of a reserved grammar is a second
-    * thing to keep in step. `PropertySchemaZ` above is exactly that, and is filed.
+    * thing to keep in step. `PropertySchemaZ` was exactly that until 2026-09-02 and is now imported too, so
+    * this object's ONLY difference from the inline one is the `retention` refusal below.
     */
   endpoints: z.object({
     from: z.array(EndpointMemberZ).min(1).max(50).optional(),

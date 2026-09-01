@@ -172,6 +172,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A merge could move an edge onto an end its label forbids, and said nothing.** Since the endpoint rules
+  became write-time refusals, every path that CREATES an edge enforces them — they all go through `upsertEdge`.
+  A merge creates nothing: it rewrites the `from` or `to` of every edge touching the absorbed entity, on the
+  collection, inside a transaction. So it was the one operation left that could produce the violation the rules
+  exist to prevent.
+
+  And it is a legitimate thing to do. A merge is how an operator fixes a record that was typed wrongly, which
+  makes "the two entities are different types" the normal case rather than a mistake.
+
+  The plan now carries `endpointRuleWarnings[]` — `{ edgeId, label, end, field, reason }` per affected edge, on
+  the `409` preview AND on the success body. On the success body because that is when it matters: a plan with no
+  property conflicts never produces a preview, so reporting them only on the `409` would mean the commonest
+  merge said nothing at all.
+
+  **Reported, never blocking**, following `duplicateEdgeWarnings`, which this file already established as
+  merge's answer to "relinking will do something you should know about". `fullyResolved` deliberately does not
+  consult it: only an unresolved property conflict has an answer the caller can supply, and refusing would leave
+  duplicates unmergeable in any space that declared a rule after the data existed — the same reasoning
+  `preExisting` exists for on the write path.
+
+  **Only the end that MOVES is reported.** The decision is made by `validateEdge`, the same pure function the
+  write path refuses with, handed a `ResolvedEdgeEnds` describing that end and nothing else — an absent field
+  there means *the caller did not look*, so the unmoved end reports nothing without any special case. A
+  violation on the unmoved end is stored data, and `POST /validate-schema` is what lists those; repeating it on
+  a preview would blame the operator for something they cannot fix by merging.
+
+  The violations are filtered to the endpoint fields, because `validateEdge` also checks the label allowlist and
+  the property schemas and a merge changes neither. A mutant that removed that filter survived nine cases before
+  a case was written for it: an edge under a label the space no longer declares was legal when it was written,
+  and a relink does not make it less so.
+
+  `functional` is included, and a merge is the only operation that can break it without writing an edge: two
+  people each reporting to somebody is legitimate, and merging them leaves one person with two managers.
+
 - **One traverse hop read every edge touching the frontier, with no limit — on both traversals.** A hub entity
   with a hundred thousand edges pulled a hundred thousand documents into memory, per hop, per member space.
 

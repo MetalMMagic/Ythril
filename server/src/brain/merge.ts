@@ -21,6 +21,8 @@ import { edgeIdFor } from './edge-id.js';
 import { rekeyEdge, embedQueueWorkFor } from './edge-rekey.js';
 import { enqueueEmbedJob, retireEmbedJob } from './embed-queue.js';
 import { embeddingSuppressedFor } from './suppress-embeddings.js';
+import { validateEdge } from '../spaces/schema-validation.js';
+import type { ResolvedEdgeEnds } from '../spaces/schema-validation.js';
 import { validateEntity, getSpaceMeta, applyValidation, type SchemaViolation } from '../spaces/schema-validation.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { EntityDoc, EdgeDoc, MemoryDoc, ChronoEntry, FileMetaDoc, TombstoneDoc, SpaceMeta, PropertySchema } from '../config/types.js';
@@ -56,6 +58,44 @@ export interface DuplicateEdgeWarning {
   label: string;
 }
 
+/**
+ * An edge whose label's endpoint or cardinality rule the relink will break.
+ *
+ * ## Why this is a warning and not a refusal
+ *
+ * `DuplicateEdgeWarning` above set the precedent: merge reports what relinking will do and lets the operator
+ * proceed. Refusing would leave somebody unable to merge two duplicate entities because a rule was declared
+ * after the fact — and the merge is the repair for exactly that. It is the same reasoning `preExisting` exists
+ * for on the write path: a schema declared later must never make the records it describes unmaintainable.
+ *
+ * ## Why a merge can do what no write can
+ *
+ * Since S-3 every path that CREATES an edge refuses a broken endpoint rule, because they all go through
+ * `upsertEdge`. A merge creates nothing: it rewrites the `from` or `to` of every edge touching the absorbed
+ * entity, on the collection, inside a transaction. So this was the one way left to move an edge onto an end
+ * its label forbids — and a merge is how an operator fixes a record typed wrongly, which makes "the two
+ * entities have different types" the normal case rather than a mistake.
+ */
+export interface EndpointRuleWarning {
+  /** The edge that will be relinked. */
+  edgeId: string;
+  label: string;
+  /**
+   * Which end of this edge the merge moves — and the ONLY end reported.
+   *
+   * The other end is not changed by the merge. If it already breaks the rule that is stored data, and
+   * `POST /validate-schema` is what reports those; repeating it here would make a preview look like it had
+   * caused a violation it merely found, and the operator cannot fix it by merging anyway.
+   *
+   * `both` is a self-loop on the absorbed entity, where the relink moves the whole edge.
+   */
+  end: 'from' | 'to' | 'both';
+  /** `fromType`, `toType` or `functional` — the same field names the write path refuses with. */
+  field: string;
+  /** What the label admits, in the same words a refused write would give. */
+  reason: string;
+}
+
 /** The full merge plan returned on 409 when unresolved conflicts exist. */
 export interface MergePlan {
   survivorId: string;
@@ -63,6 +103,11 @@ export interface MergePlan {
   propertyConflicts: PropertyConflict[];
   absorbedOnlyProperties: AbsorbedOnlyProperty[];
   duplicateEdgeWarnings: DuplicateEdgeWarning[];
+  /**
+   * Edges the relink will move onto an end their label forbids. Reported, never blocking — see
+   * `EndpointRuleWarning`, and `fullyResolved` deliberately does not consult this.
+   */
+  endpointRuleWarnings: EndpointRuleWarning[];
 }
 
 /** Resolution provided by the caller for a single property. */
@@ -173,17 +218,106 @@ export async function computeMergePlan(
   // ── Duplicate edge warnings ───────────────────────────────────────────
   const duplicateEdgeWarnings = await detectDuplicateEdges(spaceId, survivorId, absorbedId);
 
+  // ── Endpoint / cardinality rules the relink will break ────────────────
+  const endpointRuleWarnings = await detectEndpointRuleBreaks(spaceId, survivor, absorbedId);
+
   const plan: MergePlan = {
     survivorId,
     absorbedId,
     propertyConflicts,
     absorbedOnlyProperties,
     duplicateEdgeWarnings,
+    endpointRuleWarnings,
   };
 
+  /*
+   * `endpointRuleWarnings` is deliberately NOT consulted here. Only an unresolved PROPERTY conflict makes a
+   * plan unresolved, because only that has an answer the caller has to supply. A broken endpoint rule has no
+   * resolution to offer — the operator either wants the merge or does not — so folding it in would turn a
+   * report into a refusal and leave duplicates unmergeable in any space that declared a rule late.
+   */
   const fullyResolved = propertyConflicts.every(c => c.resolved);
 
   return { plan, fullyResolved, survivor, absorbed };
+}
+
+/**
+ * Which relinked edges will break their label's endpoint or cardinality rule.
+ *
+ * Decided by `validateEdge`, the same pure function the write path refuses with, called with a
+ * `ResolvedEdgeEnds` describing the END THAT MOVES and nothing else. That is what an absent field in that
+ * object means — *the caller did not look* — so the other end reports nothing, which is exactly the behaviour
+ * this needs and the reason not to re-implement the comparison here.
+ *
+ * The violations are filtered to the endpoint fields: `validateEdge` also checks the label allowlist and the
+ * property schemas, and a merge changes neither. Reporting those would tell an operator their merge caused
+ * something that was stored before they started.
+ */
+async function detectEndpointRuleBreaks(
+  spaceId: string,
+  survivor: EntityDoc,
+  absorbedId: string,
+): Promise<EndpointRuleWarning[]> {
+  const meta = getSpaceMeta(spaceId);
+  const edgeSchemas = meta?.typeSchemas?.edge;
+  // Nothing declared, nothing to break — and this is the common case, so it costs one config read.
+  if (!edgeSchemas || Object.keys(edgeSchemas).length === 0) return [];
+
+  const edgeColl = col<EdgeDoc>(`${spaceId}_edges`);
+  const moving = await edgeColl
+    .find(asFilter<EdgeDoc>({ spaceId, $or: [{ from: absorbedId }, { to: absorbedId }] }))
+    .toArray() as EdgeDoc[];
+  if (moving.length === 0) return [];
+
+  /*
+   * How many edges each (subject, label) pair will hold AFTER the relink — the number `functional` is about,
+   * and a merge is the only operation that can raise it without writing an edge. Two people each reporting to
+   * somebody is legitimate; merging them leaves one person with two managers, and no write created that.
+   *
+   * Counted over the survivor's own edges plus the moving ones, with the relink applied to both ends.
+   */
+  const survivorEdges = await edgeColl
+    .find(asFilter<EdgeDoc>({ spaceId, $or: [{ from: survivor._id }, { to: survivor._id }] }))
+    .toArray() as EdgeDoc[];
+  const afterFrom = (e: EdgeDoc) => (e.from === absorbedId ? survivor._id : e.from);
+  const afterTo = (e: EdgeDoc) => (e.to === absorbedId ? survivor._id : e.to);
+  const subjectCounts = new Map<string, Set<string>>();
+  for (const e of [...survivorEdges, ...moving]) {
+    const key = `${afterFrom(e).length}:${afterFrom(e)}${e.label}`;
+    // Keyed by the DISTINCT object, because identity is the triplet: two rows that relink onto the same
+    // (from, to, label) are one edge afterwards, which is what `duplicateEdgeWarnings` is separately about.
+    if (!subjectCounts.has(key)) subjectCounts.set(key, new Set());
+    subjectCounts.get(key)!.add(afterTo(e));
+  }
+
+  const out: EndpointRuleWarning[] = [];
+  for (const e of moving) {
+    const isFrom = e.from === absorbedId;
+    const isTo = e.to === absorbedId;
+    const end: 'from' | 'to' | 'both' = isFrom && isTo ? 'both' : isFrom ? 'from' : 'to';
+
+    /*
+     * Only the moving end is resolved. `validateEdge` reports on a field only when it was given one, so the
+     * unmoved end cannot produce a row — which is the whole reason the resolved-ends object distinguishes
+     * `undefined` (not looked) from `null` (looked, untyped).
+     */
+    const resolved: ResolvedEdgeEnds = {
+      ...(isFrom ? { fromType: survivor.type ?? null } : {}),
+      ...(isTo ? { toType: survivor.type ?? null } : {}),
+    };
+    // `functional` counts the OTHER edges from the subject, so the edge being examined is excluded.
+    if (isFrom) {
+      const key = `${survivor._id.length}:${survivor._id}${e.label}`;
+      const distinct = subjectCounts.get(key)?.size ?? 1;
+      resolved.otherEdgesFromSubject = Math.max(0, distinct - 1);
+    }
+
+    for (const v of validateEdge(meta ?? {}, { label: e.label, properties: e.properties ?? {} }, resolved)) {
+      if (v.field !== 'fromType' && v.field !== 'toType' && v.field !== 'functional') continue;
+      out.push({ edgeId: e._id, label: e.label, end, field: v.field, reason: v.reason });
+    }
+  }
+  return out;
 }
 
 /** Detect edges that would become duplicates (same from, to, label) after relinking. */

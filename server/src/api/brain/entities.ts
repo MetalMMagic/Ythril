@@ -454,6 +454,12 @@ entitiesRouter.post('/spaces/:spaceId/entities/:survivorId/merge/:absorbedId', g
     absorbedId: absorbed._id,
     relinked: true,
     duplicateEdgeWarnings: plan.duplicateEdgeWarnings,
+    /*
+     * Reported on the SUCCESS body as well as on the 409 preview, because that is when it matters: the merge
+     * has happened and these edges are now stored breaking their label's rule. A caller that only reads the
+     * 409 would never see them, since a plan with no property conflicts never produces one.
+     */
+    endpointRuleWarnings: plan.endpointRuleWarnings,
     deletedDuplicateEdgeIds: mergeResult.deletedDuplicateEdgeIds,
   });
 });

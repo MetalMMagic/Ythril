@@ -211,7 +211,8 @@ Merge two entities into one. The **survivor** keeps its identity (ID, name, type
   "absorbedOnlyProperties": [
     { "key": "extra", "value": "info" }
   ],
-  "duplicateEdgeWarnings": []
+  "duplicateEdgeWarnings": [],
+  "endpointRuleWarnings": []
 }
 ```
 
@@ -224,6 +225,24 @@ Merge two entities into one. The **survivor** keeps its identity (ID, name, type
 | `string` / other | `"survivor"`, `"absorbed"`, `"custom"` (with `customValue`) |
 
 **Relinking:** All edges, memories, and chrono entries referencing the absorbed entity are unconditionally rewritten to reference the survivor. Edges where `(from, to, label)` become identical after relinking appear in `duplicateEdgeWarnings[]` — the agent resolves them via `DELETE /api/brain/spaces/:spaceId/edges/:id`.
+
+**`endpointRuleWarnings[]` — edges the relink moves onto an end their label forbids.** A merge is the only
+operation that can produce one: every path that CREATES an edge refuses a broken `endpoints` or `functional`
+rule, but a merge rewrites the `from`/`to` of stored edges, and merging entities of different types is the
+normal case rather than a mistake — it is how a mistyped record gets fixed.
+
+Each row is `{ edgeId, label, end, field, reason }`. `end` is which end of that edge the merge moves (`from`,
+`to`, or `both` for a self-loop on the absorbed entity), `field` is `fromType`, `toType` or `functional` — the
+same names a refused write uses — and `reason` says what the label admits.
+
+**They are REPORTED, never blocking**, on the `409` preview and on the success body alike. Only an unresolved
+property conflict makes a plan unresolved: a broken endpoint rule has no resolution to offer, and refusing
+would leave duplicates unmergeable in any space that declared a rule after the data existed. Present on the
+success body because that is when it matters — a plan with no property conflicts never produces a preview, so
+reporting them only on the `409` would mean the commonest merge said nothing.
+
+Only the end that MOVES is reported. The other end is unchanged by the merge; if it already breaks the rule
+that is stored data, and [`POST /api/spaces/:id/validate-schema`](06-spaces-api.md) is what lists those.
 
 **`suggestedFn`:** When `propertySchemas` includes a `mergeFn` for a conflicting property, it appears as `suggestedFn` in the conflict. The agent may accept or override it.
 

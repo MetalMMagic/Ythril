@@ -514,7 +514,7 @@ export async function executeMerge(
       //
       // It was invisible from every direction: the ER model counts `linkedFrom.files` as a first-class
       // relationship, so the number was simply wrong; `danglingEdges` in that same model counts dangling
-      // EDGES and never looked at files; `strictLinkage` blocks deleting an entity that still has inbound
+      // EDGES and never looked at files; `strictLinkage` blocks deleting an entity that anything still
       // backlinks, and a merge deletes the absorbed entity directly rather than passing that guard. A
       // traversal from the file came back empty, which reads as "nothing linked" rather than as a broken link.
       /*

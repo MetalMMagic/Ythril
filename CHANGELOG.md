@@ -107,6 +107,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   created earlier"* and *"in the same batch"* sat on different lines and one of the five copies was missed.
 
 
+- **The refusal that blocks an entity delete named a direction it never checked, and each door worded it
+  differently.** `DELETE /entities/:id` answered *"Cannot delete: entity has inbound references"* while the
+  check has always matched both ends of every edge. The fleet integrator's queue rows carried only OUTBOUND
+  edges, were refused, and could not be cleared: they filtered on `to`, found nothing, and kept 409ing.
+
+  **The guard is right and has not changed.** An edge left pointing FROM a deleted entity dangles exactly as
+  much as one pointing at it. What was wrong was every sentence describing it — the message, the function's
+  name (`findEntityBacklinks`), its docblock, and the integration guide, all saying inbound. A reader who
+  checked our source to resolve the message's ambiguity was told the same wrong thing a second time.
+
+  So the message states no direction, and **each row carries the end that matched** — `from`, `to`, or `both`
+  for a self-loop. That is the field the reporter actually needed, because it names the query that clears the
+  block. Only an edge has ends: a memory, chrono entry or file HOLDS a reference in a list, so `end` is absent
+  there rather than guessed at. The function is `findEntityReferences`; the response field stays `backlinks`,
+  which is a published contract.
+
+  **And the two doors no longer word one rule twice.** REST returned structured rows; the MCP tool threw
+  different prose with no rows in it at all, so an agent could not see what to clear and which client you
+  picked decided what you were told. Both now call `entityDeleteBlockers`, which owns the whole decision: the
+  `strictLinkage` check, the blocking set, the face exemption and the sentence. Each door had its own copy of
+  all four.
+
+  A `409` also gains `references` alongside `backlinks` — everything found, face rows included — so a UI can
+  warn *"this will unlabel N faces"* while showing why the delete was refused. And the refusal now says a
+  cascade is not available: `?cascade`, `?force`, `?deleteEdges` and `?withEdges` were all silently ignored, so
+  four probes were spent discovering an absence. Whether entities should gain a cascade is a separate question
+  and is not being answered here.
+
+  **One test had been asserting the wrong message and could not have failed.** `strict-link-enforcement.test.js`
+  built the 409 body itself, including the sentence, and then asserted on its own literal — the *"a mock that
+  would pass even if the real code is broken"* shape. It was green for the whole time the message was wrong. The
+  real body is now asserted against a real database, and the parity gate asserts one shared guard rather than
+  two doors making identical calls, which is what it checked before and is satisfiable by two copies.
+
+- **A working `ttlDays` was measured as broken, because the field to read back is not the one it looks like.**
+  A record's expiry surfaces as `_expireAt`; `expiresAt` is a different field on a token, on a recall graph
+  download, and on file meta, and is never present on a brain record. Reading the wrong one returns nothing
+  whether the expiry was set or not — so 120 records with a one-day window were reported as never expiring.
+  The write-semantics page now says which name and why the neighbour is not it.
+
 - **A chrono-only retention setting was accepted on every other collection and silently ignored.** Three places
   said it was rejected — `TypeSchema.retention`'s docblock, `chrono-retention.ts`, and
   `docs/integration-guide/04f-write-semantics.md`, which is an integrator's reference — and one more assumed it:

@@ -3,7 +3,7 @@
  *
  * ## The asymmetry a caller cannot guess
  *
- * `delete_entity` consults `findEntityBacklinks` and, under strict linkage, refuses while anything still
+ * `delete_entity` consults `findEntityReferences` and, under strict linkage, refuses while anything still
  * points at the record. The other three delete unconditionally — strict linkage does not guard them at all.
  * So a chrono entry's `memoryIds` can be left holding the id of a memory that no longer exists, silently,
  * on a space configured to forbid exactly that shape.
@@ -84,15 +84,16 @@ describe('the refusal asymmetry is stated on all four', () => {
     });
   }
 
-  it('and that claim is true — only the entity delete consults backlinks', () => {
-    // Read from source, so the day a backlink guard is added to another delete this fails instead of
-    // misinforming. `findEntityBacklinks` is the only such check in the tools.
+  it('and that claim is true — only the entity delete consults references', () => {
+    // Read from source, so the day a reference guard is added to another delete this fails instead of
+    // misinforming. The check moved into `entityDeleteBlockers`, which is what the tools now call — so
+    // this looks for that, and still refuses the older spellings in case one is re-implemented.
     const entity = stripComments(readFileSync('server/src/mcp/tools/entity.ts', 'utf8'));
-    assert.match(entity, /findEntityBacklinks\(/, 'delete_entity really does check');
+    assert.match(entity, /entityDeleteBlockers\(/, 'delete_entity really does check');
     for (const f of ['server/src/mcp/tools/edge.ts', 'server/src/mcp/tools/memory.ts',
       'server/src/mcp/tools/chrono.ts']) {
-      assert.doesNotMatch(stripComments(readFileSync(f, 'utf8')), /findEntityBacklinks|Backlinks\(/,
-        `${f} gained a backlink guard — the "never refused" paragraph is now wrong`);
+      assert.doesNotMatch(stripComments(readFileSync(f, 'utf8')), /entityDeleteBlockers|findEntityReferences|Backlinks\(/,
+        `${f} gained a reference guard — the "never refused" paragraph is now wrong`);
     }
   });
 });

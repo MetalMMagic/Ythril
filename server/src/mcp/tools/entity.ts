@@ -1,7 +1,8 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
 import { UUID_V4_RE, TTL_DAYS_SCHEMA, SUPPRESS_EMBEDDINGS_SCHEMA, LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA, ttlDaysFromArgs, uuidSchema, unitScoreSchema } from './shared.js';
 import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } from '../../brain/delete-fields.js';
-import { deleteEntity, findEntitiesByName, findEntityBacklinks, getEntityById, updateEntityById, upsertEntity } from '../../brain/entities.js';
+import { deleteEntity, findEntitiesByName, getEntityById, updateEntityById, upsertEntity } from '../../brain/entities.js';
+import { entityDeleteBlockers } from '../../brain/entity-delete-guard.js';
 // The shared write gate, imported rather than reimplemented — see the note in memory.ts.
 import { SchemaViolationError, type UpdateValidation } from '../../brain/write-validation.js';
 import { type PropertyResolution, applyResolutions, computeMergePlan, executeMerge, validateResolution } from '../../brain/merge.js';
@@ -445,21 +446,18 @@ export const find_entities_by_nameTool: ToolHandler = {
 };
 
 /**
- * Delete one entity — including the REST route's referential guard, not a weaker version of it.
+ * Delete one entity — through the same guard the REST route uses, not a re-implementation of it.
  *
- * `DELETE /api/brain/spaces/:id/entities/:id` refuses with 409 when `strictLinkage` is on and something
- * still points at the entity. Shipping an MCP delete without that check would be the two-surfaces-one-rule
- * defect this very tool exists to close: an agent would be able to leave dangling references that a REST
- * client is stopped from creating.
- *
- * Face labels are reported by `findEntityBacklinks` but deliberately do NOT block, exactly as in REST —
- * `deleteEntity` unlabels them in the same operation, so they cannot dangle, and blocking on them would make
- * "delete this person" the one thing an operator cannot do for the subject whose data is biometric.
+ * `entityDeleteBlockers` owns the whole decision: the `strictLinkage` check, the blocking set, the face
+ * exemption, and the sentence. Both doors used to do all four themselves and answered differently — this one
+ * threw prose with no structured rows, while REST claimed "inbound references" about a check that reads both
+ * ends of every edge. An agent could not tell which end of which edge to clear, and a REST client was told
+ * the wrong one.
  */
 export const delete_entityTool: ToolHandler = {
   name: 'delete_entity',
   description: 'Delete an entity by id. IRREVERSIBLE, and it is a DELETE rather than a retire — if you want the record to stop appearing in semantic search while staying readable and traversable, set `suppressEmbeddings` on it instead.\n\n'
-    + 'A REFUSAL HERE IS USUALLY CORRECT. With `strictLinkage` on, an entity still referenced by edges, memories, chrono entries or files is refused, and the answer names what points at it. That is the signal that deleting it would orphan something — resolve those first, or `merge_entities` into the record that should have held them.\n\n'
+    + 'A REFUSAL HERE IS USUALLY CORRECT. With `strictLinkage` on, an entity is refused while an edge, memory, chrono entry or file still references it, and the refusal names each one — for an EDGE, including which of its ends this entity is, because that is the end you have to clear. Note that BOTH ends count: an edge pointing FROM this entity blocks the delete exactly as one pointing at it does, since either would be left dangling. Resolve them first, or `merge_entities` into the record that should have held them. There is no cascade.\n\n'
     + 'It writes a TOMBSTONE, so the deletion propagates to peer instances on the next sync. A space that syncs will not quietly resurrect the record from a peer, and the tombstone is why.',
   mutating: true,
   spaceRequired: true,
@@ -490,13 +488,10 @@ export const delete_entityTool: ToolHandler = {
     for (const mid of resolveMemberSpaces(wt.target)) {
       const existing = await getEntityById(mid, id);
       if (!existing) continue;
-      if (isStrictLinkage(mid)) {
-        const blocking = (await findEntityBacklinks(mid, id)).filter(b => b.type !== 'face');
-        if (blocking.length > 0) {
-          const where = blocking.map(b => `${b.type} ${b._id}`).join(', ');
-          throw new Error(`Cannot delete entity '${id}': still referenced by ${where}`);
-        }
-      }
+      // The SAME sentence REST answers, from the same function — see `entityDeleteBlockers`. Both doors
+      // wording one rule separately is how this one ended up claiming a direction it never checked.
+      const block = await entityDeleteBlockers(mid, id);
+      if (block) throw new Error(block.message);
       if (await deleteEntity(mid, id, ctx.actor)) {
         return { content: [{ type: 'text' as const, text: `Entity deleted (ID ${id}).` }] };
       }

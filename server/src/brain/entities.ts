@@ -28,10 +28,18 @@ import { PROPERTIES_SCAN_MAX_MS, textContains } from './tag-filter.js';
 import { mirrorLegacySuppression } from './suppress-embeddings.js';
 import { wipeSpaceCollection } from './bulk-wipe.js';
 
-/** A backlink entry describing an item that references a given entity. */
+/** An item that references a given entity, and — for an edge — which of its ends does. */
 export interface BacklinkEntry {
   type: 'edge' | 'memory' | 'chrono' | 'file' | 'face';
   _id: string;
+  /**
+   * Which end of the EDGE names the entity, and absent on every other type.
+   *
+   * Absent rather than guessed: a memory, chrono entry or file HOLDS a reference in a list, so it has no
+   * ends, and labelling one `to` would send a caller looking for an edge that does not exist. Set by
+   * `entityDeleteBlockers`, which is what the refusal is built from.
+   */
+  end?: 'from' | 'to' | 'both';
 }
 
 /**
@@ -528,7 +536,18 @@ export async function bulkDeleteEntities(spaceId: string): Promise<number> {
 }
 
 /**
- * Find all items in a space that hold inbound references to the given entity ID.
+ * Find every item in a space that references the given entity — in EITHER direction.
+ *
+ * It was called `findEntityBacklinks` and this line said *"hold inbound references"*, while the edge scan
+ * below has always matched `$or: [{from}, {to}]`. So the name and the docblock agreed with the 409's wording
+ * and all three disagreed with the query — a reader who came here to resolve the message's ambiguity was
+ * told the same wrong thing a second time, which is what happened to the fleet integrator on 2026-08-30.
+ *
+ * Both ends is the RIGHT check: an edge left pointing FROM a deleted entity dangles exactly as much as one
+ * pointing at it. The response field is still called `backlinks` because that is a published contract.
+ *
+ * This returns rows WITHOUT the `end` field. `entityDeleteBlockers` fills that in, so the coverage question
+ * this function answers — is every kind of reference found — stays separate from how a refusal is worded.
  * Checks edges (from/to), memories (entityIds), chrono entries (entityIds), and labelled face
  * records (`faceEntityId`).
  * Returns a (possibly empty) list of backlink entries.
@@ -538,7 +557,7 @@ export async function bulkDeleteEntities(spaceId: string): Promise<number> {
  * labels deleted cleanly, and the 409 that exists to say "something still points at this" stayed
  * silent about the one reference class holding biometric data.
  */
-export async function findEntityBacklinks(spaceId: string, entityId: string): Promise<BacklinkEntry[]> {
+export async function findEntityReferences(spaceId: string, entityId: string): Promise<BacklinkEntry[]> {
   const backlinks: BacklinkEntry[] = [];
 
   // Edges referencing this entity as from or to

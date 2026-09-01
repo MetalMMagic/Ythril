@@ -8,7 +8,8 @@ import { escapeRegex } from '../../util/redos.js';
 import { reportServerFailure } from '../../util/report-failure.js';
 import { requireSpaceAuth, denyReadOnly } from '../../auth/middleware.js';
 import { globalRateLimit, bulkWipeRateLimit } from '../../rate-limit/middleware.js';
-import { listEntities, deleteEntity, upsertEntity, getEntityById, updateEntityById, bulkDeleteEntities, findEntityBacklinks } from '../../brain/entities.js';
+import { listEntities, deleteEntity, upsertEntity, getEntityById, updateEntityById, bulkDeleteEntities } from '../../brain/entities.js';
+import { entityDeleteBlockers } from '../../brain/entity-delete-guard.js';
 import { computeMergePlan, applyResolutions, executeMerge, validateResolution, type PropertyResolution } from '../../brain/merge.js';
 import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } from '../../brain/delete-fields.js';
 import { getConfig } from '../../config/loader.js';
@@ -226,22 +227,22 @@ entitiesRouter.delete('/spaces/:spaceId/entities/:id', globalRateLimit, requireS
   for (const mid of memberIds) {
     const entity = await getEntityById(mid, id);
     if (!entity) continue;
-    // Check for inbound references before allowing deletion (only when strictLinkage is on).
-    //
-    // Face labels are deliberately NOT blocking, even though findEntityBacklinks now reports them.
-    // strictLinkage exists to stop a delete that would leave a DANGLING reference behind — and a face
-    // label can no longer dangle, because deleteEntity unlabels it in the same operation. Blocking on
-    // them would be actively harmful: face labels are written by the recognition pipeline, not by a
-    // person, so an admin would face a 409 they never created and could only clear by hand-unlabelling
-    // every photo — turning "delete this person" into the one thing you cannot do for the subject whose
-    // data is biometric. Reported (so the UI can warn "this will unlabel N faces"), never blocking.
-    if (isStrictLinkage(mid)) {
-      const backlinks = await findEntityBacklinks(mid, id);
-      const blocking = backlinks.filter(b => b.type !== 'face');
-      if (blocking.length > 0) {
-        res.status(409).json({ error: 'Cannot delete: entity has inbound references', backlinks: blocking });
-        return;
-      }
+    /*
+     * ONE guard for both doors, including the `strictLinkage` check and the face exemption.
+     *
+     * This route and the MCP tool each used to compute the blocking set and word the refusal themselves, and
+     * they said different things: this one claimed "inbound references" while checking both ends of every
+     * edge, and the tool threw prose with no structured rows in it at all. Now the sentence and the rows come
+     * from `entityDeleteBlockers` and this door only decides the status code.
+     *
+     * `backlinks` carries every reference, face labels included, so a UI can warn "this will unlabel N
+     * faces"; `blocking` is what refused it. Each edge row names the end that matched, which is the field the
+     * reporter who found the wrong wording actually needed — it says which query clears it.
+     */
+    const block = await entityDeleteBlockers(mid, id);
+    if (block) {
+      res.status(409).json({ error: block.message, backlinks: block.blocking, references: block.backlinks });
+      return;
     }
     if (await deleteEntity(mid, id, webhookToken(req))) {
       res.status(204).end();

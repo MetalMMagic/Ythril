@@ -79,6 +79,25 @@ When a **type** is selected and the space has a schema defined for that type, th
 
 **Deleting:** Each row has an inline **✕ → confirm** flow.
 
+**A delete can be refused, and that is usually the right answer.** If anything else in the space still points
+at the entity — a link you drew, or a memory, timeline entry or file that names it — the delete is turned away
+and the message lists what is holding it. Clearing those first is deliberate: deleting the entity would leave
+every one of them pointing at a record that no longer exists.
+
+For a **link**, the message also says which end of it this entity is, `from` or `to`, because that is what
+tells you where to look. **Both ends count.** A link that runs out of this entity blocks the delete exactly as
+one that runs into it does — either would be left half-attached — and the message used to say "inbound", which
+sent people looking at the wrong side of their own links.
+
+Two things worth knowing. **Faces do not block.** A photo where this person was recognised is listed, so you
+can see the labels that are about to come off, but it never stops the delete — the labels are removed with the
+entity. And **there is no "delete everything attached"** button: nothing removes an entity together with its
+links in one action, on purpose, because the pause is what stops a hub record taking a hundred relationships
+with it. Clear what you meant to clear, then delete.
+
+If a space has turned linkage checking off in its settings, none of this applies there and the delete just
+happens.
+
 Results are paginated — use **← Prev / Next →** to page through them. The list also reports the **total** number of matching records, not just the ones on screen, so "first page of 4,831" is visible rather than something you have to page to the end to discover.
 
 ---

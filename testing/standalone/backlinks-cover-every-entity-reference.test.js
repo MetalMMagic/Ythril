@@ -1,10 +1,11 @@
 /**
- * `findEntityBacklinks` must scan every collection that can reference an entity — derived, not listed.
+ * `findEntityReferences` must scan every collection that can reference an entity — derived, not listed.
  *
  * ## The gap this was written for
  *
- * Under `strictLinkage`, deleting an entity is supposed to 409 while inbound references exist. The check is
- * `findEntityBacklinks`, and it scanned four things: `_edges`, `memories.entityIds`, `chrono.entityIds`, and
+ * Under `strictLinkage`, deleting an entity is supposed to 409 while ANY reference to it exists — an edge at
+ * either end included, which the refusal used to describe as "inbound". The check is
+ * `findEntityReferences`, and it scanned four things: `_edges`, `memories.entityIds`, `chrono.entityIds`, and
  * `files.faceEntityId`. **`files.entityIds` was not among them** — so an entity referenced only by a file's
  * `entityIds` deleted cleanly, and the file was left pointing at a record that no longer exists.
  *
@@ -21,7 +22,7 @@
  *
  * ## Why it asserts on source
  *
- * `findEntityBacklinks` is four Mongo round trips and nothing else; exercising it needs a live database, and the
+ * `findEntityReferences` is four Mongo round trips and nothing else; exercising it needs a live database, and the
  * neighbouring `strict-link-enforcement.test.js` shows what happens when that is avoided by other means — it
  * asserts against a **local reimplementation** of the backlink logic, so it passed happily for as long as the
  * real function was missing a collection. A test of a copy of the rule cannot see the rule being wrong.
@@ -57,7 +58,7 @@ const COLLECTION_FOR = {
   FileMetaDoc: 'files',
 };
 
-const backlinkFn = () => bodyOf(stripComments(readFileSync(ENTITIES, 'utf8')), 'findEntityBacklinks');
+const backlinkFn = () => bodyOf(stripComments(readFileSync(ENTITIES, 'utf8')), 'findEntityReferences');
 
 describe('backlinks cover every entity reference', () => {
   it('the derivation finds the record types before it is trusted', () => {
@@ -76,7 +77,7 @@ describe('backlinks cover every entity reference', () => {
       assert.ok(coll, `${type} declares entityIds but this gate does not know its collection — add it`);
       assert.ok(
         body.includes(`_${coll}\``) || body.includes(`_${coll}'`),
-        `findEntityBacklinks never reads '${coll}', so an entity referenced only by a ${type} deletes cleanly `
+        `findEntityReferences never reads '${coll}', so an entity referenced only by a ${type} deletes cleanly `
         + `under strictLinkage and the referring record is left pointing at a tombstone.`,
       );
       /*
@@ -102,7 +103,7 @@ describe('backlinks cover every entity reference', () => {
        */
       assert.match(
         stmt, /linksToAny\(|entityIds/,
-        `findEntityBacklinks reads '${coll}' but that query neither names entityIds nor goes through the `
+        `findEntityReferences reads '${coll}' but that query neither names entityIds nor goes through the `
         + 'shared link class — scanning a collection for some other reference is not the same as scanning it '
         + `for this one, which is exactly how files was missed.\n\nstatement:\n${stmt}`,
       );

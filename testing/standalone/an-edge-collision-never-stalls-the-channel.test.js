@@ -77,9 +77,15 @@ describe('every edge ingest absorbs a duplicate triplet', () => {
    *
    * The single-record route and the batch loop are two implementations of one rule, and the previous round of
    * work on this fixed the pull and left both of these. A list of two names would go stale the same way.
+   *
+   * The shape it matches changed in 3.7: the write is now `ingestBrainDoc(...)`, one helper that writes the
+   * document and queues its embedding together, so no ingest site calls `replaceOne` itself. The duplicate-key
+   * throw still comes from that write and still has to be absorbed by the CALLER — a `try` inside the helper
+   * would swallow it there and lose the per-item reporting the batch loop depends on, so the guarantee this
+   * gate holds is unchanged and only the pattern it looks for moved.
    */
   function edgeWrites() {
-    return [...docs.matchAll(/col<EdgeDoc>\(`\$\{spaceId\}_edges`\)\.replaceOne\(/g)].map(m => m.index);
+    return [...docs.matchAll(/ingestBrainDoc<EdgeDoc>\(/g)].map(m => m.index);
   }
 
   /**

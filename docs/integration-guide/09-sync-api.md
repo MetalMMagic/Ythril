@@ -196,6 +196,50 @@ Reporting inside a `200` is what lets the rest of the batch land and the cursor 
 
 Treat a missing `duplicateTriplets` as zero: a peer on an older build omits it.
 
+### A vector never crosses the wire, and the receiver decides whether to make one (3.7)
+
+Owner's ruling, 2026-09-01. Three things follow from it, and a client that pushes documents needs all three.
+
+**Send no embedding.** The four ingest schemas declare no `embedding` and no `embeddingModel`, so if you send
+them they are dropped. A vector is derived from the text by one particular model; two instances running
+different models — or different versions of one — hold legitimately different vectors for identical content,
+and ranking one against the other produces plausible-looking nonsense rather than an error. Memories were the
+last type that carried theirs; now none do.
+
+**The receiver embeds what it accepts, on its own terms.** Every accepted document is queued for embedding
+against the receiving instance's own model, at the moment it is written. Nothing has to ask for this and there
+is no flag for it.
+
+**Send the suppression mark, and it will be honoured.** `suppressEmbeddings` — and its pre-3.1 spelling
+`excludeFromVectorSearch` — now replicate, on all four types. Suppression resolves `record > schema > space`:
+the schema and space tiers are the receiver's own configuration, and the record tier is the mark on the
+document. Strip it and the ruling inverts on that record: an entry its author kept out of meaning-ranked
+search would enter one on every peer. Absent means "not stated" and falls through to the tiers below, so
+omitting the field is correct and `false` is not the same as omitting it.
+
+A suppressed record is not queued at all on arrival, rather than queued and discarded when the job runs. Both
+end with no vector; only one of them leaves a queue full of work whose purpose is to be thrown away.
+
+**Three more fields began replicating in the same release**, and each was being silently deleted on push
+because zod strips what a schema does not declare:
+
+| Field | On | Why losing it mattered |
+|---|---|---|
+| `type` | memory | it selects the memory's type schema, so an arriving memory was validated against nothing and missed every type filter |
+| `contentRedacted` | chrono | it is what lets a reader tell *"this entry never had a description"* from *"it had one and its retention window lapsed"* |
+| `contentRedactedAt` | chrono | when that happened |
+
+None of these was reported by anybody. They were found by deriving one rule from two mechanisms that were
+already in the code: **a field the divergence check hashes must replicate.** If it does not, the sender's copy
+has the key, the receiver's does not, and the two Merkle roots differ for ever — so the sync view reports a
+space as divergent when nothing is wrong with it, which teaches an operator to ignore the one signal that
+means data really is missing.
+
+Two fields are knowingly still in that state and are being fixed separately: `_expireAt` and
+`_contentExpireAt`, the retention stamps. They cannot simply replicate — each instance computes its own from
+its own policy, and shipping the sender's would let one peer decide when another deletes its data — so the
+answer is to exclude them from the hash, exactly as the vector fields already are.
+
 ### Schema mismatches are reported, never refused
 
 Two instances in one network may declare **different schemas for the same space**. A record the sender

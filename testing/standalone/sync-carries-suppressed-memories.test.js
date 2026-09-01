@@ -20,6 +20,21 @@
  * unlisted keys, so their vector is simply discarded and the document survives. Memories are the only record
  * type that requires the field, which is why they are the only type that vanishes.
  *
+ * ## 3.7: no record type carries a vector at all
+ *
+ * Owner's ruling, 2026-09-01: *"dont transfer embeddings… It CAN break so it WILL break. on transfer the
+ * receiver applies its rules. if the space has supressembeddings dont embed at all. if it should embed use the
+ * receivers embedding mechanism."*
+ *
+ * So memories stopped declaring `embedding` and `embeddingModel`, which makes all four types alike: a vector
+ * never crosses the wire, and the receiver computes its own with its own model. That closes the case this file
+ * was written for by removing the field rather than by relaxing it — a memory with no vector now parses because
+ * there is nothing to parse.
+ *
+ * The assertions below are kept, not deleted, and this is why: the failure they pin is a REQUIRED field on the
+ * ingest schema, and the shape of a stored suppressed memory has not changed. If either field is ever
+ * reintroduced, these three cases are what notice before a peer starts losing records again.
+ *
  * ## Why this is a schema test rather than a two-instance one
  *
  * The loss is entirely decided by one `safeParse`, and the document that triggers it is exactly what
@@ -70,27 +85,43 @@ describe('a memory with no vector survives the push door', () => {
     assert.ok(r.success, `a not-yet-embedded memory must replicate. Issues: ${JSON.stringify(r.error?.issues ?? [])}`);
   });
 
-  it('still accepts an embedded memory unchanged', () => {
-    // The fix must be additive: the ordinary case keeps working exactly as it did.
+  it('accepts a memory that arrives WITH a vector, and drops the vector', () => {
+    /*
+     * A peer on an older build still sends one. It must not be a reason to reject the document — that is the
+     * whole defect this file exists for, arriving from the other direction — and it must not be STORED either,
+     * because it was computed by the sender's model. Zod strips what it does not declare, which gives both at
+     * once: the record lands, the vector does not, and the receiver queues its own.
+     */
     const r = IncomingMemoryDoc.safeParse(suppressedMemory({
       embedding: [0.1, 0.2, 0.3],
       embeddingModel: 'nomic-embed-text-v1.5',
     }));
-    assert.ok(r.success, `an embedded memory must still parse. Issues: ${JSON.stringify(r.error?.issues ?? [])}`);
-    assert.deepEqual(r.data.embedding, [0.1, 0.2, 0.3], 'the vector must survive the parse, not be stripped');
+    assert.ok(r.success, `a memory from an older peer must still parse. Issues: ${JSON.stringify(r.error?.issues ?? [])}`);
+    assert.equal(r.data.embedding, undefined,
+      'a vector from the sending peer was stored. It was computed by that peer with ITS model, so the receiver '
+      + 'would be ranking one record against vectors from two different models — owner ruling, 2026-09-01');
+    assert.equal(r.data.embeddingModel, undefined, 'the sending model name was stored beside no vector');
   });
 
-  it('the other three incoming schemas do not require a vector either', async () => {
-    // Stated as an assertion because it is the reason memories were the only type that vanished — if a future
-    // change adds `embedding` to one of these, it acquires the same silent loss.
+  it('NO incoming schema declares a vector — all four alike', async () => {
+    /*
+     * Widened from three to four by the ruling. It was three because memories were the exception, and the
+     * exception was the bug: a vector that crosses the wire is derived data computed by somebody else's model,
+     * and a mixed-model network cannot rank it against its own.
+     *
+     * Both fields, because they are set and unset together and either one alone is a lie about the other.
+     */
     const shared = await import('../../server/dist/api/sync/_shared.js');
-    for (const name of ['IncomingEntityDoc', 'IncomingEdgeDoc', 'IncomingChronoDoc']) {
+    for (const name of ['IncomingMemoryDoc', 'IncomingEntityDoc', 'IncomingEdgeDoc', 'IncomingChronoDoc']) {
       const shape = shared[name]?.shape ?? {};
-      assert.equal(
-        Object.prototype.hasOwnProperty.call(shape, 'embedding'), false,
-        `${name} must not declare 'embedding'. Zod strips unlisted keys, so leaving it out is what lets a `
-        + 'suppressed record of that type replicate at all.',
-      );
+      assert.ok(Object.keys(shape).length > 5, `${name} not found — re-anchor this gate`);
+      for (const field of ['embedding', 'embeddingModel']) {
+        assert.equal(
+          Object.prototype.hasOwnProperty.call(shape, field), false,
+          `${name} declares '${field}'. Zod strips unlisted keys, so leaving it out is BOTH what lets a `
+          + 'suppressed record replicate and what stops a vector from a foreign model being stored.',
+        );
+      }
     }
   });
 });

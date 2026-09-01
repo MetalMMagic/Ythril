@@ -8,8 +8,8 @@
 import { v4 as uuidv4 } from 'uuid';
 import { authorRef } from '../config/author.js';
 import { findInsertContradictions, type ContradictionWarning } from './insert-contradictions.js';
-import { col, asFilter, asDoc, asUpdate, asBulk } from '../db/mongo.js';
-import { nextSeq, reserveSeqBlock } from '../util/seq.js';
+import { col, asFilter, asDoc, asUpdate } from '../db/mongo.js';
+import { nextSeq } from '../util/seq.js';
 import { brainWriteSeqTotal } from '../metrics/registry.js';
 import { parseLimit, parseSkip } from '../util/pagination.js';
 import { toMongoSort, type SortSpec } from './list-sort.js';
@@ -31,6 +31,7 @@ import { PROPERTIES_SCAN_MAX_MS } from './tag-filter.js';
 import { writeFilterFor, writeOutcome } from './write-precondition.js';
 import { mirrorLegacySuppression } from './suppress-embeddings.js';
 import { NEVER_RETURNED_PROJECTION, withoutVector } from './read-projection.js';
+import { wipeSpaceCollection } from './bulk-wipe.js';
 
 /** Store a new memory with semantic embedding */
 export async function remember(
@@ -446,45 +447,14 @@ export async function countMemories(spaceId: string): Promise<number> {
   return col<MemoryDoc>(`${spaceId}_memories`).countDocuments();
 }
 
-/** Bulk-delete all memories in a space, writing a tombstone per deleted doc. */
+/**
+ * Bulk-delete every memory in a space, writing a tombstone per deleted doc.
+ *
+ * Deterministic newest-first ordering keeps recently written docs near the front of the generated tombstone seq
+ * range even under very large datasets. Memories are the only type that asks for it, which is why the shared
+ * helper takes it as an option rather than applying it to all four: the other three would change behaviour for
+ * no stated reason, and this is a refactor.
+ */
 export async function bulkDeleteMemories(spaceId: string): Promise<number> {
-  const coll = col<MemoryDoc>(`${spaceId}_memories`);
-  // Deterministic newest-first ordering keeps recently written docs near the
-  // front of the generated tombstone seq range even under very large datasets.
-  const ids = await coll
-    .find({}, { projection: { _id: 1, createdAt: 1, seq: 1 } })
-    .sort({ createdAt: -1, _id: -1 })
-    .toArray() as { _id: string; createdAt: string; seq?: number }[];
-  if (ids.length === 0) return 0;
-
-  const now = new Date().toISOString();
-  const instanceId = getConfig().instanceId;
-  const tombstones: TombstoneDoc[] = [];
-
-  // Reserve the whole tombstone seq range in ONE round trip. This used to call nextSeq()
-  // per document — a sequential round trip each — so a 100k-document wipe paid 100k awaited
-  // round trips before the delete even began. Gaps are harmless (sync compares seqs with `>`);
-  // reuse would not be, which is why the block is reserved up-front and never rolled back.
-  const firstSeq = await reserveSeqBlock(spaceId, ids.length);
-  let seqCursor = firstSeq;
-
-  for (const doc of ids) {
-    const seq = seqCursor++;
-    tombstones.push({
-      _id: doc._id,
-      type: 'memory',
-      spaceId,
-      deletedAt: now,
-      instanceId,
-      seq,
-      ...(doc.seq !== undefined ? { originalSeq: doc.seq } : {}),
-    });
-  }
-
-  const ops = tombstones.map(t => ({
-    replaceOne: { filter: { _id: t._id }, replacement: t, upsert: true },
-  }));
-  await col<TombstoneDoc>(`${spaceId}_tombstones`).bulkWrite(asBulk<TombstoneDoc>(ops));
-  await coll.deleteMany({});
-  return ids.length;
+  return await wipeSpaceCollection(spaceId, 'memories', 'memory', { sort: { createdAt: -1, _id: -1 } });
 }

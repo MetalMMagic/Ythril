@@ -1,8 +1,8 @@
 import { v4 as uuidv4 } from 'uuid';
 import { brainWriteSeqTotal } from '../metrics/registry.js';
 import { authorRef } from '../config/author.js';
-import { col, asFilter, asDoc, asUpdate, asBulk } from '../db/mongo.js';
-import { nextSeq, reserveSeqBlock } from '../util/seq.js';
+import { col, asFilter, asDoc, asUpdate } from '../db/mongo.js';
+import { nextSeq } from '../util/seq.js';
 import { tagContains, textContains, propertiesValueContains, PROPERTIES_SCAN_MAX_MS } from './tag-filter.js';
 import { parseLimit, parseSkip } from '../util/pagination.js';
 import { toMongoSort, type SortSpec } from './list-sort.js';
@@ -26,6 +26,7 @@ import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { ChronoEntry, ChronoType, ChronoStatus, TombstoneDoc } from '../config/types.js';
 import { writeFilterFor, writeOutcome } from './write-precondition.js';
 import { mirrorLegacySuppression } from './suppress-embeddings.js';
+import { wipeSpaceCollection } from './bulk-wipe.js';
 
 // Re-exported so existing importers (and the C5 tests) keep reaching it here; it lives in its own leaf
 // module only to keep chrono.ts ↔ recall.ts from importing each other. See chrono-status.ts.
@@ -577,40 +578,7 @@ export async function deleteChrono(
   return true;
 }
 
-/** Bulk-delete all chrono entries in a space, writing a tombstone per deleted doc. */
+/** Bulk-delete every chrono entry in a space, writing a tombstone per deleted doc. */
 export async function bulkDeleteChrono(spaceId: string): Promise<number> {
-  const coll = col<ChronoEntry>(`${spaceId}_chrono`);
-  const ids = await coll.find({}, { projection: { _id: 1, seq: 1 } }).toArray() as { _id: string; seq?: number }[];
-  if (ids.length === 0) return 0;
-
-  const now = new Date().toISOString();
-  const instanceId = getConfig().instanceId;
-  const tombstones: TombstoneDoc[] = [];
-
-  // Reserve the whole tombstone seq range in ONE round trip. This used to call nextSeq()
-  // per document — a sequential round trip each — so a 100k-document wipe paid 100k awaited
-  // round trips before the delete even began. Gaps are harmless (sync compares seqs with `>`);
-  // reuse would not be, which is why the block is reserved up-front and never rolled back.
-  const firstSeq = await reserveSeqBlock(spaceId, ids.length);
-  let seqCursor = firstSeq;
-
-  for (const doc of ids) {
-    const seq = seqCursor++;
-    tombstones.push({
-      _id: doc._id,
-      type: 'chrono',
-      spaceId,
-      deletedAt: now,
-      instanceId,
-      seq,
-      ...(doc.seq !== undefined ? { originalSeq: doc.seq } : {}),
-    });
-  }
-
-  const ops = tombstones.map(t => ({
-    replaceOne: { filter: { _id: t._id }, replacement: t, upsert: true },
-  }));
-  await col<TombstoneDoc>(`${spaceId}_tombstones`).bulkWrite(asBulk<TombstoneDoc>(ops));
-  await coll.deleteMany({});
-  return ids.length;
+  return await wipeSpaceCollection(spaceId, 'chrono', 'chrono');
 }

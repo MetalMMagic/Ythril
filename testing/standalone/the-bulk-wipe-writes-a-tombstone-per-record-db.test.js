@@ -177,6 +177,44 @@ describe('a space wipe tombstones every record it deletes', { skip }, () => {
     });
   }
 
+  it('the MEMORY wipe hands out its tombstone seqs newest-first', async () => {
+    /*
+     * The memory wipe sorts `{ createdAt: -1, _id: -1 }` and the other three do not. Its stated reason is that
+     * recently written docs then land near the front of the generated seq range even on a very large
+     * collection.
+     *
+     * Written when the four became one, because until then NOTHING asserted it: the option could have been
+     * dropped in the extraction, or quietly applied to all four, and no test would have moved. A documented
+     * property with no test is a property that survives only as long as whoever wrote the comment is reading.
+     */
+    await coll('memories').insertMany([
+      doc('oldest', { createdAt: '2026-01-01T00:00:00.000Z' }),
+      doc('newest', { createdAt: '2026-06-01T00:00:00.000Z' }),
+      doc('middle', { createdAt: '2026-03-01T00:00:00.000Z' }),
+    ]);
+    await wipeFor('memories')();
+
+    const byId = new Map((await tombstones().find({ type: 'memory' }).toArray()).map(t => [t._id, t.seq]));
+    assert.ok(byId.get('newest') < byId.get('middle'), 'the newest record takes the lowest seq');
+    assert.ok(byId.get('middle') < byId.get('oldest'), 'and the oldest takes the highest');
+  });
+
+  it('and the other three do NOT sort — they take the collection order', async () => {
+    /*
+     * The control, and the reason the shared helper takes the sort as an OPTION rather than applying it
+     * everywhere. Asserted by absence of the memory ordering rather than by asserting a specific order, because
+     * an unsorted find has no guaranteed order to assert — what matters is that the wipe did not impose one.
+     */
+    await coll('chrono').insertMany([
+      doc('a', { createdAt: '2026-01-01T00:00:00.000Z' }),
+      doc('b', { createdAt: '2026-06-01T00:00:00.000Z' }),
+    ]);
+    await wipeFor('chrono')();
+    const byId = new Map((await tombstones().find({ type: 'chrono' }).toArray()).map(t => [t._id, t.seq]));
+    assert.ok(byId.get('a') < byId.get('b'),
+      'chrono took insertion order; a newest-first sort was applied where none was asked for');
+  });
+
   it('a wipe tombstones ONLY its own type, so the four do not tread on each other', async () => {
     /*
      * The case an extraction could plausibly break by passing the wrong type through — and the symptom would be

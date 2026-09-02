@@ -33,7 +33,18 @@ import { readFileSync } from 'node:fs';
 
 const ROUTE = 'server/src/api/brain/search.ts';
 const API = 'client/src/app/core/brain-api.service.ts';
-const PANEL = 'client/src/app/pages/brain/query-tab.component.ts';
+/**
+ * The files that can hold a recall CONTROL.
+ *
+ * Two, because `U-1` split the form out of the tab: the tab builds the request and the form holds the
+ * inputs, and this gate is about the inputs. Read together rather than re-pointed at whichever file is
+ * current, so the next move does not silently take the check with it — and NOT relaxed: both assertions
+ * below still demand a real binding and a real name attribute.
+ */
+const PANELS = [
+  'client/src/app/pages/brain/query-tab.component.ts',
+  'client/src/app/pages/brain/recall-form.component.ts',
+];
 
 /** Comments are not code — a comment naming a parameter must not satisfy this gate. */
 function stripComments(src) {
@@ -102,12 +113,14 @@ describe('recall parameters reach the UI', () => {
   });
 
   it('the recall panel actually sends every one of them', () => {
-    const src = stripComments(readFileSync(PANEL, 'utf8'));
+    // The REQUEST still lives on the tab; only the controls moved. PANELS[0] rather than the pair, because
+    // a window bounded by braces has to come from one file.
+    const src = stripComments(readFileSync(PANELS[0], 'utf8'));
     // A WINDOW, converted: the subject is the OBJECT the call sends, bounded by its own brace. 2000
     // characters plus a hard-coded four-space `\n    })` was two guesses — how long the body is, and how deep
     // it is indented. A panel reformatted by a prettier run would have failed this on unchanged behaviour.
     const at = src.indexOf('recallBrain(this.spaceId(), {');
-    assert.ok(at > -1, `the recall submit call not found in ${PANEL}`);
+    assert.ok(at > -1, `the recall submit call not found in ${PANELS[0]}`);
     const sentBody = balancedFrom(src, src.indexOf('{', at), 'the recall request body');
 
     const unsent = params.filter(p => !new RegExp(`\\b${p}\\b`).test(sentBody));
@@ -163,9 +176,13 @@ describe('recall parameters reach the UI', () => {
     // stopped finding them would let the exact original bug back in while every other assertion still passed.
     assert.ok(params.includes('traverse'), 'the route no longer accepts `traverse` — if that is deliberate, remove its control');
     assert.ok(params.includes('maxTimeMS'), 'the route no longer accepts `maxTimeMS` — if that is deliberate, remove its control');
-    const panel = stripComments(readFileSync(PANEL, 'utf8'));
+    const panel = PANELS.map(f => stripComments(readFileSync(f, 'utf8'))).join('\n');
     for (const p of ['traverse', 'maxTimeMS']) {
-      assert.match(panel, new RegExp(`recallForm\\.${p}`), `the recall form has no \`${p}\` control`);
+      // Matched on the BINDING rather than on one spelling of the state object. The tab called it
+      // `recallForm.traverse` and the extracted form calls it `form().traverse`; a gate that pinned either
+      // spelling would be a hand-kept mapping table, which is what U-1's parity gate exists to avoid.
+      assert.match(panel, new RegExp(`\\[\\(ngModel\\)\\]="[^"]*\\.${p}"`),
+        `nothing is two-way bound to \`${p}\` — the parameter is reachable only by hand-writing a request`);
       assert.match(panel, new RegExp(`name="recall${p[0].toUpperCase()}${p.slice(1)}"`),
         `no input is bound for \`${p}\` — the form field exists with nothing to set it`);
     }

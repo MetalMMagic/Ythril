@@ -6,6 +6,7 @@ import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 import { QueryCollection, QueryResult, RecallKnowledgeType, RecallResult } from '../../core/api.types';
 import { BrainApi } from '../../core/brain-api.service';
 import { PhIconComponent } from '../../shared/ph-icon.component';
+import { RecallFormComponent, type RecallFormState, type RecallTypeOpt } from './recall-form.component';
 import { BrainStore } from './brain-store.service';
 
 /**
@@ -22,7 +23,7 @@ import { BrainStore } from './brain-store.service';
   selector: 'app-query-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, RecallFormComponent],
   styles: [`
     .query-panel {
       display: flex;
@@ -93,172 +94,20 @@ import { BrainStore } from './brain-store.service';
               <button class="btn btn-sm" [class.btn-primary]="queryMode() === 'advanced'" [class.btn-secondary]="queryMode() !== 'advanced'" (click)="queryMode.set('advanced')">{{ 'brain.query.mode.advancedQuery' | transloco }}</button>
             </div>
 
-            <!-- Semantic Search mode -->
+            <!-- Semantic Search mode. The FORM is its own component, app-recall-form: U-1 adds eleven
+                 more parameters to it, so it is a split rather than an insertion, and the layout that makes
+                 room for them comes first. The request built from that form stays here — 19 characterization
+                 cases pin it, and not one of their assertions changed. -->
             @if (queryMode() === 'search') {
-              <div class="query-form">
-                <div class="field" style="margin-bottom:0;">
-                  <label>{{ 'brain.query.search.label' | transloco }}</label>
-                  <input
-                    type="text"
-                    [(ngModel)]="recallForm.query"
-                    name="recallQuery"
-                    [placeholder]="'brain.query.search.placeholder' | transloco"
-                    style="width:100%; font-size:14px; padding:8px 12px;"
-                    (keydown.enter)="runRecall()"
-                    [attr.aria-label]="'brain.query.search.label' | transloco"
-                  />
-                </div>
-                <div class="query-form-row" style="margin-top:8px;">
-                  <div class="field" style="min-width:100px; margin:0;">
-                    <label>{{ 'brain.query.topK' | transloco }} <span style="color:var(--text-muted);font-size:11px;" [attr.title]="'brain.query.topK.tooltip' | transloco"><ph-icon name="info" [size]="11" style="display:inline-flex;vertical-align:middle;"/></span></label>
-                    <input type="number" [(ngModel)]="recallForm.topK" name="recallTopK" min="1" max="100" style="width:80px;" />
-                  </div>
-                  <div class="field" style="min-width:120px; margin:0;">
-                    <label>{{ 'brain.query.minScore' | transloco }} <span style="color:var(--text-muted);font-size:11px;" [attr.title]="'brain.query.minScore.tooltip' | transloco"><ph-icon name="info" [size]="11" style="display:inline-flex;vertical-align:middle;"/></span></label>
-                    <input type="number" [(ngModel)]="recallForm.minScore" name="recallMinScore" min="0" max="1" step="0.05" style="width:80px;" />
-                  </div>
-                  <div class="field" style="margin:0; align-self:flex-end;">
-                    <button class="btn btn-sm btn-secondary" type="button" (click)="showRecallAdvanced.set(!showRecallAdvanced())">
-                      {{ (showRecallAdvanced() ? 'brain.query.hideAdvanced' : 'brain.query.showAdvanced') | transloco }}
-                    </button>
-                  </div>
-                </div>
-
-                @if (showRecallAdvanced()) {
-                  <div style="margin-top:10px; padding:10px; border:1px solid var(--border); border-radius:var(--radius-sm);">
-                    <!-- The rest of the recall surface. Owner asked for every fillable MCP/REST field to be
-                         reachable from the UI; before this, maxPerType, includeFreshWrites and includeContent could
-                         only be set by hand-writing a request.
-                         NOTE: no backticks anywhere in this template, including comments. One ends the template
-                         string and the error points at @Component, never here. -->
-                    <div class="row" style="gap:14px; flex-wrap:wrap; margin-bottom:10px;">
-                      <div class="field" style="margin:0;">
-                        <label>{{ 'brain.query.maxPerType' | transloco }}
-                          <span style="color:var(--text-muted);font-size:11px;" [attr.title]="'brain.query.maxPerType.tooltip' | transloco"><ph-icon name="info" [size]="11" style="display:inline-flex;vertical-align:middle;"/></span>
-                        </label>
-                        <input type="number" [(ngModel)]="recallForm.maxPerType" name="recallMaxPerType" min="0" max="100"
-                          [placeholder]="'brain.query.maxPerType.none' | transloco" style="width:90px;" />
-                      </div>
-                      <div class="field" style="min-width:90px;">
-                        <label>{{ 'brain.query.traverse' | transloco }}
-                          <span style="color:var(--text-muted);font-size:11px;" [attr.title]="'brain.query.traverse.tooltip' | transloco"><ph-icon name="info" [size]="11" style="display:inline-flex;vertical-align:middle;"/></span>
-                        </label>
-                        <input type="number" [(ngModel)]="recallForm.traverse" name="recallTraverse" min="0" max="5"
-                          [placeholder]="'brain.query.traverse.none' | transloco" style="width:80px;" />
-                      </div>
-                      <div class="field" style="min-width:100px;">
-                        <label>{{ 'brain.query.maxTimeMs' | transloco }}
-                          <span style="color:var(--text-muted);font-size:11px;" [attr.title]="'brain.query.recallMaxTimeMs.tooltip' | transloco"><ph-icon name="info" [size]="11" style="display:inline-flex;vertical-align:middle;"/></span>
-                        </label>
-                        <input type="number" [(ngModel)]="recallForm.maxTimeMS" name="recallMaxTimeMS" min="0" max="30000"
-                          [placeholder]="'brain.query.recallMaxTimeMs.none' | transloco" style="width:100px;" />
-                      </div>
-                      <div class="field" style="min-width:120px;">
-                        <!-- ONE control for the size ceiling, not two. maxTokens is a convenience onto the same
-                             number and the server applies whichever is smaller, so offering both would let an
-                             operator set two limits and then have to work out which one won. -->
-                        <label>{{ 'brain.query.recallMaxBytes' | transloco }}
-                          <span style="color:var(--text-muted);font-size:11px;" [attr.title]="'brain.query.recallMaxBytes.tooltip' | transloco"><ph-icon name="info" [size]="11" style="display:inline-flex;vertical-align:middle;"/></span>
-                        </label>
-                        <input type="number" [(ngModel)]="recallForm.maxBytes" name="recallMaxBytes" min="0" max="5000000" step="1000"
-                          [placeholder]="'brain.query.recallMaxBytes.default' | transloco" style="width:110px;" />
-                      </div>
-                      <label style="display:flex; align-items:center; gap:6px; align-self:flex-end; cursor:pointer;">
-                        <input type="checkbox" [(ngModel)]="recallForm.includeFreshWrites" name="recallFresh" />
-                        <span>{{ 'brain.query.includeFreshWrites' | transloco }}</span>
-                        <span style="color:var(--text-muted);font-size:11px;" [attr.title]="'brain.query.includeFreshWrites.tooltip' | transloco"><ph-icon name="info" [size]="11" style="display:inline-flex;vertical-align:middle;"/></span>
-                      </label>
-                      <label style="display:flex; align-items:center; gap:6px; align-self:flex-end; cursor:pointer;">
-                        <input type="checkbox" [(ngModel)]="recallForm.includeContent" name="recallIncludeContent" />
-                        <span>{{ 'brain.query.includeContent' | transloco }}</span>
-                        <span style="color:var(--text-muted);font-size:11px;" [attr.title]="'brain.query.includeContent.tooltip' | transloco"><ph-icon name="info" [size]="11" style="display:inline-flex;vertical-align:middle;"/></span>
-                      </label>
-                      <label style="display:flex; align-items:center; gap:6px; align-self:flex-end; cursor:pointer;">
-                        <input type="checkbox" [(ngModel)]="recallForm.includeDiagnostics" name="recallIncludeDiagnostics" />
-                        <span>{{ 'brain.query.includeDiagnostics' | transloco }}</span>
-                        <span style="color:var(--text-muted);font-size:11px;" [attr.title]="'brain.query.includeDiagnostics.tooltip' | transloco"><ph-icon name="info" [size]="11" style="display:inline-flex;vertical-align:middle;"/></span>
-                      </label>
-                    </div>
-
-                    <!-- Type restriction + per-type minimums -->
-                    <label style="display:block; margin-bottom:6px;">
-                      {{ 'brain.query.types' | transloco }}
-                      <span style="color:var(--text-muted);font-size:11px;" [attr.title]="'brain.query.types.tooltip' | transloco"><ph-icon name="info" [size]="11" style="display:inline-flex;vertical-align:middle;"/></span>
-                    </label>
-                    <div style="display:flex; flex-wrap:wrap; gap:12px;">
-                      @for (opt of recallTypeOpts; track opt.type) {
-                        <span style="display:inline-flex; align-items:center; gap:5px;">
-                          <input
-                            type="checkbox"
-                            [(ngModel)]="opt.on"
-                            [name]="'recallType-' + opt.type"
-                            [attr.aria-label]="opt.type"
-                          />
-                          <span style="font-size:13px;">{{ opt.type }}</span>
-                          @if (opt.on) {
-                            <input
-                              type="number"
-                              [(ngModel)]="opt.min"
-                              [name]="'recallMin-' + opt.type"
-                              min="0"
-                              [max]="recallForm.topK"
-                              style="width:56px;"
-                              [placeholder]="'brain.query.minPerType.placeholder' | transloco"
-                              [attr.title]="'brain.query.minPerType.tooltip' | transloco"
-                            />
-                          }
-                        </span>
-                      }
-                    </div>
-
-                    <div class="field" style="margin-top:10px;">
-                      <label>{{ 'brain.query.tags' | transloco }}</label>
-                      <input
-                        type="text"
-                        [(ngModel)]="recallForm.tags"
-                        name="recallTags"
-                        [placeholder]="'brain.query.tags.placeholder' | transloco"
-                        style="width:100%;"
-                      />
-                    </div>
-
-                    <!-- Schema/type filter (F5): a friendly picker for filter:{type:{eq}}. -->
-                    <div class="field" style="margin-top:10px;">
-                      <label>{{ 'brain.query.filterByType' | transloco }}</label>
-                      <select [(ngModel)]="recallForm.type" name="recallType" style="max-width:220px;">
-                        <option value="">{{ 'brain.query.anyType' | transloco }}</option>
-                        @for (t of recallTypeSchemaOptions(); track t) {
-                          <option [value]="t">{{ t }}</option>
-                        }
-                      </select>
-                    </div>
-
-                    <div class="field" style="margin-top:8px; margin-bottom:0;">
-                      <label>{{ 'brain.query.filter' | transloco }}</label>
-                      <textarea
-                        [(ngModel)]="recallForm.filter"
-                        name="recallFilter"
-                        rows="3"
-                        [placeholder]="'brain.query.filter.placeholder' | transloco"
-                        style="width:100%; font-family:var(--font-mono, monospace); font-size:12px;"
-                      ></textarea>
-                    </div>
-                  </div>
-                }
-
-                <div style="display:flex; align-items:center; gap:10px; margin-top:8px;">
-                  <button class="btn btn-sm btn-primary" [disabled]="recallRunning() || !recallForm.query.trim()" (click)="runRecall()">
-                    @if (recallRunning()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
-                    {{ 'brain.query.searchButton' | transloco }}
-                  </button>
-                  @if (recallResults().length) {
-                    <button class="btn btn-sm btn-secondary" (click)="clearRecall()">{{ 'brain.query.clearResults' | transloco }}</button>
-                  }
-                  @if (recallError()) {
-                    <span style="font-size:12px; color:var(--error);">{{ recallError() }}</span>
-                  }
-                </div>
-              </div>
+              <app-recall-form
+                [form]="recallForm"
+                [typeOpts]="recallTypeOpts"
+                [typeNames]="recallTypeSchemaOptions()"
+                [running]="recallRunning()"
+                [error]="recallError()"
+                [hasResults]="recallResults().length > 0"
+                (run)="runRecall()"
+                (clear)="clearRecall()" />
 
               <!-- THE ANSWER WAS SHORTENED, and until now the page did not say so.
                    Placed above the results rather than below them: a reader who scrolls to the end has already
@@ -441,7 +290,7 @@ export class QueryTabComponent {
    *  for the entities and edges tabs. */
   viewInGraph = output<string>();
 
-  recallForm = {
+  recallForm: RecallFormState = {
     query: '', topK: 10, minScore: 0, filter: '', tags: '', type: '',
     maxPerType: 0, includeFreshWrites: false, includeContent: true, includeDiagnostics: false,
     // Both 0 = "don't send it". `traverse: 0` is also the server default (no expansion), and `maxTimeMS: 0`
@@ -479,10 +328,16 @@ export class QueryTabComponent {
     ].filter((t): t is string => !!t))].sort();
   }
   /** Type restriction + per-type minimums. Unchecked types are simply not sent. */
-  recallTypeOpts: { type: RecallKnowledgeType; on: boolean; min: number | null }[] =
+  recallTypeOpts: RecallTypeOpt[] =
     (['memory', 'entity', 'edge', 'chrono', 'file'] as RecallKnowledgeType[])
       .map(type => ({ type, on: false, min: null }));
-  showRecallAdvanced = signal(false);
+  /*
+   * `showRecallAdvanced` was here and is GONE with the button it drove.
+   *
+   * Six parameters lived behind it, which is the arrangement the owner's instruction rules out: a field
+   * an operator cannot see is a capability they do not know they have. Groups replace it, and the row
+   * this came from says so in as many words — the answer is not a second disclosure.
+   */
   recallRunning = signal(false);
   recallResults = signal<RecallResult[]>([]);
   recallError = signal('');

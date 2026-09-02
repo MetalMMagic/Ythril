@@ -195,8 +195,10 @@ Two options sit next to the query box:
 - **topK** — how many results to return (1–100).
 - **minScore** — drop results below this similarity score (0–1). This is always the **meaning** score, even when word-matching or reranking has changed the order — so a threshold you set once keeps meaning the same thing.
 
-Click **Show advanced** for more control. Everything the API accepts is here, so a search you can describe is a
-search you can run without writing a request by hand:
+**Nothing is hidden behind a disclosure.** The form is laid out in four groups — **the question**, **ranking**,
+**the graph** and **the answer** — side by side across the width of the page, because a control you cannot see
+is a capability you do not know you have. Everything the API accepts is on screen, so a search you can
+describe is a search you can run without writing a request by hand:
 
 - **Types** — restrict the search to specific record types (memory, entity, edge, chrono). For each ticked type you can also set a per-type **minimum** number of results to guarantee.
 - **Max per type** — the ceiling to that floor. This is how you stop one long file passage from crowding out several one-line records that would answer the question more cheaply; a slot freed by the cap goes to another type.
@@ -234,7 +236,7 @@ search you can run without writing a request by hand:
   how many of how many came back, states both guarantees, and says what to do about it. Until 3.2.0 it did not:
   a shortened answer looked exactly like a complete one, so a hundred-match search could show a handful of
   records with nothing anywhere explaining why.
-  - **Max response size**, under **Show advanced**, is the ceiling itself — the API calls it `maxChars`, and it
+  - **Max response size**, under **the answer**, is the ceiling itself — the API calls it `maxChars`, and it
     is counted in CHARACTERS. Raise it
     to get more of a shortened answer in one go; leave it empty for the default. **The default here is the
     larger one.** An agent talking to this instance over MCP gets a smaller default than this page does, because an

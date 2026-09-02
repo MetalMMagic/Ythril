@@ -211,6 +211,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The semantic-search form shows every control it has, laid out across the width.** Six of its parameters
+  were behind a **Show advanced** button, which is the wrong arrangement for the same reason a hidden setting
+  always is: a control an operator cannot see is a capability they do not know they have.
+
+  The disclosure is gone and the fields are grouped by what they DO — **the question**, **ranking**, **the
+  graph**, **the answer** — three of those side by side, each field filling its column so they line up
+  instead of each sizing to its own placeholder. The whole form is visible at once, and it reflows by
+  available width rather than at a fixed breakpoint, because the panel is sometimes beside a detail pane.
+
+  **And the time limit had a raw identifier for a label**: the field read `maxTimeMS` while every other label
+  on the page is prose. It says **Time limit (ms)** now.
+
+  Nothing about what a search DOES changed — the request is built exactly as before, and the 19 cases that
+  pin it were not touched. This is the room the remaining recall parameters will go into.
+
 - **The Query panel's recall request is pinned by tests before U-1 rebuilds the panel around it.** Eighteen
   rules live in one method and none of them had an assertion: three flags are sent only when ON, one only
   when OFF, three numbers treat zero as "say nothing" for three different reasons, and the type dropdown

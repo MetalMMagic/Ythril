@@ -282,6 +282,18 @@ edgesRouter.delete('/spaces/:spaceId/edges/:id', globalRateLimit, requireSpaceAu
 
 
 // PATCH /api/brain/spaces/:spaceId/edges/:id — partial update an edge by ID
+/**
+ * The body keys the edges UPDATE reads.
+ *
+ * Its own list, not the create's: `deleteFields` is an update field and `id` is a path parameter
+ * here. Copying the create's would produce an "unknown field" warning about a parameter that works,
+ * which is what the drift check in
+ * `an-update-answers-the-same-questions-a-create-does-db.test.js` exists to refuse.
+ *
+ * The shared write options — ttlDays, waitForEmbedding, the duplicate flags and the two suppression
+ * spellings — are NOT listed: they are read by helpers, and live in `SHARED_WRITE_BODY_KEYS`.
+ */
+const EDGES_UPDATE_BODY_KEYS = ['label', 'description', 'tags', 'properties', 'weight', 'type', 'deleteFields', 'fromKind', 'toKind'];
 edgesRouter.patch('/spaces/:spaceId/edges/:id', globalRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
   const id = req.params['id'] as string;
@@ -359,8 +371,10 @@ edgesRouter.patch('/spaces/:spaceId/edges/:id', globalRateLimit, requireSpaceAut
      */
     // Snapshot for the audit change list, from the read above — see the note in memories.ts.
     let updated;
+    let updateCheck: UpdateValidation | undefined;
     try {
-      updated = await updateEdgeById(mid, id, updates, dfPaths, webhookToken(req), ttlDaysFromBody(req.body), ifMatch.seq);
+      updated = await updateEdgeById(mid, id, updates, dfPaths, webhookToken(req), ttlDaysFromBody(req.body), ifMatch.seq,
+        c => { updateCheck = c; });
     } catch (err) {
       if (err instanceof SchemaViolationError) {
         res.status(422).json({
@@ -384,7 +398,10 @@ edgesRouter.patch('/spaces/:spaceId/edges/:id', globalRateLimit, requireSpaceAut
     }
     if (updated) {
       req.auditSnapshots = { before: existing ?? {}, after: updated };
-      res.json(updated);
+      // The `warnings` array an update response did not have — see the memories route, where the
+      // reasoning is written out. A warn-mode space reported on a create and said nothing on an edit.
+      const updateWarnings = [...(updateCheck?.warnings ?? []), ...unknownFieldWarnings(req.body, EDGES_UPDATE_BODY_KEYS)];
+      res.json(updateWarnings.length > 0 ? { ...updated, warnings: updateWarnings } : updated);
       return;
     }
     // See the note in entities.ts: with a precondition in play, a write that matched nothing is a 412

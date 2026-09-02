@@ -185,6 +185,18 @@ chronoRouter.post('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, 
 
 
 // PATCH /api/brain/spaces/:spaceId/chrono/:id — partial update a chrono entry by ID
+/**
+ * The body keys the chrono UPDATE reads.
+ *
+ * Its own list, not the create's: `deleteFields` is an update field and `id` is a path parameter
+ * here. Copying the create's would produce an "unknown field" warning about a parameter that works,
+ * which is what the drift check in
+ * `an-update-answers-the-same-questions-a-create-does-db.test.js` exists to refuse.
+ *
+ * The shared write options — ttlDays, waitForEmbedding, the duplicate flags and the two suppression
+ * spellings — are NOT listed: they are read by helpers, and live in `SHARED_WRITE_BODY_KEYS`.
+ */
+const CHRONO_UPDATE_BODY_KEYS = ['title', 'type', 'startsAt', 'endsAt', 'status', 'confidence', 'tags', 'entityIds', 'memoryIds', 'description', 'properties', 'recurrence', 'deleteFields'];
 chronoRouter.patch('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
   const id = req.params['id'] as string;
@@ -297,12 +309,13 @@ chronoRouter.patch('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceA
    * The 422 is preserved: this route has always answered 422 where the create answers 400.
    */
   let updated;
+  let updateCheck: UpdateValidation | undefined;
   try {
     updated = await findFirstAcrossMembers(wt.target, mid => updateChrono(mid, id, {
       title, type, startsAt, endsAt, status, confidence,
       tags, entityIds, memoryIds, description, properties: safeProps, recurrence: safeRecurrence,
       suppressEmbeddings,
-    }, dfPaths, webhookToken(req), ttlDaysFromBody(req.body), ifMatch.seq));
+    }, dfPaths, webhookToken(req), ttlDaysFromBody(req.body), ifMatch.seq, c => { updateCheck = c; }));
   } catch (err) {
     if (err instanceof SchemaViolationError) {
       res.status(422).json({
@@ -315,7 +328,10 @@ chronoRouter.patch('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceA
   }
   if (updated) {
     req.auditSnapshots = { before: prior ?? {}, after: updated };
-    res.json(updated);
+    // The `warnings` array an update response did not have — see the memories route, where the
+    // reasoning is written out. A warn-mode space reported on a create and said nothing on an edit.
+    const updateWarnings = [...(updateCheck?.warnings ?? []), ...unknownFieldWarnings(req.body, CHRONO_UPDATE_BODY_KEYS)];
+    res.json(updateWarnings.length > 0 ? { ...updated, warnings: updateWarnings } : updated);
     return;
   }
   // `prior` proves the entry was there when this handler read it, so a write that matched nothing was

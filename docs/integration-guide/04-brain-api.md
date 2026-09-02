@@ -156,8 +156,14 @@ any handler runs. An MCP schema is published to its caller and a REST body shape
 afford to refuse and the open one has to explain. **Test through one and deploy through the other and you will
 get two different answers to the same mistake** — which is worth knowing before it surprises you.
 
-The UPDATE routes do not do this yet: they carry no `warnings` array at all, so adding one there is a response
-shape change rather than a new row in an existing field.
+**The UPDATE routes answer both questions too, and getting there fixed a second thing.** They had no
+`warnings` array at all — so a `warn`-mode space was told about a schema violation when a record was CREATED
+and told nothing when the same record was edited. The writers had been computing the classification and
+handing it back the whole time; the routes never took it. An update response now carries `warnings` when
+there is something to say, with the schema violations and the unknown-field rows in the same array.
+
+Their accepted-field lists differ from the creates', which is worth knowing before you copy one:
+`deleteFields` is an update field, and `id` is a path parameter rather than a body key.
 
 **Constraints**: `id` optional — a **UUID v4** naming an **existing** record to update. It is not a way to choose an id: identity is server-generated, so an id that matches nothing is ignored rather than adopted, and the record is created with a fresh one. Anything that is not a UUID v4 is a `400`. To carry your own reference, put it in `name` or `description`. See [Retry Safety](#retry-safety). **Constraints**: `fact` max 50 000 chars. `type` optional string — stored on the document and validated against the space's `typeSchemas.memory` allowlist when set. `tags` must be an array of strings. `description` optional string. `properties` optional object; property values should be a string, number, or boolean (unlike the entity endpoint, the memory/edge/chrono write paths don't reject non-primitive values at the API layer — schema validation is the gate when the space defines the property). Every id in `entityIds` must be a UUID v4 **and** name an entity that exists — passing a name, a malformed id, or an id that resolves to nothing returns `400` and stores nothing. This is the default; a space can opt out with `meta.strictLinkage: false` (see [Reference integrity](12-admin-api.md#reference-integrity)). `ttlDays` optional — see [Record Expiry (TTL)](04f-write-semantics.md#record-expiry-ttl). `waitForEmbedding` optional boolean — see below.
 

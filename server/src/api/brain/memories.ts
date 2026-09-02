@@ -22,7 +22,7 @@ import { resolveMemberSpaces, resolveWriteTarget, isProxySpace, isStrictLinkage,
 import { validateMemory } from '../../spaces/schema-validation.js';
 import type { MemoryDoc } from '../../config/types.js';
 import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, buildMemoryFilter, ttlDaysFromBody, ttlDaysError, dupeCheckOptsFromBody, ifMatchFromRequest, preconditionFailedBody } from './_shared.js';
-import { SchemaViolationError } from '../../brain/write-validation.js';
+import { SchemaViolationError, type UpdateValidation } from '../../brain/write-validation.js';
 import { resolveEntityIdsByName } from '../../brain/entities.js';
 import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
 import { parseRecordSuppression } from '../../brain/suppress-embeddings.js';
@@ -241,6 +241,18 @@ memoriesRouter.delete('/spaces/:spaceId/memories/:id', globalRateLimit, requireS
 
 
 // PATCH /api/brain/spaces/:spaceId/memories/:id — partial update a memory (long-form)
+/**
+ * The body keys the memories UPDATE reads.
+ *
+ * Its own list, not the create's: `deleteFields` is an update field and `id` is a path parameter
+ * here. Copying the create's would produce an "unknown field" warning about a parameter that works,
+ * which is what the drift check in
+ * `an-update-answers-the-same-questions-a-create-does-db.test.js` exists to refuse.
+ *
+ * The shared write options — ttlDays, waitForEmbedding, the duplicate flags and the two suppression
+ * spellings — are NOT listed: they are read by helpers, and live in `SHARED_WRITE_BODY_KEYS`.
+ */
+const MEMORIES_UPDATE_BODY_KEYS = ['fact', 'tags', 'entityIds', 'description', 'properties', 'deleteFields', 'type'];
 memoriesRouter.patch('/spaces/:spaceId/memories/:id', globalRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
   const id = req.params['id'] as string;
@@ -326,8 +338,10 @@ memoriesRouter.patch('/spaces/:spaceId/memories/:id', globalRateLimit, requireSp
      * The 422 is preserved: this route has always answered 422 where the create answers 400.
      */
     let updated;
+    let check: UpdateValidation | undefined;
     try {
-      updated = await updateMemory(mid, id, updates, dfPaths, webhookToken(req), ttlDaysFromBody(req.body), ifMatch.seq);
+      updated = await updateMemory(mid, id, updates, dfPaths, webhookToken(req), ttlDaysFromBody(req.body), ifMatch.seq,
+        c => { check = c; });
     } catch (err) {
       if (err instanceof SchemaViolationError) {
         res.status(422).json({
@@ -340,7 +354,18 @@ memoriesRouter.patch('/spaces/:spaceId/memories/:id', globalRateLimit, requireSp
     }
     if (updated) {
       req.auditSnapshots = { before: existing[0] ?? {}, after: updated };
-      res.json(updated);
+      /*
+       * The `warnings` array an update response did not have.
+       *
+       * A `warn`-mode space reported its violations on a CREATE and said nothing on an update — the writer
+       * computed the classification and handed it back through `onValidation`, and this route never took
+       * it. So the same edit was described differently depending on whether the record already existed.
+       *
+       * The unknown-field rows ride in the same array, in the same shape, for the reason the creates give:
+       * two warning channels on one response would be worse than the silence they replace.
+       */
+      const warnings = [...(check?.warnings ?? []), ...unknownFieldWarnings(req.body, MEMORIES_UPDATE_BODY_KEYS)];
+      res.json(warnings.length > 0 ? { ...updated, warnings } : updated);
       return;
     }
     // See the note in entities.ts: with a precondition in play, a write that matched nothing is a 412

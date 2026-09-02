@@ -17,7 +17,7 @@ import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { INSTANCES, post, get, del, reqJson, triggerSync, waitFor } from '../sync/helpers.js';
+import { INSTANCES, post, get, del, patch, reqJson, triggerSync, waitFor } from '../sync/helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -106,6 +106,75 @@ describe('Network CRUD', () => {
       for (const m of net.members ?? []) {
         assert.ok(!m.tokenHash, `tokenHash must not be exposed for member ${m.instanceId}`);
       }
+    }
+  });
+
+  it('a sync schedule the scheduler cannot run is rejected, and the message names cron', async () => {
+    /*
+     * Through the door, because the standalone gate can only prove the refusal is CALLED. A call whose
+     * result was ignored — the `if` deleted, the status left at 201 — satisfies a source-read and ships the
+     * exact behaviour this change exists to remove: a schedule that saves and never runs.
+     */
+    const r = await post(INSTANCES.a, tokenA, '/api/networks', {
+      label: 'Unrunnable Schedule Network',
+      type: 'closed',
+      spaces: ['general'],
+      votingDeadlineHours: 1,
+      syncSchedule: 'whenever',
+    });
+    assert.equal(r.status, 400, `Expected 400, got ${r.status}: ${JSON.stringify(r.body)}`);
+    assert.match(r.body?.error ?? '', /cron/i, `the refusal must name the format: ${JSON.stringify(r.body)}`);
+  });
+
+  it('a legacy shorthand is rejected WITH the cron expression it used to mean', async () => {
+    // The half that makes this a message rather than a silence: `every 5m` was documented for two majors.
+    const r = await post(INSTANCES.a, tokenA, '/api/networks', {
+      label: 'Shorthand Schedule Network',
+      type: 'closed',
+      spaces: ['general'],
+      votingDeadlineHours: 1,
+      syncSchedule: 'every 5m',
+    });
+    assert.equal(r.status, 400, `Expected 400, got ${r.status}: ${JSON.stringify(r.body)}`);
+    assert.ok((r.body?.error ?? '').includes('*/5 * * * *'),
+      `the refusal must hand back the replacement expression: ${JSON.stringify(r.body)}`);
+  });
+
+  it('and a cron expression is accepted, so the refusal is about the value and not the field', async () => {
+    // The control. Without it, a schema that refused every schedule would pass both cases above.
+    const r = await post(INSTANCES.a, tokenA, '/api/networks', {
+      label: 'Scheduled Network',
+      type: 'closed',
+      spaces: ['general'],
+      votingDeadlineHours: 1,
+      syncSchedule: '*/5 * * * *',
+    });
+    assert.equal(r.status, 201, `Expected 201, got ${r.status}: ${JSON.stringify(r.body)}`);
+    assert.equal(r.body?.network?.syncSchedule ?? r.body?.syncSchedule, '*/5 * * * *');
+    const id = r.body?.network?.id ?? r.body?.id;
+    if (id) await del(INSTANCES.a, tokenA, `/api/networks/${id}`).catch(() => {});
+  });
+
+  it('the PATCH door refuses it too, so neither is the weaker one', async () => {
+    const created = await post(INSTANCES.a, tokenA, '/api/networks', {
+      label: 'Patch Schedule Network', type: 'closed', spaces: ['general'], votingDeadlineHours: 1,
+    });
+    const id = created.body?.network?.id ?? created.body?.id;
+    assert.ok(id, `could not create the network to patch: ${JSON.stringify(created.body)}`);
+    try {
+      const bad = await patch(INSTANCES.a, tokenA, `/api/networks/${id}`, { syncSchedule: 'every 2h' });
+      assert.equal(bad.status, 400, `Expected 400 from PATCH, got ${bad.status}: ${JSON.stringify(bad.body)}`);
+      assert.ok((bad.body?.error ?? '').includes('0 */2 * * *'),
+        `the PATCH refusal must name the replacement too: ${JSON.stringify(bad.body)}`);
+
+      const good = await patch(INSTANCES.a, tokenA, `/api/networks/${id}`, { syncSchedule: '0 * * * *' });
+      assert.equal(good.status, 200, `Expected 200 from PATCH, got ${good.status}: ${JSON.stringify(good.body)}`);
+
+      // Clearing it is manual sync, which is a real setting and must not be refused.
+      const cleared = await patch(INSTANCES.a, tokenA, `/api/networks/${id}`, { syncSchedule: '' });
+      assert.equal(cleared.status, 200, `clearing the schedule must be allowed: ${JSON.stringify(cleared.body)}`);
+    } finally {
+      await del(INSTANCES.a, tokenA, `/api/networks/${id}`).catch(() => {});
     }
   });
 

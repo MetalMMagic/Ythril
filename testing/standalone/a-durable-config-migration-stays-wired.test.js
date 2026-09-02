@@ -83,6 +83,9 @@ const DURABLE = [
   // than at the call site. The call itself must still be here.
   { call: 'migrateMediaAliasesOnBoot', persists: false,
     why: 'deleting it drops the vision/STT endpoints to the built-in default with nothing in the log' },
+  { call: 'migrateSyncScheduleShorthands', persists: true,
+    why: 'deleting it leaves a stored shorthand unresolvable, so the network silently drops to manual sync — '
+       + 'and the shorthands are refused at input now, so the operator cannot put the value back either' },
 ];
 
 describe('the gate reads the boot path', () => {

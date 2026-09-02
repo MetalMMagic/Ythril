@@ -327,6 +327,29 @@ export function loadConfig(): Config {
       log.warn(`Could not persist space description migration (will retry next boot): ${err}`);
     }
   }
+  // A stored `syncSchedule` shorthand becomes the cron expression it always translated to. The shorthands
+  // are refused at input since 4.0, and a config written under the old rule must keep syncing at the rate
+  // it was given rather than be refused for a value that was valid when it was saved.
+  {
+    const { changed, unrunnable } = migrateSyncScheduleShorthands(_config);
+    if (changed) {
+      try {
+        saveConfig(_config);
+        log.info('Migrated legacy syncSchedule shorthand(s) to cron (same schedule, the spelling that still runs)');
+      } catch (err) {
+        log.warn(`Could not persist syncSchedule migration (will retry next boot): ${err}`);
+      }
+    }
+    // Not a migration failure: these never resolved to anything, so the network has been on manual sync
+    // since the day the value was set — and nothing has said so except a startup line about a value the
+    // operator no longer remembers typing. Naming them is the first time such an instance is told.
+    for (const { networkId, schedule } of unrunnable) {
+      log.warn(`Network ${networkId} has syncSchedule '${schedule}', which has never been runnable — it is `
+        + 'outside the range cron accepts, so this network syncs only when triggered by hand. Set a cron expression '
+        + 'under Settings → Networks to schedule it.');
+    }
+  }
+
   // Same shape, for the face-recognition switch: the image ladder is the gate now, so an instance that had
   // faces off must have its image ceiling lowered rather than silently gaining a biometric store.
   if (migrateFaceRecognitionSwitch(_config)) {
@@ -877,6 +900,7 @@ export function getDataRoot(): string {
 import type { MediaEmbeddingConfig, MediaProviderConfig, FaceRecognitionConfig, DocumentProcessingConfig, EmbeddingConfig, RerankConfig } from './types.js';
 import { migrateProviderApiKeysOnBoot } from './migrate-provider-keys.js';
 import { migrateMediaAliasesOnBoot } from './migrate-media-aliases.js';
+import { migrateSyncScheduleShorthands } from '../sync/schedule.js';
 
 const MEDIA_EMBEDDING_DEFAULTS: Required<Omit<MediaEmbeddingConfig, 'vision' | 'stt' | 'nli' | 'rerank' | 'ollamaUrl' | 'visionModel' | 'whisperUrl' | 'whisperModel' | 'lockedByInfra' | 'pinnedUnknown' | 'infraManaged' | 'faceRecognition' | 'documentProcessing'>> = {
   // Media embedding is always on (no master switch). Each class is gated by its `levels` entry, which

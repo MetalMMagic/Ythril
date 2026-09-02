@@ -122,6 +122,13 @@ describe('every rewrite an upgrade performs is documented as one-way', () => {
       // would silently resolve to the built-in default endpoint, which is the worst shape a rollback
       // note can describe, so the table says which four names an older build stops finding.
       migrateMediaAliasesOnBoot: 'ollamaUrl',
+      // The only rewrite on this list with NO rollback cost, and it is listed for exactly that reason: an
+      // operator reading the table has to be able to tell the safe row from the five that are not. A
+      // shorthand becomes the cron expression it always translated to, and every 3.x build tried
+      // `validate()` first — so an older build runs the rewritten value identically. The row says so
+      // rather than leaving a rewrite unmentioned, which is what a reader would otherwise have to assume
+      // the worst about.
+      migrateSyncScheduleShorthands: 'syncSchedule',
     };
     const section = rollbackSection();
     const undocumented = [];

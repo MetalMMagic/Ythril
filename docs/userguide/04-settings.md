@@ -393,7 +393,11 @@ The invite expires after 1 hour.
 
 ### Sync schedule
 
-Enter a cron expression on the network card (e.g. `*/5 * * * *` for every 5 minutes). Click **Sync now** to trigger an immediate sync without waiting.
+Enter a cron expression on the network card (e.g. `*/5 * * * *` for every 5 minutes). Click **Sync now** to trigger an immediate sync without waiting. Leave the field empty for manual-sync only — that is a real setting, not an omission.
+
+**A value the scheduler cannot run is refused, and the message tells you what to send instead.** It used to be accepted: the field saved, the card looked right, and the network never synced again — the only sign was a line in the server log. If you have been using one of the old short forms (`every 5m`, `*/2 hours`), the refusal names the cron expression it always meant, so the fix is a copy and paste. Anything already saved was converted on upgrade, so an existing network keeps its schedule.
+
+One case is worth checking after upgrading: a short form outside cron's range, such as `every 90m`, never worked at all, so a network holding one has been syncing only when you pressed **Sync now**. Those are listed by name in the server log at startup, and are left as they are rather than rounded to something you did not choose.
 
 ### Sync history
 

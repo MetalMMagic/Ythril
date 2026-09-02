@@ -145,6 +145,75 @@ export class FileTreeStore {
   }
 
   /**
+   * Open a node from a listing somebody else already fetched.
+   *
+   * ## Why the tree stopped fetching
+   *
+   * Clicking a folder in the sidebar fired TWO identical requests: `navigate(path)` for the main listing and
+   * `toggle(node)` for the children, same URL, same moment, every time. The listing's own result already
+   * contains the directories the tree wants, so the second one bought nothing.
+   *
+   * It could not simply be deleted, and the order is the whole story: the tree had no failure state, and the
+   * SECOND request was the only thing that put an error on screen. Removing it first would have made a failed
+   * expand genuinely silent. The tree got its own error first (`G-10`), and this is the follow-up (`G-13`).
+   *
+   * ## Which is why `failFrom` exists beside it
+   *
+   * The tree no longer has a request that can fail, so its error has to come from the listing's failure. A
+   * `fillFrom` without a `failFrom` would put the silence back.
+   *
+   * ## And why the PATH is checked here rather than at the call site
+   *
+   * A listing that lands is not necessarily the one the node is waiting for — go somewhere else before it
+   * arrives and the other directory's contents would fill the folder you clicked, silently and permanently.
+   * The check belongs to whoever owns the waiting node, which is this store: at the call site it would be one
+   * rule copied into the success branch and the error branch of a listing that has six callers.
+   */
+  fillFrom(path: string, entries: FileEntry[]): void {
+    const node = this.takePending(path);
+    if (!node) return;
+    node.children = this.nodesFrom(entries, node.path);
+    node.loading = false;
+    node.error = null;
+    node.expanded = true;
+    this.bump();
+  }
+
+  /** The other half of `fillFrom`: the listing failed, so the node stays closed and says why. */
+  failFrom(path: string, reason: string): void {
+    const node = this.takePending(path);
+    if (!node) return;
+    node.loading = false;
+    node.error = reason;
+    this.bump();
+  }
+
+  /** The node waiting for a listing of `path`, claimed — a listing resolves the wait exactly once. */
+  private takePending(path: string): TreeNode | null {
+    const node = this.pending;
+    if (!node || node.path !== path) return null;
+    this.pending = null;
+    return node;
+  }
+
+  /** The node waiting for a listing somebody else started, if any. */
+  private pending: TreeNode | null = null;
+
+  /**
+   * Mark a node as waiting for a listing that is already in flight.
+   *
+   * Separate from `fillFrom` because the spinner has to appear NOW, on the click, while the request the page
+   * started is still running — a node that showed nothing until the listing landed would look like a click
+   * that did nothing.
+   */
+  awaitFrom(node: TreeNode): void {
+    this.pending = node;
+    node.loading = true;
+    node.error = null;
+    this.bump();
+  }
+
+  /**
    * Show or hide the sidebar, and load the tree the first time it is shown.
    *
    * The load condition is a REQUEST decision rather than a UI one: reopening a sidebar whose tree is already

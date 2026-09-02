@@ -324,6 +324,91 @@ describe('FileManagerComponent — the preview object URL (characterization for 
   });
 });
 
+describe('FileManagerComponent — the extract tab (characterization for G-3)', () => {
+  /*
+   * Four rules, and only one of them had a test. Written before the group moves to a store, because three
+   * of the four are the kind a rewrite gets subtly wrong while every assertion it kept still passes.
+   */
+  function withExtract(pages: any[]) {
+    let call = 0;
+    const api = {
+      ...makeApi(),
+      getFileExtract: (_s: string, _p: string, _limit: number, skip: number) => {
+        call += 1;
+        return of(pages[Math.min(call - 1, pages.length - 1)]);
+      },
+      calls: () => call,
+    } as any;
+    TestBed.configureTestingModule({
+      imports: [FileManagerComponent, getTranslocoModule()],
+      providers: [
+        { provide: FilesApi, useValue: api },
+        { provide: SpacesApi, useValue: makeApi() },
+        { provide: BrainApi, useValue: makeApi() },
+        { provide: AuthService, useValue: { token: () => 't' } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => null } }, queryParamMap: of() } },
+      ],
+    });
+    const fixture = TestBed.createComponent(FileManagerComponent);
+    fixture.detectChanges();
+    return { c: fixture.componentInstance as any, api };
+  }
+
+  const page = (ids: string[], skip = 0) => ({ chunks: ids.map(id => ({ id, text: id })), skip, total: 99 });
+
+  it('paging APPENDS, and keeps the FIRST response\'s skip', () => {
+    /*
+     * "Show more" on a diagnostic must not throw away what the reader has already scrolled through. And the
+     * `skip` that survives is the first one, not the newest — it records where this view STARTED, which is
+     * what the footer reads to say how far in you are. A rewrite that spread the newest response over the
+     * old state gets the chunks right and the skip wrong, and nothing on screen contradicts it.
+     */
+    const { c } = withExtract([page(['a', 'b'], 0), page(['c'], 2)]);
+    c.loadExtract(file('doc.pdf'));
+    expect(c.extract().chunks.map((k: any) => k.id)).toEqual(['a', 'b']);
+
+    c.moreChunks(file('doc.pdf'));
+    expect(c.extract().chunks.map((k: any) => k.id)).toEqual(['a', 'b', 'c']);
+    expect(c.extract().skip).toBe(0);
+  });
+
+  it('the next page is asked for from what is ON SCREEN, not from the last response', () => {
+    // `moreChunks` counts the rendered chunks. Reading the response's own `skip` would ask for the same page
+    // again for ever, because the first response's skip is 0 and it is the one that is preserved above.
+    const seen: number[] = [];
+    const { c } = withExtract([page(['a', 'b'], 0), page(['c', 'd'], 0)]);
+    (c as any).filesApi.getFileExtract = (_s: string, _p: string, _l: number, skip: number) => {
+      seen.push(skip);
+      return of(page(['x'], skip));
+    };
+    c.extract.set(page(['a', 'b', 'c'], 0));
+    c.moreChunks(file('doc.pdf'));
+    expect(seen).toEqual([3]);
+  });
+
+  it('opening the tab fetches ONCE, not on every switch back', () => {
+    // Lazily, and only when there is nothing to show: the extract is a diagnostic and the request is not
+    // cheap. A rewrite that fetched on every `showExtractMode` would look identical on screen.
+    const { c, api } = withExtract([page(['a'])]);
+    c.previewFile.set(file('doc.pdf'));
+    c.showExtractMode();
+    c.showExtractMode();
+    c.showExtractMode();
+    expect(api.calls()).toBe(1);
+  });
+
+  it('a failed load clears the spinner and SAYS so, rather than showing an empty extract', () => {
+    // The difference a reader has to be able to see: "this file has no chunks" and "we could not ask" are
+    // not the same answer, and an empty state for both is the version that gets shipped by accident.
+    const { c } = withExtract([]);
+    (c as any).filesApi.getFileExtract = () => throwError(() => ({ status: 500 }));
+    c.loadExtract(file('doc.pdf'));
+    expect(c.extractLoading()).toBe(false);
+    expect(c.extractError()).toBeTruthy();
+    expect(c.extract()).toBeNull();
+  });
+});
+
 describe('FileManagerComponent — the metadata edit model (characterization for G-3)', () => {
   it('seeds every field from the record, and entityIds as a COMMA-JOINED STRING', () => {
     /*

@@ -622,6 +622,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The tracker gate said "every open item is indexed" while an in-progress item sat unindexed.** The fix one
+  change earlier gave `todo-open-items.mjs` a single definition of what an item id looks like and rewrote
+  three patterns to use it. **Five more copies were in `todo-consistency.mjs` — the module that imports
+  it** — and the shape of that miss is the thing worth keeping: a sweep for the copies inside the file being
+  fixed reports clean while the same rule stands unfixed next door.
+
+  Two of the five changed behaviour, and the worse one was silent. **Rule 2 re-implemented `openItems`**
+  rather than calling it, with a parser weaker in two ways. It matched `[ ]` and not `[~]`, so marking a
+  row in progress while its PR was in flight removed it from the check — the honest bookkeeping act made the
+  gate cover less. And its id pattern had no notion of a sub-id, so `G-3.1` read as `G-3` and was then
+  satisfied by the PARENT's row in the queue.
+
+  That is a false green on the rule the release cadence hangs on: *"cut the tag when the ordered queue is
+  empty"* means an item the queue never mentions makes "empty" a statement about one file rather than about
+  the work. Measured rather than argued — with an unindexed `- [~] **G-9-7 …**` planted in a tracker, the
+  gate as it shipped answered ✓ and the same gate now answers ✗.
+
+  The other one failed loudly, which is the only reason any of this was found: the working-order plan row
+  read `G-3.2` as `G-3` and refused a job the queue did hold. Rule 2 now shares the one item parser, and
+  two named helpers replace the remaining copies — including an id that is now ESCAPED before it becomes a
+  pattern, which sub-ids made load-bearing: interpolated raw, `G-3.1` is a pattern whose dot matches any
+  character, so a queue holding `G-3x1` would have satisfied it.
+
 - **A queued upload went to whichever folder was open when its turn came, not the one it was dropped on.**
   The queue uploads one file at a time, so the gap between dropping a batch and starting a given file is as
   long as everything ahead of it. The destination was read at the moment each upload STARTED — so queueing

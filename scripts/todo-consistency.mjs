@@ -31,7 +31,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { matchIndexReference } from './todo-index-match.mjs';
-import { openItems, orderedHomeRows } from './todo-open-items.mjs';
+import { openItems, orderedHomeRows, itemIdIn, isNamedIn } from './todo-open-items.mjs';
 import { verifyLineOf, parseVerifyLine, evaluateClause } from './verify-line.mjs';
 import { resolvedHeadings, decidedButStillFiled, rulingsLeftOnThePage } from './parked-decisions-rules.mjs';
 
@@ -197,38 +197,30 @@ console.log(`\n${YELLOW}todo/ consistency${R}  ${DIM}(owner rules 2026-08-02 and
     const src = readFileSync(join(TODO, f), 'utf8');
 
     /*
-     * IDs like S-L5-1 are the strongest handle; fall back to the first few words of an open checkbox.
+     * ONE answer to "what is open in this tracker", shared with every other rule.
      *
-     * HEADING-STYLE ITEMS COUNT TOO, and until 2026-08-30 they did not. The docstring above has always said
-     * *"an item is a `### N. Title` heading or a `- [ ]` checkbox"* — and only the checkbox half was ever
-     * implemented. Two trackers written in heading style therefore contributed ZERO items, so the gate reported
-     * `todo/ is consistent` while roughly twenty open rows were absent from the ordered index. A rule that is
-     * documented and not enforced is worse than one that is neither, because it is believed.
+     * This block used to ask with its own two patterns, in the file that imports `openItems`, and it was
+     * weaker in two ways nobody could see from here. It matched `[ ]` only, so marking a row `[~]` while its
+     * PR was in flight removed it from "every open item is indexed" — the honest bookkeeping act made the
+     * check cover less. And its id pattern had no notion of a sub-id, so `G-3.1` read as `G-3` and was then
+     * satisfied by the PARENT's presence in the queue: a false green on the rule that decides whether the
+     * queue is complete, which is what the release cadence hangs on.
+     *
+     * HEADING-STYLE ITEMS COUNT TOO. Until 2026-08-30 they did not, and two trackers written in heading style
+     * contributed ZERO items while the gate reported `todo/ is consistent`. A rule that is documented and not
+     * enforced is worse than one that is neither, because it is believed.
      */
-    const ids = [
-      ...[...src.matchAll(/^\s*[-*]\s*\[ \]\s*\**([A-Z]+-[A-Z0-9-]+)\**\.?/gim)].map(m => m[1]),
-      ...[...src.matchAll(/^#{2,4}\s+\**([A-Z]+-[A-Z0-9-]+)\**\s*[—:-]/gim)].map(m => m[1]),
-    ];
-    for (const id of new Set(ids)) {
-      /*
-       * WHOLE-TOKEN, not substring. `ordered.includes(id)` reported `L-1` as indexed because the string appears
-       * inside `L-13` — so removing L-1's row entirely left the gate green, which is how a check passes by
-       * matching something adjacent to its subject. With ten or more ids in a series every single-digit one was
-       * covered by its own longer siblings.
-       */
-      const token = new RegExp(`(^|[^A-Z0-9-])${id}([^A-Z0-9-]|$)`, 'm');
-      if (!token.test(ordered)) orphans.push(`${f} → ${id}`);
+    const items = openItems(src);
+    for (const id of new Set(items.map(i => i.id).filter(Boolean))) {
+      if (!isNamedIn(id, ordered)) orphans.push(`${f} → ${id}`);
     }
 
-    // Checkboxes with no ID: match on a contiguous phrase from the item's own wording.
+    // Items with no ID: match on a contiguous phrase from the item's own wording.
     //
     // This used to be `words.some(w => ordered.includes(w))` over the first four long words, which any ONE
     // ordinary word satisfied — so this check reported a rule it did not enforce, and said "✓" while doing it.
     // See `todo-index-match.mjs` for what replaced it and for the two fixtures that prove it discriminates.
-    const plain = [...src.matchAll(/^\s*[-*]\s*\[ \]\s*(.{16,120})$/gim)]
-      .map(m => m[1].replace(/[*`_]/g, '').trim())
-      .filter(t => !/^[A-Z]+-[A-Z0-9-]+/.test(t));
-    for (const t of plain) {
+    for (const t of items.filter(i => !i.id).map(i => i.title)) {
       if (!matchIndexReference(t, ordered).referenced) orphans.push(`${f} → "${t.slice(0, 70)}"`);
     }
   }
@@ -301,7 +293,8 @@ console.log(`\n${YELLOW}todo/ consistency${R}  ${DIM}(owner rules 2026-08-02 and
    */
   const GATE = join(ROOT, 'testing/standalone/no-new-god-files.test.js');
   if (existsSync(GATE)) {
-    const named = [...readFileSync(GATE, 'utf8').matchAll(/DECOMPOSE:\s*([A-Z]+-[A-Z0-9-]+)/g)].map(m => m[1]);
+    const named = [...readFileSync(GATE, 'utf8').matchAll(/DECOMPOSE:[ \t]*(\S+)/g)]
+      .map(m => itemIdIn(m[1])).filter(Boolean);
     // A NUMBERED SUB-ID SATISFIES ITS PARENT, and this now matters: `G-3` was broken into `G-3.1`..`G-3.5`
     // so the queue shows the remaining cuts, and the raise markers still name the parent. The boundary class
     // gives that for free — a dot is not in `[A-Z0-9-]`, so `G-3.1` matches `G-3` while `G-30` does not.
@@ -704,7 +697,7 @@ console.log(`\n${YELLOW}todo/ consistency${R}  ${DIM}(owner rules 2026-08-02 and
         // so the claim is not free.
         const plan = src.match(/^\s*[-*]\s*\[[x~]\]\s*\**\s*1[^—\n]*—\s*(.+)$/m)?.[1]?.trim();
         if (plan && !/owner-directed/i.test(plan) && !/closed by this change/i.test(plan)) {
-          const id = plan.match(/\b([A-Z]+-[A-Z0-9-]+)\b/)?.[1];
+          const id = itemIdIn(plan);
           const known = id && orderedHomeRows(readFileSync(join(TODO, ORDERED), 'utf8')).some(r => r.id === id);
           if (!known) {
             fail(`${WORKING}'s plan row names ${id ? `\`${id}\`` : 'no item id'}, which ${ORDERED} does not `

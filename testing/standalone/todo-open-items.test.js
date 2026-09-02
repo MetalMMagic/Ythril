@@ -28,7 +28,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { openItems, orderedHomeRows } from '../../scripts/todo-open-items.mjs';
+import { openItems, orderedHomeRows, itemIdIn, isNamedIn } from '../../scripts/todo-open-items.mjs';
 
 /** Both styles in one file, because a tracker may legitimately mix them as it grows. */
 const MIXED = `# A tracker
@@ -290,5 +290,48 @@ describe('a numbered sub-id is an id', () => {
       '  body',
     ].join(String.fromCharCode(10)));
     assert.deepEqual(items.map(i => i.id), ['G-3', 'G-3.1']);
+  });
+});
+
+/**
+ * The five copies that survived the first fix, and the two that mattered.
+ *
+ * `todo-open-items.mjs` was given one `ID` definition on 2026-09-02 and three patterns were rewritten to use
+ * it. **Five more copies were sitting in `todo-consistency.mjs`** — the module that imports this one — and
+ * the shape of the miss is worth keeping: a sweep for the copies inside the file being fixed reports clean
+ * while the same rule stands unfixed next door.
+ *
+ * Two of the five changed behaviour:
+ *
+ *  - **rule 2 re-implemented `openItems`.** It matched `[ ]` and not `[~]`, so marking a row in progress
+ *    while its PR was in flight removed it from "every open item is indexed" — the honest bookkeeping act
+ *    made the check cover less. And its id pattern had no sub-id, so `G-3.1` read as `G-3` and was then
+ *    satisfied by the PARENT's row in the queue: a false green on the rule the release cadence hangs on.
+ *  - **the working-order plan row** read `G-3.2` as `G-3` and refused the job, because the queue held the
+ *    sub-rows rather than the parent. Loud, which is the only reason it was found at all.
+ *
+ * `isNamedIn` also escapes the id before it becomes a pattern, which sub-ids made load-bearing: interpolated
+ * raw, `G-3.1` is a pattern whose dot matches any character, so `G-3x1` in the queue would satisfy it.
+ */
+describe('one definition of an item id, shared', () => {
+  it('itemIdIn reads a sub-id out of a plan row, not its parent', () => {
+    assert.equal(itemIdIn('`G-3.2`, the TOP row. This is its characterization half.'), 'G-3.2');
+    assert.equal(itemIdIn('**1 plan** — `M-2`, move the links into link records'), 'M-2');
+    assert.equal(itemIdIn('owner-directed, 2026-09-02: put that table in the queue'), null);
+  });
+
+  it('a sub-id is NOT indexed just because its parent is', () => {
+    const ordered = '| G-3 | the page is too long | UI-TODO.md | open | — |';
+    assert.equal(isNamedIn('G-3', ordered), true);
+    // The parent row is the parent's. Accepting it as cover for a step is the false green this prevents.
+    assert.equal(isNamedIn('G-3.1', ordered), false);
+  });
+
+  it('and it is a whole token, matched literally', () => {
+    assert.equal(isNamedIn('L-1', '| L-13 | something else | X.md | open | — |'), false);
+    assert.equal(isNamedIn('L-1', '| L-1 | the real row | X.md | open | — |'), true);
+    // The dot is escaped: without it, `G-3.1` is a pattern that matches `G-3x1`.
+    assert.equal(isNamedIn('G-3.1', '| G-3x1 | not this row | X.md | open | — |'), false);
+    assert.equal(isNamedIn('G-3.1', '| G-3.1 | this row | X.md | open | — |'), true);
   });
 });

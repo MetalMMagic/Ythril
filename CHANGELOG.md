@@ -353,6 +353,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The extract tab's four rules are pinned before the group is extracted.** Nothing user-visible changes.
+  Three of the four had no test, and each is the kind a rewrite gets subtly wrong while every assertion it
+  kept still passes: paging APPENDS rather than replaces (a diagnostic must not throw away what the reader
+  has scrolled through) and keeps the FIRST response's `skip`, since that records where the view started;
+  the next page is asked for from what is ON SCREEN rather than from the last response, which would ask for
+  the same page for ever; the tab fetches once and lazily rather than on every switch back; and a failed
+  load says so instead of rendering an empty extract, because "no chunks" and "could not ask" are different
+  answers.
+
+  Five mutants killed — replace-instead-of-append, the newest `skip` winning, paging from the response,
+  re-fetching on every open, and a failed load leaving the spinner up.
+
 - **The README said 31 MCP tools. There are 44 — and it did not mention nine capabilities the product has.**
   A count written once and never checked drifts in one direction only: downward, as the product grows. It is
   DERIVED from `ALL_TOOLS` now, by a gate, in both directions — over-claiming is the worse failure and it is

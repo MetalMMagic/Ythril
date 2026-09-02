@@ -608,6 +608,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The tracker gate could not see a numbered sub-id, and read one as its parent.** A decomposition row was
+  broken into numbered steps — `G-3.1` under `G-3` — so the queue shows what is left of it. Every rule in
+  `todo-consistency.mjs` then went quiet about those rows, and each went quiet differently, which is what
+  made it worth a test rather than a one-character edit.
+
+  The index row matched **nothing at all**, so the rule that checks a queue row against its home file simply
+  skipped it: no failure, no warning, one fewer row checked. In a tracker the item matched the **parent** —
+  `G-3.1` read as `G-3` — and that is the worse half, because the same rule then found the parent declared,
+  ticked the row, and reported a queue whose steps nobody had confirmed existed.
+
+  The pattern was written out three times, once per rule, which is this repo's signature defect arriving
+  inside the script whose job is to catch it. One definition now feeds all three, as that module's own header
+  already argued for. The older `- [ ] **A-1.**` shape still reads as `A-1`: a digit after the dot continues
+  the id, anything else ends it.
+
 - **Arrowing quickly through a folder of images could show the wrong one, and leaked a blob each time.** An
   image or PDF preview fetches the file and wraps it in an object URL. `openPreview` releases the current URL
   synchronously and then starts the fetch, which resolves later — so moving from A to B before A's response

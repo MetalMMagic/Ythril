@@ -27,6 +27,23 @@
  */
 
 /**
+ * What an item id looks like — ONE definition, because three rules need the same answer.
+ *
+ * `R-4`, `S-L5-1`, `P-28` … and a numbered SUB-id, `G-3.1`, for a step of a decomposition its parent row
+ * tracks as a whole. The owner asked for those steps to appear in the queue so progress and remaining length
+ * are visible, and the three patterns below could not see one — each in its own way, and all three silently:
+ *
+ *   - the index row matched NOTHING, so the rule that checks a queue row against its home skipped it;
+ *   - a tracker item matched the PARENT, so `G-3.1` read as `G-3` and that same rule ticked the row because
+ *     the parent was declared. A step nobody had checked existed then counted as checked.
+ *
+ * Written out three times, that is this repo's signature defect inside the script whose job is to catch it.
+ * The trailing dot of the older `- [ ] **A-1.**` shape is punctuation rather than a sub-number, and the two
+ * are told apart by what follows: a digit continues the id, anything else ends it.
+ */
+const ID = String.raw`[A-Z]+-[A-Z0-9-]+(?:\.\d+)*`;
+
+/**
  * The `| id | task | home.md | …` rows of `_TODO-ORDERED.md` — what the index CLAIMS exists, and where.
  *
  * Separate from `openItems` because it answers the opposite question. `openItems` reads a tracker and says what
@@ -38,12 +55,12 @@
  * @returns {Array<{id: string, home: string}>}
  */
 export function orderedHomeRows(ordered) {
-  const HOME_ROW = /^\|\s*([A-Z]+-[A-Z0-9-]+)\s*\|[^|]*\|\s*([A-Za-z0-9._-]+\.md)\s*\|/gm;
+  const HOME_ROW = new RegExp(String.raw`^\|\s*(${ID})\s*\|[^|]*\|\s*([A-Za-z0-9._-]+\.md)\s*\|`, 'gm');
   return [...ordered.matchAll(HOME_ROW)].map(m => ({ id: m[1], home: m[2] }));
 }
 
 /** A `### L-5 — …` or `## R-3: …` item heading, capturing the id. Levels 2-4; level 1 is the document title. */
-const HEADING_ITEM = /^#{2,4}[ \t]+\**([A-Z]+-[A-Z0-9-]+)\**[ \t]*[—:-]/;
+const HEADING_ITEM = new RegExp(String.raw`^#{2,4}[ \t]+\**(${ID})\**[ \t]*[—:-]`);
 
 /**
  * A `- [ ] **W-2 — …` item, capturing the id when it has one.
@@ -56,7 +73,7 @@ const HEADING_ITEM = /^#{2,4}[ \t]+\**([A-Z]+-[A-Z0-9-]+)\**[ \t]*[—:-]/;
  *
  * `[x]` is deliberately NOT here: a ticked box is finished work, and finished work belongs in the CHANGELOG.
  */
-const CHECKBOX_ITEM = /^[ \t]*[-*][ \t]*\[[ ~]\][ \t]*\**([A-Z]+-[A-Z0-9-]+)?\**\.?/;
+const CHECKBOX_ITEM = new RegExp(String.raw`^[ \t]*[-*][ \t]*\[[ ~]\][ \t]*\**(${ID})?\**\.?`);
 
 /** Any open-or-in-progress checkbox, id or not — the split point for checkbox-style bodies. */
 const CHECKBOX_ANY = /^[ \t]*[-*][ \t]*\[[ ~]\]/;

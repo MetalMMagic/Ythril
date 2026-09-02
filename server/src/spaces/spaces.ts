@@ -8,7 +8,7 @@ import { getConfig, saveConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
 import type { SpaceConfig, SpaceMeta, DupeActionRule, DocExtractionMode, ImageLevel, AudioLevel, VideoLevel, TextLevel, RecordTtlWindows } from '../config/types.js';
 import { buildSpaceVectorIndexes } from './vector-index.js';
-import { syncSchemaFiles, META_VERSION_CAP, SPACE_PURPOSE_MAX } from './_shared.js';
+import { syncSchemaFiles, META_VERSION_CAP } from './_shared.js';
 
 /**
  * A space's MCP-facing directive, under the one name that still has a store behind it.
@@ -19,13 +19,15 @@ import { syncSchemaFiles, META_VERSION_CAP, SPACE_PURPOSE_MAX } from './_shared.
  * about the same space. Worse, the UI only ever gained an editor for `purpose`, so the field MCP clients
  * actually read was the one no admin could change.
  *
- * `purpose` won because it is the one an operator can edit. `description` survives as a DERIVED alias for
- * clients that still read it (it is in the published API), and this function is the single place the
- * derivation happens — the point being that the two names can no longer disagree, because there is only
- * one value. Removal is slated for 3.0.
+ * `purpose` won because it is the one an operator can edit. `description` was a DERIVED alias for clients
+ * that still read it, and it was REMOVED in 3.0 — both doors now refuse a body carrying it
+ * (`refuseRemovedDescription`), naming `meta.purpose` so a caller is not left looking the replacement up.
  *
- * Legacy stored `description` was migrated into `meta.purpose` at boot; see
- * `migrateSpaceDescriptionToPurpose`.
+ * A legacy STORED `description` is still lifted into `meta.purpose` at boot by
+ * `migrateSpaceDescriptionToPurpose`, and that migration is permanent rather than a release tail: it
+ * persists on success and warns *"will retry next boot"* when it cannot, so a config it has never managed to
+ * rewrite still carries the old key — and with the input alias refused, an operator cannot re-send the
+ * directive under the old name either. See `a-durable-config-migration-stays-wired.test.js`.
  */
 export function spacePurpose(space: { meta?: SpaceMeta }): string | undefined {
   const purpose = space.meta?.purpose?.trim();
@@ -33,28 +35,29 @@ export function spacePurpose(space: { meta?: SpaceMeta }): string | undefined {
 }
 
 
-/** Update mutable fields (label, description, meta) of an existing space in config.
+/** Update mutable fields (label, meta, quotas, ladders) of an existing space in config.
  *  When `meta` is provided the version counter is auto-incremented and the
  *  previous version is pushed to `previousVersions` (capped at META_VERSION_CAP).
  *  Returns the updated SpaceConfig, or null if the space was not found. */
 export function updateSpace(
   spaceId: string,
-  updates: { label?: string; description?: string; maxGiB?: number | null; meta?: SpaceMeta; dupeRules?: DupeActionRule[]; dupeMergeSurvivor?: 'older' | 'newer'; dupeRulesOnInsert?: boolean; recordTtlDays?: number | RecordTtlWindows | null; documentExtraction?: DocExtractionMode | null; imageAnalysis?: ImageLevel | null; audioAnalysis?: AudioLevel | null; videoAnalysis?: VideoLevel | null; textAnalysis?: TextLevel | null },
+  updates: { label?: string; maxGiB?: number | null; meta?: SpaceMeta; dupeRules?: DupeActionRule[]; dupeMergeSurvivor?: 'older' | 'newer'; dupeRulesOnInsert?: boolean; recordTtlDays?: number | RecordTtlWindows | null; documentExtraction?: DocExtractionMode | null; imageAnalysis?: ImageLevel | null; audioAnalysis?: AudioLevel | null; videoAnalysis?: VideoLevel | null; textAnalysis?: TextLevel | null },
 ): SpaceConfig | null {
   const cfg = getConfig();
   const space = cfg.spaces.find(s => s.id === spaceId);
   if (!space) return null;
   if (typeof updates.label === 'string') space.label = updates.label;
-  // `description` is an alias now: it writes the one store, `meta.purpose`. Folded into `updates.meta`
-  // rather than assigned directly, so it takes the version bump and the previousVersions snapshot every
-  // other meta change gets — a directive edit that left `version` untouched would be invisible to the
-  // sync layer, which decides what to replicate by comparing versions.
-  if (typeof updates.description === 'string') {
-    updates = {
-      ...updates,
-      meta: { ...(updates.meta ?? space.meta ?? {}), purpose: updates.description.trim().slice(0, SPACE_PURPOSE_MAX) },
-    };
-  }
+  /*
+   * `description` used to be folded in here, into `meta.purpose`, so a directive edit took the version bump
+   * and the previousVersions snapshot every other meta change gets.
+   *
+   * It is GONE, and removed rather than left in place because it had become the weaker of two
+   * implementations of one rule. `refuseRemovedDescription` 400s any body carrying the field, and it runs in
+   * both planners — so no request reaches this arm, and all four internal callers pass `meta`. What was left
+   * was a path that silently ACCEPTED what the refusal exists to reject, reachable only by an internal
+   * caller going straight to `updateSpace` — which `meta-update.ts` warns is exactly what a tool must not
+   * do. A directive written from a removed field, with nothing failing.
+   */
   if (updates.maxGiB !== undefined) {
     // null or non-positive clears the cap (unlimited); positive number sets the cap
     space.maxGiB = updates.maxGiB !== null && updates.maxGiB > 0 ? updates.maxGiB : undefined;

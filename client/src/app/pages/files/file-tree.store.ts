@@ -35,11 +35,13 @@ const SIDEBAR_KEY = 'ythril.sidebar';
  *
  * ## What it deliberately does NOT own
  *
- * Navigation. `onTreeClick` on the page calls `navigate(node.path)` and then `toggle(node)`, and those are two
- * separate effects of one gesture — a characterization case pins both. Folding navigation in here would make
- * this store decide what a click means, and it would also hide `G-10`: clicking a folder currently lists that
- * directory TWICE, once for the listing and once for the children, and the two calls being visible side by side
- * at the call site is what keeps that findable.
+ * Navigation. `onTreeClick` on the page decides whether the click needs a listing and then navigates, and
+ * those are two separate effects of one gesture — a characterization case pins both. Folding navigation in
+ * here would make this store decide what a click means.
+ *
+ * This paragraph used to end by saying the duplicate listing was findable BECAUSE the two calls sat side by
+ * side at the call site, and it was right: `G-13` found it there and removed it. What is left is one
+ * listing, fed to this store by whoever fetched it.
  */
 @Injectable()
 export class FileTreeStore {

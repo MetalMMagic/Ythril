@@ -7,6 +7,7 @@ import { FileListingComponent, type FileRow } from './file-listing.component';
 import { joinPath } from './file-format';
 import { FileTreeComponent, type TreeNode } from './file-tree.component';
 import { FileTreeStore } from './file-tree.store';
+import { FileListingStore, LISTING_FAILURE_KEYS } from './file-listing.store';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
@@ -18,6 +19,7 @@ import { AuthService } from '../../core/auth.service';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 import { Subscription } from 'rxjs';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ToastService } from '../../core/toast.service';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 import { ErrorStateComponent } from '../../shared/error-state.component';
@@ -130,7 +132,7 @@ function xlsxCellText(v: unknown): string {
    * carry one space's directories into the next — and leaving the page must forget them, which a page-scoped
    * provider does for free.
    */
-  providers: [FileTreeStore],
+  providers: [FileTreeStore, FileListingStore],
   imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe, ErrorStateComponent, ModalDirective, FilePreviewComponent, UploadQueueComponent, FileMetaEditorComponent, FileExtractViewComponent, FileListingComponent, FileTreeComponent],
   styles: [`
     /* A background refresh, as a 2px indeterminate hairline above the table. Deliberately NOT a spinner and
@@ -387,20 +389,20 @@ function xlsxCellText(v: unknown): string {
 
           <!-- Main file listing -->
           <div class="fm-main" [class.drag-over]="dragOver()">
-            @if (loading()) {
+            @if (listing.loading()) {
               <div class="loading-overlay"><span class="spinner"></span></div>
             } @else {
           <!-- A background refresh is a HAIRLINE, not an unmount. The table below stays exactly where it is and
                its rows update in place, so the per-row progress bars advance instead of the screen blinking. -->
-          @if (refreshing()) { <div class="fm-refreshing" role="status" [attr.aria-label]="'files.refreshing' | transloco"></div> }
-          @if (refreshFailed()) {
+          @if (listing.refreshing()) { <div class="fm-refreshing" role="status" [attr.aria-label]="'files.refreshing' | transloco"></div> }
+          @if (listing.refreshFailed()) {
             <div class="fm-stale">{{ 'files.refreshFailed' | transloco }}</div>
           }
           <app-file-listing
             [rows]="fileRows()"
             [sortField]="sortField()"
             [sortDir]="sortDir()"
-            [error]="loadError()"
+            [error]="listing.loadError()"
             [(renameValue)]="renameValue"
             (sort)="setSort($event)"
             (open)="open($event)"
@@ -531,6 +533,14 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   /** Optional for the same reason as `picker`: this component also runs outside the Brain shell. */
   private store = inject(BrainStore, { optional: true });
 
+  /**
+   * The directory listing's state and its five requests (`G-3`, eighth cut).
+   *
+   * Public because the template binds four of its signals and the characterization spec reads them. The page
+   * keeps what a listing is not: the breadcrumb, the space selector, the sort, the forms and the dialogs.
+   */
+  readonly listing = inject(FileListingStore);
+
   constructor() {
     /**
      * Live refresh while a file is processing.
@@ -541,7 +551,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
      * when the folder was first opened: a file could finish and still read "Embedding" until you clicked
      * away and back. Nothing errored, which is why it looked like a slow pipeline rather than a stale view.
      *
-     * `untracked` around the reload so the effect depends on the tick ALONE — `loadDir` reads
+     * `untracked` around the reload so the effect depends on the tick ALONE — the reload reads
      * `currentPath()`, and tracking that would reload the directory on every navigation as well.
      */
     let firstTick = true;
@@ -549,6 +559,41 @@ export class FileManagerComponent implements OnInit, OnDestroy {
       this.store?.liveRefreshTick();
       if (firstTick) { firstTick = false; return; }
       untracked(() => this.reloadDir());
+    });
+
+    /*
+     * What a landed listing MEANS, wired here because the store does not know either of these exists.
+     *
+     * The tree is fed from this listing rather than fetching the same path a second time (`G-13`), and the
+     * progress poll is started or stopped to match what is now on screen. Both are the page's business: it
+     * owns the sidebar and the poll, and the store owns the request.
+     */
+    this.listing.listed.pipe(takeUntilDestroyed()).subscribe(({ path, entries }) => {
+      this.tree.fillFrom(path, entries);
+      this.syncProgressPolling();
+    });
+    this.listing.listingFailed.pipe(takeUntilDestroyed()).subscribe(({ path, reason }) => {
+      this.tree.failFrom(path, reason);
+    });
+
+    /*
+     * And what a WRITE means beyond the reload the store has already done. A new folder changes the tree's
+     * root; a delete changes the file set the host is counting. Neither is something a listing store could
+     * decide for the page.
+     */
+    this.listing.mutated.pipe(takeUntilDestroyed()).subscribe(kind => {
+      if (kind === 'created') {
+        // The form closes on the ANSWER, not on the attempt: a refused create keeps what was typed, so the
+        // name can be corrected rather than retyped. Same for the rename below.
+        this.newFolderName = '';
+        this.showNewFolder.set(false);
+        this.tree.loadRoot(this.activeSpaceId());
+      }
+      if (kind === 'moved') this.renamingEntry.set('');
+      if (kind === 'removed') this.filesChanged.emit();
+    });
+    this.listing.mutationFailed.pipe(takeUntilDestroyed()).subscribe(kind => {
+      this.toast.error(this.transloco.translate(LISTING_FAILURE_KEYS[kind]));
     });
   }
 
@@ -561,7 +606,6 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   spaces = signal<Space[]>([]);
   activeSpaceId = signal('');
   currentPath = signal('/');
-  entries = signal<FileEntry[]>([]);
 
   // ── Column sort (restores what #421 dropped) ───────────────────────────────
   // Sorted CLIENT-side, which is honest here and only here: `listFiles` returns a whole directory in one
@@ -604,7 +648,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   });
 
   sortedEntries = computed<FileEntry[]>(() => {
-    const list = this.entries();
+    const list = this.listing.entries();
     const field = this.sortField();
     if (!field) return list;
     const sign = this.sortDir() === 'asc' ? 1 : -1;
@@ -625,24 +669,6 @@ export class FileManagerComponent implements OnInit, OnDestroy {
         : String(ka).localeCompare(String(kb)) * sign;
     });
   });
-  /**
-   * True only while a load that has **nothing to show** is in flight — the state that replaces the view.
-   *
-   * A REFRESH must never enter it. It used to: `loadDir` set this on every call, including the 4-second progress
-   * poll, so watching an ingest meant the whole file table was unmounted and replaced by a spinner every four
-   * seconds. A reporting operator, verbatim: *"i only want to see progress bars move while waiting and not a
-   * screenflickering."* They were right about the mechanism too — the view treated "a refetch is in flight" as
-   * "we have no data yet".
-   *
-   * The rule, worth stating as a rule: **a refresh must never re-enter the empty state a first load uses.**
-   */
-  loading = signal(false);
-  /** True while a reload of the SAME directory is in flight over rows already on screen. Never unmounts them. */
-  refreshing = signal(false);
-  /** Set when a background refresh failed, so stale rows are not passed off as current. Cleared on success. */
-  refreshFailed = signal(false);
-  /** Failure reason for the directory listing; null when it loaded (U3). */
-  loadError = signal<string | null>(null);
   loadingSpaces = signal(true);
   /** Null until the space list failed to load — else the page renders with no selector and no body. */
   spacesError = signal<string | null>(null);
@@ -839,14 +865,14 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     this.activeSpaceId.set(id);
     this.currentPath.set('/');
     this.updateBreadcrumbs('/');
-    this.loadDir('/');
+    this.listing.load(id, '/');
     this.tree.loadRoot(id);
   }
 
   navigate(path: string): void {
     this.currentPath.set(path);
     this.updateBreadcrumbs(path);
-    this.loadDir(path);
+    this.listing.load(this.activeSpaceId(), path);
   }
 
   open(entry: FileEntry): void {
@@ -858,75 +884,8 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     }
   }
 
-  /**
-   * The path `entries()` currently describes, or null before the first successful listing.
-   *
-   * This is what decides load-vs-refresh, rather than a flag at each call site. `loadDir` has six callers (the
-   * navigation effect, the poll, the retry button, and three post-mutation reloads) and asking each to classify
-   * itself is how five get it right and one does not — the exact shape of the retention bug fixed in #632.
-   *
-   * Comparing the PATH is also the only correct rule: rows from the directory you are leaving must not be shown
-   * under the name of the one you are entering, so a navigation is always a foreground load.
-   */
-  private loadedPath: string | null = null;
-
-  private loadDir(path: string): void {
-    // A refresh only when there is something on screen that this listing will replace in place.
-    const isRefresh = this.loadedPath === path && this.entries().length > 0 && this.loadError() === null;
-    if (isRefresh) this.refreshing.set(true);
-    else { this.loading.set(true); this.loadError.set(null); }
-    this.filesApi.listFiles(this.activeSpaceId(), path).subscribe({
-      next: ({ entries }) => {
-        // The tree's children, from the listing it was going to duplicate. The store ignores this unless a
-        // node is actually waiting for THIS path, so a navigation in between cannot fill the wrong folder.
-        this.tree.fillFrom(path, entries);
-        this.entries.set(entries);
-        this.loadedPath = path;
-        this.loadError.set(null);
-        this.refreshFailed.set(false);
-        this.loading.set(false);
-        this.refreshing.set(false);
-        this.syncProgressPolling();
-      },
-      error: (e) => {
-        // The tree has no request of its own to fail any more, so its error comes from here. Without this the
-        // de-duplication would put back the silence `G-10` had just removed.
-        this.tree.failFrom(path, httpErrorReason(e));
-        if (isRefresh) {
-          // A failed POLL must not throw away good rows either — that is the same defect in another dress, and
-          // a transient failure during an ingest is exactly when it would happen. Keep the rows, mark them as
-          // not-current, and let the next tick clear it.
-          this.refreshFailed.set(true);
-          this.refreshing.set(false);
-          return;
-        }
-        /*
-         * A failed first listing must not fall through to the "empty folder" state (U3) — and a failed
-         * NAVIGATION must not leave the rows of the folder you came FROM under the name of the one you tried
-         * to enter (`G-14`).
-         *
-         * The error is rendered inside the table's empty state, which is right for a first load and useless
-         * here: rows on screen hide it completely, so the breadcrumb said `root / docs` while the table
-         * listed `root` and nothing anywhere said the listing had failed.
-         *
-         * Clearing the rows rather than moving the message is the fix, because the rows are the lie. A banner
-         * above a table of the wrong directory's contents is the same claim with a caption.
-         *
-         * `loadedPath` is deliberately NOT reset, and a surviving mutant is what settled that. It looked
-         * like the honest thing to do — the field means "the path `entries()` describes" and `entries()` now
-         * describes nothing — but `isRefresh` needs the path, some rows AND no error all at once, and the
-         * rows have just gone. No behaviour can reach the stale value, so resetting it was a line no test
-         * could pin. The retry reads `currentPath` instead, which is the folder on the breadcrumb.
-         */
-        this.entries.set([]);
-        this.loadError.set(httpErrorReason(e));
-        this.loading.set(false);
-      },
-    });
-  }
-
-  /** Re-load the current directory — bound to the error state's Retry button. */
-  reloadDir(): void { this.loadDir(this.currentPath()); }
+  /** Re-load the current directory — bound to the error state's Retry button, and to five other callers. */
+  reloadDir(): void { this.listing.load(this.activeSpaceId(), this.currentPath()); }
 
   // ── The processing stage bar has to ADVANCE (B.5) ──────────────────────────
   //
@@ -949,7 +908,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
 
   /** True while any row on screen is still being processed — the only condition that justifies polling. */
   anyInFlight(): boolean {
-    return this.entries().some(e =>
+    return this.listing.entries().some(e =>
       !!e.progress || e.embeddingStatus === 'pending' || e.embeddingStatus === 'processing');
   }
 
@@ -1026,7 +985,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
    */
   private async enqueueUploads(files: FileList): Promise<void> {
     const picked = Array.from(files);
-    const existing = new Set(this.entries().filter(e => e.isFile).map(e => e.name));
+    const existing = new Set(this.listing.entries().filter(e => e.isFile).map(e => e.name));
     const clashes = picked.filter(f => existing.has(f.name)).map(f => f.name);
 
     if (clashes.length > 0) {
@@ -1084,7 +1043,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
           this.patchUpload(item.id, { status: 'done', percent: 100 });
           this.processing = false;
           // Show the freshly uploaded file straight away, and let the host refresh its record counts.
-          this.loadDir(this.currentPath());
+          this.reloadDir();
           this.filesChanged.emit();
           this.processQueue();
         },
@@ -1135,15 +1094,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   createFolder(): void {
     if (!this.newFolderName.trim()) return;
     const path = this.join(this.currentPath(), this.newFolderName.trim());
-    this.filesApi.createDir(this.activeSpaceId(), path).subscribe({
-      next: () => {
-        this.newFolderName = '';
-        this.showNewFolder.set(false);
-        this.loadDir(this.currentPath());
-        this.tree.loadRoot(this.activeSpaceId());
-      },
-      error: () => this.toast.error(this.transloco.translate('files.error.createFolderFailed')),
-    });
+    this.listing.createDir(this.activeSpaceId(), path, this.currentPath());
   }
 
   startRename(entry: FileEntry): void {
@@ -1155,13 +1106,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     const from = this.join(this.currentPath(), entry.name);
     const parentDir = this.currentPath();
     const to = this.join(parentDir, this.renameValue.trim());
-    this.filesApi.moveFile(this.activeSpaceId(), from, to).subscribe({
-      next: () => {
-        this.renamingEntry.set('');
-        this.loadDir(this.currentPath());
-      },
-      error: () => this.toast.error(this.transloco.translate('files.error.renameFailed')),
-    });
+    this.listing.move(this.activeSpaceId(), from, to, parentDir);
   }
 
   async deleteEntry(entry: FileEntry): Promise<void> {
@@ -1173,15 +1118,12 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     });
     if (!ok) return;
     const path = this.join(this.currentPath(), entry.name);
-    this.filesApi.deleteFile(this.activeSpaceId(), path).subscribe({
-      next: () => { this.loadDir(this.currentPath()); this.filesChanged.emit(); },
-      error: () => this.toast.error(this.transloco.translate('files.error.deleteFailed')),
-    });
+    this.listing.remove(this.activeSpaceId(), path, this.currentPath());
   }
 
   /** The file GET URL (no token — auth goes in the fetch header, never the URL). */
   private fileApiUrl(entry: FileEntry): string {
-    return this.filesApi.getFileDownloadUrl(this.activeSpaceId(), this.join(this.currentPath(), entry.name));
+    return this.listing.downloadUrl(this.activeSpaceId(), this.join(this.currentPath(), entry.name));
   }
 
   /**
@@ -1507,7 +1449,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
       this.closePreview();
       return;
     }
-    const files = this.entries().filter(f => f.isFile);
+    const files = this.listing.entries().filter(f => f.isFile);
     const current = this.previewFile();
     if (!current || files.length === 0) return;
 

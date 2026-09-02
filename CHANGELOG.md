@@ -194,6 +194,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The directory listing is its own store, which is the eighth cut off the largest file in the repo.**
+  Internal only: no screen changes, no route changes, no parameter changes. It is here because the file it
+  came out of is the one every file-browser change lands in, and because two conditions inside it turned out
+  to be unable to decide anything.
+
+  What moved: the listing's five state signals, its five requests (list, new folder, rename, delete,
+  download URL), and the rule that decides whether a fetch is a fresh LOAD or a background REFRESH — one
+  function with six callers, kept as one function because asking each caller to classify itself is how five
+  get it right and one does not.
+
+  **The reload after a write moved with it.** It was the same statement written at three call sites, and a
+  fourth copy is how one of them ends up missing. What a write means BEYOND that reload — refresh the
+  sidebar's root, tell the host the file set changed — stays with the page, which is the only thing that
+  knows those exist.
+
+  **Two conditions retired, both found by mutating them and watching nothing fail.** The load-versus-refresh
+  test asked whether the last attempt had failed; that mattered while a failed listing kept its rows on
+  screen, and stopped mattering the moment those rows started being cleared, earlier in this same release.
+  A second one, in the same function, had never been able to matter. Neither was deleted quietly: the
+  comment in their place says what they guarded and what removed the need.
+
+  **And 105 characterization cases held it, with four ADDED rather than edited.** A refused new folder keeps
+  the name you typed and a refused rename leaves the row in edit mode — both were true before this change,
+  neither had an assertion, and the first version of this cut broke both of them silently.
+
 - **BREAKING — `maxBytes` on `recall` and `find_similar` now means bytes.** It bounded characters before, while
   its name and every surface describing it said bytes. A caller who set it asked for a byte ceiling and now
   gets one: up to ~35% tighter on emoji-heavy content and ~26% on German or Polish, and unchanged for ASCII.

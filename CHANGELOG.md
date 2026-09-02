@@ -353,6 +353,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The upload queue is its own store — `G-3.1`.** `file-upload.store.ts` owns the rows, the ordering, the
+  one-at-a-time rule, the subscriptions and the page's LAST `filesApi` request: 1 004 → 939 code lines, and
+  the file manager shell now makes no HTTP request of its own at all.
+
+  **A store rather than a component, and that is not a style choice.** An upload in flight owns a
+  subscription, so a component owning it would abort on destroy — navigating away from the tab, or any
+  structural change that remounted the panel, would silently cancel a running upload. Provided by the page,
+  it survives every remount inside the page and still cannot outlive the page itself.
+
+  **Two things stayed, and the store publishes what each follows from.** Asking about an overwrite is the
+  page's twice over: the set of existing names is the LISTING store's data, and the wording is a translation,
+  which this file holds none of. And a finished upload has to refresh the listing (another store's) and emit
+  `filesChanged` so the host's record counts move (an `@Output`) — so the store says only that one landed.
+
 - **The file-metadata group is its own store — `G-3`'s tenth cut, and the last of its four.** Nothing
   user-visible changes. The record, the edit model and all three requests moved to `file-meta.store.ts`:
   1 036 → 1 004 code lines, with the frozen ceiling lowered to match.
@@ -608,6 +622,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A queued upload went to whichever folder was open when its turn came, not the one it was dropped on.**
+  The queue uploads one file at a time, so the gap between dropping a batch and starting a given file is as
+  long as everything ahead of it. The destination was read at the moment each upload STARTED — so queueing
+  twenty files and then opening another folder sent the remainder there instead, with a `done` row claiming
+  success and the file nowhere the person looked for it. Each row now remembers where it was dropped, and a
+  retry uses that same destination rather than wherever you are standing when you press it.
+
+  Two rules that had no test also gained one, both found by mutating the code rather than by reading it. A
+  batch dropped WHILE an upload is running now provably joins the queue instead of starting beside it — the
+  one-at-a-time rule held within a batch and nothing checked it across two. And retrying a row that did not
+  fail is provably a no-op: an upload is a REPLACE that drops the file's conversion chunks, converted
+  Markdown, extracted images and generated description, so uploading the same bytes twice is not harmless.
 - **The tracker gate could not see a numbered sub-id, and read one as its parent.** A decomposition row was
   broken into numbered steps — `G-3.1` under `G-3` — so the queue shows what is left of it. Every rule in
   `todo-consistency.mjs` then went quiet about those rows, and each went quiet differently, which is what

@@ -27,12 +27,18 @@ export interface UploadItem {
  * ## What stays behind, and why
  *
  * **The queue itself.** Ordering, the one-at-a-time rule, the HTTP subscriptions, retry and cancel semantics
- * — all of that is the page's, and it is what `file-manager.component.spec.ts`'s upload cases exercise. This
- * component reports which button was pressed and renders what it is given; it holds no state at all.
+ * — all of that is `file-upload.store.ts`'s, and it is what `file-manager.component.spec.ts`'s upload cases
+ * exercise. This component reports which button was pressed and renders what it is given; it holds no state
+ * at all.
  *
  * That division is deliberate rather than minimal. An upload in flight owns a subscription, and a component
  * that owned it would abort on destroy — so navigating away from the tab, or any structural change that
- * remounted this panel, would silently cancel a running upload. The page outlives both.
+ * remounted this panel, would silently cancel a running upload. The store is provided by the PAGE, which
+ * outlives both.
+ *
+ * The row's shape is declared here rather than there for the same reason `FileMetaModel` lives with the
+ * editor that binds to it: the vocabulary belongs with the renderer, and there is exactly one of it. The
+ * queue adds the space and path each file was dropped on, which are its bookkeeping and not a row's.
  *
  * ## The actions are per-state, and that is the behaviour worth keeping in one place
  *

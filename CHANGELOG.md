@@ -326,6 +326,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A plaintext peer URL is refused where it is ADDED, on every door.** `allowInsecurePeers` is documented
+  as *"peer URLs must be `https://`, regardless of address"* — and one route did not enforce it.
+  `POST /api/networks/join-remote` declared its own URL validator: parse plus SSRF check, no SCHEME check.
+  So an instance with the flag off would still open a plaintext handshake to an `http://` inviter.
+
+  **Not a credential leak, and saying so precisely is the point.** The sync token comes back RSA-wrapped and
+  the sync engine logs its once-per-host plaintext warning. What crossed in the clear were instance ids,
+  labels, the network id and a public key — and the operator learned about it from a log line after the fact
+  rather than a refusal before it. A transport policy that does not cover the one URL a join reaches out to
+  is not the policy the setting describes.
+
+  The same route's `myUrl` was a bare `.url()`: no SSRF check either, so a loopback or plaintext value came
+  back as a `400` from the *other* instance, where a local refusal belonged.
+
+  **One rule, four implementations, two of them weaker.** `SSRF_SAFE_URL` is the rule; `api/invite.ts` held a
+  byte-identical copy under its own name, and `join.ts` held the two that had diverged. Identical copies are
+  the ones that get missed — the next change fixes whichever name you searched for. All four sites now
+  resolve to the single declaration, and a new gate finds every zod `.url()` on the network and invite
+  surface and requires it to do the same, so a route added later cannot bring its own chain.
+
 - **Four config migrations are PERMANENT, not release tails — and one of them was going to be deleted.**
   They lift a legacy `config.json` key onto its replacement at boot: the removed face-recognition switch,
   the removed media master switch, the four `mediaEmbedding` url/model spellings, and a space's

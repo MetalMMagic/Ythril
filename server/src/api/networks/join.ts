@@ -18,7 +18,6 @@ import { buildBraintreeAncestors } from '../../util/braintree.js';
 import { makeSignedOwnCast } from '../../util/signing.js';
 import { log } from '../../util/log.js';
 import type { NetworkConfig, NetworkMember, VoteRound } from '../../config/types.js';
-import { isSsrfSafeUrl, SSRF_SAFE_MESSAGE } from '../../util/ssrf.js';
 import { peerSafeFetch } from '../../sync/peer-fetch.js';
 import { BCRYPT_ROUNDS, SSRF_SAFE_URL, safeMemberList } from './_shared.js';
 
@@ -27,14 +26,29 @@ export const joinRouter = Router();
 const JoinRemoteBody = z.object({
   /** handshakeId returned by Brain A's POST /api/invite/generate */
   handshakeId: z.string().uuid(),
-  /** inviteUrl returned by Brain A's POST /api/invite/generate (= Brain A's /api/invite/apply URL) */
-  inviteUrl: z.string().url().refine(isSsrfSafeUrl, { message: SSRF_SAFE_MESSAGE }),
+  /**
+   * inviteUrl returned by Brain A's POST /api/invite/generate (= Brain A's /api/invite/apply URL).
+   *
+   * `SSRF_SAFE_URL`, not a local chain. It had its own — parse + SSRF, no SCHEME check — which meant an
+   * instance with `allowInsecurePeers` off would still open a plaintext handshake to an `http://` inviter,
+   * against a setting documented as *"peer URLs must be `https://`, regardless of address"*. The token comes
+   * back RSA-wrapped, so nothing secret crossed in the clear, but the instance ids, labels, network id and
+   * public key did — and the operator heard about it from a once-per-host log line after the fact instead of
+   * a refusal before it.
+   */
+  inviteUrl: SSRF_SAFE_URL,
   /** RSA public key PEM returned by Brain A's POST /api/invite/generate */
   rsaPublicKeyPem: z.string().min(100),
   /** Network ID from Brain A's invite bundle */
   networkId: z.string().uuid(),
-  /** This brain's externally reachable base URL (e.g. https://brain-b.example.com) */
-  myUrl: z.string().url(),
+  /**
+   * This brain's externally reachable base URL (e.g. https://brain-b.example.com).
+   *
+   * Also `SSRF_SAFE_URL`. It used to be a bare `.url()` — no SSRF check and no scheme check — and the
+   * inviter validates it with the full chain, so a plaintext or loopback value surfaced as a remote `400`
+   * where a local one belonged.
+   */
+  myUrl: SSRF_SAFE_URL,
   /** expiresAt from invite bundle — informational only */
   expiresAt: z.string().optional(),
   /** Optional space aliasing: maps remote space IDs to desired local space IDs.

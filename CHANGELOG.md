@@ -210,6 +210,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   The gate's fixtures are German and emoji as well as ASCII, which is the part that matters: for ASCII the two
   numbers are equal, so a suite written in ASCII cannot tell the units apart at all. That is how this lasted.
+- **The admin import wrote arbitrary documents with no validation and no embed job.** `POST
+  /api/admin/spaces/:id/import` did `replaceOne(…, { upsert: true })` on whatever it was given: zero schema
+  references anywhere in the handler, and no queue entry — so a restored backup was stored and **invisible to
+  meaning-ranked search** until somebody thought to run a reindex they were never told they needed.
+
+  **The validation half read as a decision and had been filed as one.** The tension is real: an import is how
+  you restore a backup, and a backup taken before a schema change would be refused by the instance's own
+  current rules, which makes backups unrestorable. It sat as an unasked question for the owner.
+
+  It should not have. `api/sync/_shared.ts` meets the identical problem on the identical kind of payload and
+  answers it by RECORDING rather than refusing — the document is stored and the violations are reported back.
+  Import is the other bulk ingest path into the same collections, and one rule with two answers is the defect
+  this codebase produces most. The question was withdrawn rather than put.
+
+  Each collection's result now carries `schemaViolations`, naming the documents and what was wrong with each.
+  Per record and not a count: a number tells an operator that something in a 50 000-record restore is wrong and
+  nothing about which one.
+
+  **The write goes through `ingestBrainDoc`**, which is the only thing the sync router permits to write a brain
+  document precisely so a new ingest site cannot be written without the queue. Import had grown its own
+  `replaceOne` beside it and inherited none of that. A gate now refuses a second `replaceOne` in that module.
+
+  **Two things it still does not do, and both are now stated rather than absent.** It does not reallocate
+  `seq` — an exported document keeps the one it had, so a restored instance and its peers still agree about
+  which copy is newer. And it does not check tombstones: sync refuses a document whose id was deleted so a
+  lagging peer cannot resurrect it, while a restore is the one case where resurrection is the point. The cost
+  is that a record deleted after the backup comes back and the tombstone removes it again on the next sync.
+
+  The handler moved to `api/admin-import.ts` on the way, which is what let it be exercised against a real
+  database without an HTTP server.
 
 - **`suppressEmbeddings` was documented, worked on update, and was silently dropped on create — on all four
   record types.** A record that was never meant to be searchable had to be written twice: once embedded, once

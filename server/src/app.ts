@@ -1,6 +1,7 @@
 import express from 'express';
 import compression from 'compression';
 import { shouldCompress, staticCacheControl } from './util/transfer.js';
+import { importDocuments, importPayloadError } from './api/admin-import.js';
 import { SERVER_VERSION } from './util/server-version.js';
 import path from 'path';
 import fs from 'node:fs';
@@ -471,74 +472,19 @@ export function createApp() {
       return;
     }
 
-    const payload = req.body ?? {};
-    const IMPORT_TYPES = ['memories', 'entities', 'edges', 'chrono', 'files'] as const;
-    type ImportType = typeof IMPORT_TYPES[number];
+    /*
+     * The body of this route lives in `api/admin-import.ts` now.
+     *
+     * It was inline here and did `replaceOne` on arbitrary documents: no validation, no embed job, so a
+     * restored backup was stored and invisible to meaning-ranked search. Moving it out is what let it be
+     * exercised against a real database without an HTTP server — what is left here is argument handling and
+     * a status code.
+     */
+    const payload = (req.body ?? {}) as Record<string, unknown>;
+    const shapeError = importPayloadError(payload);
+    if (shapeError) { res.status(400).json({ error: shapeError }); return; }
 
-    // Validate that each supplied array is actually an array of objects.
-    for (const t of IMPORT_TYPES) {
-      if (payload[t] !== undefined) {
-        if (!Array.isArray(payload[t])) {
-          res.status(400).json({ error: `'${t}' must be an array` });
-          return;
-        }
-      }
-    }
-
-    const results: Record<ImportType, { inserted: number; updated: number; errors: number }> = {
-      memories: { inserted: 0, updated: 0, errors: 0 },
-      entities: { inserted: 0, updated: 0, errors: 0 },
-      edges: { inserted: 0, updated: 0, errors: 0 },
-      chrono: { inserted: 0, updated: 0, errors: 0 },
-      files: { inserted: 0, updated: 0, errors: 0 },
-    };
-
-    for (const t of IMPORT_TYPES) {
-      const docs: unknown[] = Array.isArray(payload[t]) ? payload[t] : [];
-      if (docs.length === 0) continue;
-
-      const collName = `${spaceId}_${t}`;
-      const result = results[t];
-
-      for (const doc of docs) {
-        if (!doc || typeof doc !== 'object' || !('_id' in doc) || typeof (doc as Record<string, unknown>)['_id'] !== 'string') {
-          result.errors++;
-          continue;
-        }
-        // Extract and coerce the _id to a plain string to prevent any operator injection.
-        const docId = String((doc as Record<string, unknown>)['_id']);
-        try {
-          // Re-tag the document to the TARGET space.
-          //
-          // The export embeds the source space's id in every document, and the read paths
-          // filter on that field (listEntities, listEdges, listChrono, entity lookup-by-name,
-          // the edge-dedup lookup). Importing space A's export into space B while keeping
-          // `spaceId: "A"` writes documents that are counted but INVISIBLE to every list —
-          // the import looks like it worked, and the data appears to be missing. The
-          // collection name is the only real scope, so a document we write into
-          // `{spaceId}_*` belongs to `spaceId` by definition.
-          const retagged = { ...(doc as Record<string, unknown>), spaceId };
-          const r = await col(collName).replaceOne(
-            asFilter({ _id: docId }),
-            asDoc(retagged),
-            { upsert: true },
-          );
-          if (r.upsertedCount > 0) {
-            result.inserted++;
-          } else {
-            result.updated++;
-          }
-        } catch {
-          result.errors++;
-        }
-      }
-    }
-
-    log.info(
-      `Import into space '${spaceId}': ` +
-      IMPORT_TYPES.map(t => `${t}: +${results[t].inserted} ~${results[t].updated} !${results[t].errors}`).join(', '),
-    );
-    res.json({ spaceId, results });
+    res.json(await importDocuments(spaceId, payload));
   });
 
   // ── Admin: config reload ───────────────────────────────────────────────────────────────

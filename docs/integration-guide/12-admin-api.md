@@ -134,7 +134,41 @@ Each document must have a string `_id`. Documents with an existing `_id` in the 
 }
 ```
 
-> After importing, run `POST /api/brain/spaces/:spaceId/reindex` to rebuild embedding vectors.
+**A document that breaks the space's schema is STORED, and reported.** It is not refused: a backup taken before
+a schema change would be rejected by the instance's own current rules, which would make backups unrestorable —
+the very thing an import exists for. This is the same answer sync gives on the same kind of payload, and for the
+same reason.
+
+Each affected collection carries a `schemaViolations` array naming the documents and what was wrong with each:
+
+```json
+"entities": {
+  "inserted": 3, "updated": 1, "errors": 0,
+  "schemaViolations": [
+    { "_id": "e1b2c3d4-...", "violations": [ { "field": "owner", "value": null, "reason": "required property missing" } ] }
+  ]
+}
+```
+
+Per record rather than a count, deliberately: a number tells you something in a 50 000-record restore is wrong
+and nothing about which one. The array is absent when there is nothing to report.
+
+**Imported records are queued for embedding.** Until 3.7 they were not — a restored backup was stored and
+invisible to meaning-ranked search until somebody ran a reindex they were never told they needed. The import
+now writes through the same function the sync ingest does, which writes and enqueues in one call. A reindex is
+still the tool for rebuilding vectors after an embedding-model change; it is no longer required to make an
+import searchable at all.
+
+**Two things an import deliberately does NOT do**, both of which sync does:
+
+- **It does not reallocate `seq`.** An exported document keeps the one it had, so a restored instance and its
+  peers still agree about which copy of a record is newer.
+- **It does not check tombstones.** Sync refuses a document whose id has been deleted, so a lagging peer cannot
+  resurrect it. A restore is the one case where resurrection is the point — but a record deleted *after* the
+  backup will come back, and the tombstone will remove it again on the next sync with a peer that still holds
+  one.
+
+**Files are stored without schema validation**, because a file has no `type` and therefore no type schema.
 
 ---
 

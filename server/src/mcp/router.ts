@@ -10,7 +10,6 @@ import { getConfig } from '../config/loader.js';
 import { log, currentRequestId } from '../util/log.js';
 import { reachesSpace } from '../auth/space-reach.js';
 import { toolRightsRefusal, spaceAdminRefusal } from './tool-rights-guard.js';
-import { legacySpacesOf } from '../auth/legacy-spaces.js';
 import type { TokenRights } from '../config/rights-shape.js';
 import { memberSpacesWithin } from '../spaces/proxy-scoped.js';
 import { classifyReadFailure } from '../brain/store-failure.js';
@@ -60,7 +59,7 @@ function tokenRights(record: unknown): TokenRights | undefined {
  * BY NO TOOL. Every mutating decision asks the rights matrix instead: `canWriteAnywhere` for visibility,
  * `effectiveRung` per call. Deleting the field is what makes that provable rather than merely true today.
  */
-function createGlobalMcpServer(tokenSpaces?: string[], tokenId?: string, tokenLabel?: string,
+function createGlobalMcpServer(tokenId?: string, tokenLabel?: string,
   audit?: { ip: string; authMethod: 'pat' | 'oidc' | null; oidcSubject: string | null; transport: 'http' },
   rights?: TokenRights): Server {
   const cfg = getConfig();
@@ -82,7 +81,7 @@ function createGlobalMcpServer(tokenSpaces?: string[], tokenId?: string, tokenLa
   // done here, because rewriting the signature and every use of the five it replaces is a bigger diff than the
   // correctness fix it would be hiding inside.
   const accessibleSpaces = cfg.spaces.filter(s => (
-    rights ? reachesSpace(rights, s.id) : !tokenSpaces || tokenSpaces.includes(s.id)
+    rights ? reachesSpace(rights, s.id) : false
   ));
   const accessibleSpaceIds = accessibleSpaces.map(s => s.id);
   const spacesLine = accessibleSpaces.length > 0
@@ -203,9 +202,6 @@ function createGlobalMcpServer(tokenSpaces?: string[], tokenId?: string, tokenLa
       if (!cfg.spaces.some(s => s.id === rawSpace)) {
         return { content: [{ type: 'text' as const, text: `Error: Space '${rawSpace}' not found` }], isError: true };
       }
-      if (tokenSpaces && !tokenSpaces.includes(rawSpace)) {
-        return { content: [{ type: 'text' as const, text: `Error: token does not have access to space '${rawSpace}'` }], isError: true };
-      }
       // Proxy scope check, mirroring `enforceSpaceScope` on the REST layer — and it has to keep mirroring it, or the
       // two surfaces answer one question differently, which is the defect #786 fixed one layer up.
       //
@@ -267,7 +263,6 @@ function createGlobalMcpServer(tokenSpaces?: string[], tokenId?: string, tokenLa
         cfg,
         accessibleSpaces,
         accessibleSpaceIds,
-        tokenSpaces,
         // Populated, not merely declared. `toolIsVisible(t, undefined)` hides every mutating and admin
         // tool, so an unpopulated `rights` here would empty `help`'s listing while `tools/list` stayed
         // correct — the two disagreeing again, in the one mechanism built to stop that.
@@ -370,7 +365,7 @@ mcpRouter.post('/messages', globalRateLimit, (_req, res) => {
 // This transport requires no persistent connection and works through standard HTTP proxies.
 mcpRouter.post('/', globalRateLimit, async (req, res) => {
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-  const server = createGlobalMcpServer(legacySpacesOf(req.authToken), req.authToken?.id, req.authToken?.name,
+  const server = createGlobalMcpServer(req.authToken?.id, req.authToken?.name,
     { ip: req.ip ?? '', authMethod: auditAuthMethod(req.authToken), oidcSubject: auditOidcSubject(req.authToken), transport: 'http' }, tokenRights(req.authToken));
   // Register cleanup before handling the request so it fires regardless of outcome.
   res.on('close', () => {

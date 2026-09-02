@@ -42,19 +42,23 @@ import type { TokenRights } from '../config/rights-shape.js';
  * the caller already has it, and taking it as an argument is what lets the subset property be checked against the
  * same list the read path will fan out over.
  *
- * **Legacy fallback matches `enforceSpaceScope` exactly.** A record with no `rights` is an OIDC-derived token,
- * built per request and never seen by the config backfill, so it is filtered by its `spaces` allowlist instead.
- * A record with neither is unrestricted and reaches everything — the same answer both other call sites give, and
- * the reason this is a `?? undefined` check rather than a truthiness one: `spaces: []` must not read as unscoped.
+ * **No matrix reaches no member, and that reversed in 4.0.** This took a `legacySpaces` allowlist and used it
+ * when `rights` was absent, on the stated grounds that an OIDC-derived token is built per request and never
+ * seen by the config backfill. That reason expired: the OIDC path derives a matrix per request through the same
+ * `migrateToken` the migration uses, so no record without one reaches a handler at all
+ * (`a-token-without-a-matrix-reaches-nothing.test.js` establishes it).
+ *
+ * What the fallback did in the meantime was fail OPEN — a record with neither piece of scope information
+ * reached every member — which is the one answer a proxy lens must not give, since a proxy can span the whole
+ * instance. Failing closed here is safe for the same reason it is safe in `spaceTargets`: narrowing to nothing
+ * is not access, and the reach guard owns that refusal.
  */
 export function memberSpacesForToken(
   rights: TokenRights | undefined,
-  legacySpaces: string[] | undefined,
   allMembers: string[],
 ): string[] {
-  if (rights) return allMembers.filter(id => reachesSpace(rights, id));
-  if (legacySpaces === undefined) return [...allMembers];
-  return allMembers.filter(id => legacySpaces.includes(id));
+  if (!rights) return [];
+  return allMembers.filter(id => reachesSpace(rights, id));
 }
 
 /**
@@ -70,21 +74,12 @@ export function narrowsOnly(narrowed: string[], allMembers: string[]): boolean {
   return narrowed.every(id => all.has(id)) && new Set(narrowed).size === narrowed.length;
 }
 
-/**
- * Whether the token may use this proxy at all.
+/*
+ * `mayUseProxy` was here and is DELETED, not re-pointed.
  *
- * Reaching **one** member is enough — that is the whole point of the change, and it is why this cannot be folded
- * into `memberSpacesForToken`: "may I use it" and "what do I see" are different questions, and a caller that
- * conflates them ends up treating an empty result as an error on a non-proxy space.
- *
- * An empty proxy — a `proxyFor` list whose members have all been deleted — reaches nothing and is refused. That is
- * the correct answer rather than an edge case to smooth over: a lens over nothing should not answer `200` with an
- * empty body, because the caller cannot tell that from a space they simply cannot see into.
+ * It had no caller. What it expressed — a proxy is usable when the token reaches AT LEAST ONE member, and an
+ * empty proxy is refused rather than answered with nothing — is implemented by the two paths that run: the
+ * MCP dispatcher refuses when `memberSpacesWithin(...)` comes back empty, and `spaceTargets` hands the
+ * original space back so the reach guard answers. A rule with three implementations and one caller is the
+ * shape this change reduces, and a function kept alive by its own test is how it survives.
  */
-export function mayUseProxy(
-  rights: TokenRights | undefined,
-  legacySpaces: string[] | undefined,
-  allMembers: string[],
-): boolean {
-  return memberSpacesForToken(rights, legacySpaces, allMembers).length > 0;
-}

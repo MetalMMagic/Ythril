@@ -54,7 +54,7 @@ const collectionFor = (spaceId: string) => col<ContradictionCandidateDoc>(`${spa
  */
 function accessibleSpaces(req: { authToken?: unknown }, needs: Rung = 'read'): string[] {
   const t = req.authToken as { rights?: TokenRights; spaces?: string[] } | undefined;
-  return spacesWhereTokenMay(t?.rights, t?.spaces, 'dataQuality', needs);
+  return spacesWhereTokenMay(t?.rights, 'dataQuality', needs);
 }
 
 function toRecord(c: ContradictionCandidateDoc) {

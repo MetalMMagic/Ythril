@@ -547,6 +547,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A token record with no rights matrix reached EVERY space. It now reaches none.** "Which spaces may this
+  token see" had two implementations: the rights matrix, and the pre-3.0 `spaces` allowlist as a fallback for
+  a record that had no matrix. Each was correct on its own — the fallback's rule was explicitly that an
+  ABSENT allowlist means every space and an EMPTY one means none, never length-as-truthiness.
+
+  Composed, they made the answer **fail-open**: no matrix *and* no allowlist returned every space in the
+  instance. That is defensible as "a legacy token is unrestricted" and not defensible as the answer to "this
+  record carries no scope information at all", which is what the case had become. The reach helper did it,
+  the space guard did it, the proxy lens did it, and the MCP dispatcher did it.
+
+  **The fallback was also unreachable, which is why it could go rather than merely be reordered.** There is
+  one place a record is attached to a request and one place a bearer resolves into one, with two branches:
+  `createToken` always writes a matrix and the boot backfill derives one in memory for anything stored
+  without one, and the OIDC path derives one per request through the same `migrateToken` the migration uses.
+  A new gate asserts each of those, because "cannot happen" is worth exactly what the thing preventing it is
+  worth.
+
+  Every one of those arms cited the same justification — *"OIDC tokens are built per request and never reach
+  the config backfill, so removing this would refuse them all"* — and that stopped being true when the OIDC
+  path gained a derived matrix. The branch served nobody, and what it did meanwhile was fail open.
+
+  **One arm was worse than dead.** The MCP dispatcher also checked `if (tokenSpaces && !tokenSpaces.includes(
+  space))` on EVERY call, matrix or not — the belt-and-braces `&&` its own gate forbids in the filter one
+  screen away. Harmless while the array agreed with the matrix derived from it, and a silent refusal of
+  access the matrix GRANTS from the moment a token is edited through the rights editor.
+
+  The legacy fields are not removed — they are still on the record type, still written, still returned by the
+  tokens API. What is gone is their last use as a scoping input. `auth/legacy-spaces.ts` is deleted with
+  them, along with `mayUseProxy`, which had no caller and was a third statement of a rule two live paths
+  already implement.
+
 - **A translation key defined twice used the wrong one, silently.** `JSON.parse` keeps the last of two
   identical keys and reports nothing, so the file parses, the key count looks right, and the reader sees the
   other definition's text. A check now reads the locale files as TEXT rather than as parsed objects, because

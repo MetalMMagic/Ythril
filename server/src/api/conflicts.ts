@@ -27,7 +27,7 @@ type ResolveAction = typeof VALID_ACTIONS[number];
  */
 function accessibleSpaces(req: { authToken?: unknown }, needs: Rung = 'read'): string[] {
   const t = req.authToken as { rights?: TokenRights; spaces?: string[] } | undefined;
-  return spacesWhereTokenMay(t?.rights, t?.spaces, 'dataQuality', needs);
+  return spacesWhereTokenMay(t?.rights, 'dataQuality', needs);
 }
 
 /** Find a conflict document across accessible spaces. Returns doc + spaceId, or null. */

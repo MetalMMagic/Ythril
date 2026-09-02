@@ -290,15 +290,23 @@ export class QueryTabComponent {
    *  for the entities and edges tabs. */
   viewInGraph = output<string>();
 
+  /*
+   * Every default here is either the SERVER's default or a value that means "say nothing", and that is the
+   * whole design of this object: a form whose defaults differ from the route's would put a decision nobody
+   * made into every request.
+   *
+   * So the zeros are not laziness. `depth: 0` is no expansion, `maxTimeMS: 0` is not a legal deadline,
+   * `maxBytes`/`maxChars`/`maxTokens: 0` mean "use the instance default" against server floors of 1000 and 1,
+   * and `skip: 0` is the first page. None of them can be mistaken for a number an operator chose, and none is
+   * sent. `direction: ''` is the same idea for a string: the server picks unless somebody says.
+   */
   recallForm: RecallFormState = {
-    query: '', topK: 10, minScore: 0, filter: '', tags: '', type: '',
+    query: '', topK: 10, minScore: 0, filter: '', projection: '', tags: '', type: '',
     maxPerType: 0, includeFreshWrites: false, includeContent: true, includeDiagnostics: false,
-    // Both 0 = "don't send it". `traverse: 0` is also the server default (no expansion), and `maxTimeMS: 0`
-    // is not a legal deadline, so neither zero can be mistaken for a value the operator chose.
-    traverse: 0, maxTimeMS: 0,
-    // Same rule: 0 means "use the instance default". The server's own floor is 1000, so zero could never be a
-    // ceiling an operator chose either.
-    maxBytes: 0,
+    depth: 0, edgeLabels: '', direction: '',
+    includeChrono: false, includeMemories: false, includeFiles: false,
+    maxTimeMS: 0, maxBytes: 0, maxChars: 0, maxTokens: 0, charsPerToken: 0,
+    skip: 0, remainderDump: false,
   };
 
   /**
@@ -421,6 +429,31 @@ export class QueryTabComponent {
       }
     }
 
+    /*
+     * `projection` is parsed here for the same reason and by the same rule as the filter: an object or
+     * nothing, and a typo is a form error rather than a 400.
+     *
+     * Its own reason for existing is narrower than the filter's, and worth stating because getting it wrong
+     * is invisible: a projection that omits the field an operator is reading gives them a result that looks
+     * complete and is missing the answer. The API accepts exclusions too, which is why the control is a JSON
+     * object and not a field list.
+     */
+    let projection: Record<string, unknown> | undefined;
+    const rawProjection = this.recallForm.projection.trim();
+    if (rawProjection) {
+      try {
+        const parsed = JSON.parse(rawProjection) as unknown;
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          this.recallError.set(this.transloco.translate('brain.query.projectionMustBeObject'));
+          return;
+        }
+        projection = parsed as Record<string, unknown>;
+      } catch {
+        this.recallError.set(this.transloco.translate('brain.query.projectionInvalidJson'));
+        return;
+      }
+    }
+
     // The "filter by type" dropdown (F5) is a friendly shortcut for
     // filter:{type:{eq}}; it merges into (and overrides the `type` key of) any
     // hand-written JSON filter above.
@@ -440,6 +473,34 @@ export class QueryTabComponent {
       .split(',')
       .map(t => t.trim())
       .filter(t => t.length > 0);
+
+    const edgeLabels = this.recallForm.edgeLabels
+      .split(',')
+      .map(t => t.trim())
+      .filter(t => t.length > 0);
+
+    /*
+     * The traversal, as an OBJECT rather than a bare number.
+     *
+     * It was a number, which reached the depth and nothing else — so `direction`, `edgeLabels` and the three
+     * `include*` flags were unreachable from this panel however the rest of the request was written. The
+     * route accepts either shape, so this is a widening of what the form can say and not a change to what
+     * the same form said before: a depth alone still sends `{ depth: n }`, which the route reads identically.
+     *
+     * Still omitted entirely at depth 0, which is the server default. And each qualifier is sent only when
+     * it says something: an empty direction lets the route pick, an empty label list means every label, and
+     * the three flags are sent only when on, exactly like their top-level neighbours.
+     */
+    const traverse = this.recallForm.depth > 0
+      ? {
+          depth: this.recallForm.depth,
+          ...(this.recallForm.direction ? { direction: this.recallForm.direction } : {}),
+          ...(edgeLabels.length ? { edgeLabels } : {}),
+          ...(this.recallForm.includeChrono ? { includeChrono: true } : {}),
+          ...(this.recallForm.includeMemories ? { includeMemories: true } : {}),
+          ...(this.recallForm.includeFiles ? { includeFiles: true } : {}),
+        }
+      : undefined;
 
     this.recallRunning.set(true);
     this.recallError.set('');
@@ -464,9 +525,25 @@ export class QueryTabComponent {
       // switched it ON sends it. Sending `false` explicitly would put a parameter in every request that
       // means exactly what its absence means.
       ...(this.recallForm.includeDiagnostics ? { includeDiagnostics: true } : {}),
-      ...(this.recallForm.traverse > 0 ? { traverse: this.recallForm.traverse } : {}),
+      ...(traverse ? { traverse } : {}),
+      ...(projection ? { projection } : {}),
       ...(this.recallForm.maxTimeMS > 0 ? { maxTimeMS: this.recallForm.maxTimeMS } : {}),
+      // The size ceiling in all four of its units. Sending more than one is legal and the server applies
+      // whichever is SMALLEST — the reason the form now offers all of them rather than one is that
+      // characters and bytes are not the same thing outside ASCII, which was a real bug (B-1), and tokens is
+      // the unit an agent's budget is written in.
       ...(this.recallForm.maxBytes > 0 ? { maxBytes: this.recallForm.maxBytes } : {}),
+      ...(this.recallForm.maxChars > 0 ? { maxChars: this.recallForm.maxChars } : {}),
+      ...(this.recallForm.maxTokens > 0 ? { maxTokens: this.recallForm.maxTokens } : {}),
+      // Only with a token ceiling: on its own it converts nothing, and the control is hidden for the same
+      // reason. Sent as a bare number so a 0 cannot reach a divisor.
+      ...(this.recallForm.maxTokens > 0 && this.recallForm.charsPerToken > 0
+        ? { charsPerToken: this.recallForm.charsPerToken } : {}),
+      // `skip: 0` is the first page and the server's default, so it says nothing and is not sent.
+      ...(this.recallForm.skip > 0 ? { skip: this.recallForm.skip } : {}),
+      // The only WRITE this form can perform: it puts the matches that did not fit into the space as a JSON
+      // file. Sent only when asked, like every other opt-in flag here.
+      ...(this.recallForm.remainderDump ? { remainderDump: true } : {}),
     }).subscribe({
       // Flattened on arrival: `traverse > 0` returns each item wrapped in an envelope, and the grouping and
       // rendering below both read the record's own fields directly.

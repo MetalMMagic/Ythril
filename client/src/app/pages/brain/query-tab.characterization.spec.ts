@@ -113,11 +113,13 @@ describe('QueryTabComponent — the recall request (characterization for U-1)', 
     expect(sent[0]['maxTimeMS']).toBeUndefined();
     expect(sent[0]['maxBytes']).toBeUndefined();
 
-    c.recallForm.traverse = 2;
+    c.recallForm.depth = 2;
     c.recallForm.maxTimeMS = 8000;
     c.recallForm.maxBytes = 50_000;
     c.runRecall();
-    expect(sent[1]['traverse']).toBe(2);
+    // A deliberate edit: this asserted the bare number 2. The traversal is an OBJECT since U-1, because
+    // the number reached the depth and left five other traversal parameters unreachable.
+    expect(sent[1]['traverse']).toEqual({ depth: 2 });
     expect(sent[1]['maxTimeMS']).toBe(8000);
     expect(sent[1]['maxBytes']).toBe(50_000);
   });

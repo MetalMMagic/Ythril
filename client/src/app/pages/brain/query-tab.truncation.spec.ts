@@ -127,17 +127,31 @@ describe('the size ceiling is reachable from the form', () => {
     expect(api).toMatch(/maxBytes\?: number;/);
   });
 
-  it('and NOT maxTokens — one ceiling, one control', () => {
+  it('and the other three units as well — the ceiling is one number in four currencies', () => {
     /*
-     * `maxTokens` is a convenience onto the same number and the server applies whichever of the two is smaller.
-     * Offering both in a UI lets an operator set two limits and then have to work out which one won, which is a
-     * worse interface than offering one.
+     * **This assertion was the opposite, and the edit is deliberate.** It required `maxTokens` to be ABSENT,
+     * because offering two overlapping numbers would make an operator work out which one won.
+     *
+     * That was right about two numbers with no stated rule and wrong as a conclusion. The server applies
+     * whichever ceiling is SMALLEST, so the honest answer is to say that once and offer all four rather than
+     * to hide three quarters of the parameter — which is what the owner's `U-1` instruction asks for in as
+     * many words: *"one input field for EACH AND EVERY available option a recall has."*
+     *
+     * And bytes and characters are not interchangeable: treating them as one number ran a German or Polish
+     * space about a quarter over its limit, which was a real bug (B-1). A UI that offers only bytes cannot
+     * express the ceiling those operators actually want.
      */
-    expect(api).not.toMatch(/maxTokens\?: number;/);
-    // The FORM must not carry it and the REQUEST must not send it. Asserted on those two rather than on the bare
-    // name, which also appears in the comment explaining why there is one control.
-    expect(component).not.toMatch(/recallForm\.maxTokens/);
-    expect(component).not.toMatch(/maxTokens:/);
+    for (const unit of ['maxBytes', 'maxChars', 'maxTokens', 'charsPerToken']) {
+      expect(api).toMatch(new RegExp(`${unit}\\?: number;`));
+      expect(component).toMatch(new RegExp(`recallForm\\.${unit}`));
+    }
+    // And the one dependency between them is enforced rather than merely documented: charsPerToken
+    // converts a token ceiling, so it is sent only when there is one.
+    //
+    // The first version of this line asserted that the source SAYS the server applies the smallest
+    // ceiling — and `api` here is comment-STRIPPED, so it was asking for a fact that only exists in a
+    // comment. A rule a caller reads is documentation; a rule a gate holds has to be behaviour.
+    expect(component).toMatch(/maxTokens > 0 && this\.recallForm\.charsPerToken > 0/);
   });
 
   it('the form has the control, bound and defaulted to "unset"', () => {

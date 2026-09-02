@@ -5,21 +5,48 @@ import { TranslocoPipe } from '@jsverse/transloco';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import type { RecallKnowledgeType } from '../../core/api.types';
 
-/** The recall form's state, mutated IN PLACE by the controls. The host owns it and decides when it runs. */
+/**
+ * The recall form's state, mutated IN PLACE by the controls. The host owns it and decides when it runs.
+ *
+ * **Every parameter `recall` accepts has a field here except `space`**, which the panel takes from the page it
+ * is opened on — a selector would let a search run against a space the page is not showing and then render
+ * the results under this one's name. `query-panel-offers-every-recall-parameter.test.js` derives the list from
+ * the tool's own schema and fails while one is unreachable, so a parameter added to `recall` fails until this
+ * interface catches up.
+ *
+ * The names are the API's, with one exception that is worth knowing: **`depth` was called `traverse`** while
+ * the panel sent the traversal as a bare number. It is an object now, so the field is the object's field.
+ */
 export interface RecallFormState {
   query: string;
   topK: number;
   minScore: number;
   filter: string;
+  /** A JSON object, like `filter`, and for the same reason: the API takes an object and a field list is less. */
+  projection: string;
   tags: string;
   type: string;
   maxPerType: number;
   includeFreshWrites: boolean;
   includeContent: boolean;
   includeDiagnostics: boolean;
-  traverse: number;
+  /** How far to walk. 0 means no expansion, which is the server default, so it is not sent. */
+  depth: number;
+  /** Comma-separated, like `tags`. Empty means every label. */
+  edgeLabels: string;
+  /** Empty means "do not say" — the server picks. */
+  direction: '' | 'outbound' | 'inbound' | 'both';
+  includeChrono: boolean;
+  includeMemories: boolean;
+  includeFiles: boolean;
   maxTimeMS: number;
   maxBytes: number;
+  maxChars: number;
+  maxTokens: number;
+  charsPerToken: number;
+  skip: number;
+  /** WRITES A FILE into the space. The control has to say so, which is why it is not just another checkbox. */
+  remainderDump: boolean;
 }
 
 /** One row of the per-type restriction: ticked or not, with an optional guaranteed minimum. */
@@ -57,13 +84,25 @@ export interface RecallTypeOpt {
  *
  * - **the question** — what to look for, and which records are eligible at all;
  * - **ranking** — how many come back and how good they have to be;
- * - **the graph** — how far to walk from a hit;
- * - **the answer** — the size and time ceilings, and what the envelope carries.
+ * - **the graph** — the traversal, which is six parameters that only mean anything together;
+ * - **the answer** — the time limit and what the envelope carries;
+ * - **size** — the ceiling in its four units, the page offset, and the remainder dump.
  *
- * They sit in a grid that reflows by available width rather than in one stacked column, so the whole form is
- * visible at once on a normal screen. The question spans the full width because it is the only field that is
- * always used, and `traverse` sits next to nothing else on purpose: `U-1`'s next change turns it into six
- * controls, and this is the space they go in.
+ * They reflow by available width rather than in one stacked column, so the whole form is visible at once on
+ * a normal screen. The question spans the full width because it is the only field always used.
+ *
+ * ## Two groups reveal their own detail, and that is not a disclosure
+ *
+ * The five traversal qualifiers appear once the depth is above 0, and `charsPerToken` once there is a token
+ * ceiling for it to convert. The difference from a Show-advanced button is who opened it: the operator did,
+ * by asking for hops or for a token budget. A control that cannot affect the request yet is not hidden — it
+ * does not exist yet.
+ *
+ * ## Every parameter, and the one that is deliberately absent
+ *
+ * `space` has no control and never will: the panel is opened ON a space, and a selector would let a search
+ * run against a different one and render its results under this space's name. The parity gate carries that
+ * as its one PERMANENT exemption; every other row in it is now gone.
  *
  * NOTE: no backticks anywhere in this template, including comments. One ends the template string and the
  * error then points at @Component rather than at the line.
@@ -83,7 +122,11 @@ export interface RecallTypeOpt {
        the boxes came back at x=252/498/743 with the row ending at 1468. A flex basis of 230px makes the three
        share whatever there is and wrap only when 230 stops fitting. */
     .rf-row { display:flex; flex-wrap:wrap; gap:12px; align-items:stretch; margin-top:12px; }
-    .rf-row > .rf-group { flex:1 1 230px; min-width:0; }
+    /* Grows to share the row, and STOPS at 420. Both halves were measured on a real screen: without the
+       grow, four groups left 40% of a 1216px row empty; without the cap, the fourth group wrapping at
+       760px became a 700px-wide row of number fields on its own. A gap beside a lone group is a worse
+       use of space than a 700px box for a 4-digit number is a control. */
+    .rf-row > .rf-group { flex:1 1 230px; min-width:0; max-width:420px; }
     .rf-wide { grid-column:1 / -1; }
     .rf-group { border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px 12px; min-width:0; }
     .rf-legend { font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:var(--text-muted);
@@ -94,10 +137,12 @@ export interface RecallTypeOpt {
     .rf-field:last-child { margin-bottom:0; }
     .rf-field > label { display:block; font-size:11px; color:var(--text-dim); margin-bottom:3px; }
     .rf-field input[type=text], .rf-field input[type=number], .rf-field select, .rf-field textarea { width:100%; }
-    .rf-check { display:flex; align-items:center; gap:6px; font-size:12px; cursor:pointer; margin:0 0 6px;
-      text-transform:none; }
+    /* flex-start, not center: three of these labels wrap to two lines in a narrow column, and a checkbox
+       centred against two lines of text sits between them rather than beside the first word. */
+    .rf-check { display:flex; align-items:flex-start; gap:6px; font-size:12px; cursor:pointer;
+      margin:0 0 6px; text-transform:none; }
     .rf-check:last-child { margin-bottom:0; }
-    .rf-check input { margin:0; }
+    .rf-check input { margin:2px 0 0; flex:0 0 auto; }
     .rf-types { display:flex; flex-wrap:wrap; gap:10px; }
     .rf-type { display:inline-flex; align-items:center; gap:4px; font-size:12px; }
     .rf-type input[type=number] { width:52px; }
@@ -139,6 +184,17 @@ export interface RecallTypeOpt {
         <label>{{ 'brain.query.filter' | transloco }}</label>
         <textarea [(ngModel)]="form().filter" name="recallFilter" rows="2"
           [placeholder]="'brain.query.filter.placeholder' | transloco"
+          style="font-family:var(--font-mono, monospace); font-size:12px;"></textarea>
+      </div>
+      <!-- A JSON object like the filter above, deliberately, and not a comma-separated field list: the API
+           takes an object and can exclude as well as include, so a field list would be a control that looks
+           complete and cannot express half of what the parameter does. -->
+      <div class="rf-field rf-wide">
+        <label>{{ 'brain.query.projection' | transloco }}
+          <span class="rf-hint" [attr.title]="'brain.query.projection.tooltip' | transloco"><ph-icon name="info" [size]="11"/></span>
+        </label>
+        <textarea [(ngModel)]="form().projection" name="recallProjection" rows="2"
+          [placeholder]="'brain.query.projection.placeholder' | transloco"
           style="font-family:var(--font-mono, monospace); font-size:12px;"></textarea>
       </div>
     </div>
@@ -189,16 +245,52 @@ export interface RecallTypeOpt {
     </div>
   </div>
 
-  <!-- The graph. One control today; U-1's next change makes it six, and this is where they go. -->
+  <!-- The graph, which is the traversal OBJECT: six parameters that only mean anything together. Sending
+       the walk as a bare number reached the depth and nothing else, so five of these were unreachable from
+       the UI however the request was written by hand. -->
   <div class="rf-group">
     <div class="rf-legend">{{ 'brain.query.group.graph' | transloco }}</div>
     <div class="rf-field">
       <label>{{ 'brain.query.traverse' | transloco }}
         <span class="rf-hint" [attr.title]="'brain.query.traverse.tooltip' | transloco"><ph-icon name="info" [size]="11"/></span>
       </label>
-      <input type="number" [(ngModel)]="form().traverse" name="recallTraverse" min="0" max="5"
+      <input type="number" [(ngModel)]="form().depth" name="recallTraverse" min="0" max="5"
         [placeholder]="'brain.query.traverse.none' | transloco" />
     </div>
+    <!-- Everything below qualifies the walk, so it is dead weight at depth 0 — shown only once there is a
+         walk to qualify. Not a disclosure: the operator opened it by asking for hops. -->
+    @if (form().depth > 0) {
+      <div class="rf-field">
+        <label>{{ 'brain.query.direction' | transloco }}
+          <span class="rf-hint" [attr.title]="'brain.query.direction.tooltip' | transloco"><ph-icon name="info" [size]="11"/></span>
+        </label>
+        <select [(ngModel)]="form().direction" name="recallDirection">
+          <option value="">{{ 'brain.query.direction.default' | transloco }}</option>
+          <option value="outbound">{{ 'brain.query.direction.outbound' | transloco }}</option>
+          <option value="inbound">{{ 'brain.query.direction.inbound' | transloco }}</option>
+          <option value="both">{{ 'brain.query.direction.both' | transloco }}</option>
+        </select>
+      </div>
+      <div class="rf-field">
+        <label>{{ 'brain.query.edgeLabels' | transloco }}
+          <span class="rf-hint" [attr.title]="'brain.query.edgeLabels.tooltip' | transloco"><ph-icon name="info" [size]="11"/></span>
+        </label>
+        <input type="text" [(ngModel)]="form().edgeLabels" name="recallEdgeLabels"
+          [placeholder]="'brain.query.edgeLabels.placeholder' | transloco" />
+      </div>
+      <label class="rf-check">
+        <input type="checkbox" [(ngModel)]="form().includeChrono" name="recallIncludeChrono" />
+        <span>{{ 'brain.query.includeChrono' | transloco }}</span>
+      </label>
+      <label class="rf-check">
+        <input type="checkbox" [(ngModel)]="form().includeMemories" name="recallIncludeMemories" />
+        <span>{{ 'brain.query.includeMemories' | transloco }}</span>
+      </label>
+      <label class="rf-check">
+        <input type="checkbox" [(ngModel)]="form().includeFiles" name="recallIncludeFiles" />
+        <span>{{ 'brain.query.includeFiles' | transloco }}</span>
+      </label>
+    }
   </div>
 
   <!-- The answer: the two ceilings, and what the envelope carries. -->
@@ -236,6 +328,59 @@ export interface RecallTypeOpt {
       <span>{{ 'brain.query.includeFreshWrites' | transloco }}</span>
       <span class="rf-hint" [attr.title]="'brain.query.includeFreshWrites.tooltip' | transloco"><ph-icon name="info" [size]="11"/></span>
     </label>
+  </div>
+
+  <!-- The size ceiling in its other three units, and the page control.
+       The comment above the byte ceiling used to say offering more than one unit would make an operator
+       work out which won. That was right about TWO overlapping numbers and wrong as a rule: the server
+       applies whichever is SMALLEST, so the honest fix is to say so once here rather than to hide two thirds
+       of the parameter. Characters and bytes are not the same thing in a German or Polish space — that was
+       B-1, a real bug — and tokens is the unit an agent budget is actually written in. -->
+  <div class="rf-group">
+    <div class="rf-legend">{{ 'brain.query.group.size' | transloco }}</div>
+    <div class="rf-field">
+      <label>{{ 'brain.query.maxChars' | transloco }}
+        <span class="rf-hint" [attr.title]="'brain.query.maxChars.tooltip' | transloco"><ph-icon name="info" [size]="11"/></span>
+      </label>
+      <input type="number" [(ngModel)]="form().maxChars" name="recallMaxChars" min="0" step="1000"
+        [placeholder]="'brain.query.recallMaxBytes.default' | transloco" />
+    </div>
+    <div class="rf-field">
+      <label>{{ 'brain.query.maxTokens' | transloco }}
+        <span class="rf-hint" [attr.title]="'brain.query.maxTokens.tooltip' | transloco"><ph-icon name="info" [size]="11"/></span>
+      </label>
+      <input type="number" [(ngModel)]="form().maxTokens" name="recallMaxTokens" min="0" step="100"
+        [placeholder]="'brain.query.recallMaxBytes.default' | transloco" />
+    </div>
+    <!-- Only means anything with a token ceiling, so it appears with one rather than sitting there as a
+         number with no stated effect. -->
+    @if (form().maxTokens > 0) {
+      <div class="rf-field">
+        <label>{{ 'brain.query.charsPerToken' | transloco }}
+          <span class="rf-hint" [attr.title]="'brain.query.charsPerToken.tooltip' | transloco"><ph-icon name="info" [size]="11"/></span>
+        </label>
+        <input type="number" [(ngModel)]="form().charsPerToken" name="recallCharsPerToken" min="0" step="0.1" />
+      </div>
+    }
+    <div class="rf-field">
+      <label>{{ 'brain.query.skip' | transloco }}
+        <span class="rf-hint" [attr.title]="'brain.query.skip.tooltip' | transloco"><ph-icon name="info" [size]="11"/></span>
+      </label>
+      <input type="number" [(ngModel)]="form().skip" name="recallSkip" min="0" />
+    </div>
+    <!-- The only control on this form that WRITES, so it says so on the face rather than in a tooltip: it
+         puts a JSON file into the space and that file is downloadable for a day. A checkbox that looks like
+         its three read-only neighbours would be the dishonest version. -->
+    <label class="rf-check">
+      <input type="checkbox" [(ngModel)]="form().remainderDump" name="recallRemainderDump" />
+      <span>{{ 'brain.query.remainderDump' | transloco }}</span>
+      <span class="rf-hint" [attr.title]="'brain.query.remainderDump.tooltip' | transloco"><ph-icon name="info" [size]="11"/></span>
+    </label>
+    @if (form().remainderDump) {
+      <div class="sch-msg" style="font-size:11px; color:var(--text-dim); margin-top:4px;">
+        {{ 'brain.query.remainderDump.writes' | transloco }}
+      </div>
+    }
   </div>
 </div>
 

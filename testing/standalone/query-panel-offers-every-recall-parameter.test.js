@@ -26,9 +26,13 @@
  * ## And it reads the REQUEST, not the form
  *
  * What matters is whether the panel can express a parameter, not what its control is called. The form field
- * for traversal depth is `recallForm.traverse` and sends the API's `traverse` as a number; asserting on
- * control names would need a hand-kept mapping table, which is the very shape this gate exists to avoid.
- * So it parses the object literal handed to `recallBrain(...)` and asks which keys can appear in it.
+ * for traversal depth is `recallForm.depth` and it lands inside a `traverse` object; asserting on control
+ * names would need a hand-kept mapping table, which is the very shape this gate exists to avoid.
+ *
+ * **The window is the whole `runRecall` method, not the literal handed to `recallBrain`.** It was that
+ * literal at first, and the traversal object is assembled in a `const` above the call — so six parameters
+ * that the panel CAN send were invisible to the check. A window drawn around one expression assumes the
+ * request is built in one expression, which is an assumption about formatting rather than about capability.
  *
  * Run: node --test testing/standalone/query-panel-offers-every-recall-parameter.test.js
  */
@@ -62,32 +66,6 @@ const NO_CONTROL = {
   space: 'PERMANENT. The panel is opened on a space and takes it from the page. A selector here would let a '
     + 'recall run against another space and render its results under this one\'s name — the fabricated-context '
     + 'defect, not a missing feature.',
-
-  projection: 'NOT YET (U-1). Field selection needs a control that knows the record shapes, and it is the one '
-    + 'parameter whose wrong setting silently removes the field an operator is looking at.',
-  maxChars: 'NOT YET (U-1). The panel binds maxBytes only, so the two budget units are half-exposed — the same '
-    + 'split that made B-1 a bug on the API side.',
-  maxTokens: 'NOT YET (U-1). Belongs beside maxChars and charsPerToken as one response-envelope group rather '
-    + 'than as three separate numbers.',
-  charsPerToken: 'NOT YET (U-1). Only meaningful with maxTokens, so it ships with it or it is a number with no '
-    + 'stated effect.',
-  skip: 'NOT YET (U-1). Paging the panel needs the response to carry nextSkip through to a control, which is a '
-    + 'results-side change and not a form field.',
-  remainderDump: 'NOT YET (U-1). It WRITES A FILE into the space, so the control has to say so before it is '
-    + 'offered as a checkbox beside the read-only ones.',
-
-  'traverse.depth': 'NOT YET (U-1). The panel sends traverse as a NUMBER, which is the depth — so the value is '
-    + 'reachable and the object form is not, and the five other traversal parameters are unreachable with it.',
-  'traverse.edgeLabels': 'NOT YET (U-1). Needs traverse sent as an OBJECT first — a label allowlist for the '
-    + 'walk, and one of the four traversal controls the row was filed for.',
-  'traverse.direction': 'NOT YET (U-1). Needs traverse sent as an OBJECT first. It narrows the walk to '
-    + 'inbound or outbound edges, which is the difference between who reports to whom.',
-  'traverse.includeChrono': 'NOT YET (U-1). Arrived with A-2 inside the traverse object, which is why the '
-    + 'top-level five-places enforcer did not fire and this gate exists.',
-  'traverse.includeMemories': 'NOT YET (U-1). Arrived with includeChrono and is unreachable for the same '
-    + 'reason: the panel sends traverse as a number, so the object form is not expressible.',
-  'traverse.includeFiles': 'NOT YET (U-1). Arrived with includeChrono and is unreachable for the same '
-    + 'reason: the panel sends traverse as a number, so the object form is not expressible.',
 };
 
 /** Comments stripped: a docblock listing parameter names would answer for controls that do not exist. */
@@ -133,9 +111,9 @@ function literalAt(src, open) {
  */
 function panelRequestKeys() {
   const src = strip(readFileSync(PANEL, 'utf8'));
-  const call = src.indexOf('recallBrain(');
-  assert.ok(call > 0, `no recallBrain( call in ${PANEL} — the panel was renamed or moved`);
-  const body = literalAt(src, src.indexOf('{', src.indexOf(',', call)));
+  const at = src.indexOf('runRecall(): void {');
+  assert.ok(at > 0, `no runRecall() in ${PANEL} — the panel was renamed or moved`);
+  const body = literalAt(src, src.indexOf('{', at));
   const keys = new Set();
   for (const m of body.matchAll(/[{,]\s*([a-zA-Z][\w]*)\s*[:}]/g)) keys.add(m[1]);
   return keys;

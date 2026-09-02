@@ -106,7 +106,39 @@ export class BrainApi {
        * into the ordered rows this UI renders. The route has accepted this since recall existed; it was simply
        * never declared here, so no UI could ask for it.
        */
-      traverse?: number;
+      traverse?: number | {
+        /** How far to walk, 0–5. The object form's only required field. */
+        depth: number;
+        /**
+         * Which way to follow an edge. Absent lets the route decide.
+         *
+         * This is the parameter the number form could not express, and the difference is not cosmetic:
+         * outbound from a person reaches what they own, inbound reaches who named them. A walk that ignores
+         * the distinction answers a different question and looks the same.
+         */
+        direction?: 'outbound' | 'inbound' | 'both';
+        /** Only follow edges carrying these labels. Absent means every label. */
+        edgeLabels?: string[];
+        /**
+         * Whether the walk also returns the chrono entries, memories and files it reached.
+         *
+         * All three arrived with A-2 INSIDE this object, which is why the mechanical five-places check did
+         * not fire for them: it compares top-level request keys. They were reachable from an MCP call and
+         * from nothing else for two releases.
+         */
+        includeChrono?: boolean;
+        includeMemories?: boolean;
+        includeFiles?: boolean;
+      };
+      /**
+       * Which fields each result carries, as a Mongo-style projection.
+       *
+       * Declared as an object because the route takes one and it can EXCLUDE as well as include; a field
+       * list would be a control that looks complete and cannot say half of what the parameter does. Getting
+       * it wrong is invisible in a way a filter is not — a projection that omits the field somebody is
+       * reading gives them a result that looks whole and is missing the answer.
+       */
+      projection?: Record<string, unknown>;
       /**
        * Deadline in ms. It can only LOWER the instance budget, and on expiry the answer is PARTIAL rather
        * than an error — whichever collections finished are returned, flagged as degraded.
@@ -119,11 +151,35 @@ export class BrainApi {
        * Past the ceiling the response says `truncated` and carries `nextSkip`. A match is counted together
        * with its whole `_graph` subtree, so a deeper expansion means fewer matches fit.
        *
-       * `maxTokens` is deliberately NOT declared here. It is a convenience onto this same ceiling — the server
-       * applies whichever of the two is smaller — so offering both in a UI would let an operator set two limits
-       * and then have to work out which one won.
+       * The other three units are declared below. This comment used to say `maxTokens` was deliberately
+       * absent, because offering two overlapping numbers would make an operator work out which one won —
+       * true of two numbers with no stated rule, and the wrong conclusion. **The server applies whichever
+       * ceiling is SMALLEST**, so the honest answer is to say that once and offer all four.
+       *
+       * Characters and bytes are also not the same thing: treating them as interchangeable ran a German or
+       * Polish space about a quarter over the limit it had been given, which was B-1.
        */
       maxBytes?: number;
+      /** The same ceiling in CHARACTERS. Server floor 1000. */
+      maxChars?: number;
+      /** The same ceiling in TOKENS — the unit an agent's budget is written in. Server floor 1. */
+      maxTokens?: number;
+      /** Characters per token, for converting `maxTokens`. Means nothing without one. */
+      charsPerToken?: number;
+      /**
+       * Skip this many ranked matches. Send back the response's `nextSkip` to continue a truncated answer.
+       *
+       * Absolute, not per-page: `nextSkip` already accounts for where the last answer started, so adding it
+       * to the current skip would page twice and silently miss records.
+       */
+      skip?: number;
+      /**
+       * Also WRITE the matches that did not fit to the space, as a JSON file with a one-day download.
+       *
+       * The only parameter on this read route that writes anything, which is why it is opt-in and why the UI
+       * says so on the control rather than in a tooltip.
+       */
+      remainderDump?: boolean;
     },
   ): Observable<RecallResponse> {
     return this.http.post<RecallResponse>(`/api/brain/spaces/${spaceId}/recall`, body);

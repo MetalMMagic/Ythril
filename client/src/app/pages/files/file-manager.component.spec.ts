@@ -128,9 +128,9 @@ describe('FileManagerComponent — the Extract tab', () => {
     const { c, fixture } = open({ chunkCount: 3 } as FileMeta);
     c.showExtractMode();
     fixture.detectChanges();
-    expect(c.extract()).not.toBeNull();
+    expect(c.extractStore.extract()).not.toBeNull();
     c.openPreview({ name: 'other.pdf', isFile: true, isDirectory: false, size: 1, modified: '2026-01-01' } as FileEntry);
-    expect(c.extract()).toBeNull();
+    expect(c.extractStore.extract()).toBeNull();
   });
 
   // The chunk-offset clock moved to `file-format.spec.ts` when `msRange` became a shared function (G-3).
@@ -148,7 +148,7 @@ describe('FileManagerComponent — the Extract tab', () => {
     }));
     c.moreChunks({ name: 'report.pdf', isFile: true, isDirectory: false, size: 10, modified: '2026-01-01' } as FileEntry);
     fixture.detectChanges();
-    expect(c.extract()!.chunks.map(x => x.content)).toEqual(['first chunk', 'second chunk', 'third chunk']);
+    expect(c.extractStore.extract()!.chunks.map(x => x.content)).toEqual(['first chunk', 'second chunk', 'third chunk']);
   });
 });
 

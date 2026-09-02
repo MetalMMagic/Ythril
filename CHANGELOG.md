@@ -353,6 +353,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Extract face is its own store — `G-3`'s ninth cut.** Nothing user-visible changes. The three signals,
+  the one request and the two paging rules moved to `file-extract.store.ts`; the page kept the two methods the
+  template calls, because they are what resolve the space and the path, and threading those into the store
+  would give it two things to be wrong about instead of none.
+
+  The lazy-open rule stayed on the page as well: deciding to fetch on the first open and not on every switch
+  back is a judgement about a gesture, and the gesture belongs to whoever owns the detail pane. What moved is
+  the state that judgement reads — `hasNothing()` — so the page no longer has to know that "nothing to show"
+  means two signals rather than one. Reading `!extract()` alone would re-fetch while a request was in flight,
+  which is one of the four rules pinned in the change before this.
+
+  1 046 code lines, and the frozen ceiling comes down with it (1 050 → 1 036) so the list cannot drift upward.
+  Every one of the 108 cases in that folder passed with subjects re-pointed and no assertion edited.
+
 - **The extract tab's four rules are pinned before the group is extracted.** Nothing user-visible changes.
   Three of the four had no test, and each is the kind a rewrite gets subtly wrong while every assertion it
   kept still passes: paging APPENDS rather than replaces (a diagnostic must not throw away what the reader

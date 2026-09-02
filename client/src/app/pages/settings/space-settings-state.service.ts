@@ -117,14 +117,27 @@ export function typeSchemaFromState(
   // space-wide switch do nothing — the tier the API resolves last would never be reached.
   if (state.suppressEmbeddings !== null) ts.suppressEmbeddings = state.suppressEmbeddings;
   /*
-   * Carried straight back out, and only for edges — the API refuses both on the other three collections, so
-   * writing a value a type kind cannot hold would turn every save on that type into a 400.
+   * Only for edges — the API refuses both on the other three collections, so writing a value a type kind
+   * cannot hold would turn every save on that type into a 400.
    *
-   * No control edits these yet. What this loop is for is the round trip: the object is rebuilt from state, so
-   * anything not written here is deleted on save.
+   * **The sides are pruned rather than copied, and that is not defensive tidying.** The API caps each side at
+   * `min(1)` and refuses `endpoints: {}` outright, so a state holding `{ from: [] }` — from a hand-edited
+   * draft, or a stored value that arrived before the control existed — would 400 the whole space PATCH. One
+   * type's empty list would take every other type's edits down with it, and the message would name a field
+   * the operator was not editing.
+   *
+   * `toggleEndpoint` keeps the same invariant at the other end, on every click. Two guards for one rule is
+   * usually this codebase's worst habit; here they answer different questions — the toggle keeps the draft
+   * legal as it is edited, this keeps the WIRE legal whatever the draft turns out to hold.
    */
   if (kt === 'edge') {
-    if (state.endpoints !== undefined) ts.endpoints = state.endpoints;
+    const from = state.endpoints?.from?.filter(n => n.trim()) ?? [];
+    const to = state.endpoints?.to?.filter(n => n.trim()) ?? [];
+    if (from.length || to.length) {
+      ts.endpoints = { ...(from.length ? { from } : {}), ...(to.length ? { to } : {}) };
+    }
+    // `false` is a STATEMENT here, unlike `suppressEmbeddings`: the field has no inherit tier, so an operator
+    // who unticks it is saying this label is not functional rather than declining to say.
     if (state.functional !== undefined) ts.functional = state.functional;
   }
   if (state.propertySchemas.length) {
@@ -305,6 +318,21 @@ export class SpaceSettingsState {
             // `?? null` again, and for the same reason: absent must round-trip as absent, or opening and saving
             // a type would write a value nobody chose.
             suppressEmbeddings:   ts.suppressEmbeddings      ?? null,
+            /*
+             * An edge label's ends and cardinality, and this line is the one that was MISSING.
+             *
+             * `typeSchemaFromState` has written both fields since S-1, specifically so a UI save could not
+             * delete a declaration made through the API — and it wrote `state.endpoints`, which nothing ever
+             * filled. So the declaration was dropped when the space loaded and the save wrote it back as
+             * absent: opening Space Settings and pressing Save deleted it, silently, with no control anywhere
+             * in the dialog that mentioned the field.
+             *
+             * The carry-through was tested at the serialiser and the loader was never asked. Found by looking
+             * at the finished control against an instance where the API had declared the rule — the boxes were
+             * empty.
+             */
+            endpoints:  ts.endpoints  ? { ...(ts.endpoints.from ? { from: [...ts.endpoints.from] } : {}), ...(ts.endpoints.to ? { to: [...ts.endpoints.to] } : {}) } : undefined,
+            functional: ts.functional,
             propertySchemas: Object.entries(ts.propertySchemas ?? {}).map(([k, ps]) => ({ key: k, s: { ...ps }, _enumInput: '' })),
           });
         }

@@ -185,7 +185,16 @@ const FROZEN = {
   // 958 -> 684: the per-type editor body moved into `schema-type-editor.component` so the Brain Overview
   // could open the same editor. Lowered rather than left — a frozen number 274 lines above the real size
   // is 274 lines this file could regrow into without the gate saying a word.
-  'client/src/app/pages/settings/space-schema-tab.component.ts': 684,
+  // RAISED 684 -> 685: ONE LINE, `G-12` — the binding that hands the shared type editor the space's
+  // entity type names, which is the vocabulary an edge label's ends are picked from. It belongs to the
+  // host by construction: the editor has two of them and neither one's state service is injectable from
+  // the other, which is why the editing operations are pure functions in the first place.
+  //
+  // NO DECOMPOSITION: the body of this tab already LEFT — the per-type editor is `schema-type-editor`,
+  // which is what made this a one-line change instead of a fifty-line one. What remains is the tab's own
+  // shell: the collection sub-tabs, the type list, the import/export toolbar and the save. 685 code lines
+  // is not a god file, and splitting a page this size again costs a reader more than it saves.
+  'client/src/app/pages/settings/space-schema-tab.component.ts': 685,
   // 839 -> 843: `typeSchemasMode` on the update body and the replace branch in `mergeSpaceMeta`. Both are
   // small and belong beside the merge they qualify — splitting a two-branch decision across files would
   // make the contract harder to read, not easier.

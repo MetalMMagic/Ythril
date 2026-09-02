@@ -44,7 +44,10 @@ import { PhIconComponent } from '../../shared/ph-icon.component';
 import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
 import type { KnowledgeType, PropertySchema } from '../../core/api.types';
 import type { TypeSchemaState } from './space-settings-state.service';
-import { addProp, removeProp, addEnumVal, removeEnumVal } from './type-schema-edits';
+import {
+  addProp, removeProp, addEnumVal, removeEnumVal,
+  toggleEndpoint, endpointsFor, isAnyEnd, endpointPairs, UNTYPED_END, type EndpointSide,
+} from './type-schema-edits';
 import { SCHEMA_MD_STYLES } from './schema-styles';
 import { CHIP_STYLES } from '../../shared/chip.styles';
 import { PROP_TABLE_STYLES } from '../../shared/prop-table.styles';
@@ -171,6 +174,72 @@ import { mergeFnsFor, mergeFnAfterTypeChange } from '../../shared/merge-fns';
       <div class="sch-msg warn">{{ 'spaces.schema.suppressEmbeddings.noBackfill' | transloco }}</div>
     }
   </div>
+  <!-- An edge label's permitted ENDS and its cardinality.
+       Two fields both API doors have accepted since S-1, both reported by the space validator, and both
+       carried safely through a save — with no control to set either one until now. Filed as G-12 and named
+       by that change's two NO_CONTROL entries, so the exemption could not become permanent by neglect.
+
+       Edge only: the API refuses both on the other three collections.
+
+       The pair preview is not decoration. Two lists mean the CROSS PRODUCT and not pairing by position
+       (owner ruling, 2026-08-31), and two lists side by side imply pairs to almost everybody. Two names on
+       the left and three on the right is SIX permitted edges, and a control that leaves the reader to work
+       that out from the layout says something the API does not do.
+
+       NOTE: no backticks in this comment — one ends the template string and the error points at
+       @Component instead of at the line. -->
+  @if (knowledgeType() === 'edge') {
+    <div class="sch-section-label">{{ 'spaces.schema.ends.label' | transloco }}
+      <span class="sch-hint">{{ 'spaces.schema.ends.hint' | transloco }}</span>
+    </div>
+    @if (!entityTypeNames().length) {
+      <div class="sch-hint" style="margin-bottom:6px;">{{ 'spaces.schema.ends.noEntityTypes' | transloco }}</div>
+    }
+    <div class="ends-row">
+      @for (side of SIDES; track side) {
+        <div class="field" style="margin:0;">
+          <label>{{ (side === 'from' ? 'spaces.schema.ends.from' : 'spaces.schema.ends.to') | transloco }}</label>
+          <div class="ends-list">
+            @for (name of endNames(); track name) {
+              <label class="ends-opt">
+                <input type="checkbox" [checked]="isPicked(side, name)" (change)="onToggleEnd(side, name)" />
+                @if (name === UNTYPED_END) {
+                  <span class="any">{{ 'spaces.schema.ends.untyped' | transloco }}</span>
+                } @else {
+                  <span class="nm">{{ name }}</span>
+                }
+              </label>
+            }
+          </div>
+          <div class="sch-hint" style="margin-top:3px;">
+            @if (isAnyEnd(side)) {
+              {{ 'spaces.schema.ends.anyType' | transloco }}
+            } @else {
+              {{ 'spaces.schema.ends.restricted' | transloco: { count: picked(side).length } }}
+            }
+          </div>
+        </div>
+      }
+    </div>
+    @if (pairs().length) {
+      <div class="sch-msg info">
+        {{ 'spaces.schema.ends.pairs' | transloco: { count: pairs().length } }}
+        <div class="ends-pairs">
+          @for (p of shownPairs(); track p) { <span class="badge badge-gray">{{ p }}</span> }
+          @if (pairs().length > shownPairs().length) {
+            <span class="sch-hint">{{ 'spaces.schema.ends.morePairs' | transloco: { count: pairs().length - shownPairs().length } }}</span>
+          }
+        </div>
+      </div>
+    }
+    <div class="field">
+      <label class="ends-opt">
+        <input type="checkbox" [checked]="d().functional === true" (change)="onToggleFunctional()" />
+        <span>{{ 'spaces.schema.ends.functional' | transloco }}</span>
+      </label>
+      <div class="sch-hint" style="margin-top:3px;">{{ 'spaces.schema.ends.functionalHint' | transloco }}</div>
+    </div>
+  }
   <!-- Per-type tag suggestions were retired here. The editor reached nothing: not the Brain
        record forms (they suggest from tags already in use) and not the schema guidance sent to
        MCP clients. Offering a control that does nothing is the dishonesty the Models rebuild
@@ -324,12 +393,74 @@ export class SchemaTypeEditorComponent {
   readonly linkedProps = input<{ key: string; s: PropertySchema }[]>([]);
   /** The retention window this collection inherits from the space, or null. Shown as the fallback hint. */
   readonly spaceWindowDays = input<number | null>(null);
+  /**
+   * The entity type names this space declares — the vocabulary for an edge label's permitted ends.
+   *
+   * An input rather than something read from a service, because this component has two hosts and neither
+   * one's state service is injectable from the other. A host that forgets it gets an ends picker offering
+   * UNTYPED and nothing else, which is why the gate checks the binding rather than only the serialiser.
+   */
+  readonly entityTypeNames = input<string[]>([]);
 
   /** Asked for, not done: the notice lives here, the action belongs to the host. */
   readonly unlink = output<void>();
 
   /** Short alias so the template reads as `d().field` rather than repeating `draft()`. */
   readonly d = this.draft;
+
+  // ── An edge label's ends and cardinality (G-12) ───────────────────────────────────────────────────────
+  /** Both ends, in the order they read. A template constant so the two columns cannot drift apart. */
+  readonly SIDES: EndpointSide[] = ['from', 'to'];
+  readonly UNTYPED_END = UNTYPED_END;
+
+  /**
+   * The pickable names: the space's entity types, sorted, with UNTYPED last.
+   *
+   * Last rather than first deliberately. It is a real choice — "an entity carrying no type at all" — but it
+   * is the unusual one, and at the top of the list it reads as a header or as the default.
+   */
+  readonly endNames = computed<string[]>(() => [...this.entityTypeNames()].sort((a, b) => a.localeCompare(b)).concat(UNTYPED_END));
+
+  picked(side: EndpointSide): string[] { return endpointsFor(this.draft(), side); }
+  isPicked(side: EndpointSide, name: string): boolean { return this.picked(side).includes(name); }
+  isAnyEnd(side: EndpointSide): boolean { return isAnyEnd(this.draft(), side); }
+
+  onToggleEnd(side: EndpointSide, name: string): void {
+    toggleEndpoint(this.draft(), side, name);
+    this.endsTick.update(n => n + 1);
+  }
+
+  /**
+   * Unticking says NOT functional rather than declining to say.
+   *
+   * Unlike `suppressEmbeddings` this field has no inherit tier — the API takes a boolean or nothing — so
+   * there is no third state to round-trip and `false` is a statement an operator can make.
+   */
+  onToggleFunctional(): void {
+    const d = this.draft();
+    d.functional = d.functional === true ? false : true;
+    this.endsTick.update(n => n + 1);
+  }
+
+  /**
+   * The draft is mutated IN PLACE by the host, so a computed over it would never recompute.
+   *
+   * The same reason the tree store bumps a signal after mutating its nodes: this component is `OnPush` and
+   * the draft is a plain object, so nothing marks the view dirty on its own. Every edit here bumps this, and
+   * the pair preview reads it.
+   */
+  private readonly endsTick = signal(0);
+
+  /** Every pair this label permits — the cross product, which is the thing the layout does not say. */
+  readonly pairs = computed<string[]>(() => { this.endsTick(); return endpointPairs(this.draft()); });
+
+  /**
+   * The pairs actually rendered. Capped, because two full sides are 50 x 50.
+   *
+   * The COUNT above it is never capped: a preview that showed twelve chips and no total would understate
+   * the rule by two orders of magnitude, which is worse than showing nothing.
+   */
+  readonly shownPairs = computed<string[]>(() => this.pairs().slice(0, 12));
 
   // ── Expanded rows. Local, because it is view state and each host wants its own.
   private readonly openRows = signal<ReadonlySet<string>>(new Set());

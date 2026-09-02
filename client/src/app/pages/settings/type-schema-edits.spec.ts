@@ -10,11 +10,151 @@
  * characterization net proving this extraction changed nothing; this file pins the rules themselves.
  */
 import { describe, it, expect } from 'vitest';
-import { emptyTypeSchemaState, type TypeSchemaState } from './space-settings-state.service';
-import { addProp, removeProp, addEnumVal, removeEnumVal, canAddProp } from './type-schema-edits';
+import { emptyTypeSchemaState, typeSchemaFromState, type TypeSchemaState } from './space-settings-state.service';
+import {
+  addProp, removeProp, addEnumVal, removeEnumVal, canAddProp,
+  toggleEndpoint, endpointsFor, isAnyEnd, endpointPairs,
+} from './type-schema-edits';
 
 const state = (over: Partial<TypeSchemaState> = {}): TypeSchemaState => emptyTypeSchemaState(over);
 const prop = (key: string, s = {}) => ({ key, s, _enumInput: '' });
+
+describe('an edge label\'s permitted ends', () => {
+  /*
+   * `G-12`. Two fields both API doors have accepted since S-1, both reported by the space validator, and
+   * both carried safely through a save — with no way for an operator to set either. These pin the rules the
+   * control has to obey, and every one of them is a rule the API will otherwise enforce with a 400.
+   */
+
+  it('a side starts as ANY type, which is not the same as an empty list', () => {
+    /*
+     * The distinction the whole control rests on. `endpoints.from` absent means any entity type may be the
+     * source; `endpoints.from: []` is refused by the API (`min(1)`) and, if it were not, would forbid every
+     * edge of the label. An operator clearing the last checkbox must land on the first, never the second.
+     */
+    const s = state();
+    expect(endpointsFor(s, 'from')).toEqual([]);
+    expect(isAnyEnd(s, 'from')).toBe(true);
+  });
+
+  it('toggling a type name on and off returns the side to ANY rather than to empty', () => {
+    const s = state();
+    toggleEndpoint(s, 'from', 'person');
+    expect(endpointsFor(s, 'from')).toEqual(['person']);
+    expect(isAnyEnd(s, 'from')).toBe(false);
+
+    toggleEndpoint(s, 'from', 'person');
+    expect(isAnyEnd(s, 'from')).toBe(true);
+    // And the object itself is gone, not left as `{ from: [] }` for the serialiser to trip over.
+    expect(s.endpoints).toBeUndefined();
+  });
+
+  it('the two sides are independent — restricting one leaves the other ANY', () => {
+    const s = state();
+    toggleEndpoint(s, 'to', 'document');
+    expect(endpointsFor(s, 'to')).toEqual(['document']);
+    expect(isAnyEnd(s, 'from')).toBe(true);
+    expect(s.endpoints).toEqual({ to: ['document'] });
+  });
+
+  it('UNTYPED is a choice like any other name, and means an entity with no type', () => {
+    /*
+     * Not "unset". An entity may genuinely have no type, and permitting that is a decision an operator can
+     * make — which is why it is a row in the list rather than the absence of one.
+     */
+    const s = state();
+    toggleEndpoint(s, 'from', 'UNTYPED');
+    toggleEndpoint(s, 'from', 'person');
+    expect(endpointsFor(s, 'from')).toEqual(['UNTYPED', 'person']);
+  });
+
+  it('the permitted pairs are the CROSS PRODUCT, and the preview says so', () => {
+    /*
+     * The owner's ruling, 2026-08-31, and the one thing this control must not get wrong: two lists mean every
+     * combination, not pairing by position. Two side-by-side lists imply pairs to most people, so the preview
+     * is what makes the control honest — 2 x 3 is six permitted pairs, not two.
+     */
+    const s = state();
+    for (const n of ['person', 'team']) toggleEndpoint(s, 'from', n);
+    for (const n of ['document', 'note', 'UNTYPED']) toggleEndpoint(s, 'to', n);
+
+    const pairs = endpointPairs(s);
+    expect(pairs.length).toBe(6);
+    expect(pairs).toContain('person \u2192 document');
+    expect(pairs).toContain('team \u2192 UNTYPED');
+    // Pairing by position would produce these two and nothing else.
+    expect(pairs.length).not.toBe(2);
+  });
+
+  it('a preview with one side ANY names the other side and says any for the first', () => {
+    const s = state();
+    toggleEndpoint(s, 'to', 'document');
+    expect(endpointPairs(s)).toEqual(['* \u2192 document']);
+  });
+
+  it('and with both sides ANY there is nothing to preview', () => {
+    expect(endpointPairs(state())).toEqual([]);
+  });
+});
+
+describe('what the serialiser sends for an edge', () => {
+  it('omits endpoints entirely when both sides are ANY', () => {
+    // `endpoints: {}` is refused by the API with "an empty object constrains nothing", so a type nobody
+    // restricted must not carry the key at all.
+    const ts = typeSchemaFromState('edge', state());
+    expect(ts.endpoints).toBeUndefined();
+  });
+
+  it('sends only the side that is restricted', () => {
+    const s = state();
+    toggleEndpoint(s, 'from', 'person');
+    expect(typeSchemaFromState('edge', s).endpoints).toEqual({ from: ['person'] });
+  });
+
+  it('never sends an empty array, whatever the state holds', () => {
+    /*
+     * Belt to the toggle's braces, and deliberately so: the API caps a side at `min(1)`, and a state carrying
+     * `{ from: [] }` from an older save or a hand-edited draft would 400 the whole space PATCH — one type's
+     * empty list taking every other type's edits with it.
+     */
+    const s = state({ endpoints: { from: [], to: ['document'] } });
+    expect(typeSchemaFromState('edge', s).endpoints).toEqual({ to: ['document'] });
+
+    const both = state({ endpoints: { from: [], to: [] } });
+    expect(typeSchemaFromState('edge', both).endpoints).toBeUndefined();
+  });
+
+  it('drops a blank member, which the API accepts and nothing can match', () => {
+    /*
+     * The API caps a member at `z.string().min(1)`, and a single space satisfies that — so `"  "` is a
+     * storable endpoint name that no entity type can ever equal. The picker cannot produce one; a hand-written
+     * PATCH can, and then every edge of the label is a violation against a rule nobody can read.
+     *
+     * Written because a mutant that removed the trim SURVIVED: the case above used an empty array, which the
+     * length test already caught, so the trim itself was unasserted.
+     */
+    const s = state({ endpoints: { from: ['  ', 'person'], to: [' '] } });
+    expect(typeSchemaFromState('edge', s).endpoints).toEqual({ from: ['person'] });
+
+    const allBlank = state({ endpoints: { from: ['   '] } });
+    expect(typeSchemaFromState('edge', allBlank).endpoints).toBeUndefined();
+  });
+
+  it('sends functional only when it is set', () => {
+    expect(typeSchemaFromState('edge', state()).functional).toBeUndefined();
+    expect(typeSchemaFromState('edge', state({ functional: true })).functional).toBe(true);
+    // False is a STATEMENT here, unlike suppressEmbeddings: the field has no third state, and an operator
+    // who unticks it is saying this label is not functional.
+    expect(typeSchemaFromState('edge', state({ functional: false })).functional).toBe(false);
+  });
+
+  it('drops both on a type that is not an edge, because the API refuses them there', () => {
+    const s = state({ endpoints: { from: ['person'] }, functional: true });
+    const ts = typeSchemaFromState('entity', s);
+    expect(ts.endpoints).toBeUndefined();
+    expect(ts.functional).toBeUndefined();
+  });
+});
 
 describe('adding a property', () => {
   it('adds the pending key and returns it', () => {

@@ -16,8 +16,10 @@
  *
  *  - `api/metrics.ts` — a `401` and a `500` as Prometheus comment lines. A scraper does not parse JSON, and `#`
  *    is a comment in the exposition format, so the error degrades into something the consumer can read.
- *  - `setup/routes.ts` — a `404` and a `400` as text/HTML. First-run setup is a server-rendered flow that exists
- *    *before* the SPA does; its consumer is a browser, and a JSON body would render as raw text.
+ *  - `setup/routes.ts` — a `404` and a `400` as text/HTML. First-run setup WAS a server-rendered flow that
+ *    existed *before* the SPA did; its consumer was a browser, and a JSON body would have rendered as raw text.
+ *    **4.0 removed that form**, so this file answers only in JSON now and its exemption is gone. It is left
+ *    described here because the reasoning is what a future exemption gets judged against.
  *
  * So "all errors return JSON" was simply false, and the fix was to say what is actually true. The word "all" in a
  * contract is the part an integrator relies on.
@@ -51,11 +53,15 @@ const NOT_JSON = [
     why: 'Prometheus exposition format — a scraper does not parse JSON, and `#` is a comment line, so the error '
       + 'degrades into something the consumer can actually read',
   },
-  {
-    file: 'server/src/setup/routes.ts',
-    why: 'first-run setup is a server-rendered HTML flow that exists before the SPA does; its consumer is a '
-      + 'browser, which would render a JSON body as raw text',
-  },
+  /*
+   * `server/src/setup/routes.ts` used to be here, and its exemption was genuine: first-run setup was a
+   * server-rendered HTML flow whose consumer was a browser, so a JSON body would have rendered as raw text.
+   *
+   * 4.0 removed the form. What is left — `GET /status` and `POST /json` — has only ever answered in JSON,
+   * so the exemption stopped being true rather than stopped being needed. Removing it is the interesting
+   * direction for a list like this: an exemption that is no longer earned is a hole nobody is watching,
+   * because a file on this list is a file the rule does not apply to.
+   */
 ];
 
 /**

@@ -121,11 +121,21 @@ describe('no UI field truncates below the API limit', () => {
   });
 
   it('the setup label exemption is justified — its own route caps it at the same 100', () => {
-    // The exemption above is only honest while this holds. Before this was added the route had NO length
-    // check at all, so the form's `maxlength` was the only bound and applied only to a browser.
+    /*
+     * The exemption above is only honest while this holds. Before the cap was added the route had NO length
+     * check at all, so the form's `maxlength` was the only bound and applied only to a browser.
+     *
+     * The bound is asserted on the TRIMMED value, which is what changed in 4.0 and is the correct form:
+     * `instanceLabel` is stored as `label.trim()`, so checking the untrimmed string would refuse a label
+     * that fits once its whitespace is gone. It also moved handlers — the check lived in the
+     * server-rendered form's POST, which was deleted with the form, and `POST /json` had never had it
+     * despite being the only reachable path since the `/setup` mount went.
+     */
     const src = readFileSync(join(ROOT, 'server/src/setup/routes.ts'), 'utf8');
     assert.match(src, /const SETUP_LABEL_MAX = 100;/, 'the setup route must declare its own cap');
-    assert.match(src, /label\.length > SETUP_LABEL_MAX/, 'and enforce it server-side, not only in the form');
+    assert.match(src, /label\.trim\(\)\.length > SETUP_LABEL_MAX/,
+      'the cap must be enforced server-side on the value that is STORED, not only in the form');
+    assert.match(src, /setupRouter\.post\('\/json'/, 'and on the path that actually runs');
   });
 
   it('the API really does allow 50 000 there — or the fix is aimed at nothing', () => {

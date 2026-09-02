@@ -9,10 +9,11 @@ import { log } from '../util/log.js';
 import type { Config, SecretsFile } from '../config/types.js';
 
 /**
- * Longest instance label the setup route accepts.
+ * Longest instance label setup accepts.
  *
- * Matches the `maxlength` the form has always carried, so nothing a person could type through the UI is now
- * refused — this closes the direct-POST path, which had no bound at all.
+ * Matches the `maxlength` the SPA's own input carries, so nothing a person can type through the UI is
+ * refused. It was written for the server-rendered form's handler and applied only there; when that handler
+ * was removed with the form, `POST /json` turned out never to have had it — see the note beside the check.
  */
 const SETUP_LABEL_MAX = 100;
 
@@ -23,151 +24,27 @@ setupRouter.get('/status', (_req, res) => {
   res.json({ configured: configExists() });
 });
 
-// GET /setup — HTML form
-setupRouter.get('/', authRateLimit, (_req, res) => {
-  if (configExists()) {
-    res.status(404).send('Not found');
-    return;
-  }
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.send(`<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ythril — First-Run Setup</title>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; }
-    body { font-family: system-ui, sans-serif; background: #0f0f0f; color: #eee; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
-    .card { background: #1a1a1a; border: 1px solid #333; border-radius: 10px; padding: 2rem; width: 100%; max-width: 420px; }
-    h1 { margin: 0 0 0.3rem; font-size: 1.4rem; }
-    p.sub { margin: 0 0 1.5rem; color: #888; font-size: 0.9rem; }
-    label { display: block; margin-bottom: 0.25rem; font-size: 0.85rem; color: #aaa; }
-    input[type=text], input[type=password] { width: 100%; padding: 0.55rem 0.75rem; border: 1px solid #444; border-radius: 6px; background: #111; color: #eee; font-size: 1rem; margin-bottom: 0.25rem; }
-    input:focus { outline: none; border-color: #6060f0; }
-    input.invalid { border-color: #f66; }
-    input.valid { border-color: #4c4; }
-    .field-hint { font-size: 0.78rem; min-height: 1.2em; margin-bottom: 0.75rem; color: #888; }
-    .field-hint.error { color: #f66; }
-    .field-hint.ok { color: #4c4; }
-    button { width: 100%; padding: 0.65rem; background: #6060f0; color: #fff; border: none; border-radius: 6px; font-size: 1rem; cursor: pointer; transition: opacity 0.15s; }
-    button:disabled { opacity: 0.35; cursor: not-allowed; }
-    button:not(:disabled):hover { background: #7070ff; }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <h1>ythril</h1>
-    <p class="sub">First-run setup</p>
-    <form method="POST" action="/setup" id="setupForm">
-      <label>Brain label</label>
-      <input type="text" name="label" id="label" placeholder="My Brain" maxlength="100" required>
-      <div class="field-hint" id="labelHint"></div>
-      <button type="submit" id="submitBtn" disabled>Complete setup</button>
-    </form>
-  </div>
-  <script>
-    const label = document.getElementById('label');
-    const btn   = document.getElementById('submitBtn');
-    const labelHint = document.getElementById('labelHint');
-
-    function setHint(el, input, msg, ok) {
-      el.textContent = msg;
-      el.className = 'field-hint' + (msg ? (ok ? ' ok' : ' error') : '');
-      input.className = msg ? (ok ? 'valid' : 'invalid') : '';
-    }
-
-    function validate() {
-      let ok = true;
-      if (!label.value.trim()) { setHint(labelHint, label, '', false); ok = false; }
-      else { setHint(labelHint, label, '', true); }
-      btn.disabled = !ok;
-    }
-
-    label.addEventListener('input', validate);
-  </script>
-</body>
-</html>`);
-});
-
-// POST /setup — process setup form
-setupRouter.post('/', authRateLimit, async (req, res) => {
-  if (configExists()) {
-    res.status(404).send('Not found');
-    return;
-  }
-
-  const label: string = (req.body?.label ?? '').trim();
-
-  if (!label) {
-    res.status(400).send(errorPage('Brain label is required'));
-    return;
-  }
-  // Bounded server-side, not only by the form's `maxlength`.
-  //
-  // Found while chasing a silent-truncation report on a different field: this one had NO server-side length
-  // check at all, so the 100 in the HTML was the only limit and applied only to a browser. Anything posting
-  // directly could store an instance label of any size — and that label is echoed into peer handshakes,
-  // audit entries and the UI header. A refusal that names the limit is the right shape here for the same
-  // reason it is on the field that was reported: the alternative is silent damage.
-  if (label.length > SETUP_LABEL_MAX) {
-    res.status(400).send(errorPage(`Brain label must be ${SETUP_LABEL_MAX} characters or fewer`));
-    return;
-  }
-
-  const instanceId = uuidv4();
-
-  // Build initial config (no tokens yet — createToken will add it)
-  const config: Config = {
-    instanceId,
-    instanceLabel: label,
-    tokens: [],
-    spaces: [],
-    networks: [],
-    setup: { completed: true },
-  };
-
-  await saveConfig(config);
-  const secrets: SecretsFile = { peerTokens: {} };
-  await saveSecrets(secrets);
-  loadConfig();
-  loadSecrets();
-  ensureInstanceKeypair();
-
-  // Initialise spaces and start all background services now, so this freshly set-up
-  // instance is fully operational without a restart. Tolerant of failure: setup still
-  // succeeds (a restart would start the services) rather than blocking on it.
-  try {
-    await startConfiguredInstanceServices();
-  } catch (err) {
-    log.warn(`Could not start background services during setup: ${err}`);
-  }
-
-  // Create the initial admin PAT
-  const { record, plaintext } = await createToken({ name: 'Admin', admin: true, expiresAt: null });
-  const { hash: _h, ...safeRecord } = record;
-
-  log.info(`Setup complete. Brain ID: ${instanceId}`);
-
-  // Show the token once — it will not be retrievable again
-  res.setHeader('Content-Type', 'text/html; charset=utf-8').send(`<!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8"><title>ythril — Setup Complete</title>
-<style>body{font-family:system-ui,sans-serif;background:#0f0f0f;color:#eee;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
-.card{background:#1a1a1a;border:1px solid #333;border-radius:10px;padding:2rem;max-width:520px;width:100%}
-h1{margin:0 0 1rem;font-size:1.2rem;color:#4c4}
-.token{background:#111;border:1px solid #444;border-radius:6px;padding:0.6rem 0.9rem;font-family:monospace;font-size:0.9rem;word-break:break-all;margin:0.75rem 0}
-.warn{color:#fa4;font-size:0.85rem;margin:0.5rem 0 1.25rem}
-a{display:block;text-align:center;padding:0.6rem;background:#6060f0;color:#fff;border-radius:6px;text-decoration:none;font-size:1rem}
-a:hover{background:#7070ff}</style></head>
-<body><div class="card">
-  <h1>Setup complete</h1>
-  <p>Your first admin token is shown below. <strong>Copy it now — it will not be shown again.</strong></p>
-  <div class="token" id="tok">${escapeHtml(plaintext)}</div>
-  <p class="warn">Store it in a password manager or secret vault. Use it as a Bearer token for API and MCP access.</p>
-  <p style="font-size:0.82rem;color:#888;margin-bottom:1.25rem">Token name: <strong>${escapeHtml(safeRecord.name)}</strong> &nbsp;·&nbsp; Created: ${escapeHtml(safeRecord.createdAt)}</p>
-  <a href="/settings">Open settings &rarr;</a>
-</div></body></html>`);
-});
+/*
+ * The server-rendered HTML form used to live here: `GET /` rendered it and `POST /` processed it, with
+ * `errorPage`/`escapeHtml` below to build the pages. All of it is REMOVED in 4.0 (deprecation 1.5), in two
+ * steps that are worth telling apart.
+ *
+ * The `/setup` MOUNT went first. Express matches a mount before the SPA's index fallback, so mounting this
+ * router at `/setup` as well as `/api/setup` made the Angular first-run page unreachable — the legacy form
+ * was the live entry point and the SPA's own page had never served one. Unmounting it was the risky half,
+ * and it shipped with an end-to-end first-run proof rather than on the argument that the SPA route existed.
+ *
+ * This is the half that was left behind, and it was not harmless. The form posted to `action="/setup"`, a
+ * path that no longer existed, and the error page linked back to it — so the file still LOOKED like the live
+ * entry point to anyone reading it, on the one code path that runs before any identity exists. It also kept
+ * `11-setup-api.md` documenting `GET /setup` and `POST /setup` long after both had stopped answering, which
+ * is the worse failure: a reader following a guide that was correct when written concludes the product is
+ * broken rather than the page is old.
+ *
+ * What remains is the two endpoints with callers: `GET /status`, which the SPA polls to tell a first run
+ * from a configured instance, and `POST /json`, which completes it and issues the one-time admin token.
+ * Programmatic first-run setup uses `/json` — it was already the documented preference.
+ */
 
 // POST /api/setup — JSON variant for the Angular SPA
 // Creates instance config + first admin PAT; returns { plaintext }
@@ -181,6 +58,23 @@ setupRouter.post('/json', authRateLimit, async (req, res) => {
 
   if (!label || typeof label !== 'string' || !label.trim()) {
     res.status(400).json({ error: 'Instance label is required' });
+    return;
+  }
+
+  /*
+   * The length bound, which this path did not have.
+   *
+   * `SETUP_LABEL_MAX` was applied by the FORM handler and not by this one — one rule with two
+   * implementations and the weaker one surviving, which only became visible when the form was deleted and
+   * this became the single path. It was already the single path in practice: the `/setup` mount went in a
+   * previous release, so the form had been unreachable and this endpoint has been taking an unbounded
+   * `instanceLabel` on the unauthenticated boot path ever since.
+   *
+   * 100 is not a new number — it is the `maxlength` the SPA's own input carries, so nothing a person can
+   * type through the UI is refused, and a direct POST is held to the same limit as the form it replaced.
+   */
+  if (label.trim().length > SETUP_LABEL_MAX) {
+    res.status(400).json({ error: `Instance label must be ${SETUP_LABEL_MAX} characters or fewer` });
     return;
   }
 
@@ -218,21 +112,3 @@ setupRouter.post('/json', authRateLimit, async (req, res) => {
   const { hash: _h, ...safeRecord } = record;
   res.status(201).json({ token: safeRecord, plaintext });
 });
-
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
-
-function errorPage(message: string): string {
-  return `<!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8"><title>ythril — Setup Error</title>
-<style>body{font-family:system-ui,sans-serif;background:#0f0f0f;color:#eee;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
-.card{background:#1a1a1a;border:1px solid #333;border-radius:10px;padding:2rem;max-width:420px;width:100%}
-h1{margin:0 0 1rem;font-size:1.2rem;color:#f66}a{color:#6060f0}</style></head>
-<body><div class="card"><h1>Setup error</h1><p>${escapeHtml(message)}</p><p><a href="/setup">&larr; Back</a></p></div></body></html>`;
-}

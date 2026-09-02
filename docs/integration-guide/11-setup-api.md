@@ -232,31 +232,24 @@ GET /api/setup/status
 
 ---
 
-### Legacy First-Run HTML Setup
+### The HTML setup form was REMOVED in 4.0
 
-These routes are primarily for non-SPA/manual first-run flows.
+This section documented four endpoints — `GET /setup`, `POST /setup`, and the same pair under `/api/setup` —
+serving a server-rendered first-run form. **All four are gone**, and two of them had already stopped
+answering before this page said so.
 
-```http
-GET /setup
-POST /setup
-```
+**Use `POST /api/setup/json`** (below) for programmatic first-run setup. It was already this page's
+recommendation, and it is what the web UI posts, so it is the only first-run path with a caller.
 
-Equivalent paths also exist under the API mount:
+**What happened, because the order matters if you are reading an older build's docs.** The `/setup` MOUNT was
+removed first: Express matches a mount before the SPA's index fallback, so mounting the setup router at
+`/setup` as well as `/api/setup` made the web UI's own first-run page unreachable. The form was the live entry
+point and the SPA page had never served one. 4.0 then removed the form itself, its `POST` handler and the
+error page that linked back to `/setup`.
 
-```http
-GET /api/setup
-POST /api/setup
-```
-
-Behaviour:
-
-- `GET` returns an HTML setup form when instance configuration does not exist.
-- `POST` accepts form data (`label`) and returns an HTML page containing the one-time initial admin token.
-- If already configured, both return `404`.
-
-For programmatic setup, prefer `POST /api/setup/json`.
-
----
+If you automated against `POST /setup` with form-encoded `label`, switch to `POST /api/setup/json` with a JSON
+body. It takes the same label — and now bounds it at 100 characters, matching the web UI's own input, which
+the form handler enforced and the JSON one did not.
 
 ### Complete Setup (JSON)
 

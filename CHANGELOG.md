@@ -211,6 +211,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A gate now holds the Query panel to what a `recall` call can actually do.** The panel binds a subset of the
+  parameters the API accepts, which means an operator cannot do from the screen what an agent can do through
+  MCP — and the size of that gap was measured by hand. A hand count is the wrong instrument: three traversal
+  flags shipped inside the `traverse` object and nothing noticed, because the existing check compares top-level
+  request keys only.
+
+  The parameter list is read out of `recall`'s own schema now, nested options included, and the check fails while
+  the panel has no way to send one. Each one still missing is listed with the reason, so what is left to build
+  is written where a machine reads it rather than in a tracker.
+
+  **Nothing an operator can see changes yet.** The controls come next, with the layout that makes room for
+  them. What changes today is that the gap can no longer widen quietly — and the hand count turned out to
+  name four parameters `recall` does not even have.
+
 - **The directory listing is its own store, which is the eighth cut off the largest file in the repo.**
   Internal only: no screen changes, no route changes, no parameter changes. It is here because the file it
   came out of is the one every file-browser change lands in, and because two conditions inside it turned out

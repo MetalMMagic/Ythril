@@ -326,6 +326,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The README said 31 MCP tools. There are 44 — and it did not mention nine capabilities the product has.**
+  A count written once and never checked drifts in one direction only: downward, as the product grows. It is
+  DERIVED from `ALL_TOOLS` now, by a gate, in both directions — over-claiming is the worse failure and it is
+  the same check.
+
+  Every addition was verified in the source before it was written: the **four lookup primitives** and the
+  blind-spots section each read tool carries; **recall's tuning surface** (a filter that runs inside the
+  vector index, per-type quotas, a time budget that degrades instead of hanging, `includeFreshWrites`,
+  recursive projection, and the lexical/fused/rerank scores on request); **contradiction review** — flagged
+  rather than silently resolved, with the deterministic `structured-field` kind kept apart from an `nli`
+  model opinion and its confidence; **duplicate review** including the per-space rules that act at insert
+  time; **referential integrity** (a `409` that names the blockers and which END matched); **schema
+  validation's** introduced-versus-pre-existing distinction, so tightening a schema does not make every
+  later edit to an old record impossible; **per-type retention windows**; **`er_model`**, which reports the
+  shape a space has actually taken rather than the schema it declares; and that a refused write comes back
+  as `structuredContent` rather than prose.
+
+  **Two claims were NARROWED rather than added, which is the half worth saying.** A first draft said a build
+  fails if one door accepts a parameter the other does not; it does not — the parity gate covers the
+  capability half, and parameters are checked per change by hand. And "no telemetry, no call home" went in
+  only once a gate could assert it, as the absence of any Ythril-owned host in the shipped source.
+
+  The new gate pairs every evaluative claim with the mechanism it rests on, in both directions: the phrase
+  without the mechanism is a lie, and the mechanism without the phrase is the undersell this started from. It
+  also asserts the README does NOT claim reasoning machinery Ythril has no part of — forward chaining, Rete,
+  Datalog, SPARQL, PROV-O — because overselling was the other failure available.
+
 - **The text-embedding API key no longer stays in `config.json`, and it was the fifth provider nobody
   checked.** `secrets.json` is `0o600`; `config.json` is not, and it is the file operators copy between
   machines, paste into issues, and mount as a ConfigMap. Since 3.0 the vision, speech-to-text, NLI and

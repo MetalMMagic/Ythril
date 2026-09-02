@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`/query` answers within a size budget, like every other read path.** It had `limit` (max 100 rows) and
+  `projection` and nothing else — and `limit` caps ROWS while saying nothing about how big one is, so a page of
+  file records or of long-described entities had no ceiling at all, on the read route a fleet is most likely to
+  page through.
+
+  It takes `maxChars`, `maxBytes`, `maxTokens` and `charsPerToken` on both doors, and reports `budgetChars`,
+  `budgetBytes`, `charsReturned`, `bytesReturned`, `truncated` and — when the budget bit — `nextSkip`.
+
+  **`count` becomes the number actually returned**, so it still matches `results.length` when a page was cut. A
+  caller reading either one is right; one who read `count` and then iterated `results` would otherwise have been
+  told a number that did not match what they were holding. `total` is unchanged and still the whole match, so
+  anything that sized a sweep from it is unaffected.
+
+  **`nextSkip` is absolute.** `/query` already has a real `skip`, so a continuation computed from the page alone
+  would send a caller back to the start of page two for ever — a paging loop that never advances, which is the
+  exact defect this route was reported for in the first place.
+
+  **No `remainderDump`, deliberately.** On `recall` that flag writes the tail to a file because a ranked answer
+  has no other continuation; `/query` pages for real, so `nextSkip` is the whole answer and the file would be a
+  write on a read path nobody needs. It is REFUSED rather than accepted-and-ignored, which the strict body makes
+  automatic.
+
 - **A write that breaks an edge label's endpoint or cardinality rule is now refused, not merely reported later.**
   Both edge writers enforce it, so all three doors do: the two REST routes, `upsert_edge`, `update_edge`, and per
   item through `/bulk`. The violation names `fromType`, `toType` or `functional`, and the reason says which types

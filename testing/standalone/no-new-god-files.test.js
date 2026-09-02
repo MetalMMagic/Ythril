@@ -95,7 +95,7 @@ const FROZEN = {
   // per-space grant, so the pill labelled a token that can write in one space "read-only".
   // NO DECOMPOSITION: 343 code lines is not a god file, and the raise was two lines moving a permission
   // pill onto the rights matrix. Splitting a page this size costs a reader more than it saves.
-  'client/src/app/pages/settings/tokens.component.ts': 343,
+  'client/src/app/pages/settings/tokens.component.ts': 275,
   // RAISED 1617 -> 1618 by one line: the Q-10 timestamp swap replaced a `| date:` cell with `<app-timestamp>` and
   // needed an import, gaining an import line while losing none. At 1618 code lines this file is by far the largest
   // here and wants splitting on its own terms — but not inside a one-cell rendering change, where the split would be

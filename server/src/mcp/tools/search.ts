@@ -12,7 +12,7 @@ import { UUID_V4_RE, formatRecallSummary, toRecallRecord, uuidSchema, unitScoreS
 import { MAX_RECALL_TRAVERSE } from '../../brain/recall-seed-traversal.js';
 import { mapGraphNodes, graphNodeRecord } from '../../brain/recall-graph.js';
 import { applyProjection, normaliseProjection } from '../../brain/projection.js';
-import { resolveBudget, resolvePaging, budgetedEnvelope, type BudgetRequest, MCP_DEFAULT_MAX_CHARS } from '../../brain/result-budget.js';
+import { resolveBudget, resolvePaging, budgetedEnvelope, applyBudget, budgetFields, type BudgetRequest, MCP_DEFAULT_MAX_CHARS } from '../../brain/result-budget.js';
 import { buildGraphWithSpill, spillResultSet, countGraphNodes } from '../../brain/graph-spill.js';
 import { parseTraverseOption, traverseOptionSchema } from '../../brain/traverse-option.js';
 import { type FilterExpression } from '../../brain/filter.js';
@@ -653,6 +653,10 @@ export const queryTool: ToolHandler = {
             skip: { type: 'number', minimum: 0, description: 'Rows to discard before the page, for paging. The result order is total (`_id` breaks every tie), so no row can be seen twice or missed between pages. On a proxy space the page is computed over the MERGED set, not per member.' },
             sort: { type: 'string', description: 'Field to order by. Allowed values depend on the collection (entities: createdAt, name, type; edges: createdAt, label, from, to, type, weight; memories: createdAt, type; chrono: createdAt, title, startsAt, endsAt, status, type; files: createdAt, updatedAt, path). An unknown field is refused and names the allowed ones. Omit for newest-first.' },
             dir: { type: 'string', enum: ['asc', 'desc'], description: "Sort direction, default desc. Only meaningful with `sort`." },
+            maxChars: { type: 'integer', minimum: 1000, description: 'Ceiling on the serialised response body, in CHARACTERS. **DEFAULT 25000 ON THIS DOOR, and 50000 on REST.** `limit` caps ROWS and says nothing about how big one is, so a page of file records or of long-described entities had no size bound at all before 3.7 — on the read tool you are most likely to page through. When the budget bites, `results` is a PREFIX of the page, `truncated` says so, and `nextSkip` is where to continue: send it back as `skip`. `count` is what you were actually given and still matches `results.length`; `total` is unchanged and still the whole match.' },
+            maxBytes: { type: 'integer', minimum: 1000, description: 'Ceiling on the serialised response body, in real UTF-8 BYTES. **NO DEFAULT — opt-in.** Set it when your limit is genuinely a byte limit. Bytes are always >= characters, so a byte default equal to the character one would silently bind on every non-ASCII answer. When you set both, BOTH apply: the page stops at whichever ceiling it reaches first.' },
+            maxTokens: { type: 'integer', minimum: 1, description: 'A convenience onto `maxChars`, converted with `charsPerToken` — the conversion produces characters. If both are sent the SMALLER resulting character figure applies. An approximation: the server does not know your tokeniser.' },
+            charsPerToken: { type: 'number', exclusiveMinimum: 0, description: 'Per-call override of the characters-per-token ratio used by `maxTokens`. Default 3.5.' },
             maxTimeMS: { type: 'number', minimum: 1, maximum: 10000, default: 5000, description: 'Server-side query timeout in ms. Default 5000, hard-capped at 10000.' },
           },
           required: ['space', 'collection', 'filter'],
@@ -698,6 +702,9 @@ export const queryTool: ToolHandler = {
       readMember: (mid, lim, sk) => queryBrain(mid, coll, filter, projection, lim, maxTimeMS, sk, order),
     });
     if (!page.ok) throw new Error(page.error);
+    // Resolved before the read, so a bad `maxBytes` is an error rather than a query that ran first.
+    const queryBudget = resolveBudget(a as BudgetRequest, MCP_DEFAULT_MAX_CHARS);
+    if (!queryBudget.ok) throw new Error(queryBudget.error);
     const docs = page.rows;
 
     let total = 0;
@@ -725,16 +732,28 @@ export const queryTool: ToolHandler = {
     //
     // A universal claim cannot live in a comment. `mcp-structured-content-carries-its-payload.test.js` now sweeps
     // every tool and asserts it, so the next overlooked one fails a test instead of being described as impossible.
+    /*
+      * THE SIZE CEILING, the same one REST applies — `limit` caps ROWS and says nothing about how big one is.
+      *
+      * The offset goes in so `nextSkip` is ABSOLUTE. `query` has a real `skip`, so a continuation computed
+      * from the page alone would send a caller back to the start of page two for ever.
+      */
+    const budgeted = applyBudget(docs, { chars: queryBudget.chars, bytes: queryBudget.bytes });
+    const rows = budgeted.returned;
+
     return {
       content: [
         {
           type: 'text' as const,
-          text: JSON.stringify(docs),
+          text: JSON.stringify(rows),
         },
       ],
       structuredContent: {
-        results: docs,
-        count: docs.length, total, limit, skip,
+        results: rows,
+        // `count` is what you were GIVEN, so it still matches `results.length` when the budget bit; `total`
+        // is unchanged and still the whole match.
+        count: rows.length, total, limit, skip,
+        ...budgetFields(budgeted, total, { chars: queryBudget.chars, bytes: queryBudget.bytes }, skip),
         ...(sortParse.sort ? { sort: sortParse.sort.field, dir: sortParse.sort.dir === 1 ? 'asc' : 'desc' } : {}),
       },
     };

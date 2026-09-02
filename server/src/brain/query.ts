@@ -80,6 +80,16 @@ const ALLOWED_COLLECTIONS = new Set(['memories', 'entities', 'edges', 'chrono', 
  */
 export const QUERY_BODY_FIELDS: ReadonlySet<string> = new Set([
   'collection', 'filter', 'projection', 'limit', 'skip', 'sort', 'dir', 'maxTimeMS',
+  /*
+   * The size budget, which this route had none of: `limit` caps ROWS and says nothing about how big one is,
+   * so a page of file records had no ceiling on the one read route a fleet actually pages through.
+   *
+   * `remainderDump` is deliberately NOT here. On `recall` it writes the tail to a file because a ranked answer
+   * has no other continuation; `/query` pages for real — `skip` is a database skip over a total order — so
+   * `nextSkip` is the whole answer and a file would be a write on a read path nobody needs. Accepting the flag
+   * and ignoring it would be the silent-drop defect this body was made strict to prevent.
+   */
+  'maxChars', 'maxBytes', 'maxTokens', 'charsPerToken',
 ]);
 
 /**

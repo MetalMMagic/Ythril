@@ -42,7 +42,7 @@ import {
 } from '../../brain/recall-shape.js';
 import { mapGraphNodes, graphNodeRecord } from '../../brain/recall-graph.js';
 import { applyProjection, normaliseProjection, type NormalisedProjection } from '../../brain/projection.js';
-import { resolveBudget, resolvePaging, budgetedEnvelope, type BudgetRequest } from '../../brain/result-budget.js';
+import { resolveBudget, resolvePaging, budgetedEnvelope, applyBudget, budgetFields, type BudgetRequest } from '../../brain/result-budget.js';
 import { sendReadFailure, statesRetryability } from './_read-failure.js';
 
 export const searchRouter = Router();
@@ -268,6 +268,9 @@ searchRouter.post('/spaces/:spaceId/traverse', globalRateLimit, requireSpaceAuth
 // same rule, which is this repo's most repeated defect class.
 searchRouter.post('/spaces/:spaceId/query', globalRateLimit, requireSpaceAuth, statesRetryability, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
+  // Resolved before anything is read, so a bad `maxBytes` is a 400 rather than a query that runs first.
+  const budget = resolveBudget(req.body as BudgetRequest);
+  if (!budget.ok) { res.status(400).json({ error: budget.error }); return; }
   const cfg = getConfig();
   if (!cfg.spaces.some(s => s.id === spaceId)) {
     res.status(404).json({ error: `Space '${spaceId}' not found` });
@@ -334,11 +337,31 @@ searchRouter.post('/spaces/:spaceId/query', globalRateLimit, requireSpaceAuth, s
     for (const mid of members) {
       total += await countBrain(mid, collection as typeof validCollections[number], safeFilter, safeMaxTimeMS);
     }
+
+    /*
+     * THE SIZE CEILING, which this route did not have.
+     *
+     * `limit` caps ROWS and says nothing about how big one is: a hundred file records or a hundred entities
+     * with long descriptions had no bound at all, on the read route a fleet actually pages through.
+     *
+     * The offset is passed so `nextSkip` is ABSOLUTE. `/query` already has a real `skip`, so a continuation
+     * computed from the page alone would send a caller back to the start of page two for ever — a paging loop
+     * that never advances, which is the exact defect this route was reported for in the first place.
+     */
+    const budgeted = applyBudget(merged, { chars: budget.chars, bytes: budget.bytes });
+
     res.json({
-      results: merged, collection,
-      // `count` is this page; `total` is the whole match. Both, because renaming `count` would break every caller that
-      // already reads it and dropping it would break them silently.
-      count: merged.length, total, limit: safeLimit, skip: safeSkip,
+      results: budgeted.returned, collection,
+      /*
+       * `count` is this page and `total` is the whole match — both, because renaming `count` would break every
+       * caller that already reads it and dropping it would break them silently.
+       *
+       * `count` is the number RETURNED, so it still equals `results.length` when the budget bit. A caller
+       * reading either one is right; a caller who read `count` and then iterated `results` would otherwise be
+       * told a number that did not match what they were holding.
+       */
+      count: budgeted.returned.length, total, limit: safeLimit, skip: safeSkip,
+      ...budgetFields(budgeted, total, { chars: budget.chars, bytes: budget.bytes }, safeSkip),
       ...(sortParse.sort ? { sort: sortParse.sort.field, dir: sortParse.sort.dir === 1 ? 'asc' : 'desc' } : {}),
     });
   } catch (err: unknown) {

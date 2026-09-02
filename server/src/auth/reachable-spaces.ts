@@ -28,18 +28,34 @@ import type { TokenRights, SpaceArea, Rung } from '../config/rights-shape.js';
 /**
  * Every space in which this token holds at least `needs` on `area`.
  *
- * `rights` absent means the record never passed the config backfill — an OIDC session — so the legacy
- * allowlist answers instead, with the absent/empty distinction made explicitly rather than by truthiness.
+ * ## An absent matrix reaches NOTHING, and it used to reach everything
+ *
+ * This took a `legacySpaces` allowlist as a second argument and consulted it when `rights` was absent —
+ * for a record that had never passed the config backfill. That arm's own rule was carefully right: an
+ * ABSENT allowlist is every space, an EMPTY one is none, never length-as-truthiness.
+ *
+ * Composed, though, the two made the answer FAIL-OPEN. No matrix and no allowlist returned every space in
+ * the instance, which is defensible as "a legacy token is unrestricted" and not defensible as the answer to
+ * "this record carries no scope information at all" — which is what the case had become.
+ *
+ * And it had become unreachable, which is why it could go rather than merely being reordered. There is one
+ * place a record is attached to a request and one place a bearer resolves into one, with two branches:
+ * `createToken` always writes a matrix and `migrateTokenRightsOnBoot` derives one IN MEMORY for anything
+ * stored without one, and the OIDC path derives one per request through the same `migrateToken`. So no
+ * record without a matrix reaches a handler. `a-token-without-a-matrix-reaches-nothing.test.js` asserts each
+ * of those, because "cannot happen" is worth exactly what the thing preventing it is worth.
+ *
+ * The legacy fields themselves are NOT removed — they are still on the record type, still written, still
+ * returned by the tokens API. What is gone is their last use as a SCOPING INPUT, which was the second
+ * implementation of this rule.
  */
 export function spacesWhereTokenMay(
   rights: TokenRights | undefined,
-  legacySpaces: string[] | undefined,
   area: SpaceArea,
   needs: Rung,
 ): string[] {
-  const all = getConfig().spaces.map(s => s.id);
-  if (rights) return all.filter(id => satisfies(effectiveRung(rights, id, area), needs));
-  // No matrix: an ABSENT allowlist is every space, an EMPTY one is none. Never length-as-truthiness.
-  if (legacySpaces === undefined) return all;
-  return all.filter(id => legacySpaces.includes(id));
+  // Fail closed, explicitly. A record with no matrix cannot reach a handler; if one ever does, the honest
+  // answer to "which spaces may it see" is none.
+  if (!rights) return [];
+  return getConfig().spaces.map(s => s.id).filter(id => satisfies(effectiveRung(rights, id, area), needs));
 }

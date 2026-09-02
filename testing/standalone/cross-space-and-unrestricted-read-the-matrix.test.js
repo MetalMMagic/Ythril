@@ -89,12 +89,19 @@ describe('cross-space recall searches only what the token reaches', () => {
       'a token holding files-only in a space should not have its records ranked here');
   });
 
-  it('the helper it uses still makes the absent/empty distinction', () => {
-    // The trap this whole class rests on: an ABSENT allowlist is every space, an EMPTY one is none, and
-    // reading empty as absent turns the narrowest token into the widest.
+  it('the helper it uses has no allowlist left to conflate', () => {
+    /*
+     * This asserted the distinction the class rests on: an ABSENT allowlist is every space, an EMPTY one is
+     * none, and reading empty as absent turns the narrowest token into the widest.
+     *
+     * 4.0 removed the allowlist arm, so neither reading is possible here. What replaces the assertion is the
+     * stronger one: no matrix reaches NOTHING. The composite the two rules made — no matrix and no allowlist
+     * — used to reach every space, which is the same failure the conflation caused, arrived at from the
+     * other side.
+     */
     const src = stripComments(readFileSync('server/src/auth/reachable-spaces.ts', 'utf8'));
-    assert.match(src, /legacySpaces === undefined/, 'absent is checked explicitly');
-    assert.doesNotMatch(src, /legacySpaces\.length === 0/, 'and never by length-as-truthiness');
+    assert.doesNotMatch(src, /legacySpaces/, 'the matrix is the only scoping input');
+    assert.match(src, /if \(!rights\) return \[\]/, 'and the absent case is explicit and closed');
   });
 });
 

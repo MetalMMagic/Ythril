@@ -134,18 +134,51 @@ describe('reading the config — who can reach this space', () => {
     instanceId: 'self', instanceLabel: 'self', tokens: [], spaces: [{ id: SPACE }], networks: [], ...over,
   });
 
+  /*
+   * These fixtures carry a rights MATRIX, not a legacy `spaces` allowlist, because that is what a real
+   * token looks like: `createToken` writes one and the boot backfill derives one in memory for anything
+   * older. The properties below are unchanged — what changed in 4.0 is which field expresses them.
+   */
+  const scoped = (id) => ({ instanceAdmin: false, createSpaces: false, floor: null,
+    perSpace: { [id]: { knowledge: 'read' } } });
+  const unscoped = () => ({ instanceAdmin: false, createSpaces: false,
+    floor: { knowledge: 'read' }, perSpace: {} });
+
   it('counts a peer token scoped to the space', () => {
-    const c = cfg({ tokens: [{ id: 't1', peerInstanceId: 'p1', spaces: [SPACE] }] });
+    const c = cfg({ tokens: [{ id: 't1', peerInstanceId: 'p1', rights: scoped(SPACE) }] });
     assert.deepEqual(peerTokensReaching(c, SPACE), ['p1']);
   });
 
-  it('an UNSCOPED peer token reaches every space — omitted `spaces` means all', () => {
-    // The trap: `spaces: undefined` reads as "no spaces" if you only check `includes`. It means the opposite,
-    // and one such token makes every space unprunable. We cannot prove where an unscoped token has been.
-    const c = cfg({ tokens: [{ id: 't1', peerInstanceId: 'p1' }] });
+  it('an UNSCOPED peer token still reaches every space, now via its FLOOR', () => {
+    /*
+     * The property this protects is about data, not access: one token that reaches everywhere makes every
+     * space unprunable, because we cannot prove where it has been. It used to be expressed as an omitted
+     * `spaces` allowlist — and the trap was that `spaces: undefined` reads as "no spaces" if you only check
+     * `includes`, when it means the opposite.
+     *
+     * An unscoped token is a FLOOR now. `migrateToken` turns an absent allowlist into a floor granting every
+     * area, including in spaces created later, so the same token gives the same answer through the matrix
+     * and the trap has no field left to spring on.
+     */
+    const c = cfg({ tokens: [{ id: 't1', peerInstanceId: 'p1', rights: unscoped() }] });
     assert.deepEqual(peerTokensReaching(c, SPACE), ['p1']);
     assert.deepEqual(peerTokensReaching(c, 'some-other-space'), ['p1']);
     assert.equal(tombstoneFloorForSpace(c, SPACE).prune, false);
+  });
+
+  it('and a token with NO matrix reaches nothing — which is why it must never be one', () => {
+    /*
+     * 4.0 made the reach rule fail closed: no matrix, no spaces. Here that has a DATA consequence rather
+     * than an access one — such a token holds no tombstone floor, so tombstones become prunable ahead of a
+     * peer that has not acked, and the symptom is missing data rather than a 403 someone reports.
+     *
+     * It cannot be a real token, and that is asserted a level up in
+     * `a-token-without-a-matrix-reaches-nothing.test.js`: one attachment point, one resolver, and both of
+     * its branches produce a matrix. This case exists so the consequence is written down where a future
+     * change to that guarantee would be read.
+     */
+    const c = cfg({ tokens: [{ id: 't1', peerInstanceId: 'p1' }] });
+    assert.deepEqual(peerTokensReaching(c, SPACE), []);
   });
 
   it('ignores an ordinary token — only a peer token can pull sync', () => {

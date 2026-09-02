@@ -56,10 +56,31 @@ describe('the rights matrix decides', () => {
       `${builds} transport(s) build a server; each must pass the request's rights matrix`);
   });
 
-  it('keeps the legacy branch for records with no rights', () => {
-    // OIDC tokens are built per request, so the config backfill never sees them. Removing this branch would refuse
-    // every OIDC caller rather than tighten anything.
-    assert.match(CODE, /rights \?\s*reachesSpace\(rights, s\.id\)\s*:\s*!tokenSpaces \|\| tokenSpaces\.includes\(s\.id\)/);
+  it('has NO legacy branch, and no second gate one line further on', () => {
+    /*
+     * This asserted the legacy branch was KEPT, on the grounds that "OIDC tokens are built per request and
+     * never reach the config backfill — removing this refuses them all".
+     *
+     * That reason expired. The OIDC path derives a matrix per request through the same `migrateToken` the
+     * migration uses (`oidc.ts`), which was the fix for OIDC connections being governed by the old booleans
+     * while PATs were enforced per space and per area. So the branch served nobody — and while it sat there
+     * it failed OPEN, because an absent legacy allowlist meant unrestricted.
+     *
+     * `a-token-without-a-matrix-reaches-nothing.test.js` carries the proof that no record without a matrix
+     * reaches a handler; what is asserted here is that this surface no longer has the arm.
+     */
+    assert.match(CODE, /rights \? reachesSpace\(rights, s\.id\) : false/,
+      'the accessible-space filter reads the matrix, and answers false without one');
+
+    /*
+     * And the dispatcher's own per-call check went with it, which is the find worth recording: it read
+     * `if (tokenSpaces && !tokenSpaces.includes(rawSpace))` on EVERY call, matrix or not — the belt-and-braces
+     * `&&` the case below forbids in the filter, sitting one screen away from it. Harmless while the array
+     * agreed with the matrix it was derived from, and a silent refusal of access the matrix grants the moment
+     * a token was edited through the rights editor.
+     */
+    assert.doesNotMatch(CODE, /tokenSpaces/,
+      'no surface of the dispatcher may consult the legacy allowlist');
   });
 
   it('does not read `spaces` when rights are present', () => {

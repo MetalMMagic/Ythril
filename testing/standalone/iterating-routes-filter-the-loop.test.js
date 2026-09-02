@@ -24,6 +24,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { stripComments } from './_strip-comments.mjs';
 
 const ROOT = process.cwd();
 const read = (p) => readFileSync(join(ROOT, p), 'utf8')
@@ -34,12 +35,19 @@ const dupes = read('server/src/api/duplicates.ts');
 const helper = read('server/src/auth/reachable-spaces.ts');
 
 describe('the shared filter', () => {
-  it('distinguishes an ABSENT allowlist from an EMPTY one', () => {
-    // The whole bug, in one assertion. `undefined` is every space; `[]` is none.
-    assert.match(helper, /legacySpaces === undefined/,
-      'the filter tests truthiness or length again, so an empty allowlist means every space');
-    assert.doesNotMatch(helper, /legacySpaces\.length === 0/,
-      'length-as-truthiness is back');
+  it('has no allowlist to conflate any more', () => {
+    /*
+     * This asserted the legacy rule inside the shared filter: `undefined` is every space, `[]` is none —
+     * the distinction whose conflation was the original bug. Both halves were right about the field.
+     *
+     * 4.0 removed the arm, so there is no allowlist here to read either way. The stronger statement that
+     * replaces it: no matrix reaches NOTHING, where the old composite (no matrix AND no allowlist) reached
+     * everything. The conflation cannot come back because the input is gone.
+     */
+    assert.doesNotMatch(helper, /legacySpaces/,
+      'the shared filter must take the matrix and nothing else');
+    assert.match(helper, /if \(!rights\) return \[\]/,
+      'and fail closed explicitly, rather than arriving at an empty answer by accident');
   });
 
   it('reads the rights matrix when the record has one', () => {
@@ -47,10 +55,17 @@ describe('the shared filter', () => {
       'the filter ignores the matrix, so the Data quality column governs nothing');
   });
 
-  it('falls back to the legacy allowlist only when there is no matrix', () => {
-    // OIDC records never pass the config backfill. Without this they would reach nothing at all.
-    assert.match(helper, /if \(rights\)/);
-    assert.match(helper, /if \(legacySpaces === undefined\) return all;/);
+  it('and the reason the fallback existed has expired', () => {
+    /*
+     * The fallback was justified as "OIDC records never pass the config backfill — without this they would
+     * reach nothing at all". The OIDC path derives a matrix per request now, through the same `migrateToken`
+     * the migration uses, so that sentence stopped being true and the arm served nobody.
+     *
+     * Asserted against the OIDC source rather than restated here, because the claim is about that file.
+     */
+    const oidc = stripComments(readFileSync('server/src/auth/oidc.ts', 'utf8'));
+    assert.match(oidc, /rights:\s*migrateToken\(/,
+      'the OIDC record must still derive a matrix — it is what makes failing closed safe everywhere else');
   });
 });
 

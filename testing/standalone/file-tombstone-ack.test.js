@@ -105,7 +105,23 @@ describe('file tombstone floor', () => {
     };
     assert.equal(fileTombstoneFloorForSpace(cfg, SPACE).upTo, iso(4));
 
-    cfg.tokens = [{ id: 't', peerInstanceId: 'unlisted', spaces: [SPACE] }];
+    /*
+     * The peer token carries a rights MATRIX now, not a legacy `spaces` allowlist.
+     *
+     * This is the one place where 4.0's fail-closed change has a data consequence rather than an access one:
+     * a peer token that does not reach the space no longer holds the tombstone floor, so tombstones for a
+     * space it cannot see are prunable. That is correct — the floor exists so a peer that will still ask for
+     * a tombstone gets it — but it means a record with NO matrix would stop holding the floor, and the
+     * symptom would be pruning ahead of a peer rather than a 403 someone reports.
+     *
+     * It cannot happen to a real token: `createToken` writes a matrix and the boot backfill derives one in
+     * memory for anything older, so every stored token has one by the time this function reads the config.
+     * The record here is built the way a real one looks, which is the point — a fixture that cannot occur
+     * was what made the old allowlist arm look load-bearing.
+     */
+    cfg.tokens = [{ id: 't', peerInstanceId: 'unlisted',
+      rights: { instanceAdmin: false, createSpaces: false, floor: null,
+        perSpace: { [SPACE]: { knowledge: 'read' } } } }];
     assert.equal(fileTombstoneFloorForSpace(cfg, SPACE).prune, false);
   });
 });

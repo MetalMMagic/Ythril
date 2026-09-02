@@ -10,7 +10,6 @@ import { spaceAdminSpacesFor, isSpaceAdminFor } from './editor-scope.js';
 import type { OidcTokenRecord } from './oidc.js';
 import { resolveMemberSpaces } from '../spaces/proxy.js';
 import { reachesSpace } from './space-reach.js';
-import { legacySpacesOf } from './legacy-spaces.js';
 import { rungFor, satisfies } from './required-rung.js';
 import { effectiveRung } from './mint-cap.js';
 import { authAttemptsTotal } from '../metrics/registry.js';
@@ -380,12 +379,10 @@ function spaceTargets(spaceId: string | undefined, record?: Omit<TokenRecord, 'h
   if (!record) return all;
 
   const rights = (record as { rights?: Parameters<typeof reachesSpace>[0] }).rights;
-  const reachable = rights
-    ? all.filter(sid => reachesSpace(rights, sid))
-    // Same asymmetry as the reach check, for the same reason: `spaces === undefined` is unrestricted and
-    // reaches everything, while an EMPTY allowlist reaches nothing. Reading empty as absent would turn the
-    // narrowest token into the widest — the bug we removed three copies of in 2.6.0.
-    : legacySpacesOf(record) === undefined ? all : all.filter(sid => legacySpacesOf(record)!.includes(sid));
+  // No matrix reaches NOTHING. It used to fall through to the legacy `spaces` allowlist, where an absent one
+  // meant unrestricted — so a record carrying neither reached every member. The refusal is not lost by
+  // failing closed here: the line below hands the original back, and the reach guard owns the 403.
+  const reachable = rights ? all.filter(sid => reachesSpace(rights, sid)) : [];
 
   // Narrowing a real (non-proxy) space to nothing must not silently become "check no space at all": the reach
   // guard owns that refusal, and handing back the original keeps its 403 the one a caller sees.
@@ -453,16 +450,21 @@ function enforceSpaceScope(
   const memberIds = resolveMemberSpaces(spaceId);
   const targets = memberIds.length > 0 ? memberIds : [spaceId];
 
-  // The legacy branch survives for records that carry no rights: OIDC-derived tokens are built per request rather
-  // than read from config, so the backfill never sees them. Falling through to `spaces` there is the same answer,
-  // not a weaker one; removing it would refuse every OIDC caller instead.
-  //
-  // `record.spaces === undefined` is unrestricted and reaches everything — NOT `.length === 0`. An empty allowlist
-  // reaches nothing, and reading empty as absent would turn the narrowest token into the widest.
+  /*
+   * A record with no matrix reaches NOTHING, and this is where the old reason for the opposite lived.
+   *
+   * The comment here used to read: *"the legacy branch survives for records that carry no rights: OIDC-derived
+   * tokens are built per request rather than read from config, so the backfill never sees them... removing it
+   * would refuse every OIDC caller instead."* That stopped being true when the OIDC path started deriving a
+   * matrix per request through the same `migrateToken` the migration uses — the fix that closed a hole where
+   * OIDC connections were governed by the old booleans while PATs were enforced per space and per area.
+   *
+   * So the branch was kept alive by a reason that had expired, and what it did in the meantime was fail
+   * OPEN: an absent legacy allowlist meant unrestricted, so a record carrying neither piece of scope
+   * information reached every target. Failing closed here turns that into this function's own 403.
+   */
   const rights = (record as { rights?: Parameters<typeof reachesSpace>[0] }).rights;
-  const reachable = rights
-    ? targets.filter(sid => reachesSpace(rights, sid))
-    : legacySpacesOf(record) === undefined ? targets : targets.filter(sid => legacySpacesOf(record)!.includes(sid));
+  const reachable = rights ? targets.filter(sid => reachesSpace(rights, sid)) : [];
 
   if (reachable.length === 0) {
     res.status(403).json({ error: `Token does not have access to space '${spaceId}'` });

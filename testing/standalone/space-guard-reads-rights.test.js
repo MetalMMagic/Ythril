@@ -50,12 +50,23 @@ describe('the space guard', () => {
       'the guard no longer consults the rights matrix, so the grid governs nothing');
   });
 
-  it('keeps the legacy branch for records with no rights', () => {
-    // OIDC tokens are built per request and never reach the config backfill. Removing this refuses them all.
-    // Spelled `legacySpacesOf(record)` since the field left `TokenRecord` (D-8d). It still lives on the
-    // OIDC record, which is exactly who this branch serves.
-    assert.match(guardBody(), /legacySpacesOf\(record\)/,
-      'the fallback is gone; every OIDC caller would be refused, and no unit test stands one up');
+  it('has NO legacy branch — a record with no rights reaches nothing', () => {
+    /*
+     * This asserted the legacy branch was KEPT, on the grounds that "OIDC tokens are built per request and
+     * never reach the config backfill — removing this refuses them all".
+     *
+     * That reason expired. The OIDC path derives a matrix per request through the same `migrateToken` the
+     * migration uses (`oidc.ts`), which was the fix for OIDC connections being governed by the old booleans
+     * while PATs were enforced per space and per area. So the branch served nobody — and while it sat there
+     * it failed OPEN, because an absent legacy allowlist meant unrestricted.
+     *
+     * `a-token-without-a-matrix-reaches-nothing.test.js` carries the proof that no record without a matrix
+     * reaches a handler; what is asserted here is that this surface no longer has the arm.
+     */
+    assert.doesNotMatch(guardBody(), /legacySpacesOf|\.spaces\b/,
+      'the guard must read the matrix and nothing else');
+    assert.match(guardBody(), /rights \? targets\.filter\(sid => reachesSpace\(rights, sid\)\) : \[\]/,
+      'and say so explicitly, so the fail-closed answer is not arrived at by accident');
   });
 
   it('applies the proxy rule — AT LEAST ONE member, since Q-6', () => {

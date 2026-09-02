@@ -45,7 +45,7 @@ type Bearer = { rights?: TokenRights; spaces?: string[] } | undefined;
  */
 export function memberSpacesForRequest(req: { authToken?: unknown }, spaceId: string): string[] {
   const t = req.authToken as Bearer;
-  return memberSpacesForToken(t?.rights, t?.spaces, resolveMemberSpaces(spaceId));
+  return memberSpacesForToken(t?.rights, resolveMemberSpaces(spaceId));
 }
 
 /**
@@ -56,7 +56,7 @@ export function memberSpacesForRequest(req: { authToken?: unknown }, spaceId: st
  * record was meant.
  */
 export function memberSpacesForRecord(record: Bearer, spaceId: string): string[] {
-  return memberSpacesForToken(record?.rights, record?.spaces, resolveMemberSpaces(spaceId));
+  return memberSpacesForToken(record?.rights, resolveMemberSpaces(spaceId));
 }
 
 /**

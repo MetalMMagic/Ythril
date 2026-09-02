@@ -10,7 +10,6 @@
 
 import { Router } from 'express';
 import { requireAuth, requireAdminMfa, denyReadOnly } from '../auth/middleware.js';
-import { legacySpacesOf } from '../auth/legacy-spaces.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { col, asFilter, asUpdate } from '../db/mongo.js';
 import { spacesWhereTokenMay } from '../auth/reachable-spaces.js';
@@ -23,10 +22,10 @@ import { nliConfigured } from '../brain/nli-client.js';
 import type { DupeCandidateDoc, ContradictionCandidateDoc } from '../config/types.js';
 
 /** Find a candidate across the caller's accessible spaces. */
-async function findCandidate(id: string, tokenSpaces?: string[], rights?: TokenRights): Promise<{ doc: DupeCandidateDoc; spaceId: string } | null> {
+async function findCandidate(id: string, rights?: TokenRights): Promise<{ doc: DupeCandidateDoc; spaceId: string } | null> {
   // Same rule as `accessibleSpaces`, and deliberately not a second copy of it: resolving a candidate id
   // reads the record, so `read` is the level, and an empty allowlist means none rather than all.
-  const spaces = spacesWhereTokenMay(rights, tokenSpaces, 'dataQuality', 'read');
+  const spaces = spacesWhereTokenMay(rights, 'dataQuality', 'read');
   for (const spaceId of spaces) {
     const doc = await col<DupeCandidateDoc>(`${spaceId}_dupe_candidates`).findOne(asFilter<DupeCandidateDoc>({ _id: id })) as DupeCandidateDoc | null;
     if (doc) return { doc, spaceId };
@@ -115,7 +114,7 @@ export const duplicatesRouter = Router();
  */
 function accessibleSpaces(req: { authToken?: unknown }, needs: Rung = 'read'): string[] {
   const t = req.authToken as { rights?: TokenRights; spaces?: string[] } | undefined;
-  return spacesWhereTokenMay(t?.rights, t?.spaces, 'dataQuality', needs);
+  return spacesWhereTokenMay(t?.rights, 'dataQuality', needs);
 }
 
 /**
@@ -291,7 +290,7 @@ duplicatesRouter.post('/:id/reopen', globalRateLimit, requireAuth, denyReadOnly,
 // Returns 409 with the merge plan if the pair has a property-value conflict.
 duplicatesRouter.post('/:id/merge', globalRateLimit, requireAuth, denyReadOnly, async (req, res) => {
   try {
-    const found = await findCandidate(req.params['id'] as string, legacySpacesOf(req.authToken), (req.authToken as { rights?: TokenRights } | undefined)?.rights);
+    const found = await findCandidate(req.params['id'] as string, (req.authToken as { rights?: TokenRights } | undefined)?.rights);
     if (!found) { res.status(404).json({ error: 'Duplicate candidate not found' }); return; }
     const { doc, spaceId } = found;
     if (doc.type !== 'entity') { res.status(400).json({ error: 'Merge is only supported for entity candidates' }); return; }

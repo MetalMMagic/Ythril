@@ -26,7 +26,6 @@ export interface ToolContext {
   cfg: Config;
   accessibleSpaces: SpaceConfig[];
   accessibleSpaceIds: string[];
-  tokenSpaces?: string[];
   // `isAdmin` was REMOVED in 3.1 (D-8d), following `readOnly` out for the same reason and by the same route.
   // The dispatcher decides from the matrix — `toolIsVisible` refuses an `admin: true` tool unless
   // `rights.instanceAdmin` — so the three handlers that re-checked it were each a second copy of a rule

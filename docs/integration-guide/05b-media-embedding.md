@@ -130,11 +130,14 @@ The worker-tuning fields — `workerConcurrency`, `workerPollIntervalMs`, `worke
 > after a product they were not running, assuming they found it at all. This is the same distinction the
 > provider switch already gets right: **the setting names a wire protocol, not a product.**
 >
-> **The old names keep working.** They are not deprecated-then-removed on a timer — breaking a documented
-> env var to improve its spelling is not a worthwhile trade, and an upgrade should never become an outage.
-> Each one logs a single `warn` at startup naming its replacement. If both spellings are set, the new one
-> wins **and the log says so** — a silently-ignored value that is visibly present in your own manifest is
-> among the most expensive things to debug.
+> **The old names keep working, and they will be REMOVED at the next major.** This page said they were not
+> deprecated-then-removed on a timer; that has been reconsidered, and the notice is here rather than in the
+> release that removes them. Rename them in your manifest at your convenience — the replacements have worked
+> since 3.0, so the change is safe to make today and does not have to wait for the upgrade that requires it.
+>
+> Until then each one logs a single `warn` at startup naming its replacement. If both spellings are set, the
+> new one wins **and the log says so** — a silently-ignored value that is visibly present in your own
+> manifest is among the most expensive things to debug.
 >
 > `lockedByInfra` tracks whichever spelling you used, so the Settings UI renders the field read-only
 > either way.

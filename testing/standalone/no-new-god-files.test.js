@@ -426,7 +426,11 @@ const FROZEN = {
   // file was at the ceiling and because `merge.ts` is the other caller — importing it from here would put the
   // two largest brain modules in a runtime dependency for one function.
   //
-  // DECOMPOSE: A-4. What is left is genuinely two files. `edges.ts` holds the edge CRUD and, appended to it,
+  // The cut this entry called for — filed as A-4 — was MADE; see the 688 -> 487 entry below. It is written
+  // without the DECOMPOSE marker on purpose: that marker is a promise of work still owed, and the gate reads
+  // it as one, so leaving it here would keep demanding a queue row for something finished.
+  //
+  // What was left at the time was genuinely two files. `edges.ts` held the edge CRUD and, appended to it,
   // the whole recall seed traversal — `SeedTraverseNeighbor`, `frontierEdgeQuery`, `traverseFromSeeds`,
   // `traverseRecallSeeds`, `stampTruncation` and the two hop types. That second half has one consumer
   // (`graph-spill.ts` → recall) and no edge-write path touches it, which is what makes it a clean cut rather
@@ -438,17 +442,17 @@ const FROZEN = {
   // added lines are the session, the `withTransaction` and its `finally`.
   //
   // Raised without argument, for the reason written above `brain.component.ts`: a ratchet that made a
-  // correctness fix negotiable would be a gate encouraging the wrong outcome. DECOMPOSE: A-4 still stands and
-  // is what pays this back.
+  // correctness fix negotiable would be a gate encouraging the wrong outcome. The decomposition it was
+  // waiting on landed two entries below.
   // 672 -> 675: THREE LINES, and they are a bound. Each traversal now passes its own node cap into the shared
   // link scan, which had none — one hub entity returned its whole mention set per class, per member space,
   // per hop, and on the recall path since 3.6. Raised without argument, for the reason written above
-  // `brain.component.ts`. DECOMPOSE: A-4 still stands and is what pays it back.
+  // `brain.component.ts`. The decomposition it was waiting on landed one entry below.
   // RAISED 675 -> 688: the same bound now says when it stopped reading. Thirteen lines across four functions
   // — a per-hop flag in `traverseGraph`, a walk-level one in `traverseFromSeeds`, its merge in
   // `traverseRecallSeeds`, and the destructures at three call sites. The alternative was a module-level
   // mutable that every one of them writes, which is smaller and much worse to read.
-  // DECOMPOSE: A-4 still stands and is what pays it back.
+  // The decomposition it was waiting on is the very next entry.
   // 688 -> 487, and UNDER the 650 ceiling. A-4 PAID: the recall-augmenting traversal became
   // `recall-seed-traversal.ts` (192 lines) — a different subject from the walk that stayed, which starts at ONE
   // node where this one starts at the records a search matched.
@@ -465,7 +469,18 @@ const FROZEN = {
   //
   // Raised without argument, for the reason written above `brain.component.ts`: this is the write path
   // honouring a documented field it silently dropped on create, on all four record types, and a ratchet
-  // that made THAT negotiable would be a gate encouraging the wrong outcome. DECOMPOSE: A-4 still stands.
+  // that made THAT negotiable would be a gate encouraging the wrong outcome.
+  //
+  // NO DECOMPOSITION: already PAID, 688 -> 487 -> 490, and the entry above says how. 490 code lines is not a
+  // god file — it is 160 under the ceiling — and the SECOND SUBJECT is what made this file worth splitting
+  // rather than its size: the recall-augmenting traversal is gone, and what remains is the edge CRUD, which
+  // is one subject. Splitting a module this size again costs a reader more than it saves, which is the same
+  // answer `tokens.component.ts` and `spaces.ts` give at 343 and 589.
+  //
+  // **The four raises above it kept saying A-4 still stood, three of them written BEFORE the payment and one
+  // after.** An append-only comment block contradicting itself is how a finished task keeps being owed — and
+  // `todo:check` was satisfied the whole time by the id appearing in a tracker's PROSE rather than in a row.
+  // Stripping that prose is what surfaced it.
   'server/src/brain/edges.ts': 490,
   /*
    * A BARREL of API response shapes, and the one entry here that is not a decomposition debt.

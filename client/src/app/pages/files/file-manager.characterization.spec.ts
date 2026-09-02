@@ -365,11 +365,11 @@ describe('FileManagerComponent — the extract tab (characterization for G-3)', 
      */
     const { c } = withExtract([page(['a', 'b'], 0), page(['c'], 2)]);
     c.loadExtract(file('doc.pdf'));
-    expect(c.extract().chunks.map((k: any) => k.id)).toEqual(['a', 'b']);
+    expect(c.extractStore.extract().chunks.map((k: any) => k.id)).toEqual(['a', 'b']);
 
     c.moreChunks(file('doc.pdf'));
-    expect(c.extract().chunks.map((k: any) => k.id)).toEqual(['a', 'b', 'c']);
-    expect(c.extract().skip).toBe(0);
+    expect(c.extractStore.extract().chunks.map((k: any) => k.id)).toEqual(['a', 'b', 'c']);
+    expect(c.extractStore.extract().skip).toBe(0);
   });
 
   it('the next page is asked for from what is ON SCREEN, not from the last response', () => {
@@ -381,7 +381,7 @@ describe('FileManagerComponent — the extract tab (characterization for G-3)', 
       seen.push(skip);
       return of(page(['x'], skip));
     };
-    c.extract.set(page(['a', 'b', 'c'], 0));
+    c.extractStore.extract.set(page(['a', 'b', 'c'], 0));
     c.moreChunks(file('doc.pdf'));
     expect(seen).toEqual([3]);
   });
@@ -403,9 +403,9 @@ describe('FileManagerComponent — the extract tab (characterization for G-3)', 
     const { c } = withExtract([]);
     (c as any).filesApi.getFileExtract = () => throwError(() => ({ status: 500 }));
     c.loadExtract(file('doc.pdf'));
-    expect(c.extractLoading()).toBe(false);
-    expect(c.extractError()).toBeTruthy();
-    expect(c.extract()).toBeNull();
+    expect(c.extractStore.loading()).toBe(false);
+    expect(c.extractStore.error()).toBeTruthy();
+    expect(c.extractStore.extract()).toBeNull();
   });
 });
 

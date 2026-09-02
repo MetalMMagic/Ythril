@@ -1,4 +1,5 @@
 import { PreviewObjectUrl } from './preview-object-url';
+import { FileExtractStore } from './file-extract.store';
 import { ChangeDetectionStrategy, Component, inject, signal, computed, effect, untracked, OnInit, OnDestroy, HostListener, ElementRef, viewChild, Input, Output, EventEmitter } from '@angular/core';
 import { FilePreviewComponent, type FilePreview, type PreviewKind, type XlsxPreview } from './file-preview.component';
 import { UploadQueueComponent, type UploadItem, type UploadStatus } from './upload-queue.component';
@@ -133,7 +134,7 @@ function xlsxCellText(v: unknown): string {
    * carry one space's directories into the next — and leaving the page must forget them, which a page-scoped
    * provider does for free.
    */
-  providers: [FileTreeStore, FileListingStore],
+  providers: [FileTreeStore, FileListingStore, FileExtractStore],
   imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe, ErrorStateComponent, ModalDirective, FilePreviewComponent, UploadQueueComponent, FileMetaEditorComponent, FileExtractViewComponent, FileListingComponent, FileTreeComponent],
   styles: [`
     /* A background refresh, as a 2px indeterminate hairline above the table. Deliberately NOT a spinner and
@@ -469,9 +470,9 @@ function xlsxCellText(v: unknown): string {
                        the first question when a document answers queries badly. Hidden from browsing, not
                        from inspection. Nothing here is new data; these are records conversion already wrote. -->
                   <app-file-extract-view
-                    [extract]="extract()"
-                    [loading]="extractLoading()"
-                    [error]="extractError()"
+                    [extract]="extractStore.extract()"
+                    [loading]="extractStore.loading()"
+                    [error]="extractStore.error()"
                     (more)="moreChunks(pf)"
                     (retry)="loadExtract(pf)" />
                 } @else {
@@ -743,9 +744,8 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   selectedMeta = signal<FileMeta | null>(null);
 
   // ── Extract face: what retrieval actually sees ─────────────────────────────
-  extract = signal<FileExtract | null>(null);
-  extractLoading = signal(false);
-  extractError = signal<string | null>(null);
+  /** The Extract face's state and its request — see `file-extract.store.ts`. */
+  readonly extractStore = inject(FileExtractStore);
 
   /**
    * Whether this file HAS an extract to show.
@@ -764,28 +764,23 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   showExtractMode(): void {
     this.detailMode.set('extract');
     const pf = this.previewFile();
-    if (pf && !this.extract() && !this.extractLoading()) this.loadExtract(pf);
+    if (pf && this.extractStore.hasNothing()) this.loadExtract(pf);
   }
 
+  /**
+   * Load the extract for one file.
+   *
+   * The page keeps these two methods because they are what the template calls and they resolve the space and
+   * the path — `activeSpaceId()` and `relPath()` are the page's, and threading them into the store's
+   * constructor would give it two things to be wrong about instead of none.
+   */
   loadExtract(entry: FileEntry, skip = 0): void {
-    this.extractLoading.set(true);
-    this.extractError.set(null);
-    this.filesApi.getFileExtract(this.activeSpaceId(), this.relPath(entry), 100, skip).subscribe({
-      next: (x) => {
-        // Appended, not replaced, when paging: "show more" on a diagnostic must not throw away what the
-        // reader has already scrolled through.
-        const prev = skip > 0 ? this.extract() : null;
-        this.extract.set(prev ? { ...x, chunks: [...prev.chunks, ...x.chunks], skip: prev.skip } : x);
-        this.extractLoading.set(false);
-      },
-      error: (e) => { this.extractError.set(httpErrorReason(e)); this.extractLoading.set(false); },
-    });
+    this.extractStore.load(this.activeSpaceId(), this.relPath(entry), skip);
   }
 
-  /** Next page of chunks. `skip` counts what is already on screen, not the last response's own skip. */
+  /** Next page of chunks. The store counts from what is on screen, not from the last response's own skip. */
   moreChunks(entry: FileEntry): void {
-    const shown = this.extract()?.chunks.length ?? 0;
-    this.loadExtract(entry, shown);
+    this.extractStore.more(this.activeSpaceId(), this.relPath(entry));
   }
 
   /**
@@ -1225,8 +1220,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     this.previewFullscreen.set(false);
     // The previous file's extract must not survive into this one — it is fetched lazily, so a stale value
     // here would show one file's chunks under another file's name until the tab was opened again.
-    this.extract.set(null);
-    this.extractError.set(null);
+    this.extractStore.clear();
     this.loadSelectedMeta(entry);
 
     // Every preview fetch must carry the auth header — the file endpoint requires it,

@@ -1,9 +1,10 @@
-import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TranslocoPipe } from '@jsverse/transloco';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import type { RecallKnowledgeType } from '../../core/api.types';
+import { recallRequestJson } from './recall-request';
 
 /**
  * The recall form's state, mutated IN PLACE by the controls. The host owns it and decides when it runs.
@@ -148,8 +149,36 @@ export interface RecallTypeOpt {
     .rf-type input[type=number] { width:52px; }
     .rf-hint { color:var(--text-muted); font-size:11px; display:inline-flex; vertical-align:middle; }
     .rf-actions { display:flex; align-items:center; gap:10px; margin-top:10px; }
+    /* The request sits BESIDE the groups on a wide screen and under them when there is no room, which is
+       the same rule as the groups themselves rather than a second layout. It scrolls rather than growing:
+       a traversal with six labels is a tall body, and pushing the Search button off the screen to show a
+       preview of what the button would do is the wrong trade. */
+    /* TWO shares of the row rather than one, and measured: with five siblings the preview came out 234px
+       wide and clipped its own first line. A column of 4-digit numbers and a column of JSON do not want
+       the same width. */
+    /* The two-class selector, not the one-class one: the preview carries both, and
+       two classes beat one however the rules are ordered — so the one-class version lost silently and the
+       preview came out the width of a column of 4-digit numbers, clipping its own first line. Measured,
+       not read: 234px against a 300px basis. */
+    .rf-row > .rf-group.rf-json { flex:2 1 300px; min-width:0; max-width:560px; }
+    .rf-json pre { margin:0; max-height:260px; overflow:auto; padding:8px 10px; font-size:11px;
+      font-family:var(--font-mono, monospace); background:var(--bg-elevated); border:1px solid var(--border);
+      border-radius:var(--radius-sm);
+      /* pre-WRAP: a query is a sentence and a filter is a long line, so horizontal scrolling would hide
+         the start of the very key somebody is checking. Wrapping keeps the whole request readable. */
+      white-space:pre-wrap; word-break:break-word; }
+    .rf-json-head { display:flex; align-items:center; justify-content:space-between; gap:8px;
+      margin-bottom:4px; }
   `],
   template: `
+<!-- ONE pair of handlers for the whole form, rather than an (ngModelChange) on each of twenty-five
+     controls.
+
+     input and change both BUBBLE, so this catches every text field, number, select and checkbox in the
+     form — including ones added later. Twenty-five bindings would be twenty-five chances to forget one,
+     and a forgotten one does not break anything visibly: the request preview simply stops updating for
+     that field, which is the one failure a preview must not have, because it is believed. -->
+<div (input)="bumpRequest()" (change)="bumpRequest()">
 <!-- The question. Its own block at full width, because it is the only field that is always used. -->
 <div class="rf-group">
     <div class="rf-legend">{{ 'brain.query.group.question' | transloco }}</div>
@@ -382,6 +411,27 @@ export interface RecallTypeOpt {
       </div>
     }
   </div>
+  <!-- The request this form would send, as an operator would paste it into an MCP call.
+       It does NOT re-build the request: it calls the same function the search calls and prints what comes
+       back. A preview assembled separately would be believed — somebody pastes it, gets a different answer
+       from the one on screen, and nothing anywhere is wrong. See recall-request.ts. -->
+  <div class="rf-group rf-json">
+    <div class="rf-json-head">
+      <span class="rf-legend" style="margin:0;">{{ 'brain.query.request.label' | transloco }}</span>
+      <button class="btn btn-ghost btn-sm" type="button" [disabled]="!request().json"
+        (click)="copyRequest()">{{ (copied() ? 'brain.query.request.copied' : 'brain.query.request.copy') | transloco }}</button>
+    </div>
+    @if (request().json) {
+      <pre>{{ request().json }}</pre>
+    } @else {
+      <!-- Two different reasons for having no request, and they read differently on purpose: a blank
+           question is not an error, and a broken filter is. -->
+      <div class="rf-hint" style="display:block;">
+        {{ (request().errorKey ? 'brain.query.request.invalid' : 'brain.query.request.empty') | transloco }}
+      </div>
+    }
+    <div class="rf-hint" style="display:block; margin-top:5px;">{{ 'brain.query.request.hint' | transloco }}</div>
+  </div>
 </div>
 
 <div class="rf-actions">
@@ -395,6 +445,7 @@ export interface RecallTypeOpt {
   @if (error()) {
     <span style="font-size:12px; color:var(--error);">{{ error() }}</span>
   }
+</div>
 </div>
 `,
 })
@@ -416,4 +467,38 @@ export class RecallFormComponent {
    */
   readonly run = output<void>();
   readonly clear = output<void>();
+
+  // ── The request, shown rather than described ──────────────────────────────────────────────────────────
+  /**
+   * The body this form would send, or the reason there is none.
+   *
+   * **A computed over a bumped tick, because the form object is mutated IN PLACE.** `ngModel` writes into the
+   * same object every time, so a computed reading it would never recompute — the same reason the tree store
+   * bumps a signal after mutating its nodes. `bumpRequest` is bound to the form's own change events.
+   */
+  readonly request = computed(() => { this.tick(); return recallRequestJson(this.form(), this.typeOpts()); });
+
+  private readonly tick = signal(0);
+  bumpRequest(): void { this.tick.update(n => n + 1); }
+
+  readonly copied = signal(false);
+
+  /**
+   * Copy the request, and say so.
+   *
+   * `navigator.clipboard` is absent in a non-secure context and can be refused by permission, so the
+   * confirmation follows the WRITE rather than the click — a button that says "Copied" when nothing was is
+   * worse than one that does nothing visible.
+   */
+  async copyRequest(): Promise<void> {
+    const json = this.request().json;
+    if (!json) return;
+    try {
+      await navigator.clipboard.writeText(json);
+      this.copied.set(true);
+      setTimeout(() => this.copied.set(false), 1500);
+    } catch {
+      // Nothing to report: the text is on screen and selectable, which is the fallback.
+    }
+  }
 }

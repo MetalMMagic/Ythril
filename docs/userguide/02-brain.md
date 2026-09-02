@@ -206,6 +206,16 @@ describe is a search you can run without writing a request by hand:
 - **Fields returned** — a JSON object choosing which fields each result carries, e.g. `{ "description": 1 }`; it can exclude as well as include. Leave it empty for whole records. Worth being careful with rather than clever: a selection that omits the field you are reading gives you a result that looks complete and is missing the answer.
 - **Skip results** — start further down the ranking. When an answer is shortened it tells you where to continue from; that number goes here. It counts from the top of the ranking, not from the last page, so it replaces the previous value rather than adding to it.
 - **Save what did not fit** — the one setting on this form that WRITES. It puts the matches that were cut off into this space as a JSON file, downloadable for a day, and the form says so as soon as you tick it.
+
+**The request this would send** sits beside the form and updates as you type. It is the exact body the
+**Search** button sends, with a **Copy** button — paste it into a `recall` call over MCP or REST and you get
+the same answer. Two uses, and the second is the reason it is there:
+
+- it answers *"what would this look like from an agent"* without anybody having to write it out in prose;
+- and it is how you can tell the screen is not lying to you. It is not a description of the request assembled
+  a second time — the panel and the preview call the same code, so a request you can see is a request you can
+  send. If one of the two JSON boxes above is not a valid object it says so and shows nothing, rather than
+  leaving the last good request on screen.
 - **Filter** — a JSON object of extra field constraints, validated before the search runs. The recall filter accepts fields such as `status` and `label`, which are applied as native `$vectorSearch` pre-filters (they narrow the candidate set inside the vector index rather than filtering afterwards). It also accepts **raw MongoDB** — `$or`, `$and`, `$in`, `$regex` and the comparisons — for conditions the simple form cannot express, such as *"status is open OR kind is ask"*. A raw filter is slower (the whole space is scored, then filtered) and returns the same records.
 - **Graph hops** — follow the knowledge graph outward from each match, 0–5 hops. Connected entities come back **grouped under the match that reached them**, each carrying the relationship that connects it and every route back to the match, so you can ask "what surrounds this answer" in one search and still see which answer it surrounds. The result count stays the number of matches. Leave it at 0 for an ordinary search; deep values on a densely connected space are slow, so narrow the matches with a filter or tags first.
 

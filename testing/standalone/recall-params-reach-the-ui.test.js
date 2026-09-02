@@ -41,6 +41,9 @@ const API = 'client/src/app/core/brain-api.service.ts';
  * current, so the next move does not silently take the check with it — and NOT relaxed: both assertions
  * below still demand a real binding and a real name attribute.
  */
+/** The one place the recall request is assembled — see the note in the panel-sends check below. */
+const BUILDER = 'client/src/app/pages/brain/recall-request.ts';
+
 const PANELS = [
   'client/src/app/pages/brain/query-tab.component.ts',
   'client/src/app/pages/brain/recall-form.component.ts',
@@ -102,8 +105,19 @@ describe('recall parameters reach the UI', () => {
 
   it('the typed client request body declares every one of them', () => {
     const src = stripComments(readFileSync(API, 'utf8'));
-    const body = /recallBrain\(\s*spaceId: string,\s*body: \{([\s\S]*?)\n    \},\s*\): Observable<RecallResponse>/.exec(src);
-    assert.ok(body, `recallBrain's request body type not found in ${API}`);
+    /*
+     * The body is a NAMED interface now, not an inline literal on the method.
+     *
+     * `U-1`'s request-preview panel needs the same type: it shows what the panel would send, and typed as a
+     * loose record it would compile with a key the strict route refuses — a 400 for whoever pasted the JSON.
+     * So the type is shared, and this gate reads the declaration instead of the parameter.
+     *
+     * Bounded by the interface's own closing brace at column 0, which is a structural marker rather than a
+     * character count — the rule `gates-bound-their-subject-structurally` enforces, and the one the first
+     * version of this very change broke.
+     */
+    const body = /export interface RecallRequestBody \{([\s\S]*?)\n\}/.exec(src);
+    assert.ok(body, `RecallRequestBody not found in ${API} — the recall body type was renamed or inlined`);
 
     const declared = new Set([...body[1].matchAll(/^\s{6}(\w+)\??:/gm)].map(m => m[1]));
     const missing = params.filter(p => !declared.has(p));
@@ -113,14 +127,19 @@ describe('recall parameters reach the UI', () => {
   });
 
   it('the recall panel actually sends every one of them', () => {
-    // The REQUEST still lives on the tab; only the controls moved. PANELS[0] rather than the pair, because
-    // a window bounded by braces has to come from one file.
-    const src = stripComments(readFileSync(PANELS[0], 'utf8'));
+    /*
+     * The request moved out of the tab and into `recall-request.ts` — one builder, called by both the
+     * search and the JSON preview beside the form, because a preview assembled separately would be
+     * believed and could differ.
+     *
+     * One FILE rather than the pair, because a window bounded by braces has to come from one.
+     */
+    const src = stripComments(readFileSync(BUILDER, 'utf8'));
     // A WINDOW, converted: the subject is the OBJECT the call sends, bounded by its own brace. 2000
     // characters plus a hard-coded four-space `\n    })` was two guesses — how long the body is, and how deep
     // it is indented. A panel reformatted by a prettier run would have failed this on unchanged behaviour.
-    const at = src.indexOf('recallBrain(this.spaceId(), {');
-    assert.ok(at > -1, `the recall submit call not found in ${PANELS[0]}`);
+    const at = src.indexOf('    body: {');
+    assert.ok(at > -1, `the recall body literal not found in ${BUILDER}`);
     const sentBody = balancedFrom(src, src.indexOf('{', at), 'the recall request body');
 
     const unsent = params.filter(p => !new RegExp(`\\b${p}\\b`).test(sentBody));

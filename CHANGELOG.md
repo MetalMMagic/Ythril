@@ -203,6 +203,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The file tree had no failure state at all, and a folder that would not open said nothing.**
+  `expandTreeNode`'s error branch reset the spinner and left the node closed: the caret sprang back and that
+  was the whole message, on a page where every other load reports itself (`loadError`, `refreshFailed`,
+  `spacesError`).
+
+  An operator did see something — **by accident.** Clicking a folder fires two identical requests, and the
+  second one put the error on the listing beside the tree. That accident is why the order matters and why this
+  is not the same change as removing the duplicate: taking the second request away first would have made a
+  failed expand genuinely silent. The duplicate is filed as `G-13` and can go now.
+
+  The reason appears in red under the folder that refused, and clicking it again retries. Per node rather than
+  one banner, because a failure belongs to the folder that could not be opened — a single message would leave
+  an operator with two collapsed folders and no way to tell which one refused. It is cleared on every attempt,
+  so a folder that failed once and then worked does not keep a stale message under its children.
+
+  **And a root listing that fails is a failed tree, not an empty one.** That one cannot be a per-node message,
+  because there is no node to hang it on: the tree is empty either way, and a space whose folders could not be
+  fetched looked exactly like a space with none.
+
+  **Verified by looking**, on an isolated instance with the failure injected, at both states — which is how a
+  second defect turned up that no assertion was going to find: a failed NAVIGATION shows the previous folder's
+  rows under the new breadcrumb, because the listing renders its error inside the table's empty state and the
+  old rows are still there. Filed as `G-14`.
+
 - **An update route dropped unknown fields silently, and a `warn`-mode space was told nothing about an edit.**
   The second half is the finding. The create responses carry a `warnings` array for schema violations; the
   update responses carried **none at all** — and the writers had been computing the classification and handing

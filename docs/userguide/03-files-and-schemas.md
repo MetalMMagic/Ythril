@@ -121,6 +121,12 @@ Press **Escape** or the close button to dismiss the pane. Use arrow keys to move
 
 ---
 
+**When a folder in the tree will not open, the tree says so.** Clicking a folder in the sidebar can fail —
+the store is briefly unreachable, or the folder was removed by somebody else — and until 3.7 the only sign was
+the little arrow springing back: no message, anywhere. Now the reason appears in red under the folder that
+refused, and clicking it again retries. If the whole tree cannot load, the message sits at the top of the
+sidebar instead, so a space whose folders could not be fetched no longer looks like a space with no folders.
+
 ## Conflict resolution
 
 When two connected brains modify the same file before syncing, a conflict is created. A dedicated **Conflicts** item then appears in the sidebar's Workspace section, carrying a red count badge of how many are waiting.

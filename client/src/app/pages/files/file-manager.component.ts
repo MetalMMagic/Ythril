@@ -381,6 +381,7 @@ function xlsxCellText(v: unknown): string {
             <app-file-tree
               [nodes]="tree.treeRoot()"
               [currentPath]="currentPath()"
+              [rootError]="tree.rootError()"
               (nodeClick)="onTreeClick($event)" />
           }
 

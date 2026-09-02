@@ -39,6 +39,29 @@ services:
       - ythril-data-a:/data
     environment:
       CONFIG_PATH: /config/config.json
+      # A test run is longer than three minutes, and `includeFreshWrites` compensates for index lag only
+      # inside its window.
+      #
+      # `result-spill-both-doors` seeds 28 entities, calibrates against a full recall and then makes twelve
+      # assertions. On a loaded runner that is minutes, and `DUPE_FRESH_WINDOW_MS` defaults to 180 000 — so
+      # the OLDEST record can fall out of the fresh scan before the vector index has ingested it, leaving it
+      # in NEITHER channel. The test asserts 28 and gets 27, and the arithmetic is the only clue: nothing
+      # errors, nothing logs, and the number is short by exactly the records that aged out.
+      #
+      # TEN MINUTES, which is the maximum the product accepts — not a number picked for comfort.
+      #
+      # `env-num.ts` declares `min: 0, max: 600_000` for this setting and REFUSES anything outside it at
+      # boot, with the ceiling as the point rather than the default: the scan runs on a write path, and half
+      # an hour of window would make a duplicate check cost seconds. The first version of this line said
+      # 3 600 000 on the reasoning that an hour covers any run — and the container exited (1) before serving
+      # a request, which is that validator doing exactly its job.
+      #
+      # Ten minutes is comfortably more than this file needs. What matters is the elapsed time since the
+      # FIRST of its 28 seeds, and each test file seeds its own space, so a slow suite does not add up.
+      #
+      # The default must NOT change: 180 s is sized from the worst reported deployment, and a test-only
+      # certainty belongs in the test stack. Diagnosed as Q-6, from a red check on a client-only PR.
+      DUPE_FRESH_WINDOW_MS: "600000"
       DATA_ROOT: /data
       MONGO_URI: mongodb://ythril:ythril-test-pw@ythril-mongo-a:27017/?directConnection=true&authSource=admin
       NODE_ENV: test
@@ -119,6 +142,7 @@ services:
       - ythril-data-b:/data
     environment:
       CONFIG_PATH: /config/config.json
+      DUPE_FRESH_WINDOW_MS: "600000"   # see the note on instance A
       DATA_ROOT: /data
       MONGO_URI: mongodb://ythril:ythril-test-pw@ythril-mongo-b:27017/?directConnection=true&authSource=admin
       NODE_ENV: test
@@ -185,6 +209,7 @@ services:
       - ythril-data-c:/data
     environment:
       CONFIG_PATH: /config/config.json
+      DUPE_FRESH_WINDOW_MS: "600000"   # see the note on instance A
       DATA_ROOT: /data
       MONGO_URI: mongodb://ythril:ythril-test-pw@ythril-mongo-c:27017/?directConnection=true&authSource=admin
       NODE_ENV: test
@@ -238,6 +263,7 @@ services:
       - ythril-data-d:/data
     environment:
       CONFIG_PATH: /config/config.json
+      DUPE_FRESH_WINDOW_MS: "600000"   # see the note on instance A
       DATA_ROOT: /data
       MONGO_URI: mongodb://ythril:ythril-test-pw@ythril-mongo-d:27017/?directConnection=true&authSource=admin
       NODE_ENV: test

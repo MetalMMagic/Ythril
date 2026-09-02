@@ -87,6 +87,16 @@ before(async () => {
   // NO wait for the vector index. `includeFreshWrites: true` makes recall also scan the newest records
   // directly — the flag exists for exactly this case — so the test does not depend on how warm the embedder is.
   //
+  // IT DOES DEPEND ON `DUPE_FRESH_WINDOW_MS`, which `testing/docker-compose.test.yml` sets to ten minutes —
+  // the maximum `env-num.ts` accepts, and it refuses anything higher at boot rather than clamping.
+  // The default is 180 s, sized from the worst reported deployment, and this file takes longer than that on
+  // a loaded runner: seed 28, calibrate, then twelve assertions. When the window expires, the OLDEST record
+  // is in neither channel — not indexed yet, no longer fresh — and the only symptom is `count` short by
+  // exactly the records that aged out. It read 27 of 28 on CI, against a client-only diff. Q-6.
+  //
+  // So do not shorten the window in the compose file to match production. The window is what makes this
+  // file's premise true, and the premise is the thing being tested.
+  //
   // It matters: waiting for 28 embeddings on a freshly rebuilt stack hit the shared 300-second index-lag timeout
   // and failed every assertion for a reason that had nothing to do with the spill.
 

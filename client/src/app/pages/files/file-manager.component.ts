@@ -900,7 +900,25 @@ export class FileManagerComponent implements OnInit, OnDestroy {
           this.refreshing.set(false);
           return;
         }
-        // A failed first listing must not fall through to the "empty folder" state (U3).
+        /*
+         * A failed first listing must not fall through to the "empty folder" state (U3) — and a failed
+         * NAVIGATION must not leave the rows of the folder you came FROM under the name of the one you tried
+         * to enter (`G-14`).
+         *
+         * The error is rendered inside the table's empty state, which is right for a first load and useless
+         * here: rows on screen hide it completely, so the breadcrumb said `root / docs` while the table
+         * listed `root` and nothing anywhere said the listing had failed.
+         *
+         * Clearing the rows rather than moving the message is the fix, because the rows are the lie. A banner
+         * above a table of the wrong directory's contents is the same claim with a caption.
+         *
+         * `loadedPath` is deliberately NOT reset, and a surviving mutant is what settled that. It looked
+         * like the honest thing to do — the field means "the path `entries()` describes" and `entries()` now
+         * describes nothing — but `isRefresh` needs the path, some rows AND no error all at once, and the
+         * rows have just gone. No behaviour can reach the stale value, so resetting it was a line no test
+         * could pin. The retry reads `currentPath` instead, which is the folder on the breadcrumb.
+         */
+        this.entries.set([]);
         this.loadError.set(httpErrorReason(e));
         this.loading.set(false);
       },

@@ -162,7 +162,12 @@ const FROZEN = {
   // largest file in the repo. That is the defect this codebase produces most, one rule with a copy in each
   // place that touches it. It moved into `file-tree.store.ts`, which owns the waiting node; the page hands
   // over a path and some entries and is told nothing. DECOMPOSE: G-3 still stands.
-  'client/src/app/pages/files/file-manager.component.ts': 1078,
+  //
+  // RAISED 1078 -> 1079: ONE LINE, `G-14`. A folder whose listing failed showed the PREVIOUS folder's rows
+  // under the new folder's name, because the failure message renders in place of the "empty folder" state
+  // and rows on screen hide it. The line clears the rows. There is nowhere else it could go: the branch that
+  // knows a load from a refresh is this one, and the distinction is the whole fix. DECOMPOSE: G-3 stands.
+  'client/src/app/pages/files/file-manager.component.ts': 1079,
   'client/src/app/pages/schema-library/schema-library.component.ts': 1112,
   'server/src/sync/engine.ts': 966,
   // 958 -> 684: the per-type editor body moved into `schema-type-editor.component` so the Brain Overview

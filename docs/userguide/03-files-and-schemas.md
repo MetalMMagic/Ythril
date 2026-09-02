@@ -127,6 +127,15 @@ the little arrow springing back: no message, anywhere. Now the reason appears in
 refused, and clicking it again retries. If the whole tree cannot load, the message sits at the top of the
 sidebar instead, so a space whose folders could not be fetched no longer looks like a space with no folders.
 
+**And the file list beside it is emptied rather than left behind.** Opening a folder whose listing fails used
+to leave the previous folder's files on screen under the new folder's name, with nothing to say the listing
+had failed — you were reading one directory's contents labelled as another's. The list now shows the failure
+and a **Retry**, which loads the folder named in the path above it.
+
+This is only true of OPENING a folder. A background refresh that fails keeps the files it is already showing
+and marks them as not current, because a momentary hiccup while a file is being processed must not blank a
+list that is perfectly good.
+
 ## Conflict resolution
 
 When two connected brains modify the same file before syncing, a conflict is created. A dedicated **Conflicts** item then appears in the sidebar's Workspace section, carrying a red count badge of how many are waiting.

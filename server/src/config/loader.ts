@@ -833,7 +833,21 @@ export function getEmbeddingConfig() {
   // No baseUrl in the default = use the bundled local ONNX model.
   // Set baseUrl in config.json to override with an HTTP endpoint (e.g. Ollama).
   const base: Partial<EmbeddingConfig> = cfg.embedding ?? {};
-  // API key: env > secrets.json > legacy inline config. Never surfaced from config.json.
+  /*
+   * API key: env > secrets.json. NOT from config.json, and the arm that read it is gone as of 4.0.
+   *
+   * This comment used to say "env > secrets.json > legacy inline config. Never surfaced from config.json",
+   * which contradicts itself in one sentence — and the code had the third arm (`?? base.apiKey`). The four
+   * media providers had been held to "no config fallback" since 3.0, for the reason stated in
+   * `migrate-provider-keys.ts`: a fallback keeps a credential working from a file that is not `0o600`, so
+   * nobody ever notices it is there. `embedding` was not one of the four names that rule was written
+   * against, so it kept its arm for a release.
+   *
+   * Deleting the arm is safe because `migrateProviderApiKeysToSecrets` lifts the key into the in-memory
+   * SECRETS object, and it runs inside `loadConfig` before any resolver is called — so the value is already
+   * where this looks for it whether or not either file write succeeded. (That is what separates this from
+   * the four config migrations 4.0 ruled PERMANENT: theirs are only load-bearing when the write FAILS.)
+   */
   let embApiKey: string | undefined = process.env['EMBEDDING_API_KEY'];
   if (!embApiKey) {
     try { embApiKey = (getSecrets() as { embedding?: { apiKey?: string } }).embedding?.apiKey; } catch { /* pre-setup */ }
@@ -855,11 +869,12 @@ export function getEmbeddingConfig() {
     // instance that never sets this keeps embedding exactly as it did.
     prefixScheme: (process.env['EMBEDDING_PREFIX_SCHEME'] as 'auto' | 'none' | 'nomic' | 'qwen' | undefined)
       ?? base.prefixScheme ?? 'auto',
-    apiKey: embApiKey ?? base.apiKey,
+    apiKey: embApiKey,
   };
 }
 
-/** The external embedding endpoint's API key, resolved (env > secrets). Never in config.json. */
+/** The external embedding endpoint's API key, resolved (env > secrets). Never from config.json — the arm
+ *  that read it was deleted in 4.0, and a stored one is lifted into `secrets.json` at boot. */
 export function getEmbeddingApiKey(): string | undefined {
   return getEmbeddingConfig().apiKey;
 }

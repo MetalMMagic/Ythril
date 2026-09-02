@@ -1,6 +1,7 @@
 import { PreviewObjectUrl } from './preview-object-url';
 import { FileExtractStore } from './file-extract.store';
 import { FileMetaStore } from './file-meta.store';
+import { FileUploadStore } from './file-upload.store';
 import { ChangeDetectionStrategy, Component, inject, signal, computed, effect, untracked, OnInit, OnDestroy, HostListener, ElementRef, viewChild, Input, Output, EventEmitter } from '@angular/core';
 import { FilePreviewComponent, type FilePreview, type PreviewKind, type XlsxPreview } from './file-preview.component';
 import { UploadQueueComponent, type UploadItem, type UploadStatus } from './upload-queue.component';
@@ -16,12 +17,10 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import { DomSanitizer, SafeResourceUrl, SafeHtml } from '@angular/platform-browser';
 import { Space, FileEntry, FileMeta, FileExtract, UploadProgress } from '../../core/api.types';
-import { FilesApi } from '../../core/files-api.service';
 import { SpacesApi } from '../../core/spaces-api.service';
 import { AuthService } from '../../core/auth.service';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
-import { Subscription } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ToastService } from '../../core/toast.service';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
@@ -135,7 +134,7 @@ function xlsxCellText(v: unknown): string {
    * carry one space's directories into the next — and leaving the page must forget them, which a page-scoped
    * provider does for free.
    */
-  providers: [FileTreeStore, FileListingStore, FileExtractStore, FileMetaStore],
+  providers: [FileTreeStore, FileListingStore, FileExtractStore, FileMetaStore, FileUploadStore],
   imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe, ErrorStateComponent, ModalDirective, FilePreviewComponent, UploadQueueComponent, FileMetaEditorComponent, FileExtractViewComponent, FileListingComponent, FileTreeComponent],
   styles: [`
     /* A background refresh, as a 2px indeterminate hairline above the table. Deliberately NOT a spinner and
@@ -370,9 +369,9 @@ function xlsxCellText(v: unknown): string {
         </div>
 
         <!-- Upload queue — one row per file (U12) -->
-        @if (uploads().length) {
+        @if (uploads.items().length) {
           <app-upload-queue
-            [uploads]="uploads()"
+            [uploads]="uploads.items()"
             [hasFinished]="hasFinishedUploads()"
             (retry)="retryUpload($event)"
             (cancel)="cancelUpload($event)"
@@ -520,7 +519,6 @@ function xlsxCellText(v: unknown): string {
   `,
 })
 export class FileManagerComponent implements OnInit, OnDestroy {
-  private filesApi = inject(FilesApi);
   private spacesApi = inject(SpacesApi);
   private auth = inject(AuthService);
   private sanitizer = inject(DomSanitizer);
@@ -612,6 +610,16 @@ export class FileManagerComponent implements OnInit, OnDestroy {
      * refresh it — and the listing belongs to a different store. Neither write could decide that for itself
      * without one store reaching into another.
      */
+    /*
+     * A finished upload is two things to the rest of the page and neither is the queue's to decide: the new
+     * file has to appear in the listing, which is another store's data, and the host's record counts have
+     * moved, which is an `@Output`. The store publishes that one landed.
+     */
+    this.uploads.completed.pipe(takeUntilDestroyed()).subscribe(() => {
+      this.reloadDir();
+      this.filesChanged.emit();
+    });
+
     this.metaStore.seeded.pipe(takeUntilDestroyed()).subscribe(model => this.primePickerFrom(model));
     this.metaStore.saved.pipe(takeUntilDestroyed()).subscribe(() => {
       // The edit face closes on the ANSWER, not on the attempt — same rule as the new-folder form above: a
@@ -710,16 +718,8 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   /** Null until the space list failed to load — else the page renders with no selector and no body. */
   spacesError = signal<string | null>(null);
 
-  // ── Upload queue (U12) ─────────────────────────────────────────────────────
-  // One row per file, each with its own status/percent. Files upload one at a
-  // time; the rest sit `queued`. A failed row can be retried, and a queued or
-  // in-flight row can be cancelled (the latter aborts the in-flight chunk).
-  uploads = signal<UploadItem[]>([]);
-  /** Subscriptions for active uploads, by item id — unsubscribing cancels. */
-  private uploadSubs = new Map<number, Subscription>();
-  private uploadSeq = 0;
-  /** True while an item is mid-flight — serialises the queue. */
-  private processing = false;
+  /** The upload queue, its ordering and its one request — see `file-upload.store.ts`. */
+  readonly uploads = inject(FileUploadStore);
 
   dragOver = signal(false);
 
@@ -1032,95 +1032,20 @@ export class FileManagerComponent implements OnInit, OnDestroy {
       if (!ok) return;
     }
 
-    const items: UploadItem[] = picked.map(file => ({
-      id: ++this.uploadSeq,
-      file,
-      name: file.name,
-      status: 'queued' as const,
-      percent: 0,
-    }));
-    this.uploads.update(u => [...u, ...items]);
-    this.processQueue();
+    // The destination is fixed HERE, not when each row's turn comes: the queue is serialised, so a batch
+    // dropped on this folder must land on this folder however long it waits.
+    this.uploads.enqueue(this.activeSpaceId(), this.currentPath(), picked);
   }
 
-  /** Immutably patch one upload row so the OnPush view re-renders. */
-  private patchUpload(id: number, patch: Partial<UploadItem>): void {
-    this.uploads.update(list => list.map(u => (u.id === id ? { ...u, ...patch } : u)));
-  }
+  retryUpload(item: UploadItem): void { this.uploads.retry(item); }
 
-  /** Start the next queued upload, unless one is already in flight. */
-  private processQueue(): void {
-    if (this.processing) return;
-    const next = this.uploads().find(u => u.status === 'queued');
-    if (!next) return;
-    this.processing = true;
-    this.startUpload(next);
-  }
+  cancelUpload(item: UploadItem): void { this.uploads.cancel(item); }
 
-  private startUpload(item: UploadItem): void {
-    this.patchUpload(item.id, { status: 'uploading', percent: 0, error: undefined });
-    const sub = this.filesApi
-      .uploadFileChunked(this.activeSpaceId(), this.currentPath(), item.file)
-      .subscribe({
-        next: (progress) => this.patchUpload(item.id, { percent: progress.percent }),
-        error: (err) => {
-          this.uploadSubs.delete(item.id);
-          this.patchUpload(item.id, { status: 'failed', error: httpErrorReason(err) || undefined });
-          this.processing = false;
-          this.processQueue();
-        },
-        complete: () => {
-          this.uploadSubs.delete(item.id);
-          this.patchUpload(item.id, { status: 'done', percent: 100 });
-          this.processing = false;
-          // Show the freshly uploaded file straight away, and let the host refresh its record counts.
-          this.reloadDir();
-          this.filesChanged.emit();
-          this.processQueue();
-        },
-      });
-    this.uploadSubs.set(item.id, sub);
-  }
+  dismissUpload(item: UploadItem): void { this.uploads.dismiss(item); }
 
-  /** Re-queue a failed upload. */
-  retryUpload(item: UploadItem): void {
-    if (item.status !== 'failed') return;
-    this.patchUpload(item.id, { status: 'queued', percent: 0, error: undefined });
-    this.processQueue();
-  }
+  hasFinishedUploads(): boolean { return this.uploads.hasFinished(); }
 
-  /**
-   * Cancel a queued or in-flight upload. Unsubscribing tears down the cold
-   * upload observable, which aborts the in-flight chunk request; the row is
-   * removed and the queue advances.
-   */
-  cancelUpload(item: UploadItem): void {
-    const wasUploading = item.status === 'uploading';
-    const sub = this.uploadSubs.get(item.id);
-    if (sub) {
-      sub.unsubscribe();
-      this.uploadSubs.delete(item.id);
-    }
-    this.uploads.update(list => list.filter(u => u.id !== item.id));
-    if (wasUploading) {
-      this.processing = false;
-      this.processQueue();
-    }
-  }
-
-  /** Remove a finished (done/failed) row from the panel. */
-  dismissUpload(item: UploadItem): void {
-    this.uploads.update(list => list.filter(u => u.id !== item.id));
-  }
-
-  hasFinishedUploads(): boolean {
-    return this.uploads().some(u => u.status === 'done' || u.status === 'failed');
-  }
-
-  /** Clear all finished rows, leaving queued/in-flight ones. */
-  clearFinishedUploads(): void {
-    this.uploads.update(list => list.filter(u => u.status === 'queued' || u.status === 'uploading'));
-  }
+  clearFinishedUploads(): void { this.uploads.clearFinished(); }
 
   createFolder(): void {
     if (!this.newFolderName.trim()) return;
@@ -1460,9 +1385,9 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     document.removeEventListener('keydown', this._keyHandler);
     this.previewUrl.release();
-    // Abort any in-flight/queued uploads so their requests don't outlive the view.
-    for (const sub of this.uploadSubs.values()) sub.unsubscribe();
-    this.uploadSubs.clear();
+    // Abort any in-flight/queued uploads so their requests don't outlive the view. The store cannot do
+    // this itself: being page-provided is the whole reason an upload survives the panel remounting.
+    this.uploads.abortAll();
     // A poll left running would keep requesting a directory listing for a view nobody is looking at —
     // and, because it reloads through the component's own signals, on a destroyed component.
     this.stopProgressPolling();

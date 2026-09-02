@@ -377,7 +377,7 @@ describe('FileManagerComponent — the extract tab (characterization for G-3)', 
     // again for ever, because the first response's skip is 0 and it is the one that is preserved above.
     const seen: number[] = [];
     const { c } = withExtract([page(['a', 'b'], 0), page(['c', 'd'], 0)]);
-    (c as any).filesApi.getFileExtract = (_s: string, _p: string, _l: number, skip: number) => {
+    (c as any).extractStore.filesApi.getFileExtract = (_s: string, _p: string, _l: number, skip: number) => {
       seen.push(skip);
       return of(page(['x'], skip));
     };
@@ -401,7 +401,7 @@ describe('FileManagerComponent — the extract tab (characterization for G-3)', 
     // The difference a reader has to be able to see: "this file has no chunks" and "we could not ask" are
     // not the same answer, and an empty state for both is the version that gets shipped by accident.
     const { c } = withExtract([]);
-    (c as any).filesApi.getFileExtract = () => throwError(() => ({ status: 500 }));
+    (c as any).extractStore.filesApi.getFileExtract = () => throwError(() => ({ status: 500 }));
     c.loadExtract(file('doc.pdf'));
     expect(c.extractStore.loading()).toBe(false);
     expect(c.extractStore.error()).toBeTruthy();

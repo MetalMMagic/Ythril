@@ -21,6 +21,7 @@ import { BrainStore } from '../brain/brain-store.service';
 import { getTranslocoModule } from '../../testing/transloco-testing';
 import { FileManagerComponent } from './file-manager.component';
 import { isOnPush } from '../../testing/onpush';
+import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 
 function fileEntry(name: string, isDir = false): FileEntry {
   return {
@@ -380,22 +381,24 @@ describe('FileManagerComponent (OnPush)', () => {
 // ── Upload queue (U12) ────────────────────────────────────────────────────────
 
 /** Build an api whose uploadFileChunked hands back a controllable Subject per call. */
-function makeUploadApi() {
+function makeUploadApi(entries: FileEntry[] = []) {
   const streams: Subject<UploadProgress>[] = [];
-  const calls: { file: File }[] = [];
-  const uploadFileChunked = vi.fn((_s: string, _p: string, file: File): Observable<UploadProgress> => {
+  const calls: { spaceId: string; path: string; file: File }[] = [];
+  const uploadFileChunked = vi.fn((spaceId: string, path: string, file: File): Observable<UploadProgress> => {
     const subj = new Subject<UploadProgress>();
     streams.push(subj);
-    calls.push({ file });
+    calls.push({ spaceId, path, file });
     return subj.asObservable();
   });
+  /** A spy, so "did finishing an upload refresh the directory?" can be asked of a call count. */
+  const listFiles = vi.fn(() => of({ entries }));
   const api = {
     listSpaces: () => of({ spaces: [] }),
-    listFiles: () => of({ entries: [] }),
+    listFiles,
     getFileDownloadUrl: (s: string, p: string) => `/api/files/${s}${p}`,
     uploadFileChunked,
   } as any;
-  return { api, streams, calls, uploadFileChunked };
+  return { api, streams, calls, uploadFileChunked, listFiles };
 }
 
 function fakeFileList(names: string[]): FileList {
@@ -570,21 +573,21 @@ describe('FileManagerComponent — upload queue (U12)', () => {
     // Two rows; only the first upload has started (serialised queue).
     expect(rows(fx).length).toBe(2);
     expect(mock.uploadFileChunked).toHaveBeenCalledTimes(1);
-    expect(comp.uploads()[0].status).toBe('uploading');
-    expect(comp.uploads()[1].status).toBe('queued');
+    expect(comp.uploads.items()[0].status).toBe('uploading');
+    expect(comp.uploads.items()[1].status).toBe('queued');
 
     // Finish the first → second starts.
     mock.streams[0].next({ percent: 100, done: true });
     mock.streams[0].complete();
     fx.detectChanges();
-    expect(comp.uploads()[0].status).toBe('done');
+    expect(comp.uploads.items()[0].status).toBe('done');
     expect(mock.uploadFileChunked).toHaveBeenCalledTimes(2);
-    expect(comp.uploads()[1].status).toBe('uploading');
+    expect(comp.uploads.items()[1].status).toBe('uploading');
 
     mock.streams[1].next({ percent: 100, done: true });
     mock.streams[1].complete();
     fx.detectChanges();
-    expect(comp.uploads()[1].status).toBe('done');
+    expect(comp.uploads.items()[1].status).toBe('done');
   });
 
   it('marks a failed upload and re-queues it on retry', () => {
@@ -595,14 +598,14 @@ describe('FileManagerComponent — upload queue (U12)', () => {
 
     mock.streams[0].error({ error: { error: 'disk full' } });
     fx.detectChanges();
-    expect(comp.uploads()[0].status).toBe('failed');
-    expect(comp.uploads()[0].error).toBe('disk full');
+    expect(comp.uploads.items()[0].status).toBe('failed');
+    expect(comp.uploads.items()[0].error).toBe('disk full');
     // A Retry button is offered (test transloco renders the raw key).
     expect(fx.nativeElement.textContent).toContain('common.retry');
 
-    comp.retryUpload(comp.uploads()[0]);
+    comp.retryUpload(comp.uploads.items()[0]);
     fx.detectChanges();
-    expect(comp.uploads()[0].status).toBe('uploading');
+    expect(comp.uploads.items()[0].status).toBe('uploading');
     expect(mock.uploadFileChunked).toHaveBeenCalledTimes(2);
   });
 
@@ -612,13 +615,13 @@ describe('FileManagerComponent — upload queue (U12)', () => {
     (comp as any).enqueueUploads(fakeFileList(['a.txt', 'b.txt']));
     fx.detectChanges();
 
-    comp.cancelUpload(comp.uploads()[0]);
+    comp.cancelUpload(comp.uploads.items()[0]);
     fx.detectChanges();
 
     // Row a.txt is gone; b.txt takes over.
-    expect(comp.uploads().length).toBe(1);
-    expect(comp.uploads()[0].name).toBe('b.txt');
-    expect(comp.uploads()[0].status).toBe('uploading');
+    expect(comp.uploads.items().length).toBe(1);
+    expect(comp.uploads.items()[0].name).toBe('b.txt');
+    expect(comp.uploads.items()[0].status).toBe('uploading');
     expect(mock.uploadFileChunked).toHaveBeenCalledTimes(2);
   });
 
@@ -635,7 +638,301 @@ describe('FileManagerComponent — upload queue (U12)', () => {
     comp.clearFinishedUploads();
     fx.detectChanges();
     // Only the still-uploading b.txt remains.
-    expect(comp.uploads().map(u => u.name)).toEqual(['b.txt']);
+    expect(comp.uploads.items().map(u => u.name)).toEqual(['b.txt']);
+  });
+});
+
+/**
+ * The upload queue's other half — the parts with no test at all (`G-3` characterization).
+ *
+ * Four cases already stand over the queue itself: it serialises, a failure can be retried, a cancel advances
+ * it, and finished rows clear. What none of them touch is everything AROUND the queue, and that is the half a
+ * refactor drops silently:
+ *
+ * **The overwrite question.** Uploading over an existing path is a REPLACE and it takes the derived records
+ * with it — conversion chunks, the converted Markdown, extracted images, and any description generated from
+ * them. That is correct, it happened silently, and it was reported against 2.1.1. The question is asked ONCE
+ * for the whole batch, and declining queues nothing at all.
+ *
+ * **The two side effects of finishing.** A completed upload refreshes the directory and emits
+ * `filesChanged`, which is how the Brain shell's tab badge learns its count moved. Both belong to something
+ * other than the queue — the listing store and the host — so both are exactly what a move would leave behind.
+ *
+ * These are pinned BEFORE the queue becomes its own store, against the code as it stands, so the move has
+ * something to be measured against rather than a promise that it behaved the same.
+ */
+describe('FileManagerComponent — what surrounds the upload queue', () => {
+  let mock: ReturnType<typeof makeUploadApi>;
+  let confirmCalls: number;
+  let confirmAnswer: boolean;
+
+  function create(entries: FileEntry[] = []) {
+    mock = makeUploadApi(entries);
+    confirmCalls = 0;
+    TestBed.configureTestingModule({
+      imports: [FileManagerComponent, getTranslocoModule()],
+      providers: [
+        { provide: FilesApi, useValue: mock.api },
+        { provide: SpacesApi, useValue: mock.api },
+        { provide: AuthService, useValue: { token: () => '' } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => '' } } } },
+        {
+          provide: ConfirmDialogService,
+          useValue: { confirm: () => { confirmCalls++; return Promise.resolve(confirmAnswer); } },
+        },
+      ],
+    });
+    const fixture = TestBed.createComponent(FileManagerComponent);
+    fixture.componentRef.setInput('embeddedSpaceId', 'work');
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('asks ONCE for a batch where several files collide, and queues nothing when declined', async () => {
+    confirmAnswer = false;
+    const fx = create([fileEntry('a.txt'), fileEntry('b.txt')]);
+    const comp = fx.componentInstance;
+
+    await (comp as any).enqueueUploads(fakeFileList(['a.txt', 'b.txt', 'new.txt']));
+    fx.detectChanges();
+
+    // One question for two collisions — a drop of twenty files where three collide is one question.
+    expect(confirmCalls).toBe(1);
+    // Declining takes the WHOLE batch with it, including new.txt: the alternative is a partial upload
+    // nobody asked for, from a dialog that only mentioned the files that clashed.
+    expect(comp.uploads.items()).toEqual([]);
+    expect(mock.uploadFileChunked).not.toHaveBeenCalled();
+  });
+
+  it('uploads the whole batch once the overwrite is confirmed', async () => {
+    confirmAnswer = true;
+    const fx = create([fileEntry('a.txt')]);
+    const comp = fx.componentInstance;
+
+    await (comp as any).enqueueUploads(fakeFileList(['a.txt', 'new.txt']));
+    fx.detectChanges();
+
+    expect(confirmCalls).toBe(1);
+    expect(comp.uploads.items().map(u => u.name)).toEqual(['a.txt', 'new.txt']);
+    expect(mock.uploadFileChunked).toHaveBeenCalledTimes(1);   // still serialised
+  });
+
+  it('does not ask at all when nothing is being overwritten', async () => {
+    confirmAnswer = true;
+    const fx = create([fileEntry('other.txt'), fileEntry('sub', true)]);
+    const comp = fx.componentInstance;
+
+    await (comp as any).enqueueUploads(fakeFileList(['new.txt']));
+    fx.detectChanges();
+
+    // A dialog that appears when nothing is at risk teaches people to click through the one that matters.
+    expect(confirmCalls).toBe(0);
+    expect(comp.uploads.items().map(u => u.name)).toEqual(['new.txt']);
+  });
+
+  it('only a DIRECTORY of the same name is not a collision', async () => {
+    confirmAnswer = false;
+    const fx = create([fileEntry('report', true)]);
+    const comp = fx.componentInstance;
+
+    await (comp as any).enqueueUploads(fakeFileList(['report']));
+    fx.detectChanges();
+
+    // The clash set is built from `isFile` entries. A directory named `report` cannot be replaced by a
+    // file upload, so asking about it would be asking about something that is not going to happen.
+    expect(confirmCalls).toBe(0);
+    expect(comp.uploads.items().map(u => u.name)).toEqual(['report']);
+  });
+
+  it('a FINISHED upload refreshes the directory and tells the host its count moved', async () => {
+    confirmAnswer = true;
+    const fx = create();
+    const comp = fx.componentInstance;
+    let changed = 0;
+    comp.filesChanged.subscribe(() => changed++);
+
+    await (comp as any).enqueueUploads(fakeFileList(['a.txt']));
+    fx.detectChanges();
+
+    // Counted from a baseline taken here, not from zero: the page lists the directory on init and again
+    // whenever the space or path changes, so a count from zero would pass with the completion deleted.
+    const listedBefore = mock.listFiles.mock.calls.length;
+    expect(changed).toBe(0);
+
+    mock.streams[0].next({ percent: 100, done: true });
+    mock.streams[0].complete();
+    fx.detectChanges();
+
+    expect(comp.uploads.items()[0].status).toBe('done');
+    expect(mock.listFiles.mock.calls.length).toBe(listedBefore + 1);
+    expect(changed).toBe(1);
+  });
+
+  it('a FAILED upload refreshes nothing and tells the host nothing', async () => {
+    confirmAnswer = true;
+    const fx = create();
+    const comp = fx.componentInstance;
+    let changed = 0;
+    comp.filesChanged.subscribe(() => changed++);
+
+    await (comp as any).enqueueUploads(fakeFileList(['a.txt']));
+    fx.detectChanges();
+    const listedBefore = mock.listFiles.mock.calls.length;
+
+    mock.streams[0].error({ error: { error: 'disk full' } });
+    fx.detectChanges();
+
+    // The pair to the case above, and the reason it is here: an unconditional refresh would pass that one
+    // while wiping the panel's own error row off a listing that has not changed.
+    expect(comp.uploads.items()[0].status).toBe('failed');
+    expect(mock.listFiles.mock.calls.length).toBe(listedBefore);
+    expect(changed).toBe(0);
+  });
+
+  it('picking the same file twice still uploads it — the input is cleared after each pick', () => {
+    confirmAnswer = true;
+    const fx = create();
+    const comp = fx.componentInstance;
+    const input = { files: fakeFileList(['a.txt']), value: 'C:/fake/a.txt' } as unknown as HTMLInputElement;
+
+    comp.onFileInput({ target: input } as unknown as Event);
+    fx.detectChanges();
+
+    // A file input fires `change` only when its value CHANGES. Left set, picking the same file again is
+    // silent — the row never appears and the upload never happens, with nothing on screen to explain it.
+    expect(input.value).toBe('');
+  });
+
+  it('dismissing a finished row leaves the others alone', async () => {
+    confirmAnswer = true;
+    const fx = create();
+    const comp = fx.componentInstance;
+
+    await (comp as any).enqueueUploads(fakeFileList(['a.txt', 'b.txt']));
+    mock.streams[0].next({ percent: 100, done: true });
+    mock.streams[0].complete();
+    fx.detectChanges();
+
+    comp.dismissUpload(comp.uploads.items()[0]);
+    fx.detectChanges();
+
+    expect(comp.uploads.items().map(u => u.name)).toEqual(['b.txt']);
+    expect(comp.uploads.items()[0].status).toBe('uploading');
+  });
+
+  it('crossing between panes keeps the drop target armed; leaving the page disarms it', () => {
+    const fx = create();
+    const comp = fx.componentInstance;
+    const host = document.createElement('div');
+    const innerPane = document.createElement('span');
+    host.appendChild(innerPane);
+    const over = () => ({ preventDefault: () => {}, stopPropagation: () => {} }) as unknown as DragEvent;
+    const leaveTo = (related: Node | null) =>
+      ({ currentTarget: host, relatedTarget: related }) as unknown as DragEvent;
+
+    comp.onDragOver(over());
+    fx.detectChanges();
+    expect(comp.dragOver()).toBe(true);
+
+    // Dragging from the tree pane onto the table fires `dragleave` on the way. Clearing there would drop
+    // the highlight halfway across the page, so the check is whether the cursor left the COMPONENT.
+    comp.onDragLeave(leaveTo(innerPane));
+    fx.detectChanges();
+    expect(comp.dragOver()).toBe(true);
+
+    comp.onDragLeave(leaveTo(null));
+    fx.detectChanges();
+    expect(comp.dragOver()).toBe(false);
+  });
+
+  it('a queued file goes to the folder it was DROPPED on, not the one open when its turn comes', async () => {
+    confirmAnswer = true;
+    const fx = create();
+    const comp = fx.componentInstance;
+
+    await (comp as any).enqueueUploads(fakeFileList(['a.txt', 'b.txt']));
+    fx.detectChanges();
+    expect(mock.calls[0].path).toBe('/');
+
+    // The queue is serialised, so b.txt has not started yet. Navigating away while an upload is in flight is
+    // ordinary — the panel stays visible on purpose, precisely so you can carry on working.
+    comp.navigate('/sub');
+    fx.detectChanges();
+
+    mock.streams[0].next({ percent: 100, done: true });
+    mock.streams[0].complete();
+    fx.detectChanges();
+
+    // b.txt was dropped on the root and must land on the root. Reading the CURRENT path when its turn comes
+    // puts it wherever the user happens to be standing, with a done row claiming success and the file
+    // nowhere the user looked for it.
+    expect(mock.calls.length).toBe(2);
+    expect(mock.calls[1].path).toBe('/');
+  });
+
+  it('leaving the page aborts an upload that is still running', async () => {
+    confirmAnswer = true;
+    const fx = create();
+    const comp = fx.componentInstance;
+
+    await (comp as any).enqueueUploads(fakeFileList(['a.txt']));
+    fx.detectChanges();
+    expect(comp.uploads.items()[0].status).toBe('uploading');
+
+    comp.ngOnDestroy();
+    mock.streams[0].next({ percent: 50, done: false });
+
+    // Unsubscribing tears down the cold upload observable, which aborts the in-flight chunk request. What is
+    // observable from here is that its callbacks stopped arriving: a request left running writes to signals
+    // nothing is reading, on a component that is gone.
+    expect(comp.uploads.items()[0].percent).toBe(0);
+  });
+
+  it('a second drop while one is uploading joins the queue rather than starting beside it', async () => {
+    confirmAnswer = true;
+    const fx = create();
+    const comp = fx.componentInstance;
+
+    await (comp as any).enqueueUploads(fakeFileList(['a.txt']));
+    fx.detectChanges();
+    expect(mock.uploadFileChunked).toHaveBeenCalledTimes(1);
+
+    // Dropping more files while the first is in flight is the ordinary way this panel gets used. The
+    // one-at-a-time rule is what keeps a slow connection from being split across ten parallel uploads, and
+    // it has to hold for a batch that arrives DURING one, not only within a single batch.
+    await (comp as any).enqueueUploads(fakeFileList(['b.txt']));
+    fx.detectChanges();
+
+    expect(mock.uploadFileChunked).toHaveBeenCalledTimes(1);
+    expect(comp.uploads.items().map(u => u.status)).toEqual(['uploading', 'queued']);
+
+    mock.streams[0].next({ percent: 100, done: true });
+    mock.streams[0].complete();
+    fx.detectChanges();
+    expect(mock.uploadFileChunked).toHaveBeenCalledTimes(2);
+  });
+
+  it('retrying a row that did not fail does nothing — it would upload the file twice', async () => {
+    confirmAnswer = true;
+    const fx = create();
+    const comp = fx.componentInstance;
+
+    await (comp as any).enqueueUploads(fakeFileList(['a.txt']));
+    mock.streams[0].next({ percent: 100, done: true });
+    mock.streams[0].complete();
+    fx.detectChanges();
+    expect(comp.uploads.items()[0].status).toBe('done');
+
+    // Retry is offered on a failed row only, and the panel's markup is what enforces that on screen. This
+    // is the same rule one layer down: a finished row re-queued would upload the same bytes again, and an
+    // upload is a REPLACE that drops the file's derived records — so the second one is not a no-op.
+    comp.retryUpload(comp.uploads.items()[0]);
+    fx.detectChanges();
+
+    expect(mock.uploadFileChunked).toHaveBeenCalledTimes(1);
+    expect(comp.uploads.items()[0].status).toBe('done');
   });
 });
 

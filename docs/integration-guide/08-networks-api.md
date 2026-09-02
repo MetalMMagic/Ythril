@@ -70,7 +70,15 @@ POST /api/networks
 
 **`requireSignedVotes`** (optional, default `false`): when `true`, governance vote casts must carry a valid Ed25519 signature from the voting member (strict mode). Leave it off until every member has synced at least once so their signing keys are published; then enable it (also settable via `PATCH`) to reject any unsigned or forged vote. See [Sync Protocol → Signed vote casts](../sync-protocol.md).
 
-**`syncSchedule`** (optional): how often this network syncs automatically. Give a standard **cron expression** (e.g. `"*/5 * * * *"` = every 5 minutes, `"0 * * * *"` = hourly) — the same node-cron engine the backup scheduler uses. Two legacy shorthands are also accepted and translated to cron: `"*/N minutes"` / `"every Nm"` (1–59) and `"*/N hours"` / `"every Nh"` (1–23). Omit it (or set it empty) for manual-sync only. An unrecognised value is ignored with a startup warning, leaving the network on manual sync.
+**`syncSchedule`** (optional): how often this network syncs automatically. Give a standard **cron expression** (e.g. `"*/5 * * * *"` = every 5 minutes, `"0 * * * *"` = hourly) — the same node-cron engine the backup scheduler uses. Omit it (or set it empty) for manual-sync only.
+
+**A value the scheduler cannot run is now REFUSED with a `400`** on both the create and the update, and the message names the format. It used to be accepted and then ignored with a startup warning, which meant a caller got a `2xx` for a network that would never sync again — and the only evidence was in a server log.
+
+> **The two legacy shorthands were REMOVED in 4.0.** `"*/N minutes"` / `"every Nm"` (1–59) and `"*/N hours"` / `"every Nh"` (1–23) were translated to cron for the whole of 2.x and 3.x. Sending one now returns a `400` **naming the cron expression it used to mean**, so the fix is a copy and paste: `"every 5m"` → `"*/5 * * * *"`, `"every 2h"` → `"0 */2 * * *"`.
+>
+> A shorthand already stored in `config.json` is rewritten to that same expression at boot, so an existing network keeps syncing at the rate it was given — nothing to do on upgrade.
+>
+> **One case has no translation and is worth checking for.** A shorthand outside cron's range — `"every 90m"`, `"every 40h"` — never resolved to anything, so any network holding one has been on manual sync since the day it was set. Those are left exactly as stored and named individually in the startup log, because rounding one to the nearest cron expression would be the server deciding when to sync.
 
 **Response** `201`: the created network object.
 

@@ -8,6 +8,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
 import { requireAdmin } from '../../auth/middleware.js';
 import { globalRateLimit } from '../../rate-limit/middleware.js';
+import { syncScheduleRefusal } from '../../sync/schedule.js';
 import { getConfig, saveConfig, getSecrets } from '../../config/loader.js';
 import { revokePeerCredentialsIfOrphaned } from '../../auth/tokens.js';
 import { getSyncHistory } from '../../sync/history.js';
@@ -105,6 +106,12 @@ crudRouter.post('/', globalRateLimit, requireAdmin, async (req, res) => {
 
     const { id: presetId, label, type, spaces, votingDeadlineHours, syncSchedule, merkle, requireSignedVotes, myParentInstanceId } = parsed.data;
     const cfg = getConfig();
+
+    // A schedule the scheduler cannot run is refused rather than stored. It used to be accepted: the body
+    // schema is `z.string().optional()`, so any string got a 201 and the network then sat on manual sync
+    // with a startup warning as its only trace. Same helper as the PATCH below — one rule, one place.
+    const scheduleRefusal = syncScheduleRefusal(syncSchedule);
+    if (scheduleRefusal) { res.status(400).json({ error: scheduleRefusal }); return; }
 
     // Validate spaces exist
     const unknownSpaces = spaces.filter(s => !cfg.spaces.some(cs => cs.id === s));
@@ -208,6 +215,11 @@ crudRouter.delete('/:id', globalRateLimit, requireAdmin, async (req, res) => {
 crudRouter.patch('/:id', globalRateLimit, requireAdmin, (req, res) => {
   const parsed = UpdateNetworkBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
+
+  // Before the network lookup, because a schedule the scheduler cannot run is a bad request whichever
+  // network it names. Same helper as the create above — one rule, one place.
+  const scheduleRefusal = syncScheduleRefusal(parsed.data.syncSchedule);
+  if (scheduleRefusal) { res.status(400).json({ error: scheduleRefusal }); return; }
 
   const cfg = getConfig();
   const net = cfg.networks.find(n => n.id === req.params['id']);

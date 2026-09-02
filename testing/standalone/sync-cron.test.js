@@ -1,12 +1,17 @@
 /**
  * Unit tests: sync schedule → cron translation (sync/schedule.ts resolveSyncCron)
  *
- * The sync scheduler now runs on node-cron (same as backups). resolveSyncCron
- * maps a network's `syncSchedule` string to a cron expression:
+ * The sync scheduler runs on node-cron (same as backups). resolveSyncCron maps
+ * a network's `syncSchedule` string to a cron expression:
  *  - a real cron expression passes through (the documented format — the old
  *    bespoke parser silently ignored these, leaving networks on manual sync);
- *  - two legacy shorthands are translated for backward compatibility;
  *  - anything else returns null (caller falls back to manual sync).
+ *
+ * **The two legacy shorthands were translated here until 4.0 removed them.** What
+ * replaced the translation is a refusal at input and a rewrite on disk, both
+ * covered by `a-sync-schedule-either-runs-or-is-refused.test.js` — this file now
+ * asserts that the scheduler translates NOTHING, which is what makes those two
+ * the only paths.
  *
  * Pure in-process logic — no network, no config. Run with:
  *   node --test testing/standalone/sync-cron.test.js
@@ -33,28 +38,35 @@ describe('resolveSyncCron — cron passthrough', () => {
   });
 });
 
-describe('resolveSyncCron — legacy shorthand translation', () => {
-  it('translates "*/N minutes" and "every Nm"', () => {
-    assert.equal(resolveSyncCron('*/5 minutes'), '*/5 * * * *');
-    assert.equal(resolveSyncCron('*/15 minutes'), '*/15 * * * *');
-    assert.equal(resolveSyncCron('every 30m'), '*/30 * * * *');
-    assert.equal(resolveSyncCron('every 1min'), '*/1 * * * *');
-  });
-
-  it('translates "*/N hours" and "every Nh"', () => {
-    assert.equal(resolveSyncCron('*/2 hours'), '0 */2 * * *');
-    assert.equal(resolveSyncCron('every 3h'), '0 */3 * * *');
+describe('resolveSyncCron — the legacy shorthands are no longer translated HERE', () => {
+  /*
+   * These two cases asserted the translation: `every 30m` resolved to a cron expression, and had done since
+   * before 2.0. 4.0 removed the shorthands, and the pieces that replaced the translation are somewhere else
+   * on purpose — a refusal at input and a rewrite on disk, both in
+   * `a-sync-schedule-either-runs-or-is-refused.test.js`.
+   *
+   * Kept as an inverted case rather than deleted, because "the scheduler translates nothing" is the property
+   * that makes the other two the only paths. If translation came back here, an operator could keep sending a
+   * shorthand and it would work on one door and be refused on another — one rule, two implementations, which
+   * is the shape this repository produces most.
+   */
+  it('a shorthand resolves to null, so nothing reaches the scheduler untranslated', () => {
+    for (const shorthand of ['*/5 minutes', '*/15 minutes', 'every 30m', 'every 1min', '*/2 hours', 'every 3h']) {
+      assert.equal(resolveSyncCron(shorthand), null, `${shorthand} must no longer translate here`);
+    }
   });
 });
 
-describe('resolveSyncCron — unrecognised / out-of-range → null', () => {
+describe('resolveSyncCron — unrecognised → null', () => {
   it('returns null for empty / gibberish', () => {
     assert.equal(resolveSyncCron(''), null);
     assert.equal(resolveSyncCron('   '), null);
     assert.equal(resolveSyncCron('whenever'), null);
   });
 
-  it('returns null for shorthand values cron cannot express', () => {
+  it('returns null for the shorthand values cron never could express', () => {
+    // Unchanged in behaviour and worth keeping separate: these were null BEFORE the removal too, which is
+    // why a network holding one has been on manual sync since the day it was set.
     assert.equal(resolveSyncCron('every 90m'), null);   // minutes > 59
     assert.equal(resolveSyncCron('*/25 hours'), null);   // hours > 23
     assert.equal(resolveSyncCron('every 0m'), null);     // zero

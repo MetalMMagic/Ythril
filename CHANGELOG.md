@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **BREAKING: the two `syncSchedule` shorthands are gone, and an unrunnable schedule is now REFUSED.**
+  `"*/N minutes"` / `"every Nm"` and `"*/N hours"` / `"every Nh"` were translated to cron on the way in for
+  the whole of 2.x and 3.x. Send a cron expression: `"*/5 * * * *"`, `"0 * * * *"`. Nothing to do on
+  upgrade — a shorthand already in `config.json` is rewritten to the expression it always meant, at boot, so
+  an existing network keeps syncing at the same rate.
+
+  **The refusal is the point, and it fixes something older than the deprecation.** `syncSchedule` was
+  `z.string().optional()` on both network routes and validated nothing, so ANY string got a `2xx` — and if
+  it did not resolve, the scheduler logged *"Unrecognised sync schedule … using manual sync only"* and
+  carried on. An operator could set a schedule on the network card, be told it saved, and have that network
+  never sync again, with the only evidence in a server log they have no reason to open. Both doors now
+  refuse a schedule the scheduler cannot run, with a `400` naming the format; the settings page shows the
+  server's own sentence, so the message is read where the mistake was made.
+
+  A shorthand's refusal **names the cron expression it used to mean** — `"every 5m"` → `"*/5 * * * *"` — so
+  an integrator who has had that string in their notes since 2.x gets a copy-and-paste fix rather than
+  "invalid".
+
+  **One case has no honest translation, and finding it is worth more than the removal.** A shorthand outside
+  cron's range — `"every 90m"`, `"every 40h"` — never resolved to anything on any build, so a network
+  holding one has been on manual sync since the day it was set and nothing has ever said so. Those are left
+  exactly as stored and named individually in the startup log. Rounding one to the nearest cron expression
+  would be the server deciding when to sync.
+
 - **BREAKING: the MCP SSE transport is gone.** `GET /mcp` opened a stream that handed back a `sessionId`, and
   `POST /mcp/messages?sessionId=…` carried the tool calls. Use **Streamable HTTP** instead — one
   `POST /mcp` per JSON-RPC call, with an `Authorization: Bearer` header. It has been the recommended

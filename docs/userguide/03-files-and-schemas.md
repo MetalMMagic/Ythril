@@ -181,8 +181,17 @@ out which links break a new rule, use **Validate** on the space's Schema tab: it
 wrong. A link pointing at something that no longer exists is reported separately, as a dangling link, and not as
 a wrong type — and for the same reason it is not refused when written.
 
-> **These two are set through the API today** — there is no control for them on the Schema tab yet. The editor
-> keeps them: editing anything else about a type will not lose a declaration you made through the API.
+**Both are set on the Schema tab**, under **Permitted ends** when an edge type is selected. Two lists — the
+types allowed at the **From** end and at the **To** end — and a checkbox for the cardinality. A list you leave
+untouched means *any entity type*, which is not the same as an empty one: unticking the last box returns that
+end to *any* rather than forbidding every edge of the label.
+
+**The two lists are not paired.** Every combination of a From type with a To type is allowed, so two on the
+left and three on the right permits six kinds of link, not two. The tab states the number and shows the
+combinations under the lists, because a pair of lists side by side reads like pairing to most people.
+
+**no type at all** is a choice in both lists, not the absence of one: an entity may genuinely carry no type,
+and permitting that is a decision you can make.
 
 ## Schema Library
 

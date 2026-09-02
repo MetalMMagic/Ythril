@@ -36,6 +36,68 @@ function make(statsFails = false) {
   return TestBed.inject(SpaceSettingsState);
 }
 
+describe('an edge label\'s ends and cardinality survive being opened', () => {
+  /*
+   * The bug this pins, and how it was found.
+   *
+   * `typeSchemaFromState` has written `endpoints` and `functional` since S-1, added specifically so a UI save
+   * could not delete a declaration an API caller had made. It wrote `state.endpoints` — and `openSettings`
+   * never filled it. So the declaration was dropped on load and written back as absent: opening Space
+   * Settings and pressing Save DELETED it, silently, with nothing in the dialog that even named the field.
+   *
+   * The carry-through was tested at the serialiser, with a state object built by hand. Nothing asked the
+   * LOADER, so both halves passed and the round trip did not. It surfaced only when the control existed and
+   * the boxes came up empty against an instance where the API had declared the rule.
+   *
+   * These assert both directions against the same fixture, which is the only shape that could have caught it.
+   */
+  const declared = space({
+    id: 'work',
+    meta: {
+      typeSchemas: {
+        entity: { person: {} },
+        edge: {
+          reports_to: { endpoints: { from: ['person'], to: ['person', 'UNTYPED'] }, functional: true },
+          mentions: { endpoints: { to: ['document'] } },
+          plain: {},
+        },
+      },
+    },
+  } as Partial<Space>);
+
+  it('loads what the API declared into the editor state', () => {
+    const c = make();
+    c.openSettings(declared);
+    expect(c.typeState('edge', 'reports_to').endpoints).toEqual({ from: ['person'], to: ['person', 'UNTYPED'] });
+    expect(c.typeState('edge', 'reports_to').functional).toBe(true);
+    // One side only stays one side: an absent `from` must not become an empty array, which the API refuses.
+    expect(c.typeState('edge', 'mentions').endpoints).toEqual({ to: ['document'] });
+    expect(c.typeState('edge', 'plain').endpoints).toBeUndefined();
+    expect(c.typeState('edge', 'plain').functional).toBeUndefined();
+  });
+
+  it('and writes it back unchanged when nothing was edited', () => {
+    const c = make();
+    c.openSettings(declared);
+    const out = c.buildMeta().typeSchemas!.edge!;
+    expect(out['reports_to']).toMatchObject({ endpoints: { from: ['person'], to: ['person', 'UNTYPED'] }, functional: true });
+    expect(out['mentions']).toMatchObject({ endpoints: { to: ['document'] } });
+    expect(out['plain'].endpoints).toBeUndefined();
+  });
+
+  it('copies the lists by VALUE, so editing the draft cannot reach back into the space object', () => {
+    /*
+     * The same rule the duplicate-rule copy above pins, and it matters more here: the arrays are mutated in
+     * place by the picker, so a shared reference would edit the loaded space as the operator clicked — and a
+     * Cancel would have nothing to restore.
+     */
+    const c = make();
+    c.openSettings(declared);
+    c.typeState('edge', 'reports_to').endpoints!.from!.push('team');
+    expect(declared.meta!.typeSchemas!.edge!['reports_to'].endpoints!.from).toEqual(['person']);
+  });
+});
+
 describe('SpaceSettingsState — openSettings populates every tab', () => {
   const rich = space({
     id: 'work', label: 'Work', maxGiB: 7, recordTtlDays: 90,

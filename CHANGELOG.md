@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **An edge label can say which entity types it may connect, and how many, from the Schema tab.** Both rules
+  have been accepted by the API since 3.7 and reported by the space validator, and there was no way to set
+  either one without writing the request by hand.
+
+  Selecting an edge type now shows **Permitted ends**: the types allowed at the **From** end, the types
+  allowed at the **To** end, and **At most one edge with this label per source entity**. A list you leave
+  untouched means *any entity type*, and unticking the last box returns that end to *any* rather than
+  forbidding every link of the label — the two are different rules and the tab keeps them apart.
+
+  **The two lists are not paired, and the tab says so in as many words.** Every From type combines with every
+  To type, so two on the left and three on the right permits six kinds of link, not two. The number is stated
+  and the combinations are listed underneath, because a pair of lists side by side reads like pairing to
+  almost everybody.
+
+  **"no type at all" is a choice in both lists**, for entities that genuinely carry no type — the absence of a
+  tick means "any type", so that had to be a row rather than a gap.
+
 - **`/query` answers within a size budget, like every other read path.** It had `limit` (max 100 rows) and
   `projection` and nothing else — and `limit` caps ROWS while saying nothing about how big one is, so a page of
   file records or of long-described entities had no ceiling at all, on the read route a fleet is most likely to
@@ -227,6 +244,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The REST character default also drops from 100 000 to 50 000 (owner, 2026-08-30). MCP's 25 000 is unchanged.
 
 ### Fixed
+
+- **Opening a space's settings and pressing Save deleted an edge label's declared ends.** If `endpoints` or
+  `functional` had been set through the API — the only way to set them until this release — the settings
+  dialog dropped both while loading the space and wrote them back as absent. No error, no warning, and
+  nothing in the dialog even named the field, so the loss was invisible from the UI and looked like an API
+  problem from the outside.
+
+  **The carry-through that was supposed to prevent exactly this was in place, and pointed at nothing.** The
+  save path had been writing both fields since 3.7 specifically so that a UI save could not delete an API
+  declaration; it wrote them from editor state that the load path never filled. Each half was tested and
+  agreed with itself.
+
+  It surfaced the moment the control existed: opening a label whose rule had been declared through the API
+  showed empty boxes. A round-trip test over one fixture now pins load and save together, which is the only
+  shape that could have caught it.
 
 - **A folder whose listing failed showed the PREVIOUS folder's files under the new folder's name.** Open a
   folder that cannot be read: the path said `root / docs`, the table listed the files of `root`, and nothing

@@ -73,6 +73,14 @@ Click the gear icon on any space row to open its settings panel. Changes save an
   - **Retention** — how long records of *this type* are kept, overriding the space-wide window on the Danger tab. Leave **Delete records after** empty to inherit it; the hint names the number you would inherit. A type with a window carries a yellow **ttl** badge in the list, so what expires is visible without opening each type.
     - **Drop detail after (days)** appears for **chrono types only**. It removes the description, matched text and embedding at that point — the record stops competing in search — while its properties, title, type and dates stay queryable. Useful for telemetry that crowds out real answers but whose fields are still worth having. It must be **shorter** than the delete window, or it could never happen; the editor says so if it isn't.
     - A type **linked to the Schema Library** has no retention of its own: a library entry cannot carry a window (it would apply to every space using it). **Unlink** first, or set the window on the space-wide default instead. Saving a type *to* the library also leaves its window behind, and says so when it does.
+  - **Permitted ends** — **edge types only**: which entity types may sit at each end of a link with this
+    label, and whether an entity may have more than one. Two lists (**From** and **To**) plus **At most one
+    edge with this label per source entity**. A list left untouched means any entity type — unticking the last
+    box returns that end to *any*, never to *none*. **The lists are not paired**: every From type combines with
+    every To type, so the tab states how many combinations that is and lists them. **no type at all** is a
+    pickable choice in both lists, for entities carrying no type. Breaking a rule is reported or refused
+    according to the space's **Validation mode**, like every other rule here — see the Files & Schemas guide
+    for what happens to links that already exist.
   - **Property schemas** — rules for each property field (type, allowed values, min/max, pattern, required, default).
 - **From Lib** — import a schema from the Schema Library. The type row shows a badge and stays in sync with the library automatically. While linked, the type's properties are shown **read-only** so you can see what it enforces; click **Unlink** to copy the library schema inline (breaking the link) and then customise it for this space.
 - **From File** — import a schema from a previously exported JSON file.

@@ -26,6 +26,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { globSync } from 'node:fs';
+import { sep as SEP } from 'node:path';
 import { join } from 'node:path';
 
 const ROOT = process.cwd();
@@ -38,6 +40,16 @@ const TAB    = 'client/src/app/pages/settings/space-schema-tab.component.ts';
 // editor. The controls did not change; the file holding them did, and this gate names the file.
 const BODY   = 'client/src/app/pages/settings/schema-type-editor.component.ts';
 
+/**
+ * Every file that could render the type editor.
+ *
+ * Derived by GLOB rather than listed, because a hand-written list is the thing that goes stale: the Brain
+ * Overview was given this editor precisely so a one-field change would not mean a trip to Settings, and the
+ * next host will arrive the same way. The check filters to the files that actually render it, so a page
+ * that does not is never asked to pass an input it has no use for.
+ */
+const HOSTS = globSync('client/src/app/**/*.component.ts', { cwd: ROOT }).map(f => f.replaceAll(SEP, '/'));
+
 const read = (p) => readFileSync(join(ROOT, p), 'utf8');
 
 /**
@@ -46,23 +58,19 @@ const read = (p) => readFileSync(join(ROOT, p), 'utf8');
  * An entry here is a decision, not a shortcut: the field must still be PRESERVED across a save (which the
  * round-trip specs pin), it just has no input of its own.
  */
-// `tagSuggestions` was the only entry until 3.7, and removing the FIELD removed the reason for the exemption.
-// An entry here is a field the API accepts that the UI cannot edit — the gate below checks each one still
-// exists, so a stale exemption fails rather than quietly excusing nothing.
+// EMPTY, and that is the point of the list rather than a sign it is unused.
 //
-// **Declared even though the carry-through would have satisfied the check.** `typeSchemaFromState` now writes
-// both of these so a save cannot delete them, and the sweep below looks for exactly `ts.<field> =` — so the gate
-// would have gone green while its INTENT, that an operator can set the field, stayed unmet. Taking that pass
-// would be the "shape gate passes on a wrong rule" failure this repo keeps paying for. The entry says what is
-// true instead.
-const NO_CONTROL = {
-  endpoints: 'Carried through a save but not editable: a picker over the entity type names in this space, twice, with '
-    + 'an UNTYPED option — a real piece of UI design rather than a checkbox, filed as G-12. Declared via the API '
-    + 'meanwhile, and preserved by the editor so a save cannot delete it.',
-  functional: 'Carried through a save but not editable. It is a checkbox, but it belongs beside the endpoints '
-    + 'picker rather than alone — an operator setting cardinality without seeing the ends it applies to is being '
-    + 'asked half a question. Filed as G-12 with endpoints.',
-};
+// `tagSuggestions` was the only entry until 3.7, and removing the FIELD removed the reason for the exemption.
+// `endpoints` and `functional` were entered by S-1 and removed by G-12, which built the control — so every
+// field the API accepts on a type schema now has an input, and the checks below say so in two different ways.
+//
+// **Both were declared even though the carry-through alone would have satisfied the serialiser check**, and
+// that is the reason to keep this list at all. `typeSchemaFromState` wrote both fields so a UI save could not
+// delete a declaration made through the API, and the sweep below looks for exactly `ts.<field> =` — so the
+// gate would have been green while its INTENT, that an operator can SET the field, stayed unmet for two
+// releases. Taking that pass would have been the "shape gate passes on a wrong rule" failure this repo keeps
+// paying for. An entry here says what is true instead, and its absence now says something stronger.
+const NO_CONTROL = {};
 
 /** The keys of the inline (non-$ref) branch of `TypeSchemaZ` in the spaces API. */
 function apiTypeSchemaKeys() {
@@ -122,6 +130,56 @@ describe('a space type schema is editable in the UI', () => {
     for (const field of ['retentionDays', 'retentionContentDays']) {
       assert.match(body, new RegExp(`\\[\\(ngModel\\)\\]="d\\(\\)\\.${field}"`),
         `no input is bound to ${field} in the type editor (${BODY})`);
+    }
+  });
+
+  it('and the edge ends and cardinality are reachable by a human, not only by the serialiser', () => {
+    /*
+     * `G-12`. These two spent two releases written by `typeSchemaFromState` and settable by nobody, which is
+     * exactly the gap `NO_CONTROL` existed to name. Checked by BINDING for the same reason as retention
+     * above: a serialiser writing a field proves the save works, and only an input proves it can be set.
+     *
+     * Checked as three separate facts because each can be lost on its own:
+     */
+    const body = read(BODY);
+
+    // 1. a click reaches the ends, for both sides — a control bound to one side would look complete.
+    assert.match(body, /\(change\)="onToggleEnd\(side, name\)"/,
+      `no checkbox toggles an endpoint in the type editor (${BODY})`);
+    assert.match(body, /SIDES/, 'the ends are not rendered per side, so one of them is hard-coded or missing');
+
+    // 2. a click reaches the cardinality.
+    assert.match(body, /\(change\)="onToggleFunctional\(\)"/,
+      `no checkbox toggles functional in the type editor (${BODY})`);
+
+    // 3. the CROSS PRODUCT is stated. The owner's ruling, 2026-08-31: two lists mean every combination and
+    //    not pairing by position, and two lists side by side imply pairs to almost everybody. The preview is
+    //    what makes the control honest, so losing it is a defect and not a cosmetic change.
+    // The chip loop specifically, not the identifier: `shownPairs()` also appears in the truncation
+    // hint beside it, so a bare mention passed with the preview itself deleted. Found by mutating it.
+    assert.match(body, /@for \(p of shownPairs\(\); track p\)/, `no pair preview under the two ends lists (${BODY})`);
+    assert.match(body, /spaces\.schema\.ends\.pairs/, 'the pair count is not stated anywhere');
+  });
+
+  it('the ends vocabulary is passed IN, and every host passes it', () => {
+    /*
+     * The editor cannot know what entity types a space declares — it has two hosts and neither one's state
+     * service is injectable from the other, which is why the editing operations became pure functions in the
+     * first place. So it takes the names as an input, and a host that forgets it renders a picker offering
+     * "no type at all" and nothing else. No error, no empty state: just a control that cannot express the
+     * rule the operator came to write.
+     *
+     * This is the repo's most common defect shape — one rule, two call sites, the weaker one silent — so it
+     * is checked against the call sites rather than the component.
+     */
+    const editor = read(BODY);
+    assert.match(editor, /readonly entityTypeNames = input/, 'the editor no longer takes the ends vocabulary');
+
+    const hosts = HOSTS.filter(h => read(h).includes('<app-schema-type-editor'));
+    assert.ok(hosts.length >= 1, 'no host renders the type editor — the list of hosts is stale');
+    for (const h of hosts) {
+      assert.match(read(h), /\[entityTypeNames\]=/,
+        `${h} renders the type editor without passing [entityTypeNames], so its ends picker is empty`);
     }
   });
 

@@ -205,6 +205,7 @@ import { SchemaTypeEditorComponent } from './schema-type-editor.component';
           [libRef]="state.typeLibRef(kt,name)"
           [linkedProps]="linkedProps(kt,name)"
           [spaceWindowDays]="spaceWindow(kt)"
+          [entityTypeNames]="state.typeNames('entity')"
           (unlink)="unlinkType(kt,name)" />
       } @else {
         <div class="sch-detail-empty">{{ kt === 'edge' ? ('spaces.schema.detail.emptyEdge' | transloco) : ('spaces.schema.detail.empty' | transloco) }}</div>

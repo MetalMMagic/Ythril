@@ -82,3 +82,72 @@ export function removeEnumVal(state: TypeSchemaState, propKey: string, val: stri
   if (!entry) return;
   entry.s = { ...entry.s, enum: (entry.s.enum ?? []).filter(v => v !== val) };
 }
+
+// ── An edge label's permitted ends, and its cardinality (G-12) ──────────────────────────────────────────────
+//
+// Two fields the API has accepted since S-1 and that no control could set. They are here rather than in the
+// component for the reason the whole module exists: the settings tab and the Brain Overview open the same
+// editor, and a rule written in one of them is a rule the other one gets wrong.
+
+/** Which end of the edge a list constrains. */
+export type EndpointSide = 'from' | 'to';
+
+/** The explicit "an entity with no type at all" member, spelled as the API spells it. */
+export const UNTYPED_END = 'UNTYPED';
+
+/** The names currently permitted at one end, or an empty array when the end is unrestricted. */
+export function endpointsFor(state: TypeSchemaState, side: EndpointSide): string[] {
+  return state.endpoints?.[side] ?? [];
+}
+
+/**
+ * True when this end permits ANY entity type — which is the absence of a list, not an empty one.
+ *
+ * The difference is the whole control. `endpoints.from` absent means any type may be the source;
+ * `endpoints.from: []` is refused by the API and, were it not, would forbid every edge of the label. So an
+ * operator clearing the last checkbox has to land on "any", and `toggleEndpoint` is what guarantees it.
+ */
+export function isAnyEnd(state: TypeSchemaState, side: EndpointSide): boolean {
+  return endpointsFor(state, side).length === 0;
+}
+
+/**
+ * Add or remove one type name at one end, keeping the "empty means absent" invariant.
+ *
+ * Removing the last name deletes the side, and deleting the last side deletes the object — because
+ * `endpoints: {}` is refused too, with "an empty object constrains nothing and is more likely a typo".
+ * Every intermediate state a click can produce is therefore one the API accepts.
+ */
+export function toggleEndpoint(state: TypeSchemaState, side: EndpointSide, name: string): void {
+  const curr = endpointsFor(state, side);
+  const next = curr.includes(name) ? curr.filter(n => n !== name) : [...curr, name];
+  const other = side === 'from' ? 'to' : 'from';
+  const keep = endpointsFor(state, other);
+  if (next.length === 0 && keep.length === 0) { state.endpoints = undefined; return; }
+  state.endpoints = {
+    ...(side === 'from' ? { from: next } : { from: keep.length ? keep : undefined }),
+    ...(side === 'to' ? { to: next } : { to: keep.length ? keep : undefined }),
+  };
+  if (state.endpoints.from === undefined) delete state.endpoints.from;
+  if (state.endpoints.to === undefined) delete state.endpoints.to;
+}
+
+/**
+ * Every pair this label permits, for a preview under the two lists.
+ *
+ * **The reason this function exists at all.** Two lists mean the CROSS PRODUCT and not pairing by position
+ * — owner's ruling, 2026-08-31 — and two lists side by side imply pairs to almost everybody. Two names on
+ * the left and three on the right is SIX permitted edges, not two, and a control that leaves the reader to
+ * work that out from the layout is a control that says something the API does not do.
+ *
+ * An unrestricted end appears as `*`. Both unrestricted returns nothing: there is no restriction to preview,
+ * and a preview reading `* -> *` would look like a rule where there is none.
+ */
+export function endpointPairs(state: TypeSchemaState): string[] {
+  const from = endpointsFor(state, 'from');
+  const to = endpointsFor(state, 'to');
+  if (from.length === 0 && to.length === 0) return [];
+  const left = from.length ? from : ['*'];
+  const right = to.length ? to : ['*'];
+  return left.flatMap(f => right.map(t => `${f} \u2192 ${t}`));
+}

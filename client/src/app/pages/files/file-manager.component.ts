@@ -1,5 +1,6 @@
 import { PreviewObjectUrl } from './preview-object-url';
 import { FileExtractStore } from './file-extract.store';
+import { FileMetaStore } from './file-meta.store';
 import { ChangeDetectionStrategy, Component, inject, signal, computed, effect, untracked, OnInit, OnDestroy, HostListener, ElementRef, viewChild, Input, Output, EventEmitter } from '@angular/core';
 import { FilePreviewComponent, type FilePreview, type PreviewKind, type XlsxPreview } from './file-preview.component';
 import { UploadQueueComponent, type UploadItem, type UploadStatus } from './upload-queue.component';
@@ -134,7 +135,7 @@ function xlsxCellText(v: unknown): string {
    * carry one space's directories into the next — and leaving the page must forget them, which a page-scoped
    * provider does for free.
    */
-  providers: [FileTreeStore, FileListingStore, FileExtractStore],
+  providers: [FileTreeStore, FileListingStore, FileExtractStore, FileMetaStore],
   imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe, ErrorStateComponent, ModalDirective, FilePreviewComponent, UploadQueueComponent, FileMetaEditorComponent, FileExtractViewComponent, FileListingComponent, FileTreeComponent],
   styles: [`
     /* A background refresh, as a 2px indeterminate hairline above the table. Deliberately NOT a spinner and
@@ -449,18 +450,18 @@ function xlsxCellText(v: unknown): string {
                     }
                     <app-file-preview [preview]="previewModel()" />
                   </div>
-                  @if (selectedMeta()?.description) {
+                  @if (metaStore.selectedMeta()?.description) {
                     <div class="detail-desc">
                       <h4>
                         {{ 'files.detail.description' | transloco }}
                         <!-- Whose words these are. The release note said "generated" while the value was
                              the head of the document's own text, and nothing on screen could tell them
                              apart; a description a person typed carries no badge at all. -->
-                        @if (selectedMeta()!.descriptionSource; as src) {
+                        @if (metaStore.selectedMeta()!.descriptionSource; as src) {
                           <span class="desc-src" [attr.title]="'files.detail.descriptionSource.' + src + 'Hint' | transloco">{{ 'files.detail.descriptionSource.' + src | transloco }}</span>
                         }
                       </h4>
-                      <p>{{ selectedMeta()!.description }}</p>
+                      <p>{{ metaStore.selectedMeta()!.description }}</p>
                     </div>
                   }
                 } @else if (detailMode() === 'extract') {
@@ -478,12 +479,12 @@ function xlsxCellText(v: unknown): string {
                 } @else {
                   <!-- File-meta edit form (embedded only — reuses the Brain ref-field widgets). -->
                   <app-file-meta-editor
-                    [model]="metaEditModel"
+                    [model]="metaStore.model"
                     [spaceId]="activeSpaceId()"
-                    [error]="metaError()"
-                    [saving]="metaSaving()"
+                    [error]="metaStore.error()"
+                    [saving]="metaStore.saving()"
                     [canRetryEmbedding]="pf.embeddingStatus === 'failed' || pf.embeddingStatus === 'partial'"
-                    [retryPending]="requeueingPath() === relPath(pf)"
+                    [retryPending]="metaStore.requeueingPath() === relPath(pf)"
                     (save)="saveMeta(pf)"
                     (cancel)="cancelMeta()"
                     (retryEmbedding)="requeueEmbedding(pf)" />
@@ -597,6 +598,40 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     this.listing.mutationFailed.pipe(takeUntilDestroyed()).subscribe(kind => {
       this.toast.error(this.transloco.translate(LISTING_FAILURE_KEYS[kind]));
     });
+
+    /*
+     * What the META store publishes, and why each of these three stayed on the page.
+     *
+     * **The picker.** `seeded` hands over the model that was just built, and priming the entity, memory and
+     * chrono chip labels reads a `ViewChild` — a store reaching for one would couple it to the template.
+     *
+     * **The toasts.** The wording is the page's; the store holds no translations, same rule as the listing
+     * store's failure KEYS.
+     *
+     * **The directory reload.** Tags and embedding status are shown on the list ROW, so both writes have to
+     * refresh it — and the listing belongs to a different store. Neither write could decide that for itself
+     * without one store reaching into another.
+     */
+    this.metaStore.seeded.pipe(takeUntilDestroyed()).subscribe(model => this.primePickerFrom(model));
+    this.metaStore.saved.pipe(takeUntilDestroyed()).subscribe(() => {
+      // The edit face closes on the ANSWER, not on the attempt — same rule as the new-folder form above: a
+      // refused save keeps what was typed so it can be corrected rather than retyped.
+      this.detailMode.set('preview');
+      this.toast.success(this.transloco.translate('files.detail.metaSaved'));
+      this.reloadDir();
+    });
+    this.metaStore.requeued.pipe(takeUntilDestroyed()).subscribe(() => {
+      this.toast.success(this.transloco.translate('files.detail.retryQueued'));
+      this.reloadDir();
+    });
+    this.metaStore.failed.pipe(takeUntilDestroyed()).subscribe(which => {
+      // A failed SAVE already shows its reason inside the edit form, which is where the reader is looking —
+      // a toast as well would say the same thing twice. A failed REQUEUE has no form to show it in.
+      if (which === 'requeue') {
+        this.toast.error(
+          `${this.transloco.translate('files.detail.retryFailed')} ${this.metaStore.error() ?? ''}`.trim());
+      }
+    });
   }
 
   /** When set (embedded in brain), skip space loading and use this space. */
@@ -640,7 +675,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
    */
   fileRows = computed<FileRow[]>(() => {
     const renaming = this.renamingEntry();
-    const requeueing = this.requeueingPath();
+    const requeueing = this.metaStore.requeueingPath();
     return this.sortedEntries().map(entry => ({
       entry,
       renaming: renaming === entry.name,
@@ -741,7 +776,8 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   /** Which face of the detail pane is showing. Meta editing is only reachable when embedded. */
   detailMode = signal<'preview' | 'meta' | 'extract'>('preview');
   /** The FileMeta record for the open file (its description + links); null until the fetch lands. */
-  selectedMeta = signal<FileMeta | null>(null);
+  /** The file's metadata record, its edit model and its three requests — see `file-meta.store.ts`. */
+  readonly metaStore = inject(FileMetaStore);
 
   // ── Extract face: what retrieval actually sees ─────────────────────────────
   /** The Extract face's state and its request — see `file-extract.store.ts`. */
@@ -755,7 +791,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
    * ignore it, which is the same lesson as a health dot that is always red.
    */
   hasExtract(): boolean {
-    const m = this.selectedMeta();
+    const m = this.metaStore.selectedMeta();
     if (!m) return false;
     return (m.chunkCount ?? 0) > 0 || !!m.convertedFileId || !!m.mediaType;
   }
@@ -800,9 +836,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
    * literal here and an interface there — the two drifting is how `entityIds` would quietly become an array
    * on one side.
    */
-  metaEditModel: FileMetaModel = { description: '', tags: [], entityIds: '', memoryIds: [], chronoIds: [] };
-  metaSaving = signal(false);
-  metaError = signal<string | null>(null);
+
   /**
    * The path whose re-embed request is in flight, or '' when none is.
    *
@@ -810,7 +844,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
    * shared boolean would grey out every row's button while a single file was being re-queued, which reads as
    * "the whole list is busy".
    */
-  requeueingPath = signal('');
+
 
   // ── Tree sidebar state ───────────────────────────────────────────────────
   /**
@@ -1285,65 +1319,36 @@ export class FileManagerComponent implements OnInit, OnDestroy {
 
   /** Fetch the file's metadata record so the pane can show its description and (embedded) edit its links. */
   private loadSelectedMeta(entry: FileEntry): void {
-    this.selectedMeta.set(null);
-    this.metaError.set(null);
-    this.filesApi.getFileMeta(this.activeSpaceId(), this.relPath(entry)).subscribe({
-      next: (fm) => { this.selectedMeta.set(fm); this.seedMetaModel(fm); },
-      // A missing record just means no description/links yet — leave the model empty, not an error.
-      error: () => { this.seedMetaModel(null); },
-    });
+    this.metaStore.load(this.activeSpaceId(), this.relPath(entry));
   }
 
-  /** Copy a FileMeta record into the editable form model (and prime chip labels when the picker is present). */
-  private seedMetaModel(fm: FileMeta | null): void {
-    this.metaEditModel = {
-      description: fm?.description ?? '',
-      tags: [...(fm?.tags ?? [])],
-      entityIds: (fm?.entityIds ?? []).join(', '),
-      memoryIds: [...(fm?.memoryIds ?? [])],
-      chronoIds: [...(fm?.chronoIds ?? [])],
-    };
-    this.picker?.resolveEntityNamesFor(this.metaEditModel.entityIds);
-    this.picker?.resolveMemoryTitles(this.metaEditModel.memoryIds);
-    this.picker?.resolveChronoTitles(this.metaEditModel.chronoIds);
+  /**
+   * Prime the picker's chip labels from a freshly seeded model.
+   *
+   * This is the half the store cannot do: `picker` is a `ViewChild`, so a store reaching for one would
+   * couple it to the template's shape. The store publishes the model it built; this subscribes.
+   */
+  private primePickerFrom(model: FileMetaModel): void {
+    this.picker?.resolveEntityNamesFor(model.entityIds);
+    this.picker?.resolveMemoryTitles(model.memoryIds);
+    this.picker?.resolveChronoTitles(model.chronoIds);
   }
 
   /** Switch the pane to the file-meta edit face, re-seeding the form from the loaded record. */
   showMetaMode(): void {
-    this.seedMetaModel(this.selectedMeta());
-    this.metaError.set(null);
+    this.metaStore.reseed();
     this.detailMode.set('meta');
   }
 
   /** Discard edits and return to the preview face. */
   cancelMeta(): void {
-    this.seedMetaModel(this.selectedMeta());
-    this.metaError.set(null);
+    this.metaStore.reseed();
     this.detailMode.set('preview');
   }
 
-  /** Persist the edited metadata for the open file, then refresh the row (status/tags) via a dir reload. */
+  /** Persist the edited metadata for the open file. The store writes; the toast and the reload are ours. */
   saveMeta(entry: FileEntry): void {
-    const path = this.relPath(entry);
-    this.metaSaving.set(true);
-    this.metaError.set(null);
-    this.filesApi.updateFileMeta(this.activeSpaceId(), path, {
-      description: this.metaEditModel.description.trim(),
-      tags: this.metaEditModel.tags,
-      entityIds: this.metaEditModel.entityIds.split(',').map(s => s.trim()).filter(Boolean),
-      memoryIds: this.metaEditModel.memoryIds,
-      chronoIds: this.metaEditModel.chronoIds,
-    }).subscribe({
-      next: (fm) => {
-        this.selectedMeta.set(fm);
-        this.seedMetaModel(fm);
-        this.metaSaving.set(false);
-        this.detailMode.set('preview');
-        this.toast.success(this.transloco.translate('files.detail.metaSaved'));
-        this.reloadDir(); // reflect updated tags/status in the list row
-      },
-      error: (e) => { this.metaError.set(httpErrorReason(e)); this.metaSaving.set(false); },
-    });
+    this.metaStore.save(this.activeSpaceId(), this.relPath(entry));
   }
 
   /**
@@ -1365,19 +1370,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
    * the row would end up with a different toast, or without the list refresh that makes the new status show.
    */
   requeueEmbedding(entry: FileEntry): void {
-    const path = this.relPath(entry);
-    this.requeueingPath.set(path);
-    this.filesApi.retryEmbedding(this.activeSpaceId(), path).subscribe({
-      next: () => {
-        this.requeueingPath.set('');
-        this.toast.success(this.transloco.translate('files.detail.retryQueued'));
-        this.reloadDir();
-      },
-      error: (e) => {
-        this.requeueingPath.set('');
-        this.toast.error(`${this.transloco.translate('files.detail.retryFailed')} ${httpErrorReason(e)}`.trim());
-      },
-    });
+    this.metaStore.requeue(this.activeSpaceId(), this.relPath(entry));
   }
 
   /**

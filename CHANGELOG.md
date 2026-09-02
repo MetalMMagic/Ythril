@@ -353,6 +353,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The file-metadata group is its own store — `G-3`'s tenth cut, and the last of its four.** Nothing
+  user-visible changes. The record, the edit model and all three requests moved to `file-meta.store.ts`:
+  1 036 → 1 004 code lines, with the frozen ceiling lowered to match.
+
+  **The edit model stays a PLAIN OBJECT beside the signals**, which is the one piece of state on that page a
+  signal-based rewrite would silently change the semantics of — it is re-seeded wholesale on open, on cancel
+  and after a save, and the form binds into its fields. A characterization case has stood over it since the
+  fifth cut for exactly that reason.
+
+  **Three things deliberately stayed on the page**, and the store publishes what each of them follows from:
+  priming the picker's chip labels reads a `ViewChild`, so a store reaching for one would couple it to the
+  template; the toast wording is the page's, because this file holds no translations; and the directory
+  reload belongs to a different store, since tags and embedding status are shown on the list ROW.
+
+  One thing was tightened rather than moved: a failed SAVE no longer toasts. Its reason is already shown
+  inside the edit form, which is where the reader is looking, and a toast as well said the same thing twice.
+  A failed re-queue still toasts, because it has no form to show it in.
+
 - **Saving file metadata had no test at all, and now has four.** Nothing user-visible changes; this is the
   last `filesApi` group in `G-3` being pinned before it moves. The rules: `entityIds` splits back out of the
   comma-joined string with blanks dropped (a trailing comma would otherwise post an empty id), the

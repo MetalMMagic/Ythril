@@ -439,8 +439,8 @@ describe('FileManagerComponent — the metadata edit model (characterization for
      * shape would break the round-trip in one direction only, and only for entity references.
      */
     const c = create();
-    c.seedMetaModel({ description: 'd', tags: ['t'], entityIds: ['e1', 'e2'], memoryIds: ['m'], chronoIds: ['c'] });
-    expect(c.metaEditModel).toEqual({
+    c.metaStore.seed({ description: 'd', tags: ['t'], entityIds: ['e1', 'e2'], memoryIds: ['m'], chronoIds: ['c'] });
+    expect(c.metaStore.model).toEqual({
       description: 'd', tags: ['t'], entityIds: 'e1, e2', memoryIds: ['m'], chronoIds: ['c'],
     });
   });
@@ -449,27 +449,27 @@ describe('FileManagerComponent — the metadata edit model (characterization for
     // Opening a file with no meta record after one that had some is the case this protects: the drawer must
     // not show the last file's description.
     const c = create();
-    c.seedMetaModel({ description: 'old', tags: ['x'], entityIds: ['e'], memoryIds: [], chronoIds: [] });
-    c.seedMetaModel(null);
-    expect(c.metaEditModel).toEqual({ description: '', tags: [], entityIds: '', memoryIds: [], chronoIds: [] });
+    c.metaStore.seed({ description: 'old', tags: ['x'], entityIds: ['e'], memoryIds: [], chronoIds: [] });
+    c.metaStore.seed(null);
+    expect(c.metaStore.model).toEqual({ description: '', tags: [], entityIds: '', memoryIds: [], chronoIds: [] });
   });
 
   it('the arrays are COPIED, so editing the form cannot reach back into the loaded record', () => {
     const c = create();
     const loaded = { description: '', tags: ['keep'], entityIds: [], memoryIds: [], chronoIds: [] };
-    c.seedMetaModel(loaded);
-    c.metaEditModel.tags.push('added');
+    c.metaStore.seed(loaded);
+    c.metaStore.model.tags.push('added');
     expect(loaded.tags).toEqual(['keep']);
   });
 
   it('cancelling re-seeds from the loaded record and drops the error', () => {
     const c = create();
-    c.selectedMeta.set({ description: 'saved', tags: [], entityIds: [], memoryIds: [], chronoIds: [] });
-    c.metaEditModel.description = 'typed but not saved';
-    c.metaError.set('something went wrong');
+    c.metaStore.selectedMeta.set({ description: 'saved', tags: [], entityIds: [], memoryIds: [], chronoIds: [] });
+    c.metaStore.model.description = 'typed but not saved';
+    c.metaStore.error.set('something went wrong');
     c.cancelMeta();
-    expect(c.metaEditModel.description).toBe('saved');
-    expect(c.metaError()).toBeNull();
+    expect(c.metaStore.model.description).toBe('saved');
+    expect(c.metaStore.error()).toBeNull();
     expect(c.detailMode()).toBe('preview');
   });
 
@@ -483,7 +483,7 @@ describe('FileManagerComponent — the metadata edit model (characterization for
     let sent: any = null;
     const c = createWithSave((_s: string, _p: string, body: any) => { sent = body; return of({}); });
     c.previewFile.set(file('doc.pdf'));
-    c.metaEditModel = { description: '  spaced  ', tags: ['t'], entityIds: 'e1, e2 ,, e3', memoryIds: [], chronoIds: [] };
+    c.metaStore.model = { description: '  spaced  ', tags: ['t'], entityIds: 'e1, e2 ,, e3', memoryIds: [], chronoIds: [] };
     c.saveMeta(file('doc.pdf'));
     expect(sent.entityIds).toEqual(['e1', 'e2', 'e3']);
     expect(sent.description).toBe('spaced');
@@ -498,11 +498,11 @@ describe('FileManagerComponent — the metadata edit model (characterization for
      */
     const c = createWithSave(() => of({ description: 'as stored', tags: ['kept'], entityIds: ['e1'], memoryIds: [], chronoIds: [] }));
     c.previewFile.set(file('doc.pdf'));
-    c.metaEditModel = { description: 'as typed', tags: ['dropped'], entityIds: 'e1,e2', memoryIds: [], chronoIds: [] };
+    c.metaStore.model = { description: 'as typed', tags: ['dropped'], entityIds: 'e1,e2', memoryIds: [], chronoIds: [] };
     c.saveMeta(file('doc.pdf'));
-    expect(c.metaEditModel.description).toBe('as stored');
-    expect(c.metaEditModel.tags).toEqual(['kept']);
-    expect(c.metaEditModel.entityIds).toBe('e1');
+    expect(c.metaStore.model.description).toBe('as stored');
+    expect(c.metaStore.model.tags).toEqual(['kept']);
+    expect(c.metaStore.model.entityIds).toBe('e1');
   });
 
   it('and it leaves the edit face, clears the spinner, and reloads the DIRECTORY', () => {
@@ -519,7 +519,7 @@ describe('FileManagerComponent — the metadata edit model (characterization for
     const before = listed;
     c.saveMeta(file('doc.pdf'));
     expect(c.detailMode()).toBe('preview');
-    expect(c.metaSaving()).toBe(false);
+    expect(c.metaStore.saving()).toBe(false);
     expect(listed).toBe(before + 1);
   });
 
@@ -529,20 +529,20 @@ describe('FileManagerComponent — the metadata edit model (characterization for
     const c = createWithSave(() => throwError(() => ({ status: 500 })));
     c.previewFile.set(file('doc.pdf'));
     c.detailMode.set('meta');
-    c.metaEditModel = { description: 'kept', tags: [], entityIds: '', memoryIds: [], chronoIds: [] };
+    c.metaStore.model = { description: 'kept', tags: [], entityIds: '', memoryIds: [], chronoIds: [] };
     c.saveMeta(file('doc.pdf'));
     expect(c.detailMode()).toBe('meta');
-    expect(c.metaError()).toBeTruthy();
-    expect(c.metaSaving()).toBe(false);
-    expect(c.metaEditModel.description).toBe('kept');
+    expect(c.metaStore.error()).toBeTruthy();
+    expect(c.metaStore.saving()).toBe(false);
+    expect(c.metaStore.model.description).toBe('kept');
   });
 
   it('opening the edit face re-seeds too, so a previous cancel cannot leak into it', () => {
     const c = create();
-    c.selectedMeta.set({ description: 'saved', tags: [], entityIds: [], memoryIds: [], chronoIds: [] });
-    c.metaEditModel.description = 'stale';
+    c.metaStore.selectedMeta.set({ description: 'saved', tags: [], entityIds: [], memoryIds: [], chronoIds: [] });
+    c.metaStore.model.description = 'stale';
     c.showMetaMode();
-    expect(c.metaEditModel.description).toBe('saved');
+    expect(c.metaStore.model.description).toBe('saved');
   });
 });
 

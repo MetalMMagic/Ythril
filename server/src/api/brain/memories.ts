@@ -6,6 +6,7 @@
 import { Router } from 'express';
 import { assertRefsResolve } from '../../brain/entity-refs.js';
 import { requireSpaceAuth, denyReadOnly } from '../../auth/middleware.js';
+import { unknownFieldWarnings } from './unknown-fields.js';
 import { globalRateLimit, bulkWipeRateLimit } from '../../rate-limit/middleware.js';
 import { listMemories, deleteMemory, bulkDeleteMemories, remember, updateMemory } from '../../brain/memory.js';
 import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } from '../../brain/delete-fields.js';
@@ -31,6 +32,19 @@ import { listDiagnosticsAsked } from './_shared.js';
 export const memoriesRouter = Router();
 
 // POST /api/brain/spaces/:spaceId/memories — create a memory
+/**
+ * The body keys the memories create reads.
+ *
+ * Declared so the route can say what it did NOT understand — see `unknownFieldWarnings`. It is a
+ * second list beside the destructure below, which is exactly the kind of pair that drifts, so
+ * `a-create-says-which-fields-it-did-not-understand.test.js` requires every destructured name to
+ * appear here. A field added below and not here would produce an "unknown field" warning about a
+ * parameter that works.
+ *
+ * The shared write options — ttlDays, waitForEmbedding, the duplicate flags and the two suppression
+ * spellings — are NOT listed: they are read by helpers, and live in `SHARED_WRITE_BODY_KEYS`.
+ */
+const MEMORIES_CREATE_BODY_KEYS = ['fact', 'tags', 'entityIds', 'description', 'properties', 'type', 'id'];
 memoriesRouter.post('/spaces/:spaceId/memories', globalRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
   const cfg = getConfig();
@@ -135,7 +149,10 @@ memoriesRouter.post('/spaces/:spaceId/memories', globalRateLimit, requireSpaceAu
   );
   const body: Record<string, unknown> = { ...doc };
   if (quotaResult?.softBreached) body['storageWarning'] = true;
-  if (validation.warnings.length > 0) body['warnings'] = validation.warnings;
+  // The schema warnings a `warn` space produces, plus the keys this route did not understand — one
+  // array, one shape. A second channel for the second kind would be worse than the silence it replaces.
+  const warnings = [...validation.warnings, ...unknownFieldWarnings(req.body, MEMORIES_CREATE_BODY_KEYS)];
+  if (warnings.length > 0) body['warnings'] = warnings;
   res.status(201).json(body);
 });
 

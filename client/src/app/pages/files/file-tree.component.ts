@@ -17,6 +17,19 @@ export interface TreeNode {
   expanded: boolean;
   loading: boolean;
   children: TreeNode[] | null;
+  /**
+   * Why the last expand of THIS node failed, or null.
+   *
+   * The tree had no failure state at all: a failed expand reset the spinner, left the node closed, and said
+   * nothing — the caret sprang back and that was the whole message. An operator did see something, but only
+   * BY ACCIDENT: clicking a folder fires two identical requests, and the second one put the error on the
+   * listing beside the tree. Every other load on this page has a visible failure state (`loadError`,
+   * `refreshFailed`, `spacesError`); this is the tree's.
+   *
+   * Per node rather than one for the tree, because a failure belongs to the folder that could not be opened —
+   * a single banner would leave an operator with two collapsed folders and no idea which one refused.
+   */
+  error: string | null;
 }
 
 /**
@@ -101,8 +114,19 @@ export interface TreeNode {
     .tree-caret.expanded { transform: rotate(90deg); }
     .tree-children { padding-left: 12px; }
     .tree-spinner { font-size: 10px; color: var(--text-muted); padding: 2px 8px 2px 28px; }
+    /* Indented to the spinner's column so it reads as belonging to the folder above it, not to the tree. */
+    .tree-error { font-size: 10px; color: var(--danger); padding: 2px 8px 4px 28px; word-break: break-word; }
+    /* The root's has no folder above it to indent under. */
+    .tree-error-root { padding-left: 8px; }
   `],
   template: `
+    @if (rootError()) {
+      <!-- The one failure a per-node message cannot carry: there is no node to hang it on. Without it, a tree
+           that could not load looks exactly like a space with no folders. -->
+      <div class="tree-error tree-error-root" role="alert">
+        {{ 'files.tree.loadFailed' | transloco }} — {{ rootError() }}
+      </div>
+    }
     <ng-container *ngTemplateOutlet="treeTemplate; context: { $implicit: nodes() }"></ng-container>
 
     <ng-template #treeTemplate let-list>
@@ -115,6 +139,17 @@ export interface TreeNode {
         </div>
         @if (node.loading) {
           <div class="tree-spinner">{{ 'files.tree.loading' | transloco }}</div>
+        }
+        @if (node.error) {
+          <!--
+            Under the folder it belongs to, not in a banner: two failed folders would otherwise share one
+            message and an operator could not tell which refused.
+
+            NOT app-error-state, which the listing uses. That is a card with an icon and a retry button, and
+            the sidebar is a narrow column — it would take over the tree it is reporting about. There is also
+            nothing for a retry button to do here that clicking the folder again does not already do.
+          -->
+          <div class="tree-error" role="alert">{{ 'files.tree.expandFailed' | transloco }} — {{ node.error }}</div>
         }
         @if (node.expanded && node.children) {
           <div class="tree-children">
@@ -129,6 +164,8 @@ export class FileTreeComponent {
   /** The page's own array, by reference. See the docblock: a copy would break its in-place mutations. */
   nodes = input.required<TreeNode[]>();
   currentPath = input('');
+  /** Why the ROOT listing failed, or null — see `TreeNode.error` for why the per-node one is per node. */
+  rootError = input<string | null>(null);
 
   /**
    * One output for one gesture, and the page does two things with it: navigate, and expand or collapse.

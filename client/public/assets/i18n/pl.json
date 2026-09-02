@@ -619,6 +619,8 @@
   "files.closePreviewAriaLabel": "Zamknij podgląd",
   "files.emptyFolder.title": "Pusty folder",
   "files.emptyFolder.body": "Prześlij pliki lub utwórz folder.",
+  "files.tree.loadFailed": "Nie można wczytać drzewa folderów",
+  "files.tree.expandFailed": "Nie można otworzyć tego folderu",
   "files.tree.loading": "Załadunek…",
   "files.preview.name": "Nazwa",
   "files.preview.failed": "Nie udało się wczytać podglądu.",

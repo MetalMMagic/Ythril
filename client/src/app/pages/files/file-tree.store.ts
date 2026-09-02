@@ -1,6 +1,7 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { FilesApi } from '../../core/files-api.service';
 import { joinPath } from './file-format';
+import { httpErrorReason } from '../../core/http-error';
 import type { TreeNode } from './file-tree.component';
 import type { FileEntry } from '../../core/api.types';
 
@@ -64,21 +65,36 @@ export class FileTreeStore {
   private nodesFrom(entries: FileEntry[], base: string): TreeNode[] {
     return entries
       .filter(e => e.isDirectory)
-      .map(e => ({ name: e.name, path: joinPath(base, e.name), expanded: false, loading: false, children: null }));
+      .map(e => ({
+        name: e.name, path: joinPath(base, e.name),
+        expanded: false, loading: false, children: null, error: null,
+      }));
   }
+
+  /**
+   * Why the ROOT listing failed, or null.
+   *
+   * Separate from a node's own `error` because there is no node to hang it on: the tree is empty, and an empty
+   * tree and a failed one looked identical. That is the same silence one level up.
+   */
+  readonly rootError = signal<string | null>(null);
 
   /**
    * Load the space's top-level directories.
    *
-   * Swallows its error, as it always has: the tree is an aid to navigation and the listing beside it reports
-   * the same failure for the same path. `G-10` covers giving the tree a failure state of its own, and notes
-   * that the duplicate request is currently the only thing that surfaces one.
+   * It used to swallow its error on the reasoning that the listing beside it reports the same failure for the
+   * same path. That is true for the ROOT and false for everything else, and it left an operator unable to tell
+   * a space with no folders from a tree that could not load.
    */
   loadRoot(spaceId: string): void {
     if (!spaceId) return;
+    this.rootError.set(null);
     this.filesApi.listFiles(spaceId, '/').subscribe({
-      next: ({ entries }) => this.treeRoot.set(this.nodesFrom(entries, '/')),
-      error: () => {},
+      next: ({ entries }) => {
+        this.rootError.set(null);
+        this.treeRoot.set(this.nodesFrom(entries, '/'));
+      },
+      error: (e: unknown) => this.rootError.set(httpErrorReason(e)),
     });
   }
 
@@ -101,6 +117,9 @@ export class FileTreeStore {
       return;
     }
     node.loading = true;
+    // Cleared on every attempt, so a folder that failed once and then succeeded does not keep the old message
+    // under it — a stale error beside working children is worse than none.
+    node.error = null;
     this.bump();
     this.filesApi.listFiles(spaceId, node.path).subscribe({
       next: ({ entries }) => {
@@ -109,10 +128,17 @@ export class FileTreeStore {
         node.expanded = true;
         this.bump();
       },
-      error: () => {
-        // Spinner off, node left CLOSED and nothing said — pinned AS-IS, and `G-10` is where the failure state
-        // it should have is specified.
+      error: (e: unknown) => {
+        /*
+         * Spinner off, node left CLOSED — and now it SAYS so.
+         *
+         * It said nothing before. An operator saw a message only by accident: clicking a folder fires two
+         * identical requests and the second one put the error on the listing beside the tree. That accident is
+         * why the duplicate has to go SECOND — removing it first would have taken away the only feedback there
+         * was.
+         */
         node.loading = false;
+        node.error = httpErrorReason(e);
         this.bump();
       },
     });

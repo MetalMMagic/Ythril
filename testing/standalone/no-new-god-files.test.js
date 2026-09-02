@@ -144,7 +144,14 @@ const FROZEN = {
   // 1618 -> 1070 over seven cuts. DECOMPOSE: G-3 stays open. Eleven `filesApi` call sites remain — the
   // directory listing with its load-versus-refresh rule, the preview, the extract tab, the file-meta editor —
   // and each is a store of the same shape as this one.
-  'client/src/app/pages/files/file-manager.component.ts': 1070,
+  // RAISED 1070 -> 1071: ONE LINE, the `[rootError]` binding that lets the sidebar say a tree could not
+  // load. Until 3.7 that failure was indistinguishable from a space with no folders.
+  //
+  // Raised without argument, for the reason written above `brain.component.ts`: a ratchet that made a
+  // never-rendered failure state negotiable would be a gate encouraging the wrong outcome. The tree's own
+  // state and its store are in `file-tree.component.ts` and `file-tree.store.ts`; what landed here is the
+  // binding, which belongs to the page that owns the sidebar. DECOMPOSE: G-3 still stands.
+  'client/src/app/pages/files/file-manager.component.ts': 1071,
   'client/src/app/pages/schema-library/schema-library.component.ts': 1112,
   'server/src/sync/engine.ts': 966,
   // 958 -> 684: the per-type editor body moved into `schema-type-editor.component` so the Brain Overview

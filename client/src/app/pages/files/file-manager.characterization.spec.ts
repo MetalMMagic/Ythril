@@ -474,14 +474,17 @@ describe('FileManagerComponent — the tree sidebar (characterization for G-3)',
     expect(c.breadcrumbs().map((b: any) => b.name ?? b.label ?? b)).toContain('docs');
   });
 
-  it('AS-IS: a failed expand clears the spinner and leaves the node closed, silently', () => {
+  it('a failed expand clears the spinner, leaves the node closed, and SAYS SO', () => {
     /*
-     * Marked AS-IS because it is arguably a defect rather than a decision: the error branch resets `loading`
-     * and does NOT set `expanded`, so the caret springs back and nothing anywhere says why. Every other load on
-     * this page has a visible failure state — `loadError`, `refreshFailed`, `spacesError`.
+     * This was pinned AS-IS and is now the intended behaviour — a deliberate edit to the assertion, which is
+     * the point of the convention.
      *
-     * Pinned exactly as it behaves so the extraction cannot change it by accident. Improving it is a deliberate
-     * edit to this assertion, which is the point of the convention.
+     * What it used to be: the error branch reset `loading`, did not set `expanded`, and said nothing anywhere.
+     * The caret sprang back and that was the whole message, on a page where every other load has a visible
+     * failure state (`loadError`, `refreshFailed`, `spacesError`).
+     *
+     * The node keeps `expanded: false` and `children: null` — a folder that could not be read has no children
+     * to show, and pretending otherwise would give an operator an empty folder rather than a failed one.
      */
     const api = {
       ...makeApi(),
@@ -506,16 +509,76 @@ describe('FileManagerComponent — the tree sidebar (characterization for G-3)',
     expect(c.tree.treeRoot()[0].loading).toBe(false);
     expect(c.tree.treeRoot()[0].expanded).toBe(false);
     expect(c.tree.treeRoot()[0].children).toBeNull();
+    // The tree's OWN message, on the node that failed.
+    expect(c.tree.treeRoot()[0].error).toBeTruthy();
+
     /*
-     * `loadError` IS set here — not by the tree, but by the main listing, which requested the same failing path
-     * through `navigate`. So today an operator does see something, by accident: the duplicate request is what
-     * puts the error into the listing, and the tree itself shows nothing.
+     * `loadError` is set too, by the main listing, which requested the same failing path through `navigate`.
      *
-     * That is worth knowing before either of the two fixes. De-duplicating the request (`G-10`) removes the
-     * accidental message along with it, and giving the tree its own error state has to come first or the
-     * failure becomes genuinely silent.
+     * That second request is `G-13`, and it is still pinned AS-IS: it was the ONLY thing that surfaced an
+     * error before this change, which is exactly why the tree's own state had to come first. Now that it has,
+     * removing the duplicate no longer takes the message with it.
      */
     expect(c.loadError()).toBeTruthy();
+  });
+
+  it('and a folder that failed once shows nothing stale when it succeeds', () => {
+    // A message left under a folder whose children are now on screen is worse than none: it says the thing
+    // in front of you did not load.
+    let fail = true;
+    const api = {
+      ...makeApi(),
+      listFiles: (_s: string, path: string) =>
+        (path === '/docs' && fail ? throwError(() => new Error('nope')) : of({ entries: [], path })),
+    } as any;
+    TestBed.configureTestingModule({
+      imports: [FileManagerComponent, getTranslocoModule()],
+      providers: [
+        { provide: FilesApi, useValue: api },
+        { provide: SpacesApi, useValue: api },
+        { provide: BrainApi, useValue: api },
+        { provide: AuthService, useValue: { token: () => 't' } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => null } }, queryParamMap: of() } },
+      ],
+    });
+    const fixture = TestBed.createComponent(FileManagerComponent);
+    fixture.detectChanges();
+    const c = fixture.componentInstance as any;
+    c.tree.treeRoot.set([{ name: 'docs', path: '/docs', expanded: false, loading: false, children: null, error: null }]);
+
+    c.tree.toggle(c.tree.treeRoot()[0], c.activeSpaceId());
+    expect(c.tree.treeRoot()[0].error).toBeTruthy();
+
+    fail = false;
+    c.tree.toggle(c.tree.treeRoot()[0], c.activeSpaceId());
+    expect(c.tree.treeRoot()[0].error).toBeNull();
+    expect(c.tree.treeRoot()[0].expanded).toBe(true);
+  });
+
+  it('a root listing that fails is a failed tree, not an empty one', () => {
+    // The same silence one level up, and the one place a per-node message cannot reach: there is no node to
+    // hang it on. Without this, a space whose tree could not load looks exactly like a space with no folders.
+    const api = {
+      ...makeApi(),
+      listFiles: () => throwError(() => new Error('nope')),
+    } as any;
+    TestBed.configureTestingModule({
+      imports: [FileManagerComponent, getTranslocoModule()],
+      providers: [
+        { provide: FilesApi, useValue: api },
+        { provide: SpacesApi, useValue: api },
+        { provide: BrainApi, useValue: api },
+        { provide: AuthService, useValue: { token: () => 't' } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => null } }, queryParamMap: of() } },
+      ],
+    });
+    const fixture = TestBed.createComponent(FileManagerComponent);
+    fixture.detectChanges();
+    const c = fixture.componentInstance as any;
+
+    c.tree.loadRoot(c.activeSpaceId());
+    expect(c.tree.rootError()).toBeTruthy();
+    expect(c.tree.treeRoot().length).toBe(0);
   });
 
   it('the sidebar remembers being closed, and loads the tree only when it has none', () => {

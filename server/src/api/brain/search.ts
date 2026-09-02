@@ -589,7 +589,7 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
         safeProjection);
       const plainBudgeted = await budgetedEnvelope({
         results: plain,
-        budgetBytes: budget.bytes,
+        budget,
         skip: paging.skip,
         remainderDump: paging.remainderDump,
         spillRemainder: remainder => spillResultSet({
@@ -641,7 +641,7 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
     // carries a SAMPLE — three matches — and the link to all of it. Embeddings are stripped from the file.
     const budgeted = await budgetedEnvelope({
       results,
-      budgetBytes: budget.bytes,
+      budget,
       skip: paging.skip,
       remainderDump: paging.remainderDump,
       spillRemainder: remainder => spillResultSet({
@@ -800,7 +800,7 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
         stripContentIfAsked(result.results, safeIncludeContent), safeIncludeDiagnostics), safeProjection);
       const plainItemsBudgeted = await budgetedEnvelope({
         results: plainItems,
-        budgetBytes: budget.bytes,
+        budget,
         skip: paging.skip,
         remainderDump: paging.remainderDump,
         spillRemainder: remainder => spillResultSet({
@@ -839,7 +839,7 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
     const items = projectResults(itemsWithGraph as RecallResult[], safeProjection);
     const itemsBudgeted = await budgetedEnvelope({
       results: items,
-      budgetBytes: budget.bytes,
+      budget,
       skip: paging.skip,
       remainderDump: paging.remainderDump,
       spillRemainder: remainder => spillResultSet({

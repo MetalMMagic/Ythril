@@ -62,14 +62,18 @@
  * refusal we know about, far enough below it that a client with a tighter limit still works. A caller who
  * wants more passes `maxBytes` and gets it, up to `MAX_MAX_BYTES`, on either door.
  *
- * REST keeps 100 KB — about 25 whole records at that same mean, which is the count the old
- * `SPILL_RECORD_THRESHOLD` used. Matching it is what makes the byte budget invisible to anyone whose answers
- * never overflowed.
+ * REST is **50 000 characters** (owner, 2026-08-30, down from the 100 000 that was already characters despite
+ * being called bytes). MCP keeps 25 000, unchanged: it was chosen from the safe side of a measured client
+ * refusal and nothing new argues with it.
+ *
+ * **These are the CHARACTER defaults, and `maxBytes` has none.** Giving the byte ceiling a default equal to
+ * the character one would make it the binding constraint on every non-ASCII response, since bytes are always
+ * ≥ characters — a silent tightening for exactly the callers this change exists to serve.
  */
-export const DEFAULT_MAX_BYTES = 100_000;
+export const DEFAULT_MAX_CHARS = 50_000;
 
-/** The MCP door's default. See the note above `DEFAULT_MAX_BYTES` — lower, deliberately, and on one door. */
-export const MCP_DEFAULT_MAX_BYTES = 25_000;
+/** The MCP door's default. See the note above `DEFAULT_MAX_CHARS` — lower, deliberately, and on one door. */
+export const MCP_DEFAULT_MAX_CHARS = 25_000;
 
 /** Floor and ceiling on what a caller may ask for. A budget of zero would be a response with no results. */
 export const MIN_MAX_BYTES = 1_000;
@@ -92,31 +96,64 @@ export const MAX_MAX_BYTES = 5_000_000;
 export const DEFAULT_CHARS_PER_TOKEN = 3.5;
 
 export interface BudgetRequest {
-  /** The real control: a ceiling on the serialised response body. */
+  /**
+   * A ceiling on the serialised response body in CHARACTERS, and the one that carries the defaults.
+   *
+   * This is what the budget has always measured. It was called `maxBytes`, which was true for ASCII and
+   * wrong for everything else — see `applyBudget`.
+   */
+  maxChars?: unknown;
+  /**
+   * A ceiling on the serialised response body in real UTF-8 BYTES. **No default**, deliberately.
+   *
+   * One equal to the character default would make it the binding constraint on every non-ASCII response,
+   * since bytes are always ≥ characters — a silent tightening. Opt-in, so a client whose limit really is in
+   * bytes can say so and nobody else is affected.
+   */
   maxBytes?: unknown;
-  /** A convenience, converted to bytes by `charsPerToken`. Never the authority. */
+  /** A convenience, converted to CHARACTERS by `charsPerToken`. Never the authority. */
   maxTokens?: unknown;
   /** Per-call override of the conversion ratio. */
   charsPerToken?: unknown;
 }
 
+/** The two ceilings a response is held to. `bytes` is `null` when the caller did not ask for one. */
+export interface ResolvedBudget {
+  chars: number;
+  bytes: number | null;
+}
+
 /** What a caller's budget arguments resolve to, or the refusal text if they do not. */
 export type BudgetResolution =
-  | { ok: true; bytes: number }
+  | ({ ok: true } & ResolvedBudget)
   | { ok: false; error: string };
 
 const posInt = (v: unknown): number | null =>
   typeof v === 'number' && Number.isFinite(v) && Number.isInteger(v) && v > 0 ? v : null;
 
 /**
- * Resolve `maxBytes` / `maxTokens` / `charsPerToken` into one byte figure.
+ * Resolve `maxChars` / `maxBytes` / `maxTokens` / `charsPerToken` into TWO ceilings.
  *
- * **If both arrive, the smaller resulting byte figure applies** — a caller who states two ceilings meant
- * both, and honouring the larger would ignore one of them.
+ * ## Why two and not one
+ *
+ * Owner's decision, 2026-08-30: *"I need a way for both in reality. as with maxBytes and maxTokens: when both
+ * (then: 2 or 3) are set: lower wins."*
+ *
+ * "Lower wins" is not a `Math.min` ACROSS the units. Characters and bytes are different scales — 50 000 of one
+ * is not comparable with 50 000 of the other — so resolving them to a single number would be meaningless.
+ * Both are carried, and `applyBudget` stops when EITHER would be exceeded. That is what "both apply" means,
+ * and it is what the `maxTokens`/`maxChars` pair already does WITHIN one unit, where a minimum is meaningful.
+ *
+ * `maxTokens` resolves against CHARACTERS, which is where it always belonged: the conversion produces
+ * characters, and it was only ever compared against a "byte" budget that was secretly counting them. That
+ * half becomes correct by being named correctly.
  */
-export function resolveBudget(req: BudgetRequest, operatorDefault = DEFAULT_MAX_BYTES): BudgetResolution {
-  const { maxBytes, maxTokens, charsPerToken } = req;
+export function resolveBudget(req: BudgetRequest, operatorDefault = DEFAULT_MAX_CHARS): BudgetResolution {
+  const { maxChars, maxBytes, maxTokens, charsPerToken } = req;
 
+  if (maxChars !== undefined && posInt(maxChars) === null) {
+    return { ok: false, error: '`maxChars` must be a positive integer number of characters' };
+  }
   if (maxBytes !== undefined && posInt(maxBytes) === null) {
     return { ok: false, error: '`maxBytes` must be a positive integer number of bytes' };
   }
@@ -129,16 +166,26 @@ export function resolveBudget(req: BudgetRequest, operatorDefault = DEFAULT_MAX_
   }
 
   const ratio = typeof charsPerToken === 'number' ? charsPerToken : DEFAULT_CHARS_PER_TOKEN;
-  const candidates: number[] = [];
-  const mb = posInt(maxBytes);
+  const charCandidates: number[] = [];
+  const mc = posInt(maxChars);
   const mt = posInt(maxTokens);
-  if (mb !== null) candidates.push(mb);
-  if (mt !== null) candidates.push(Math.floor(mt * ratio));
-  if (candidates.length === 0) candidates.push(operatorDefault);
+  if (mc !== null) charCandidates.push(mc);
+  if (mt !== null) charCandidates.push(Math.floor(mt * ratio));
+  if (charCandidates.length === 0) charCandidates.push(operatorDefault);
 
-  const chosen = Math.min(...candidates);
-  return { ok: true, bytes: Math.min(Math.max(chosen, MIN_MAX_BYTES), MAX_MAX_BYTES) };
+  const chosenChars = Math.min(...charCandidates);
+  const mb = posInt(maxBytes);
+  return {
+    ok: true,
+    chars: clampBudget(chosenChars),
+    // No default, and no clamp to a MINIMUM either: a caller who states 500 bytes has a reason, and raising
+    // it to 1000 on their behalf would defeat the ceiling they asked for. The upper bound still applies.
+    bytes: mb === null ? null : Math.min(mb, MAX_MAX_BYTES),
+  };
 }
+
+/** The floor and ceiling every stated CHARACTER budget is held between. */
+const clampBudget = (n: number): number => Math.min(Math.max(n, MIN_MAX_BYTES), MAX_MAX_BYTES);
 
 /**
  * `skip` and `remainderDump`, validated in ONE place for both doors.
@@ -181,7 +228,15 @@ export interface BudgetOutcome<T> {
   returned: T[];
   /** The matches that did not fit, in rank order. Empty when nothing was cut. */
   remainder: T[];
-  /** Serialised size of `returned`, in bytes — what `bytesReturned` reports. */
+  /** Serialised size of `returned`, in CHARACTERS — what `charsReturned` reports. */
+  charsReturned: number;
+  /**
+   * Serialised size of `returned`, in real UTF-8 BYTES — what `bytesReturned` reports.
+   *
+   * Both are reported, always. Reporting one is most of why the unit confusion survived: a caller comparing
+   * `bytesReturned` against their own byte limit was comparing it against a character count, and had no
+   * second number to notice the difference with.
+   */
   bytesReturned: number;
   /** True when at least one match was omitted. */
   truncated: boolean;
@@ -201,32 +256,47 @@ export interface BudgetOutcome<T> {
  * smaller matches would produce a set that no `skip` can continue from, and a ranked answer with holes in
  * it that the caller cannot detect.
  *
- * ## The measurement is of the SERIALISED form
+ * ## The measurement is of the SERIALISED form, in BOTH units
  *
  * Sizing the objects any other way would price a response differently from how it travels, and the budget
  * is about what arrives. The cost is one `JSON.stringify` per candidate; the loop stops at the first
  * overflow, so it is bounded by what fits plus one.
  *
+ * **It used to measure `.length` and call the result bytes.** That is UTF-16 code units: equal to bytes for
+ * ASCII and wrong for everything else — `Grüße aus Köln — ąćę` counts 31 against 39 real bytes, three emoji
+ * count 17 against 23. A transport limit IS in bytes and this budget exists to stay under one, so a German
+ * or Polish space overran its stated budget by about a quarter, which is exactly the failure the budget was
+ * built to prevent. Both figures are measured now, and a row is admitted only if it fits under both.
+ *
  * A single match larger than the whole budget is still returned, alone. Returning nothing would turn a
  * budget into a wall and leave a caller unable to read a record at all — and clause 3 of the specification
  * is that every returned record is whole.
  */
-export function applyBudget<T>(results: readonly T[], budgetBytes: number): BudgetOutcome<T> {
+export function applyBudget<T>(results: readonly T[], budget: ResolvedBudget): BudgetOutcome<T> {
   const returned: T[] = [];
-  // The envelope's own braces and the `results` key cost a little; charging it keeps `bytesReturned` honest
-  // against the body the caller receives rather than against the array alone.
-  let used = 2;
+  // The envelope's own braces and the `results` key cost a little; charging it keeps the reported sizes
+  // honest against the body the caller receives rather than against the array alone.
+  let usedChars = 2;
+  let usedBytes = 2;
   let i = 0;
   for (; i < results.length; i++) {
-    const size = JSON.stringify(results[i]).length + 1; // +1 for the separating comma
-    if (returned.length > 0 && used + size > budgetBytes) break;
+    const serialised = JSON.stringify(results[i]);
+    const addChars = serialised.length + 1;                      // +1 for the separating comma
+    const addBytes = Buffer.byteLength(serialised, 'utf8') + 1;
+    // EITHER ceiling stops it. A caller who stated both meant both, and the tighter one is whichever bites
+    // first for this content — which is the point of carrying two rather than reconciling them to a number.
+    const overChars = usedChars + addChars > budget.chars;
+    const overBytes = budget.bytes !== null && usedBytes + addBytes > budget.bytes;
+    if (returned.length > 0 && (overChars || overBytes)) break;
     returned.push(results[i]!);
-    used += size;
+    usedChars += addChars;
+    usedBytes += addBytes;
   }
   return {
     returned,
     remainder: results.slice(i) as T[],
-    bytesReturned: used,
+    charsReturned: usedChars,
+    bytesReturned: usedBytes,
     truncated: i < results.length,
   };
 }
@@ -242,7 +312,7 @@ export function applyBudget<T>(results: readonly T[], budgetBytes: number): Budg
 export function budgetFields<T>(
   outcome: BudgetOutcome<T>,
   totalMatches: number,
-  budgetBytes: number,
+  budget: ResolvedBudget,
   /** The offset this page started at, so `nextSkip` is absolute rather than relative to the page. */
   skip = 0,
 ): Record<string, unknown> {
@@ -250,7 +320,17 @@ export function budgetFields<T>(
     returned: outcome.returned.length,
     count: totalMatches,
     truncated: outcome.truncated,
-    budgetBytes,
+    /*
+     * BOTH ceilings and BOTH figures, always.
+     *
+     * `budgetBytes` is `null` when the caller stated no byte ceiling — present rather than omitted, because a
+     * field that appears only sometimes is a field whose absence has to be interpreted, which is the rule the
+     * rest of this object already follows. Reporting only one unit is most of why a character count spent so
+     * long being called a byte count.
+     */
+    budgetChars: budget.chars,
+    budgetBytes: budget.bytes,
+    charsReturned: outcome.charsReturned,
     bytesReturned: outcome.bytesReturned,
     /*
      * WHERE TO CONTINUE FROM, present exactly when there is somewhere to continue to.
@@ -283,7 +363,8 @@ export function budgetFields<T>(
  */
 export async function budgetedEnvelope<T, S>(opts: {
   results: readonly T[];
-  budgetBytes: number;
+  /** BOTH ceilings, as `resolveBudget` produced them. See `ResolvedBudget`. */
+  budget: ResolvedBudget;
   spillRemainder: (remainder: T[]) => Promise<S | null>;
   /** Offset this page began at, so the reported continuation is absolute. */
   skip?: number;
@@ -308,8 +389,8 @@ export async function budgetedEnvelope<T, S>(opts: {
   // page by page and have nothing left that states how big the answer actually is.
   const skip = opts.skip ?? 0;
   const page = skip > 0 ? opts.results.slice(skip) : opts.results;
-  const outcome = applyBudget(page, opts.budgetBytes);
-  const fields = budgetFields(outcome, opts.results.length, opts.budgetBytes, skip);
+  const outcome = applyBudget(page, opts.budget);
+  const fields = budgetFields(outcome, opts.results.length, opts.budget, skip);
   if (outcome.truncated && opts.remainderDump === true) {
     const spill = await opts.spillRemainder(outcome.remainder);
     if (spill) fields['remainder'] = spill;

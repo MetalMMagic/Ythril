@@ -211,7 +211,7 @@ describe('the remainder is written out, with a TTL', () => {
     // the call sites. A route that shortened its own array would make `count` shrink page by page.
     assert.match(budget, /const page = skip > 0 \? opts\.results\.slice\(skip\) : opts\.results;/,
       'the skip must be applied inside the envelope, or `count` stops reporting the total');
-    assert.match(budget, /budgetFields\(outcome, opts\.results\.length, opts\.budgetBytes, skip\)/,
+    assert.match(budget, /budgetFields\(outcome, opts\.results\.length, opts\.budget, skip\)/,
       'and the total handed to budgetFields must be the pre-skip length');
   });
 

@@ -60,13 +60,17 @@ describe('the page says when an answer was shortened', () => {
      * are numbers nobody can act on, and showing them would make the notice read as diagnostics rather than as
      * "here is what happened and here is what to do".
      */
-    expect(component).not.toContain('budgetBytes');
-    expect(component).not.toContain('bytesReturned');
+    // Four names since 3.7, not two: the one figure that claimed to be bytes was split into the character
+    // count it actually was and a real byte count. A character count is exactly as unactionable in an
+    // interface as a byte one, so the new pair is refused on the same grounds rather than left unasserted.
+    for (const field of ['budgetBytes', 'bytesReturned', 'budgetChars', 'charsReturned']) {
+      expect(component).not.toContain(field);
+    }
     // And the notice must not have grown one through a locale key either.
     for (const l of LOCALES) {
       const t = locale(l);
       for (const k of ['brain.query.truncated.title', 'brain.query.truncated.body', 'brain.query.truncated.what']) {
-        expect(t[k]).not.toMatch(/\{\{(budgetBytes|bytesReturned)\}\}/);
+        expect(t[k]).not.toMatch(/\{\{(budgetBytes|bytesReturned|budgetChars|charsReturned)\}\}/);
       }
     }
   });

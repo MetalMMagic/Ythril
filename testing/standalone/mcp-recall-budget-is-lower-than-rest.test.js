@@ -41,44 +41,56 @@ import { statementFrom } from './_structural-window.mjs';
 const MCP = readFileSync('server/src/mcp/tools/search.ts', 'utf8');
 const REST = readFileSync('server/src/api/brain/search.ts', 'utf8');
 
-let DEFAULT_MAX_BYTES, MCP_DEFAULT_MAX_BYTES, MIN_MAX_BYTES, MAX_MAX_BYTES, resolveBudget;
+let DEFAULT_MAX_CHARS, MCP_DEFAULT_MAX_CHARS, MIN_MAX_BYTES, MAX_MAX_BYTES, resolveBudget;
 before(async () => {
-  ({ DEFAULT_MAX_BYTES, MCP_DEFAULT_MAX_BYTES, MIN_MAX_BYTES, MAX_MAX_BYTES, resolveBudget } =
+  ({ DEFAULT_MAX_CHARS, MCP_DEFAULT_MAX_CHARS, MIN_MAX_BYTES, MAX_MAX_BYTES, resolveBudget } =
     await import('../../server/dist/brain/result-budget.js'));
 });
 
 describe('the two defaults', () => {
   it('are both defined, and MCP is the lower one', () => {
-    assert.equal(typeof DEFAULT_MAX_BYTES, 'number');
-    assert.equal(typeof MCP_DEFAULT_MAX_BYTES, 'number');
-    assert.ok(MCP_DEFAULT_MAX_BYTES < DEFAULT_MAX_BYTES,
-      `the MCP default (${MCP_DEFAULT_MAX_BYTES}) must be below the REST default (${DEFAULT_MAX_BYTES}) — `
+    assert.equal(typeof DEFAULT_MAX_CHARS, 'number');
+    assert.equal(typeof MCP_DEFAULT_MAX_CHARS, 'number');
+    assert.ok(MCP_DEFAULT_MAX_CHARS < DEFAULT_MAX_CHARS,
+      `the MCP default (${MCP_DEFAULT_MAX_CHARS}) must be below the REST default (${DEFAULT_MAX_CHARS}) — `
       + 'the whole point is that an agent\'s tool result has a ceiling a REST caller does not');
   });
 
   it('the MCP default is still inside the range a caller may ask for', () => {
     // A default below the floor would be clamped up and the constant would be a lie; above the ceiling, clamped
     // down. Either way the number a caller reads in the schema would not be the number applied.
-    assert.ok(MCP_DEFAULT_MAX_BYTES >= MIN_MAX_BYTES && MCP_DEFAULT_MAX_BYTES <= MAX_MAX_BYTES);
-    const resolved = resolveBudget({}, MCP_DEFAULT_MAX_BYTES);
-    assert.deepEqual(resolved, { ok: true, bytes: MCP_DEFAULT_MAX_BYTES },
+    assert.ok(MCP_DEFAULT_MAX_CHARS >= MIN_MAX_BYTES && MCP_DEFAULT_MAX_CHARS <= MAX_MAX_BYTES);
+    const resolved = resolveBudget({}, MCP_DEFAULT_MAX_CHARS);
+    // The defaults are CHARACTER ceilings now, and `maxBytes` deliberately has none — see B-1. This used
+    // to read `{ok: true, bytes: …}` because one number was doing both jobs, badly.
+    assert.deepEqual(resolved, { ok: true, chars: MCP_DEFAULT_MAX_CHARS, bytes: null },
       'the default must survive the clamp unchanged, or the documented number is not the applied one');
   });
 
   it('a caller who ASKS gets the same answer on either door', () => {
     // The parameter is not narrowed — only the default is. `maxBytes: 400000` must resolve identically no
     // matter which default was in play, or the divergence has leaked from the default into the parameter.
+    // The BYTE ceiling, specifically. Since B-1 a resolution carries two, and the character one still
+    // differs by the door's default — correctly, because stating a byte ceiling says nothing about
+    // characters. Comparing the whole object would assert that the documented difference does not exist.
     for (const asked of [MIN_MAX_BYTES, 40_000, 400_000, MAX_MAX_BYTES]) {
-      assert.deepEqual(
-        resolveBudget({ maxBytes: asked }, MCP_DEFAULT_MAX_BYTES),
-        resolveBudget({ maxBytes: asked }, DEFAULT_MAX_BYTES),
+      assert.equal(
+        resolveBudget({ maxBytes: asked }, MCP_DEFAULT_MAX_CHARS).bytes,
+        resolveBudget({ maxBytes: asked }, DEFAULT_MAX_CHARS).bytes,
         `maxBytes: ${asked} must resolve the same on both doors`);
+    }
+    // And the same for the character parameter, which is the one the defaults are about.
+    for (const asked of [MIN_MAX_BYTES, 40_000, 400_000, MAX_MAX_BYTES]) {
+      assert.equal(
+        resolveBudget({ maxChars: asked }, MCP_DEFAULT_MAX_CHARS).chars,
+        resolveBudget({ maxChars: asked }, DEFAULT_MAX_CHARS).chars,
+        `maxChars: ${asked} must resolve the same on both doors`);
     }
   });
 
   it('and the refusal is identical on both doors', () => {
-    const a = resolveBudget({ maxBytes: 'plenty' }, MCP_DEFAULT_MAX_BYTES);
-    const b = resolveBudget({ maxBytes: 'plenty' }, DEFAULT_MAX_BYTES);
+    const a = resolveBudget({ maxBytes: 'plenty' }, MCP_DEFAULT_MAX_CHARS);
+    const b = resolveBudget({ maxBytes: 'plenty' }, DEFAULT_MAX_CHARS);
     assert.equal(a.ok, false);
     assert.deepEqual(a, b, 'a bad value must be refused with the same text whichever door it arrived at');
   });
@@ -91,7 +103,7 @@ describe('every call site uses its own door\'s default', () => {
     const calls = [...MCP.matchAll(/resolveBudget\(/g)];
     assert.ok(calls.length >= 2, `expected the MCP door to resolve a budget in several tools, found ${calls.length}`);
     const missing = calls
-      .filter(m => !/MCP_DEFAULT_MAX_BYTES/.test(statementFrom(MCP, m.index, 'a resolveBudget call')))
+      .filter(m => !/MCP_DEFAULT_MAX_CHARS/.test(statementFrom(MCP, m.index, 'a resolveBudget call')))
       .map(m => `line ${MCP.slice(0, m.index).split('\n').length}`);
     assert.deepEqual(missing, [],
       'these MCP call sites take the REST default, so the size a caller gets depends on which tool they '
@@ -100,7 +112,7 @@ describe('every call site uses its own door\'s default', () => {
 
   it('REST keeps the operator default, and does not reach for the MCP one', () => {
     assert.ok([...REST.matchAll(/resolveBudget\(/g)].length >= 2, 'the REST door must still resolve a budget');
-    assert.doesNotMatch(REST, /MCP_DEFAULT_MAX_BYTES/,
+    assert.doesNotMatch(REST, /MCP_DEFAULT_MAX_CHARS/,
       'the REST door must not take the MCP default — 100 KB is unremarkable in a REST body');
   });
 });
@@ -113,18 +125,23 @@ describe('both doors say so, in the surface a caller reads', () => {
      * skill that avoided filtered recall. A default that differs per door and is stated on neither is the same
      * failure waiting — a caller measures 25000, concludes it is the product's limit, and designs around it.
      */
+    // The default lives on `maxChars` now — it is the ceiling that carries one, and `maxBytes` deliberately
+    // has none, so a per-door default stated on `maxBytes` would be naming a number that does not exist.
     const hits = [...MCP.matchAll(/DEFAULT 25000 ON THIS DOOR/g)];
     assert.ok(hits.length >= 2,
-      `both maxBytes descriptions must state this door's default; found ${hits.length}`);
-    assert.match(MCP, /100000 on REST/, 'and name the other door\'s, so the difference is discoverable');
+      `both maxChars descriptions must state this door's default; found ${hits.length}`);
+    assert.match(MCP, /50000 on REST/, 'and name the other door\'s, so the difference is discoverable');
+    assert.match(MCP, /NO DEFAULT/,
+      '`maxBytes` must say it has none — a caller who assumes one designs around a ceiling that is not there');
     assert.match(MCP, /RAISE IT IF YOUR CLIENT CAN TAKE MORE/,
       'and say what to do about it — a limit with no lever reads as a product ceiling');
   });
 
   it('the integration guide states both numbers', () => {
     const guide = readFileSync('docs/integration-guide/04a-recall-api.md', 'utf8');
-    assert.match(guide, /`100000` REST \/ `25000` MCP/, 'the parameter table must carry both');
-    assert.match(guide, /100 000 over REST, 25 000 over MCP/, 'and so must the prose that explains the budget');
+    // On `maxChars`, which is the ceiling that has defaults. `maxBytes` has none, deliberately.
+    assert.match(guide, /`50000` REST \/ `25000` MCP/, 'the parameter table must carry both');
+    assert.match(guide, /50 000 over REST, 25 000 over MCP/, 'and so must the prose that explains the budget');
   });
 
   it('the userguide says the browser gets the LARGER one, and why', () => {

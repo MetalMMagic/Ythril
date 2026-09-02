@@ -438,7 +438,13 @@ const FROZEN = {
    * **Frozen rather than exempt.** It cannot grow from here without this line being edited, which is the point:
    * if it reaches a size where a split is genuinely better, the argument happens in a diff.
    */
-  'client/src/app/core/api.types.ts': 652,
+  // RAISED 652 -> 654: TWO LINES, the two response fields B-1 added. The budget reported one figure that
+  // claimed to be bytes and counted characters; it reports both units now, so a recall envelope carries
+  // `budgetChars` and `charsReturned` beside the two that existed.
+  //
+  // NO DECOMPOSITION: this is the entry above's own argument — a barrel of response shapes grows with the
+  // API it describes, and splitting it would scatter one import into several for no reader's benefit.
+  'client/src/app/core/api.types.ts': 654,
 };
 
 describe('no file grows past what we already carry', () => {

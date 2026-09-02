@@ -203,12 +203,18 @@ describe is a search you can run without writing a request by hand:
 - **Types** — restrict the search to specific record types (memory, entity, edge, chrono). For each ticked type you can also set a per-type **minimum** number of results to guarantee.
 - **Max per type** — the ceiling to that floor. This is how you stop one long file passage from crowding out several one-line records that would answer the question more cheaply; a slot freed by the cap goes to another type.
 - **Tags** — a tag filter applied to results.
+- **Fields returned** — a JSON object choosing which fields each result carries, e.g. `{ "description": 1 }`; it can exclude as well as include. Leave it empty for whole records. Worth being careful with rather than clever: a selection that omits the field you are reading gives you a result that looks complete and is missing the answer.
+- **Skip results** — start further down the ranking. When an answer is shortened it tells you where to continue from; that number goes here. It counts from the top of the ranking, not from the last page, so it replaces the previous value rather than adding to it.
+- **Save what did not fit** — the one setting on this form that WRITES. It puts the matches that were cut off into this space as a JSON file, downloadable for a day, and the form says so as soon as you tick it.
 - **Filter** — a JSON object of extra field constraints, validated before the search runs. The recall filter accepts fields such as `status` and `label`, which are applied as native `$vectorSearch` pre-filters (they narrow the candidate set inside the vector index rather than filtering afterwards). It also accepts **raw MongoDB** — `$or`, `$and`, `$in`, `$regex` and the comparisons — for conditions the simple form cannot express, such as *"status is open OR kind is ask"*. A raw filter is slower (the whole space is scored, then filtered) and returns the same records.
 - **Graph hops** — follow the knowledge graph outward from each match, 0–5 hops. Connected entities come back **grouped under the match that reached them**, each carrying the relationship that connects it and every route back to the match, so you can ask "what surrounds this answer" in one search and still see which answer it surrounds. The result count stays the number of matches. Leave it at 0 for an ordinary search; deep values on a densely connected space are slow, so narrow the matches with a filter or tags first.
 
-  **The API can narrow the walk itself** — which relationship types to follow, and whether to go outward, inward or both — by sending `traverse` as an object rather than a number. The UI control sets the depth only. It matters on a space where a few records are connected to almost everything: an unnarrowed hop off one of those returns whichever neighbours fitted, and nothing distinguishes that from a deliberate answer. See the integration guide's recall page.
+  **You can narrow the walk**, and once the hops are above 0 the controls for it appear beside them:
 
-  **The walk follows edges only, unless the API asks for more.** A memory, timeline entry or file that names an entity is related to it — but that link is a field on the record, not an edge, so the hops above do not follow it. The API turns each kind on with `includeChrono`, `includeMemories` or `includeFiles` inside the same `traverse` object; the UI control has no equivalent. They are off by default because a search answer has a size budget and each match is counted together with everything hanging off it, so records nobody asked for are paid for in answers that no longer fit. With one on, a match that is itself a memory also stops coming back with an empty neighbourhood — the walk starts from the entities that memory names.
+  - **Follow edges** — outward, inward, or both. It is not a detail: outward from a person reaches what they own, inward reaches who named them, and a walk that ignores the difference answers a different question and looks identical. Leave it on *Server default* to let the instance decide.
+  - **Only these edge labels** — follow just these relationship types, comma-separated. This matters most on a space where a few records are connected to almost everything: an unnarrowed hop off one of those returns whichever neighbours fitted, and nothing distinguishes that from a deliberate answer.
+
+  **The walk follows edges only, unless you ask for more.** A memory, timeline entry or file that names an entity is related to it — but that link is a field on the record, not an edge, so the hops above do not follow it. Three checkboxes turn each kind on: **Also return chrono entries / memories / files reached**. They are off by default because a search answer has a size budget and each match is counted together with everything hanging off it, so records nobody asked for are paid for in answers that no longer fit. With one on, a match that is itself a memory also stops coming back with an empty neighbourhood — the walk starts from the entities that memory names.
 - **When the surroundings do not fit** — a search that reaches more connected records than it can show returns
   the ones nearest your matches and writes the *whole* neighbourhood to a downloadable file in the space, valid
   for a day. The result says both: how many it showed, and where the complete set is. A short graph would
@@ -242,9 +248,13 @@ describe is a search you can run without writing a request by hand:
     larger one.** An agent talking to this instance over MCP gets a smaller default than this page does, because an
     agent's tool result has to fit inside its own client and a browser's does not — so a search that comes back
     whole here can come back shortened for an agent asking the same question, and that is deliberate rather
-    than a discrepancy. There is deliberately
-    one control and not two: the API also accepts the same ceiling expressed in tokens, and the smaller of the
-    two always wins, so offering both would only let you set two limits and then wonder which applied.
+    than a discrepancy.
+    - **The ceiling is one number in four currencies, and all four are on the form.** Bytes and characters
+      sit under **the answer** and **size and paging**; tokens is there too, with **characters per token**
+      appearing beside it once a token ceiling is set. **Set more than one and the smallest wins** — which
+      is the rule that makes offering all four safe, and the reason this page used to say there was
+      deliberately one control. Four is the honest number: the units are not interchangeable outside plain
+      English, and tokens is the one an agent's budget is actually written in.
     - **A note on the word bytes, which used to be wrong here.** The API called this ceiling `maxBytes` until
       3.7 and counted characters — the same thing for English, and not for German, Polish or anything with an
       emoji in it, where a character can take two or three bytes. A space working in those languages was

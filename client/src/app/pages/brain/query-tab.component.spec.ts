@@ -99,16 +99,22 @@ describe('QueryTabComponent — recall parameter coverage', () => {
 
   beforeEach(() => TestBed.resetTestingModule());
 
-  it('sends traverse and maxTimeMS when set', () => {
+  it('sends the traversal as an OBJECT, and maxTimeMS, when set', () => {
+    /*
+     * **A deliberate edit: this asserted `traverse: 2`, a bare number.**
+     *
+     * The route accepts either shape, and the number reached the depth and nothing else — so `direction`,
+     * `edgeLabels` and the three `include*` flags were unreachable from this panel however the rest of the
+     * request was written. `U-1` sends the object, so the same depth now reads as `{ depth: 2 }`.
+     */
     const c = create().componentInstance;
     c.recallForm.query = 'auth token scoping';
-    c.recallForm.traverse = 2;
+    c.recallForm.depth = 2;
     c.recallForm.maxTimeMS = 1500;
     c.runRecall();
-    expect(sent!['traverse']).toBe(2);
+    expect(sent!['traverse']).toEqual({ depth: 2 });
     expect(sent!['maxTimeMS']).toBe(1500);
   });
-
   it('omits both at 0 — a zero deadline is not a legal value and traverse 0 is the server default', () => {
     const c = create().componentInstance;
     c.recallForm.query = 'q';

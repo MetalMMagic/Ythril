@@ -78,6 +78,31 @@ describe('i18n key coverage', () => {
       .toEqual([]);
   });
 
+  it('no locale defines the same key twice', () => {
+    /*
+     * `JSON.parse` keeps the LAST of two identical keys and reports nothing, so a duplicate is invisible in
+     * every way that matters: the file parses, the key count looks right, `Object.keys` shows one entry, and
+     * both of the checks above pass. What the reader sees is the other definition's text.
+     *
+     * Found by writing one. U-1 added `brain.query.projection` for the recall form without noticing the
+     * Advanced Query panel had defined it 71 lines further down; the new label was simply never used, and
+     * the only detector was a screenshot showing the old word.
+     *
+     * So this reads the FILE rather than the parsed object — a parsed object cannot answer the question,
+     * which is the whole reason the duplicate survived.
+     */
+    for (const loc of ['en', 'de', 'pl']) {
+      const src = readFileSync(join(I18N, `${loc}.json`), 'utf8');
+      const seen = new Set<string>();
+      const dupes: string[] = [];
+      for (const m of src.matchAll(/^\s*"([^"]+)":/gm)) {
+        if (seen.has(m[1])) dupes.push(m[1]);
+        seen.add(m[1]);
+      }
+      expect(dupes, `${loc}.json defines these keys twice — the second wins silently`).toEqual([]);
+    }
+  });
+
   it('de and pl carry exactly the same keys as en', () => {
     const enKeys = Object.keys(en).sort();
     for (const loc of ['de', 'pl']) {

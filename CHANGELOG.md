@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The Search panel can now do everything a `recall` call can.** Owner-directed: *"one input field for EACH
+  AND EVERY available option a recall has. I want to be able to do everything there that a mcp call can do.
+  FULL CAPABILITIES."* Eleven parameters were reachable only by writing the request by hand; all eleven have
+  a control, and the gate that measures this is now EMPTY apart from one permanent row.
+
+  **The traversal is six controls, not one.** It was a single depth number, which is why five of these were
+  unreachable however the rest of the request was written: **Follow edges** (outward, inward, both), **Only
+  these edge labels**, and three checkboxes for returning the chrono entries, memories and files a walk
+  reached. Direction is not a detail — outward from a person reaches what they own, inward reaches who named
+  them, and a walk that ignores the difference answers another question and looks identical.
+
+  **The size ceiling is one number in four currencies, and all four are on the form.** Bytes, characters,
+  tokens, and characters-per-token for converting the last one. This page used to say there was deliberately
+  ONE control, because two overlapping numbers would leave an operator working out which won — the server
+  applies whichever is smallest, so the honest answer was to say that once rather than to hide three
+  quarters of the parameter. Characters and bytes are also not the same thing outside plain English, which
+  was a real bug earlier in this release.
+
+  **Also new:** **Fields returned** (a projection, refused with a form error rather than a 400 when it is not
+  a JSON object), **Skip results** for continuing a shortened answer, and **Save what did not fit** — the one
+  control on the form that WRITES, which says so on its face rather than in a tooltip.
+
+  Two groups reveal their own detail: the five traversal qualifiers appear once the hops are above 0, and
+  characters-per-token once there is a token ceiling. That is not a disclosure — the operator opened it by
+  asking for hops or a budget, and a control that cannot affect the request yet does not exist yet.
+
 - **An edge label can say which entity types it may connect, and how many, from the Schema tab.** Both rules
   have been accepted by the API since 3.7 and reported by the space validator, and there was no way to set
   either one without writing the request by hand.
@@ -286,6 +312,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The REST character default also drops from 100 000 to 50 000 (owner, 2026-08-30). MCP's 25 000 is unchanged.
 
 ### Fixed
+
+- **A translation key defined twice used the wrong one, silently.** `JSON.parse` keeps the last of two
+  identical keys and reports nothing, so the file parses, the key count looks right, and the reader sees the
+  other definition's text. A check now reads the locale files as TEXT rather than as parsed objects, because
+  a parsed object cannot answer the question — which is exactly why the duplicate survived being added.
 
 - **Opening a space's settings and pressing Save deleted an edge label's declared ends.** If `endpoints` or
   `functional` had been set through the API — the only way to set them until this release — the settings

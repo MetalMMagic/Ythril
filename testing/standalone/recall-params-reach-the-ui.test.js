@@ -177,14 +177,24 @@ describe('recall parameters reach the UI', () => {
     assert.ok(params.includes('traverse'), 'the route no longer accepts `traverse` — if that is deliberate, remove its control');
     assert.ok(params.includes('maxTimeMS'), 'the route no longer accepts `maxTimeMS` — if that is deliberate, remove its control');
     const panel = PANELS.map(f => stripComments(readFileSync(f, 'utf8'))).join('\n');
-    for (const p of ['traverse', 'maxTimeMS']) {
-      // Matched on the BINDING rather than on one spelling of the state object. The tab called it
-      // `recallForm.traverse` and the extracted form calls it `form().traverse`; a gate that pinned either
-      // spelling would be a hand-kept mapping table, which is what U-1's parity gate exists to avoid.
-      assert.match(panel, new RegExp(`\\[\\(ngModel\\)\\]="[^"]*\\.${p}"`),
-        `nothing is two-way bound to \`${p}\` — the parameter is reachable only by hand-writing a request`);
-      assert.match(panel, new RegExp(`name="recall${p[0].toUpperCase()}${p.slice(1)}"`),
-        `no input is bound for \`${p}\` — the form field exists with nothing to set it`);
+
+    /*
+     * The FIELD name, which is not always the parameter name, and `traverse` is why.
+     *
+     * This gate was written when the panel sent the traversal as a bare NUMBER, so the control was bound to a
+     * `traverse` field. `U-1` sends the object, and the number moved into it as `depth` — so a check on
+     * `.traverse` reported the parameter unreachable at the exact moment it became MORE reachable than
+     * before, with five siblings it never had.
+     *
+     * Re-pointed rather than relaxed: both assertions below still demand a two-way binding and a real name
+     * attribute. And the parity gate — `query-panel-offers-every-recall-parameter.test.js` — is what covers
+     * the nested siblings, derived from the schema so it cannot go stale this way.
+     */
+    for (const [param, field] of [['traverse', 'depth'], ['maxTimeMS', 'maxTimeMS']]) {
+      assert.match(panel, new RegExp(`\\[\\(ngModel\\)\\]="[^"]*\\.${field}"`),
+        `nothing is two-way bound to \`${field}\`, so \`${param}\` is reachable only by hand-writing a request`);
+      assert.match(panel, new RegExp(`name="recall${param[0].toUpperCase()}${param.slice(1)}"`),
+        `no input is bound for \`${param}\` — the form field exists with nothing to set it`);
     }
   });
 });

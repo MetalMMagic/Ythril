@@ -1186,51 +1186,29 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     // and a browser-native <img src>/<iframe src> can't send one (that regressed image
     // and PDF previews when the ?token= fallback was scoped to SSE-only, #134). So we
     // fetch with the token and hand the view a same-origin blob: object URL instead.
-    const url = this.fileApiUrl(entry);
-    const token = this.auth.token();
-    const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
-
-    if (kind === 'text' || kind === 'markdown') {
-      this.previewLoading.set(true);
-      fetch(url, { headers })
-        .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.text(); })
-        .then(async text => {
-          if (kind === 'markdown') {
-            // marked → HTML, with any ```mermaid fences rendered to inline SVG; the whole thing is
-            // sanitized with DOMPurify and marked trusted (Angular's own sanitizer would strip the SVG).
-            const html = await this.renderMarkdown(text);
-            // Guard against a fast arrow-key navigation having moved on while mermaid rendered async.
-            if (this.previewFile()?.name !== entry.name) return;
-            this.previewHtml.set(this.sanitizer.bypassSecurityTrustHtml(html));
-          } else {
-            const ext = extOf(entry.name);
-            const lang = EXT_LANG[ext] ?? 'plaintext';
-            this.previewHtml.set(hljs.highlight(text, { language: lang }).value);
-          }
-          this.previewLoading.set(false);
-        })
-        .catch((e) => { this.previewError.set(httpErrorReason(e)); this.previewLoading.set(false); });
+    if (kind === 'text') {
+      this.fetchPreview(entry,
+        async r => hljs.highlight(await r.text(), { language: EXT_LANG[extOf(entry.name)] ?? 'plaintext' }).value,
+        html => this.previewHtml.set(html));
+    } else if (kind === 'markdown') {
+      // marked → HTML, with any ```mermaid fences rendered to inline SVG; the whole thing is sanitized
+      // with DOMPurify and marked trusted (Angular's own sanitizer would strip the SVG).
+      this.fetchPreview(entry,
+        async r => this.sanitizer.bypassSecurityTrustHtml(await this.renderMarkdown(await r.text())),
+        html => this.previewHtml.set(html));
     } else if (kind === 'image' || kind === 'pdf') {
-      this.previewLoading.set(true);
-      fetch(url, { headers })
-        .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.blob(); })
-        .then(blob => {
-          this.applyPreviewBlobUrl(entry, kind, URL.createObjectURL(blob));
-          this.previewLoading.set(false);
-        })
-        .catch((e) => { this.previewError.set(httpErrorReason(e)); this.previewLoading.set(false); });
+      // The object URL is allocated in `show`, not while producing: created before the staleness check it
+      // would be created for a file nobody is looking at, and dropping it there is the leak this page had.
+      this.fetchPreview(entry,
+        r => r.blob(),
+        blob => this.applyPreviewBlobUrl(entry, kind, URL.createObjectURL(blob)));
     } else if (kind === 'xlsx') {
-      this.previewLoading.set(true);
-      fetch(url, { headers })
-        .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer(); })
-        .then(async buf => {
-          const table = await this.renderXlsx(buf);
-          if (this.previewFile()?.name !== entry.name) return; // fast arrow-nav moved on
-          this.previewTable.set(table);
-          this.previewLoading.set(false);
-        })
-        .catch((e) => { this.previewError.set(httpErrorReason(e)); this.previewLoading.set(false); });
+      this.fetchPreview(entry,
+        async r => this.renderXlsx(await r.arrayBuffer()),
+        table => this.previewTable.set(table));
     }
+    // No fourth branch, deliberately: an unknown type offers a download and never starts a request, so it
+    // shows the pane with no spinner. A spinner left spinning cannot be told from a request that hung.
 
     document.addEventListener('keydown', this._keyHandler);
     setTimeout(() => this.detailPaneRef()?.nativeElement?.focus());
@@ -1346,8 +1324,68 @@ export class FileManagerComponent implements OnInit, OnDestroy {
    * component — which signal the URL goes into. The predicate is passed rather than a boolean so the check
    * happens at the moment of binding instead of being computed early by the caller.
    */
+  /** Is the pane still showing the file this fetch was started for? One definition of "not stale". */
+  private stillShowing(entry: FileEntry): boolean {
+    return this.previewFile()?.name === entry.name;
+  }
+
+  /**
+   * Fetch one file's bytes with auth, render them, and show the result only if it is still wanted.
+   *
+   * ## Why this exists rather than four branches that each do it
+   *
+   * Every preview fetch must carry the auth header — the file endpoint requires it, and a browser-native
+   * `<img src>`/`<iframe src>` cannot send one, which is what regressed image and PDF previews when the
+   * `?token=` fallback was scoped to SSE-only (#134). So the bytes are fetched with the token and the view
+   * is handed a same-origin `blob:` URL instead.
+   *
+   * That much was written out three times, once per branch, and so were three more rules with it: the
+   * `!r.ok` throw, the failure path, and the staleness check. **Four rules, three copies each — and the
+   * staleness check had only THREE copies, because the plain-text branch never got one.** Arrow from a large
+   * source file to a small one and the order is: start A, start B, B resolves and shows B, A resolves and
+   * overwrites it. The pane then shows A's source under B's name and stays that way, with nothing erroring.
+   * Markdown, xlsx and the blob binder each guarded against exactly that; text did not.
+   *
+   * ## The two halves, and why the split is where it is
+   *
+   * `produce` turns the response into something displayable and **must not touch component state** — it may
+   * await (mermaid rendering, an exceljs parse), so by the time it returns the selection may have moved on.
+   * `show` is the only half that writes, and it runs only while the pane still holds `entry`.
+   *
+   * **The spinner is cleared in `show`'s branch, not after it.** A stale response clearing it would hide the
+   * spinner belonging to the fetch that is still running for the file actually on screen — leaving a pane
+   * with no spinner and no content. The old image branch did that; the other two did not.
+   *
+   * **A stale FAILURE is dropped too.** Reporting it would put one file's error on a different file's pane.
+   * All three branches used to do that, and the file it was about is not the one being looked at.
+   */
+  private fetchPreview<V>(
+    entry: FileEntry,
+    produce: (r: Response) => Promise<V> | V,
+    show: (value: V) => void,
+  ): void {
+    this.previewLoading.set(true);
+    const token = this.auth.token();
+    const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
+    fetch(this.fileApiUrl(entry), { headers })
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return produce(r); })
+      .then(value => {
+        if (!this.stillShowing(entry)) return;
+        show(value);
+        this.previewLoading.set(false);
+      })
+      .catch((e) => {
+        if (!this.stillShowing(entry)) return;
+        this.previewError.set(httpErrorReason(e));
+        this.previewLoading.set(false);
+      });
+  }
+
   applyPreviewBlobUrl(entry: FileEntry, kind: string, objUrl: string): void {
-    const bound = this.previewUrl.bindIfCurrent(objUrl, () => this.previewFile()?.name === entry.name);
+    // Not a second copy of `fetchPreview`'s check. `PreviewObjectUrl` owns a resource that must be
+    // RELEASED, and its safety cannot depend on every caller having looked first — so it takes the predicate
+    // and revokes what it refuses to bind. That is the class's precondition; the one above is the fetch's.
+    const bound = this.previewUrl.bindIfCurrent(objUrl, () => this.stillShowing(entry));
     if (!bound) return;
     if (kind === 'image') this.previewMediaUrl.set(bound);
     else this.previewSafeUrl.set(this.sanitizer.bypassSecurityTrustResourceUrl(bound));

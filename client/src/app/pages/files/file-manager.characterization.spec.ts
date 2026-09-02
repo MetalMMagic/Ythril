@@ -1212,3 +1212,384 @@ describe('FileManagerComponent — the tree sidebar (characterization for G-3)',
     expect(c.currentPath()).toBe('/');
   });
 });
+
+/**
+ * Install a `fetch` stub for the duration of one case.
+ *
+ * `openPreview` reaches for the global directly, because the file endpoint needs an `Authorization` header
+ * and a browser-native `<img src>` cannot send one. jsdom provides no `fetch`, so there is nothing to spy on
+ * — the same situation as `withRevokeSpy` above, and the same answer: define it, or the three branches that
+ * decide what a preview shows are the part of this page its suite cannot reach.
+ */
+function withFetch(responder: (url: string) => Promise<unknown>): {
+  urls: string[]; calls: Array<{ url: string; init?: RequestInit }>; restore: () => void;
+} {
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  const urls: string[] = [];
+  const had = 'fetch' in globalThis;
+  const previous = (globalThis as any).fetch;
+  (globalThis as any).fetch = (url: string, init?: RequestInit) => {
+    urls.push(url);
+    calls.push({ url, init });
+    return responder(url);
+  };
+  return {
+    urls,
+    calls,
+    restore: () => { if (had) (globalThis as any).fetch = previous; else delete (globalThis as any).fetch; },
+  };
+}
+
+/** A `Response` with just the three methods `openPreview` calls. */
+const okResponse = (body: { text?: string; blob?: unknown; buffer?: ArrayBuffer }) => ({
+  ok: true,
+  text: () => Promise.resolve(body.text ?? ''),
+  blob: () => Promise.resolve(body.blob ?? {}),
+  arrayBuffer: () => Promise.resolve(body.buffer ?? new ArrayBuffer(0)),
+});
+
+/**
+ * The preview group: which kind a file is, what happens when the fetch fails, and what the renderer is told.
+ *
+ * Pinned before `G-3.2` moves all of it into a store. The object-URL block above covers the one resource
+ * that must be RELEASED; none of it touches the three things below, and each was measured to have no
+ * assertion anywhere in the folder before this change.
+ *
+ * **The kind decision is a lookup across five extension tables** with an `unknown` fallback, and `unknown`
+ * is not an error state — it renders the pane with a download link and no spinner. A move that lost the
+ * fallback would show a permanent spinner on a `.zip`, which reads as a hung request.
+ *
+ * **The failure path is written out THREE TIMES**, once per fetch branch, and that is the shape this
+ * codebase produces most: one rule, several implementations, and the weakest winning silently. Nothing
+ * asserted any of the three, so a move that unified them could have dropped one and stayed green.
+ *
+ * **`previewModel` is the contract with the renderer.** Its own docstring says the states are mutually
+ * exclusive and that saying so in one place is what stops the child re-deriving "am I loading or erroring"
+ * from flags it receives separately. That claim had no test.
+ */
+describe('FileManagerComponent — what a preview decides (characterization for G-3)', () => {
+  const KINDS: Array<[string, string]> = [
+    ['notes.md', 'markdown'],
+    ['NOTES.MD', 'markdown'],       // the extension is lower-cased before the lookup
+    ['notes.markdown', 'markdown'],
+    ['main.ts', 'text'],
+    ['photo.png', 'image'],
+    ['photo.JPEG', 'image'],
+    ['report.pdf', 'pdf'],
+    ['book.xlsx', 'xlsx'],
+    ['archive.zip', 'unknown'],
+    ['LICENSE', 'unknown'],         // no dot at all
+    ['.gitignore', 'unknown'],      // a leading dot is not an extension
+    ['.md', 'unknown'],             // and a file NAMED '.md' has a name, not an extension
+  ];
+
+  it('the kind comes from the extension, lower-cased, with unknown as the fallback', () => {
+    const f = withFetch(() => Promise.resolve(okResponse({ text: '' })));
+    try {
+      for (const [name, kind] of KINDS) {
+        TestBed.resetTestingModule();
+        const c = create();
+        c.openPreview(file(name));
+        expect(c.previewKind(), name).toBe(kind);
+      }
+    } finally {
+      f.restore();
+    }
+  });
+
+
+  it('every preview branch sends the token in the HEADER, never in the URL', () => {
+    /*
+     * This is the whole reason the preview fetches by hand instead of letting the browser load the file.
+     * The file endpoint requires the header, and a native `<img src>`/`<iframe src>` cannot send one — which
+     * is what regressed image and PDF previews when the `?token=` fallback was scoped to SSE-only (#134).
+     *
+     * **The download path has had a case for this since that regression and the preview path never did**,
+     * which is the same rule tested in one of the two places it lives. Nothing here asserted that the header
+     * is attached, so a refactor could have dropped it and every branch would have failed identically and
+     * silently: a 401 shows up as `previewError`, which reads like a permissions problem with the file.
+     *
+     * Asserted per BRANCH, because the header used to be built once and passed into three separate `fetch`
+     * calls — one of them losing it is exactly the shape this page keeps producing.
+     */
+    const f = withFetch(() => new Promise(() => { /* never resolves; only the request matters */ }));
+    try {
+      for (const name of ['main.ts', 'notes.md', 'photo.png', 'report.pdf', 'book.xlsx']) {
+        TestBed.resetTestingModule();
+        const c = create();
+        f.calls.length = 0;
+        c.openPreview(file(name));
+
+        expect(f.calls.length, name).toBe(1);
+        const { url, init } = f.calls[0];
+        expect((init?.headers as Record<string, string>)?.['Authorization'], name).toBe('Bearer t');
+        // And it is not ALSO in the URL: a credential in a query string reaches server logs, the browser's
+        // history and any `Referer` it sends. `no-credential-travels-in-a-url.test.js` holds the server half.
+        expect(url, name).not.toContain('token');
+      }
+    } finally {
+      f.restore();
+    }
+  });
+
+  it('an unknown type fetches nothing and shows no spinner', () => {
+    const f = withFetch(() => Promise.resolve(okResponse({ text: 'x' })));
+    try {
+      const c = create();
+      c.openPreview(file('archive.zip'));
+
+      // There is no fourth branch, and that is deliberate rather than missing: the pane offers a download
+      // instead. A spinner left spinning is indistinguishable from a request that never came back.
+      expect(f.urls).toEqual([]);
+      expect(c.previewLoading()).toBe(false);
+      expect(c.previewError()).toBeNull();
+      expect(c.previewFile()?.name).toBe('archive.zip');
+    } finally {
+      f.restore();
+    }
+  });
+
+  const FETCHING: Array<[string, string]> = [
+    ['notes.md', 'markdown'],
+    ['main.ts', 'text'],
+    ['photo.png', 'image'],
+    ['report.pdf', 'pdf'],
+    ['book.xlsx', 'xlsx'],
+  ];
+
+  for (const [name, kind] of FETCHING) {
+    it(`a failed fetch on the ${kind} branch says why and clears the spinner`, async () => {
+      const f = withFetch(() => Promise.resolve({
+        ok: false,
+        status: 403,
+        text: () => Promise.resolve(''),
+        blob: () => Promise.resolve({}),
+        arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
+      }));
+      try {
+        const c = create();
+        c.openPreview(file(name));
+        expect(c.previewLoading()).toBe(true);
+
+        // Two microtask turns: the `!r.ok` throw happens in the first `.then`, the `.catch` runs after it.
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        // A blank pane is the failure mode this replaces — the user cannot tell a forbidden file from an
+        // empty one, and there is nothing on screen to retry or report.
+        expect(c.previewError()).toBeTruthy();
+        expect(c.previewLoading()).toBe(false);
+      } finally {
+        f.restore();
+      }
+    });
+  }
+
+  it('a markdown response that resolves LATE does not land on the file that is open now', async () => {
+    /*
+     * The same race the object-URL block pins for images, on the branch that does not allocate anything.
+     * `renderMarkdown` awaits mermaid, so arrowing past two `.md` files gives: start A, start B, A resolves
+     * and sets the HTML, B resolves and sets its own. Between the two, A's rendered document is displayed
+     * under B's name — and if B is the smaller document, it stays that way until something else re-renders.
+     *
+     * Driven by resolving A's fetch after `previewFile` has already moved to B, which is what the guard
+     * `this.previewFile()?.name !== entry.name` actually reads.
+     */
+    let release: ((r: unknown) => void) | null = null;
+    const f = withFetch(() => new Promise(res => { release = res; }));
+    try {
+      const c = create();
+      c.openPreview(file('a.md'));
+      // The selection moves on while A's fetch is still open.
+      c.previewFile.set(file('b.md'));
+
+      release!(okResponse({ text: '# A' }));
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+
+      expect(c.previewHtml()).toBe('');
+    } finally {
+      f.restore();
+    }
+  });
+
+  it('a SOURCE response that resolves late does not land on the file that is open now', async () => {
+    /*
+     * The fourth copy of the stale-response rule, and it was the one that did not exist.
+     *
+     * Three branches guard against it — markdown reads `previewFile()?.name !== entry.name` before setting
+     * the HTML, xlsx does the same before setting the table, and image/PDF does it inside
+     * `applyPreviewBlobUrl`, which is where it was added on 2026-09-02 after a leak. The plain-text branch
+     * highlights and assigns with no guard at all.
+     *
+     * The window is the fetch, which is the slow part. Arrow from a large `.ts` to a small one and the order
+     * is: start A, start B, B resolves and shows B, A resolves and overwrites it — so the pane shows A's
+     * source under B's name, and stays that way until something else re-renders. Nothing errors.
+     */
+    const resolvers: Array<(r: unknown) => void> = [];
+    const f = withFetch(() => new Promise(res => { resolvers.push(res); }));
+    try {
+      const c = create();
+      c.openPreview(file('big.ts'));
+      c.openPreview(file('small.ts'));
+      expect(c.previewFile()?.name).toBe('small.ts');
+
+      // B comes back first and is correct.
+      resolvers[1](okResponse({ text: 'the small one' }));
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+      expect(c.previewHtml()).toContain('the small one');
+
+      // Then A's response arrives, for a file nobody is looking at any more.
+      resolvers[0](okResponse({ text: 'the big one' }));
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+
+      expect(c.previewHtml()).toContain('the small one');
+      expect(c.previewHtml()).not.toContain('the big one');
+    } finally {
+      f.restore();
+    }
+  });
+
+  it('a stale response does not clear the spinner belonging to the fetch that is still running', async () => {
+    /*
+     * The image branch used to clear `previewLoading` unconditionally, one line after handing the blob over,
+     * while markdown and xlsx returned early without touching it. The one that cleared was wrong: by the
+     * time a stale response lands, the CURRENT file's own fetch has already set the spinner, so clearing it
+     * leaves a pane with no spinner and no content until that fetch happens to finish.
+     */
+    const resolvers: Array<(r: unknown) => void> = [];
+    const f = withFetch(() => new Promise(res => { resolvers.push(res); }));
+    try {
+      const c = create();
+      c.openPreview(file('a.png'));
+      c.openPreview(file('b.png'));
+      expect(c.previewLoading()).toBe(true);
+
+      resolvers[0](okResponse({ blob: {} }));   // A's response, for a file nobody is looking at
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+
+      // B's fetch is still open. The spinner is B's, and A has no business ending it.
+      expect(c.previewLoading()).toBe(true);
+    } finally {
+      f.restore();
+    }
+  });
+
+  it('a stale FAILURE does not put one file\'s error on another file\'s pane', async () => {
+    /*
+     * All three branches used to report any failure, whenever it arrived. A 403 on the file you arrowed past
+     * then appears over the file you are looking at — and the file it is actually about is not on screen, so
+     * there is nothing the message can be acted on for.
+     */
+    const resolvers: Array<(r: unknown) => void> = [];
+    const f = withFetch(() => new Promise(res => { resolvers.push(res); }));
+    try {
+      const c = create();
+      c.openPreview(file('secret.md'));
+      c.openPreview(file('fine.md'));
+
+      resolvers[0]({ ok: false, status: 403, text: () => Promise.resolve('') });
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+
+      expect(c.previewError()).toBeNull();
+      expect(c.previewLoading()).toBe(true);   // still fine.md's fetch
+
+      // And the CURRENT file's own failure is still reported.
+      resolvers[1]({ ok: false, status: 500, text: () => Promise.resolve('') });
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+      expect(c.previewError()).toBeTruthy();
+      expect(c.previewLoading()).toBe(false);
+    } finally {
+      f.restore();
+    }
+  });
+
+  it('no object URL is allocated for a response nobody is waiting for', async () => {
+    /*
+     * The ordering that matters, and the reason `URL.createObjectURL` is called in `show` rather than while
+     * producing. Allocated before the staleness check it would be created for a file nobody is looking at,
+     * and then either dropped — a leak — or released, which is work with a resource in between. Not created
+     * is the only version with nothing to get wrong.
+     */
+    const spy = withRevokeSpy();
+    let created = 0;
+    (URL as any).createObjectURL = () => { created++; return 'blob:made-' + created; };
+    const resolvers: Array<(r: unknown) => void> = [];
+    const f = withFetch(() => new Promise(res => { resolvers.push(res); }));
+    try {
+      const c = create();
+      c.openPreview(file('a.png'));
+      c.openPreview(file('b.png'));
+
+      resolvers[0](okResponse({ blob: {} }));
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+
+      expect(created).toBe(0);
+      expect(spy.calls).toEqual([]);   // nothing to revoke, because nothing was made
+
+      resolvers[1](okResponse({ blob: {} }));
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+      expect(created).toBe(1);
+      expect(c.previewMediaUrl()).toBe('blob:made-1');
+    } finally {
+      f.restore();
+      // The object-URL stubs STAY: jsdom implements neither half, and the fixture teardown releases the
+      // pane's URL. Restoring them before cleanup makes the component throw on the way out — which is
+      // what the other cases in this block already know, and why none of them restore either.
+    }
+  });
+
+  it('previewModel is null with nothing open, and reports loading and error rather than leaving them to the child', () => {
+    const c = create();
+    expect(c.previewModel()).toBeNull();
+
+    c.previewFile.set(file('doc.md'));
+    c.previewKind.set('markdown');
+    c.previewLoading.set(true);
+    expect(c.previewModel()).toMatchObject({ loading: true, error: null, kind: 'markdown' });
+
+    c.previewLoading.set(false);
+    c.previewError.set('403 Forbidden');
+    const m = c.previewModel();
+    // Both are present on the one object. The child is given the answer instead of the flags to derive it
+    // from, which is what stops "loading" and "error" ever being true at once on screen.
+    expect(m.loading).toBe(false);
+    expect(m.error).toBe('403 Forbidden');
+    expect(m.file.name).toBe('doc.md');
+  });
+
+  it('every awkward spreadsheet cell has display text, not [object Object]', async () => {
+    /*
+     * `exceljs` gives a cell value that is a string, a number, a Date, or one of four OBJECTS — a formula
+     * with its cached result, a hyperlink with its label, rich text as runs, and an error. Six branches, and
+     * none of them had an assertion. A preview that renders `[object Object]` down a formula column does not
+     * error, does not warn, and looks exactly like a spreadsheet nobody filled in.
+     */
+    const mod = await import('exceljs');
+    const ExcelJS = (mod as unknown as { default?: unknown }).default ?? mod;
+    const wb = new (ExcelJS as { Workbook: new () => any }).Workbook();
+    const ws = wb.addWorksheet('Odd');
+    ws.addRow(['formula', 'link', 'rich', 'err', 'when', 'nothing']);
+    const row = ws.addRow([]);
+    row.getCell(1).value = { formula: 'SUM(1,2)', result: 3 };
+    row.getCell(2).value = { text: 'Ythril', hyperlink: 'https://example.invalid' };
+    row.getCell(3).value = { richText: [{ text: 'bold' }, { text: 'ed' }] };
+    row.getCell(4).value = { error: '#DIV/0!' };
+    row.getCell(5).value = new Date(Date.UTC(2026, 8, 2));
+    row.getCell(6).value = null;
+    const buf = await wb.xlsx.writeBuffer();
+
+    const c = create();
+    const table = await c.renderXlsx(buf as ArrayBuffer);
+
+    expect(table.rows[0][0]).toBe('3');          // the cached result, not the formula source
+    expect(table.rows[0][1]).toBe('Ythril');     // the label, not the URL
+    expect(table.rows[0][2]).toBe('bolded');     // the runs, concatenated
+    expect(table.rows[0][3]).toBe('#DIV/0!');
+    // The exact string is the RUNNER's locale and zone, so the assertion is the shape. An exact date here
+    // passes in CEST and fails on CI in UTC, which is a red build that says nothing about the code.
+    expect(table.rows[0][4]).toMatch(/\d/);
+    expect(table.rows[0][4]).not.toContain('object');
+    expect(table.rows[0][5]).toBe('');           // an empty cell is empty, not the word "null"
+  });
+});

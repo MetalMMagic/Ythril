@@ -369,7 +369,7 @@ describe('FileManagerComponent (OnPush)', () => {
     expect(body()).toContain('first.md');
     expect(body()).not.toContain('second.md');
 
-    fixture.componentInstance.entries.set([fileEntry('second.md')]);
+    fixture.componentInstance.listing.entries.set([fileEntry('second.md')]);
     fixture.detectChanges();
 
     expect(body()).toContain('second.md');
@@ -452,13 +452,13 @@ describe('FileManagerComponent — a refresh keeps the view (canary B)', () => {
     // Mid-flight: the rows are still there and the overlay has NOT appeared. This is the whole fix.
     expect(spinner(fixture)).toBeNull();
     expect(rows(fixture)).toBe(2);
-    expect(fixture.componentInstance.loading()).toBe(false);
-    expect(fixture.componentInstance.refreshing()).toBe(true);
+    expect(fixture.componentInstance.listing.loading()).toBe(false);
+    expect(fixture.componentInstance.listing.refreshing()).toBe(true);
 
     gate.next({ entries: [fileEntry('a.pdf'), fileEntry('b.pdf'), fileEntry('c.pdf')] });
     fixture.detectChanges();
     expect(rows(fixture)).toBe(3);                  // updated in place
-    expect(fixture.componentInstance.refreshing()).toBe(false);
+    expect(fixture.componentInstance.listing.refreshing()).toBe(false);
   });
 
   it('shows the hairline while refreshing, and nothing when idle', () => {
@@ -496,8 +496,8 @@ describe('FileManagerComponent — a refresh keeps the view (canary B)', () => {
 
     expect(rows(fixture)).toBe(1);                                       // rows survive
     expect(spinner(fixture)).toBeNull();
-    expect(fixture.componentInstance.loadError()).toBeNull();            // NOT the first-load error state
-    expect(fixture.componentInstance.refreshFailed()).toBe(true);
+    expect(fixture.componentInstance.listing.loadError()).toBeNull();            // NOT the first-load error state
+    expect(fixture.componentInstance.listing.refreshFailed()).toBe(true);
     expect(fixture.nativeElement.querySelector('.fm-stale')).toBeTruthy();
   });
 
@@ -505,7 +505,7 @@ describe('FileManagerComponent — a refresh keeps the view (canary B)', () => {
     const gate = new Subject<{ entries: FileEntry[] }>();
     const fixture = create([], () => gate.asObservable());
     expect(spinner(fixture)).toBeTruthy();
-    expect(fixture.componentInstance.loading()).toBe(true);
+    expect(fixture.componentInstance.listing.loading()).toBe(true);
     gate.next({ entries: [fileEntry('a.pdf')] });
     fixture.detectChanges();
     expect(spinner(fixture)).toBeNull();
@@ -513,8 +513,8 @@ describe('FileManagerComponent — a refresh keeps the view (canary B)', () => {
 
   it('a failed FIRST load still reaches the error state, not an empty folder', () => {
     const fixture = create([], () => new Observable<{ entries: FileEntry[] }>(sub => sub.error(new Error('nope'))));
-    expect(fixture.componentInstance.loadError()).not.toBeNull();
-    expect(fixture.componentInstance.refreshFailed()).toBe(false);
+    expect(fixture.componentInstance.listing.loadError()).not.toBeNull();
+    expect(fixture.componentInstance.listing.refreshFailed()).toBe(false);
   });
 
   it('navigating to a DIFFERENT directory is a load, not a refresh', () => {
@@ -531,7 +531,7 @@ describe('FileManagerComponent — a refresh keeps the view (canary B)', () => {
     fixture.componentInstance.navigate('/sub');
     fixture.detectChanges();
 
-    expect(fixture.componentInstance.loading()).toBe(true);
+    expect(fixture.componentInstance.listing.loading()).toBe(true);
     expect(spinner(fixture)).toBeTruthy();
   });
 });

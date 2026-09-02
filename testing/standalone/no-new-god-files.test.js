@@ -167,7 +167,19 @@ const FROZEN = {
   // under the new folder's name, because the failure message renders in place of the "empty folder" state
   // and rows on screen hide it. The line clears the rows. There is nowhere else it could go: the branch that
   // knows a load from a refresh is this one, and the distinction is the whole fix. DECOMPOSE: G-3 stands.
-  'client/src/app/pages/files/file-manager.component.ts': 1079,
+  //
+  // 1079 -> 1050, EIGHTH CUT: the directory listing is `file-listing.store.ts` — its five state signals, its
+  // five requests, and the load-versus-refresh rule that reads three of those signals to drive four flags.
+  //
+  // **Twenty-nine lines for a hundred moved, and the arithmetic is the honest part.** A store that PUBLISHES
+  // what it listed instead of reaching for the tree costs the page four subscriptions, and that is the trade
+  // the tree's own docblock asks for: the page owns the sidebar and the poll, so the page is where a landed
+  // listing gets its meaning. Counting only the delta would say this cut barely happened; what left is every
+  // request in the group and the one rule with six callers.
+  //
+  // DECOMPOSE: G-3 stays open — the preview's object URL, the extract tab and the file-meta editor are the
+  // three groups left, and each is a store of the same shape.
+  'client/src/app/pages/files/file-manager.component.ts': 1050,
   'client/src/app/pages/schema-library/schema-library.component.ts': 1112,
   'server/src/sync/engine.ts': 966,
   // 958 -> 684: the per-type editor body moved into `schema-type-editor.component` so the Brain Overview

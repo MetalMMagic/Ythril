@@ -36,6 +36,7 @@
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { of, throwError, Subject } from 'rxjs';
+import { ToastService } from '../../core/toast.service';
 import { ActivatedRoute } from '@angular/router';
 import { FilesApi } from '../../core/files-api.service';
 import { SpacesApi } from '../../core/spaces-api.service';
@@ -114,7 +115,7 @@ describe('FileManagerComponent — sorting (characterization for G-3)', () => {
      * deleting the folder rule left the test green. Here the folder is the smallest thing in the list while
      * the sort is descending, so only the folder rule can put it first.
      */
-    c.entries.set([file('big-file', { size: 999 }), dir('folder', { size: 1 })]);
+    c.listing.entries.set([file('big-file', { size: 999 }), dir('folder', { size: 1 })]);
     c.sortField.set('size');
     c.sortDir.set('desc');
     expect(c.sortedEntries().map((e: any) => e.name)).toEqual(['folder', 'big-file']);
@@ -122,7 +123,7 @@ describe('FileManagerComponent — sorting (characterization for G-3)', () => {
 
   it('an unset field returns the server order untouched, not a name sort', () => {
     const c = create();
-    c.entries.set([file('b'), file('a')]);
+    c.listing.entries.set([file('b'), file('a')]);
     c.sortField.set('');
     expect(c.sortedEntries().map((e: any) => e.name)).toEqual(['b', 'a']);
   });
@@ -149,7 +150,7 @@ describe('FileManagerComponent — sorting (characterization for G-3)', () => {
 
   it('equal keys fall back to the name, so the order is stable rather than arbitrary', () => {
     const c = create();
-    c.entries.set([file('beta', { size: 5 }), file('alpha', { size: 5 })]);
+    c.listing.entries.set([file('beta', { size: 5 }), file('alpha', { size: 5 })]);
     c.sortField.set('size');
     c.sortDir.set('asc');
     expect(c.sortedEntries().map((e: any) => e.name)).toEqual(['alpha', 'beta']);
@@ -159,7 +160,7 @@ describe('FileManagerComponent — sorting (characterization for G-3)', () => {
     // AS-IS. The rows are `?? 0` and `?? ''`, so an entry with no size is smallest and one with no status
     // sorts first ascending. What matters for the split is that it still APPEARS.
     const c = create();
-    c.entries.set([file('sized', { size: 100 }), file('unsized')]);
+    c.listing.entries.set([file('sized', { size: 100 }), file('unsized')]);
     c.sortField.set('size');
     c.sortDir.set('asc');
     expect(c.sortedEntries().map((e: any) => e.name)).toEqual(['unsized', 'sized']);
@@ -170,10 +171,10 @@ describe('FileManagerComponent — sorting (characterization for G-3)', () => {
     // value changed without a write is a bug that shows up somewhere else entirely.
     const c = create();
     const original = [file('b'), file('a')];
-    c.entries.set(original);
+    c.listing.entries.set(original);
     c.sortField.set('name');
     c.sortedEntries();
-    expect(c.entries().map((e: any) => e.name)).toEqual(['b', 'a']);
+    expect(c.listing.entries().map((e: any) => e.name)).toEqual(['b', 'a']);
   });
 });
 
@@ -346,6 +347,115 @@ describe('FileManagerComponent — the metadata edit model (characterization for
  * costs no request — and an extraction that rebuilds nodes from a fresh listing would re-fetch every time, on
  * a page where the request is invisible and the only symptom is a slower click.
  */
+describe('FileManagerComponent — what a write MEANS beyond the write (characterization for G-3)', () => {
+  /*
+   * These exist because the eighth cut got one of them wrong and nothing said so.
+   *
+   * `createFolder` and `confirmRename` cleared their form state inside the request's SUCCESS branch. Moving
+   * the requests into a store moved those two lines to the call site, where they run on the ATTEMPT — so a
+   * refused create wiped the name you had typed and a refused rename closed the row. All 99 cases passed.
+   *
+   * The rule for a refactor here is that no assertion is edited, and the corollary is this: behaviour with
+   * no assertion is behaviour the rule cannot protect. So it gets one.
+   */
+
+  function createWith(apiOverrides: Record<string, unknown>) {
+    const api = { ...makeApi(), ...apiOverrides } as any;
+    const toasted: string[] = [];
+    TestBed.configureTestingModule({
+      imports: [FileManagerComponent, getTranslocoModule()],
+      providers: [
+        { provide: FilesApi, useValue: api },
+        { provide: SpacesApi, useValue: api },
+        { provide: BrainApi, useValue: api },
+        { provide: AuthService, useValue: { token: () => 't' } },
+        { provide: ToastService, useValue: { error: (m: string) => toasted.push(m), success: () => {} } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => null } }, queryParamMap: of() } },
+      ],
+    });
+    const fixture = TestBed.createComponent(FileManagerComponent);
+    fixture.detectChanges();
+    return { c: fixture.componentInstance as any, fixture, toasted };
+  }
+
+  it('a REFUSED new folder keeps the name that was typed, and SAYS it failed', () => {
+    const { c, toasted } = createWith({ createDir: () => throwError(() => new Error('nope')) });
+    c.showNewFolder.set(true);
+    c.newFolderName = 'notes';
+
+    c.createFolder();
+
+    expect(c.newFolderName).toBe('notes');
+    expect(c.showNewFolder()).toBe(true);
+    // The message is the page's, not the store's: the store reports WHICH write failed and nothing else.
+    expect(toasted.length).toBe(1);
+  });
+
+  it('and an ACCEPTED one closes the form, reloads the FOLDER, and reloads the tree root', () => {
+    /*
+     * Asserted from a folder that is not the root, because the two reloads are different requests for the
+     * same path when you are at the root — the folder you are in, and the tree's root. A `toContain('/')`
+     * passed with the folder reload deleted entirely, which is why the paths here are distinguishable.
+     */
+    const listed: string[] = [];
+    const { c } = createWith({
+      createDir: () => of({}),
+      listFiles: (_s: string, path: string) => { listed.push(path); return of({ entries: [], path }); },
+    });
+    c.navigate('/docs');
+    c.showNewFolder.set(true);
+    c.newFolderName = 'notes';
+    listed.length = 0;
+
+    c.createFolder();
+
+    expect(c.newFolderName).toBe('');
+    expect(c.showNewFolder()).toBe(false);
+    expect(listed).toContain('/docs');   // the folder we are in
+    expect(listed).toContain('/');       // the tree's root
+  });
+
+
+
+  it('a REFUSED rename leaves the row in edit mode', () => {
+    const { c } = createWith({ moveFile: () => throwError(() => new Error('nope')) });
+    c.renamingEntry.set('a.txt');
+    c.renameValue = 'b.txt';
+
+    c.confirmRename(file('a.txt'));
+
+    expect(c.renamingEntry()).toBe('a.txt');
+  });
+
+  it('and an ACCEPTED one leaves it', () => {
+    const { c } = createWith({ moveFile: () => of({}) });
+    c.renamingEntry.set('a.txt');
+    c.renameValue = 'b.txt';
+
+    c.confirmRename(file('a.txt'));
+
+    expect(c.renamingEntry()).toBe('');
+  });
+
+  it('a delete tells the host the file set changed; a create does not', () => {
+    /*
+     * The host uses this to refresh its record counts, and the two cases differ on purpose: a folder is
+     * not a record, so creating one changes no count. Worth pinning because both arrive on one channel
+     * from the store now, and a subscription that reacted to every write would emit a spurious refresh.
+     */
+    const { c } = createWith({ deleteFile: () => of({}), createDir: () => of({}) });
+    let emitted = 0;
+    c.filesChanged.subscribe(() => emitted++);
+
+    c.newFolderName = 'notes';
+    c.createFolder();
+    expect(emitted).toBe(0);
+
+    c.listing.remove(c.activeSpaceId(), '/a.txt', '/');
+    expect(emitted).toBe(1);
+  });
+});
+
 describe('FileManagerComponent — the tree sidebar (characterization for G-3)', () => {
   /** A fixture whose directory listings are scriptable per path, so an expand can be driven. */
   /**
@@ -502,6 +612,25 @@ describe('FileManagerComponent — the tree sidebar (characterization for G-3)',
     expect(requested.filter(p => p === '/docs').length).toBe(1);
   });
 
+  it('reloading an EMPTY folder is a foreground load, not a refresh', () => {
+    /*
+     * The rows are half the load-versus-refresh test, and this is the case that proves they are: same path,
+     * nothing on screen. A refresh here would be wrong in the honest direction — there is nothing to keep
+     * in place, so the spinner is what the operator should see.
+     *
+     * Found by a surviving mutant that dropped the rows clause and left the path one, which every other
+     * case tolerated.
+     */
+    const { c, settle } = createControlled({ '/': [] });
+    settle('/');
+    expect(c.listing.entries().length).toBe(0);
+
+    c.reloadDir();
+
+    expect(c.listing.loading()).toBe(true);
+    expect(c.listing.refreshing()).toBe(false);
+  });
+
   it('re-expanding a folder shows the children it already has, without waiting for a listing', () => {
     /*
      * The cached expand must stay the STORE's business. The click still navigates — that is one request either
@@ -647,15 +776,15 @@ describe('FileManagerComponent — the tree sidebar (characterization for G-3)',
      * codebase produces most.
      */
     const { c, failing } = createSwitchable({ '/': [file('a.txt'), file('b.txt')], '/docs': [file('c.txt')] });
-    expect(c.entries().length).toBe(2);
+    expect(c.listing.entries().length).toBe(2);
 
     failing.add('/docs');
     c.navigate('/docs');
 
     expect(c.currentPath()).toBe('/docs');
-    expect(c.entries().length).toBe(0);
-    expect(c.loadError()).toBeTruthy();
-    expect(c.loading()).toBe(false);
+    expect(c.listing.entries().length).toBe(0);
+    expect(c.listing.loadError()).toBeTruthy();
+    expect(c.listing.loading()).toBe(false);
   });
 
   it('and a failed REFRESH keeps its rows, because that is a different question', () => {
@@ -668,14 +797,14 @@ describe('FileManagerComponent — the tree sidebar (characterization for G-3)',
      * lost a request.
      */
     const { c, failing } = createSwitchable({ '/': [file('a.txt'), file('b.txt')] });
-    expect(c.entries().length).toBe(2);
+    expect(c.listing.entries().length).toBe(2);
 
     failing.add('/');
     c.reloadDir();                             // same path, rows on screen: a refresh
 
-    expect(c.entries().length).toBe(2);
-    expect(c.refreshFailed()).toBe(true);
-    expect(c.loadError()).toBeNull();
+    expect(c.listing.entries().length).toBe(2);
+    expect(c.listing.refreshFailed()).toBe(true);
+    expect(c.listing.loadError()).toBeNull();
   });
 
   it('retrying a failed navigation loads the folder it is showing, not the one you came from', () => {
@@ -688,15 +817,15 @@ describe('FileManagerComponent — the tree sidebar (characterization for G-3)',
     const { c, failing, requested } = createSwitchable({ '/': [file('a.txt')], '/docs': [file('c.txt')] });
     failing.add('/docs');
     c.navigate('/docs');
-    expect(c.entries().length).toBe(0);
+    expect(c.listing.entries().length).toBe(0);
 
     failing.delete('/docs');
     requested.length = 0;
     c.reloadDir();
 
     expect(requested).toEqual(['/docs']);
-    expect(c.entries().map((e: any) => e.name)).toEqual(['c.txt']);
-    expect(c.loadError()).toBeNull();
+    expect(c.listing.entries().map((e: any) => e.name)).toEqual(['c.txt']);
+    expect(c.listing.loadError()).toBeNull();
   });
 
   it('clicking a node NAVIGATES as well as toggling — one gesture, two effects', () => {
@@ -755,7 +884,7 @@ describe('FileManagerComponent — the tree sidebar (characterization for G-3)',
      * error before this change, which is exactly why the tree's own state had to come first. Now that it has,
      * removing the duplicate no longer takes the message with it.
      */
-    expect(c.loadError()).toBeTruthy();
+    expect(c.listing.loadError()).toBeTruthy();
   });
 
   it('and a folder that failed once shows nothing stale when it succeeds', () => {

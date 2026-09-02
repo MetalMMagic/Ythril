@@ -252,6 +252,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Three legacy env-var spellings are now scheduled for removal at the next major**, and this page said
+  they never would be. `OLLAMA_URL`, `WHISPER_URL` and `WHISPER_MODEL` have resolved to `VISION_BASE_URL`,
+  `STT_BASE_URL` and `STT_MODEL` since 3.0, warning once at startup. The reasoning for keeping them was that
+  breaking a documented env var to improve its spelling is not a worthwhile trade — the owner has
+  reconsidered, and the notice belongs here rather than in the release that removes them.
+
+  **Nothing changes in this release, and you can act now anyway.** Both spellings resolve in every 3.x
+  build, so renaming them in your manifest today is safe and needs no coordination with an upgrade. Three
+  places in the guides said they were permanent and now say what is true instead: a promise nobody
+  retracted would surprise an operator at the major, which is the whole failure a deprecation notice
+  exists to prevent.
+
 - **The semantic-search form shows every control it has, laid out across the width.** Six of its parameters
   were behind a **Show advanced** button, which is the wrong arrangement for the same reason a hidden setting
   always is: a control an operator cannot see is a capability they do not know they have.

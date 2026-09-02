@@ -27,7 +27,7 @@
  */
 
 /**
- * What an item id looks like — ONE definition, because three rules need the same answer.
+ * What an item id looks like — ONE definition, because EIGHT places needed the same answer.
  *
  * `R-4`, `S-L5-1`, `P-28` … and a numbered SUB-id, `G-3.1`, for a step of a decomposition its parent row
  * tracks as a whole. The owner asked for those steps to appear in the queue so progress and remaining length
@@ -37,11 +37,44 @@
  *   - a tracker item matched the PARENT, so `G-3.1` read as `G-3` and that same rule ticked the row because
  *     the parent was declared. A step nobody had checked existed then counted as checked.
  *
- * Written out three times, that is this repo's signature defect inside the script whose job is to catch it.
+ * Written out repeatedly, that is this repo's signature defect inside the script whose job is to catch it —
+ * and the first attempt at this fix found three copies here and left FIVE in `todo-consistency.mjs`, in the
+ * module that imports this one. Two of those mattered:
+ *
+ *   - **rule 2 re-implemented `openItems`** with its own two patterns, so it saw neither a dotted sub-id nor
+ *     an item marked `[~]` in progress. Its copy also accepted a sub-id as indexed whenever the PARENT's id
+ *     appeared in the queue, which is a false green on the rule that decides whether the queue is complete.
+ *   - **the working-order plan row** read `G-3.2` as `G-3` and then refused the job, because the queue held
+ *     the sub-rows and not the parent. Loud rather than silent, which is the only reason it was found.
+ *
  * The trailing dot of the older `- [ ] **A-1.**` shape is punctuation rather than a sub-number, and the two
  * are told apart by what follows: a digit continues the id, anything else ends it.
  */
 const ID = String.raw`[A-Z]+-[A-Z0-9-]+(?:\.\d+)*`;
+
+/** The first item id in a line of prose, or `null`. What the working-order plan row is read with. */
+export function itemIdIn(text) {
+  return new RegExp(String.raw`\b(${ID})\b`).exec(text)?.[1] ?? null;
+}
+
+/**
+ * Does `ordered` name this id — as a WHOLE TOKEN, not as a substring?
+ *
+ * `ordered.includes(id)` reported `L-1` as indexed because the string appears inside `L-13`, so deleting
+ * L-1's row left the gate green: a check passing by matching something adjacent to its subject. With ten ids
+ * in a series every single-digit one was covered by its own longer siblings.
+ *
+ * **The id is ESCAPED before it becomes a pattern**, which sub-ids made load-bearing. Interpolated raw,
+ * `G-3.1` is a pattern whose dot matches any character — so a queue holding `G-3x1` would satisfy an item
+ * declared as `G-3.1`. Unlikely to happen by accident and free to rule out.
+ *
+ * A sub-id is NOT satisfied by its parent. `G-3.1` needs `G-3.1` in the queue; `G-3` alone is the parent
+ * row, and treating it as cover is exactly the false green this rule exists to prevent.
+ */
+export function isNamedIn(id, ordered) {
+  const lit = id.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
+  return new RegExp(`(^|[^A-Z0-9-])${lit}([^A-Z0-9-]|$)`, 'm').test(ordered);
+}
 
 /**
  * The `| id | task | home.md | …` rows of `_TODO-ORDERED.md` — what the index CLAIMS exists, and where.

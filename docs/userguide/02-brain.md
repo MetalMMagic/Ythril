@@ -234,7 +234,8 @@ search you can run without writing a request by hand:
   how many of how many came back, states both guarantees, and says what to do about it. Until 3.2.0 it did not:
   a shortened answer looked exactly like a complete one, so a hundred-match search could show a handful of
   records with nothing anywhere explaining why.
-  - **Max response size**, under **Show advanced**, is the ceiling itself — the API calls it `maxBytes`. Raise it
+  - **Max response size**, under **Show advanced**, is the ceiling itself — the API calls it `maxChars`, and it
+    is counted in CHARACTERS. Raise it
     to get more of a shortened answer in one go; leave it empty for the default. **The default here is the
     larger one.** An agent talking to this instance over MCP gets a smaller default than this page does, because an
     agent's tool result has to fit inside its own client and a browser's does not — so a search that comes back
@@ -242,6 +243,12 @@ search you can run without writing a request by hand:
     than a discrepancy. There is deliberately
     one control and not two: the API also accepts the same ceiling expressed in tokens, and the smaller of the
     two always wins, so offering both would only let you set two limits and then wonder which applied.
+    - **A note on the word bytes, which used to be wrong here.** The API called this ceiling `maxBytes` until
+      3.7 and counted characters — the same thing for English, and not for German, Polish or anything with an
+      emoji in it, where a character can take two or three bytes. A space working in those languages was
+      quietly going about a quarter over the limit it had been given. The counting was renamed to what it
+      always did, and a real byte ceiling now exists for callers whose limit genuinely is in bytes. Nothing
+      changes for this page: the control still sets the same thing it always set.
   - Narrowing the search — fewer results, fewer graph hops, a tighter filter — does the same job from the other
     end, and a search that comes back shortened is usually a sign the question was broader than intended.
   - **Getting the whole tail as one file is a request you make, not something that happens to you.** An API

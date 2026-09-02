@@ -170,7 +170,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   edge-only `endpoints` and `functional`) and an inline `if` is how the second one gets forgotten — which is
   exactly how the first came to be documented and absent.
 
+### Changed
+
+- **BREAKING — `maxBytes` on `recall` and `find_similar` now means bytes.** It bounded characters before, while
+  its name and every surface describing it said bytes. A caller who set it asked for a byte ceiling and now
+  gets one: up to ~35% tighter on emoji-heavy content and ~26% on German or Polish, and unchanged for ASCII.
+  **To keep the old behaviour exactly, send the same number as `maxChars`.**
+
+  The REST character default also drops from 100 000 to 50 000 (owner, 2026-08-30). MCP's 25 000 is unchanged.
+
 ### Fixed
+
+- **`maxBytes` counted characters, and the name, the parameter, the refusal, the response field and the
+  documentation all said bytes.** `JSON.stringify(record).length` is UTF-16 code units — equal to bytes for
+  ASCII and wrong for everything else. `Grüße aus Köln — ąćę` counted 31 against 39 real bytes (26% under);
+  three emoji counted 17 against 23 (35% under).
+
+  A transport or client limit IS expressed in bytes, and this budget exists to keep a response under one — so a
+  German or Polish space overran its stated budget by about a quarter, which is exactly the failure the budget
+  was built to prevent. The canary's measured client refusal at "98,356" was counted this way too.
+
+  **Owner's decision, 2026-08-30 (option C): both units, both enforced.** `maxChars` is the ceiling that always
+  existed, now named for what it measures and carrying the defaults — **50 000 on REST** (down from the 100 000
+  that was already characters) and **25 000 on MCP**, unchanged. `maxBytes` counts real UTF-8 bytes and has
+  **no default**: bytes are always ≥ characters, so a byte default equal to the character one would silently
+  become the binding constraint on every non-ASCII answer.
+
+  **"Lower wins" is not a `Math.min` across the two.** Characters and bytes are different scales, so
+  collapsing them to one number would be meaningless. Both ceilings are carried and the answer stops at
+  whichever it reaches first — which is what "both apply" means, and what the `maxTokens`/`maxChars` pair
+  already does WITHIN one unit, where a minimum is meaningful. `maxTokens` now resolves against characters,
+  where it always belonged: the conversion produces characters and was only ever compared against a "byte"
+  budget that was secretly counting them.
+
+  **`charsReturned` and `budgetChars` join `bytesReturned` and `budgetBytes`, always.** Reporting one figure is
+  most of why this survived: a caller comparing `bytesReturned` against their own byte limit was comparing it
+  against a character count, with no second number to notice the difference with. `budgetBytes` is `null` when
+  no byte ceiling was asked for — present rather than omitted, like every other field on that envelope.
+
+  The gate's fixtures are German and emoji as well as ASCII, which is the part that matters: for ASCII the two
+  numbers are equal, so a suite written in ASCII cannot tell the units apart at all. That is how this lasted.
 
 - **`suppressEmbeddings` was documented, worked on update, and was silently dropped on create — on all four
   record types.** A record that was never meant to be searchable had to be written twice: once embedded, once

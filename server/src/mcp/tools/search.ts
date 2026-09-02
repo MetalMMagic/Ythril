@@ -12,7 +12,7 @@ import { UUID_V4_RE, formatRecallSummary, toRecallRecord, uuidSchema, unitScoreS
 import { MAX_RECALL_TRAVERSE } from '../../brain/recall-seed-traversal.js';
 import { mapGraphNodes, graphNodeRecord } from '../../brain/recall-graph.js';
 import { applyProjection, normaliseProjection } from '../../brain/projection.js';
-import { resolveBudget, resolvePaging, budgetedEnvelope, type BudgetRequest, MCP_DEFAULT_MAX_BYTES } from '../../brain/result-budget.js';
+import { resolveBudget, resolvePaging, budgetedEnvelope, type BudgetRequest, MCP_DEFAULT_MAX_CHARS } from '../../brain/result-budget.js';
 import { buildGraphWithSpill, spillResultSet, countGraphNodes } from '../../brain/graph-spill.js';
 import { parseTraverseOption, traverseOptionSchema } from '../../brain/traverse-option.js';
 import { type FilterExpression } from '../../brain/filter.js';
@@ -67,7 +67,7 @@ export const recallTool: ToolHandler = {
     + '• WHAT THIS DOOR DOES NOT SEND YOU, so you do not go looking for a flag to switch it off: the embedding VECTOR (never returned by anything here, and no parameter can ask for it), `matchedText` (the pre-embedding source string — for a file chunk it is the passage a SECOND time), `embeddingModel` (identical for every record in a space), and `seq` (a sync counter that is not an input to any tool). Withheld on REST too, with the same default, since 3.1.0 — `includeDiagnostics: true` restores them on either door and applies recursively, so a `traverse` answer\'s `_graph` follows it at every depth. Leave it off: each of these is multiplied by `topK` and paid for in your context, and you want them only to answer WHY something ranked where it did. The other size lever is `includeContent: false`, which drops file-passage bodies and keeps their locations.\n'
     + '• `count` — the number of MATCHES. Traversed nodes are NOT counted in it.\n'
     + '• `graphNodes` — an integer COUNT of what a traversal reached, not the content. The content is nested per-result under `_graph`, and a result with no edges simply has no `_graph` at all: reading `results[0]` and concluding the feature is absent is the mistake to avoid.\n'
-    + '• THE SIZE ANSWER, and it is a slope now rather than a cliff. `returned`, `count`, `truncated`, `budgetBytes` and `bytesReturned` are on EVERY response, so you never have to interpret an absence. `results` is a PREFIX of the ranked matches that fits `maxBytes`, and every record in it is WHOLE — full body, full properties, its complete `_graph`, byte-identical to that record from an unbudgeted call. A match is counted together with its whole `_graph` subtree, so a deeper or wider traversal means fewer matches fit — they are absent, not shortened. When `truncated` is true, `nextSkip` says where to continue from — send it back as `skip` for the next prefix. The matches that did not fit are also written to the space as a JSON file (authenticated download, valid one day) and reported as `remainder`, but ONLY if you ask with `remainderDump: true`.\n'
+    + '• THE SIZE ANSWER, and it is a slope now rather than a cliff. `returned`, `count`, `truncated`, `budgetChars`, `budgetBytes`, `charsReturned` and `bytesReturned` are on EVERY response, so you never have to interpret an absence (`budgetBytes` is null unless you asked for a byte ceiling). `results` is a PREFIX of the ranked matches that fits BOTH ceilings you set, and every record in it is WHOLE — full body, full properties, its complete `_graph`, byte-identical to that record from an unbudgeted call. A match is counted together with its whole `_graph` subtree, so a deeper or wider traversal means fewer matches fit — they are absent, not shortened. When `truncated` is true, `nextSkip` says where to continue from — send it back as `skip` for the next prefix. The matches that did not fit are also written to the space as a JSON file (authenticated download, valid one day) and reported as `remainder`, but ONLY if you ask with `remainderDump: true`.\n'
     + '  Until 3.2.0 this was a record CAP that collapsed a large answer to three inline records plus a download of the whole set — including the three you already had. That roughly doubled what a caller had to read, so most abandoned the remainder. If you have logic keyed on `complete` or on a hard 25, it is `remainder` and a byte budget now.\n'
     + '• `graphTruncated` + `graphComplete` — the same arrangement for an oversized neighbourhood, so a short graph is never silent either. `graphTruncated` can arrive ALONE: the link scans are bounded per hop, and a hop that spends its budget on already-visited records leaves a graph that is short with no complete copy to write, because the records missing from it were never read.',
   inputSchema: (s: ToolSchemas) => ({
@@ -123,10 +123,15 @@ export const recallTool: ToolHandler = {
               type: 'object',
               description: 'Fields to include (1) or exclude (0), the same grammar `query` takes and applied to each result\'s `record` — dotted paths work, so `{"name": 1, "properties.status": 1}` is valid. REACH FOR THIS RATHER THAN SKIPPING IT: it is the difference between an answer you can read inline and one that overruns your context. Measured by an integrator before this existed — a search for fifteen names, a `from`, a `kind` and a `status` returned 100,547 characters where the wanted data was about 1.5 KB, and their client refused the response outright. IT APPLIES RECURSIVELY: a `traverse` answer\'s `_graph` nodes and edges are projected at every depth, which is where a large answer actually comes from. Inclusion and exclusion cannot be mixed (the non-`_id` fields decide which you meant), `_id` survives an inclusion projection unless you send `_id: 0`, and the embedding VECTOR can never be projected back in — an explicit `embedding: 1` is dropped rather than honoured. The ranking envelope (`score`, `spaceId`, `type`) sits outside `record` here and is never projected away, so you cannot lose the score you searched for.',
             },
+            maxChars: {
+              type: 'integer',
+              minimum: 1000,
+              description: 'Ceiling on the serialised response body, in CHARACTERS. **DEFAULT 25000 ON THIS DOOR, and 50000 on REST — the one place the two doors deliberately differ.** Both accept the same parameter with the same floor, the same ceiling and the same refusal; only the number applied when you say nothing differs, because an MCP tool result meets a hard per-result ceiling inside YOUR client that you cannot raise, while a REST body lands in a buffer its caller allocated. Measured: a caller received a 98356-character answer that was correct, in budget and fully specified, and their client refused it outright. 25000 is about 6 whole records at ~4 KB each, roughly 7000 tokens. RAISE IT IF YOUR CLIENT CAN TAKE MORE — up to 5000000. THIS IS THE PARAMETER THAT USED TO BE CALLED `maxBytes`: it always counted characters, which equal bytes only for ASCII. If your limit is really in bytes, use `maxBytes` — it counts real UTF-8 bytes now, and both apply when you set both.',
+            },
             maxBytes: {
               type: 'integer',
               minimum: 1000,
-              description: 'Ceiling on the serialised response body, in bytes. **DEFAULT 25000 ON THIS DOOR, and 100000 on REST — the one place the two doors deliberately differ.** Both accept the same parameter with the same floor, the same ceiling and the same refusal; only the number applied when you say nothing is different, because an MCP tool result meets a hard per-result ceiling inside YOUR client that you cannot raise, while a REST body lands in a buffer its caller allocated. Measured: a caller received a 98356-byte answer that was correct, in budget and fully specified, and their client refused it outright. 25000 is about 6 whole records at ~4 KB each, roughly 7000 tokens. RAISE IT IF YOUR CLIENT CAN TAKE MORE — up to 5000000, and asking is the whole point of the parameter. THE ANSWER IS A PREFIX OF THE RANKED RESULTS AND EVERY RECORD IN IT IS WHOLE — full body, full properties, and for a traversing call its complete `_graph` subtree, byte-identical to that record from an unbudgeted call. Truncation is atomic at the match: the first match whose subtree would not fit is omitted and so is everything after it, so no answer has a gap in the middle and none carries a record with half its graph. It replaced a record cap that collapsed a large answer to three inline records plus a whole-set download — which roughly DOUBLED what a caller had to read. `returned`, `count`, `truncated`, `budgetBytes` and `bytesReturned` are on EVERY response whether it bit or not, so absence never has to be interpreted; a truncated one adds `nextSkip`, which you send back as `skip` to read the rest.',
+              description: 'Ceiling on the serialised response body, in real UTF-8 BYTES. **NO DEFAULT — opt-in.** Set it when your limit is genuinely a byte limit, which a transport or buffer limit is. It is not defaulted because bytes are always ≥ characters, so a byte default equal to the character one would silently become the binding constraint on every non-ASCII answer. WHEN YOU SET BOTH, BOTH APPLY: the answer stops at whichever ceiling it reaches first, which for German or Polish content is about 26% sooner in bytes than the same number of characters suggests, and about 35% sooner for emoji. **THIS PARAMETER CHANGED MEANING IN 3.7** — it used to bound characters while its name, its refusal and its response field all said bytes. If you set it before and want the old behaviour, send the same number as `maxChars`.',
             },
             maxTokens: {
               type: 'integer',
@@ -204,7 +209,7 @@ export const recallTool: ToolHandler = {
     const includeContent = a['includeContent'] !== false;
     const includeDiagnostics = a['includeDiagnostics'] === true;
     const recallProjection = normaliseProjection(a['projection'] as Record<string, unknown> | undefined);
-    const budget = resolveBudget(a as BudgetRequest, MCP_DEFAULT_MAX_BYTES);
+    const budget = resolveBudget(a as BudgetRequest, MCP_DEFAULT_MAX_CHARS);
     if (!budget.ok) throw new Error(budget.error);
     const paging = resolvePaging(a as { skip?: unknown; remainderDump?: unknown });
     if (!paging.ok) throw new Error(paging.error);
@@ -305,7 +310,7 @@ export const recallTool: ToolHandler = {
       }));
       const plainBudgeted = await budgetedEnvelope({
         results: plain,
-        budgetBytes: budget.bytes,
+        budget,
         skip: paging.skip,
         remainderDump: paging.remainderDump,
         spillRemainder: remainder => spillResultSet({
@@ -351,7 +356,7 @@ export const recallTool: ToolHandler = {
     // hundred matches with their graphs is the difference between an answer and an overflow.
     const budgeted = await budgetedEnvelope({
       results,
-      budgetBytes: budget.bytes,
+      budget,
       skip: paging.skip,
       remainderDump: paging.remainderDump,
       spillRemainder: remainder => spillResultSet({
@@ -421,10 +426,15 @@ export const find_similarTool: ToolHandler = {
               type: 'object',
               description: 'Fields to include (1) or exclude (0), the same grammar `query` takes and applied to each result\'s `record` — dotted paths work, so `{"name": 1, "properties.status": 1}` is valid. REACH FOR THIS RATHER THAN SKIPPING IT: it is the difference between an answer you can read inline and one that overruns your context. Measured by an integrator before this existed — a search for fifteen names, a `from`, a `kind` and a `status` returned 100,547 characters where the wanted data was about 1.5 KB, and their client refused the response outright. IT APPLIES RECURSIVELY: a `traverse` answer\'s `_graph` nodes and edges are projected at every depth, which is where a large answer actually comes from. Inclusion and exclusion cannot be mixed (the non-`_id` fields decide which you meant), `_id` survives an inclusion projection unless you send `_id: 0`, and the embedding VECTOR can never be projected back in — an explicit `embedding: 1` is dropped rather than honoured. The ranking envelope (`score`, `spaceId`, `type`) sits outside `record` here and is never projected away, so you cannot lose the score you searched for.',
             },
+            maxChars: {
+              type: 'integer',
+              minimum: 1000,
+              description: 'Ceiling on the serialised response body, in CHARACTERS. **DEFAULT 25000 ON THIS DOOR, and 50000 on REST — the one place the two doors deliberately differ.** Both accept the same parameter with the same floor, the same ceiling and the same refusal; only the number applied when you say nothing differs, because an MCP tool result meets a hard per-result ceiling inside YOUR client that you cannot raise, while a REST body lands in a buffer its caller allocated. Measured: a caller received a 98356-character answer that was correct, in budget and fully specified, and their client refused it outright. 25000 is about 6 whole records at ~4 KB each, roughly 7000 tokens. RAISE IT IF YOUR CLIENT CAN TAKE MORE — up to 5000000. THIS IS THE PARAMETER THAT USED TO BE CALLED `maxBytes`: it always counted characters, which equal bytes only for ASCII. If your limit is really in bytes, use `maxBytes` — it counts real UTF-8 bytes now, and both apply when you set both.',
+            },
             maxBytes: {
               type: 'integer',
               minimum: 1000,
-              description: 'Ceiling on the serialised response body, in bytes. **DEFAULT 25000 ON THIS DOOR, and 100000 on REST — the one place the two doors deliberately differ.** Both accept the same parameter with the same floor, the same ceiling and the same refusal; only the number applied when you say nothing is different, because an MCP tool result meets a hard per-result ceiling inside YOUR client that you cannot raise, while a REST body lands in a buffer its caller allocated. Measured: a caller received a 98356-byte answer that was correct, in budget and fully specified, and their client refused it outright. 25000 is about 6 whole records at ~4 KB each, roughly 7000 tokens. RAISE IT IF YOUR CLIENT CAN TAKE MORE — up to 5000000, and asking is the whole point of the parameter. THE ANSWER IS A PREFIX OF THE RANKED RESULTS AND EVERY RECORD IN IT IS WHOLE — full body, full properties, and for a traversing call its complete `_graph` subtree, byte-identical to that record from an unbudgeted call. Truncation is atomic at the match: the first match whose subtree would not fit is omitted and so is everything after it, so no answer has a gap in the middle and none carries a record with half its graph. It replaced a record cap that collapsed a large answer to three inline records plus a whole-set download — which roughly DOUBLED what a caller had to read. `returned`, `count`, `truncated`, `budgetBytes` and `bytesReturned` are on EVERY response whether it bit or not, so absence never has to be interpreted; a truncated one adds `nextSkip`, which you send back as `skip` to read the rest.',
+              description: 'Ceiling on the serialised response body, in real UTF-8 BYTES. **NO DEFAULT — opt-in.** Set it when your limit is genuinely a byte limit, which a transport or buffer limit is. It is not defaulted because bytes are always ≥ characters, so a byte default equal to the character one would silently become the binding constraint on every non-ASCII answer. WHEN YOU SET BOTH, BOTH APPLY: the answer stops at whichever ceiling it reaches first, which for German or Polish content is about 26% sooner in bytes than the same number of characters suggests, and about 35% sooner for emoji. **THIS PARAMETER CHANGED MEANING IN 3.7** — it used to bound characters while its name, its refusal and its response field all said bytes. If you set it before and want the old behaviour, send the same number as `maxChars`.',
             },
             maxTokens: {
               type: 'integer',
@@ -503,7 +513,7 @@ export const find_similarTool: ToolHandler = {
     const includeContent = a['includeContent'] !== false;
     const includeDiagnostics = a['includeDiagnostics'] === true;
     const recallProjection = normaliseProjection(a['projection'] as Record<string, unknown> | undefined);
-    const budget = resolveBudget(a as BudgetRequest, MCP_DEFAULT_MAX_BYTES);
+    const budget = resolveBudget(a as BudgetRequest, MCP_DEFAULT_MAX_CHARS);
     if (!budget.ok) throw new Error(budget.error);
     const paging = resolvePaging(a as { skip?: unknown; remainderDump?: unknown });
     if (!paging.ok) throw new Error(paging.error);
@@ -531,7 +541,7 @@ export const find_similarTool: ToolHandler = {
       }));
       const plainBudgeted = await budgetedEnvelope({
         results: plain,
-        budgetBytes: budget.bytes,
+        budget,
         skip: paging.skip,
         remainderDump: paging.remainderDump,
         spillRemainder: remainder => spillResultSet({
@@ -571,7 +581,7 @@ export const find_similarTool: ToolHandler = {
     });
     const itemsBudgeted = await budgetedEnvelope({
       results,
-      budgetBytes: budget.bytes,
+      budget,
       skip: paging.skip,
       remainderDump: paging.remainderDump,
       spillRemainder: remainder => spillResultSet({

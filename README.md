@@ -129,19 +129,28 @@ That's it. Your assistant instantly sees the space's purpose, its schema, and ev
 
 ## What's inside
 
-A quick tour — every capability is also a callable **MCP tool** (31 of them), a REST endpoint, and a screen in the web UI.
+A quick tour — every capability is also a callable **MCP tool** (44 of them), a REST endpoint, and a screen in the web UI.
+
+**Every capability is on both doors, not a subset** — a build fails if one reaches REST without its MCP tool, and the exemption list for that check is empty. Same parameters, same defaults, same refusals is the rule the project holds itself to on every change; the build enforces the capability half of it.
+
+A refused write comes back **machine-readable** rather than as a sentence: a schema violation arrives as `structuredContent`, separating what your write introduced from what was already stored, so an agent can decide whether to fix and retry without parsing prose.
 
 | | |
 |---|---|
-| 🔎 **Semantic recall** | One natural-language `recall` searches memories, entities, edges, timelines, and files at once — ranked by meaning, not keywords. |
-| 🕸️ **Knowledge graph** | Typed **entities**, labelled **edges**, and multi-hop **traversal** — model how things actually connect, then let the AI walk the graph. |
+| 🔎 **Four ways to look, and the docs say which is WRONG** | `recall` ranks by meaning across memories, entities, edges, timelines and files at once. `query` is an exact filter with total ordering, for when you need COMPLETENESS rather than the best few. `find_similar` reuses a record's stored vector — no re-embedding, which is cheaper and more accurate for finding near-duplicates. `traverse` walks the graph from a known node, or nested inside a `recall` for 0–5 hops. Picking the wrong one is the common mistake, so each read tool's own description carries a **blind-spots section** — what this door does NOT send you — which a caller reads while constructing the arguments rather than after being surprised. |
+| 🎛️ **Recall you can actually tune** | A filter that runs INSIDE the vector index rather than after it, so nothing is silently dropped by a `topK`. Per-type quotas (`minPerType` / `maxPerType`) so one noisy type cannot crowd out the rest. A time budget (`maxTimeMS`) that returns what it has with a `degraded` flag instead of hanging or erroring. `includeFreshWrites`, so a record written seconds ago and not yet vector-indexed is still found. Field projection applied recursively through traversal results. And the lexical, fused and rerank scores on request, so a bad ranking can be diagnosed rather than guessed at. |
+| 🕸️ **Knowledge graph** | Typed **entities**, labelled **edges**, and multi-hop **traversal** — model how things actually connect, then let the AI walk the graph. `er_model` reports the shape a space has ACTUALLY taken — which entity types exist, which edge labels connect which types, and how many of each — so an assistant can learn a space before writing into it instead of guessing from the declared schema. |
 | 📅 **Chrono timeline** | Events, deadlines, plans, milestones — with date ranges, tags, and full-text search built in. |
 | 📎 **Files that answer back** | Chunked uploads, inline preview, and automatic OCR / transcription / captioning → instantly searchable. |
 | 🖼️ **Media understanding** | Images captioned, audio transcribed, video keyframed — all in the same searchable vector space. |
 | 🙂 **Face recognition** | In-process, CPU-only, no GPU. Label once, auto-tag forever. |
-| 📐 **Schema validation** | Per-type rules (regex, enums, ranges, required fields) in strict / warn / off modes. |
+| ⚖️ **Contradictions, flagged not overwritten** | Two records that disagree are usually both real, so Ythril **flags** them and records how it was settled — someone corrected a record, or a `contradicts` / `supersedes` edge was drawn. The two kinds are kept apart on purpose: `structured-field` is deterministic (both records set the same single-valued property to different values, and the offending fields are named), `nli` is a model's opinion carrying its confidence. A reviewer can tell *"these disagree on `port`"* from *"a model thinks these disagree"*. |
+| 👯 **Duplicates, reviewed** | A background scanner proposes near-duplicate pairs with a similarity score; you dismiss or merge, and a dismissal sticks. Per-space rules can also act at INSERT time, so a duplicate can be caught on the way in rather than found later. |
+| 📐 **Schema validation** | Per-type rules (naming patterns, enums, ranges, required fields) in strict / warn / off modes, with a shared **schema library** (`$ref`), dry-run validation, and a backup taken before an overwrite. **`strict` blocks what your write BROKE, not what was already broken** — a violation is reported as introduced or pre-existing, and only the introduced ones refuse the write. Otherwise tightening a schema makes every later edit to an old record impossible, which is how a validation mode gets switched off and left off. |
+| 🔗 **Referential integrity** | Deleting an entity that anything still points at is refused with a `409` that NAMES the blockers — and says which end matched, `from`, `to` or both, because "an edge references this" does not tell you which one to fix. Upserts warn on a duplicate name instead of quietly creating a second record; properties shallow-merge and tags union, so a partial write cannot erase what it did not mention. |
+| ⏳ **Retention windows** | Per space, and per record type within it — chrono entries, files, memories, entities and edges can each have their own age limit, or none. A chrono entry can also lose its detail and keep its date, which is recorded on the entry so a redacted one cannot be mistaken for one that never had any. |
 | 🔁 **Multi-brain sync** | Governed **networks** with signed votes, incremental replication, and conflict resolution. |
-| 🧾 **Audit log & webhooks** | Immutable access trail + HMAC-signed, SSRF-protected event delivery to your systems. |
+| 🧾 **Audit log & webhooks** | An immutable trail of who, when, which route, and **what changed** — field-level before/after, on an allowlist rather than a redaction list, so a secret can never be written into a queryable store by forgetting to strip it. Every MCP tool call is recorded under the same operation name as its REST twin, so one query answers *"who created this memory"* without knowing which door they used. Plus HMAC-signed, SSRF-protected event delivery to your systems. |
 | 🧩 **Bulk, proxy, export, find-similar** | Batch writes, virtual aggregate spaces, one-file backup/restore, and "more like this" dedup. |
 
 *(Full detail for every one of these lives in the [Integration Guide](docs/integration-guide.md).)*
@@ -200,6 +209,8 @@ Runs on Docker Compose or Kubernetes. Bundled sidecars (Ollama, Whisper, documen
 ## License
 
 Source-available under the [PolyForm Small Business License 1.0.0](LICENSE). **Free to use, modify, and self-host** for individuals and small businesses (< 100 people, < $1M revenue). Larger organisations — or anyone offering Ythril as a paid managed/cloud service — need a commercial license: `contact@ythril.net`.
+
+**There is one build, and it is the whole product.** No feature gates, no activation key, no licence check anywhere in the code, no telemetry, no call home — a gate in the test suite asserts the absence rather than promising it. The licence limits **who** may use Ythril commercially; it does not limit **what** the software does for anyone who runs it.
 
 ## Contributing
 

@@ -110,6 +110,18 @@ const MANUAL_VERIFY = new Map([
       + 'described as current. Dated inside the bound because it gates the release tag, so it is done or the '
       + 'tag is not cut.',
   }],
+  ['F-19', {
+    by: '2026-12-20',
+    why: 'Owner-directed 2026-09-02: EXPLORE whether Ythril wants deterministic reasoning over the graph — '
+      + 'the one axis a capability-for-capability comparison found genuinely missing rather than undersold. '
+      + 'No `grep -c` can express it because the likely outcome is a DECISION and not code: if the answer is '
+      + '"no demand signal, and the cheap parts already exist", nothing tracked changes, and a verify that '
+      + 'greps for an implementation would report the row open for ever. The decision record lands in '
+      + '`_REFERENCE.md`, which is gitignored. Dated at the 120-day bound rather than at when the work is '
+      + 'expected: it sits behind F-18, which sits behind the 4.0 release, so the date is a prompt to '
+      + 're-read the row rather than a forecast. An exemption dated past the bound is a deletion wearing a '
+      + 'date.',
+  }],
 ]);
 
 const failures = [];

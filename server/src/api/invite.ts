@@ -51,8 +51,7 @@ import { concludeRoundIfReady } from '../sync/governance.js';
 import { buildBraintreeAncestors } from '../util/braintree.js';
 import { makeSignedOwnCast } from '../util/signing.js';
 import { log } from '../util/log.js';
-import { isSsrfSafeUrl, SSRF_SAFE_MESSAGE } from '../util/ssrf.js';
-import { isPeerSchemeAllowed, PEER_SCHEME_MESSAGE } from '../config/transport-security.js';
+import { SSRF_SAFE_URL } from './networks/_shared.js';
 import type { NetworkMember, VoteRound } from '../config/types.js';
 
 export const inviteRouter = Router();
@@ -114,16 +113,18 @@ const GenerateBody = z.object({
   expectedInstanceId: z.string().uuid().optional(),
 });
 
-const INVITE_SSRF_SAFE_URL = z.string().url()
-  .refine(isSsrfSafeUrl, { message: SSRF_SAFE_MESSAGE })
-  .refine(isPeerSchemeAllowed, { message: PEER_SCHEME_MESSAGE });
-
 const ApplyBody = z.object({
   handshakeId: z.string().uuid(),
   networkId: z.string().uuid(),
   instanceId: z.string().uuid(),
   instanceLabel: z.string().min(1).max(200),
-  instanceUrl: INVITE_SSRF_SAFE_URL,
+  /*
+   * `SSRF_SAFE_URL` from the networks router, not a copy of it. This was `INVITE_SSRF_SAFE_URL` — a
+   * byte-identical declaration of the same three-check chain, in the other half of the same handshake.
+   * Identical copies are the ones that get missed: the next change to the rule fixes whichever name you
+   * searched for, and the surface keeps two answers with nothing disagreeing.
+   */
+  instanceUrl: SSRF_SAFE_URL,
   rsaPublicKeyPem: z.string().min(100),
 });
 

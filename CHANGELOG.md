@@ -326,6 +326,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The text-embedding API key no longer stays in `config.json`, and it was the fifth provider nobody
+  checked.** `secrets.json` is `0o600`; `config.json` is not, and it is the file operators copy between
+  machines, paste into issues, and mount as a ConfigMap. Since 3.0 the vision, speech-to-text, NLI and
+  reranker keys have been lifted out of it at boot and their config read-path deleted — because a fallback
+  keeps a credential working from a world-readable file, so nobody ever notices it is there.
+
+  `embedding` was not one of those four names. Its key lives at the TOP level of both files rather than under
+  `mediaEmbedding`, so the migration walked past it and `getEmbeddingConfig` kept resolving
+  `env > secrets.json > config.json`. A modern save writes the new key to `secrets.json` and never deleted
+  the inline one, and the secrets value wins — so a stale copy could sit in `config.json` indefinitely,
+  doing nothing, visible to anyone who read the file and to nobody who ran the product. Two comments three
+  lines apart said otherwise; one of them contradicted itself in a single sentence.
+
+  It is lifted now, with the same rule as the other four (an existing secret wins, the config copy goes
+  either way), and the config read-path is deleted. **Deleting it is safe for a reason worth stating,
+  because the same release ruled four other config migrations PERMANENT:** those are only load-bearing when
+  the disk write FAILS, whereas this migration puts the key into the in-memory secrets object and runs
+  before any resolver is called — so the value is already where the resolver looks, whether or not either
+  file was written.
+
+  The gate that asserted "no provider resolves its key from the stored config" checked four names. It
+  derives the rule from the SHAPE now — any `apiKey` resolved with a `?? base…` or `?? cfg…` arm — because a
+  name list is what let the fifth provider through, and would not see a sixth.
+
 - **A plaintext peer URL is refused where it is ADDED, on every door.** `allowInsecurePeers` is documented
   as *"peer URLs must be `https://`, regardless of address"* — and one route did not enforce it.
   `POST /api/networks/join-remote` declared its own URL validator: parse plus SSRF check, no SCHEME check.

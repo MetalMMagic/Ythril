@@ -16,10 +16,17 @@ import { log } from '../util/log.js';
  * An existing secret WINS and the config copy is discarded: the secrets file is the current store, so if
  * the two disagree the config value is by definition the older one. Returns whether anything moved, so the
  * caller knows to persist both files.
+ *
+ * **Five providers, not four.** The text-embedding key is handled by `liftEmbeddingKey` below, because it
+ * lives at the top level of both files rather than under `mediaEmbedding` — which is exactly why it was
+ * missed until 4.0.
  */
 export function migrateProviderApiKeysToSecrets(config: Config, secrets: SecretsFile): boolean {
-  const media = config.mediaEmbedding as Record<string, { apiKey?: string } | undefined> | undefined;
-  if (!media) return false;
+  // No early return on a missing `mediaEmbedding`. It used to bail here, which was right while this
+  // function only knew about the four blocks underneath it — and became wrong the moment a FIFTH provider
+  // was added at the top level: a config with an inline `embedding.apiKey` and no media block at all would
+  // have been reported as nothing to do. The loop below already tolerates an absent block per provider.
+  const media = (config.mediaEmbedding ?? {}) as Record<string, { apiKey?: string } | undefined>;
   const PROVIDERS: ReadonlyArray<[string, 'visionApiKey' | 'sttApiKey' | 'nliApiKey' | 'rerankApiKey']> = [
     ['vision', 'visionApiKey'], ['stt', 'sttApiKey'], ['nli', 'nliApiKey'], ['rerank', 'rerankApiKey'],
   ];
@@ -32,7 +39,34 @@ export function migrateProviderApiKeysToSecrets(config: Config, secrets: Secrets
     delete stored.apiKey;
     moved = true;
   }
-  return moved;
+  return moved || liftEmbeddingKey(config, secrets);
+}
+
+/**
+ * The FIFTH provider, and the one every name-keyed sweep walked past.
+ *
+ * The text-embedding key lives at the TOP level of both files — `config.embedding.apiKey` and
+ * `secrets.embedding.apiKey` — not under `mediaEmbedding`, so the loop above never saw it. The rule this
+ * module exists for was asserted for `vision`, `stt`, `nli` and `rerank` BY NAME, and `embedding` is not one
+ * of those names, so it kept its `config.json` read path for a whole release: `getEmbeddingConfig` resolved
+ * `apiKey: embApiKey ?? base.apiKey`.
+ *
+ * That made it the quietest version of the disclosure this file is about. A modern save writes the new key
+ * to `secrets.json` and never deleted the inline one, and the secrets value wins the resolution — so the
+ * stale copy sat in a file that is not `0o600`, doing nothing, visible to anyone who read it and to nobody
+ * who ran the product.
+ *
+ * Same rule as the other four: an existing secret WINS, because if the two disagree the config value is by
+ * definition the older one, and the config copy goes either way.
+ */
+function liftEmbeddingKey(config: Config, secrets: SecretsFile): boolean {
+  const emb = config.embedding as { apiKey?: string } | undefined;
+  if (!emb || typeof emb.apiKey !== 'string' || emb.apiKey === '') return false;
+  const s = secrets as SecretsFile & { embedding?: { apiKey?: string } };
+  s.embedding ??= {};
+  if (!s.embedding.apiKey) s.embedding.apiKey = emb.apiKey;
+  delete emb.apiKey;
+  return true;
 }
 
 /**

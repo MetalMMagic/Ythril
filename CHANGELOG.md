@@ -110,6 +110,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The preview had no test for what it DECIDES — fourteen cases, and four of them found defects.** The block that was
+  already there covers the object URL, which is the one resource on that page that must be released. None of
+  it touches the three things below, and each was measured to have no assertion anywhere in the folder.
+
+  **Which kind a file is** — a lookup across five extension tables with `unknown` as the fallback. Lost, a
+  `.zip` would show a spinner that never stops, which reads as a hung request rather than a file type with
+  no preview. Case-folding is in there too, and so is the rule that a leading dot is not an extension.
+
+  **The failure path, which is written out THREE TIMES**, once per fetch branch. That is the shape this
+  codebase produces most — one rule, several implementations, the weakest winning silently — and nothing
+  asserted any of the three, so unifying them could have dropped one and stayed green. Also pinned: the
+  spinner clears, because a blank pane cannot be told apart from an empty file.
+
+  **What the renderer is told.** `previewModel`'s own docstring says the states are mutually exclusive and
+  that saying so in one place is what stops the child re-deriving "am I loading or erroring" from separate
+  flags. That claim now has a test, as does the null it returns when nothing is open.
+
+  Two more that were simply missing: the markdown branch's stale-response guard, which is the same race the
+  image branch was fixed for, and the six ways an `exceljs` cell can be an OBJECT — a formula with its
+  cached result, a hyperlink with its label, rich text as runs, an error, a Date and an empty cell. A preview
+  rendering `[object Object]` down a formula column does not error and looks like a sheet nobody filled in.
+
+  **And the auth header, which is the whole reason this code fetches by hand.** The file endpoint requires
+  it and a native `<img src>` cannot send one, which is what regressed image and PDF previews when the
+  `?token=` fallback was scoped to SSE-only. The DOWNLOAD path has had a case for that since the regression
+  and the preview path never did — the same rule tested in one of the two places it lives. Dropping it fails
+  every branch identically and silently: a 401 surfaces as an error message that reads like a permissions
+  problem with the file.
+
+  **Twenty-seven mutants, twenty-seven dead, and three earned their keep.** One passed because the FIXTURE
+  could not see the rule — the dotfile guard only shows itself for a file literally named `.md`. One was a
+  no-op dressed as a change. And one was the auth header, which nothing checked at all.
+
 - **The Search panel shows the request it would send, live, with a Copy button.** The last of the owner's
   `U-1` instruction: *"basically should be like the full json request visible on the side — so it can be
   copied and sent directly to the recall mcp endpoint."* It updates as you type, and pasting it into a
@@ -622,6 +655,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A source preview could show one file's contents under another file's name.** Arrow from a large `.ts` to
+  a small one and the order is: start A, start B, B comes back and is shown, A comes back and overwrites it.
+  The pane then holds A's highlighted source under B's name and stays that way until something re-renders,
+  with nothing erroring.
+
+  **This is the same defect the image preview had, and the answer is the reason it was one at all.** Four
+  rules were written out per fetch branch — the auth header, the `!r.ok` throw, the failure path, and the
+  staleness check — three times over. The staleness check had only THREE copies: markdown guarded, xlsx
+  guarded, the blob binder guarded after a leak was found on 2026-09-02, and plain text never got one. One
+  rule with a copy MISSING looks exactly like three correct implementations until somebody counts.
+
+  There is now one seam every branch goes through, which fixed two more divergences on the way. **A stale
+  response no longer clears the spinner** belonging to the fetch still running for the file on screen — the
+  image branch used to, leaving a pane with no spinner and no content. **A stale FAILURE is no longer
+  reported**, because one file's 403 on a different file's pane cannot be acted on, and the file it is about
+  is not the one being looked at. And the object URL is now allocated only for a response somebody is still
+  waiting for, rather than created before the check and then dropped or released.
 - **The tracker gate said "every open item is indexed" while an in-progress item sat unindexed.** The fix one
   change earlier gave `todo-open-items.mjs` a single definition of what an item id looks like and rewrote
   three patterns to use it. **Five more copies were in `todo-consistency.mjs` — the module that imports

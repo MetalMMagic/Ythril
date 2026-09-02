@@ -10,6 +10,7 @@ import { stopDupeScanner } from './brain/dupe-scanner.js';
 import { cleanupStaleChunks } from './files/chunks.js';
 import { log, redactSecrets } from './util/log.js';
 import { envInt, assertNumericEnvOrExit } from './config/env-num.js';
+import { assertNoRemovedEnvVarsOrExit } from './config/env-removed.js';
 
 // Enable debug logging when --debug flag is passed or DEBUG env is already set.
 if (process.argv.includes('--debug')) {
@@ -35,6 +36,9 @@ async function main(): Promise<void> {
   // retry budget comparison false, so there are zero retries. Both are documented guarantees, lost in silence.
   // Same choice the at-rest encryption already makes: refuse to start rather than continue wrongly.
   assertNumericEnvOrExit();
+  // And the same choice for a variable whose NAME is gone rather than whose value is wrong: a removed
+  // name that is still set configures nothing, so the built-in default takes its place silently.
+  assertNoRemovedEnvVarsOrExit();
 
   const isFirstRun = !configExists();
 

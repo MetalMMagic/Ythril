@@ -107,13 +107,25 @@ describe('the read fallbacks are gone, and the env aliases are untouched', () =>
     assert.match(s, /base\.stt\?\.model/);
   });
 
-  it('the PERMANENT env aliases are still honoured', () => {
-    // Row 4.1: KEEP. This migration is about config.json only, and the two are easy to conflate — the
-    // deprecations file says so in as many words, which is why it is asserted rather than trusted.
-    const s = loader();
-    assert.match(s, /RENAMED_ENV_VARS/, 'the env-alias table must still exist');
+  it('the env half is a SEPARATE decision, and this migration still does not touch it', () => {
+    /*
+     * This case asserted that the env aliases were PERMANENT and that `RENAMED_ENV_VARS` must still exist.
+     * The owner reversed that on 2026-09-02: 4.0 removed the three names, and they refuse the boot now
+     * (`env-removed.ts`). So the assertion about the table is gone — it was pinning a decision, not a rule.
+     *
+     * **What survives is the rule underneath it, and it is the more valuable half:** the config-FILE
+     * migration and the env-var names are two different mechanisms with two different answers, and they are
+     * easy to conflate. `config.json` is a file the product owns, so its legacy keys are LIFTED and deleted.
+     * A manifest is the operator's, so its legacy names are refused with a message rather than rewritten
+     * behind their back. This migration must therefore never read the environment — if it did, the two
+     * decisions would collapse into whichever one it happened to implement.
+     */
     const mig = strip(readFileSync('server/src/config/migrate-media-aliases.ts', 'utf8'));
     assert.ok(!/process\.env/.test(mig),
-      'the config migration must not touch environment variables — those aliases are permanent');
+      'the config migration must not touch environment variables — the env half is refused, not lifted');
+
+    // And the refusal is where it says it is, so this suite fails if the two halves are ever merged.
+    const removed = strip(readFileSync('server/src/config/env-removed.ts', 'utf8'));
+    assert.match(removed, /OLLAMA_URL/, 'the removed env names must be declared in env-removed.ts');
   });
 });

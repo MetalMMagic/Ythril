@@ -19,7 +19,7 @@ section has been there since 2.0.0 or earlier. `GET /api/about` reports the vers
 |---|---|
 | Retrieval | Hybrid search — a lexical channel fused into `recall` by RRF; optional cross-encoder reranking |
 | Diagnosis | [Diagnosing a Misconfiguration](02-hosting.md#diagnosing-a-misconfiguration); every egress refusal is now logged with the setting that would permit it |
-| Config | `OLLAMA_URL` → `VISION_BASE_URL`, `WHISPER_URL` → `STT_BASE_URL`, `WHISPER_MODEL` → `STT_MODEL` (old names still work and warn; **removed at the next major**) |
+| Config | `OLLAMA_URL` → `VISION_BASE_URL`, `WHISPER_URL` → `STT_BASE_URL`, `WHISPER_MODEL` → `STT_MODEL` (old names **removed in 4.0** — they refuse the boot and name the replacement) |
 | Lifecycle | Graceful shutdown actually drains; `/ready` fails first (`SHUTDOWN_DRAIN_MS`, `SHUTDOWN_READY_GRACE_MS`) |
 | Recall | An end-to-end budget (`RECALL_BUDGET_MS`, `RERANK_MIN_BUDGET_MS`) and a `ythril_recall_degraded_total` metric |
 | Brain | Space completeness scoring; Review → Suggestions |

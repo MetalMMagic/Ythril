@@ -316,7 +316,7 @@ export function loadConfig(): Config {
   // A provider API key left in config.json moves to secrets.json (0o600) and is deleted from the config.
   migrateProviderApiKeysOnBoot(_config, getSecrets(), saveSecrets, saveConfig);
   // The config-file half of the 2.1 rename moves onto `vision.*` / `stt.*`. The ENV-VAR half is
-  // permanent and is not touched — see `RENAMED_ENV_VARS`.
+  // removed in 4.0 and now refuses the boot — see `env-removed.ts`.
   migrateMediaAliasesOnBoot(_config, saveConfig);
   // Legacy space `description` → `meta.purpose`, so the field MCP clients read is the field the UI edits.
   if (migrateSpaceDescriptionToPurpose(_config)) {
@@ -923,59 +923,25 @@ function normalizeVisionModel(model: string): string {
   return model === 'moondream2' ? 'moondream' : model;
 }
 
-/**
- * Env vars renamed because their names described the implementation that happened to be first, not the
- * field they configure.
+/*
+ * `RENAMED_ENV_VARS`, `envRenamed`, its once-per-process warning and its test seam were HERE. 4.0 removed
+ * them, and the three legacy names now refuse the boot instead of resolving — see `env-removed.ts` for why
+ * that is the only honest third option: a variable that is set and configures nothing is worse than one
+ * that errors, and worse than one that works.
  *
- * `OLLAMA_URL` is the clearest case: it sets `vision.baseUrl`, which is used **even when
- * `visionProvider` is `external`**. An operator running vLLM or llama.cpp either sets a variable named
- * after a product they are not using, or never finds it at all. Same mistake in `WHISPER_URL` /
- * `WHISPER_MODEL`, which configure STT regardless of backend — reported by a deployment running
- * Qwen3-ASR.
+ * **Why the rename happened is still worth knowing, because the reasoning outlives the aliases.** The old
+ * names described the implementation that happened to be first rather than the field they configure.
+ * `OLLAMA_URL` is the clearest case: it set `vision.baseUrl`, which applies even when `visionProvider` is
+ * `external`, so an operator running vLLM or llama.cpp either set a variable named after a product they
+ * were not using or never found it at all. `WHISPER_URL` / `WHISPER_MODEL` did the same to anyone whose STT
+ * backend was not Whisper — reported by a deployment running Qwen3-ASR. It is the distinction the
+ * `local` / `external` provider switch already gets right: **the setting names a wire protocol, not a
+ * product.**
  *
- * This is the same distinction the `local` / `external` provider switch already gets right, and says so
- * in its own documentation: **the setting names a wire protocol, not a product.**
+ * The block that stood here argued the aliases should live indefinitely, because breaking a documented env
+ * var to improve its spelling is not a trade worth making. That was the standing decision for the whole of
+ * 3.x; the owner reversed it on 2026-09-02, and the notice shipped one release ahead of this removal.
  */
-const RENAMED_ENV_VARS: ReadonlyArray<{ current: string; legacy: string; configures: string }> = [
-  { current: 'VISION_BASE_URL', legacy: 'OLLAMA_URL', configures: 'vision.baseUrl' },
-  { current: 'STT_BASE_URL', legacy: 'WHISPER_URL', configures: 'stt.baseUrl' },
-  { current: 'STT_MODEL', legacy: 'WHISPER_MODEL', configures: 'stt.model' },
-];
-
-/** One warning per legacy name per process — this resolver runs on every config read. */
-const legacyEnvWarned = new Set<string>();
-
-/** Test seam: the warning is once-per-process by design, which would make the second test vacuous. */
-export function resetLegacyEnvWarningsForTests(): void {
-  legacyEnvWarned.clear();
-}
-
-/**
- * Read a renamed env var, preferring the current name.
- *
- * The legacy name keeps working indefinitely — breaking a documented env var to improve its spelling is
- * not a trade worth making, and an operator upgrading for a security fix should not also be handed an
- * outage. But it is deliberately **not silent**: an alias nobody is told about is one nobody migrates
- * off, and the deprecation never ends.
- */
-function envRenamed(current: string): string | undefined {
-  const entry = RENAMED_ENV_VARS.find(e => e.current === current);
-  if (!entry) return process.env[current];
-  const currentVal = process.env[current];
-  const legacyVal = process.env[entry.legacy];
-
-  if (legacyVal !== undefined && !legacyEnvWarned.has(entry.legacy)) {
-    legacyEnvWarned.add(entry.legacy);
-    log.warn(currentVal !== undefined
-      // Both set: say which one won. Silently preferring one of two conflicting values is how an
-      // operator ends up debugging a value they can see in their own manifest and cannot find in effect.
-      ? `${entry.legacy} is deprecated and ${entry.current} is also set — using ${entry.current}. Remove ${entry.legacy}.`
-      : `${entry.legacy} is deprecated: rename it to ${entry.current}. It configures ${entry.configures} `
-        + 'for every backend, not just the product it is named after, and it still works unchanged.');
-  }
-  return currentVal ?? legacyVal;
-}
-
 export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
   const cfg = getConfig();
   const base = cfg.mediaEmbedding ?? {};
@@ -1019,7 +985,7 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
   // `lockedByInfra` keys off the RESOLVED value below, so it stays correct whichever spelling was used.
   // Keying it off the current name alone would leave the UI field editable while the legacy env var
   // silently won — the same "looks configured, isn't" class of bug as the probe fix in #546.
-  const visionBaseUrlEnv = envRenamed('VISION_BASE_URL');
+  const visionBaseUrlEnv = process.env['VISION_BASE_URL'];
   const visionModelEnv = process.env['VISION_MODEL'];
   const visionApiKeyEnv = process.env['VISION_API_KEY'];
   // API keys: env var > secrets.json. The `config.json` fallback was removed in 3.0 — any key still
@@ -1053,8 +1019,8 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
   if (visionApiKeyEnv) locked.push('vision.apiKey');
 
   // STT provider block
-  const sttBaseUrlEnv = envRenamed('STT_BASE_URL');
-  const sttModelEnv = envRenamed('STT_MODEL');
+  const sttBaseUrlEnv = process.env['STT_BASE_URL'];
+  const sttModelEnv = process.env['STT_MODEL'];
   const sttApiKeyEnv = process.env['STT_API_KEY'];
   const stt: MediaProviderConfig = {
     baseUrl: sttBaseUrlEnv

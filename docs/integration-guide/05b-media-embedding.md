@@ -130,14 +130,18 @@ The worker-tuning fields — `workerConcurrency`, `workerPollIntervalMs`, `worke
 > after a product they were not running, assuming they found it at all. This is the same distinction the
 > provider switch already gets right: **the setting names a wire protocol, not a product.**
 >
-> **The old names keep working, and they will be REMOVED at the next major.** This page said they were not
-> deprecated-then-removed on a timer; that has been reconsidered, and the notice is here rather than in the
-> release that removes them. Rename them in your manifest at your convenience — the replacements have worked
-> since 3.0, so the change is safe to make today and does not have to wait for the upgrade that requires it.
+> **The old names were REMOVED in 4.0, and setting one now stops the boot.** They resolved as aliases for
+> the whole of 3.x, warning once at startup; this page used to say they would never be removed on a timer,
+> which was reconsidered and announced one release ahead.
 >
-> Until then each one logs a single `warn` at startup naming its replacement. If both spellings are set, the
-> new one wins **and the log says so** — a silently-ignored value that is visibly present in your own
-> manifest is among the most expensive things to debug.
+> **The refusal is the point, not an inconvenience.** Deleting the alias and nothing else would mean a
+> manifest that still says `OLLAMA_URL=http://vllm:8000` (rather than `VISION_BASE_URL`) boots cleanly, configures nothing, and captions
+> every document against the built-in `http://ollama:11434` default — with no error anywhere. So the name
+> stops configuring anything and starts stopping the boot, naming the replacement in the message. A variable
+> that is present and has no effect is the worst of the three possible behaviours.
+>
+> Rename them and the instance starts. Both spellings resolved in every 3.x build, so the rename is safe to
+> make before the upgrade as well as after.
 >
 > `lockedByInfra` tracks whichever spelling you used, so the Settings UI renders the field read-only
 > either way.

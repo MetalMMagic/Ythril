@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **BREAKING: the three legacy media env vars are gone.** `OLLAMA_URL`, `WHISPER_URL` and
+  `WHISPER_MODEL` resolved as aliases for `VISION_BASE_URL`, `STT_BASE_URL` and `STT_MODEL` for the whole of
+  3.x, warning once at startup. Rename them and nothing else changes; the current names have worked since
+  2.1 and resolve in every 3.x build, so a manifest written for 4.0 also runs on 3.x.
+
+  **Setting a removed name now STOPS THE BOOT, and that is the design rather than a side effect.** Deleting
+  the alias and nothing else would mean a manifest that still says `OLLAMA_URL=http://vllm:8000` starts
+  cleanly, configures nothing, and captions every document against the built-in default — with no error
+  anywhere. Of the three things a set variable can do — work, error, or nothing — the third is the worst,
+  and it is the one you get for free. The message names the replacement and what it configures.
+
+  The **config-file** half of the same rename is unaffected: `mediaEmbedding.ollamaUrl` and its three
+  siblings are still lifted onto `vision.*` / `stt.*` and deleted, because a file the product owns can be
+  fixed rather than refused. An operator's manifest is not their config.json.
+
 ### Added
 
 - **The Search panel shows the request it would send, live, with a Copy button.** The last of the owner's

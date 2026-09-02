@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **BREAKING: the server-rendered setup form is gone, and so are `GET`/`POST /api/setup`.** Use
+  **`POST /api/setup/json`** for programmatic first-run setup — it was already the documented preference, it
+  is what the web UI posts, and it takes the same label in a JSON body instead of a form encoding.
+
+  **Two of the four endpoints had already stopped answering, and the guide still documented them.** The
+  `/setup` MOUNT was removed in an earlier release: Express matches a mount before the SPA's index fallback,
+  so mounting the setup router at `/setup` as well as `/api/setup` had made the web UI's own first-run page
+  unreachable — the legacy form was the live entry point and the SPA's page had never served one. That half
+  shipped with an end-to-end first-run proof rather than on the argument that the SPA route existed.
+
+  This is the half left behind, and it was not harmless. The form's `action="/setup"` posted to a path that
+  no longer existed and the error page linked back to it, so the file still LOOKED like the live entry point
+  on the one code path that runs before any identity exists — and `11-setup-api.md` kept promising both
+  endpoints, which is the worse failure: a reader following a guide that was correct when written concludes
+  the product is broken rather than the page is old.
+
+  **Deleting it surfaced a bound that was in the wrong handler.** `SETUP_LABEL_MAX` was enforced by the
+  form's `POST` and not by `POST /json` — one rule, two implementations, and the weaker one was the survivor.
+  Since the mount had already gone, `instanceLabel` had been unbounded on the unauthenticated boot path for a
+  release. The cap now applies where it runs, on the trimmed value that is actually stored, at the same 100
+  characters the web UI's own input carries.
+
+  Two gates tightened as a consequence rather than being adjusted around: `setup/routes.ts` leaves the
+  "errors need not be JSON" exemption list, because the exemption stopped being TRUE rather than stopping
+  being needed — and an exemption that is no longer earned is a hole nobody watches, since a file on that
+  list is a file the rule does not apply to.
+
 - **BREAKING: the two `syncSchedule` shorthands are gone, and an unrunnable schedule is now REFUSED.**
   `"*/N minutes"` / `"every Nm"` and `"*/N hours"` / `"every Nh"` were translated to cron on the way in for
   the whole of 2.x and 3.x. Send a cron expression: `"*/5 * * * *"`, `"0 * * * *"`. Nothing to do on

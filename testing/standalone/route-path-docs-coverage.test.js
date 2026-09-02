@@ -22,7 +22,7 @@
  *      path argument, so every `/api/sync/*` route was invisible.
  *   2. Routes declared straight on the app — `app.post('/api/admin/reload-config')` — rather than on a
  *      mounted router.
- *   3. Routers mounted at MORE THAN ONE path. `setupRouter` serves both `/api/setup` and `/setup`;
+ *   3. Routers mounted at MORE THAN ONE path. `setupRouter` used to serve both `/api/setup` and `/setup`;
  *      keeping one prefix per router made every setup endpoint look missing.
  *   4. Concrete example values in the docs. `PATCH /api/spaces/research` is an example of
  *      `/api/spaces/:id`, not a different endpoint, so comparison has to be structural.

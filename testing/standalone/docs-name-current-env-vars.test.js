@@ -43,15 +43,26 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 
-const LOADER = 'server/src/config/loader.ts';
+/*
+ * The ground truth MOVED, and the rule it feeds got stronger rather than weaker.
+ *
+ * These three were ALIASES for the whole of 3.x, resolved by `RENAMED_ENV_VARS` in the config loader — which
+ * is what this gate used to parse. 4.0 removed them: the names now live in `env-removed.ts` and REFUSE the
+ * boot instead of resolving.
+ *
+ * So a doc line naming one of them without its replacement was misleading before and is actively wrong now:
+ * an operator following it writes a manifest that will not start. Same assertion, higher stakes, one file
+ * further along.
+ */
+const REMOVED = 'server/src/config/env-removed.ts';
 
-/** The `{ current, legacy }` pairs, read out of the loader's own table. */
+/** The `{ current, legacy }` pairs, read out of the removal table rather than copied into this file. */
 function renamedPairs() {
-  const src = readFileSync(LOADER, 'utf8');
-  const table = src.slice(src.indexOf('const RENAMED_ENV_VARS'));
+  const src = readFileSync(REMOVED, 'utf8');
+  const table = src.slice(src.indexOf('const REMOVED_ENV_VARS'));
   const body = table.slice(0, table.indexOf('];'));
-  return [...body.matchAll(/current:\s*'([A-Z0-9_]+)',\s*legacy:\s*'([A-Z0-9_]+)'/g)]
-    .map((m) => ({ current: m[1], legacy: m[2] }));
+  return [...body.matchAll(/removed:\s*'([A-Z0-9_]+)',\s*use:\s*'([A-Z0-9_]+)'/g)]
+    .map((m) => ({ current: m[2], legacy: m[1] }));
 }
 
 function docLines() {
@@ -61,10 +72,10 @@ function docLines() {
 }
 
 describe('the check itself works before it is trusted', () => {
-  it('reads the rename table out of the loader', () => {
+  it('reads the removal table out of its module', () => {
     // If the table is renamed or restructured this finds nothing, and a gate that checks nothing passes.
     const pairs = renamedPairs();
-    assert.ok(pairs.length >= 3, `parsed ${pairs.length} renamed env vars out of ${LOADER} — expected at least 3`);
+    assert.ok(pairs.length >= 3, `parsed ${pairs.length} removed env vars out of ${REMOVED} — expected at least 3`);
     assert.ok(pairs.some((p) => p.legacy === 'OLLAMA_URL' && p.current === 'VISION_BASE_URL'),
       'the OLLAMA_URL -> VISION_BASE_URL pair is missing; the parse is wrong or the rename was undone');
   });
@@ -99,7 +110,8 @@ describe('the docs recommend the current env var names', () => {
     const found = offenders(docLines(), renamedPairs());
     assert.deepEqual(found, [],
       'These lines send a reader to a deprecated env var:\n  ' + `${found.join('\n  ')}\n\n`
-      + 'The old names keep working and warn once at startup, so following the documentation earns a\n'
-      + 'deprecation warning. Use the current name; if the line is genuinely about the rename, name both.');
+      + 'The old names were REMOVED in 4.0 and refuse the boot, so a reader following this line writes a\n'
+      + 'manifest that will not start. Use the current name; if the line is genuinely about the removal,\n'
+      + 'name both on it.');
   });
 });

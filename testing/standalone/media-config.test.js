@@ -51,8 +51,8 @@ describe('getMediaEmbeddingConfig', () => {
 
   const ENV_KEYS = [
     'MEDIA_EMBEDDING_ENABLED', 'VISION_PROVIDER', 'STT_PROVIDER',
-    'OLLAMA_URL', 'VISION_MODEL', 'VISION_API_KEY',
-    'WHISPER_URL', 'WHISPER_MODEL', 'STT_API_KEY',
+    'VISION_BASE_URL', 'VISION_MODEL', 'VISION_API_KEY',
+    'STT_BASE_URL', 'STT_MODEL', 'STT_API_KEY',
     'WORKER_CONCURRENCY', 'WORKER_POLL_INTERVAL_MS', 'WORKER_MAX_POLL_INTERVAL_MS',
     'MEDIA_EMBEDDING_FALLBACK_TO_EXTERNAL', 'MAX_FILE_SIZE_BYTES', 'STALLED_JOB_TIMEOUT_MS',
     'DOC_ASSIST_URL', 'DOC_ASSIST_MODEL', 'DOC_ASSIST_API_KEY',
@@ -165,11 +165,13 @@ describe('getMediaEmbeddingConfig', () => {
       delete process.env['MEDIA_EMBEDDING_ENABLED'];
     });
 
-    it('OLLAMA_URL overrides default vision URL', () => {
-      process.env['OLLAMA_URL'] = 'http://custom-ollama:11434';
+    it('VISION_BASE_URL overrides default vision URL', () => {
+      // Was `OLLAMA_URL`, which 4.0 removed — it is now refused at boot rather than resolved, so a case
+      // using it here would be asserting that a removed name still configures something.
+      process.env['VISION_BASE_URL'] = 'http://custom-vision:11434';
       writeConfig();
       const cfg = getMediaEmbeddingConfig();
-      assert.equal(cfg.vision?.baseUrl, 'http://custom-ollama:11434');
+      assert.equal(cfg.vision?.baseUrl, 'http://custom-vision:11434');
     });
 
     it('VISION_MODEL overrides default model', () => {
@@ -200,11 +202,11 @@ describe('getMediaEmbeddingConfig', () => {
       assert.equal(cfg.vision?.model, 'moondream');
     });
 
-    it('WHISPER_URL overrides default STT URL', () => {
-      process.env['WHISPER_URL'] = 'http://custom-whisper:8000';
+    it('STT_BASE_URL overrides default STT URL', () => {
+      process.env['STT_BASE_URL'] = 'http://custom-stt:8000';
       writeConfig();
       const cfg = getMediaEmbeddingConfig();
-      assert.equal(cfg.stt?.baseUrl, 'http://custom-whisper:8000');
+      assert.equal(cfg.stt?.baseUrl, 'http://custom-stt:8000');
     });
 
     it('WORKER_CONCURRENCY is parsed as a number', () => {
@@ -233,7 +235,8 @@ describe('getMediaEmbeddingConfig', () => {
     });
 
     it('env var takes priority over config.json value', () => {
-      process.env['OLLAMA_URL'] = 'http://env-url:11434';
+      // The precedence being pinned is env-over-config, not which spelling: `VISION_BASE_URL` since 4.0.
+      process.env['VISION_BASE_URL'] = 'http://env-url:11434';
       writeConfig({ mediaEmbedding: { vision: { baseUrl: 'http://config-url:11434' } } });
       const cfg = getMediaEmbeddingConfig();
       assert.equal(cfg.vision?.baseUrl, 'http://env-url:11434');
@@ -265,8 +268,8 @@ describe('getMediaEmbeddingConfig', () => {
   });
 
   describe('lockedByInfra reporting', () => {
-    it('OLLAMA_URL adds vision.baseUrl to lockedByInfra', () => {
-      process.env['OLLAMA_URL'] = 'http://ollama:11434';
+    it('VISION_BASE_URL adds vision.baseUrl to lockedByInfra', () => {
+      process.env['VISION_BASE_URL'] = 'http://vision:11434';
       writeConfig();
       const cfg = getMediaEmbeddingConfig();
       assert.ok(cfg.lockedByInfra?.includes('vision.baseUrl'), 'Expected vision.baseUrl in lockedByInfra');
@@ -286,8 +289,8 @@ describe('getMediaEmbeddingConfig', () => {
       assert.ok(cfg.lockedByInfra?.includes('vision.apiKey'), 'Expected vision.apiKey in lockedByInfra');
     });
 
-    it('WHISPER_URL adds stt.baseUrl to lockedByInfra', () => {
-      process.env['WHISPER_URL'] = 'http://whisper:8000';
+    it('STT_BASE_URL adds stt.baseUrl to lockedByInfra', () => {
+      process.env['STT_BASE_URL'] = 'http://stt:8000';
       writeConfig();
       const cfg = getMediaEmbeddingConfig();
       assert.ok(cfg.lockedByInfra?.includes('stt.baseUrl'), 'Expected stt.baseUrl in lockedByInfra');
@@ -300,9 +303,9 @@ describe('getMediaEmbeddingConfig', () => {
     });
 
     it('multiple env vars → all appear in lockedByInfra', () => {
-      process.env['OLLAMA_URL'] = 'http://ollama:11434';
+      process.env['VISION_BASE_URL'] = 'http://vision:11434';
       process.env['VISION_MODEL'] = 'llava';
-      process.env['WHISPER_URL'] = 'http://whisper:8000';
+      process.env['STT_BASE_URL'] = 'http://stt:8000';
       writeConfig();
       const cfg = getMediaEmbeddingConfig();
       assert.ok(cfg.lockedByInfra?.includes('vision.baseUrl'));

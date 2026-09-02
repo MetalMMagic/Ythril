@@ -910,12 +910,12 @@ describe('FileManagerComponent — row actions', () => {
     const c = fixture.componentInstance;
 
     c.requeueEmbedding(FAILED);
-    expect(c.requeueingPath()).toBe('broken.pdf');
-    expect(c.requeueingPath()).not.toBe(c.relPath(DONE));
+    expect(c.metaStore.requeueingPath()).toBe('broken.pdf');
+    expect(c.metaStore.requeueingPath()).not.toBe(c.relPath(DONE));
 
     pending.next({ ok: true });
     pending.complete();
-    expect(c.requeueingPath()).toBe('');
+    expect(c.metaStore.requeueingPath()).toBe('');
   });
 
   it('clears the in-flight path when the request fails, so the button comes back', () => {
@@ -936,7 +936,7 @@ describe('FileManagerComponent — row actions', () => {
     fixture.detectChanges();
     const c = fixture.componentInstance;
     c.requeueEmbedding(FAILED);
-    expect(c.requeueingPath()).toBe('');
+    expect(c.metaStore.requeueingPath()).toBe('');
   });
 
   it('renders rename as an icon with its label kept for hover and assistive tech', () => {

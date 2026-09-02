@@ -302,6 +302,10 @@ console.log(`\n${YELLOW}todo/ consistency${R}  ${DIM}(owner rules 2026-08-02 and
   const GATE = join(ROOT, 'testing/standalone/no-new-god-files.test.js');
   if (existsSync(GATE)) {
     const named = [...readFileSync(GATE, 'utf8').matchAll(/DECOMPOSE:\s*([A-Z]+-[A-Z0-9-]+)/g)].map(m => m[1]);
+    // A NUMBERED SUB-ID SATISFIES ITS PARENT, and this now matters: `G-3` was broken into `G-3.1`..`G-3.5`
+    // so the queue shows the remaining cuts, and the raise markers still name the parent. The boundary class
+    // gives that for free — a dot is not in `[A-Z0-9-]`, so `G-3.1` matches `G-3` while `G-30` does not.
+    // Stated because it reads like an accident and is depended on.
     const missing = named.filter(id => !new RegExp(`(^|[^A-Z0-9-])${id}([^A-Z0-9-]|$)`, 'm').test(ordered));
     if (missing.length) {
       fail(`${missing.length} god-file raise(s) name a decomposition task that is not in ${ORDERED}: `

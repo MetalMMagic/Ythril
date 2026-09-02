@@ -220,3 +220,75 @@ describe('an IN-PROGRESS item is still an item', () => {
     assert.doesNotMatch(items[0].body, /belongs to A-2/);
   });
 });
+
+/**
+ * A SUB-ID — `G-3.1` under `G-3` — is an id, and until 2026-09-02 none of the three patterns could see one.
+ *
+ * The owner asked for a decomposition row to be broken into numbered steps so progress and remaining length
+ * are visible in the queue. Written the obvious way, `| G-3.1 | … |`, every rule in `todo-consistency.mjs`
+ * went quiet about those rows, and each went quiet in a DIFFERENT way — which is what makes this worth a test
+ * rather than a one-character edit:
+ *
+ *  - `orderedHomeRows` requires the id cell to be an id and nothing else, so a dotted row **matched nothing
+ *    at all**. Rule 2b ("every queue row resolves to a real item in its home") skipped it in silence: not a
+ *    failure, not a warning, just one fewer row checked.
+ *  - `CHECKBOX_ITEM` and `HEADING_ITEM` are not anchored at the end, so a dotted item in a tracker **matched
+ *    the PARENT** — `G-3.1` read as `G-3`. That is the worse half: rule 2b would then find the parent
+ *    declared, tick the row, and report a queue whose steps nobody had checked existed.
+ *
+ * One pattern feeds all three, for the reason the module's own header gives: the same rule written three times
+ * is three places for it to be wrong, and this is the file whose job is catching that.
+ */
+describe('a numbered sub-id is an id', () => {
+  it('the index promises a sub-row, and the row is read as the SUB-id', () => {
+    const rows = orderedHomeRows([
+      '| # | Task | Home | Status | Remark |',
+      '|---|---|---|---|---|',
+      '| G-3.1 | The upload queue is its own store | UI-TODO.md | open | -118 lines |',
+      '| G-3.12 | The tenth step, two digits | UI-TODO.md | open | still one id |',
+      '| M-2 | Move the links into link records | _LINKS-AND-SCHEMA-TODOS.md | open | unblocked |',
+    ].join(String.fromCharCode(10)));
+    assert.deepEqual(rows, [
+      { id: 'G-3.1', home: 'UI-TODO.md' },
+      { id: 'G-3.12', home: 'UI-TODO.md' },
+      { id: 'M-2', home: '_LINKS-AND-SCHEMA-TODOS.md' },
+    ]);
+  });
+
+  it('a tracker declares sub-items in either style, and neither collapses to the parent', () => {
+    const items = openItems([
+      '- [ ] **G-3.1 — the upload queue is its own store.**',
+      '  body',
+      '- [~] **G-3.2 — the preview group is its own store.**',
+      '  body',
+      '',
+      '### G-3.3 — the toolbar is its own component',
+      'body',
+    ].join(String.fromCharCode(10)));
+    assert.deepEqual(items.map(i => i.id), ['G-3.1', 'G-3.2', 'G-3.3']);
+  });
+
+  it('a plain id followed by a full stop is still the plain id', () => {
+    // `- [ ] **A-1.**` is the older shape, and the trailing period is punctuation rather than a sub-number.
+    // The two are told apart by what follows the dot: a digit continues the id, anything else ends it.
+    const items = openItems([
+      '- [ ] **A-1.** the sentence continues here',
+      '  body',
+      '- [ ] **A-2 — the usual shape.**',
+      '  body',
+    ].join(String.fromCharCode(10)));
+    assert.deepEqual(items.map(i => i.id), ['A-1', 'A-2']);
+  });
+
+  it('the parent and its sub-item are different items', () => {
+    // The failure this replaces: both read as `G-3`, so a queue row for step 1 was satisfied by the parent
+    // being declared, and the step itself was never checked to exist.
+    const items = openItems([
+      '- [ ] **G-3 — the page is 1 004 code lines.**',
+      '  body',
+      '- [ ] **G-3.1 — the upload queue is its own store.**',
+      '  body',
+    ].join(String.fromCharCode(10)));
+    assert.deepEqual(items.map(i => i.id), ['G-3', 'G-3.1']);
+  });
+});

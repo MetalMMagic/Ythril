@@ -1,12 +1,10 @@
 import { Router } from 'express';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { createHash } from 'node:crypto';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { getConfig } from '../config/loader.js';
 import { log, currentRequestId } from '../util/log.js';
@@ -20,47 +18,20 @@ import { ALL_TOOLS, TOOLS_BY_NAME, type ToolSchemas } from './tools/index.js';
 import { SchemaViolationError } from '../brain/write-validation.js';
 import { makeArgsValidator } from './validate-args.js';
 
-// Session map: sessionId → transport
-const transports = new Map<string, SSEServerTransport>();
-
-// Identity binding for SSE sessions (S2). Each open SSE session is pinned to the
-// id of the token that opened it and a signature of that token's authorization
-// scopes. `POST /mcp/messages?sessionId=…` must present the *same* token id, and
-// that token's *current* scopes must still match — otherwise the request is
-// rejected. Without this, any valid token that learns another session's id (it
-// travels as a query parameter, so it lands in proxy logs and browser history)
-// could drive tool calls with the opening session's privileges.
-interface SessionBinding {
-  tokenId: string;
-  scopeSig: string;
-}
-const sessionBindings = new Map<string, SessionBinding>();
-
-/**
- * Stable signature of a token's authorization scope, order-independent.
- *
- * Keyed on the RIGHTS MATRIX. It used to hash the legacy `admin`/`readOnly`/`spaces` triple, which meant a
- * token edited through the rights-matrix editor produced the same signature and kept serving its previous
- * scope for the life of an SSE stream — the matrix could change without any of the three fields moving.
- */
-function scopeSignature(t: unknown): string {
-  return rightsSignature((t as { rights?: TokenRights } | undefined)?.rights);
-}
-
-/** Short, non-reversible tag for correlating an SSE session in logs without
- *  emitting the raw sessionId (which is a bearer-equivalent routing secret). */
-function sessionTag(sessionId: string): string {
-  return createHash('sha256').update(sessionId).digest('hex').slice(0, 12);
-}
-
 /** Create an MCP Server instance with tools operating across all accessible spaces.
  *
  *  Tool schemas, authorization gates and handlers all come from the registry in
  *  ./tools — there is one source of truth per tool. */
 /**
- * @param audit  Caller identity for the audit trail. Passed in rather than read from a request here
- *   because the SSE transport builds the server once per CONNECTION and then serves many tool calls
- *   over it — there is no `req` in scope at dispatch time, only the one that opened the stream.
+ * @param audit  Caller identity for the audit trail, snapshotted at construction.
+ *
+ *   The reason used to be the SSE transport: it built one server per CONNECTION and then served many tool
+ *   calls over it, so there was no `req` in scope at dispatch time — only the one that had opened the stream.
+ *   SSE is gone in 4.0 and streamable HTTP builds a server per REQUEST, so a request IS in scope now.
+ *
+ *   It stays a parameter anyway, because the tool handlers below close over what they are given and never
+ *   reach for a request. That is what makes them exercisable without a transport at all, and it is the reason
+ *   the identity in an audit entry cannot drift from the identity that was authorized.
  */
 /**
  * The rights off a token record, or `undefined` for one that has none.
@@ -90,7 +61,7 @@ function tokenRights(record: unknown): TokenRights | undefined {
  * `effectiveRung` per call. Deleting the field is what makes that provable rather than merely true today.
  */
 function createGlobalMcpServer(tokenSpaces?: string[], tokenId?: string, tokenLabel?: string,
-  audit?: { ip: string; authMethod: 'pat' | 'oidc' | null; oidcSubject: string | null; transport: 'sse' | 'http' },
+  audit?: { ip: string; authMethod: 'pat' | 'oidc' | null; oidcSubject: string | null; transport: 'http' },
   rights?: TokenRights): Server {
   const cfg = getConfig();
   // The rights matrix decides this, with `tokenSpaces` as the fallback for records that carry no rights.
@@ -351,8 +322,8 @@ import { requireMcpAuth } from '../auth/middleware.js';
 import { logAuditEntry } from '../audit/audit.js';
 import { auditAuthMethod, auditOidcSubject } from '../audit/middleware.js';
 import { mcpAuditOperation, isMcpReadOperation } from './audit-map.js';
-import { mcpConnectionsActive, mcpToolCallsTotal } from '../metrics/registry.js';
-import { toolIsVisible, rightsSignature } from './tool-visibility.js';
+import { mcpToolCallsTotal } from '../metrics/registry.js';
+import { toolIsVisible } from './tool-visibility.js';
 
 export const mcpRouter = Router();
 
@@ -362,49 +333,36 @@ export const mcpRouter = Router();
 // authorization server and begin the OAuth flow.
 mcpRouter.use(requireMcpAuth);
 
-// GET /mcp  — global SSE stream (space is a tool parameter, not a URL segment)
-mcpRouter.get('/', globalRateLimit, async (req, res) => {
-  const postEndpoint = '/mcp/messages';
-  const transport = new SSEServerTransport(postEndpoint, res);
-  transports.set(transport.sessionId, transport);
-  sessionBindings.set(transport.sessionId, {
-    tokenId: req.authToken?.id ?? '',
-    scopeSig: scopeSignature(req.authToken),
-  });
-  mcpConnectionsActive.inc();
+/*
+ * The SSE transport is REMOVED (4.0), and both of its endpoints say so rather than 404.
+ *
+ * `GET /mcp` opened a stream that handed back a `sessionId`, and `POST /mcp/messages?sessionId=…` carried the
+ * tool calls. That pair is the MCP SDK's own legacy transport — its deprecation, not ours — and streamable
+ * HTTP has been the recommended one in every guide throughout 3.x.
+ *
+ * A removed endpoint that falls through to the generic `Not found` leaves the client's author guessing, which
+ * is the same silent-misconfiguration failure the removed env vars were given a boot refusal for. So each
+ * answers with the status that is true of it and names the transport to use.
+ *
+ * `GET` gets **405 with `Allow: POST`**, not 410: the resource `/mcp` still exists and still speaks MCP — it
+ * is the METHOD that is gone. That is also what the MCP specification asks of a server with no
+ * server-initiated stream, so a spec-following client reads it correctly without reading the message.
+ *
+ * `POST /mcp/messages` gets **410 Gone**: that path is not coming back under any method.
+ *
+ * Both sit behind `requireMcpAuth` (mounted above), so an unauthenticated probe still gets the 401 carrying
+ * the RFC 9728 `WWW-Authenticate` header — OAuth discovery is unchanged by this removal.
+ */
+const USE_STREAMABLE_HTTP = 'The MCP SSE transport was removed in 4.0. Use the Streamable HTTP transport: '
+  + 'POST /mcp with a JSON-RPC body and an Authorization: Bearer header.';
 
-  res.on('close', () => {
-    transports.delete(transport.sessionId);
-    sessionBindings.delete(transport.sessionId);
-    mcpConnectionsActive.dec();
-    log.debug(`MCP global session ${sessionTag(transport.sessionId)} closed`);
-  });
-
-  const server = createGlobalMcpServer(legacySpacesOf(req.authToken), req.authToken?.id, req.authToken?.name,
-    { ip: req.ip ?? '', authMethod: auditAuthMethod(req.authToken), oidcSubject: auditOidcSubject(req.authToken), transport: 'sse' }, tokenRights(req.authToken));
-  log.debug(`MCP global session ${sessionTag(transport.sessionId)} opened`);
-  await server.connect(transport);
+mcpRouter.get('/', globalRateLimit, (_req, res) => {
+  res.setHeader('Allow', 'POST');
+  res.status(405).json({ error: USE_STREAMABLE_HTTP });
 });
 
-// POST /mcp/messages  — global tool call (SSE transport)
-mcpRouter.post('/messages', globalRateLimit, async (req, res) => {
-  const sessionId = String(req.query['sessionId'] ?? '');
-  const transport = transports.get(sessionId);
-  if (!transport) {
-    res.status(404).json({ error: 'Unknown MCP session. Open an SSE connection first.' });
-    return;
-  }
-  // S2: the POST must be driven by the *same* token that opened the SSE session,
-  // and that token's scopes must not have changed since. requireMcpAuth has
-  // already re-validated the bearer (a revoked/expired token never reaches here),
-  // so this closes cross-token hijacking and mid-session privilege staleness.
-  const binding = sessionBindings.get(sessionId);
-  if (!binding || binding.tokenId !== (req.authToken?.id ?? '') || binding.scopeSig !== scopeSignature(req.authToken)) {
-    log.warn(`MCP session ${sessionTag(sessionId)} rejected: token does not match the identity that opened it`);
-    res.status(403).json({ error: 'This MCP session is bound to a different identity. Open your own SSE connection.' });
-    return;
-  }
-  await transport.handlePostMessage(req, res, req.body);
+mcpRouter.post('/messages', globalRateLimit, (_req, res) => {
+  res.status(410).json({ error: USE_STREAMABLE_HTTP });
 });
 
 // POST /mcp  — Streamable HTTP transport (stateless, per-request)

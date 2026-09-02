@@ -113,17 +113,18 @@ export function denyReadOnly(req: Request, res: Response, next: NextFunction): v
 
 /**
  * Query-string auth for streams the browser `EventSource` API opens (it cannot set an `Authorization`
- * header). A token in a URL leaks into access logs, proxy logs, browser history and `Referer`, so the
- * two BROWSER streams no longer take the raw token — they take a single-use `?ticket=` (minted by an
- * authenticated `POST …/ticket`, exchanged back to the bearer here; see auth/sse-ticket.ts). Only the
- * `/mcp` transport still accepts a raw `?token=`: it's an external-agent protocol with a different threat
- * model (the agent already holds the token and may not be able to set headers). All lists stay anchored
- * and GET-only so the fallbacks can't widen to other routes.
+ * header). A token in a URL leaks into access logs, proxy logs, browser history and `Referer`, so a browser
+ * stream takes a single-use `?ticket=` — minted by an authenticated `POST …/ticket`, exchanged back to the
+ * bearer here (see auth/sse-ticket.ts). The list stays anchored and GET-only so the fallback cannot widen to
+ * other routes.
+ *
+ * **No route accepts a raw `?token=` any more.** Exactly one ever did: `GET /mcp`, the MCP SSE transport,
+ * whose clients might not have been able to set a header. 4.0 removes that transport — `POST /mcp` has been
+ * the recommended one throughout 3.x and its clients send an `Authorization` header — so the exception is
+ * deleted rather than emptied. An allowlist with no entries fails closed, but it is a mechanism looking for
+ * a consumer, and the next route that cannot set a header should have to argue for itself rather than find
+ * a list already waiting.
  */
-const QUERY_TOKEN_PATHS = new Set([
-  '/mcp', // MCP SSE transport (external agents) — raw ?token= retained by design
-]);
-
 // Browser SSE streams authenticated via a single-use ?ticket= (never the raw token).
 const TICKET_PATHS = new Set([
   '/api/about/logs/stream', // admin audit-log live tail (EventSource)
@@ -136,10 +137,6 @@ const TICKET_PATH_PATTERNS: RegExp[] = [
 function pathOf(req: Request): string {
   const pathOnly = (req.originalUrl.split('?')[0] ?? '').replace(/\/+$/, '');
   return pathOnly || '/';
-}
-
-function allowsQueryToken(req: Request): boolean {
-  return req.method === 'GET' && QUERY_TOKEN_PATHS.has(pathOf(req));
 }
 
 function allowsTicket(req: Request): boolean {
@@ -164,11 +161,6 @@ function extractBearer(req: Request): string | null {
       : null;
     req.sseTicketBearer = bearer;
     return bearer;
-  }
-  // MCP SSE transport only: legacy raw-token fallback (see note above).
-  if (allowsQueryToken(req)) {
-    const queryToken = req.query['token'];
-    if (typeof queryToken === 'string' && queryToken.trim()) return queryToken.trim();
   }
   return null;
 }

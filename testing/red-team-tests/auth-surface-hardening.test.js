@@ -1,12 +1,14 @@
 /**
  * Red-team tests: auth surface hardening (M2, M8, M9, L1, L2)
  *
- * M2 — a raw `?token=` query param is ignored on every route except the `/mcp`
- *      transport → 401. The browser SSE streams (brain events, audit-log tail) now
- *      authenticate via a single-use `?ticket=` minted by an authenticated POST, so
- *      no long-lived token is ever placed in a URL (access/proxy logs, Referer,
- *      browser history). EventSource still can't set headers — the ticket is what
- *      keeps the token out of the URL.
+ * M2 — a raw `?token=` query param is ignored on EVERY route → 401, with no
+ *      exception left. The last one was `GET /mcp`, the MCP SSE transport, whose
+ *      clients might not have been able to set a header; 4.0 removed that transport
+ *      and the fallback with it. The browser SSE streams (brain events, audit-log
+ *      tail) authenticate via a single-use `?ticket=` minted by an authenticated
+ *      POST, so no long-lived token is ever placed in a URL (access/proxy logs,
+ *      Referer, browser history). EventSource still can't set headers — the ticket
+ *      is what keeps the token out of the URL.
  * M8 — a TOTP code is single-use: replaying a code that is still inside its
  *      ±1-step validity window must be refused.
  * M9 — the instance-level MCP tools (`list_peers`, `sync_now`) require an admin
@@ -50,9 +52,9 @@ function readContainerConfig(container = 'ythril-a') {
   return JSON.parse(out);
 }
 
-// ── M2 — query-param token accepted on SSE endpoints only ────────────────────
+// ── M2 — a query-param token is accepted nowhere ─────────────────────────────
 
-describe('M2 — ?token= is accepted only on the SSE endpoints', () => {
+describe('M2 — ?token= is accepted on no route at all', () => {
   /** Request with the token ONLY in the query string (no Authorization header). */
   async function queryTokenGet(pathAndQuery) {
     const sep = pathAndQuery.includes('?') ? '&' : '?';
@@ -67,6 +69,9 @@ describe('M2 — ?token= is accepted only on the SSE endpoints', () => {
     '/api/brain/spaces/general/memories',
     '/api/files/general?path=.',
     '/api/about',
+    // The last exception. It authenticated a raw ?token= until 4.0 removed the SSE transport it existed for,
+    // and it belongs in this list rather than in a note: an exception nobody re-tests is one that comes back.
+    '/mcp',
   ];
 
   for (const route of BLOCKED) {

@@ -4,7 +4,7 @@
 
 ## MCP (Model Context Protocol)
 
-Ythril exposes a single global MCP server via SSE. Each tool accepts a `space` parameter — the connection is not scoped to a single space.
+Ythril exposes a single global MCP server over Streamable HTTP. Each tool accepts a `space` parameter — the connection is not scoped to a single space.
 
 ### Server Instructions
 
@@ -92,30 +92,35 @@ When connecting with a `readOnly` token, mutating tools (`remember`, `update_mem
 
 ### Connecting
 
-Ythril accepts MCP over two transports, and two ways to authenticate.
+Ythril accepts MCP over one transport, and two ways to authenticate.
 
-#### Transports
+#### Transport
 
-- **Streamable HTTP** (recommended) — a single stateless endpoint:
+**Streamable HTTP** — a single stateless endpoint:
 
-  ```http
-  POST /mcp
-  Authorization: Bearer <token>
-  Content-Type: application/json
-  Accept: application/json, text/event-stream
-  ```
+```http
+POST /mcp
+Authorization: Bearer <token>
+Content-Type: application/json
+Accept: application/json, text/event-stream
+```
 
-  Each request is self-contained; no persistent connection or `sessionId` is needed. Works through standard HTTP proxies.
+Each request is self-contained; no persistent connection or `sessionId` is needed. Works through standard HTTP proxies.
 
-- **SSE** (legacy) — open a stream, then post messages to it:
-
-  ```http
-  GET /mcp
-  Authorization: Bearer <token>
-  Accept: text/event-stream
-  ```
-
-  Returns an SSE stream with a `sessionId`. Send tool calls to `POST /mcp/messages?sessionId=<sessionId>`.
+> **The SSE transport was REMOVED in 4.0** (`GET /mcp` for the stream, `POST /mcp/messages?sessionId=…` for
+> the calls). It is the MCP SDK's own legacy transport, and streamable HTTP was the recommended one
+> throughout 3.x.
+>
+> Neither endpoint 404s: `GET /mcp` answers **405** with `Allow: POST`, and `POST /mcp/messages` answers
+> **410 Gone**. Both bodies name the transport to use. An unauthenticated request still gets the **401**
+> carrying the OAuth `WWW-Authenticate` header first, so browser-connector discovery is unchanged.
+>
+> Two things went with it. The `?token=` query parameter no longer authenticates **any** route — that
+> exception existed only for SSE clients that could not set a header, and a token in a URL lands in access
+> logs, proxy logs, browser history and `Referer`. And the `ythril_mcp_connections_active` metric is gone
+> rather than pinned at zero: a stateless transport holds no connections, and a gauge reading 0 forever is a
+> confidently wrong answer where an absent one is only a missing one. Count `ythril_mcp_tool_calls_total`
+> instead.
 
 #### Authentication
 
@@ -161,13 +166,20 @@ No refresh-token flow is used: when a connector token expires (see above), the c
 
 ### Sending Tool Calls
 
-For the SSE transport:
+One request per call, to the one endpoint:
 
 ```http
-POST /mcp/messages?sessionId=<sessionId>
+POST /mcp
 Authorization: Bearer <token>
 Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{ "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+  "params": { "name": "recall", "arguments": { "query": "…" } } }
 ```
+
+The answer comes back as `application/json`, or as a single `text/event-stream` frame — the server chooses,
+so accept both.
 
 ### Telling "absent" from "your token cannot see it"
 

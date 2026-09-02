@@ -9,6 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **BREAKING: the MCP SSE transport is gone.** `GET /mcp` opened a stream that handed back a `sessionId`, and
+  `POST /mcp/messages?sessionId=…` carried the tool calls. Use **Streamable HTTP** instead — one
+  `POST /mcp` per JSON-RPC call, with an `Authorization: Bearer` header. It has been the recommended
+  transport in every guide throughout 3.x, it works through ordinary HTTP proxies, and every current MCP
+  client speaks it. This is the MCP SDK's own deprecation, not ours.
+
+  **Neither endpoint 404s.** `GET /mcp` answers **405** with `Allow: POST`, which is what the MCP
+  specification asks of a server with no server-initiated stream, so a spec-following client handles it
+  without reading the message. `POST /mcp/messages` answers **410 Gone**. Both bodies name the transport to
+  use, because a removed endpoint that falls through to a generic *Not found* leaves the client's author
+  guessing. An unauthenticated request still gets the **401** with the OAuth `WWW-Authenticate` header
+  first, so the claude.ai connector flow is untouched.
+
+  **Two things went with it, and both are the point rather than tidying.**
+
+  A raw `?token=` in the URL no longer authenticates **any** route. That was the last exception, and it
+  existed only for SSE clients that might not have been able to set a header; a token in a query string
+  lands in access logs, proxy logs, browser history and `Referer` headers. The browser event streams already
+  used a single-use `?ticket=` and are unaffected. The allowlist is deleted rather than emptied — an empty
+  one fails closed, but it is a mechanism looking for a consumer.
+
+  This also closes a rate-limit weakness the fallback had created. `globalRateLimit` skips a request that
+  presents a credential, and the credential check read `?token=` — so appending `?token=anything` to an
+  unauthenticated request moved the caller off the 300/min global limit and onto the 3000/min IP flood
+  backstop. The backstop bounded it, so this was a tenfold amplification of anonymous request rate rather
+  than an open door, but it was available to anyone with a query string, and nothing authenticated the
+  parameter it turned on.
+
+  **`ythril_mcp_connections_active` is removed, not pinned at zero.** A stateless transport holds no
+  connections, so the gauge would have read 0 for ever — and 0 is a *plausible* value, which means a
+  dashboard panel and an alert threshold both keep working while both keep saying no MCP client is connected.
+  Count `ythril_mcp_tool_calls_total` instead; it counts work rather than sockets.
+
 - **BREAKING: the three legacy media env vars are gone.** `OLLAMA_URL`, `WHISPER_URL` and
   `WHISPER_MODEL` resolved as aliases for `VISION_BASE_URL`, `STT_BASE_URL` and `STT_MODEL` for the whole of
   3.x, warning once at startup. Rename them and nothing else changes; the current names have worked since

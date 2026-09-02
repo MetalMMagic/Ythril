@@ -31,6 +31,14 @@
  * That last point is what makes this safe rather than a trade: `globalRateLimit` never bounded a rotating
  * attacker either, because it is keyed per credential too. It only ever bounded the honest caller.
  *
+ * ## What 4.0 had to fix about it
+ *
+ * The skip made the definition of "a credential" load-bearing, and that definition used to include a raw
+ * `?token=` query parameter — needed while the MCP SSE transport authenticated that way. Nothing checked
+ * that parameter, so `?token=anything` was enough to switch the limiter off and drop an anonymous caller
+ * onto the flood backstop instead. Removing the SSE transport removed the fallback, and the case below
+ * pins the two together: a rate-limit skip must never be reachable by something that fails authentication.
+ *
  * Run: node --test testing/standalone/the-global-limiter-steps-aside-for-a-token.test.js
  */
 import { describe, it } from 'node:test';
@@ -52,10 +60,9 @@ describe('the global limiter steps aside for a credential', () => {
 
   it('the credential test is the one the KEY already uses, not a second reading of the request', () => {
     /*
-     * `clientRateLimitKey` already decides what counts as a credential — a Bearer header, or the `token`
-     * query parameter the MCP transport uses by design because an external agent may be unable to set
-     * headers. A second copy of that rule here would be the defect this repo produces most, and the half it
-     * would forget is the query parameter, so every MCP client would keep the 300 cap.
+     * `clientRateLimitKey` already decides what counts as a credential. A second copy of that rule here
+     * would be the defect this repo produces most — and because the skip is what lets a caller off the 300
+     * cap, the copy that is wrong decides who is limited.
      */
     const mw = MW();
     assert.match(mw, /export function hasCredential\(/,
@@ -65,10 +72,27 @@ describe('the global limiter steps aside for a credential', () => {
       'the key builder and the skip must agree on what a credential is');
     // The rule itself lives in `presentedCredential`; `hasCredential` is its boolean form and must DELEGATE
     // rather than re-read the request, or the two answers can differ.
-    assert.match(bodyOf(mw, 'presentedCredential'), /query/,
-      'the MCP transport passes the token as a query parameter — omitting it caps every MCP client');
     assert.match(bodyOf(mw, 'hasCredential'), /presentedCredential\(/,
       'hasCredential reads the request itself, so it can disagree with the key builder');
+  });
+
+  it('a credential is a HEADER — a ?token= must not turn the skip on', () => {
+    /*
+     * This case asserted the OPPOSITE until 4.0. `presentedCredential` had to read the `token` query
+     * parameter, because the MCP SSE transport authenticated that way and omitting it would have capped
+     * every MCP client at 300.
+     *
+     * Put that together with the skip above and it was a hole rather than a design: a request presenting a
+     * credential is not limited by `globalRateLimit`, and the credential test accepted an UNAUTHENTICATED
+     * query string. So `?token=anything` on any request moved an anonymous caller off the 300/min limit and
+     * onto the 3000/min flood backstop — a tenfold amplification, bounded but free.
+     *
+     * 4.0 removed the SSE transport and the URL-credential fallback with it (see
+     * `no-credential-travels-in-a-url.test.js`), so this is the assertion that keeps the two decisions
+     * consistent: nothing that fails authentication may switch off a rate limit.
+     */
+    assert.doesNotMatch(bodyOf(MW(), 'presentedCredential'), /query/,
+      'the skip would be reachable with an unauthenticated query parameter — no route accepts one since 4.0');
   });
 
   it('and an ANONYMOUS request is still capped', () => {

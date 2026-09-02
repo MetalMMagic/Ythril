@@ -9,9 +9,13 @@
  *  - sync_now with an unknown peerId returns isError + descriptive message
  *  - sync_now with a valid peerId triggers a sync and returns a result
  *
- * The MCP transport is SSE-based: we open a GET /mcp/:spaceId stream, parse the
- * endpoint event to get the sessionId, then POST JSON-RPC 2.0 calls to
- * /mcp/:spaceId/messages?sessionId=... and read the result events off the stream.
+ * The transport is Streamable HTTP: one `POST /mcp` carries one JSON-RPC 2.0 call and answers it, either as
+ * `application/json` or as a single SSE frame. It is stateless — no handshake, no session id, no reply
+ * correlation to get wrong.
+ *
+ * SSE was the transport until 4.0 removed it (`GET /mcp` for the stream, `POST /mcp/messages?sessionId=…`
+ * for the calls). This file held TWO clients while both existed, which is why the shared one is imported now
+ * rather than written here.
  *
  * Run: node --test testing/integration/mcp.test.js
  */
@@ -20,215 +24,28 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import http from 'node:http';
 import { fileURLToPath } from 'url';
 import { INSTANCES, post, get, del } from '../sync/helpers.js';
+import { openMcpSession as openSharedMcpSession } from '../sync/mcp-session.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
 
 let token;
 
-// â”€â”€ SSE MCP session helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── MCP client ───────────────────────────────────────────────────────────────
 
-/**
- * Open an MCP SSE session using Node's `http` module (works on Node 18).
- * Returns { callTool, listTools, close }
+/*
+ * Two wrappers over the shared client, because both of this file's call shapes predate it: the suites below
+ * call `openMcpSession()` with no arguments (the token is a module-level `let`, assigned in `before`), and
+ * three cases post a hand-built JSON-RPC body — including a deliberately unknown method, which `callTool`
+ * cannot express.
  */
-async function openMcpSession(timeoutMs = 15_000) {
-  const base = INSTANCES.a; // e.g. http://localhost:3200
-  const parsed = new URL(base);
-  const host = parsed.hostname;
-  const port = parseInt(parsed.port || '80', 10);
-
-  return new Promise((resolve, reject) => {
-    const req = http.request(
-      { host, port, path: '/mcp', method: 'GET',
-        headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' } },
-      (res) => {
-        if (res.statusCode !== 200) {
-          res.resume();
-          reject(new Error(`MCP SSE open failed: ${res.statusCode}`));
-          return;
-        }
-
-        let buffer = '';
-        let sessionId = null;
-        const pendingMessages = [];
-        const waiters = [];
-
-        res.setEncoding('utf8');
-        res.on('data', chunk => {
-          buffer += chunk;
-          const parts = buffer.split('\n\n');
-          buffer = parts.pop() ?? '';
-          for (const part of parts) {
-            if (!part.trim()) continue;
-            const lines = part.split('\n');
-            let eventType = 'message';
-            let data = '';
-            for (const line of lines) {
-              if (line.startsWith('event:')) eventType = line.slice(6).trim();
-              else if (line.startsWith('data:')) data = line.slice(5).trim();
-            }
-            if (eventType === 'endpoint') {
-              const m = data.match(/sessionId=([^&\s]+)/);
-              if (m) sessionId = m[1];
-            } else if (eventType === 'message' && data) {
-              try {
-                const parsed = JSON.parse(data);
-                const waiter = waiters.shift();
-                if (waiter) waiter(parsed);
-                else pendingMessages.push(parsed);
-              } catch { /* non-JSON */ }
-            }
-          }
-        });
-
-        // Poll for sessionId, then resolve with the helper
-        const deadline = Date.now() + timeoutMs;
-        const poll = setInterval(() => {
-          if (sessionId) {
-            clearInterval(poll);
-            resolve({ callTool, listTools, close });
-          } else if (Date.now() > deadline) {
-            clearInterval(poll);
-            reject(new Error('MCP session did not receive endpoint event'));
-          }
-        }, 50);
-
-        async function postJsonRpc(body) {
-          return new Promise((res2, rej2) => {
-            const waiterTimeout = setTimeout(
-              () => rej2(new Error('MCP tool call timed out')), timeoutMs,
-            );
-            if (pendingMessages.length > 0) {
-              clearTimeout(waiterTimeout);
-              res2(pendingMessages.shift());
-              return;
-            }
-            waiters.push(msg => { clearTimeout(waiterTimeout); res2(msg); });
-
-            const postData = JSON.stringify(body);
-            const pr = http.request(
-              { host, port,
-                path: `/mcp/messages?sessionId=${sessionId}`,
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Content-Length': Buffer.byteLength(postData),
-                  Authorization: `Bearer ${token}`,
-                },
-              },
-              pres => {
-                let txt = '';
-                pres.setEncoding('utf8');
-                pres.on('data', c => { txt += c; });
-                pres.on('end', () => {
-                  if (pres.statusCode !== 202 && pres.statusCode !== 200) {
-                    clearTimeout(waiterTimeout);
-                    waiters.splice(waiters.indexOf(msg => { clearTimeout(waiterTimeout); res2(msg); }), 1);
-                    rej2(new Error(`MCP POST failed: ${pres.statusCode} ${txt}`));
-                  }
-                });
-              },
-            );
-            pr.on('error', rej2);
-            pr.write(postData);
-            pr.end();
-          });
-        }
-
-        async function callTool(name, args = {}) {
-          const rpc = await postJsonRpc(
-            { jsonrpc: '2.0', id: Date.now(), method: 'tools/call',
-              params: { name, arguments: args } },
-          );
-          return rpc?.result ?? rpc;
-        }
-
-        async function listTools() {
-          const rpc = await postJsonRpc(
-            { jsonrpc: '2.0', id: Date.now(), method: 'tools/list', params: {} },
-          );
-          return rpc?.result?.tools ?? rpc?.tools ?? [];
-        }
-
-        function close() { req.destroy(); }
-      },
-    );
-    req.on('error', reject);
-    req.end();
-  });
-}
+const openMcpSession = () => openSharedMcpSession(token);
+const postMcpHttp = async (body) => (await openSharedMcpSession(token)).postJsonRpc(body);
 
 // â”€â”€ Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-// ── Streamable HTTP MCP helper ───────────────────────────────────────────
-
-/**
- * Send a single JSON-RPC request via POST /mcp (Streamable HTTP transport).
- * Returns the parsed JSON-RPC response object.
- */
-async function postMcpHttp(body) {
-  const base = INSTANCES.a;
-  const parsed = new URL(base);
-  const host = parsed.hostname;
-  const port = parseInt(parsed.port || '80', 10);
-
-  return new Promise((resolve, reject) => {
-    const payload = JSON.stringify(body);
-    const req = http.request(
-      { host, port, path: '/mcp', method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(payload),
-          Accept: 'application/json, text/event-stream',
-          Authorization: `Bearer ${token}`,
-        },
-      },
-      (res) => {
-        let txt = '';
-        res.setEncoding('utf8');
-        res.on('data', c => { txt += c; });
-        res.on('end', () => {
-          if (res.statusCode < 200 || res.statusCode >= 300) {
-            reject(new Error(`POST /mcp failed: ${res.statusCode} ${txt}`));
-            return;
-          }
-          const contentType = String(res.headers['content-type'] ?? '');
-          try {
-            if (contentType.includes('application/json')) {
-              resolve(JSON.parse(txt));
-              return;
-            }
-            if (contentType.includes('text/event-stream')) {
-              const message = txt
-                .split('\n\n')
-                .map(part => part.trim())
-                .find(Boolean);
-              if (!message) throw new Error('Empty SSE response from POST /mcp');
-              const data = message
-                .split('\n')
-                .filter(line => line.startsWith('data:'))
-                .map(line => line.slice(5).trim())
-                .join('\n');
-              resolve(JSON.parse(data));
-              return;
-            }
-            throw new Error(`Unexpected content-type from POST /mcp: ${contentType}`);
-          } catch (err) {
-            const reason = err instanceof Error ? err.message : String(err);
-            reject(new Error(`Unsupported response from POST /mcp: ${contentType} ${reason} ${txt}`));
-          }
-        });
-      },
-    );
-    req.on('error', reject);
-    req.write(payload);
-    req.end();
-  });
-}
 
 
 describe('MCP tools', () => {
@@ -454,9 +271,15 @@ describe('MCP tools', () => {
   });
 });
 
-// ── Streamable HTTP transport tests ────────────────────────────────
+// ── Transport-level behaviour ────────────────────────────────────────────────
 
-describe('MCP Streamable HTTP transport (POST /mcp)', () => {
+/*
+ * This block was titled "MCP Streamable HTTP transport (POST /mcp)" while SSE was the transport the rest of
+ * the file used, and the title was the distinction. Every suite above speaks streamable HTTP now, so what is
+ * left here is what only this level can assert: the response SHAPE (a stateless JSON body rather than a
+ * stream frame) and a JSON-RPC error for a method the dispatcher does not know.
+ */
+describe('MCP transport-level behaviour (POST /mcp)', () => {
   before(async () => {
     token = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
   });

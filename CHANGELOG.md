@@ -353,6 +353,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Saving file metadata had no test at all, and now has four.** Nothing user-visible changes; this is the
+  last `filesApi` group in `G-3` being pinned before it moves. The rules: `entityIds` splits back out of the
+  comma-joined string with blanks dropped (a trailing comma would otherwise post an empty id), the
+  description is trimmed, a successful save re-seeds from the RESPONSE rather than from what was typed, it
+  leaves the edit face and reloads the DIRECTORY — tags and embedding status are shown on the list row, so a
+  save that skipped the reload would leave the row disagreeing with the pane — and a refused save keeps you
+  on the edit face with your text.
+
+  Re-seeding from the response is the one that would have gone unnoticed: the server normalises, so a version
+  that re-seeded from the model it had just sent shows what the user asked for instead of what exists, and
+  the difference only surfaces on a later reload.
+
+  Five mutants, and the fourth is worth recording: deleting the directory reload outright SURVIVED the first
+  version of that case, because the page lists the directory while it is constructing and the assertion
+  counted from zero rather than from a baseline. A count without a baseline cannot tell "it happened" from
+  "something else happened".
+
 - **The Extract face is its own store — `G-3`'s ninth cut.** Nothing user-visible changes. The three signals,
   the one request and the two paging rules moved to `file-extract.store.ts`; the page kept the two methods the
   template calls, because they are what resolve the space and the path, and threading those into the store

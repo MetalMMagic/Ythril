@@ -410,6 +410,28 @@ describe('FileManagerComponent — the extract tab (characterization for G-3)', 
 });
 
 describe('FileManagerComponent — the metadata edit model (characterization for G-3)', () => {
+  /** A component whose `updateFileMeta` is under the test's control, and whose directory reload is observable. */
+  function createWithSave(update: (s: string, p: string, body: any) => any, onList?: () => void) {
+    const api = {
+      ...makeApi(),
+      updateFileMeta: update,
+      listFiles: (...args: unknown[]) => { onList?.(); return (makeApi() as any).listFiles(...args); },
+    } as any;
+    TestBed.configureTestingModule({
+      imports: [FileManagerComponent, getTranslocoModule()],
+      providers: [
+        { provide: FilesApi, useValue: api },
+        { provide: SpacesApi, useValue: makeApi() },
+        { provide: BrainApi, useValue: makeApi() },
+        { provide: AuthService, useValue: { token: () => 't' } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => null } }, queryParamMap: of() } },
+      ],
+    });
+    const fixture = TestBed.createComponent(FileManagerComponent);
+    fixture.detectChanges();
+    return fixture.componentInstance as any;
+  }
+
   it('seeds every field from the record, and entityIds as a COMMA-JOINED STRING', () => {
     /*
      * The asymmetry is the behaviour. `tags`, `memoryIds` and `chronoIds` stay arrays; `entityIds` becomes a
@@ -449,6 +471,70 @@ describe('FileManagerComponent — the metadata edit model (characterization for
     expect(c.metaEditModel.description).toBe('saved');
     expect(c.metaError()).toBeNull();
     expect(c.detailMode()).toBe('preview');
+  });
+
+  it('SAVING splits entityIds back into an array, and trims the description', () => {
+    /*
+     * The other half of the asymmetry the seeding case describes. `entityIds` is a comma-joined STRING in the
+     * form because its control is free text, and it has to become an array again on the way out — with the
+     * blanks dropped, or a trailing comma posts an empty id. A rewrite that made all four fields the same
+     * shape breaks the round trip in one direction only, and only for entity references.
+     */
+    let sent: any = null;
+    const c = createWithSave((_s: string, _p: string, body: any) => { sent = body; return of({}); });
+    c.previewFile.set(file('doc.pdf'));
+    c.metaEditModel = { description: '  spaced  ', tags: ['t'], entityIds: 'e1, e2 ,, e3', memoryIds: [], chronoIds: [] };
+    c.saveMeta(file('doc.pdf'));
+    expect(sent.entityIds).toEqual(['e1', 'e2', 'e3']);
+    expect(sent.description).toBe('spaced');
+  });
+
+  it('a successful save re-seeds from the RESPONSE, not from what was typed', () => {
+    /*
+     * The server normalises — it may drop an id it cannot resolve, or return the description it actually
+     * stored. Re-seeding from the model that was just sent looks identical on screen and is wrong: the form
+     * then shows what the user asked for rather than what exists, and the difference only surfaces on a
+     * reload, by which time nobody connects the two.
+     */
+    const c = createWithSave(() => of({ description: 'as stored', tags: ['kept'], entityIds: ['e1'], memoryIds: [], chronoIds: [] }));
+    c.previewFile.set(file('doc.pdf'));
+    c.metaEditModel = { description: 'as typed', tags: ['dropped'], entityIds: 'e1,e2', memoryIds: [], chronoIds: [] };
+    c.saveMeta(file('doc.pdf'));
+    expect(c.metaEditModel.description).toBe('as stored');
+    expect(c.metaEditModel.tags).toEqual(['kept']);
+    expect(c.metaEditModel.entityIds).toBe('e1');
+  });
+
+  it('and it leaves the edit face, clears the spinner, and reloads the DIRECTORY', () => {
+    // The reload is the part that is easy to drop: tags and embedding status are shown on the list ROW, so a
+    // save that did not reload would leave the row disagreeing with the pane until something else refreshed.
+    let listed = 0;
+    const c = createWithSave(() => of({}), () => { listed += 1; });
+    c.previewFile.set(file('doc.pdf'));
+    c.detailMode.set('meta');
+
+    // From a BASELINE, not from zero. The page lists the directory while it is constructing, so
+    // `listed > 0` was true whether or not the save reloaded anything — the first version of this case
+    // survived deleting the reload outright, which is the failure a count without a baseline always has.
+    const before = listed;
+    c.saveMeta(file('doc.pdf'));
+    expect(c.detailMode()).toBe('preview');
+    expect(c.metaSaving()).toBe(false);
+    expect(listed).toBe(before + 1);
+  });
+
+  it('a REFUSED save keeps you on the edit face with what you typed', () => {
+    // The opposite of the success path, and the reason it is asserted separately: dropping the user back to
+    // the preview on failure loses the edit, and the toast is gone by the time they notice.
+    const c = createWithSave(() => throwError(() => ({ status: 500 })));
+    c.previewFile.set(file('doc.pdf'));
+    c.detailMode.set('meta');
+    c.metaEditModel = { description: 'kept', tags: [], entityIds: '', memoryIds: [], chronoIds: [] };
+    c.saveMeta(file('doc.pdf'));
+    expect(c.detailMode()).toBe('meta');
+    expect(c.metaError()).toBeTruthy();
+    expect(c.metaSaving()).toBe(false);
+    expect(c.metaEditModel.description).toBe('kept');
   });
 
   it('opening the edit face re-seeds too, so a previous cancel cannot leak into it', () => {

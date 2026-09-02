@@ -222,17 +222,17 @@ describe('FileManagerComponent — the preview object URL (characterization for 
      */
     const spy = withRevokeSpy();
     const c = create();
-    c.previewUrl.bindIfCurrent('blob:fake', () => true);
+    c.preview.objectUrl.bindIfCurrent('blob:fake', () => true);
     c.closePreview();
     expect(spy.calls).toEqual(['blob:fake']);
-    expect(c.previewUrl.value).toBeNull();
+    expect(c.preview.objectUrl.value).toBeNull();
     spy.restore();
   });
 
   it('closing twice revokes once — the second call has nothing to release', () => {
     const spy = withRevokeSpy();
     const c = create();
-    c.previewUrl.bindIfCurrent('blob:fake', () => true);
+    c.preview.objectUrl.bindIfCurrent('blob:fake', () => true);
     c.closePreview();
     c.closePreview();
     expect(spy.calls).toHaveLength(1);
@@ -242,7 +242,7 @@ describe('FileManagerComponent — the preview object URL (characterization for 
   it('closing with no preview open revokes nothing rather than throwing', () => {
     const spy = withRevokeSpy();
     const c = create();
-    c.previewUrl.release();
+    c.preview.objectUrl.release();
     expect(() => c.closePreview()).not.toThrow();
     expect(spy.calls).toEqual([]);
     spy.restore();
@@ -256,7 +256,7 @@ describe('FileManagerComponent — the preview object URL (characterization for 
      */
     const spy = withRevokeSpy();
     const c = create();
-    c.previewUrl.bindIfCurrent('blob:on-destroy', () => true);
+    c.preview.objectUrl.bindIfCurrent('blob:on-destroy', () => true);
     c.ngOnDestroy();
     expect(spy.calls).toEqual(['blob:on-destroy']);
     spy.restore();
@@ -270,7 +270,7 @@ describe('FileManagerComponent — the preview object URL (characterization for 
      */
     const spy = withRevokeSpy();
     const c = create();
-    c.previewUrl.bindIfCurrent('blob:first', () => true);
+    c.preview.objectUrl.bindIfCurrent('blob:first', () => true);
     c.openPreview(file('second.txt'));
     expect(spy.calls).toEqual(['blob:first']);
     spy.restore();
@@ -285,7 +285,7 @@ describe('FileManagerComponent — the preview object URL (characterization for 
      * `_previewObjectUrl = urlA`, B resolves and assigns `urlB`. `urlA` is now unreachable and never
      * revoked — and between the two resolutions, A's image is displayed under B's name.
      *
-     * The xlsx branch already guards exactly this: `if (this.previewFile()?.name !== entry.name) return;
+     * The xlsx branch already guards exactly this: `if (this.preview.file()?.name !== entry.name) return;
      * // fast arrow-nav moved on`. The image and PDF branch — the only one that allocates a resource — did
      * not have it. One rule, two implementations, and the weaker one on the path where being wrong costs
      * more than a stale table.
@@ -295,18 +295,18 @@ describe('FileManagerComponent — the preview object URL (characterization for 
      */
     const spy = withRevokeSpy();
     const c = create();
-    c.previewFile.set(file('b.png'));
+    c.preview.file.set(file('b.png'));
 
     // A's fetch comes back after the selection moved to B.
-    c.applyPreviewBlobUrl(file('a.png'), 'image', 'blob:stale-a');
-    expect(c.previewMediaUrl()).toBe('');
+    c.preview.bindBlobUrl(file('a.png'), 'image', 'blob:stale-a');
+    expect(c.preview.mediaUrl()).toBe('');
     expect(spy.calls).toEqual(['blob:stale-a']);
-    expect(c.previewUrl.value).toBeNull();
+    expect(c.preview.objectUrl.value).toBeNull();
 
     // And B's own response is still applied.
-    c.applyPreviewBlobUrl(file('b.png'), 'image', 'blob:live-b');
-    expect(c.previewMediaUrl()).toBe('blob:live-b');
-    expect(c.previewUrl.value).toBe('blob:live-b');
+    c.preview.bindBlobUrl(file('b.png'), 'image', 'blob:live-b');
+    expect(c.preview.mediaUrl()).toBe('blob:live-b');
+    expect(c.preview.objectUrl.value).toBe('blob:live-b');
 
     // Released before the spy is, or TestBed's own teardown calls the REAL `revokeObjectURL` on a blob URL
     // that was never created — which fails the case during CLEANUP, with every assertion above green.
@@ -317,9 +317,9 @@ describe('FileManagerComponent — the preview object URL (characterization for 
   it('closing clears the open file as well as the URL', () => {
     const spy = withRevokeSpy();
     const c = create();
-    c.previewFile.set(file('x'));
+    c.preview.file.set(file('x'));
     c.closePreview();
-    expect(c.previewFile()).toBeNull();
+    expect(c.preview.file()).toBeNull();
     spy.restore();
   });
 });
@@ -390,7 +390,7 @@ describe('FileManagerComponent — the extract tab (characterization for G-3)', 
     // Lazily, and only when there is nothing to show: the extract is a diagnostic and the request is not
     // cheap. A rewrite that fetched on every `showExtractMode` would look identical on screen.
     const { c, api } = withExtract([page(['a'])]);
-    c.previewFile.set(file('doc.pdf'));
+    c.preview.file.set(file('doc.pdf'));
     c.showExtractMode();
     c.showExtractMode();
     c.showExtractMode();
@@ -482,7 +482,7 @@ describe('FileManagerComponent — the metadata edit model (characterization for
      */
     let sent: any = null;
     const c = createWithSave((_s: string, _p: string, body: any) => { sent = body; return of({}); });
-    c.previewFile.set(file('doc.pdf'));
+    c.preview.file.set(file('doc.pdf'));
     c.metaStore.model = { description: '  spaced  ', tags: ['t'], entityIds: 'e1, e2 ,, e3', memoryIds: [], chronoIds: [] };
     c.saveMeta(file('doc.pdf'));
     expect(sent.entityIds).toEqual(['e1', 'e2', 'e3']);
@@ -497,7 +497,7 @@ describe('FileManagerComponent — the metadata edit model (characterization for
      * reload, by which time nobody connects the two.
      */
     const c = createWithSave(() => of({ description: 'as stored', tags: ['kept'], entityIds: ['e1'], memoryIds: [], chronoIds: [] }));
-    c.previewFile.set(file('doc.pdf'));
+    c.preview.file.set(file('doc.pdf'));
     c.metaStore.model = { description: 'as typed', tags: ['dropped'], entityIds: 'e1,e2', memoryIds: [], chronoIds: [] };
     c.saveMeta(file('doc.pdf'));
     expect(c.metaStore.model.description).toBe('as stored');
@@ -510,7 +510,7 @@ describe('FileManagerComponent — the metadata edit model (characterization for
     // save that did not reload would leave the row disagreeing with the pane until something else refreshed.
     let listed = 0;
     const c = createWithSave(() => of({}), () => { listed += 1; });
-    c.previewFile.set(file('doc.pdf'));
+    c.preview.file.set(file('doc.pdf'));
     c.detailMode.set('meta');
 
     // From a BASELINE, not from zero. The page lists the directory while it is constructing, so
@@ -527,7 +527,7 @@ describe('FileManagerComponent — the metadata edit model (characterization for
     // The opposite of the success path, and the reason it is asserted separately: dropping the user back to
     // the preview on failure loses the edit, and the toast is gone by the time they notice.
     const c = createWithSave(() => throwError(() => ({ status: 500 })));
-    c.previewFile.set(file('doc.pdf'));
+    c.preview.file.set(file('doc.pdf'));
     c.detailMode.set('meta');
     c.metaStore.model = { description: 'kept', tags: [], entityIds: '', memoryIds: [], chronoIds: [] };
     c.saveMeta(file('doc.pdf'));
@@ -1290,7 +1290,7 @@ describe('FileManagerComponent — what a preview decides (characterization for 
         TestBed.resetTestingModule();
         const c = create();
         c.openPreview(file(name));
-        expect(c.previewKind(), name).toBe(kind);
+        expect(c.preview.kind(), name).toBe(kind);
       }
     } finally {
       f.restore();
@@ -1341,9 +1341,9 @@ describe('FileManagerComponent — what a preview decides (characterization for 
       // There is no fourth branch, and that is deliberate rather than missing: the pane offers a download
       // instead. A spinner left spinning is indistinguishable from a request that never came back.
       expect(f.urls).toEqual([]);
-      expect(c.previewLoading()).toBe(false);
-      expect(c.previewError()).toBeNull();
-      expect(c.previewFile()?.name).toBe('archive.zip');
+      expect(c.preview.loading()).toBe(false);
+      expect(c.preview.error()).toBeNull();
+      expect(c.preview.file()?.name).toBe('archive.zip');
     } finally {
       f.restore();
     }
@@ -1369,7 +1369,7 @@ describe('FileManagerComponent — what a preview decides (characterization for 
       try {
         const c = create();
         c.openPreview(file(name));
-        expect(c.previewLoading()).toBe(true);
+        expect(c.preview.loading()).toBe(true);
 
         // Two microtask turns: the `!r.ok` throw happens in the first `.then`, the `.catch` runs after it.
         await Promise.resolve();
@@ -1378,8 +1378,8 @@ describe('FileManagerComponent — what a preview decides (characterization for 
 
         // A blank pane is the failure mode this replaces — the user cannot tell a forbidden file from an
         // empty one, and there is nothing on screen to retry or report.
-        expect(c.previewError()).toBeTruthy();
-        expect(c.previewLoading()).toBe(false);
+        expect(c.preview.error()).toBeTruthy();
+        expect(c.preview.loading()).toBe(false);
       } finally {
         f.restore();
       }
@@ -1389,12 +1389,12 @@ describe('FileManagerComponent — what a preview decides (characterization for 
   it('a markdown response that resolves LATE does not land on the file that is open now', async () => {
     /*
      * The same race the object-URL block pins for images, on the branch that does not allocate anything.
-     * `renderMarkdown` awaits mermaid, so arrowing past two `.md` files gives: start A, start B, A resolves
+     * Rendering markdown awaits mermaid, so arrowing past two `.md` files gives: start A, start B, A resolves
      * and sets the HTML, B resolves and sets its own. Between the two, A's rendered document is displayed
      * under B's name — and if B is the smaller document, it stays that way until something else re-renders.
      *
      * Driven by resolving A's fetch after `previewFile` has already moved to B, which is what the guard
-     * `this.previewFile()?.name !== entry.name` actually reads.
+     * `this.preview.file()?.name !== entry.name` actually reads.
      */
     let release: ((r: unknown) => void) | null = null;
     const f = withFetch(() => new Promise(res => { release = res; }));
@@ -1402,12 +1402,12 @@ describe('FileManagerComponent — what a preview decides (characterization for 
       const c = create();
       c.openPreview(file('a.md'));
       // The selection moves on while A's fetch is still open.
-      c.previewFile.set(file('b.md'));
+      c.preview.file.set(file('b.md'));
 
       release!(okResponse({ text: '# A' }));
       for (let i = 0; i < 8; i++) await Promise.resolve();
 
-      expect(c.previewHtml()).toBe('');
+      expect(c.preview.html()).toBe('');
     } finally {
       f.restore();
     }
@@ -1432,19 +1432,19 @@ describe('FileManagerComponent — what a preview decides (characterization for 
       const c = create();
       c.openPreview(file('big.ts'));
       c.openPreview(file('small.ts'));
-      expect(c.previewFile()?.name).toBe('small.ts');
+      expect(c.preview.file()?.name).toBe('small.ts');
 
       // B comes back first and is correct.
       resolvers[1](okResponse({ text: 'the small one' }));
       for (let i = 0; i < 8; i++) await Promise.resolve();
-      expect(c.previewHtml()).toContain('the small one');
+      expect(c.preview.html()).toContain('the small one');
 
       // Then A's response arrives, for a file nobody is looking at any more.
       resolvers[0](okResponse({ text: 'the big one' }));
       for (let i = 0; i < 8; i++) await Promise.resolve();
 
-      expect(c.previewHtml()).toContain('the small one');
-      expect(c.previewHtml()).not.toContain('the big one');
+      expect(c.preview.html()).toContain('the small one');
+      expect(c.preview.html()).not.toContain('the big one');
     } finally {
       f.restore();
     }
@@ -1463,13 +1463,13 @@ describe('FileManagerComponent — what a preview decides (characterization for 
       const c = create();
       c.openPreview(file('a.png'));
       c.openPreview(file('b.png'));
-      expect(c.previewLoading()).toBe(true);
+      expect(c.preview.loading()).toBe(true);
 
       resolvers[0](okResponse({ blob: {} }));   // A's response, for a file nobody is looking at
       for (let i = 0; i < 8; i++) await Promise.resolve();
 
       // B's fetch is still open. The spinner is B's, and A has no business ending it.
-      expect(c.previewLoading()).toBe(true);
+      expect(c.preview.loading()).toBe(true);
     } finally {
       f.restore();
     }
@@ -1491,14 +1491,14 @@ describe('FileManagerComponent — what a preview decides (characterization for 
       resolvers[0]({ ok: false, status: 403, text: () => Promise.resolve('') });
       for (let i = 0; i < 8; i++) await Promise.resolve();
 
-      expect(c.previewError()).toBeNull();
-      expect(c.previewLoading()).toBe(true);   // still fine.md's fetch
+      expect(c.preview.error()).toBeNull();
+      expect(c.preview.loading()).toBe(true);   // still fine.md's fetch
 
       // And the CURRENT file's own failure is still reported.
       resolvers[1]({ ok: false, status: 500, text: () => Promise.resolve('') });
       for (let i = 0; i < 8; i++) await Promise.resolve();
-      expect(c.previewError()).toBeTruthy();
-      expect(c.previewLoading()).toBe(false);
+      expect(c.preview.error()).toBeTruthy();
+      expect(c.preview.loading()).toBe(false);
     } finally {
       f.restore();
     }
@@ -1530,7 +1530,7 @@ describe('FileManagerComponent — what a preview decides (characterization for 
       resolvers[1](okResponse({ blob: {} }));
       for (let i = 0; i < 8; i++) await Promise.resolve();
       expect(created).toBe(1);
-      expect(c.previewMediaUrl()).toBe('blob:made-1');
+      expect(c.preview.mediaUrl()).toBe('blob:made-1');
     } finally {
       f.restore();
       // The object-URL stubs STAY: jsdom implements neither half, and the fixture teardown releases the
@@ -1541,16 +1541,16 @@ describe('FileManagerComponent — what a preview decides (characterization for 
 
   it('previewModel is null with nothing open, and reports loading and error rather than leaving them to the child', () => {
     const c = create();
-    expect(c.previewModel()).toBeNull();
+    expect(c.preview.model()).toBeNull();
 
-    c.previewFile.set(file('doc.md'));
-    c.previewKind.set('markdown');
-    c.previewLoading.set(true);
-    expect(c.previewModel()).toMatchObject({ loading: true, error: null, kind: 'markdown' });
+    c.preview.file.set(file('doc.md'));
+    c.preview.kind.set('markdown');
+    c.preview.loading.set(true);
+    expect(c.preview.model()).toMatchObject({ loading: true, error: null, kind: 'markdown' });
 
-    c.previewLoading.set(false);
-    c.previewError.set('403 Forbidden');
-    const m = c.previewModel();
+    c.preview.loading.set(false);
+    c.preview.error.set('403 Forbidden');
+    const m = c.preview.model();
     // Both are present on the one object. The child is given the answer instead of the flags to derive it
     // from, which is what stops "loading" and "error" ever being true at once on screen.
     expect(m.loading).toBe(false);
@@ -1580,7 +1580,7 @@ describe('FileManagerComponent — what a preview decides (characterization for 
     const buf = await wb.xlsx.writeBuffer();
 
     const c = create();
-    const table = await c.renderXlsx(buf as ArrayBuffer);
+    const table = await c.preview.parseXlsx(buf as ArrayBuffer);
 
     expect(table.rows[0][0]).toBe('3');          // the cached result, not the formula source
     expect(table.rows[0][1]).toBe('Ythril');     // the label, not the URL

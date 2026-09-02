@@ -179,7 +179,7 @@ const FROZEN = {
   //
   // DECOMPOSE: G-3 stays open — the preview's object URL, the extract tab and the file-meta editor are the
   // three groups left, and each is a store of the same shape.
-  'client/src/app/pages/files/file-manager.component.ts': 939,
+  'client/src/app/pages/files/file-manager.component.ts': 764,
   'client/src/app/pages/schema-library/schema-library.component.ts': 1112,
   'server/src/sync/engine.ts': 966,
   // 958 -> 684: the per-type editor body moved into `schema-type-editor.component` so the Brain Overview

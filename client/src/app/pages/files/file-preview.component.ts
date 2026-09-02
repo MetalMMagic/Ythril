@@ -15,8 +15,17 @@ import { formatSize } from './file-format';
  */
 export type PreviewKind = 'text' | 'markdown' | 'image' | 'pdf' | 'xlsx' | 'unknown';
 
+/**
+ * The note above a capped spreadsheet grid, as a translation KEY rather than a sentence.
+ *
+ * The parse is what knows the numbers and it happens in a store, and no store on this page holds
+ * translations — the wording of anything a person reads belongs to the renderer, which is this file. So the
+ * facts travel and the words are made here. Same rule as the listing store failure KEYS, from the other end.
+ */
+export interface XlsxNote { key: string; params?: Record<string, unknown>; }
+
 /** A parsed spreadsheet preview: the first sheet as a capped grid, with a note when truncated. */
-export interface XlsxPreview { sheet: string; header: string[]; rows: string[][]; note: string | null; }
+export interface XlsxPreview { sheet: string; header: string[]; rows: string[][]; note: XlsxNote | null; }
 
 /**
  * Everything this component needs, as ONE input.
@@ -79,7 +88,7 @@ export interface FilePreview {
           @case ('pdf') { <iframe [src]="p.safeUrl"></iframe> }
           @case ('xlsx') {
             @if (p.table; as t) {
-              @if (t.note) { <div class="xlsx-note">{{ t.note }}</div> }
+              @if (t.note) { <div class="xlsx-note">{{ t.note.key | transloco: t.note.params }}</div> }
               <div class="xlsx-wrap">
                 <table class="xlsx-grid">
                   @if (t.header.length) {

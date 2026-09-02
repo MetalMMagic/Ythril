@@ -1,9 +1,9 @@
-import { PreviewObjectUrl } from './preview-object-url';
 import { FileExtractStore } from './file-extract.store';
 import { FileMetaStore } from './file-meta.store';
 import { FileUploadStore } from './file-upload.store';
+import { FilePreviewStore } from './file-preview.store';
 import { ChangeDetectionStrategy, Component, inject, signal, computed, effect, untracked, OnInit, OnDestroy, HostListener, ElementRef, viewChild, Input, Output, EventEmitter } from '@angular/core';
-import { FilePreviewComponent, type FilePreview, type PreviewKind, type XlsxPreview } from './file-preview.component';
+import { FilePreviewComponent } from './file-preview.component';
 import { UploadQueueComponent, type UploadItem, type UploadStatus } from './upload-queue.component';
 import { FileMetaEditorComponent, type FileMetaModel } from './file-meta-editor.component';
 import { FileExtractViewComponent } from './file-extract-view.component';
@@ -15,7 +15,6 @@ import { FileListingStore, LISTING_FAILURE_KEYS } from './file-listing.store';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
-import { DomSanitizer, SafeResourceUrl, SafeHtml } from '@angular/platform-browser';
 import { Space, FileEntry, FileMeta, FileExtract, UploadProgress } from '../../core/api.types';
 import { SpacesApi } from '../../core/spaces-api.service';
 import { AuthService } from '../../core/auth.service';
@@ -26,98 +25,16 @@ import { ToastService } from '../../core/toast.service';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 import { ErrorStateComponent } from '../../shared/error-state.component';
 import { httpErrorReason } from '../../core/http-error';
-import { MarkdownRenderService } from '../../shared/markdown-render.service';
 // The docked detail pane reuses the Brain's file-metadata edit fields. These are dumb, shared
 // ref-field widgets; they resolve chip labels via EntityRefPicker, which the Brain provides — so the
 // "File meta" edit mode is available only when embedded in the Brain (embeddedSpaceId set).
 import { EntityRefPicker } from '../brain/entity-ref-picker.service';
 import { BrainStore } from '../brain/brain-store.service';
-import hljs from 'highlight.js/lib/core';
-import javascript from 'highlight.js/lib/languages/javascript';
-import typescript from 'highlight.js/lib/languages/typescript';
-import json from 'highlight.js/lib/languages/json';
-import yaml from 'highlight.js/lib/languages/yaml';
-import xml from 'highlight.js/lib/languages/xml';
-import css from 'highlight.js/lib/languages/css';
-import markdown from 'highlight.js/lib/languages/markdown';
-import python from 'highlight.js/lib/languages/python';
-import bash from 'highlight.js/lib/languages/bash';
-import plaintext from 'highlight.js/lib/languages/plaintext';
 import { ModalDirective } from '../../shared/modal.directive';
-
-hljs.registerLanguage('javascript', javascript);
-hljs.registerLanguage('typescript', typescript);
-hljs.registerLanguage('json', json);
-hljs.registerLanguage('yaml', yaml);
-hljs.registerLanguage('xml', xml);
-hljs.registerLanguage('css', css);
-hljs.registerLanguage('markdown', markdown);
-hljs.registerLanguage('python', python);
-hljs.registerLanguage('bash', bash);
-hljs.registerLanguage('plaintext', plaintext);
 
 interface BreadcrumbSegment { label: string; path: string; }
 
 
-
-/** A parsed spreadsheet preview: the first sheet as a capped grid, with a note when truncated. */
-const XLSX_MAX_ROWS = 200;
-const XLSX_MAX_COLS = 40;
-
-
-
-const TEXT_EXTS = new Set([
-  '.txt', '.json', '.yaml', '.yml', '.ts', '.js', '.py', '.sh',
-  '.csv', '.xml', '.html', '.css', '.log', '.env', '.toml',
-]);
-// Markdown renders formatted (via marked) rather than as highlighted source.
-const MARKDOWN_EXTS = new Set(['.md', '.markdown']);
-const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp']);
-const PDF_EXTS = new Set(['.pdf']);
-// exceljs reads the OOXML formats (.xlsx/.xlsm), not the legacy binary .xls — don't promise what won't parse.
-const XLSX_EXTS = new Set(['.xlsx', '.xlsm']);
-
-const EXT_LANG: Record<string, string> = {
-  '.js': 'javascript', '.ts': 'typescript', '.json': 'json',
-  '.yaml': 'yaml', '.yml': 'yaml', '.xml': 'xml', '.html': 'xml',
-  '.css': 'css', '.md': 'markdown', '.py': 'python',
-  '.sh': 'bash', '.bash': 'bash',
-};
-
-function extOf(name: string): string {
-  const i = name.lastIndexOf('.');
-  return i > 0 ? name.slice(i).toLowerCase() : '';
-}
-
-function previewKind(name: string): PreviewKind {
-  const ext = extOf(name);
-  if (MARKDOWN_EXTS.has(ext)) return 'markdown';
-  if (TEXT_EXTS.has(ext)) return 'text';
-  if (IMAGE_EXTS.has(ext)) return 'image';
-  if (PDF_EXTS.has(ext)) return 'pdf';
-  if (XLSX_EXTS.has(ext)) return 'xlsx';
-  return 'unknown';
-}
-
-const HTML_ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, c => HTML_ESCAPES[c]);
-}
-
-/** Coerce an exceljs cell value (string | number | Date | formula | richText | hyperlink | error) to display text. */
-function xlsxCellText(v: unknown): string {
-  if (v == null) return '';
-  if (v instanceof Date) return v.toLocaleDateString();
-  if (typeof v === 'object') {
-    const o = v as Record<string, unknown>;
-    if (Array.isArray(o['richText'])) return (o['richText'] as Array<{ text?: string }>).map(t => t.text ?? '').join('');
-    if ('result' in o) return o['result'] == null ? '' : String(o['result']);   // formula → computed result
-    if ('text' in o) return String(o['text']);                                   // hyperlink label
-    if ('error' in o) return String(o['error']);
-    return '';
-  }
-  return String(v);
-}
 
 @Component({
   selector: 'app-file-manager',
@@ -134,7 +51,7 @@ function xlsxCellText(v: unknown): string {
    * carry one space's directories into the next — and leaving the page must forget them, which a page-scoped
    * provider does for free.
    */
-  providers: [FileTreeStore, FileListingStore, FileExtractStore, FileMetaStore, FileUploadStore],
+  providers: [FileTreeStore, FileListingStore, FileExtractStore, FileMetaStore, FileUploadStore, FilePreviewStore],
   imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe, ErrorStateComponent, ModalDirective, FilePreviewComponent, UploadQueueComponent, FileMetaEditorComponent, FileExtractViewComponent, FileListingComponent, FileTreeComponent],
   styles: [`
     /* A background refresh, as a 2px indeterminate hairline above the table. Deliberately NOT a spinner and
@@ -420,7 +337,7 @@ function xlsxCellText(v: unknown): string {
 
           <!-- Docked detail pane: preview + description ⇄ file-meta record (the merged File Meta view).
                The list runs full width until a file is opened; opening one adds this column. -->
-          @if (previewFile(); as pf) {
+          @if (preview.file(); as pf) {
             <div class="fm-detail" tabindex="0" #detailPane>
               <div class="detail-header">
                 @if (embeddedSpaceId) {
@@ -444,10 +361,10 @@ function xlsxCellText(v: unknown): string {
                 @if (detailMode() === 'preview' || !embeddedSpaceId) {
                   <div class="preview-body">
                     <!-- Full-screen toggle: shown once there's rendered content (not while loading / on error). -->
-                    @if (!previewLoading() && previewError() === null && previewKind() !== 'unknown') {
-                      <button class="btn-ghost btn btn-sm preview-fs-btn" type="button" (click)="previewFullscreen.set(true)" [attr.title]="'files.preview.fullscreen' | transloco" [attr.aria-label]="'files.preview.fullscreen' | transloco"><ph-icon name="corners-out" [size]="16"/></button>
+                    @if (!preview.loading() && preview.error() === null && preview.kind() !== 'unknown') {
+                      <button class="btn-ghost btn btn-sm preview-fs-btn" type="button" (click)="preview.fullscreen.set(true)" [attr.title]="'files.preview.fullscreen' | transloco" [attr.aria-label]="'files.preview.fullscreen' | transloco"><ph-icon name="corners-out" [size]="16"/></button>
                     }
-                    <app-file-preview [preview]="previewModel()" />
+                    <app-file-preview [preview]="preview.model()" />
                   </div>
                   @if (metaStore.selectedMeta()?.description) {
                     <div class="detail-desc">
@@ -505,14 +422,14 @@ function xlsxCellText(v: unknown): string {
          invisible. The fsOverlay template ref that used to sit here was never referenced from TypeScript —
          evidence that focus had been thought about and never wired.
          No backdrop dismissal: this overlay IS the backdrop, and Escape or the close button already dismiss it. -->
-    @if (previewFullscreen() && previewFile(); as pf) {
+    @if (preview.fullscreen() && preview.file(); as pf) {
       <div class="preview-fs-overlay" tabindex="0" [appModal]="'files.preview.fullscreenDialog' | transloco">
         <div class="preview-fs-bar">
           <span class="file-title" [title]="pf.name">{{ pf.name }}</span>
-          <button class="icon-btn" (click)="previewFullscreen.set(false)" [attr.aria-label]="'files.preview.exitFullscreen' | transloco"><ph-icon name="x" [size]="18"/></button>
+          <button class="icon-btn" (click)="preview.fullscreen.set(false)" [attr.aria-label]="'files.preview.exitFullscreen' | transloco"><ph-icon name="x" [size]="18"/></button>
         </div>
         <div class="preview-fs-body preview-body">
-          <app-file-preview [preview]="previewModel()" />
+          <app-file-preview [preview]="preview.model()" />
         </div>
       </div>
     }
@@ -521,11 +438,9 @@ function xlsxCellText(v: unknown): string {
 export class FileManagerComponent implements OnInit, OnDestroy {
   private spacesApi = inject(SpacesApi);
   private auth = inject(AuthService);
-  private sanitizer = inject(DomSanitizer);
   private route = inject(ActivatedRoute);
   private transloco = inject(TranslocoService);
   private toast = inject(ToastService);
-  private markdown = inject(MarkdownRenderService);
   private confirmDialog = inject(ConfirmDialogService);
   private detailPaneRef = viewChild<ElementRef<HTMLDivElement>>('detailPane');
   // Brain-provided (only present when embedded in the Brain). Optional so the standalone /files route,
@@ -731,46 +646,8 @@ export class FileManagerComponent implements OnInit, OnDestroy {
 
   breadcrumbs = signal<BreadcrumbSegment[]>([{ label: 'root', path: '/' }]);
 
-  // ── Preview state ────────────────────────────────────────────────────────
-  previewFile = signal<FileEntry | null>(null);
-  previewKind = signal<PreviewKind>('unknown');
-  // A string for highlighted source (Angular sanitizes on bind); a trusted SafeHtml for rendered markdown
-  // (we sanitize with DOMPurify first, because it may contain inlined mermaid SVG that Angular would strip).
-  previewHtml = signal<string | SafeHtml>('');
-  previewLoading = signal(false);
-  previewMediaUrl = signal('');
-  previewSafeUrl = signal<SafeResourceUrl>('');
-  /** Set when preview fetch fails (e.g. auth/404) so we show a reason, not a blank pane. */
-  previewError = signal<string | null>(null);
-  /** Parsed spreadsheet preview (first sheet, capped) when previewKind is 'xlsx'. */
-  previewTable = signal<XlsxPreview | null>(null);
-
-  /**
-   * The eight preview signals as the one object the renderer takes.
-   *
-   * Computed here rather than passed as eight inputs: the states are mutually exclusive and saying so once, in
-   * a place that can see all of them, is what stops the child re-deriving "am I loading or erroring" from
-   * flags it receives separately. Null when nothing is open, which is the child's own empty case.
-   */
-  previewModel = computed<FilePreview | null>(() => {
-    const file = this.previewFile();
-    if (!file) return null;
-    return {
-      file,
-      loading: this.previewLoading(),
-      error: this.previewError(),
-      kind: this.previewKind(),
-      html: this.previewHtml(),
-      mediaUrl: this.previewMediaUrl(),
-      safeUrl: this.previewSafeUrl(),
-      table: this.previewTable(),
-    };
-  });
-  /** Blob object URL backing the current image/PDF preview; revoked on close/next. */
-  /** The preview's blob URL and its lifetime — see `preview-object-url.ts` for why it owns itself. */
-  readonly previewUrl = new PreviewObjectUrl();
-  /** True while the preview is expanded to a full-screen overlay (Escape collapses it first). */
-  previewFullscreen = signal(false);
+  /** The docked preview: its state, its renderers and its one fetch — see `file-preview.store.ts`. */
+  readonly preview = inject(FilePreviewStore);
 
   // ── Docked detail-pane state (preview+description ⇄ file-meta record) ──────
   /** Which face of the detail pane is showing. Meta editing is only reachable when embedded. */
@@ -799,7 +676,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   /** Switch to the Extract face, fetching the first time it is opened rather than on every file open. */
   showExtractMode(): void {
     this.detailMode.set('extract');
-    const pf = this.previewFile();
+    const pf = this.preview.file();
     if (pf && this.extractStore.hasNothing()) this.loadExtract(pf);
   }
 
@@ -955,7 +832,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
         // The open file's own record goes stale in exactly the same way: the description a document gets
         // is written when its job finishes, so a detail pane opened during processing showed none until
         // the file was closed and reopened.
-        const open = this.previewFile();
+        const open = this.preview.file();
         if (open) this.loadSelectedMeta(open);
       }, FileManagerComponent.PROGRESS_POLL_MS);
     } else {
@@ -1164,51 +1041,14 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   // ── Preview ──────────────────────────────────────────────────────────────
 
   openPreview(entry: FileEntry): void {
-    const kind = previewKind(entry.name);
-    this.previewFile.set(entry);
-    this.previewKind.set(kind);
-    this.previewHtml.set('');
-    this.previewError.set(null);
-    this.previewUrl.release();
-    this.previewMediaUrl.set('');
-    this.previewSafeUrl.set('');
-    this.previewTable.set(null);
     // Selecting a file always shows the preview face first; the meta record loads alongside so the
     // description shows here and the (embedded-only) edit form is ready when the toggle is used.
     this.detailMode.set('preview');
-    this.previewFullscreen.set(false);
     // The previous file's extract must not survive into this one — it is fetched lazily, so a stale value
     // here would show one file's chunks under another file's name until the tab was opened again.
     this.extractStore.clear();
     this.loadSelectedMeta(entry);
-
-    // Every preview fetch must carry the auth header — the file endpoint requires it,
-    // and a browser-native <img src>/<iframe src> can't send one (that regressed image
-    // and PDF previews when the ?token= fallback was scoped to SSE-only, #134). So we
-    // fetch with the token and hand the view a same-origin blob: object URL instead.
-    if (kind === 'text') {
-      this.fetchPreview(entry,
-        async r => hljs.highlight(await r.text(), { language: EXT_LANG[extOf(entry.name)] ?? 'plaintext' }).value,
-        html => this.previewHtml.set(html));
-    } else if (kind === 'markdown') {
-      // marked → HTML, with any ```mermaid fences rendered to inline SVG; the whole thing is sanitized
-      // with DOMPurify and marked trusted (Angular's own sanitizer would strip the SVG).
-      this.fetchPreview(entry,
-        async r => this.sanitizer.bypassSecurityTrustHtml(await this.renderMarkdown(await r.text())),
-        html => this.previewHtml.set(html));
-    } else if (kind === 'image' || kind === 'pdf') {
-      // The object URL is allocated in `show`, not while producing: created before the staleness check it
-      // would be created for a file nobody is looking at, and dropping it there is the leak this page had.
-      this.fetchPreview(entry,
-        r => r.blob(),
-        blob => this.applyPreviewBlobUrl(entry, kind, URL.createObjectURL(blob)));
-    } else if (kind === 'xlsx') {
-      this.fetchPreview(entry,
-        async r => this.renderXlsx(await r.arrayBuffer()),
-        table => this.previewTable.set(table));
-    }
-    // No fourth branch, deliberately: an unknown type offers a download and never starts a request, so it
-    // shows the pane with no spinner. A spinner left spinning cannot be told from a request that hung.
+    this.preview.open(entry, this.fileApiUrl(entry));
 
     document.addEventListener('keydown', this._keyHandler);
     setTimeout(() => this.detailPaneRef()?.nativeElement?.focus());
@@ -1276,136 +1116,20 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     this.metaStore.requeue(this.activeSpaceId(), this.relPath(entry));
   }
 
-  /**
-   * Render markdown to sanitized HTML, replacing ```mermaid fences with inline SVG.
-   *
-   * The pipeline itself lives in `MarkdownRenderService` — the Help page renders the shipped docs
-   * through the same one, and the sanitization rules are a security boundary that must not exist in two
-   * places. This wrapper stays because the preview's tests drive `renderMarkdown` directly.
-   */
-  private renderMarkdown(text: string): Promise<string> {
-    return this.markdown.render(text);
-  }
-
-  /**
-   * Parse an .xlsx/.xlsm buffer into a capped first-sheet grid. exceljs is heavy, so it's lazy-imported
-   * only when a spreadsheet is actually opened. Rows/cols are capped (with a visible note) so a huge sheet
-   * can't lock the tab — no silent truncation.
-   */
-  private async renderXlsx(buf: ArrayBuffer): Promise<XlsxPreview> {
-    const mod = await import('exceljs') as unknown as { default?: unknown };
-    // exceljs ships a UMD browser build; the workbook factory is the module default (or the namespace).
-    const ExcelJS = (mod.default ?? mod) as { Workbook: new () => { xlsx: { load(b: ArrayBuffer): Promise<unknown> }; worksheets: Array<{ name: string; rowCount: number; columnCount: number; getRow(r: number): { getCell(c: number): { value: unknown } } }> } };
-    const wb = new ExcelJS.Workbook();
-    await wb.xlsx.load(buf);
-    const ws = wb.worksheets[0];
-    if (!ws) return { sheet: '', header: [], rows: [], note: this.transloco.translate('files.preview.xlsxEmpty') };
-
-    const totalRows = ws.rowCount, totalCols = ws.columnCount;
-    const capRows = Math.min(totalRows, XLSX_MAX_ROWS), capCols = Math.min(totalCols, XLSX_MAX_COLS);
-    const grid: string[][] = [];
-    for (let r = 1; r <= capRows; r++) {
-      const row = ws.getRow(r);
-      const cells: string[] = [];
-      for (let c = 1; c <= capCols; c++) cells.push(xlsxCellText(row.getCell(c).value));
-      grid.push(cells);
-    }
-    const note = (totalRows > capRows || totalCols > capCols)
-      ? this.transloco.translate('files.preview.xlsxTruncated', { rows: capRows, totalRows, cols: capCols, totalCols })
-      : null;
-    // First row as a header band — the near-universal spreadsheet convention for a quick-look preview.
-    return { sheet: ws.name, header: grid[0] ?? [], rows: grid.slice(1), note };
-  }
-
-  /**
-   * Show a freshly fetched image or PDF, unless the selection moved on while it was in flight.
-   *
-   * The guard and the release live in `PreviewObjectUrl`; what stays here is the part that is about this
-   * component — which signal the URL goes into. The predicate is passed rather than a boolean so the check
-   * happens at the moment of binding instead of being computed early by the caller.
-   */
-  /** Is the pane still showing the file this fetch was started for? One definition of "not stale". */
-  private stillShowing(entry: FileEntry): boolean {
-    return this.previewFile()?.name === entry.name;
-  }
-
-  /**
-   * Fetch one file's bytes with auth, render them, and show the result only if it is still wanted.
-   *
-   * ## Why this exists rather than four branches that each do it
-   *
-   * Every preview fetch must carry the auth header — the file endpoint requires it, and a browser-native
-   * `<img src>`/`<iframe src>` cannot send one, which is what regressed image and PDF previews when the
-   * `?token=` fallback was scoped to SSE-only (#134). So the bytes are fetched with the token and the view
-   * is handed a same-origin `blob:` URL instead.
-   *
-   * That much was written out three times, once per branch, and so were three more rules with it: the
-   * `!r.ok` throw, the failure path, and the staleness check. **Four rules, three copies each — and the
-   * staleness check had only THREE copies, because the plain-text branch never got one.** Arrow from a large
-   * source file to a small one and the order is: start A, start B, B resolves and shows B, A resolves and
-   * overwrites it. The pane then shows A's source under B's name and stays that way, with nothing erroring.
-   * Markdown, xlsx and the blob binder each guarded against exactly that; text did not.
-   *
-   * ## The two halves, and why the split is where it is
-   *
-   * `produce` turns the response into something displayable and **must not touch component state** — it may
-   * await (mermaid rendering, an exceljs parse), so by the time it returns the selection may have moved on.
-   * `show` is the only half that writes, and it runs only while the pane still holds `entry`.
-   *
-   * **The spinner is cleared in `show`'s branch, not after it.** A stale response clearing it would hide the
-   * spinner belonging to the fetch that is still running for the file actually on screen — leaving a pane
-   * with no spinner and no content. The old image branch did that; the other two did not.
-   *
-   * **A stale FAILURE is dropped too.** Reporting it would put one file's error on a different file's pane.
-   * All three branches used to do that, and the file it was about is not the one being looked at.
-   */
-  private fetchPreview<V>(
-    entry: FileEntry,
-    produce: (r: Response) => Promise<V> | V,
-    show: (value: V) => void,
-  ): void {
-    this.previewLoading.set(true);
-    const token = this.auth.token();
-    const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
-    fetch(this.fileApiUrl(entry), { headers })
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return produce(r); })
-      .then(value => {
-        if (!this.stillShowing(entry)) return;
-        show(value);
-        this.previewLoading.set(false);
-      })
-      .catch((e) => {
-        if (!this.stillShowing(entry)) return;
-        this.previewError.set(httpErrorReason(e));
-        this.previewLoading.set(false);
-      });
-  }
-
-  applyPreviewBlobUrl(entry: FileEntry, kind: string, objUrl: string): void {
-    // Not a second copy of `fetchPreview`'s check. `PreviewObjectUrl` owns a resource that must be
-    // RELEASED, and its safety cannot depend on every caller having looked first — so it takes the predicate
-    // and revokes what it refuses to bind. That is the class's precondition; the one above is the fetch's.
-    const bound = this.previewUrl.bindIfCurrent(objUrl, () => this.stillShowing(entry));
-    if (!bound) return;
-    if (kind === 'image') this.previewMediaUrl.set(bound);
-    else this.previewSafeUrl.set(this.sanitizer.bypassSecurityTrustResourceUrl(bound));
-  }
-
   closePreview(): void {
-    this.previewFile.set(null);
-    this.previewUrl.release();
+    this.preview.close();
     document.removeEventListener('keydown', this._keyHandler);
   }
 
   onPreviewKey(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
       // Full-screen collapses back to the docked pane first; a second Escape closes the pane.
-      if (this.previewFullscreen()) { this.previewFullscreen.set(false); return; }
+      if (this.preview.fullscreen()) { this.preview.fullscreen.set(false); return; }
       this.closePreview();
       return;
     }
     const files = this.listing.entries().filter(f => f.isFile);
-    const current = this.previewFile();
+    const current = this.preview.file();
     if (!current || files.length === 0) return;
 
     const idx = files.findIndex(f => f.name === current.name);
@@ -1422,7 +1146,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     document.removeEventListener('keydown', this._keyHandler);
-    this.previewUrl.release();
+    this.preview.objectUrl.release();
     // Abort any in-flight/queued uploads so their requests don't outlive the view. The store cannot do
     // this itself: being page-provided is the whole reason an upload survives the panel remounting.
     this.uploads.abortAll();

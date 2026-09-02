@@ -272,8 +272,8 @@ describe('FileManagerComponent (OnPush)', () => {
     // The list runs full width until a file is opened — no detail column yet.
     expect(fixture.nativeElement.querySelector('.fm-detail')).toBeNull();
 
-    fixture.componentInstance.previewKind.set('unknown');
-    fixture.componentInstance.previewFile.set(fileEntry('photo.bin'));
+    fixture.componentInstance.preview.kind.set('unknown');
+    fixture.componentInstance.preview.file.set(fileEntry('photo.bin'));
     fixture.detectChanges();
 
     const detail = fixture.nativeElement.querySelector('.fm-detail');
@@ -289,8 +289,8 @@ describe('FileManagerComponent (OnPush)', () => {
     const fixture = create([fileEntry('photo.bin')]);
     // Standalone /files route: no Brain injector, so meta editing is unavailable — preview only.
     fixture.componentInstance.embeddedSpaceId = '';
-    fixture.componentInstance.previewKind.set('unknown');
-    fixture.componentInstance.previewFile.set(fileEntry('photo.bin'));
+    fixture.componentInstance.preview.kind.set('unknown');
+    fixture.componentInstance.preview.file.set(fileEntry('photo.bin'));
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.fm-detail')).toBeTruthy();
     expect(fixture.nativeElement.querySelector('.seg-toggle')).toBeNull();
@@ -298,9 +298,9 @@ describe('FileManagerComponent (OnPush)', () => {
 
   it('renders markdown FORMATTED (not as highlighted source) in the preview face', () => {
     const fixture = create([fileEntry('doc.md')]);
-    fixture.componentInstance.previewFile.set(fileEntry('doc.md'));
-    fixture.componentInstance.previewKind.set('markdown');
-    fixture.componentInstance.previewHtml.set('<h1>Hello</h1><p>world</p>');
+    fixture.componentInstance.preview.file.set(fileEntry('doc.md'));
+    fixture.componentInstance.preview.kind.set('markdown');
+    fixture.componentInstance.preview.html.set('<h1>Hello</h1><p>world</p>');
     fixture.detectChanges();
     const md = fixture.nativeElement.querySelector('.md-rendered') as HTMLElement | null;
     expect(md).toBeTruthy();
@@ -310,12 +310,18 @@ describe('FileManagerComponent (OnPush)', () => {
   });
 
   it('sanitizes rendered markdown — scripts/handlers are stripped before the trusted bind', async () => {
-    // The markdown HTML is bound with bypassSecurityTrustHtml (it may carry inlined mermaid SVG), so the
-    // component must sanitize it itself. This pins that a <script> and an inline handler don't survive.
+    // The markdown HTML is bound with bypassSecurityTrustHtml (it may carry inlined mermaid SVG), so it
+    // must be sanitized before that bind. This pins that a <script> and an inline handler don't survive.
+    //
+    // Driven through the SERVICE the preview store calls, not through a wrapper on the component. There
+    // used to be a one-line `renderMarkdown` here whose own docblock said it existed "because the
+    // preview's tests drive it directly" — a method kept alive by its own test, which is the thing
+    // `preview-object-url.ts` warns about in as many words. `G-3.2` deleted it and this follows the path
+    // production takes.
     const fixture = create([fileEntry('x.md')]);
     const html = await (fixture.componentInstance as unknown as {
-      renderMarkdown(t: string): Promise<string>;
-    }).renderMarkdown('# Title\n\n<img src=x onerror="alert(1)">\n\n<script>alert(2)</script>\n');
+      preview: { markdown: { render(t: string): Promise<string> } };
+    }).preview.markdown.render('# Title\n\n<img src=x onerror="alert(1)">\n\n<script>alert(2)</script>\n');
     expect(html).toContain('<h1'); // prose still renders
     expect(html.toLowerCase()).not.toContain('onerror');
     expect(html.toLowerCase()).not.toContain('<script');
@@ -333,8 +339,8 @@ describe('FileManagerComponent (OnPush)', () => {
 
     const fixture = create([fileEntry('sheet.xlsx')]);
     const table = await (fixture.componentInstance as unknown as {
-      renderXlsx(b: ArrayBuffer): Promise<{ sheet: string; header: string[]; rows: string[][]; note: string | null }>;
-    }).renderXlsx(buf as ArrayBuffer);
+      preview: { parseXlsx(b: ArrayBuffer): Promise<{ sheet: string; header: string[]; rows: string[][]; note: { key: string } | null }> };
+    }).preview.parseXlsx(buf as ArrayBuffer);
 
     expect(table.sheet).toBe('Data');
     expect(table.header).toEqual(['Name', 'Age']);
@@ -343,25 +349,25 @@ describe('FileManagerComponent (OnPush)', () => {
     expect(table.note).toBeNull(); // small sheet → not truncated
   });
   // ^ One of the two specs that exposed the suite-wide timeout ceiling: it imports `exceljs` twice
-  // (here for the fixture workbook, and again inside `renderXlsx`), so it runs long under a full
+  // (here for the fixture workbook, and again inside `parseXlsx`), so it runs long under a full
   // parallel run. No per-test override needed — `testTimeout` in vitest.config.ts covers the class.
 
   it('toggles the full-screen preview overlay; Escape collapses it before closing the pane', () => {
     const fixture = create([fileEntry('doc.md')]);
-    fixture.componentInstance.previewFile.set(fileEntry('doc.md'));
-    fixture.componentInstance.previewKind.set('markdown');
+    fixture.componentInstance.preview.file.set(fileEntry('doc.md'));
+    fixture.componentInstance.preview.kind.set('markdown');
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.preview-fs-overlay')).toBeNull();
 
-    fixture.componentInstance.previewFullscreen.set(true);
+    fixture.componentInstance.preview.fullscreen.set(true);
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.preview-fs-overlay')).toBeTruthy();
 
     // First Escape collapses full-screen but leaves the docked pane open.
     fixture.componentInstance.onPreviewKey(new KeyboardEvent('keydown', { key: 'Escape' }));
     fixture.detectChanges();
-    expect(fixture.componentInstance.previewFullscreen()).toBe(false);
-    expect(fixture.componentInstance.previewFile()).toBeTruthy();
+    expect(fixture.componentInstance.preview.fullscreen()).toBe(false);
+    expect(fixture.componentInstance.preview.file()).toBeTruthy();
   });
 
   it('re-renders the listing when the entries signal is replaced (not just on first load)', () => {

@@ -82,7 +82,6 @@ ythril_http_requests_total{method="GET",route="/health",status_code="200"} 42
 | `ythril_storage_limit_bytes` | gauge | Configured storage limits by area and tier (soft, hard) |
 | `ythril_auth_attempts_total` | counter | Auth attempts by result (success, invalid) |
 | `ythril_tokens_active` | gauge | Number of active (non-expired) tokens |
-| `ythril_mcp_connections_active` | gauge | Current SSE connections |
 | `ythril_mcp_tool_calls_total` | counter | Tool invocations by tool name and space |
 | `ythril_sync_cycles_total` | counter | Sync cycles by `network` and `status` — `success`, `partial`, `error`. |
 | `ythril_sync_items_pulled_total` | counter | Items received by `type` — `memories`, `entities`, `edges`, `files`, `chrono`. |

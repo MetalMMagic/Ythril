@@ -39,129 +39,15 @@ import path from 'node:path';
 import http from 'node:http';
 import { fileURLToPath } from 'url';
 import { INSTANCES, post, get, del, patch, delWithBody } from '../sync/helpers.js';
+import { openMcpSession } from '../sync/mcp-session.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
 
 let tokenA;
 
-// ── Reusable MCP session helper (same as mcp.test.js) ─────────────────────
-
-async function openMcpSession(authToken, instance = INSTANCES.a, timeoutMs = 15_000) {
-  const base = instance;
-  const parsed = new URL(base);
-  const host = parsed.hostname;
-  const port = parseInt(parsed.port || '80', 10);
-
-  return new Promise((resolve, reject) => {
-    const req = http.request(
-      {
-        host, port,
-        path: '/mcp',
-        method: 'GET',
-        headers: { Authorization: `Bearer ${authToken}`, Accept: 'text/event-stream' },
-      },
-      (res) => {
-        if (res.statusCode !== 200) {
-          res.resume();
-          reject(Object.assign(new Error(`MCP SSE open failed: ${res.statusCode}`), { statusCode: res.statusCode }));
-          return;
-        }
-
-        let buffer = '';
-        let sessionId = null;
-        const pendingMessages = [];
-        const waiters = [];
-
-        res.setEncoding('utf8');
-        res.on('data', chunk => {
-          buffer += chunk;
-          const parts = buffer.split('\n\n');
-          buffer = parts.pop() ?? '';
-          for (const part of parts) {
-            if (!part.trim()) continue;
-            const lines = part.split('\n');
-            let eventType = 'message';
-            let data = '';
-            for (const line of lines) {
-              if (line.startsWith('event:')) eventType = line.slice(6).trim();
-              else if (line.startsWith('data:')) data = line.slice(5).trim();
-            }
-            if (eventType === 'endpoint') {
-              const m = data.match(/sessionId=([^&\s]+)/);
-              if (m) sessionId = m[1];
-            } else if (eventType === 'message' && data) {
-              try {
-                const parsed = JSON.parse(data);
-                const waiter = waiters.shift();
-                if (waiter) waiter(parsed);
-                else pendingMessages.push(parsed);
-              } catch { /* non-JSON */ }
-            }
-          }
-        });
-
-        const deadline = Date.now() + timeoutMs;
-        const poll = setInterval(() => {
-          if (sessionId) { clearInterval(poll); resolve({ callTool, listTools, close }); }
-          else if (Date.now() > deadline) { clearInterval(poll); reject(new Error('MCP session did not receive endpoint event')); }
-        }, 50);
-
-        async function postJsonRpc(body) {
-          return new Promise((res2, rej2) => {
-            const waiterTimeout = setTimeout(() => rej2(new Error('MCP tool call timed out')), timeoutMs);
-            if (pendingMessages.length > 0) {
-              clearTimeout(waiterTimeout);
-              res2(pendingMessages.shift());
-              return;
-            }
-            waiters.push(msg => { clearTimeout(waiterTimeout); res2(msg); });
-
-            const postData = JSON.stringify(body);
-            const pr = http.request(
-              {
-                host, port,
-                path: `/mcp/messages?sessionId=${sessionId}`,
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Content-Length': Buffer.byteLength(postData),
-                  Authorization: `Bearer ${authToken}`,
-                },
-              },
-              pres => {
-                let txt = '';
-                pres.setEncoding('utf8');
-                pres.on('data', c => { txt += c; });
-                pres.on('end', () => {
-                  if (pres.statusCode !== 202 && pres.statusCode !== 200) {
-                    clearTimeout(waiterTimeout);
-                    rej2(new Error(`MCP POST failed: ${pres.statusCode} ${txt}`));
-                  }
-                });
-              },
-            );
-            pr.on('error', rej2);
-            pr.write(postData);
-            pr.end();
-          });
-        }
-
-        async function callTool(name, args = {}) {
-          const rpc = await postJsonRpc({ jsonrpc: '2.0', id: Date.now(), method: 'tools/call', params: { name, arguments: args } });
-          return rpc?.result ?? rpc;
-        }
-        async function listTools() {
-          const rpc = await postJsonRpc({ jsonrpc: '2.0', id: Date.now(), method: 'tools/list', params: {} });
-          return rpc?.result?.tools ?? rpc?.tools ?? [];
-        }
-        function close() { req.destroy(); }
-      },
-    );
-    req.on('error', reject);
-    req.end();
-  });
-}
+// The MCP client harness lives in ../sync/mcp-session.js. It was copy-pasted into ten files while the
+// transport was SSE; 4.0 removed SSE and one shared `POST /mcp` caller replaced every copy.
 
 /** POST without auth (raw) */
 async function rawGet(url) {
@@ -1207,6 +1093,13 @@ describe('MCP security � read-only token cannot call mutating tools', () => {
 
 describe('MCP security — unauthenticated access', () => {
   it('GET /mcp without auth returns 401', async () => {
+    /*
+     * The method is GONE (405 with `Allow: POST`, since 4.0 removed the SSE stream) — but the 401 has to win,
+     * and this case is what proves it. `requireMcpAuth` is mounted on the router, so it runs before any
+     * handler, and its 401 carries the RFC 9728 `WWW-Authenticate` header that a browser OAuth connector
+     * discovers the authorization server from. A 405 in front of it would have broken the claude.ai connector
+     * flow while every authenticated test in this file kept passing.
+     */
     const parsed = new URL(INSTANCES.a);
     const status = await new Promise((resolve) => {
       const req = http.request(
@@ -1219,24 +1112,63 @@ describe('MCP security — unauthenticated access', () => {
     assert.equal(status, 401, `Expected 401 without auth, got ${status}`);
   });
 
-  it('POST /mcp/messages without auth returns 401', async () => {
-    const parsed = new URL(INSTANCES.a);
-    const status = await new Promise((resolve) => {
-      const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'list_peers', arguments: {} } });
-      const req = http.request(
-        {
-          host: parsed.hostname, port: parseInt(parsed.port || '80'),
-          path: '/mcp/messages?sessionId=fake-session',
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
-        },
-        r => { r.resume(); resolve(r.statusCode); },
-      );
-      req.on('error', () => resolve(0));
-      req.write(body);
-      req.end();
+  it('POST /mcp without auth returns 401', async () => {
+    // The transport that is actually live. Nothing about MCP may answer before authentication.
+    const r = await fetch(`${INSTANCES.a}/mcp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
     });
-    assert.ok(status === 401 || status === 404, `Expected 401/404 without auth, got ${status} (404 = no such session is also acceptable)`);
+    assert.equal(r.status, 401, `Expected 401 without auth, got ${r.status}`);
+  });
+
+  it('POST /mcp/messages without auth returns 401 — exactly, not "401 or 404"', async () => {
+    /*
+     * This used to accept `401 || 404`, because an unknown `sessionId` was a real 404 from the SSE transport
+     * and either answer looked acceptable. With the transport removed the route has no session lookup left,
+     * so the auth middleware is the only thing that can answer — and an assertion that tolerates two statuses
+     * cannot tell "authentication ran" from "the route happened to 404 first".
+     */
+    const r = await fetch(`${INSTANCES.a}/mcp/messages?sessionId=fake-session`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'list_peers', arguments: {} } }),
+    });
+    assert.equal(r.status, 401, `Expected exactly 401 without auth, got ${r.status}`);
+  });
+});
+
+describe('the removed SSE transport says what to use instead', () => {
+  // Reads the token itself rather than leaning on another suite's `before`. A token that arrives from a
+  // sibling describe works only while the file order holds, and a 401 here would read as a routing bug.
+  let bearer;
+  before(() => { bearer = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim(); });
+
+  /*
+   * A removed endpoint that falls through to a generic `Not found` leaves the client's author guessing, which
+   * is the silent-misconfiguration failure the removed env vars were given a boot refusal for. Both of the
+   * SSE endpoints name the streamable HTTP transport in their body.
+   *
+   * Asserted through the door a client uses, not by reading the router: the catch-all 404 sits in the same
+   * file and would satisfy any source-level check that only looked for a status.
+   */
+  it('GET /mcp answers 405 with Allow: POST', async () => {
+    const r = await fetch(`${INSTANCES.a}/mcp`, { headers: { Authorization: `Bearer ${bearer}` } });
+    assert.equal(r.status, 405, 'the resource still speaks MCP — it is the METHOD that is gone');
+    assert.equal(r.headers.get('allow'), 'POST', 'a spec-following client reads Allow without reading the message');
+    const body = await r.json();
+    assert.match(body?.error ?? '', /POST \/mcp/, `the answer must name the transport to use: ${JSON.stringify(body)}`);
+  });
+
+  it('POST /mcp/messages answers 410 Gone', async () => {
+    const r = await fetch(`${INSTANCES.a}/mcp/messages?sessionId=anything`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${bearer}` },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+    });
+    assert.equal(r.status, 410, 'that path is not coming back under any method');
+    const body = await r.json();
+    assert.match(body?.error ?? '', /POST \/mcp/, `the answer must name the transport to use: ${JSON.stringify(body)}`);
   });
 });
 

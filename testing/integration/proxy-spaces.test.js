@@ -29,9 +29,9 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import http from 'node:http';
 import { fileURLToPath } from 'url';
 import { INSTANCES, post, get, del, delWithBody, reqJson } from '../sync/helpers.js';
+import { openMcpSession } from '../sync/mcp-session.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -52,88 +52,8 @@ function patch(baseUrl, token, urlPath, data) {
   });
 }
 
-// ── MCP session helper (same pattern as mcp-tools.test.js) ──────────────────
-
-async function openMcpSession(authToken, instance = BASE, timeoutMs = 15_000) {
-  const parsed = new URL(instance);
-  const host = parsed.hostname;
-  const port = parseInt(parsed.port || '80', 10);
-
-  return new Promise((resolve, reject) => {
-    const req = http.request(
-      { host, port, path: '/mcp', method: 'GET',
-        headers: { Authorization: `Bearer ${authToken}`, Accept: 'text/event-stream' } },
-      (res) => {
-        if (res.statusCode !== 200) {
-          res.resume();
-          reject(Object.assign(new Error(`MCP SSE open: ${res.statusCode}`), { statusCode: res.statusCode }));
-          return;
-        }
-        let buffer = '';
-        let sessionId = null;
-        const pending = [];
-        const waiters = [];
-
-        res.setEncoding('utf8');
-        res.on('data', chunk => {
-          buffer += chunk;
-          const parts = buffer.split('\n\n');
-          buffer = parts.pop() ?? '';
-          for (const part of parts) {
-            if (!part.trim()) continue;
-            const lines = part.split('\n');
-            let eventType = 'message', data = '';
-            for (const line of lines) {
-              if (line.startsWith('event:')) eventType = line.slice(6).trim();
-              else if (line.startsWith('data:')) data = line.slice(5).trim();
-            }
-            if (eventType === 'endpoint') {
-              const m = data.match(/sessionId=([^&\s]+)/);
-              if (m) sessionId = m[1];
-            } else if (eventType === 'message' && data) {
-              try { const p = JSON.parse(data); const w = waiters.shift(); if (w) w(p); else pending.push(p); } catch {}
-            }
-          }
-        });
-
-        const deadline = Date.now() + timeoutMs;
-        const poll = setInterval(() => {
-          if (sessionId) { clearInterval(poll); resolve({ callTool, listTools, close }); }
-          else if (Date.now() > deadline) { clearInterval(poll); reject(new Error('No endpoint event')); }
-        }, 50);
-
-        async function postRpc(body) {
-          return new Promise((res2, rej2) => {
-            const timer = setTimeout(() => rej2(new Error('MCP timeout')), timeoutMs);
-            if (pending.length > 0) { clearTimeout(timer); res2(pending.shift()); return; }
-            waiters.push(msg => { clearTimeout(timer); res2(msg); });
-            const pd = JSON.stringify(body);
-            const pr = http.request(
-              { host, port, path: `/mcp/messages?sessionId=${sessionId}`, method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(pd), Authorization: `Bearer ${authToken}` } },
-              pres => { let t = ''; pres.setEncoding('utf8'); pres.on('data', c => { t += c; }); pres.on('end', () => { if (pres.statusCode !== 202 && pres.statusCode !== 200) { clearTimeout(timer); rej2(new Error(`POST ${pres.statusCode} ${t}`)); } }); },
-            );
-            pr.on('error', rej2);
-            pr.write(pd);
-            pr.end();
-          });
-        }
-
-        async function callTool(name, args = {}) {
-          const rpc = await postRpc({ jsonrpc: '2.0', id: Date.now(), method: 'tools/call', params: { name, arguments: args } });
-          return rpc?.result ?? rpc;
-        }
-        async function listTools() {
-          const rpc = await postRpc({ jsonrpc: '2.0', id: Date.now(), method: 'tools/list', params: {} });
-          return rpc?.result?.tools ?? rpc?.tools ?? [];
-        }
-        function close() { req.destroy(); }
-      },
-    );
-    req.on('error', reject);
-    req.end();
-  });
-}
+// The MCP client harness lives in ../sync/mcp-session.js. It was copy-pasted into ten files while the
+// transport was SSE; 4.0 removed SSE and one shared `POST /mcp` caller replaced every copy.
 
 // ── Test suite ───────────────────────────────────────────────────────────────
 

@@ -26,7 +26,7 @@ were all accepted with a `201` and thrown away, so a token minted with one of th
 access while appearing scoped**. If you have tokens minted with a field other than `spaces`, re-check them:
 they are not scoped.
 
-> **The token must travel in the header.** A `?token=…` query parameter is ignored on every route → `401`, with one exception: the `GET /mcp` transport (an external-agent protocol whose clients may be unable to set headers). Query strings end up in access logs, proxy logs, browser history, and `Referer` headers, so a long-lived token must never ride in a URL. The **browser** SSE streams — `GET /api/brain/spaces/:id/events` and `GET /api/about/logs/stream` — instead use a **single-use ticket**: `POST` the paired `…/ticket` endpoint with the normal `Authorization` header to get a short-lived opaque ticket, then open the stream with `?ticket=<ticket>` (see the live-events section below).
+> **The token must travel in the header.** A `?token=…` query parameter is ignored on every route → `401`, with **no exception**. Query strings end up in access logs, proxy logs, browser history, and `Referer` headers, so a long-lived token must never ride in a URL. The last exception was `GET /mcp`, the MCP SSE transport, whose clients might not have been able to set a header — 4.0 removed that transport and the fallback with it. The **browser** SSE streams — `GET /api/brain/spaces/:id/events` and `GET /api/about/logs/stream` — use a **single-use ticket**: `POST` the paired `…/ticket` endpoint with the normal `Authorization` header to get a short-lived opaque ticket, then open the stream with `?ticket=<ticket>` (see the live-events section below).
 
 ### Token Scoping
 

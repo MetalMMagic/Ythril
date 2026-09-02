@@ -11,6 +11,10 @@
  * middleware (that is where the limiters sit in the chain), so it works off the raw bearer rather than
  * `req.authToken`, and it must never leak that credential into a store key or a log line.
  *
+ * **Header only, since 4.0.** It also read `?token=` while the MCP SSE transport authenticated that way. With
+ * the transport gone, a query-string token is not a credential at all — and a bucket selected by an
+ * unauthenticated string is a bucket an anonymous caller can change at will.
+ *
  * Run: node --test testing/standalone/rate-limit-client-key.test.js
  */
 
@@ -46,12 +50,23 @@ describe('clientRateLimitKey', () => {
     assert.equal(a, b, 'the bucket follows the client, not the source address');
   });
 
-  it('recognises the MCP query-parameter credential', () => {
-    // The MCP transport passes ?token= by design; without this every MCP client shares the IP bucket.
-    const viaQuery = clientRateLimitKey(req({ token: 'ythril_mcp' }));
-    const viaHeader = clientRateLimitKey(req({ bearer: 'ythril_mcp' }));
-    assert.equal(viaQuery, viaHeader);
-    assert.notEqual(viaQuery, clientRateLimitKey(req({ token: 'ythril_other' })));
+  it('IGNORES a ?token= query parameter, and cannot be escaped by varying one', () => {
+    /*
+     * This case asserted the opposite until 4.0: the MCP SSE transport authenticated from `?token=`, so the
+     * key had to read it or every MCP client would have shared one IP bucket.
+     *
+     * SSE is removed and no route accepts a URL credential any more, which INVERTS the reasoning. A request
+     * carrying `?token=` is unauthenticated, so bucketing by it would let an anonymous caller mint a fresh
+     * bucket per request by varying a string nobody checks — and because `globalRateLimit` skips entirely
+     * for a request that presents a credential, a bare `?token=anything` moved that caller off the 300/min
+     * global limit and onto the 3000/min IP flood backstop. Bounded by the backstop, so a tenfold
+     * amplification rather than an open door, but free to anyone with a query string.
+     */
+    const anon = clientRateLimitKey(req());
+    assert.equal(clientRateLimitKey(req({ token: 'ythril_mcp' })), anon,
+      'a query-string token must not select a bucket — it is not a credential');
+    assert.equal(clientRateLimitKey(req({ token: 'ythril_other' })), anon,
+      'and varying it must not produce a second bucket, or the IP limit is escapable');
   });
 
   it('falls back to the IP when no credential is presented', () => {

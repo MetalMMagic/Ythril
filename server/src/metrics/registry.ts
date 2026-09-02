@@ -612,11 +612,21 @@ export const tokensActive = new Gauge({
 
 // ── MCP ──────────────────────────────────────────────────────────────────────
 
-export const mcpConnectionsActive = new Gauge({
-  name: 'ythril_mcp_connections_active',
-  help: 'Current number of active MCP SSE connections',
-  registers: [register],
-});
+/*
+ * `ythril_mcp_connections_active` was here, and it is REMOVED in 4.0 rather than kept at zero.
+ *
+ * It counted open MCP SSE streams, incremented on connect and decremented on close. SSE is gone, and
+ * streamable HTTP is stateless — one POST per call, nothing to hold open — so there is no such thing as an
+ * active MCP connection to count.
+ *
+ * A gauge left in place would have read 0 forever. That is the failure mode worth naming: 0 is a PLAUSIBLE
+ * value, so a dashboard panel and an alert threshold both keep working and both keep saying no MCP client is
+ * connected while every client on the instance is busy. An absent metric is a question an operator asks
+ * once; a gauge that is confidently wrong is one nobody asks at all.
+ *
+ * `ythril_mcp_tool_calls_total` is the signal that survives, and it was always the better one — it counts
+ * work rather than sockets.
+ */
 
 export const mcpToolCallsTotal = new Counter({
   name: 'ythril_mcp_tool_calls_total',

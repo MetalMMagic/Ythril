@@ -11,7 +11,9 @@ Ythril maintains an append-only, immutable audit log of every authenticated API 
 **MCP tool calls are in it, under the same operation names as REST.** An agent calling `remember`
 produces a `memory.create` entry, exactly as `POST /api/brain/spaces/:id/memories` does — so a query for
 "who created this memory" does not have to know which transport was used. The transport is recorded
-separately: `method` is `MCP` and `path` is `sse:<tool>` or `http:<tool>`.
+separately: `method` is `MCP` and `path` is `http:<tool>`. Entries written before 4.0 can also carry
+`sse:<tool>` — the SSE transport was removed in that release, so `sse:` is a fact about when an entry was
+written, not a transport a client can still use.
 
 A tool that refuses the call (a schema violation, a scope rejection) is recorded with status **422**. MCP
 answers 200 at the transport layer even when the tool errors, so a status taken from the HTTP response

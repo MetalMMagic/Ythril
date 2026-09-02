@@ -645,7 +645,8 @@ server {
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
 
-        # SSE (MCP transport) — disable buffering
+        # Event streams (brain changes, the log tail, and an MCP call the server answers as one SSE
+        # frame) — disable buffering, or a client sees nothing until the response ends
         proxy_buffering off;
         proxy_cache     off;
         proxy_read_timeout 86400s;

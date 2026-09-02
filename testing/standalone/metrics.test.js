@@ -150,9 +150,26 @@ describe('GET /metrics — Prometheus endpoint', () => {
     );
   });
 
-  it('includes ythril_mcp_connections_active gauge', async () => {
+  it('does NOT expose ythril_mcp_connections_active — it was removed, not zeroed', async () => {
+    /*
+     * The gauge counted open MCP SSE streams. 4.0 removed that transport, and streamable HTTP is stateless —
+     * one POST per call, nothing held open — so there is no active MCP connection to count.
+     *
+     * Asserted as an ABSENCE rather than deleted, because the tempting alternative was to leave the gauge
+     * registered and let it read 0: a dashboard panel and an alert threshold both keep working, and both
+     * keep saying no MCP client is connected while every client on the instance is busy. 0 is a plausible
+     * value, which is what makes it worse than a missing metric.
+     */
     const { text } = await getMetrics();
-    assert.ok(hasMetric(text, 'ythril_mcp_connections_active'), 'ythril_mcp_connections_active not found');
+    assert.ok(!hasMetric(text, 'ythril_mcp_connections_active'),
+      'ythril_mcp_connections_active is still registered — it can only read 0 now, which is a confidently '
+      + 'wrong answer rather than a missing one. ythril_mcp_tool_calls_total counts the work instead.');
+  });
+
+  it('and still exposes ythril_mcp_tool_calls_total, which is the signal that survives', async () => {
+    // The inverse: the assertion above must not be satisfiable by dropping MCP metrics altogether.
+    const { text } = await getMetrics();
+    assert.ok(hasMetric(text, 'ythril_mcp_tool_calls_total'), 'ythril_mcp_tool_calls_total not found');
   });
 
   it('includes ythril_sync_cycles_total counter', async () => {

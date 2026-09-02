@@ -23,18 +23,27 @@ import { resolveLimitFor, WINDOW_MS } from './per-token.js';
 /**
  * The credential a request presents, or `''`.
  *
- * ONE definition, because two things now branch on it: the key a limiter buckets by, and whether
- * `globalRateLimit` applies at all. A second reading of the request would eventually disagree with this one,
- * and the half it would forget is the query parameter — which would leave every MCP client capped.
+ * ONE definition, because two things branch on it: the key a limiter buckets by, and whether
+ * `globalRateLimit` applies at all. A second reading of the request would eventually disagree with this one.
  *
- * The MCP transport passes the token as a query parameter by design: an external agent may be unable to set
- * headers.
+ * ## It used to read `?token=` too, and that had to go with the SSE transport
+ *
+ * The MCP SSE transport authenticated from a raw `?token=` query parameter, so this read it as well —
+ * otherwise every MCP client would have shared the one IP bucket. Correct while the parameter was a
+ * credential the server trusted.
+ *
+ * 4.0 removes that transport and the query-token fallback with it, which INVERTS the reasoning: a request
+ * carrying `?token=` is now unauthenticated. Bucketing by it would let an anonymous caller mint a fresh
+ * quota bucket per request by varying a string nobody checks, and — because `globalRateLimit` skips
+ * entirely for a request that presents a credential — a bare `?token=anything` moved that caller off the
+ * 300/min global limit and onto the 3000/min IP flood backstop. The backstop bounded it, so this was a
+ * tenfold amplification rather than an open door, but it was available to anyone with a query string.
+ *
+ * Header only. A credential that cannot travel in a URL cannot be spoofed in one.
  */
 export function presentedCredential(req: Request): string {
   const header = req.get?.('authorization') ?? '';
-  const bearer = /^Bearer\s+(.+)$/i.exec(header)?.[1]?.trim();
-  const query = typeof req.query?.['token'] === 'string' ? req.query['token'].trim() : '';
-  return bearer || query;
+  return /^Bearer\s+(.+)$/i.exec(header)?.[1]?.trim() ?? '';
 }
 
 /** Whether this request presents a credential at all — see `presentedCredential`. */

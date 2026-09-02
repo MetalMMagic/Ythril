@@ -39,10 +39,21 @@ describe('the rights matrix decides', () => {
     assert.match(CODE, /from '\.\.\/auth\/space-reach\.js'/);
   });
 
-  it('receives the rights from the request at BOTH transports', () => {
-    // SSE and streamable-HTTP each build their own server. Threading it through one and not the other would leave a
-    // whole transport on the old answer — and it is the less-used transport that would go unnoticed.
-    assert.equal((CODE.match(/tokenRights\(req\.authToken\)/g) ?? []).length, 2);
+  it('receives the rights from the request at every transport that builds a server', () => {
+    /*
+     * This asserted a count of TWO: SSE and streamable HTTP each built their own server, and threading the
+     * rights through one and not the other would have left a whole transport on the old answer — the
+     * less-used one, so it would have gone unnoticed. That is exactly the defect this file exists for.
+     *
+     * 4.0 removed SSE, so the count is ONE. Written as a count against the number of servers the file
+     * builds rather than as a literal `1`, because the number is not the rule: the rule is that no server
+     * gets constructed without the request's rights, and the next transport added must not be able to
+     * satisfy this by leaving the count alone.
+     */
+    const builds = (CODE.match(/createGlobalMcpServer\(/g) ?? []).length - 1; // -1 for the definition
+    assert.ok(builds >= 1, 'no transport builds an MCP server — the parse is wrong, not the code');
+    assert.equal((CODE.match(/tokenRights\(req\.authToken\)/g) ?? []).length, builds,
+      `${builds} transport(s) build a server; each must pass the request's rights matrix`);
   });
 
   it('keeps the legacy branch for records with no rights', () => {

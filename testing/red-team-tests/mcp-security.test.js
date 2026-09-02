@@ -3,7 +3,7 @@
  *
  * Covers:
  *  1. Token prefix collision — an 8-char prefix match without the full token
- *     must return 401 on the MCP SSE endpoint
+ *     must return 401 on the MCP endpoint
  *  2. Token brute-force — exhausting a 16-char space must be impossible; the
  *     rate-limiter must trip before an attacker can try more than N tokens
  *  3. recall_global space scope leak — a token scoped to space A must NOT
@@ -14,6 +14,8 @@
  *     be rejected by the query tool
  *  6. MCP unauthenticated access — GET/POST to /mcp without a valid Bearer
  *     token must return 401
+ *  7. Per-request authorization — 4.0 removed the SSE transport, which removed
+ *     the session-hijacking class outright; what replaces it is asserted here
  *
  * All tests should pass with the current codebase. Token prefix collision (test 1)
  * and recall_global scope isolation (test 3) fixes have been applied.
@@ -25,9 +27,9 @@ import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
-import http from 'node:http';
 import { fileURLToPath } from 'url';
 import { INSTANCES, post, get, reqJson } from '../sync/helpers.js';
+import { openMcpSession as openSharedMcpSession } from '../sync/mcp-session.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -37,222 +39,70 @@ let tokenA;
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 /**
- * Open an MCP SSE session using Node's http module (keeps stream alive).
- * Returns { status, callTool, close } or { status: <non-200>, callTool: null, close: noop }.
+ * The shared client, adapted to this file's `{ status, callTool, close }` shape.
+ *
+ * There were THREE local harnesses here — a session opener, a raw one that exposed its `sessionId`, and a
+ * poster that drove someone else's session with a chosen bearer. All three existed to attack the SSE session,
+ * and 4.0 removed the transport they attacked.
+ *
+ * `status` survives because six cases assert the endpoint is reachable before drawing a conclusion from a
+ * refusal — and under a stateless transport there is no "open" to take a status from, so this PROBES with a
+ * `tools/list` rather than reporting a hardcoded 200. That distinction matters here more than anywhere: a
+ * red-team case that cannot tell "refused" from "unreachable" reports a vulnerability as fixed.
  */
-function openMcpSession(instance, bearerToken, spaceId = 'general', timeoutMs = 15_000) {
-  const parsed = new URL(instance);
-  const host = parsed.hostname;
-  const port = parseInt(parsed.port || '80', 10);
-
-  return new Promise((resolve) => {
-    const req = http.request(
-      { host, port, path: '/mcp', method: 'GET',
-        headers: {
-          ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
-          Accept: 'text/event-stream',
-        } },
-      (res) => {
-        if (res.statusCode !== 200) {
-          res.resume();
-          resolve({ status: res.statusCode, callTool: null, close: () => {} });
-          return;
-        }
-
-        let buffer = '';
-        let sessionId = null;
-        const pendingMessages = [];
-        const waiters = [];
-
-        res.setEncoding('utf8');
-        res.on('data', chunk => {
-          buffer += chunk;
-          const parts = buffer.split('\n\n');
-          buffer = parts.pop() ?? '';
-          for (const part of parts) {
-            if (!part.trim()) continue;
-            const lines = part.split('\n');
-            let eventType = 'message';
-            let data = '';
-            for (const line of lines) {
-              if (line.startsWith('event:')) eventType = line.slice(6).trim();
-              else if (line.startsWith('data:')) data = line.slice(5).trim();
-            }
-            if (eventType === 'endpoint') {
-              const m = data.match(/sessionId=([^&\s]+)/);
-              if (m) sessionId = m[1];
-            } else if (eventType === 'message' && data) {
-              try {
-                const parsed = JSON.parse(data);
-                const waiter = waiters.shift();
-                if (waiter) waiter(parsed);
-                else pendingMessages.push(parsed);
-              } catch { /* non-JSON */ }
-            }
-          }
-        });
-
-        const deadline = Date.now() + timeoutMs;
-        const poll = setInterval(() => {
-          if (sessionId) {
-            clearInterval(poll);
-            resolve({ status: 200, callTool, close });
-          } else if (Date.now() > deadline) {
-            clearInterval(poll);
-            req.destroy();
-            resolve({ status: 200, callTool: null, close: () => {} });
-          }
-        }, 50);
-
-        async function callTool(toolName, toolArgs) {
-          return new Promise((res2, rej2) => {
-            const waiterTimeout = setTimeout(
-              () => rej2(new Error('MCP tool call timed out')), timeoutMs,
-            );
-            if (pendingMessages.length > 0) {
-              clearTimeout(waiterTimeout);
-              res2(pendingMessages.shift());
-              return;
-            }
-            waiters.push(msg => { clearTimeout(waiterTimeout); res2(msg); });
-
-            const payload = JSON.stringify({
-              jsonrpc: '2.0',
-              id: Math.floor(Math.random() * 1e9),
-              method: 'tools/call',
-              params: { name: toolName, arguments: toolArgs },
-            });
-            const pr = http.request(
-              { host, port,
-                path: `/mcp/messages?sessionId=${sessionId}`,
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Content-Length': Buffer.byteLength(payload),
-                  ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
-                },
-              },
-              pres => {
-                let txt = '';
-                pres.setEncoding('utf8');
-                pres.on('data', c => { txt += c; });
-                pres.on('end', () => {
-                  if (pres.statusCode !== 202 && pres.statusCode !== 200) {
-                    clearTimeout(waiterTimeout);
-                    waiters.shift(); // remove our waiter
-                    rej2(new Error(`MCP POST failed: ${pres.statusCode} ${txt}`));
-                  }
-                });
-              },
-            );
-            pr.on('error', rej2);
-            pr.write(payload);
-            pr.end();
-          });
-        }
-
-        function close() { req.destroy(); }
-      },
-    );
-    req.on('error', () => resolve({ status: 0, callTool: null, close: () => {} }));
-    req.end();
-  });
+async function openMcpSession(instance, bearerToken) {
+  const client = await openSharedMcpSession(bearerToken, instance);
+  try {
+    await client.listTools();
+    return { status: 200, callTool: client.callTool, close: client.close };
+  } catch (err) {
+    return { status: err?.statusCode ?? 0, callTool: null, close: () => {} };
+  }
 }
 
-/**
- * Open a raw MCP SSE session and expose its sessionId so a test can drive
- * `/mcp/messages` with an arbitrary bearer (not necessarily the opener's).
- * Returns { status, sessionId, close }.
+// ── Per-request authorization (what replaced S2) ───────────────────────────
+
+/*
+ * S2 was: an SSE session was pinned to the id of the token that opened it, and to a signature of that
+ * token's rights matrix, so a second valid token that LEARNED the session id could not drive it. The session
+ * id travelled as a query parameter, which put it in proxy logs and browser history, so this was not a
+ * theoretical way to learn one.
+ *
+ * 4.0 removes the SSE transport, and with it the whole class: `POST /mcp` is stateless, so there is no
+ * session to hijack, nothing to learn, and no window in which a token's rights can go stale mid-stream. The
+ * old case is not "fixed" — its subject no longer exists, and a test kept alive against a deleted mechanism
+ * passes for the wrong reason.
+ *
+ * What must still be true is the property that made the binding necessary: **every request is authorized on
+ * the bearer it carries, and on that token's CURRENT rights.** That is asserted here, because it is the thing
+ * an attacker would have been reaching for.
  */
-function openRawSession(instance, bearerToken, timeoutMs = 15_000) {
-  const parsed = new URL(instance);
-  const host = parsed.hostname;
-  const port = parseInt(parsed.port || '80', 10);
-  return new Promise((resolve) => {
-    const req = http.request(
-      { host, port, path: '/mcp', method: 'GET',
-        headers: { ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}), Accept: 'text/event-stream' } },
-      (res) => {
-        if (res.statusCode !== 200) { res.resume(); resolve({ status: res.statusCode, sessionId: null, close: () => {} }); return; }
-        let buffer = '';
-        let sessionId = null;
-        res.setEncoding('utf8');
-        res.on('data', chunk => {
-          buffer += chunk;
-          const parts = buffer.split('\n\n');
-          buffer = parts.pop() ?? '';
-          for (const part of parts) {
-            if (!part.trim()) continue;
-            let eventType = 'message', data = '';
-            for (const line of part.split('\n')) {
-              if (line.startsWith('event:')) eventType = line.slice(6).trim();
-              else if (line.startsWith('data:')) data = line.slice(5).trim();
-            }
-            if (eventType === 'endpoint') {
-              const m = data.match(/sessionId=([^&\s]+)/);
-              if (m) sessionId = m[1];
-            }
-          }
-        });
-        const deadline = Date.now() + timeoutMs;
-        const poll = setInterval(() => {
-          if (sessionId) { clearInterval(poll); resolve({ status: 200, sessionId, close: () => req.destroy() }); }
-          else if (Date.now() > deadline) { clearInterval(poll); req.destroy(); resolve({ status: 200, sessionId: null, close: () => {} }); }
-        }, 50);
-      },
-    );
-    req.on('error', () => resolve({ status: 0, sessionId: null, close: () => {} }));
-    req.end();
-  });
-}
-
-/** POST a tool call to an existing session id with a chosen bearer; resolves the HTTP status. */
-function rawPostToSession(instance, sessionId, bearerToken, toolName, toolArgs) {
-  const parsed = new URL(instance);
-  const host = parsed.hostname;
-  const port = parseInt(parsed.port || '80', 10);
-  const payload = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: toolName, arguments: toolArgs } });
-  return new Promise((resolve, reject) => {
-    const pr = http.request(
-      { host, port, path: `/mcp/messages?sessionId=${sessionId}`, method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload),
-          ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}) } },
-      pres => { let txt = ''; pres.setEncoding('utf8'); pres.on('data', c => { txt += c; }); pres.on('end', () => resolve({ status: pres.statusCode, body: txt })); },
-    );
-    pr.on('error', reject);
-    pr.write(payload);
-    pr.end();
-  });
-}
-
-// ── S2: SSE session is bound to the opening identity ───────────────────────
-
-describe('MCP security — SSE session identity binding (S2)', () => {
+describe('MCP security — every request is authorized on its own bearer', () => {
   let readOnlyToken;
   before(async () => {
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
-    // Mint a second, distinct token (different id) valid on instance A.
+    // A second, distinct token (different id) valid on instance A, with no write rights.
     const r = await post(INSTANCES.a, tokenA, '/api/tokens', { name: `s2-readonly-${Date.now()}`, readOnly: true });
     readOnlyToken = r?.body?.plaintext;
   });
 
-  it('POST /mcp/messages with a DIFFERENT token than opened the session returns 403', async () => {
+  it('a read-only token is refused a write, while an admin token is not', async () => {
     assert.ok(readOnlyToken && readOnlyToken.startsWith('ythril_'), 'second token must be minted');
-    const sess = await openRawSession(INSTANCES.a, tokenA);
+
+    const attacker = await openMcpSession(INSTANCES.a, readOnlyToken);
     try {
-      assert.equal(sess.status, 200);
-      assert.ok(sess.sessionId, 'SSE session must open and yield a sessionId');
+      assert.equal(attacker.status, 200, 'the read-only token must reach MCP — a refusal is the point, not a 401');
+      const refused = await attacker.callTool('remember', { fact: 'S2-successor-write-attempt', space: 'general' });
+      assert.ok(refused?.isError, `VULNERABILITY: a read-only token wrote through MCP: ${JSON.stringify(refused)}`);
+    } finally { attacker.close(); }
 
-      // Attacker holds a valid (read-only) token and learns the admin session id.
-      const hijack = await rawPostToSession(INSTANCES.a, sess.sessionId, readOnlyToken, 'remember', { fact: 'S2-hijack-attempt', space: 'general' });
-      assert.equal(hijack.status, 403,
-        `VULNERABILITY: a different token drove the session (got ${hijack.status}). ` +
-        `The SSE session must be bound to the id of the token that opened it.`);
-
-      // Control: the opening token itself is still accepted (202/200).
-      const legit = await rawPostToSession(INSTANCES.a, sess.sessionId, tokenA, 'recall', { query: 'anything' });
-      assert.ok([200, 202].includes(legit.status), `opening token must still drive its own session (got ${legit.status})`);
-    } finally { sess.close(); }
+    // Control: the same call with a token that HAS the right succeeds, so the refusal above is about rights
+    // and not about the tool, the space, or the transport being broken.
+    const admin = await openMcpSession(INSTANCES.a, tokenA);
+    try {
+      const ok = await admin.callTool('remember', { fact: `S2-successor-control-${Date.now()}`, space: 'general' });
+      assert.ok(!ok?.isError, `the control write must succeed: ${JSON.stringify(ok)}`);
+    } finally { admin.close(); }
   });
 });
 

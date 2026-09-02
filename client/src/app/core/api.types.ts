@@ -500,9 +500,19 @@ export interface RecallResponse {
   returned?: number;
   /** True when at least one match did not fit the budget. Present whether it bit or not — never interpret an absence. */
   truncated?: boolean;
-  /** The byte ceiling that was applied, after `maxBytes`/`maxTokens` resolution. */
-  budgetBytes?: number;
-  /** Serialised size of `results`, in bytes. */
+  /** The CHARACTER ceiling that was applied, after `maxChars`/`maxTokens` resolution. */
+  budgetChars?: number;
+  /**
+   * The BYTE ceiling that was applied, or `null` when the caller asked for none.
+   *
+   * Until 3.7 this was the only ceiling and it counted characters while calling them bytes — the same
+   * number for English and about a quarter under for German or Polish. Both units exist now, and null
+   * here means unasked-for rather than unknown.
+   */
+  budgetBytes?: number | null;
+  /** Serialised size of `results`, in characters. */
+  charsReturned?: number;
+  /** Serialised size of `results`, in real UTF-8 bytes. */
   bytesReturned?: number;
   /**
    * Where to continue from. Present exactly when `truncated` is true — send it back as `skip`.

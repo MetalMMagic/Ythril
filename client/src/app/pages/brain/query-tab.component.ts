@@ -459,7 +459,7 @@ export class QueryTabComponent {
    * search could show a handful of records with nothing anywhere on the page explaining why. Under the old
    * record cap that was three records out of a hundred.
    *
-   * Only the two numbers an operator can act on are kept. `budgetBytes` and `bytesReturned` are deliberately
+   * Only the two numbers an operator can act on are kept. The four size figures are deliberately
    * left out: they are for a caller tuning a request programmatically, and a byte count in the interface is a
    * number nobody can do anything with.
    */

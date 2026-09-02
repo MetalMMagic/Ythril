@@ -132,7 +132,9 @@ describe('REST: a tight budget returns a prefix and a way to reach the rest', ()
 
     // The five accounting fields are on EVERY response, which is the property that makes an absence
     // uninterpretable rather than ambiguous. Asserted by presence, not by value, where the value is data.
-    for (const f of ['returned', 'count', 'truncated', 'budgetBytes', 'bytesReturned']) {
+    // Seven now, not five: B-1 split the one figure that claimed to be bytes into the character count it
+    // actually was plus a real byte count, and both ceilings are echoed.
+    for (const f of ['returned', 'count', 'truncated', 'budgetChars', 'budgetBytes', 'charsReturned', 'bytesReturned']) {
       assert.notEqual(r.body[f], undefined, `${f} must be on every response: ${JSON.stringify(r.body).slice(0, 200)}`);
     }
     assert.equal(r.body.budgetBytes, tightBytes, 'the budget applied must be the one asked for');
@@ -223,9 +225,19 @@ describe('REST: a tight budget returns a prefix and a way to reach the rest', ()
     assert.equal(r.body.remainder, undefined, 'and nothing is written out');
     assert.equal(r.body.results.length, 5);
     assert.equal(r.body.returned, 5);
-    // Still stated rather than implied: the fields are present on the calls where the budget did NOT bite,
-    // which is the whole reason a caller never has to interpret an absence.
-    assert.equal(r.body.budgetBytes, 100_000, 'the operator default, reported even when it did not bite');
+    /*
+     * Still stated rather than implied: the fields are present on the calls where the budget did NOT bite,
+     * which is the whole reason a caller never has to interpret an absence.
+     *
+     * The DEFAULT is a character ceiling. It used to be `budgetBytes: 100000`, which was a character count
+     * with a byte name — the defect B-1 fixed. `budgetBytes` is now null here because no byte ceiling was
+     * asked for, and null is REPORTED rather than omitted, for the same reason every other field on this
+     * envelope is: an absent field has to be interpreted.
+     */
+    assert.equal(r.body.budgetChars, 50_000, 'the operator default, reported even when it did not bite');
+    assert.equal(r.body.budgetBytes, null, 'no byte ceiling was asked for, and its absence is STATED');
+    assert.equal(typeof r.body.charsReturned, 'number', 'both figures are reported, always');
+    assert.equal(typeof r.body.bytesReturned, 'number');
   });
 
   it('a budget that cannot hold one record still returns that record, whole', async (t) => {
@@ -346,7 +358,7 @@ describe('MCP: the same answer through the other door', () => {
       const text = res?.content?.[0]?.text ?? '';
       const out = JSON.parse(text);
 
-      for (const f of ['returned', 'count', 'truncated', 'budgetBytes', 'bytesReturned']) {
+      for (const f of ['returned', 'count', 'truncated', 'budgetChars', 'budgetBytes', 'charsReturned', 'bytesReturned']) {
         assert.notEqual(out[f], undefined, `${f} must be on every response too: ${text.slice(0, 200)}`);
       }
       assert.equal(out.truncated, true, `MCP must truncate too: ${text.slice(0, 250)}`);

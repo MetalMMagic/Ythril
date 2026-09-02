@@ -88,6 +88,34 @@ describe('the query route takes a budget', () => {
       'the query response assembles its own accounting fields, so they can drift from every other route\'s');
   });
 
+  it('`budgetFields` really does report a `count`, so the strip is not decoration', async () => {
+    // The behavioural half. Without it the source assertion below pins a strip whose necessity nobody has
+    // checked — and a `budgetFields` that stopped reporting `count` would leave a dead destructure and a
+    // green gate.
+    const { budgetFields, applyBudget } = await import('../../server/dist/brain/result-budget.js');
+    const outcome = applyBudget([{ a: 1 }], { chars: 1e6, bytes: null });
+    const fields = budgetFields(outcome, 99, { chars: 1e6, bytes: null }, 0);
+    assert.equal(fields.count, 99,
+      'budgetFields no longer reports the TOTAL as `count` — if that changed deliberately, the strip in the'
+      + ' query route is now dead code and should go with it');
+  });
+
+  it('and the budget accounting does not overwrite `count`', () => {
+    /*
+     * `count` means different things on two routes: the TOTAL on the recall paths, and the PAGE on `/query`,
+     * documented that way with `total` beside it. Spreading `budgetFields` wholesale silently adopted the
+     * recall meaning — a caller asking for `limit: 3` got `count: 12`, which is the fabricated-number defect
+     * this route was reported for in the first place.
+     *
+     * CI caught it, not preflight: the case that holds it is a Docker integration suite.
+     *
+     * Asserted as a NAMED strip rather than by spread order, because ordering works and is one careless
+     * reorder away from bringing it back.
+     */
+    assert.match(queryHandler(), /const \{ count: _budgetTotal, \.\.\.budgetAccounting \} = budgetFields\(/,
+      'the budget accounting is spread wholesale, so `count` becomes the total and stops meaning the page');
+  });
+
   it('the continuation is absolute, not page-relative', () => {
     /*
      * `/query` already has a real `skip`, so a `nextSkip` computed from the page alone would send a caller
@@ -95,7 +123,7 @@ describe('the query route takes a budget', () => {
      * bug it prevents is a paging loop that never advances, which is how `skip` came to be reported in the
      * first place.
      */
-    assert.match(queryHandler(), /budgetFields\([^)]*safeSkip/,
+    assert.match(queryHandler(), /budgetFields\([^)]*safeSkip\)/,
       'budgetFields is called without the page offset, so nextSkip restarts the page instead of advancing');
   });
 });

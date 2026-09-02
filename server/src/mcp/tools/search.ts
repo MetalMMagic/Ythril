@@ -741,6 +741,20 @@ export const queryTool: ToolHandler = {
     const budgeted = applyBudget(docs, { chars: queryBudget.chars, bytes: queryBudget.bytes });
     const rows = budgeted.returned;
 
+    /*
+     * `count` MEANS DIFFERENT THINGS ON THESE TWO ROUTES, and that collision is worth naming.
+     *
+     * On the recall paths `count` is the TOTAL number of matches, so `budgetFields` reports it as such. On
+     * `/query` it has always been the PAGE — documented that way, with `total` beside it for the whole match.
+     * Spreading the accounting fields wholesale therefore overwrote a documented meaning with a different one:
+     * a caller asking for `limit: 3` got `count: 12`, which is exactly the fabricated-number defect this route
+     * was reported for.
+     *
+     * Stripped by NAME rather than fixed by spread order. Ordering works and is one careless reorder away from
+     * silently coming back.
+     */
+    const { count: _queryBudgetTotal, ...queryAccounting } = budgetFields(budgeted, total, { chars: queryBudget.chars, bytes: queryBudget.bytes }, skip);
+
     return {
       content: [
         {
@@ -753,7 +767,7 @@ export const queryTool: ToolHandler = {
         // `count` is what you were GIVEN, so it still matches `results.length` when the budget bit; `total`
         // is unchanged and still the whole match.
         count: rows.length, total, limit, skip,
-        ...budgetFields(budgeted, total, { chars: queryBudget.chars, bytes: queryBudget.bytes }, skip),
+        ...queryAccounting,
         ...(sortParse.sort ? { sort: sortParse.sort.field, dir: sortParse.sort.dir === 1 ? 'asc' : 'desc' } : {}),
       },
     };

@@ -350,6 +350,20 @@ searchRouter.post('/spaces/:spaceId/query', globalRateLimit, requireSpaceAuth, s
      */
     const budgeted = applyBudget(merged, { chars: budget.chars, bytes: budget.bytes });
 
+    /*
+     * `count` MEANS DIFFERENT THINGS ON THESE TWO ROUTES, and that collision is worth naming.
+     *
+     * On the recall paths `count` is the TOTAL number of matches, so `budgetFields` reports it as such. On
+     * `/query` it has always been the PAGE — documented that way, with `total` beside it for the whole match.
+     * Spreading the accounting fields wholesale therefore overwrote a documented meaning with a different one:
+     * a caller asking for `limit: 3` got `count: 12`, which is exactly the fabricated-number defect this route
+     * was reported for.
+     *
+     * Stripped by NAME rather than fixed by spread order. Ordering works and is one careless reorder away from
+     * silently coming back.
+     */
+    const { count: _budgetTotal, ...budgetAccounting } = budgetFields(budgeted, total, { chars: budget.chars, bytes: budget.bytes }, safeSkip);
+
     res.json({
       results: budgeted.returned, collection,
       /*
@@ -361,7 +375,7 @@ searchRouter.post('/spaces/:spaceId/query', globalRateLimit, requireSpaceAuth, s
        * told a number that did not match what they were holding.
        */
       count: budgeted.returned.length, total, limit: safeLimit, skip: safeSkip,
-      ...budgetFields(budgeted, total, { chars: budget.chars, bytes: budget.bytes }, safeSkip),
+      ...budgetAccounting,
       ...(sortParse.sort ? { sort: sortParse.sort.field, dir: sortParse.sort.dir === 1 ? 'asc' : 'desc' } : {}),
     });
   } catch (err: unknown) {

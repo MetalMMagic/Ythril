@@ -222,17 +222,17 @@ describe('FileManagerComponent — the preview object URL (characterization for 
      */
     const spy = withRevokeSpy();
     const c = create();
-    c._previewObjectUrl = 'blob:fake';
+    c.previewUrl.bindIfCurrent('blob:fake', () => true);
     c.closePreview();
     expect(spy.calls).toEqual(['blob:fake']);
-    expect(c._previewObjectUrl).toBeNull();
+    expect(c.previewUrl.value).toBeNull();
     spy.restore();
   });
 
   it('closing twice revokes once — the second call has nothing to release', () => {
     const spy = withRevokeSpy();
     const c = create();
-    c._previewObjectUrl = 'blob:fake';
+    c.previewUrl.bindIfCurrent('blob:fake', () => true);
     c.closePreview();
     c.closePreview();
     expect(spy.calls).toHaveLength(1);
@@ -242,9 +242,75 @@ describe('FileManagerComponent — the preview object URL (characterization for 
   it('closing with no preview open revokes nothing rather than throwing', () => {
     const spy = withRevokeSpy();
     const c = create();
-    c._previewObjectUrl = null;
+    c.previewUrl.release();
     expect(() => c.closePreview()).not.toThrow();
     expect(spy.calls).toEqual([]);
+    spy.restore();
+  });
+
+  it('DESTROYING the view revokes it too — closing is not the only way out', () => {
+    /*
+     * Navigating away does not call `closePreview`. Angular calls `ngOnDestroy`, and if only the close path
+     * released the URL then every preview a user walked away from would leak for the life of the tab.
+     * Asserted separately from closing because an extraction is very likely to move one and not the other.
+     */
+    const spy = withRevokeSpy();
+    const c = create();
+    c.previewUrl.bindIfCurrent('blob:on-destroy', () => true);
+    c.ngOnDestroy();
+    expect(spy.calls).toEqual(['blob:on-destroy']);
+    spy.restore();
+  });
+
+  it('opening a second preview releases the first, before it allocates', () => {
+    /*
+     * The switch, which is the common gesture: arrow-keying down a folder of images. `openPreview` revokes
+     * the current URL as part of resetting the pane, so the previous blob goes before the next one is
+     * fetched. Without this the leak is one blob per file walked past.
+     */
+    const spy = withRevokeSpy();
+    const c = create();
+    c.previewUrl.bindIfCurrent('blob:first', () => true);
+    c.openPreview(file('second.txt'));
+    expect(spy.calls).toEqual(['blob:first']);
+    spy.restore();
+  });
+
+  it('a preview fetch that resolves LATE does not overwrite the file that is open now', () => {
+    /*
+     * The race, and it is the one thing on this page that both leaks and shows the wrong content.
+     *
+     * `openPreview` revokes synchronously and the fetch resolves later. Arrow past two images quickly and
+     * the order is: revoke (nothing, the first fetch has not resolved), start B, A resolves and assigns
+     * `_previewObjectUrl = urlA`, B resolves and assigns `urlB`. `urlA` is now unreachable and never
+     * revoked — and between the two resolutions, A's image is displayed under B's name.
+     *
+     * The xlsx branch already guards exactly this: `if (this.previewFile()?.name !== entry.name) return;
+     * // fast arrow-nav moved on`. The image and PDF branch — the only one that allocates a resource — did
+     * not have it. One rule, two implementations, and the weaker one on the path where being wrong costs
+     * more than a stale table.
+     *
+     * Driven through `applyPreviewBlobUrl`, the seam the two branches now share, because a test that
+     * stubbed `fetch` twice would be asserting on the stub's ordering rather than on the guard.
+     */
+    const spy = withRevokeSpy();
+    const c = create();
+    c.previewFile.set(file('b.png'));
+
+    // A's fetch comes back after the selection moved to B.
+    c.applyPreviewBlobUrl(file('a.png'), 'image', 'blob:stale-a');
+    expect(c.previewMediaUrl()).toBe('');
+    expect(spy.calls).toEqual(['blob:stale-a']);
+    expect(c.previewUrl.value).toBeNull();
+
+    // And B's own response is still applied.
+    c.applyPreviewBlobUrl(file('b.png'), 'image', 'blob:live-b');
+    expect(c.previewMediaUrl()).toBe('blob:live-b');
+    expect(c.previewUrl.value).toBe('blob:live-b');
+
+    // Released before the spy is, or TestBed's own teardown calls the REAL `revokeObjectURL` on a blob URL
+    // that was never created — which fails the case during CLEANUP, with every assertion above green.
+    c.closePreview();
     spy.restore();
   });
 

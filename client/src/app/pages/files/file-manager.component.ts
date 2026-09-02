@@ -1,3 +1,4 @@
+import { PreviewObjectUrl } from './preview-object-url';
 import { ChangeDetectionStrategy, Component, inject, signal, computed, effect, untracked, OnInit, OnDestroy, HostListener, ElementRef, viewChild, Input, Output, EventEmitter } from '@angular/core';
 import { FilePreviewComponent, type FilePreview, type PreviewKind, type XlsxPreview } from './file-preview.component';
 import { UploadQueueComponent, type UploadItem, type UploadStatus } from './upload-queue.component';
@@ -730,7 +731,8 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     };
   });
   /** Blob object URL backing the current image/PDF preview; revoked on close/next. */
-  private _previewObjectUrl: string | null = null;
+  /** The preview's blob URL and its lifetime — see `preview-object-url.ts` for why it owns itself. */
+  readonly previewUrl = new PreviewObjectUrl();
   /** True while the preview is expanded to a full-screen overlay (Escape collapses it first). */
   previewFullscreen = signal(false);
 
@@ -1213,7 +1215,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     this.previewKind.set(kind);
     this.previewHtml.set('');
     this.previewError.set(null);
-    this.revokePreviewUrl();
+    this.previewUrl.release();
     this.previewMediaUrl.set('');
     this.previewSafeUrl.set('');
     this.previewTable.set(null);
@@ -1260,10 +1262,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
       fetch(url, { headers })
         .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.blob(); })
         .then(blob => {
-          const objUrl = URL.createObjectURL(blob);
-          this._previewObjectUrl = objUrl;
-          if (kind === 'image') this.previewMediaUrl.set(objUrl);
-          else this.previewSafeUrl.set(this.sanitizer.bypassSecurityTrustResourceUrl(objUrl));
+          this.applyPreviewBlobUrl(entry, kind, URL.createObjectURL(blob));
           this.previewLoading.set(false);
         })
         .catch((e) => { this.previewError.set(httpErrorReason(e)); this.previewLoading.set(false); });
@@ -1428,17 +1427,23 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     return { sheet: ws.name, header: grid[0] ?? [], rows: grid.slice(1), note };
   }
 
-  /** Revoke the current preview blob URL (if any) to avoid leaking object URLs. */
-  private revokePreviewUrl(): void {
-    if (this._previewObjectUrl) {
-      URL.revokeObjectURL(this._previewObjectUrl);
-      this._previewObjectUrl = null;
-    }
+  /**
+   * Show a freshly fetched image or PDF, unless the selection moved on while it was in flight.
+   *
+   * The guard and the release live in `PreviewObjectUrl`; what stays here is the part that is about this
+   * component — which signal the URL goes into. The predicate is passed rather than a boolean so the check
+   * happens at the moment of binding instead of being computed early by the caller.
+   */
+  applyPreviewBlobUrl(entry: FileEntry, kind: string, objUrl: string): void {
+    const bound = this.previewUrl.bindIfCurrent(objUrl, () => this.previewFile()?.name === entry.name);
+    if (!bound) return;
+    if (kind === 'image') this.previewMediaUrl.set(bound);
+    else this.previewSafeUrl.set(this.sanitizer.bypassSecurityTrustResourceUrl(bound));
   }
 
   closePreview(): void {
     this.previewFile.set(null);
-    this.revokePreviewUrl();
+    this.previewUrl.release();
     document.removeEventListener('keydown', this._keyHandler);
   }
 
@@ -1467,7 +1472,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     document.removeEventListener('keydown', this._keyHandler);
-    this.revokePreviewUrl();
+    this.previewUrl.release();
     // Abort any in-flight/queued uploads so their requests don't outlive the view.
     for (const sub of this.uploadSubs.values()) sub.unsubscribe();
     this.uploadSubs.clear();

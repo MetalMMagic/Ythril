@@ -547,6 +547,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Arrowing quickly through a folder of images could show the wrong one, and leaked a blob each time.** An
+  image or PDF preview fetches the file and wraps it in an object URL. `openPreview` releases the current URL
+  synchronously and then starts the fetch, which resolves later — so moving from A to B before A's response
+  arrives gave this order: release nothing (A has not resolved), start B, **A resolves and takes the pane**,
+  B resolves and overwrites it. A's blob was then unreachable and never released, and in the gap between the
+  two responses A's image was on screen under B's name.
+
+  Both halves are invisible in the way this page's resources always are: a leak reports nothing and lives as
+  long as the tab, and the wrong image looks like a slow load that settled.
+
+  The spreadsheet preview had guarded exactly this since it was written — *"fast arrow-nav moved on"* — and
+  the image/PDF branch, the only one that ALLOCATES something, did not. One rule, two implementations, and
+  the weaker one where being wrong costs more than a stale table. Both now go through one function that
+  checks the selection before binding, and releases the late URL rather than dropping it: it was created a
+  line earlier, so returning without releasing would have traded a wrong image for a certain leak.
+
+  Found while preparing the preview for extraction, by writing the cases the tracker said were missing —
+  including two that PASSED and are worth keeping anyway: navigating away releases the URL (nothing calls
+  `closePreview` on the way out), and opening a second preview releases the first.
+
 - **A token record with no rights matrix reached EVERY space. It now reaches none.** "Which spaces may this
   token see" had two implementations: the rights matrix, and the pre-3.0 `spaces` allowlist as a fallback for
   a record that had no matrix. Each was correct on its own — the fallback's rule was explicitly that an

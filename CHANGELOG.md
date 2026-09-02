@@ -181,6 +181,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An update route dropped unknown fields silently, and a `warn`-mode space was told nothing about an edit.**
+  The second half is the finding. The create responses carry a `warnings` array for schema violations; the
+  update responses carried **none at all** — and the writers had been computing the classification and handing
+  it back through `onValidation` the whole time, which the routes simply never took. So the same violation was
+  reported when a record was created and silent when it was edited.
+
+  Both halves ship together, because the first one had nowhere to go until the array existed. An update
+  response now carries `warnings` when there is something to say, with the schema violations and the
+  unknown-field rows in one array and one shape.
+
+  **The accepted-field lists are each route's own, not copies of the creates'.** `deleteFields` is an update
+  field and `id` is a path parameter there, so a copied list would have produced an "unknown field" warning
+  about a parameter that works — which the drift check refuses: every name a handler READS, destructured or via
+  `req.body?.['x']`, has to be declared.
+
+  Four mutants dead by exit code. The gate's own first draft looked for the word `onValidation` in the handler
+  and failed against working code: the parameter is positional, so a handler that takes it correctly never
+  spells the name. It asserts the callback and the warnings being read back instead — the two things that
+  actually have to be true.
+
 - **`maxBytes` counted characters, and the name, the parameter, the refusal, the response field and the
   documentation all said bytes.** `JSON.stringify(record).length` is UTF-16 code units — equal to bytes for
   ASCII and wrong for everything else. `Grüße aus Köln — ąćę` counted 31 against 39 real bytes (26% under);

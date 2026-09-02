@@ -359,6 +359,41 @@ describe('FileManagerComponent — the tree sidebar (characterization for G-3)',
    * `settle` resolves EVERY request in flight for a path, because the page and the tree's own root load can
    * both be waiting on the same one.
    */
+  /**
+   * A listing that can be made to fail per path, and switched back.
+   *
+   * `createWithTree` fixes the outcome when the stub is built, so it cannot express the sequence that matters
+   * here: a folder that LOADED and is then refreshed unsuccessfully, versus one whose very first listing
+   * fails. Those two get opposite treatment on purpose, and a test that can only build one of them would
+   * pin half a rule.
+   */
+  function createSwitchable(listing: Record<string, unknown[]>) {
+    const failing = new Set<string>();
+    const requested: string[] = [];
+    const api = {
+      ...makeApi(),
+      listFiles: (_space: string, path: string) => {
+        requested.push(path);
+        return failing.has(path)
+          ? throwError(() => new Error('nope'))
+          : of({ entries: listing[path] ?? [], path });
+      },
+    } as any;
+    TestBed.configureTestingModule({
+      imports: [FileManagerComponent, getTranslocoModule()],
+      providers: [
+        { provide: FilesApi, useValue: api },
+        { provide: SpacesApi, useValue: api },
+        { provide: BrainApi, useValue: api },
+        { provide: AuthService, useValue: { token: () => 't' } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => null } }, queryParamMap: of() } },
+      ],
+    });
+    const fixture = TestBed.createComponent(FileManagerComponent);
+    fixture.detectChanges();
+    return { c: fixture.componentInstance as any, fixture, requested, failing };
+  }
+
   function createControlled(listing: Record<string, unknown[]>) {
     const waiting = new Map<string, Subject<unknown>[]>();
     const requested: string[] = [];
@@ -597,6 +632,71 @@ describe('FileManagerComponent — the tree sidebar (characterization for G-3)',
      * It was four: the first click used to pay twice. That is the whole of `G-13`.
      */
     expect(requested.filter(p => p === '/docs').length).toBe(3);
+  });
+
+  it('a failed navigation shows NO rows — the folder you left is not relabelled as the one you entered', () => {
+    /*
+     * `G-14`, and it was found by looking at a screenshot rather than by any assertion.
+     *
+     * The breadcrumb read `root / docs`, the table showed the rows of `root`, and there was no error anywhere
+     * on the listing. An operator was reading one folder's contents under another folder's name.
+     *
+     * Why nothing caught it: the failure IS recorded (`loadError`), but the listing renders it inside the
+     * table's `@empty` block — so it appears only when there are no rows, and a failed navigation left the
+     * previous folder's rows in place. Both halves were defensible on their own, which is the shape this
+     * codebase produces most.
+     */
+    const { c, failing } = createSwitchable({ '/': [file('a.txt'), file('b.txt')], '/docs': [file('c.txt')] });
+    expect(c.entries().length).toBe(2);
+
+    failing.add('/docs');
+    c.navigate('/docs');
+
+    expect(c.currentPath()).toBe('/docs');
+    expect(c.entries().length).toBe(0);
+    expect(c.loadError()).toBeTruthy();
+    expect(c.loading()).toBe(false);
+  });
+
+  it('and a failed REFRESH keeps its rows, because that is a different question', () => {
+    /*
+     * The other half of the same rule, and the reason the fix above is a branch rather than a blanket clear.
+     *
+     * A poll during an ingest must not blank a table that is fine — #632 is the bug that taught this, and the
+     * rows are marked not-current instead (`refreshFailed`). A clear that did not distinguish the two would
+     * trade a visible defect for an invisible one: the page would flash empty every time a background tick
+     * lost a request.
+     */
+    const { c, failing } = createSwitchable({ '/': [file('a.txt'), file('b.txt')] });
+    expect(c.entries().length).toBe(2);
+
+    failing.add('/');
+    c.reloadDir();                             // same path, rows on screen: a refresh
+
+    expect(c.entries().length).toBe(2);
+    expect(c.refreshFailed()).toBe(true);
+    expect(c.loadError()).toBeNull();
+  });
+
+  it('retrying a failed navigation loads the folder it is showing, not the one you came from', () => {
+    /*
+     * The retry button lives inside the error state, so it only exists in the situation above — and it reads
+     * `currentPath`, which has already moved. Worth pinning because clearing the rows makes `loadedPath`
+     * stale, and a fix that reset the path instead of the rows would send the retry to the wrong directory
+     * while looking correct on screen.
+     */
+    const { c, failing, requested } = createSwitchable({ '/': [file('a.txt')], '/docs': [file('c.txt')] });
+    failing.add('/docs');
+    c.navigate('/docs');
+    expect(c.entries().length).toBe(0);
+
+    failing.delete('/docs');
+    requested.length = 0;
+    c.reloadDir();
+
+    expect(requested).toEqual(['/docs']);
+    expect(c.entries().map((e: any) => e.name)).toEqual(['c.txt']);
+    expect(c.loadError()).toBeNull();
   });
 
   it('clicking a node NAVIGATES as well as toggling — one gesture, two effects', () => {

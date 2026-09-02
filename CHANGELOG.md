@@ -203,6 +203,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A folder whose listing failed showed the PREVIOUS folder's files under the new folder's name.** Open a
+  folder that cannot be read: the path said `root / docs`, the table listed the files of `root`, and nothing
+  anywhere said the listing had failed. An operator was reading one directory's contents labelled as
+  another's — the kind of wrong that gets believed.
+
+  **Both halves were defensible, which is why it lasted.** The failure WAS recorded; the file list renders
+  that message in place of its "this folder is empty" state, so it can only appear when there are no rows —
+  and a failed navigation left the previous folder's rows sitting there. Neither piece looks wrong on its own.
+
+  The rows are cleared now, so the message and its **Retry** appear, and the retry loads the folder named in
+  the path rather than the one whose rows have gone. **A failed background refresh still keeps its rows** and
+  marks them not-current: a lost request during an ingest must not blank a list that is fine, which is a
+  separate rule with its own bug behind it.
+
+  Found by reading a screenshot while verifying the tree's new failure state, not by any assertion — and the
+  assertions came after, one for each half, because a fix that cleared on refresh too would trade a visible
+  defect for an invisible one.
+
 - **Clicking a folder in the file tree listed that directory twice.** One gesture, two identical
   requests: the page loaded the folder for the main listing, and the sidebar loaded the same path again for
   its children — same URL, same moment, every time a folder was opened. The listing the page fetches already

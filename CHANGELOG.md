@@ -211,6 +211,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Query panel's recall request is pinned by tests before U-1 rebuilds the panel around it.** Eighteen
+  rules live in one method and none of them had an assertion: three flags are sent only when ON, one only
+  when OFF, three numbers treat zero as "say nothing" for three different reasons, and the type dropdown
+  merges into a hand-written filter while overriding one key of it.
+
+  **A rebuild that carried seventeen of them across would look finished.** The one it dropped would send a
+  plausible request and get a plausible answer — a cap of zero returns nothing, and an inverted content flag
+  stops passages — so the failure would arrive as a support question rather than as an error.
+
+  Nothing an operator can see changes. Nineteen cases, and eighteen mutants killed by exit code, including
+  the one that only shows while a search is in flight: the "answer was shortened" banner has to go on the
+  CLICK, or it sits over results nobody has received yet.
+
 - **A gate now holds the Query panel to what a `recall` call can actually do.** The panel binds a subset of the
   parameters the API accepts, which means an operator cannot do from the screen what an agent can do through
   MCP — and the size of that gap was measured by hand. A hand count is the wrong instrument: three traversal

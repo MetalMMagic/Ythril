@@ -302,6 +302,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Four config migrations are PERMANENT, not release tails — and one of them was going to be deleted.**
+  They lift a legacy `config.json` key onto its replacement at boot: the removed face-recognition switch,
+  the removed media master switch, the four `mediaEmbedding` url/model spellings, and a space's
+  `description`. All four shipped at or before the 3.0.0 floor 4.0 upgrades from, which reads as licence to
+  drop them.
+
+  **The floor is not the test, and the code says so in its own words.** Each is written as *mutate in
+  memory, then attempt to persist, and on failure warn "will retry next boot"*. That retry path means the
+  product never assumed the write succeeded — so "every instance has already been migrated" is an
+  assumption the implementation itself declines to make, and while a stale key survives on disk the
+  migration is what turns it into the right value, on every boot.
+
+  **None of the four fails by losing a value. Each leaves a WRONG DEFAULT, because the defaults moved
+  underneath them.** A stale `faceRecognition.enabled: false` under an `auto` or `recognition` image ceiling
+  would start face detection and store face embeddings — biometric data — with nobody having asked;
+  measured, not inferred. A stale `mediaEmbedding.enabled: false` would turn captioning and transcription on
+  for an instance that had media off. A stale `ollamaUrl` would drop the vision endpoint to the built-in
+  default and caption every document against whatever answers there. A stale `description` would lose a
+  space's MCP directive — and since `description` is refused at both doors since 3.0, the operator could not
+  re-send it under the old name either.
+
+  Three of those are a setting that is present, configures nothing, and produces no error, which is the
+  failure this release has now twice refused to ship. A new gate pins the WIRING rather than the behaviour,
+  because every existing test on these four passes if the migration merely stops being CALLED — a deletion
+  takes the function and its test out together and leaves nothing red. It also asserts each one runs OUTSIDE
+  its own `try`, so the in-memory fix still applies when the disk write fails, which is the only case where
+  any of this matters.
+
+- **A removed field could still be written by an internal caller.** `updateSpace` took a `description` and
+  folded it into `meta.purpose`. Correct when written, and unreachable since `refuseRemovedDescription` went
+  in front of both planners — every request carrying the field 400s, and all four internal callers pass
+  `meta`. What was left was one rule with two implementations where the survivor silently ACCEPTED what the
+  refusal exists to reject, reachable by any code going straight to `updateSpace` instead of through the
+  planners.
+
 - **Three legacy env-var spellings are now scheduled for removal at the next major**, and this page said
   they never would be. `OLLAMA_URL`, `WHISPER_URL` and `WHISPER_MODEL` have resolved to `VISION_BASE_URL`,
   `STT_BASE_URL` and `STT_MODEL` since 3.0, warning once at startup. The reasoning for keeping them was that

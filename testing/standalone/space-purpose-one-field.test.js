@@ -129,6 +129,27 @@ describe('space purpose is one field', () => {
       assert.equal(refuseRemovedDescription([]), undefined);
     });
 
+    it('and `updateSpace` no longer has a `description` arm for it to fall through to', () => {
+      /*
+       * The dead half, found while auditing the boot migration for 4.0. `updateSpace` took a
+       * `description?: string` and folded it into `meta.purpose` — correct when it was written, and
+       * unreachable since `refuseRemovedDescription` went in front of both planners: all four callers pass
+       * `meta`, and any request carrying the field 400s before it gets here.
+       *
+       * Two implementations of one rule, and the survivor is a fold that silently ACCEPTS what the refusal
+       * exists to reject. Anyone calling `updateSpace` directly from inside the repo — which is what
+       * `meta-update.ts` warns about in as many words — would have bypassed the refusal and written a
+       * purpose from a removed field, with no test failing.
+       */
+      const strip = src => src.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+      const src = strip(readFileSync('server/src/spaces/spaces.ts', 'utf8'));
+      const at = src.indexOf('export function updateSpace(');
+      const fn = src.slice(at, src.indexOf('\n}', at));
+      assert.ok(!/description/.test(fn),
+        'updateSpace still reads `description`. The field is refused at both doors, so this arm can only be '
+        + 'reached by an internal caller bypassing the refusal — which is the one path that must not accept it.');
+    });
+
     it('BOTH planners refuse it, so neither door is the weaker one', () => {
       const strip = src => src.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
       for (const path of ['server/src/spaces/space-create.ts', 'server/src/spaces/meta-update.ts']) {

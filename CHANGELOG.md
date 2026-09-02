@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The Search panel shows the request it would send, live, with a Copy button.** The last of the owner's
+  `U-1` instruction: *"basically should be like the full json request visible on the side — so it can be
+  copied and sent directly to the recall mcp endpoint."* It updates as you type, and pasting it into a
+  `recall` call over MCP or REST gives the same answer.
+
+  **It does not describe the request — it IS the request.** The panel and the preview call the same builder,
+  so there is no second reader of the same rules to drift from the first. That mattered enough to shape the
+  change: a preview assembled separately would be BELIEVED, and the failure would be silent in the worst
+  way — somebody pastes the JSON, gets a different answer from the one on screen, and nothing anywhere is
+  wrong. A test asserts the two are the same object rather than trusting the convention.
+
+  When one of the two JSON boxes is not a valid object it says so and shows nothing, rather than leaving the
+  last good request on screen — and a blank question reads as "type a question" rather than as an error,
+  because those are different situations.
+
 - **The Search panel can now do everything a `recall` call can.** Owner-directed: *"one input field for EACH
   AND EVERY available option a recall has. I want to be able to do everything there that a mcp call can do.
   FULL CAPABILITIES."* Eleven parameters were reachable only by writing the request by hand; all eleven have

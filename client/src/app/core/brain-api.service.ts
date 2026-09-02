@@ -18,54 +18,15 @@ export interface ListSort {
 }
 
 /** Brain knowledge graph — memories, entities, edges, chrono, plus query/recall/traverse. */
-@Injectable({ providedIn: 'root' })
-export class BrainApi {
-  private http = inject(HttpClient);
-
-  /** Append `sort`/`dir` to a list request when a sort is active; a no-op otherwise. */
-  private withSort(params: HttpParams, sort?: ListSort): HttpParams {
-    return sort ? params.set('sort', sort.field).set('dir', sort.dir) : params;
-  }
-
-  /** Mint a single-use ticket to open the live-change SSE stream. EventSource can't send an
-   *  Authorization header and a raw token in the URL leaks into logs/history, so the stream is opened
-   *  with `?ticket=` instead. The ticket is single-use, short-lived, and bound to this space's stream. */
-  mintEventsTicket(spaceId: string): Observable<{ ticket: string; expiresInMs: number }> {
-    return this.http.post<{ ticket: string; expiresInMs: number }>(`/api/brain/spaces/${spaceId}/events/ticket`, {});
-  }
-
-  queryBrain(
-    spaceId: string,
-    body: {
-      collection: QueryCollection;
-      filter?: Record<string, unknown>;
-      projection?: Record<string, unknown>;
-      limit?: number;
-      maxTimeMS?: number;
-    },
-  ): Observable<QueryResult> {
-    return this.http.post<QueryResult>(`/api/brain/spaces/${spaceId}/query`, body);
-  }
-
-  /** Embedding-job backlog for a space (F9 Overview embedding-queue panel). */
-  getEmbeddingQueue(spaceId: string): Observable<EmbeddingQueue> {
-    return this.http.get<EmbeddingQueue>(`/api/brain/spaces/${spaceId}/embedding-queue/media`);
-  }
-
-  /** Re-queue every failed media job in a space (F9 Overview "retry all failed"). Returns the count reset. */
-  retryFailedEmbeddings(spaceId: string): Observable<{ retried: number }> {
-    return this.http.post<{ retried: number }>(`/api/brain/spaces/${spaceId}/embedding-queue/media/retry-failed`, {});
-  }
-
-  /** Which tokens can reach a space and at what level (F9 Overview matrix). ADMIN-only — 403 for others. */
-  getTokenAccess(spaceId: string): Observable<{ tokens: TokenAccessEntry[] }> {
-    return this.http.get<{ tokens: TokenAccessEntry[] }>(`/api/brain/spaces/${spaceId}/token-access`);
-  }
-
-  recallBrain(
-    spaceId: string,
-    body: {
-      query: string;
+/**
+ * The body `POST /recall` takes — exported so ONE declaration serves both callers.
+ *
+ * It was inline on the method, which was fine while the only caller was the method. `U-1`'s JSON preview
+ * needs the same type: it shows the request the panel would send, and a preview typed as a loose record
+ * could contain a key the route refuses while still compiling. The route is `.strict()`, so that key would
+ * be a 400 for whoever pasted the JSON — a preview being BELIEVED is the whole point of having one.
+ */
+export interface RecallRequestBody {      query: string;
       topK?: number;
       types?: RecallKnowledgeType[];
       minScore?: number;
@@ -180,7 +141,55 @@ export class BrainApi {
        * says so on the control rather than in a tooltip.
        */
       remainderDump?: boolean;
+}
+
+@Injectable({ providedIn: 'root' })
+export class BrainApi {
+  private http = inject(HttpClient);
+
+  /** Append `sort`/`dir` to a list request when a sort is active; a no-op otherwise. */
+  private withSort(params: HttpParams, sort?: ListSort): HttpParams {
+    return sort ? params.set('sort', sort.field).set('dir', sort.dir) : params;
+  }
+
+  /** Mint a single-use ticket to open the live-change SSE stream. EventSource can't send an
+   *  Authorization header and a raw token in the URL leaks into logs/history, so the stream is opened
+   *  with `?ticket=` instead. The ticket is single-use, short-lived, and bound to this space's stream. */
+  mintEventsTicket(spaceId: string): Observable<{ ticket: string; expiresInMs: number }> {
+    return this.http.post<{ ticket: string; expiresInMs: number }>(`/api/brain/spaces/${spaceId}/events/ticket`, {});
+  }
+
+  queryBrain(
+    spaceId: string,
+    body: {
+      collection: QueryCollection;
+      filter?: Record<string, unknown>;
+      projection?: Record<string, unknown>;
+      limit?: number;
+      maxTimeMS?: number;
     },
+  ): Observable<QueryResult> {
+    return this.http.post<QueryResult>(`/api/brain/spaces/${spaceId}/query`, body);
+  }
+
+  /** Embedding-job backlog for a space (F9 Overview embedding-queue panel). */
+  getEmbeddingQueue(spaceId: string): Observable<EmbeddingQueue> {
+    return this.http.get<EmbeddingQueue>(`/api/brain/spaces/${spaceId}/embedding-queue/media`);
+  }
+
+  /** Re-queue every failed media job in a space (F9 Overview "retry all failed"). Returns the count reset. */
+  retryFailedEmbeddings(spaceId: string): Observable<{ retried: number }> {
+    return this.http.post<{ retried: number }>(`/api/brain/spaces/${spaceId}/embedding-queue/media/retry-failed`, {});
+  }
+
+  /** Which tokens can reach a space and at what level (F9 Overview matrix). ADMIN-only — 403 for others. */
+  getTokenAccess(spaceId: string): Observable<{ tokens: TokenAccessEntry[] }> {
+    return this.http.get<{ tokens: TokenAccessEntry[] }>(`/api/brain/spaces/${spaceId}/token-access`);
+  }
+
+  recallBrain(
+    spaceId: string,
+    body: RecallRequestBody,
   ): Observable<RecallResponse> {
     return this.http.post<RecallResponse>(`/api/brain/spaces/${spaceId}/recall`, body);
   }

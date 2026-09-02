@@ -36,6 +36,17 @@ const stripComments = (src: string) => src
 
 const component = stripComments(readFileSync('src/app/pages/brain/query-tab.component.ts', 'utf8'));
 const api = stripComments(readFileSync('src/app/core/brain-api.service.ts', 'utf8'));
+/*
+ * The panel split into three files, and each check below reads the one holding its half.
+ *
+ * `U-1` moved the CONTROLS into `recall-form.component.ts` and the REQUEST BUILDING into
+ * `recall-request.ts`, so a check anchored on the tab reported the byte ceiling unreachable while it was
+ * bound and sent exactly as before. Re-pointed rather than relaxed — every assertion still demands a real
+ * binding and a real conditional — and the two are kept apart on purpose: a control existing and a value
+ * being sent are different claims, and merging the sources would let one answer for the other.
+ */
+const form = stripComments(readFileSync('src/app/pages/brain/recall-form.component.ts', 'utf8'));
+const request = stripComments(readFileSync('src/app/pages/brain/recall-request.ts', 'utf8'));
 const LOCALES = ['en', 'de', 'pl'] as const;
 const locale = (l: string) =>
   JSON.parse(readFileSync(`public/assets/i18n/${l}.json`, 'utf8')) as Record<string, string>;
@@ -143,7 +154,8 @@ describe('the size ceiling is reachable from the form', () => {
      */
     for (const unit of ['maxBytes', 'maxChars', 'maxTokens', 'charsPerToken']) {
       expect(api).toMatch(new RegExp(`${unit}\\?: number;`));
-      expect(component).toMatch(new RegExp(`recallForm\\.${unit}`));
+      expect(form).toMatch(new RegExp(`form\\(\\)\\.${unit}`));
+      expect(request).toMatch(new RegExp(`form\\.${unit}`));
     }
     // And the one dependency between them is enforced rather than merely documented: charsPerToken
     // converts a token ceiling, so it is sent only when there is one.
@@ -151,18 +163,19 @@ describe('the size ceiling is reachable from the form', () => {
     // The first version of this line asserted that the source SAYS the server applies the smallest
     // ceiling — and `api` here is comment-STRIPPED, so it was asking for a fact that only exists in a
     // comment. A rule a caller reads is documentation; a rule a gate holds has to be behaviour.
-    expect(component).toMatch(/maxTokens > 0 && this\.recallForm\.charsPerToken > 0/);
+    expect(request).toMatch(/maxTokens > 0 && form\.charsPerToken > 0/);
   });
 
   it('the form has the control, bound and defaulted to "unset"', () => {
+    // The DEFAULT is the host's — it owns the state object — and the BINDING is the form component's.
     expect(component).toMatch(/maxBytes: 0,/);
-    expect(component).toContain('recallForm.maxBytes');
+    expect(form).toContain('form().maxBytes');
   });
 
   it('zero is NOT sent — it would be a ceiling nobody chose', () => {
     // The server floor is 1000, so a literal 0 could not be honoured anyway; it is clamped. Sending it would put
     // a parameter in every request that means the opposite of what the operator left blank.
-    expect(component).toMatch(/this\.recallForm\.maxBytes > 0 \? \{ maxBytes: this\.recallForm\.maxBytes \} : \{\}/);
+    expect(request).toMatch(/form\.maxBytes > 0 \? \{ maxBytes: form\.maxBytes \} : \{\}/);
   });
 
   it('every new key exists in all three locales', () => {

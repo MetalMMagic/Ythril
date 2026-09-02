@@ -42,7 +42,14 @@ import { readFileSync } from 'node:fs';
 
 const { ALL_TOOLS } = await import('../../server/dist/mcp/tools/index.js');
 
-const PANEL = 'client/src/app/pages/brain/query-tab.component.ts';
+/**
+ * The module that BUILDS the recall request.
+ *
+ * It was the tab, whose `runRecall` assembled the body inline. U-1's last change extracted it, because
+ * the JSON preview beside the form has to be the SAME request rather than a second reader of the same
+ * rules — so there is now exactly one place to read, which is strictly better for this gate too.
+ */
+const PANEL = 'client/src/app/pages/brain/recall-request.ts';
 
 /** What `inputSchema(s)` is given at runtime — only the two space shapes are read out of it. */
 const STUB = { requiredSpace: { type: 'string' }, optionalSpace: { type: 'string' } };
@@ -111,11 +118,19 @@ function literalAt(src, open) {
  */
 function panelRequestKeys() {
   const src = strip(readFileSync(PANEL, 'utf8'));
-  const at = src.indexOf('runRecall(): void {');
-  assert.ok(at > 0, `no runRecall() in ${PANEL} — the panel was renamed or moved`);
+  const at = src.indexOf('export function recallRequestFrom(');
+  assert.ok(at > 0, `no recallRequestFrom() in ${PANEL} — the builder was renamed or moved`);
   const body = literalAt(src, src.indexOf('{', at));
   const keys = new Set();
+  // Two spellings, because the builder uses both: `topK: form.topK` and the shorthand `query,`.
+  //
+  // The second pattern is line-anchored rather than brace-anchored, which is the difference between
+  // finding a shorthand key and finding a function argument: `{ a, b }` and `f(a, b)` are the same
+  // characters. The builder writes one key per line, so the anchor is the formatting it already has —
+  // and the floor test below fails loudly if that ever stops being true, rather than quietly matching
+  // less. Without it, `query` itself read as unreachable.
   for (const m of body.matchAll(/[{,]\s*([a-zA-Z][\w]*)\s*[:}]/g)) keys.add(m[1]);
+  for (const m of body.matchAll(/^\s*([a-zA-Z][\w]*)\s*[:,]/gm)) keys.add(m[1]);
   return keys;
 }
 

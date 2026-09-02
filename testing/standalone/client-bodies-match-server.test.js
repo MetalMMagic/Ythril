@@ -81,9 +81,14 @@ function topLevelKeys(literal) {
 /**
  * Every `POST` to a strict brain route in the tracked client sources, with the body keys it sends.
  *
- * The second argument is either an inline object (keys read from it) or a parameter named `body`, whose
- * inline type literal is the nearest `body:` declaration above the call — one per method, so nearest is its
- * own.
+ * The second argument is either an inline object (keys read from it) or a parameter named `body`, whose type
+ * is the nearest `body:` declaration above the call — one per method, so nearest is its own.
+ *
+ * That type is an inline literal, or a NAMED interface declared in the same file. Named is now the case for
+ * `/recall`: `U-1` needed the same type for the request-preview panel, and a preview typed as a loose record
+ * would compile with a key the strict route refuses — a 400 for whoever pasted the JSON. So the type had to
+ * be shared, and this gate resolves the name rather than demanding an inline literal it can parse more
+ * easily. Refusing the named form would have been a gate dictating a worse design.
  */
 function clientPosts() {
   const found = [];
@@ -102,9 +107,22 @@ function clientPosts() {
       assert.ok(declared > 0, `${file}: POST /${route} sends something this gate cannot read — pass an inline
         object or a parameter named \`body\` with an inline type literal.`);
       const brace = src.indexOf('{', declared);
-      const literal = brace > -1 && brace < declared + 8 ? literalAt(src, brace) : null;
-      assert.ok(literal, `${file}: the \`body\` for POST /${route} is not an inline type literal, so its keys
-        cannot be compared with the server's allowed set. Inline it.`);
+      let literal = brace > -1 && brace < declared + 8 ? literalAt(src, brace) : null;
+      if (!literal) {
+        // A named type: `body: RecallRequestBody,`. Resolve it in the same FILE — deliberately not across
+        // files, because a gate that followed imports would be reading a type it cannot prove is the one the
+        // route takes, and "somewhere in the repo there is an interface with these keys" is not the claim.
+        // ANCHORED, with no character count: the regex is the bound. `slice(declared, declared + 80)` was
+        // the obvious way to write this and `gates-bound-their-subject-structurally` refuses it — a window
+        // that can fall short of its subject is a gate that can pass while checking less than it means to.
+        const named = /^body:\s*([A-Z]\w*)\s*[,)]/.exec(src.slice(declared));
+        if (named) {
+          const decl = src.indexOf(`interface ${named[1]} {`);
+          if (decl > -1) literal = literalAt(src, src.indexOf('{', decl));
+        }
+      }
+      assert.ok(literal, `${file}: the \`body\` for POST /${route} is neither an inline type literal nor a
+        named interface declared in this file, so its keys cannot be compared with the server's allowed set.`);
       assert.doesNotMatch(literal, /\[\s*\w+\s*:\s*string\s*\]\s*:/,
         `${file}: the \`body\` for POST /${route} has an index signature, which admits any key and makes this
         gate vacuous.`);

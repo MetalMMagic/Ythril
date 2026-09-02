@@ -151,7 +151,18 @@ const FROZEN = {
   // never-rendered failure state negotiable would be a gate encouraging the wrong outcome. The tree's own
   // state and its store are in `file-tree.component.ts` and `file-tree.store.ts`; what landed here is the
   // binding, which belongs to the page that owns the sidebar. DECOMPOSE: G-3 still stands.
-  'client/src/app/pages/files/file-manager.component.ts': 1071,
+  //
+  // RAISED 1071 -> 1078: SEVEN LINES, `G-13`. Clicking a folder listed it twice — once for the page and once
+  // for the tree — and the tree is fed from the page's listing now. What is here is the click's decision
+  // (does this expand need a listing, or are the children already loaded) and two hand-offs from the
+  // listing's success and error branches.
+  //
+  // **This gate is why the shape is right.** The first cut kept the whole rule here: a `pendingTreeNode`
+  // field, and a path check copied into both branches — fifteen lines, and tree-scoped state living in the
+  // largest file in the repo. That is the defect this codebase produces most, one rule with a copy in each
+  // place that touches it. It moved into `file-tree.store.ts`, which owns the waiting node; the page hands
+  // over a path and some entries and is told nothing. DECOMPOSE: G-3 still stands.
+  'client/src/app/pages/files/file-manager.component.ts': 1078,
   'client/src/app/pages/schema-library/schema-library.component.ts': 1112,
   'server/src/sync/engine.ts': 966,
   // 958 -> 684: the per-type editor body moved into `schema-type-editor.component` so the Brain Overview

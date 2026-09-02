@@ -203,6 +203,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Clicking a folder in the file tree listed that directory twice.** One gesture, two identical
+  requests: the page loaded the folder for the main listing, and the sidebar loaded the same path again for
+  its children — same URL, same moment, every time a folder was opened. The listing the page fetches already
+  contains the directories the tree wants, so the second request bought nothing and doubled the cost of
+  browsing on the one page an operator clicks through most.
+
+  The tree is fed from the listing now, and the sidebar issues no request of its own. A collapse and a
+  re-expand still cost nothing at all, because the children are already there. A folder waiting for a
+  listing that never arrives — you clicked it and then went somewhere else — stays waiting rather than
+  filling with the other directory's contents.
+
+  **The order was the whole reason this waited**, and the entry below is the other half. The duplicate used
+  to be the only thing that put a failed expand on screen — the tree had no error state, so removing the
+  request first would have made a folder that would not open genuinely silent. The tree got its own message
+  first, and a failed listing now feeds that message instead of the vanished second request.
+
 - **The file tree had no failure state at all, and a folder that would not open said nothing.**
   `expandTreeNode`'s error branch reset the spinner and left the node closed: the caret sprang back and that
   was the whole message, on a page where every other load reports itself (`loadError`, `refreshFailed`,

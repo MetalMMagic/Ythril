@@ -877,6 +877,9 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     else { this.loading.set(true); this.loadError.set(null); }
     this.filesApi.listFiles(this.activeSpaceId(), path).subscribe({
       next: ({ entries }) => {
+        // The tree's children, from the listing it was going to duplicate. The store ignores this unless a
+        // node is actually waiting for THIS path, so a navigation in between cannot fill the wrong folder.
+        this.tree.fillFrom(path, entries);
         this.entries.set(entries);
         this.loadedPath = path;
         this.loadError.set(null);
@@ -886,6 +889,9 @@ export class FileManagerComponent implements OnInit, OnDestroy {
         this.syncProgressPolling();
       },
       error: (e) => {
+        // The tree has no request of its own to fail any more, so its error comes from here. Without this the
+        // de-duplication would put back the silence `G-10` had just removed.
+        this.tree.failFrom(path, httpErrorReason(e));
         if (isRefresh) {
           // A failed POLL must not throw away good rows either — that is the same defect in another dress, and
           // a transient failure during an ingest is exactly when it would happen. Keep the rows, mark them as
@@ -1219,8 +1225,24 @@ export class FileManagerComponent implements OnInit, OnDestroy {
    * two so the count cannot drift up unnoticed.
    */
   onTreeClick(node: TreeNode): void {
+    /*
+     * ONE listing per click, not two.
+     *
+     * This used to call `navigate(path)` and then the tree's own `toggle`, which listed the same path again
+     * for the children — same URL, same moment, every time a folder was opened. The listing `navigate` starts
+     * already contains the directories the tree wants, so the node is fed from it when it lands.
+     *
+     * The collapse and the already-loaded expand are still the store's own business: neither needs a request,
+     * and routing them through the listing would make a free toggle wait on one.
+     */
+    const needsListing = !node.expanded && node.children === null;
+    if (needsListing) {
+      // The spinner has to appear on the CLICK, not when the listing lands, or the click looks ignored.
+      this.tree.awaitFrom(node);
+    } else {
+      this.tree.toggle(node, this.activeSpaceId());
+    }
     this.navigate(node.path);
-    this.tree.toggle(node, this.activeSpaceId());
   }
 
   // ── Preview ──────────────────────────────────────────────────────────────

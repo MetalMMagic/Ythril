@@ -35,7 +35,7 @@
  */
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { of, throwError } from 'rxjs';
+import { of, throwError, Subject } from 'rxjs';
 import { ActivatedRoute } from '@angular/router';
 import { FilesApi } from '../../core/files-api.service';
 import { SpacesApi } from '../../core/spaces-api.service';
@@ -348,6 +348,50 @@ describe('FileManagerComponent — the metadata edit model (characterization for
  */
 describe('FileManagerComponent — the tree sidebar (characterization for G-3)', () => {
   /** A fixture whose directory listings are scriptable per path, so an expand can be driven. */
+  /**
+   * A tree whose listings land WHEN THE TEST SAYS.
+   *
+   * `createWithTree` answers every request instantly, which makes two things untestable: what a folder looks
+   * like while its listing is in flight, and what happens when a second navigation overtakes the first. Both
+   * are behaviours this de-duplication introduced — the tree is fed by somebody else's request now — so both
+   * need a listing that can be held open.
+   *
+   * `settle` resolves EVERY request in flight for a path, because the page and the tree's own root load can
+   * both be waiting on the same one.
+   */
+  function createControlled(listing: Record<string, unknown[]>) {
+    const waiting = new Map<string, Subject<unknown>[]>();
+    const requested: string[] = [];
+    const api = {
+      ...makeApi(),
+      listFiles: (_space: string, path: string) => {
+        requested.push(path);
+        const s = new Subject<unknown>();
+        waiting.set(path, [...(waiting.get(path) ?? []), s]);
+        return s.asObservable();
+      },
+    } as any;
+    TestBed.configureTestingModule({
+      imports: [FileManagerComponent, getTranslocoModule()],
+      providers: [
+        { provide: FilesApi, useValue: api },
+        { provide: SpacesApi, useValue: api },
+        { provide: BrainApi, useValue: api },
+        { provide: AuthService, useValue: { token: () => 't' } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => null } }, queryParamMap: of() } },
+      ],
+    });
+    const fixture = TestBed.createComponent(FileManagerComponent);
+    fixture.detectChanges();
+    const settle = (path: string, entries?: unknown[]) => {
+      const subs = waiting.get(path) ?? [];
+      if (subs.length === 0) throw new Error(`nothing in flight for ${path}`);
+      waiting.delete(path);
+      for (const s of subs) { s.next({ entries: entries ?? listing[path] ?? [], path }); s.complete(); }
+    };
+    return { c: fixture.componentInstance as any, fixture, requested, settle };
+  }
+
   function createWithTree(listing: Record<string, unknown[]>) {
     const requested: string[] = [];
     const api = {
@@ -402,25 +446,116 @@ describe('FileManagerComponent — the tree sidebar (characterization for G-3)',
     expect(c.tree.treeRoot()[0].path).toBe(c.join('/', 'docs'));
   });
 
-  it('AS-IS: one click on a folder lists that directory TWICE', () => {
+  it('one click on a folder lists that directory ONCE', () => {
     /*
-     * Found by writing this assertion expecting 1. `onTreeClick` calls `navigate(path)`, which loads the
-     * directory for the main listing, and then `expandTreeNode(node)`, which lists the same path again for the
-     * tree's children. Same URL, same moment, two requests — every time a folder is opened from the sidebar.
+     * This was pinned AS-IS at TWO, and it is now one — a deliberate edit to the assertion, which is what the
+     * convention is for.
      *
-     * Pinned AS-IS at two rather than quietly asserted as one, because a characterization test's job is to
-     * record what happens. Filed as `G-10`: the second request is avoidable (the listing already holds the
-     * directories) but de-duplicating it is a behaviour change and does not belong inside a file split.
+     * `onTreeClick` used to call `navigate(path)`, which loads the directory for the main listing, and then
+     * the tree's own `toggle`, which listed the same path again for the children. Same URL, same moment,
+     * every time a folder was opened from the sidebar. The tree is fed from the listing now.
      *
-     * It also has to be pinned so the extraction cannot make it WORSE without anyone noticing — a tree
-     * component that fetched on its own would make it three.
+     * The number stays asserted, not deleted: an assertion that a folder is listed ONCE is what keeps the
+     * duplicate from coming back, and it is also what would catch a tree component that started fetching on
+     * its own and made it three.
      */
     const { c, requested } = createWithTree({ '/': [dir('docs')], '/docs': [dir('api'), file('note.md')] });
     c.onTreeClick(c.tree.treeRoot()[0]);
     const node = c.tree.treeRoot()[0];
     expect(node.expanded).toBe(true);
     expect(node.children.map((n: any) => n.name)).toEqual(['api']);
-    expect(requested.filter(p => p === '/docs').length).toBe(2);
+    expect(requested.filter(p => p === '/docs').length).toBe(1);
+  });
+
+  it('re-expanding a folder shows the children it already has, without waiting for a listing', () => {
+    /*
+     * The cached expand must stay the STORE's business. The click still navigates — that is one request either
+     * way — but the children are already in the node, so they have to appear at once rather than when the
+     * listing lands. Routing them through the listing would make a folder that is already open take a network
+     * round-trip to open again, and on a slow link the caret would sit on a spinner over data the browser is
+     * holding.
+     *
+     * Asserted while the third listing is still in flight, which is the only moment the two behaviours differ,
+     * and on the children's IDENTITY: a re-expand that refetched would replace the array with an equal one.
+     */
+    const { c, settle } = createControlled({ '/': [dir('docs')], '/docs': [dir('api')] });
+    settle('/');
+    const node = c.tree.treeRoot()[0];
+
+    c.onTreeClick(node);                       // expand: the listing is what feeds it
+    settle('/docs');
+    const kids = c.tree.treeRoot()[0].children;
+    expect(kids.map((n: any) => n.name)).toEqual(['api']);
+
+    c.onTreeClick(node);                       // collapse
+    settle('/docs');
+    expect(c.tree.treeRoot()[0].expanded).toBe(false);
+
+    c.onTreeClick(node);                       // re-expand, listing deliberately LEFT IN FLIGHT
+    const again = c.tree.treeRoot()[0];
+    expect(again.expanded).toBe(true);
+    expect(again.loading).toBe(false);
+    expect(again.children).toBe(kids);
+  });
+
+  it('a listing for another folder cannot fill the folder you clicked', () => {
+    /*
+     * The node waits for a request it does not own, so it has to check that the listing which arrived is the
+     * one it was waiting for. Click a folder, go somewhere else before it lands, and the second listing
+     * resolves first — without the path check that folder would be filled with the other directory's
+     * contents, silently and permanently, and the tree would be lying about what is on disk.
+     */
+    const { c, settle } = createControlled({ '/': [dir('docs'), dir('images')] });
+    settle('/');
+    const docs = c.tree.treeRoot()[0];
+
+    c.onTreeClick(docs);                       // /docs is now in flight, and docs is waiting for it
+    c.navigate('/images');                     // ...and we leave before it lands
+    settle('/images', [dir('unrelated')]);     // the OTHER listing arrives first
+
+    const stillWaiting = c.tree.treeRoot()[0];
+    expect(stillWaiting.children).toBeNull();
+    expect(stillWaiting.loading).toBe(true);
+
+    settle('/docs', [dir('api')]);             // and the one it was waiting for
+    const filled = c.tree.treeRoot()[0];
+    expect(filled.children.map((n: any) => n.name)).toEqual(['api']);
+    expect(filled.loading).toBe(false);
+  });
+
+  it('and a folder whose listing fails still says so, with no request of its own', () => {
+    /*
+     * The case most likely to break in this change, which is why it exists.
+     *
+     * The tree no longer has a request that can fail — it is fed from the listing's — so its error state has
+     * to come from the listing's failure. Without this, removing the duplicate would take the tree's message
+     * with it and put the silence back that `G-10` had just removed.
+     */
+    const api = {
+      ...makeApi(),
+      listFiles: (_s: string, path: string) =>
+        (path === '/docs' ? throwError(() => new Error('nope')) : of({ entries: [dir('docs')], path })),
+    } as any;
+    TestBed.configureTestingModule({
+      imports: [FileManagerComponent, getTranslocoModule()],
+      providers: [
+        { provide: FilesApi, useValue: api },
+        { provide: SpacesApi, useValue: api },
+        { provide: BrainApi, useValue: api },
+        { provide: AuthService, useValue: { token: () => 't' } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => null } }, queryParamMap: of() } },
+      ],
+    });
+    const fixture = TestBed.createComponent(FileManagerComponent);
+    fixture.detectChanges();
+    const c = fixture.componentInstance as any;
+
+    c.onTreeClick(c.tree.treeRoot()[0]);
+    const node = c.tree.treeRoot()[0];
+    expect(node.loading).toBe(false);
+    expect(node.expanded).toBe(false);
+    expect(node.children).toBeNull();
+    expect(node.error).toBeTruthy();
   });
 
   it('every mutation replaces the ARRAY, because the page is OnPush', () => {
@@ -446,7 +581,7 @@ describe('FileManagerComponent — the tree sidebar (characterization for G-3)',
      */
     const { c, requested } = createWithTree({ '/': [dir('docs')], '/docs': [dir('api')] });
     c.onTreeClick(c.tree.treeRoot()[0]);
-    expect(requested.filter(p => p === '/docs').length).toBe(2);   // the duplicate above
+    expect(requested.filter(p => p === '/docs').length).toBe(1);   // one per click now, not two
 
     c.onTreeClick(c.tree.treeRoot()[0]);
     expect(c.tree.treeRoot()[0].expanded).toBe(false);
@@ -455,12 +590,13 @@ describe('FileManagerComponent — the tree sidebar (characterization for G-3)',
     c.onTreeClick(c.tree.treeRoot()[0]);
     expect(c.tree.treeRoot()[0].expanded).toBe(true);
     /*
-     * Three clicks, four requests — and the arithmetic is the assertion. Each click costs the listing's one
-     * (via `navigate`), and only the FIRST costs the tree's: the collapse and the re-expand both find
-     * `children` already there and issue nothing. So the caching is real, and it is worth exactly one request
-     * per toggle rather than the two a rebuild-from-scratch tree would pay.
+     * Three clicks, three requests — and the arithmetic is still the assertion, one number lower per click.
+     * Each click costs the LISTING's request, which is the one the page needs anyway; the tree costs nothing,
+     * on the first expand or the third. The collapse and the re-expand find `children` already there.
+     *
+     * It was four: the first click used to pay twice. That is the whole of `G-13`.
      */
-    expect(requested.filter(p => p === '/docs').length).toBe(4);
+    expect(requested.filter(p => p === '/docs').length).toBe(3);
   });
 
   it('clicking a node NAVIGATES as well as toggling — one gesture, two effects', () => {

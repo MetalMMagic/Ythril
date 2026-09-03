@@ -17,6 +17,7 @@ import { globalRateLimit } from '../../rate-limit/middleware.js';
 import { updateFileMeta, deleteFileMeta, getFileMeta } from '../../files/file-meta.js';
 import { assertRefsResolve } from '../../brain/entity-refs.js';
 import { validateDeleteFields } from '../../brain/delete-fields.js';
+import { primitivePropertyError } from '../../brain/property-values.js';
 import { fileExists, readFile } from '../../files/files.js';
 import { log } from '../../util/log.js';
 import { getConfig } from '../../config/loader.js';
@@ -431,9 +432,11 @@ fileMetaRouter.patch('/spaces/:spaceId/files', globalRateLimit, requireSpaceAuth
   if (entityIds !== undefined && !Array.isArray(entityIds)) { res.status(400).json({ error: '`entityIds` must be an array' }); return; }
   if (chronoIds !== undefined && !Array.isArray(chronoIds)) { res.status(400).json({ error: '`chronoIds` must be an array' }); return; }
   if (memoryIds !== undefined && !Array.isArray(memoryIds)) { res.status(400).json({ error: '`memoryIds` must be an array' }); return; }
-  if (properties !== undefined && (typeof properties !== 'object' || properties === null || Array.isArray(properties))) {
-    res.status(400).json({ error: '`properties` must be a plain object' }); return;
-  }
+  // The bag's shape AND its values, in one call. This checked only the shape, so a nested value was
+  // refused by `write_file` (which declares `additionalProperties`) and stored here — the entity defect
+  // reported on 2026-09-02, surviving one record type over.
+  const propErr = primitivePropertyError(properties);
+  if (propErr) { res.status(400).json({ error: propErr }); return; }
 
   // A file carries THREE reference fields, and until now none of them was validated — not even under
   // strict linkage, which every other brain route already honoured. So this was the widest silent

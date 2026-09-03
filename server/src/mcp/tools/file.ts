@@ -473,8 +473,22 @@ export const update_file_metaTool: ToolHandler = {
       },
       properties: {
         type: 'object',
-        description: 'REPLACES the whole properties object — keys you do not send are DELETED, where the '
-          + 'brain update tools merge key by key and keep them. Send the complete map you want stored.',
+        /*
+         * THE SAME DEFECT AS THE ENTITY PAIR, one record type over, and it survived that fix.
+         *
+         * `write_file` — the create door for these fields — declares `additionalProperties` and the
+         * dispatcher enforces it, so a nested value is refused there. This declared `type: 'object'` and
+         * nothing else, and `updateFileMeta` merges and stores whatever arrives. Refused on create, stored
+         * on update: exactly what an integrator reported for entities on 2026-09-02, and exactly what the
+         * shape of that report predicts you find next door.
+         *
+         * The rule is the product's, not this tool's — `docs/userguide/02-brain.md` states it for every
+         * property bag, and the entity-only carve-out in `04-brain-api.md` names memory, edge and chrono,
+         * not files. So the create door already agreed with the product and only this one did not.
+         */
+        additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] },
+        description: 'MERGES key by key, like every other record type: patch one key and the others survive. '
+          + 'Removing one is `deleteFields`, never an omission. Values must be string, number, or boolean.',
       },
       entityIds: {
         type: 'array', items: { type: 'string' },

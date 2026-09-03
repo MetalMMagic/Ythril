@@ -289,6 +289,11 @@ row survives its own tool being built, so the list cannot keep advertising a gap
 > types. `deleteFields` arrived with the merge, because merging alone would have removed the only way to
 > clear a file property. A caller that resends the whole object is unaffected; one that patches a single key
 > now keeps what it did not name. The lists (`tags`, `entityIds`, `memoryIds`, `chronoIds`) still replace.
+>
+> **Its published SCHEMA said REPLACES until 4.0**, three releases after the behaviour changed — so an agent
+> reading the tool definition to build its arguments was told the opposite of what the tool does. Fixed, and
+> the schema now also declares that property values must be a string, a number or a boolean, which
+> `write_file` had always declared and this tool had not.
 
 <!-- markdownlint-disable-next-line MD028 -->
 

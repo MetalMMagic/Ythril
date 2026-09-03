@@ -17,7 +17,7 @@ import { bumpSeq } from '../../util/seq.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { TombstoneDoc, FileTombstoneDoc } from '../../config/types.js';
-import { KNOWLEDGE_TYPES } from '../../config/types.js';
+
 import { spaceAllowed, isNonPeerSyncWrite, NON_PEER_WRITE_MESSAGE, isDirectionalWriteBlocked, callerPeerId } from './_shared.js';
 import { recordServedSeq } from '../../sync/served-watermark.js';
 
@@ -84,9 +84,24 @@ syncTombstonesRouter.post('/tombstones', syncRateLimit, requireAuth, denyReadOnl
     const body = req.body as { tombstones?: TombstoneDoc[] };
     const tombstones = body?.tombstones ?? [];
 
+    /*
+     * `TOMBSTONE_TYPES`, not `KNOWLEDGE_TYPES` — and this door said the wrong one while the GET door 28
+     * lines above already served the right one. One rule, two doors, the weaker one winning silently.
+     *
+     * The cost was not a rejected record. `pushTombstones` calls `listTombstones` with NO type filter, so a
+     * push page can carry a link tombstone; `z.array(...).safeParse` fails on one bad element and rejects the
+     * WHOLE page; the route answers 400; `sync/tombstone-transfer.ts` reads a non-ok push as truncated and
+     * holds the watermark at that cursor. So one undelivered link tombstone would stop EVERY deletion of
+     * every kind propagating from that instance by push, permanently, and the next cycle would fail
+     * identically.
+     *
+     * Latent only because no link delete path exists yet — it goes live the hour slice 2 ships one. Found by
+     * an audit of the link-as-collection decision rather than by a test, which is the part worth keeping:
+     * nothing gates 'use the tombstone tuple on the tombstone door', and the two agreed by luck.
+     */
     const schema = z.array(z.object({
       _id: z.string(),
-      type: z.enum(KNOWLEDGE_TYPES),
+      type: z.enum(TOMBSTONE_TYPES),
       spaceId: z.string(),
       deletedAt: z.string(),
       instanceId: z.string(),

@@ -30,6 +30,7 @@ import { isMediaFormat, type InputFormat } from '../files/converters/pipeline.js
 import { resolveWriteTarget } from '../spaces/proxy.js';
 import { emitWebhookEvent } from '../webhooks/dispatcher.js';
 import { log } from '../util/log.js';
+import { primitivePropertyError } from '../brain/property-values.js';
 import { webhookToken, parseTtlDaysQuery, requireQueryPath, enforceSizeLimit } from './files-request.js';
 
 /**
@@ -198,7 +199,21 @@ export function registerUploadRoute(router: Router): void {
         const metaOpts: { description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; ttlDays?: number; sha256?: string } = {};
         if (typeof req.body?.description === 'string') metaOpts.description = req.body.description;
         if (Array.isArray(req.body?.tags)) metaOpts.tags = req.body.tags as string[];
-        if (req.body?.properties != null && typeof req.body.properties === 'object' && !Array.isArray(req.body.properties)) {
+        // The CREATE door for a file's properties, and it silently DROPPED a malformed bag rather than
+        // refusing it — so an upload carrying a nested value answered 2xx with the file stored and its
+        // properties gone, saying nothing.
+        //
+        // Refused now, matching the other three file-meta doors and every entity door. An upload is not a
+        // cheap request to repeat, which is exactly why a caller has to be told rather than left to
+        // discover it on a later read.
+        //
+        // LINE comments, not a block, and that is not a style choice: this file contains `'*/*'` as a
+        // content-type string, and every comment stripper in the test suite is string-blind — it reads
+        // that as a comment START and deletes everything up to the next `*/`. A block comment here moves
+        // where that swallowed region ends, so a gate reading this file sees less than it thinks. Filed.
+        const propErr = primitivePropertyError(req.body?.properties);
+        if (propErr) { res.status(400).json({ error: propErr }); return; }
+        if (req.body?.properties != null) {
           metaOpts.properties = req.body.properties as Record<string, string | number | boolean>;
         }
         const ttlDaysQ = parseTtlDaysQuery(req);

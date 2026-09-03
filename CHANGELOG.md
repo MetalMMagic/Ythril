@@ -110,6 +110,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The 3.x link baseline is written down, from a real database, before the migration replaces it.**
+  Slice 2 of the link migration switches every adjacency reader from array fields to link records, and
+  the moment it does, *"what did 3.x answer?"* is unrecoverable from the code. So it is captured now:
+  `the-link-baseline-3x-answered-db.test.js`, one corpus exercising all six link classes, through the
+  real queries.
+
+  **It pins two DIFFERENT things, and the distinction is the owner's.** His first instruction was that
+  4.0 must not break or be slower than 3.x; his correction an hour later is what shaped the file:
+  *"must not be different is not correct — its getting better by design."* A gate asserting "same answer"
+  across all six classes would have pinned the poorer behaviour and failed on the improvement. So:
+
+  - **What must not change** — the three classes with a reader today. Exact sets, exact labels, the
+    default on/off shape of each toggle, and the fact that a walk does not report the node it started
+    from.
+  - **What must GET BETTER** — the three classes no walk has ever read. Recorded as a DEFICIT, with each
+    assertion saying out loud that slice 2 is expected to invert it. Each asserts both that the data says
+    the records are connected AND that the walk cannot see it, so nobody can satisfy it by removing the
+    seed.
+
+  **Three things the writing of it found, which is the argument for writing it against a database rather
+  than from the signatures:**
+
+  1. **A traverse does not include its own start node.** Assumed otherwise and wrong three assertions in
+     a row. Pinned on its own now — a reader that included the origin would make every count in every
+     client one larger, silently.
+  2. **The backlink assertion was checking a LABEL, not what was found.** Pointing the file half of the
+     scan at the memory class survived it: the query read the wrong collection while the surrounding
+     block still stamped `type: 'file'` on the result. It asserts identities now.
+  3. **The corpus had no CHUNK record, so the file class's chunk-exclusion scope was untested.** That
+     scope is what stops a forty-passage document being counted forty times, and a mutation survived
+     precisely because there was nothing for it to exclude. A chunk is in the seed now and the mutant
+     dies.
+
 - **A link between two records is a record now, in a collection of its own — `M-2`, slice 1.** When a
   memory, a chrono entry or a file names other records, each of those mentions is also stored as a small
   record in a new `links` collection. Six array fields become records: `memory.entityIds`,

@@ -25,8 +25,26 @@ export interface RecordTtlWindows {
   file?:   number | null;
 }
 
-/** The five buckets, in the order the UI shows them. `file` last: it is the one with no schema tier above it. */
-export const TTL_BUCKETS: readonly TtlBucket[] = ['entity', 'memory', 'edge', 'chrono', 'file'];
+/**
+ * The kinds of record a space holds — the client's single source, mirroring the server's tuple.
+ *
+ * Two declarations and not one, because this file is the client's deliberate mirror of the API's shapes and
+ * the client does not import from `server/`. Its consumers import this module on purpose; what they must
+ * not do is write the list out again, which four of them were doing.
+ *
+ * A tuple, for the same reason as the server's: a union cannot be iterated, and a template that renders one
+ * chip per kind needs the values.
+ */
+export const KNOWLEDGE_TYPES = ['entity', 'memory', 'edge', 'chrono'] as const;
+
+/**
+ * The five buckets, in the order the UI shows them. `file` last: it is the one with no schema tier above it.
+ *
+ * Derived from `KNOWLEDGE_TYPES` rather than listed, because a bucket IS a knowledge type plus `file` —
+ * which is exactly what `TtlBucket` says in the type. Listed separately, a fifth kind would have a schema
+ * tier and no retention window, and nothing would say so.
+ */
+export const TTL_BUCKETS: readonly TtlBucket[] = [...KNOWLEDGE_TYPES, 'file'];
 
 /**
  * A space's windows as a full five-bucket map, widening the legacy scalar — so no component has to know which
@@ -90,7 +108,8 @@ export interface Space {
 }
 
 export type ValidationMode = 'off' | 'warn' | 'strict';
-export type KnowledgeType = 'entity' | 'memory' | 'edge' | 'chrono';
+
+export type KnowledgeType = typeof KNOWLEDGE_TYPES[number];
 
 export interface PropertySchema {
   type?: 'string' | 'number' | 'boolean' | 'date';

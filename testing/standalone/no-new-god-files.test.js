@@ -211,7 +211,12 @@ const FROZEN = {
   //
   // The entry STAYS at the real number rather than being deleted, for the reason written above
   // `tokens.component.ts`: removing it would hand the file back the 49 lines the extraction just took.
-  'client/src/app/pages/graph/graph.component.ts': 641,
+  // RAISED 641 -> 642: ONE LINE, and it DELETES a copy. The popup's type was the four knowledge kinds
+  // written out locally; it now imports the union. The import line is the whole raise.
+  // NO DECOMPOSITION: this is the opposite of the growth this list exists to catch — a local duplicate of a
+  // shared vocabulary became a reference to it, and the file is 8 lines over a ceiling it was already over.
+  // Splitting a page for one import would cost a reader more than it saves.
+  'client/src/app/pages/graph/graph.component.ts': 642,
   // 753 -> 764: `backfillTokenRights`. This file is where config migrations already live — the media
   // master-switch and space-description ones are both here — so a fourth belongs beside them rather than in
   // a module only the loader would ever call.
@@ -431,7 +436,13 @@ const FROZEN = {
   //
   // NO DECOMPOSITION: this is the entry above's own argument — a barrel of response shapes grows with the
   // API it describes, and splitting it would scatter one import into several for no reader's benefit.
-  'client/src/app/core/api.types.ts': 654,
+  // RAISED 654 -> 655: ONE LINE. The knowledge types are now a TUPLE with the union derived from it, which
+  // is two declarations where there was one — a union cannot be iterated, and four consumers in this client
+  // were each writing the list out because of that.
+  // NO DECOMPOSITION: the file's own note below already argues this case, and it is the one that applies —
+  // this is the client's single mirror of the API's shapes, and its consumers import one module on purpose.
+  // A second module holding one tuple would be the split this file exists to avoid.
+  'client/src/app/core/api.types.ts': 655,
 };
 
 describe('no file grows past what we already carry', () => {

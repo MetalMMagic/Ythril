@@ -42,7 +42,7 @@ import { col } from '../db/mongo.js';
 import { log } from '../util/log.js';
 import type { SchemaViolation } from '../spaces/schema-validation.js';
 import { violationsAgainstLocalSchema, ingestBrainDoc } from './sync/_shared.js';
-import type { BrainEmbedRecordType } from '../config/types.js';
+import type { BrainEmbedRecordType, KnowledgeType } from '../config/types.js';
 
 /** The five collections an export carries, and what each one is called elsewhere. */
 const IMPORT_TYPES = ['memories', 'entities', 'edges', 'chrono', 'files'] as const;
@@ -126,7 +126,7 @@ export async function importDocuments(spaceId: string, payload: Record<string, u
 
         // Recorded, never refused — see the docblock. A file has no type schema, so it is stored unchecked.
         if (t !== 'files') {
-          const found = violationsAgainstLocalSchema(spaceId, RECORD_TYPE[t] as 'memory' | 'entity' | 'edge' | 'chrono', retagged);
+          const found = violationsAgainstLocalSchema(spaceId, RECORD_TYPE[t] as KnowledgeType, retagged);
           if (found.length > 0) violations.push({ _id: docId, violations: found });
         }
 

@@ -1,5 +1,5 @@
 import { Injectable, inject, signal } from '@angular/core';
-import { ChronoType, ChronoStatus, Memory, Entity, Edge, ChronoEntry } from '../../core/api.types';
+import { ChronoType, ChronoStatus, Memory, Entity, Edge, ChronoEntry, KnowledgeType } from '../../core/api.types';
 import { BrainApi } from '../../core/brain-api.service';
 import { BrainStore } from './brain-store.service';
 import { EntityRefPicker } from './entity-ref-picker.service';
@@ -23,7 +23,7 @@ import { toLocalDatetime, fmtApiError } from './brain-format';
  */
 
 /** The four record kinds one drawer edits. */
-export type DrawerKind = 'memory' | 'entity' | 'edge' | 'chrono';
+export type DrawerKind = KnowledgeType;
 
 /**
  * What the drawer is holding — a discriminated union, so reading `record.fact` is only legal once

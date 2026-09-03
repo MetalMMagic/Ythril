@@ -11,10 +11,11 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { throwError } from 'rxjs';
 import { BrainApi } from '../core/brain-api.service';
+import { KnowledgeType } from '../core/api.types';
 import { TranslocoPipe } from '@jsverse/transloco';
 import { ModalDirective } from './modal.directive';
 
-type RecordType = 'entity' | 'edge' | 'memory' | 'chrono';
+type RecordType = KnowledgeType;
 
 interface FieldEntry {
   key: string;

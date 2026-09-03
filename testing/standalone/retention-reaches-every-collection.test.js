@@ -102,8 +102,21 @@ describe('the schema retention tier reaches every typed collection', () => {
     // The half that made the tier apply to records that already exist. Chrono had it; the other three did not,
     // so a window set today would never reach yesterday's records even once the create path was fixed.
     const src = read('server/src/brain/chrono-redaction.ts');
-    assert.match(src, /TYPED_COLLECTIONS[^=]*=\s*\[\s*'entity',\s*'memory',\s*'edge',\s*'chrono'\s*\]/,
-      'TYPED_COLLECTIONS must list all four typed collections');
+    /*
+     * The DERIVATION, not a hand-written list — and this assertion got stronger when the list went away.
+     *
+     * It used to require the four names in order: `['entity', 'memory', 'edge', 'chrono']`. That could only
+     * ever check the list somebody had already typed, so a fifth knowledge type would leave it green while
+     * the new type's records were never stamped — a retention policy an operator set and nothing applied.
+     *
+     * `TYPED_COLLECTIONS = KNOWLEDGE_TYPES` cannot be three of four, or four of five, by construction. The
+     * question this gate asks is now "does the sweep walk every typed collection there IS", which is what
+     * its own title claims, rather than "does it walk the four that existed when this was written".
+     */
+    assert.match(src, /TYPED_COLLECTIONS[^=]*=\s*KNOWLEDGE_TYPES\b/,
+      'TYPED_COLLECTIONS must BE the knowledge types, so a new kind is covered without an edit here');
+    assert.match(src, /import\s*\{\s*KNOWLEDGE_TYPES\s*\}/,
+      'and it has to import them, or the line above is matching a local shadow');
     // A WINDOW, converted: the subject is the loop BODY, bounded by the brace that closes it. A cap here also
     // could not tell "the call is inside the loop" from "the call is 200 characters after it", which is the
     // difference between per-collection and once.

@@ -46,9 +46,10 @@ import {
 } from './chrono-retention.js';
 import { COLLECTION_SUFFIX, TYPE_FIELD } from './ttl.js';
 import type { ChronoEntry, KnowledgeType } from '../config/types.js';
+import { KNOWLEDGE_TYPES } from '../config/types.js';
 
 /** Every collection the schema tier can reach. `files` is absent: a file has no type, so no schema window. */
-const TYPED_COLLECTIONS: readonly KnowledgeType[] = ['entity', 'memory', 'edge', 'chrono'];
+const TYPED_COLLECTIONS: readonly KnowledgeType[] = KNOWLEDGE_TYPES;
 
 /** Max records touched per space per pass, so one enormous space cannot monopolise a sweep cycle. */
 const BATCH = 500;

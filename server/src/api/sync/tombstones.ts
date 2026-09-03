@@ -16,6 +16,7 @@ import { bumpSeq } from '../../util/seq.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { TombstoneDoc, FileTombstoneDoc } from '../../config/types.js';
+import { KNOWLEDGE_TYPES } from '../../config/types.js';
 import { spaceAllowed, isNonPeerSyncWrite, NON_PEER_WRITE_MESSAGE, isDirectionalWriteBlocked, callerPeerId } from './_shared.js';
 import { recordServedSeq } from '../../sync/served-watermark.js';
 
@@ -77,7 +78,7 @@ syncTombstonesRouter.post('/tombstones', syncRateLimit, requireAuth, denyReadOnl
 
     const schema = z.array(z.object({
       _id: z.string(),
-      type: z.enum(['memory', 'entity', 'edge', 'chrono']),
+      type: z.enum(KNOWLEDGE_TYPES),
       spaceId: z.string(),
       deletedAt: z.string(),
       instanceId: z.string(),

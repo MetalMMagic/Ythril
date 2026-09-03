@@ -13,7 +13,7 @@
  *   - "strict" → validation runs, violations cause 400 rejection
  */
 
-import type { SpaceMeta, PropertySchema, TypeSchema } from '../config/types.js';
+import type { SpaceMeta, PropertySchema, TypeSchema, KnowledgeType } from '../config/types.js';
 import { getSchemaLibrary, getConfig } from '../config/loader.js';
 import { hasReDoSRisk, MAX_PATTERN_LENGTH } from '../util/redos.js';
 
@@ -77,7 +77,7 @@ export function resolveMetaRefs(meta: SpaceMeta): SpaceMeta {
         resolvedKtMap[typeName] = typeSchema;
       }
     }
-    resolvedTypeSchemas[kt as 'entity' | 'memory' | 'edge' | 'chrono'] = resolvedKtMap;
+    resolvedTypeSchemas[kt as KnowledgeType] = resolvedKtMap;
     if (ktChanged) changed = true;
   }
 

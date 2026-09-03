@@ -12,8 +12,9 @@ import { getDb } from '../db/mongo.js';
 import { writeFile as writeSpaceFile } from '../files/files.js';
 import { log } from '../util/log.js';
 import type { SpaceMeta, KnowledgeType, PendingSpaceOp } from '../config/types.js';
+import { KNOWLEDGE_TYPES } from '../config/types.js';
 
-export const SCHEMA_KTS: KnowledgeType[] = ['entity', 'edge', 'memory', 'chrono'];
+export const SCHEMA_KTS: readonly KnowledgeType[] = KNOWLEDGE_TYPES;
 
 /**
  * Write per-type schema JSON files into the space's `schemas/` folder as a

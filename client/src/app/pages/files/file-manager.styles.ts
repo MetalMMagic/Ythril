@@ -11,6 +11,72 @@
  * that renders the image. Left qualified they would have matched nothing at all: an image with no width cap
  * and a PDF frame with no height, on a page that still looked fine until you opened one.
  */
+/**
+ * The toolbar strip: the space selector, the breadcrumb, the new-folder form and the sidebar toggle.
+ *
+ * `:host` is not styled here on purpose. The component renders two in-flow blocks that carry their own
+ * margins, so it needs no box of its own — and a `:host` given border or margin without an explicit
+ * `display` would apply them to a shrink-wrapping inline box, which still renders and looks almost right.
+ */
+export const FILE_TOOLBAR_STYLES = `
+    .space-selector {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+
+    .breadcrumb {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 13px;
+      flex: 1;
+      flex-wrap: wrap;
+    }
+
+    .breadcrumb-sep { color: var(--text-muted); }
+
+    .breadcrumb-item {
+      color: var(--accent);
+      cursor: pointer;
+      border: none;
+      background: none;
+      font-size: 13px;
+      font-family: var(--font);
+      padding: 0;
+    }
+    .breadcrumb-item:hover { text-decoration: underline; }
+    .breadcrumb-item.current { color: var(--text-primary); cursor: default; }
+    .breadcrumb-item.current:hover { text-decoration: none; }
+
+    /* The new-folder form. THE IN-TABLE RENAME FORM USES THE SAME CLASS and has its own copy in
+       file-listing.component.ts — two consumers, so the rule exists in both places. Moving it to one alone
+       left the other an unstyled block, which is how that was learned.
+       (No backticks in here: one ends the template literal and the error points at @Component.) */
+    .rename-form { display: flex; gap: 6px; align-items: center; }
+
+    .sidebar-toggle {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 2px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      margin-left: auto;
+    }
+    .sidebar-toggle:hover { background: var(--bg-hover); }
+`;
+
 export const FILE_PREVIEW_STYLES = `
   .md-rendered { line-height: 1.6; word-break: break-word; }
   .md-rendered ::ng-deep h1, .md-rendered ::ng-deep h2, .md-rendered ::ng-deep h3 { margin: 0.8em 0 0.4em; line-height: 1.25; }

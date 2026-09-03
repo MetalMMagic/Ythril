@@ -10,6 +10,7 @@ import { FileExtractViewComponent } from './file-extract-view.component';
 import { FileListingComponent, type FileRow } from './file-listing.component';
 import { joinPath } from './file-format';
 import { FileTreeComponent, type TreeNode } from './file-tree.component';
+import { FileToolbarComponent, type BreadcrumbSegment } from './file-toolbar.component';
 import { FileTreeStore } from './file-tree.store';
 import { FileListingStore, LISTING_FAILURE_KEYS } from './file-listing.store';
 import { CommonModule } from '@angular/common';
@@ -32,7 +33,6 @@ import { EntityRefPicker } from '../brain/entity-ref-picker.service';
 import { BrainStore } from '../brain/brain-store.service';
 import { ModalDirective } from '../../shared/modal.directive';
 
-interface BreadcrumbSegment { label: string; path: string; }
 
 
 
@@ -52,7 +52,7 @@ interface BreadcrumbSegment { label: string; path: string; }
    * provider does for free.
    */
   providers: [FileTreeStore, FileListingStore, FileExtractStore, FileMetaStore, FileUploadStore, FilePreviewStore],
-  imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe, ErrorStateComponent, ModalDirective, FilePreviewComponent, UploadQueueComponent, FileMetaEditorComponent, FileExtractViewComponent, FileListingComponent, FileTreeComponent],
+  imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe, ErrorStateComponent, ModalDirective, FilePreviewComponent, UploadQueueComponent, FileMetaEditorComponent, FileExtractViewComponent, FileListingComponent, FileTreeComponent, FileToolbarComponent],
   styles: [`
     /* A background refresh, as a 2px indeterminate hairline above the table. Deliberately NOT a spinner and
        deliberately not an overlay: the whole point is that nothing on screen moves or disappears while a poll
@@ -88,58 +88,12 @@ interface BreadcrumbSegment { label: string; path: string; }
       .fm-refreshing::after { animation: none; width: 100%; opacity: .5; }
     }
 
-    .toolbar {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 16px;
-      flex-wrap: wrap;
-    }
-
-    .breadcrumb {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      font-size: 13px;
-      flex: 1;
-      flex-wrap: wrap;
-    }
-
-    .breadcrumb-sep { color: var(--text-muted); }
-
-    .breadcrumb-item {
-      color: var(--accent);
-      cursor: pointer;
-      border: none;
-      background: none;
-      font-size: 13px;
-      font-family: var(--font);
-      padding: 0;
-    }
-    .breadcrumb-item:hover { text-decoration: underline; }
-    .breadcrumb-item.current { color: var(--text-primary); cursor: default; }
-    .breadcrumb-item.current:hover { text-decoration: none; }
-
-
-    /* The new-folder form in the toolbar. The IN-TABLE rename form uses the same class and moved into
-       file-listing.component.ts with its own copy of this rule — two consumers, so the rule has to exist in
-       both places. Moving it to the listing alone left this one an unstyled block.
-       (No backticks in here: one ends the template literal and the error points at @Component.) */
-    .rename-form { display: flex; gap: 6px; align-items: center; }
-
     /* .upload-zone was here and matched NOTHING: no element in the client carries the class, and the drop
        target is .fm-main with a drag-over class binding. The #1099 commit message called it "the drop target
        on the page" as the reason for leaving it behind, which was wrong twice over — it is not the drop target
        and it was not doing anything. Deleted rather than moved. */
 
     /* ── Upload queue panel (U12) ─────────────────────────────── */
-
-    .space-selector {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 20px;
-      flex-wrap: wrap;
-    }
 
     /* ── Docked detail pane (preview + description ⇄ file meta) ─── */
     /* A third in-flow column of .fm-layout; the list (.fm-main) reflows to full width when it's absent. */
@@ -208,17 +162,6 @@ interface BreadcrumbSegment { label: string; path: string; }
       gap: 0;
     }
     .fm-main { flex: 1; min-width: 0; }
-    .sidebar-toggle {
-      background: none;
-      border: 1px solid var(--border);
-      color: var(--text-muted);
-      padding: 2px 8px;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 12px;
-      margin-left: auto;
-    }
-    .sidebar-toggle:hover { background: var(--bg-hover); }
 
 
   `],
@@ -234,56 +177,21 @@ interface BreadcrumbSegment { label: string; path: string; }
       <app-error-state [message]="'files.loadSpacesError' | transloco" [reason]="spacesError() ?? ''" (retry)="retrySpaces()" />
     } @else {
 
-      <!-- Space selector (hidden when embedded) -->
-      @if (!embeddedSpaceId) {
-      <div class="space-selector">
-        @for (s of spaces(); track s.id) {
-          <button
-            class="btn"
-            [class.btn-primary]="activeSpaceId() === s.id"
-            [class.btn-secondary]="activeSpaceId() !== s.id"
-            (click)="selectSpace(s.id)"
-          >{{ s.label }}</button>
-        }
-      </div>
-      }
+      <app-file-toolbar
+        [spaces]="spaces()"
+        [activeSpaceId]="activeSpaceId()"
+        [embedded]="!!embeddedSpaceId"
+        [breadcrumbs]="breadcrumbs()"
+        [sidebarOpen]="tree.sidebarOpen()"
+        [(folderFormOpen)]="showNewFolder"
+        [(newFolderName)]="newFolderName"
+        (selectSpace)="selectSpace($event)"
+        (navigate)="navigate($event)"
+        (createFolder)="createFolder()"
+        (filesPicked)="onFilesPicked($event)"
+        (toggleSidebar)="tree.toggleSidebar(activeSpaceId())" />
 
       @if (activeSpaceId()) {
-        <!-- Toolbar -->
-        <div class="toolbar">
-          <div class="breadcrumb">
-            @for (seg of breadcrumbs(); track seg.path; let last = $last) {
-              <button
-                class="breadcrumb-item"
-                [class.current]="last"
-                (click)="navigate(seg.path)"
-              >{{ seg.label }}</button>
-              @if (!last) { <span class="breadcrumb-sep">/</span> }
-            }
-          </div>
-
-          <!-- New folder -->
-          @if (!showNewFolder()) {
-            <button class="btn-secondary btn btn-sm" (click)="showNewFolder.set(true)">{{ 'files.newFolder' | transloco }}</button>
-          } @else {
-            <form class="rename-form" (ngSubmit)="createFolder()">
-              <input type="text" [(ngModel)]="newFolderName" name="fn" [placeholder]="'files.newFolderPlaceholder' | transloco" [attr.aria-label]="'files.newFolderAriaLabel' | transloco" style="width:160px" />
-              <button class="btn-primary btn btn-sm" type="submit">{{ 'files.createFolder' | transloco }}</button>
-              <button class="btn-ghost btn btn-sm" type="button" (click)="showNewFolder.set(false)">{{ 'common.cancel' | transloco }}</button>
-            </form>
-          }
-
-          <!-- Upload -->
-          <label class="btn-secondary btn btn-sm" style="cursor:pointer; display:inline-flex; align-items:center; gap:6px;">
-            <ph-icon name="upload" [size]="14"/> {{ 'files.upload' | transloco }}
-            <input type="file" multiple hidden (change)="onFileInput($event)" />
-          </label>
-
-          <button class="sidebar-toggle" (click)="tree.toggleSidebar(activeSpaceId())">
-            @if (tree.sidebarOpen()) { <ph-icon name="caret-left" [size]="12"/> {{ 'files.sidebar.hideTree' | transloco }} }
-            @else { <ph-icon name="caret-right" [size]="12"/> {{ 'files.sidebar.showTree' | transloco }} }
-          </button>
-        </div>
 
         <!-- Upload queue — one row per file (U12) -->
         @if (uploads.items().length) {
@@ -501,7 +409,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
       if (kind === 'created') {
         // The form closes on the ANSWER, not on the attempt: a refused create keeps what was typed, so the
         // name can be corrected rather than retyped. Same for the rename below.
-        this.newFolderName = '';
+        this.newFolderName.set('');
         this.showNewFolder.set(false);
         this.tree.loadRoot(this.activeSpaceId());
       }
@@ -639,7 +547,14 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   dragOver = signal(false);
 
   showNewFolder = signal(false);
-  newFolderName = '';
+  /**
+   * A SIGNAL now, because the toolbar binds it two-way.
+   *
+   * It was a plain field with `ngModel` writing straight into it. A `model()` input needs something it can
+   * `.set()`, and the page still has to read it — `createFolder` trims it and clears it on success only,
+   * which is the rule that keeps a refused name on screen.
+   */
+  newFolderName = signal('');
 
   renamingEntry = signal('');
   renameValue = '';
@@ -869,12 +784,9 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     void this.enqueueUploads(files);
   }
 
-  onFileInput(event: Event): void {
-    const input = event.target as HTMLInputElement;
-    const files = input.files;
-    if (!files || files.length === 0) return;
+  /** The toolbar owns the picker and clears it; what the files MEAN is ours. */
+  onFilesPicked(files: FileList): void {
     void this.enqueueUploads(files);
-    input.value = '';
   }
 
   // ── Upload queue (U12) ──────────────────────────────────────────────────────
@@ -925,8 +837,8 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   clearFinishedUploads(): void { this.uploads.clearFinished(); }
 
   createFolder(): void {
-    if (!this.newFolderName.trim()) return;
-    const path = this.join(this.currentPath(), this.newFolderName.trim());
+    if (!this.newFolderName().trim()) return;
+    const path = this.join(this.currentPath(), this.newFolderName().trim());
     this.listing.createDir(this.activeSpaceId(), path, this.currentPath());
   }
 

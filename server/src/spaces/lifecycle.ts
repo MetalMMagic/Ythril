@@ -6,6 +6,7 @@
  * `reconcilePendingSpaceOp` lives here yet reaches into rename.ts: it recovers rename ops too.
  */
 import fs from 'fs/promises';
+import { BRAIN_COLLECTIONS, type BrainCollection } from '../config/types.js';
 import path from 'path';
 import { getDb, col } from '../db/mongo.js';
 import { getConfig, saveConfig, mutateConfig, getEmbeddingConfig, getDataRoot } from '../config/loader.js';
@@ -535,9 +536,10 @@ async function removeSpaceInner(spaceId: string): Promise<boolean> {
   return true;
 }
 
-export type WipeCollectionType = 'memories' | 'entities' | 'edges' | 'chrono' | 'files';
+/** What a wipe clears: every knowledge collection, so a new one cannot be left behind by one. */
+export type WipeCollectionType = BrainCollection;
 
-export const WIPE_COLLECTION_TYPES: readonly WipeCollectionType[] = ['memories', 'entities', 'edges', 'chrono', 'files'];
+export const WIPE_COLLECTION_TYPES: readonly WipeCollectionType[] = BRAIN_COLLECTIONS;
 
 /**
  * Which review-finding `type` values a partial wipe should clear.

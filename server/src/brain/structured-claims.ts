@@ -33,13 +33,14 @@
  * reports as a bug and everybody stops trusting.
  */
 import { col, asFilter } from '../db/mongo.js';
+import { RECORD_COLLECTION as COLLECTION_SUFFIX } from '../config/types.js';
 
 /** A record's single-valued claims, keyed by field name. */
 export type ClaimMap = Record<string, string | number | boolean>;
 
-const COLLECTION_SUFFIX: Record<string, string> = {
-  memory: 'memories', entity: 'entities', edge: 'edges', chrono: 'chrono', file: 'files',
-};
+// The record-to-collection map is imported. The copy here was typed `Record<string, string>`, which is a
+// map with no keys: a typo for a record kind read as `undefined` and built a collection name ending in
+// "undefined". Two of the five copies were spelled that way.
 
 /** Top-level stored columns that count as claims, beyond `properties`. Empty for most types. */
 const EXTRA_CLAIM_FIELDS: Record<string, readonly string[]> = {
@@ -87,7 +88,10 @@ export async function fetchStructuredClaims(
   spaceId: string, type: string, ids: string[],
 ): Promise<Map<string, ClaimMap | undefined>> {
   const out = new Map<string, ClaimMap | undefined>();
-  const suffix = COLLECTION_SUFFIX[type];
+  // `type` is an unvalidated string on purpose — every caller is on a best-effort path and holds one
+  // too. So the widening is HERE and visible, in one line, rather than being a map declared without keys:
+  // an unknown type yields `undefined` and the guard below returns nothing, which is the contract.
+  const suffix = (COLLECTION_SUFFIX as Record<string, string | undefined>)[type];
   if (!suffix || ids.length === 0) return out;
 
   const projection: Record<string, number> = { _id: 1, properties: 1 };

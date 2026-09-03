@@ -233,6 +233,61 @@ export const RECORD_TYPES = [...KNOWLEDGE_TYPES, 'file'] as const;
 export type RecordType = typeof RECORD_TYPES[number];
 
 /**
+ * Where a knowledge type's documents live — the collection suffix, keyed by the singular type name.
+ *
+ * `KnowledgeType` is singular (`entity`) and the collection is plural (`<space>_entities`). `ttl.ts`'s
+ * copy of this map carried the note that it *"was open-coded in five places and is the sort of thing a fifth
+ * caller gets wrong once"* — and there were still FIVE local copies beside it, in `dupe-scanner`,
+ * `contradiction-scanner`, `lexical-search`, `candidate-prune` and `structured-claims`. An extraction that
+ * leaves the copies in place reads, later, as an extraction that held.
+ *
+ * It lives in this LEAF because a vocabulary has to be importable from anywhere without a cycle: `ttl.ts` is
+ * a leaf on the delete path and half of those five callers could not import it.
+ */
+// `as const satisfies` and not an annotation: the annotation widens every value to `string`, and then
+// `BRAIN_COLLECTIONS` derives as `string[]` — which compiles and silently stops being a literal union, so
+// every `Record<BrainCollection, X>` downstream loses its keys.
+export const COLLECTION_SUFFIX = {
+  entity: 'entities', memory: 'memories', edge: 'edges', chrono: 'chrono',
+} as const satisfies Record<KnowledgeType, string>;
+
+/**
+ * The same map over RECORD types — the knowledge collections plus `files`.
+ *
+ * Two maps rather than one because the two key sets differ: a file has no type schema, so it is not a
+ * knowledge type, and it has a collection all the same. The scanners and lexical search are keyed by record
+ * type; retention and the schema tier are keyed by knowledge type.
+ */
+export const RECORD_COLLECTION = {
+  ...COLLECTION_SUFFIX,
+  file: 'files',
+} as const satisfies Record<RecordType, string>;
+
+/**
+ * Every collection a space's KNOWLEDGE lives in — the one shared list, and it derives from the map above.
+ *
+ * ## Three sets wore one shape, because it has had four members
+ *
+ * This is set 2 of three, and the other two are NOT spellings of it:
+ *
+ *   - `SPACE_COLLECTIONS` (`spaces/_shared.ts`) is every collection a space OWNS, machinery included —
+ *     tombstones, conflicts, and the two candidate queues. It is what CREATES them, and nothing else does.
+ *   - `VECTOR_INDEXED_COLLECTIONS` (`spaces/vector-index.ts`) is this list MINUS anything never embedded.
+ *
+ * `M-2` is what separates them: a link record is stored in its own collection, so it joins
+ * `SPACE_COLLECTIONS` and this one — and it must stay OUT of the vector-indexed set, because a link has no
+ * content to embed and a content-free record in a ranked list is the hazard that migration is written
+ * around.
+ *
+ * `one-definition-of-the-collections.test.js` holds the rule: derive from here, or say in your own comment
+ * that you are a deliberate subset and why.
+ */
+export const BRAIN_COLLECTIONS = RECORD_TYPES.map(t => RECORD_COLLECTION[t]);
+
+/** One knowledge collection. */
+export type BrainCollection = (typeof BRAIN_COLLECTIONS)[number];
+
+/**
  * What kind of record a reference points AT.
  *
  * Deliberately not {@link KnowledgeType}, and the difference is not cosmetic. That union names the four things

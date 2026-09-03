@@ -32,15 +32,16 @@
  * state and were never user records; publishing `*.deleted` events for them would be wrong.
  */
 import { col, asFilter } from '../db/mongo.js';
+import { RECORD_COLLECTION as COLLECTION_SUFFIX } from '../config/types.js';
 import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
 import type { DupeScanType } from '../config/types.js';
 import { runExclusive } from '../util/single-flight.js';
 
 /** Both collections key their rows by the same singular vocabulary. */
-const COLLECTION_SUFFIX: Record<string, string> = {
-  memory: 'memories', entity: 'entities', edge: 'edges', chrono: 'chrono', file: 'files',
-};
+// The record-to-collection map is imported. The copy here was typed `Record<string, string>`, which is a
+// map with no keys: a typo for a record kind read as `undefined` and built a collection name ending in
+// "undefined". Two of the five copies were spelled that way.
 
 const CANDIDATE_COLLECTIONS = ['dupe_candidates', 'contradiction_candidates'] as const;
 

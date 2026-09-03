@@ -400,6 +400,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The collections were enumerated twenty times under nine names, and they are THREE different sets —
+  `A-10`.** A space's documents live in collections, and that list had copies in the TTL sweep, the admin
+  importer, `/query`'s allowlist, the search route, two MCP tool schemas, a space wipe, the sync counters,
+  the vector-index builder, the Brain's tabs and three inline unions. The record-to-collection MAP had five
+  more copies beside the shared one — in `dupe-scanner`, `contradiction-scanner`, `lexical-search`,
+  `candidate-prune` and `structured-claims`, all byte-identical.
+
+  **The finding is that they are not one set, and a gate saying they were got deleted the same hour.** Eight
+  of the nine names looked like one list only because it has had four members:
+
+  - **every collection a space OWNS** — `SPACE_COLLECTIONS`, machinery included. It is what creates them.
+  - **the knowledge-bearing ones** — now `BRAIN_COLLECTIONS`, derived from the record-to-collection map.
+  - **the ones with a VECTOR INDEX** — the knowledge-bearing set minus anything never embedded.
+
+  The third is why the first version of the check was wrong: it required all twenty sites to read one tuple,
+  which would have given a vector index to a collection that must never have one. That is a defect
+  introduced by a test, and the same mistake one level up as a check that could not tell `RefKind` from the
+  knowledge types. The rule shipped instead is **derive, or declare** — a site may write the names out if it
+  says in its own comment that it is a deliberate subset and why, and the two that are say so.
+
+  **Two of the five duplicated maps had lost their key check**, typed `Record<string, string>`: a map with no
+  keys, where a typo for a record kind reads as `undefined` and builds a collection name ending in
+  "undefined". Replacing them with the shared map surfaced one caller that genuinely takes an unvalidated
+  type, and its widening is now one visible line rather than a keyless declaration.
+
+  Groundwork for `M-2`: a link record is stored in a collection of its own, so it joins the first two sets
+  and must stay out of the third.
+
 - **The RECORD types are one tuple too, where they were sixteen copies under five names — `A-9`.** The four
   knowledge kinds plus `file`: every record type that can be embedded, recalled or retained. It had five
   aliases for one set — `RecallKnowledgeType`, `BrainEmbedRecordType`, `DupeScanType`, `TtlBucket` and
@@ -793,6 +821,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The REST character default also drops from 100 000 to 50 000 (owner, 2026-08-30). MCP's 25 000 is unchanged.
 
 ### Fixed
+
+- **Fourteen source files held a stray carriage return, so git treated them as BINARY and a pull request
+  touching one showed the whole file as rewritten.** Git decides per file whether it holds text, and a
+  carriage return that is not followed by a newline makes it answer no. A binary file gets no line diff and
+  no line-ending normalisation, so a two-line import change arrives as `1 422 insertions, 1 419 deletions`.
+
+  The noise is not the damage. The damage is that a real change inside such a file is not reviewed, because
+  nobody reads a wall of unchanged lines — and `git diff` on the working tree shows nothing useful either,
+  so the state conceals the one tool you would investigate it with.
+
+  The cause is a single regex idiom, used to insert an import line after a file's first import: matching
+  the line with `[^\n]*`. On a CRLF working tree that class matches up to and INCLUDING the carriage
+  return, because a carriage return is not a newline; the replacement then appends its own line ending, and
+  the file holds `\r\r\n`. The class has to be `[^\r\n]*`.
+
+  Two of the fourteen — `api/spaces-reembed.ts` and `mcp/tools/search.ts` — had been on `main` since an
+  earlier session, from the same idiom, and were invisible for exactly the reason above: the commit that
+  did it looked like a formatting pass. Repairing those two is why two files in this release show as fully
+  rewritten; they are returning to newline-only endings and nothing in them changed.
+
+  `no-source-file-carries-a-lone-cr.test.js` holds the rule. It scans the working tree rather than the
+  committed blobs: reading every blob costs a `git show` per file, and by the time the bytes are committed
+  the diff is already unreviewable.
 
 - **The working-order gate found three of its rows by NUMBER, so a renumbered checklist lost checks in
   silence.** It located the tests row with a literal `2`, the CHANGELOG row with `6` and the guides row with

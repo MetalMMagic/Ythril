@@ -12,22 +12,24 @@ import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
 import { recordExpiry, recordContentExpiry, type RetentionSpace } from './chrono-retention.js';
 import type { KnowledgeType, TtlBucket } from '../config/types.js';
+import { COLLECTION_SUFFIX, BRAIN_COLLECTIONS, RECORD_COLLECTION } from '../config/types.js';
+export { COLLECTION_SUFFIX, BRAIN_COLLECTIONS, RECORD_COLLECTION };
+export type { BrainCollection } from '../config/types.js';
 
 const DAY_MS = 86_400_000;
 
 /** Collections that carry per-record TTL. (`files` = the file-level FileMeta records; the sweep's
  *  deleter runs the full file cascade, and only file-level records ever carry `_expireAt`.) */
-export const TTL_COLLECTIONS = ['memories', 'entities', 'edges', 'chrono', 'files'] as const;
-
 /**
- * The Mongo collection suffix for each typed knowledge collection.
+ * The collections the TTL sweep walks — every knowledge collection.
  *
- * `KnowledgeType` is singular (`entity`) and the collection is plural (`<space>_entities`) — a mapping that was
- * open-coded in five places and is the sort of thing a fifth caller gets wrong once.
+ * Kept as its own name because the sweep's maps are keyed by it and the name says what the sweep is for. It
+ * is set 2 of three exactly (see `BRAIN_COLLECTIONS` in the types leaf), so it derives rather than listing.
  */
-export const COLLECTION_SUFFIX: Record<KnowledgeType, string> = {
-  entity: 'entities', memory: 'memories', edge: 'edges', chrono: 'chrono',
-};
+export const TTL_COLLECTIONS = BRAIN_COLLECTIONS;
+
+// `COLLECTION_SUFFIX` moved to the types LEAF and is re-exported below, because five callers that needed it
+// could not import this module: it sits on the delete path and half of them are imported BY it.
 
 /**
  * The document field that names a record's type, per collection.

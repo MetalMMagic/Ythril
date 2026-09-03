@@ -22,6 +22,16 @@
  * A runtime array as well as a type: the Overview builds its tiles from data, and a second hand-written
  * list of the same five strings is the thing this file exists to prevent.
  */
+/*
+ * NOT ALL BRAIN COLLECTIONS — these are the TABS, which answer a different question.
+ *
+ * A tab exists because a person browses that kind of record, not because documents live there. The two lists
+ * are equal today and the questions are not related: adding a collection does not earn it a tab, and the
+ * owner's ruling on link records says how they surface — *"on graph shown as info on click, and toggleable
+ * if memories and chronos appear"* — which is a graph affordance and a recall toggle, not a tab.
+ *
+ * Written out rather than derived so that decision stays a decision.
+ */
 export const COLLECTION_TABS = ['memories', 'entities', 'edges', 'chrono', 'files'] as const;
 
 /** A tab that shows a collection — the only kind a stat tile links to. */

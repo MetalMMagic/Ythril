@@ -3,7 +3,7 @@ import { groupRecallResults, chunkLabel, passageText, flattenRecallItems } from 
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
-import { QueryCollection, QueryResult, RecallKnowledgeType, RecallResult, RECORD_TYPES } from '../../core/api.types';
+import { QueryCollection, QueryResult, RecallKnowledgeType, RecallResult, RECORD_TYPES, BRAIN_COLLECTIONS } from '../../core/api.types';
 import { BrainApi } from '../../core/brain-api.service';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { RecallFormComponent, type RecallFormState, type RecallTypeOpt } from './recall-form.component';
@@ -273,7 +273,7 @@ export class QueryTabComponent {
 
   // Query panel
   queryMode = signal<'search' | 'advanced'>('search');
-  queryCollections: QueryCollection[] = ['memories', 'entities', 'edges', 'chrono', 'files'];
+  readonly queryCollections: readonly QueryCollection[] = BRAIN_COLLECTIONS;
   queryForm = { collection: 'memories' as QueryCollection, filter: '', projection: '', limit: 20, maxTimeMS: 5000 };
   queryRunning = signal(false);
   queryResult = signal<QueryResult | null>(null);

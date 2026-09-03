@@ -19,6 +19,7 @@
  * `?search=` silently change result ordering.
  */
 import { col } from '../db/mongo.js';
+import { RECORD_COLLECTION as COLLECTION_SUFFIX } from '../config/types.js';
 import { log } from '../util/log.js';
 import type { RecallKnowledgeType } from './recall.js';
 
@@ -29,9 +30,9 @@ export interface LexicalHit {
 }
 
 /** Suffix per knowledge type — same mapping `recallByType` uses. */
-const COLLECTION_SUFFIX: Record<RecallKnowledgeType, string> = {
-  memory: 'memories', entity: 'entities', edge: 'edges', chrono: 'chrono', file: 'files',
-};
+// The record-to-collection map is imported: it was declared here and in four other modules, all five
+// byte-identical, beside a sixth in `brain/ttl.ts` whose own comment said the mapping "was open-coded in
+// five places". It had been extracted once and the copies came back.
 
 /**
  * The RRF constant. 60 is the value from the original Cormack et al. rank-fusion work and is the de-facto

@@ -4,6 +4,7 @@
  * Split out of the api/brain.ts monolith (A17.3); handlers are unchanged.
  */
 import { Router } from 'express';
+import { BRAIN_COLLECTIONS } from '../../config/types.js';
 import { requireSpaceAuth, denyReadOnly } from '../../auth/middleware.js';
 import { spacesWhereTokenMay } from '../../auth/reachable-spaces.js';
 import type { TokenRights } from '../../config/rights-shape.js';
@@ -282,7 +283,7 @@ searchRouter.post('/spaces/:spaceId/query', globalRateLimit, requireSpaceAuth, s
   if (bad) { res.status(400).json(bad); return; }
 
   const { collection, filter, projection, limit, maxTimeMS, skip } = body;
-  const validCollections = ['memories', 'entities', 'edges', 'chrono', 'files'] as const;
+  const validCollections = BRAIN_COLLECTIONS;
   if (!validCollections.includes(collection as typeof validCollections[number])) {
     res.status(400).json({ error: `collection must be one of: ${validCollections.join(', ')}` });
     return;

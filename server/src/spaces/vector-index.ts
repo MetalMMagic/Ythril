@@ -14,6 +14,21 @@ import { log } from '../util/log.js';
 import type { KnowledgeType } from '../config/types.js';
 
 // Collections that have vector search indexes for semantic recall
+/*
+ * NOT ALL BRAIN COLLECTIONS — and this is the list that proves the sets are different.
+ *
+ * A vector index is built for a collection whose documents carry an `embedding`. Every knowledge collection
+ * does today, so this list and `BRAIN_COLLECTIONS` are equal — and they stop being equal the moment a
+ * collection holds records with no content to embed.
+ *
+ * `M-2` brings the first: a link record says that one record concerns another and nothing else. Embedded, it
+ * would enter every ranked list as a content-free competitor at one record per link, and `suppressEmbeddings`
+ * would not be enough — that removes the VECTOR channel only, and two suppressed edges were measured
+ * appearing in a 7-record space's top 5 through the lexical channel of hybrid search.
+ *
+ * So this list is written out rather than derived, on purpose. Deriving it would give a link collection a
+ * vector index it must never have, which is a defect a refactor would have introduced silently.
+ */
 export const VECTOR_INDEXED_COLLECTIONS = ['memories', 'entities', 'edges', 'chrono', 'files'] as const;
 export type VectorIndexedCollection = typeof VECTOR_INDEXED_COLLECTIONS[number];
 

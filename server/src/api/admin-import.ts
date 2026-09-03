@@ -39,13 +39,15 @@
  * a rule for it to break.
  */
 import { col } from '../db/mongo.js';
+import { BRAIN_COLLECTIONS } from '../config/types.js';
 import { log } from '../util/log.js';
 import type { SchemaViolation } from '../spaces/schema-validation.js';
 import { violationsAgainstLocalSchema, ingestBrainDoc } from './sync/_shared.js';
 import type { BrainEmbedRecordType, KnowledgeType } from '../config/types.js';
 
 /** The five collections an export carries, and what each one is called elsewhere. */
-const IMPORT_TYPES = ['memories', 'entities', 'edges', 'chrono', 'files'] as const;
+/** What an import may carry: every knowledge collection, so a new one is importable without an edit. */
+const IMPORT_TYPES = BRAIN_COLLECTIONS;
 export type ImportType = typeof IMPORT_TYPES[number];
 
 /** The record type each collection holds, for the embed queue and the schema lookup. */

@@ -7,7 +7,8 @@
  * entries, and files alike, so they belong with the read/search surface rather than memory CRUD.
  */
 
-import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
+import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
+import { BRAIN_COLLECTIONS, type BrainCollection } from '../../config/types.js';
 import { RECORD_TYPES } from '../../config/types.js';
 import { UUID_V4_RE, formatRecallSummary, toRecallRecord, uuidSchema, unitScoreSchema, QUERY_FILTER_OPERATORS } from './shared.js';
 import { MAX_RECALL_TRAVERSE } from '../../brain/recall-seed-traversal.js';
@@ -634,7 +635,7 @@ export const queryTool: ToolHandler = {
             space: s.requiredSpace,
             collection: {
               type: 'string',
-              enum: ['memories', 'entities', 'edges', 'chrono', 'files'],
+              enum: [...BRAIN_COLLECTIONS],
               description: 'Which collection to read. ONE per call — there is no cross-collection query, so '
                 + 'answering "everything about X" means one call each. The listed names are the whole set, '
                 + 'and they also decide which `sort` fields are legal and which `filter` keys exist: an '
@@ -666,7 +667,7 @@ export const queryTool: ToolHandler = {
   async handle(ctx: ToolContext): Promise<ToolResult> {
     const { args: a, callSpace } = ctx;
     const collName = String(a['collection'] ?? '');
-    if (!['memories', 'entities', 'edges', 'chrono', 'files'].includes(collName)) {
+    if (!(BRAIN_COLLECTIONS as readonly string[]).includes(collName)) {
       throw new Error(`collection must be one of: memories, entities, edges, chrono, files`);
     }
     const filter =
@@ -693,7 +694,7 @@ export const queryTool: ToolHandler = {
 
     // The SAME function the REST route pages with, not the same shape written twice.
     const members = memberSpacesWithin(callSpace, ctx.accessibleSpaces.map(sp => sp.id));
-    const coll = collName as 'memories' | 'entities' | 'edges' | 'chrono' | 'files';
+    const coll = collName as BrainCollection;
     const page = await pageAcrossMembers({
       members,
       limit,

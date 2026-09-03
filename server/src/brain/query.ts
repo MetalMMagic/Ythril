@@ -6,6 +6,7 @@
  * whitelist, the ReDoS-safe sanitiser, and the projection guard that never lets `embedding` out.
  */
 import { col } from '../db/mongo.js';
+import { BRAIN_COLLECTIONS, type BrainCollection } from '../config/types.js';
 import { hasReDoSRisk, MAX_PATTERN_LENGTH } from '../util/redos.js';
 import { normaliseProjection, toMongoProjection } from './projection.js';
 
@@ -69,7 +70,7 @@ export function sanitizeFilter(filter: unknown, depth = 0): unknown {
   return filter;
 }
 
-const ALLOWED_COLLECTIONS = new Set(['memories', 'entities', 'edges', 'chrono', 'files']);
+const ALLOWED_COLLECTIONS = new Set<string>(BRAIN_COLLECTIONS);
 
 /**
  * The body keys `POST /api/brain/spaces/:id/query` accepts, as a VALUE so the route can refuse everything else.
@@ -209,7 +210,7 @@ export const compareQueryOrder = compareBySort(DEFAULT_QUERY_SORT);
 /** Structured read-only query (operator whitelist enforced) */
 export async function queryBrain(
   spaceId: string,
-  collectionName: 'memories' | 'entities' | 'edges' | 'chrono' | 'files',
+  collectionName: BrainCollection,
   filter: Record<string, unknown>,
   projection?: Record<string, unknown>,
   limit = 20,
@@ -274,7 +275,7 @@ export async function queryBrain(
  */
 export async function countBrain(
   spaceId: string,
-  collectionName: 'memories' | 'entities' | 'edges' | 'chrono' | 'files',
+  collectionName: BrainCollection,
   filter: Record<string, unknown>,
   maxTimeMS = 5000,
 ): Promise<number> {

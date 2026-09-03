@@ -16,6 +16,7 @@
  */
 
 import { getConfig, saveConfig, saveConfigSoon, getSecrets, getFaceRecognitionConfig } from '../config/loader.js';
+import { BRAIN_COLLECTIONS } from '../config/types.js';
 import { boundedJson } from '../util/bounded-read.js';
 import { reportPushRefusals } from './push-refusals.js';
 import { toSafeRelPath } from '../util/paths.js';
@@ -249,7 +250,9 @@ async function _runSyncForNetworkImpl(networkId: string): Promise<{ synced: numb
 
   // Record Prometheus metrics
   syncCyclesTotal.inc({ network: networkId, status });
-  for (const type of ['memories', 'entities', 'edges', 'files', 'chrono'] as const) {
+  // Every knowledge collection, so a new one is counted without an edit. Order is irrelevant here: the
+  // body only increments two Prometheus counters.
+  for (const type of BRAIN_COLLECTIONS) {
     if (pulled[type] > 0) syncItemsPulledTotal.inc({ type }, pulled[type]);
     if (pushed[type] > 0) syncItemsPushedTotal.inc({ type }, pushed[type]);
   }

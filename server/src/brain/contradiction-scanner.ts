@@ -30,6 +30,7 @@
  * `low-confidence` from `judge-unavailable`.
  */
 import { schedule, validate, type ScheduledTask } from 'node-cron';
+import { RECORD_COLLECTION as COLLECTION_SUFFIX } from '../config/types.js';
 import { col, asFilter, asUpdate, isVectorSearchAvailable } from '../db/mongo.js';
 import { getConfig } from '../config/loader.js';
 import { needsReindex } from '../spaces/_shared.js';
@@ -84,9 +85,9 @@ const DEFAULT_REMOTE_PAIR_BUDGET = 2000;
 export const DEFAULT_TYPES: DupeScanType[] = ['memory', 'entity', 'chrono'];
 const TOPK = 5;
 
-const COLLECTION_SUFFIX: Record<DupeScanType, string> = {
-  memory: 'memories', entity: 'entities', edge: 'edges', chrono: 'chrono', file: 'files',
-};
+// The record-to-collection map is imported: it was declared here and in four other modules, all five
+// byte-identical, beside a sixth in `brain/ttl.ts` whose own comment said the mapping "was open-coded in
+// five places". It had been extracted once and the copies came back.
 
 /** Which pass a cursor belongs to. The suffix keeps them in the existing scan-state collection. */
 export type Pass = 'structured' | 'nli';

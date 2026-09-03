@@ -17,6 +17,7 @@
  * be, and it is unit-testable without Mongo.
  */
 import { col } from '../db/mongo.js';
+import type { BrainCollection } from '../config/types.js';
 import type { SpaceMeta, KnowledgeType } from '../config/types.js';
 
 /** The knowledge collections a check can point at. `file` is not a `KnowledgeType` — it has no schema. */
@@ -50,7 +51,7 @@ export interface CompletenessCheck {
   sample: string[];
   /** Which Brain tab shows the affected records, or `null` when the finding is about the space itself
    *  and no collection displays it. The UI turns it into a link. */
-  targetTab: 'memories' | 'entities' | 'edges' | 'chrono' | 'files' | null;
+  targetTab: BrainCollection | null;
 }
 
 export interface CompletenessReport {

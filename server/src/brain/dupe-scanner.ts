@@ -23,6 +23,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import { RECORD_COLLECTION as COLLECTION_SUFFIX } from '../config/types.js';
 import { schedule, validate, type ScheduledTask } from 'node-cron';
 import { col, asFilter, asUpdate, isVectorSearchAvailable } from '../db/mongo.js';
 import { getConfig } from '../config/loader.js';
@@ -51,9 +52,9 @@ export const DEFAULT_TYPES: DupeScanType[] = ['memory', 'entity', 'chrono'];
 const TOPK = 5;                          // similar records fetched per seed
 const SCAN_STATE = 'ythril_dupe_scan_state';
 
-const COLLECTION_SUFFIX: Record<DupeScanType, string> = {
-  memory: 'memories', entity: 'entities', edge: 'edges', chrono: 'chrono', file: 'files',
-};
+// The record-to-collection map is imported: it was declared here and in four other modules, all five
+// byte-identical, beside a sixth in `brain/ttl.ts` whose own comment said the mapping "was open-coded in
+// five places". It had been extracted once and the copies came back.
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.min(Math.max(n, lo), hi);

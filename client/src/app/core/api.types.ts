@@ -457,7 +457,7 @@ export interface CompletenessCheck {
   earned: number;
   sample: string[];
   /** Where the affected records are, or `null` for a finding about the space itself. */
-  targetTab: 'memories' | 'entities' | 'edges' | 'chrono' | 'files' | null;
+  targetTab: BrainCollection | null;
 }
 
 export interface CompletenessReport {
@@ -469,7 +469,17 @@ export interface CompletenessReport {
   truncated: boolean;
 }
 
-export type QueryCollection = 'memories' | 'entities' | 'edges' | 'chrono' | 'files';
+/**
+ * Every collection a space's knowledge lives in — the client's mirror of `BRAIN_COLLECTIONS`.
+ *
+ * A tuple for the same reason the type lists are: a template that renders one option per collection needs
+ * the values. The Brain's TABS are a different set and live in `brain-tabs.ts`, which says so.
+ */
+export const BRAIN_COLLECTIONS = ['memories', 'entities', 'edges', 'chrono', 'files'] as const;
+
+export type BrainCollection = typeof BRAIN_COLLECTIONS[number];
+
+export type QueryCollection = BrainCollection;
 
 export interface QueryResult {
   results: Record<string, unknown>[];
@@ -477,7 +487,7 @@ export interface QueryResult {
   count: number;
 }
 
-export type WipeCollectionType = 'memories' | 'entities' | 'edges' | 'chrono' | 'files';
+export type WipeCollectionType = BrainCollection;
 
 /**
  * What `POST /api/spaces/:id/reembed` reports back.

@@ -99,9 +99,9 @@ export type { MergeFn, NumericMergeFn, BooleanMergeFn, PropertySchema, TypeSchem
 // A VALUE, so it needs its own import and re-export: everything else above is a type. Re-exported from here
 // rather than importing the leaf directly, because `config/types.js` is the one path this codebase's modules
 // already reach for, and a second path to the same tuple is how a second copy of it starts.
-import { KNOWLEDGE_TYPES, RECORD_TYPES } from './types-knowledge.js';
-export { KNOWLEDGE_TYPES, RECORD_TYPES };
-export type { RecordType } from './types-knowledge.js';
+import { KNOWLEDGE_TYPES, RECORD_TYPES, COLLECTION_SUFFIX, RECORD_COLLECTION, BRAIN_COLLECTIONS } from './types-knowledge.js';
+export { KNOWLEDGE_TYPES, RECORD_TYPES, COLLECTION_SUFFIX, RECORD_COLLECTION, BRAIN_COLLECTIONS };
+export type { RecordType, BrainCollection } from './types-knowledge.js';
 
 /**
  * What kind of thing a record is, for the purpose of the SPACE retention tier.

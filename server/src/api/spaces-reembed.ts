@@ -10,7 +10,7 @@
  * shape: validate, delegate, report.
  */
 
-import type { Router } from 'express';
+import type { Router } from 'express';
 import { RECORD_TYPES } from '../config/types.js';
 import { z } from 'zod';
 import { globalRateLimit } from '../rate-limit/middleware.js';

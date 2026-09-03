@@ -1,4 +1,5 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
+import { BRAIN_COLLECTIONS } from '../../config/types.js';
 import { getConfig } from '../../config/loader.js';
 import { col } from '../../db/mongo.js';
 import { resolveMemberSpaces } from '../../spaces/proxy.js';
@@ -681,7 +682,7 @@ export const wipe_spaceTool: ToolHandler = {
             space: s.requiredSpace,
             types: {
               type: 'array',
-              items: { type: 'string', enum: ['memories', 'entities', 'edges', 'chrono', 'files'] },
+              items: { type: 'string', enum: [...BRAIN_COLLECTIONS] },
               description: 'Optional subset of collection types to wipe. Omit to wipe all.',
             },
           },

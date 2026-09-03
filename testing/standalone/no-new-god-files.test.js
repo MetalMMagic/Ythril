@@ -452,7 +452,12 @@ const FROZEN = {
   // NO DECOMPOSITION: this file's own note below is the argument that applies — it is the client's single
   // mirror of the API's shapes, and its consumers import one module deliberately. A second module holding
   // one tuple would be the split this file exists to avoid.
-  'client/src/app/core/api.types.ts': 657,
+  // RAISED 657 -> 659: TWO LINES, the collection tuple and its derived type. Three types in this file were
+  // each writing that list out; they are one word now.
+  // NO DECOMPOSITION: the note below is the argument that applies — this is the client's single mirror of
+  // the API's shapes and its consumers import one module deliberately. A third file holding one tuple
+  // would be the split this one exists to avoid.
+  'client/src/app/core/api.types.ts': 659,
 };
 
 describe('no file grows past what we already carry', () => {

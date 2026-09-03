@@ -110,6 +110,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A processing poll whose own request FAILS keeps running, and now has a test saying so.** Seven cases
+  already stood over that poll — it re-lists while something is in flight, keeps going, leaves an idle
+  folder alone, retires itself when the file finishes, never stacks two timers, ignores which pane face is
+  open, and is cleared on destroy. None of them reached a failed request.
+
+  Retiring the poll on one failure would mean a single blip freezes the stage bar until the person navigates
+  away and back, and the file they are watching finishes with the bar stuck — which is indistinguishable
+  from the wedged pipeline the poll exists to fix. So it carries on, and the view repairs itself when the
+  server answers again. Confirmed by mutation: retiring it on a failed listing turns the case red.
+
+  This closes `G-15`, the last thing left of `G-3`, with an answer rather than a move: the poll reads
+  three stores, so any store owning it would reach into two others. A page is where something belonging to
+  no single store lives.
+
 - **The preview had no test for what it DECIDES — fourteen cases, and four of them found defects.** The block that was
   already there covers the object URL, which is the one resource on that page that must be released. None of
   it touches the three things below, and each was measured to have no assertion anywhere in the folder.

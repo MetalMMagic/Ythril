@@ -33,6 +33,7 @@ import { planReindex, startReindex } from '../../brain/reindex.js';
 import { log } from '../../util/log.js';
 import { memberSpacesForRequest } from '../../spaces/proxy-scoped.js';
 import type { MemoryDoc, EntityDoc, EdgeDoc, ChronoEntry, FileMetaDoc } from '../../config/types.js';
+import { RECORD_TYPES } from '../../config/types.js';
 import { reindexInProgress } from '../../metrics/registry.js';
 import { UUID_V4_RE } from './_shared.js';
 import { buildErModel } from '../../brain/er-model.js';
@@ -718,7 +719,7 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
 
 
 // POST /api/brain/spaces/:spaceId/find-similar — vector similarity search by existing entry ID
-const VALID_ENTRY_TYPES = new Set(['memory', 'entity', 'edge', 'chrono', 'file']);
+const VALID_ENTRY_TYPES = new Set<string>(RECORD_TYPES);
 
 searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpaceAuth, statesRetryability, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;

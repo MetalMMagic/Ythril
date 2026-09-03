@@ -22,7 +22,8 @@ import { rerank, rerankConfigured, candidateMultiplier, MAX_CANDIDATES } from '.
 import { lexicalSearch, rrfFuse, hybridSearchEnabled, LEXICAL_LIMIT_MULTIPLIER, type LexicalHit } from './lexical-search.js';
 import { atlasVectorScore, scoresAgree } from './vector-score.js';
 import { matchFreshWrites } from './fresh-writes.js';
-import type { ChronoStatus } from '../config/types.js';
+import type { ChronoStatus, RecordType } from '../config/types.js';
+import { RECORD_TYPES } from '../config/types.js';
 import { log } from '../util/log.js';
 import { recallDegradedTotal, recallFreshWritesFoundTotal } from '../metrics/registry.js';
 import { envInt } from '../config/env-num.js';
@@ -97,7 +98,8 @@ async function settleSearches(
   return kept;
 }
 
-export type RecallKnowledgeType = 'memory' | 'entity' | 'edge' | 'chrono' | 'file';
+/** One of the five names this repo had for `RecordType`. Kept as the name recall's signatures read. */
+export type RecallKnowledgeType = RecordType;
 
 /** Fields shared by every knowledge-type recall result. */
 interface RecallBase {
@@ -311,7 +313,7 @@ export async function recall(
 
   const activeTypes: RecallKnowledgeType[] = (types && types.length > 0)
     ? types
-    : ['memory', 'entity', 'edge', 'chrono', 'file'];
+    : [...RECORD_TYPES];
 
   // Phase 1: for each type with a minPerType floor > 0, guarantee that many results
   const guaranteed: RecallResult[] = [];
@@ -1136,7 +1138,7 @@ export async function findSimilar(
 
   const activeTypes: RecallKnowledgeType[] = (targetTypes && targetTypes.length > 0)
     ? targetTypes
-    : ['memory', 'entity', 'edge', 'chrono', 'file'];
+    : [...RECORD_TYPES];
 
   // Fetch topK+1 to account for self-match removal
   const fetchK = topK + 1;

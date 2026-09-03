@@ -400,6 +400,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The RECORD types are one tuple too, where they were sixteen copies under five names — `A-9`.** The four
+  knowledge kinds plus `file`: every record type that can be embedded, recalled or retained. It had five
+  aliases for one set — `RecallKnowledgeType`, `BrainEmbedRecordType`, `DupeScanType`, `TtlBucket` and
+  `EMBED_RECORD_TYPES` — and only the last was already derived. All five now resolve to `RECORD_TYPES`,
+  which is itself `[...KNOWLEDGE_TYPES, 'file']`, so a fifth knowledge kind reaches both lists at once.
+
+  **The order changed, and each surface it touches was CHECKED rather than argued.** Most sites wrote
+  `memory` first; the retention buckets wrote `entity` first and said their order was the one the UI shows.
+  Deriving makes every site entity-first:
+
+  - **recall's default type list does not affect its results.** The fan-out maps over the types and flattens,
+    every consumer then sorts by score with a deterministic id tiebreak, and the lexical introduction caps
+    PER TYPE against a pool a record can only belong to one type of. Established by reading the fan-out, the
+    sorts and the cap.
+  - **an MCP tool schema's `enum` is a set.** The published text changes; nothing a caller does with it can.
+  - **the Brain query tab's type chips are genuinely visible, and they now read
+    `entity memory edge chrono file`** — the order every other list in the product already used. Read on a
+    screenshot, not inferred: the chips still render as chips, still all start unticked, and `file` still
+    wraps to the second line.
+
+  One of the three turned out not to be a surface at all. `recallKnowledgeTypes` in the query tab was
+  declared, never read, and absent from the template — deleted rather than converted, because a copy of an
+  enumeration that nothing reads is the cheapest kind to keep and the easiest to start believing in.
+
 - **The four knowledge types are enumerated ONCE per side of the wire, where they were written out 27
   times.** A space holds four kinds of record — entity, memory, edge, chrono — and that list decides more
   than a type union: which kinds a space can hold a type schema for, which the schema library accepts, which

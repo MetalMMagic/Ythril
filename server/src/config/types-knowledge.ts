@@ -210,6 +210,29 @@ export const KNOWLEDGE_TYPES = ['entity', 'memory', 'edge', 'chrono'] as const;
 export type KnowledgeType = typeof KNOWLEDGE_TYPES[number];
 
 /**
+ * Every kind of record that can be embedded, recalled or retained — the knowledge types PLUS `file`.
+ *
+ * A file is not a knowledge type: it has no type field, so it can have no type schema and no schema-tier
+ * retention window. It is a record all the same, so it is embedded, it is searched, and it has a space-level
+ * retention bucket. That is the whole of the difference, and it is why there are two tuples rather than one.
+ *
+ * **This set had FIVE names for it** — `RecallKnowledgeType`, `BrainEmbedRecordType`, `DupeScanType`,
+ * `TtlBucket` and `EMBED_RECORD_TYPES` — and sixteen sites writing the members out, four of them zod enums
+ * and two of them JSON-schema enums an MCP caller reads. Only `TtlBucket` was already derived.
+ *
+ * **The order changed when this was extracted, and that was checked rather than assumed.** Most sites wrote
+ * `memory` first; the retention buckets wrote `entity` first and said the order was the one the UI shows.
+ * Deriving makes every one of them entity-first. Verified before the change: recall's fan-out sorts by score
+ * with a deterministic tiebreak and caps PER TYPE, so its result order does not depend on this; a JSON-schema
+ * `enum` is a set, so no caller behaviour depends on it; and the one visible list — the Brain query tab's
+ * type chips — now matches the order every other list in the product already used.
+ */
+export const RECORD_TYPES = [...KNOWLEDGE_TYPES, 'file'] as const;
+
+/** A record kind, including `file`. Derived, so it cannot drift from the tuple. */
+export type RecordType = typeof RECORD_TYPES[number];
+
+/**
  * What kind of record a reference points AT.
  *
  * Deliberately not {@link KnowledgeType}, and the difference is not cosmetic. That union names the four things

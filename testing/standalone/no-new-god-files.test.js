@@ -247,7 +247,12 @@ const FROZEN = {
   // recall module because that is where the type already was.
   //
   // Lowered rather than raised, which is the outcome this list is for.
-  'server/src/brain/recall.ts': 683,
+  // RAISED 683 -> 684: ONE LINE, and it deletes a copy. `RecallKnowledgeType` was the five record kinds
+  // written out here; it is now an alias of the one tuple, and the import line is the whole raise.
+  // NO DECOMPOSITION: this is the opposite of the growth this list catches — a local duplicate of a shared
+  // vocabulary became a reference to it. `recall.ts` is 34 over a ceiling it was already over, and the
+  // seed traversal already moved out to its own module.
+  'server/src/brain/recall.ts': 684,
   // 678 -> 687: two conditional notices on the face card — the enable pin stating what it does NOT reach, and
   // "configured but not in use" for a stored endpoint awaiting acknowledgement. Nine lines of markup, and the
   // first attempt wanted THIRTY because the reasoning was written as HTML comments inside the template. That
@@ -442,7 +447,12 @@ const FROZEN = {
   // NO DECOMPOSITION: the file's own note below already argues this case, and it is the one that applies —
   // this is the client's single mirror of the API's shapes, and its consumers import one module on purpose.
   // A second module holding one tuple would be the split this file exists to avoid.
-  'client/src/app/core/api.types.ts': 655,
+  // RAISED 655 -> 657: TWO LINES, the second record-kind tuple and its derived union. Four sites in this
+  // client were writing that list out because a union cannot be iterated and there was nothing to import.
+  // NO DECOMPOSITION: this file's own note below is the argument that applies — it is the client's single
+  // mirror of the API's shapes, and its consumers import one module deliberately. A second module holding
+  // one tuple would be the split this file exists to avoid.
+  'client/src/app/core/api.types.ts': 657,
 };
 
 describe('no file grows past what we already carry', () => {

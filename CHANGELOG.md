@@ -386,6 +386,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The preview group is its own store — `G-3.2`, and the biggest of the remaining cuts.**
+  `file-preview.store.ts` owns the eight signals, the view model that joins them, the fetch, both
+  renderers, the blob-URL binding and the full-screen flag — and, above the class, the five extension
+  tables, the kind decision, and the spreadsheet cell formatter that exist only for it. 939 → 764 code
+  lines.
+
+  **The spreadsheet note is a translation KEY now, not a sentence.** Five stores on this page and not one of
+  them translates: the wording of anything a person reads belongs to the renderer, which can see the locale.
+  The note is the only prose the preview produces and the PARSE is what knows the numbers, so the parse
+  returns the key and its parameters and `file-preview.component.ts` renders them. Same rule as the listing
+  store's failure keys, from the other end.
+
+  **The highlight.js language registrations moved with the call that needs them**, which is the half a move
+  like this loses. `highlight.js/lib/core` is a module singleton with an empty registry, so a call for an
+  unregistered language throws — and the ten `registerLanguage` lines were sitting in the page while
+  `hljs.highlight` left. It would have kept working for exactly as long as something imported the page
+  first: a load-order dependency nothing states. Confirmed load-bearing by deleting them and watching a case
+  go red.
+
+  Two things stayed on the page and one wrapper was deleted rather than moved. Opening a file still
+  orchestrates three stores — the extract is cleared, the metadata record is loaded, the pane switches face
+  — because none of those is the preview's to decide, and the URL is passed IN because it comes from the
+  listing store. The deleted one was a one-line `renderMarkdown` whose own docblock said it existed
+  "because the preview's tests drive it directly": a method kept alive by its own test, which is the thing
+  `preview-object-url.ts` warns about in as many words. Its case now follows the path production takes.
+
 - **The upload queue is its own store — `G-3.1`.** `file-upload.store.ts` owns the rows, the ordering, the
   one-at-a-time rule, the subscriptions and the page's LAST `filesApi` request: 1 004 → 939 code lines, and
   the file manager shell now makes no HTTP request of its own at all.

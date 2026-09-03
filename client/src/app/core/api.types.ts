@@ -637,6 +637,14 @@ export interface WipeResult {
   edges: number;
   chrono: number;
   files: number;
+  /**
+   * Link records. Usually the largest number, and not a separate thing to clean up.
+   *
+   * A link is one mention of one record by another, so a space whose memories name entities holds one per
+   * mention. A partial wipe that clears `memories` alone leaves those links pointing at records that are
+   * gone — `WipeCollectionType` derives from the collection list, so `'links'` is already selectable.
+   */
+  links: number;
 }
 
 export interface FileEntry {

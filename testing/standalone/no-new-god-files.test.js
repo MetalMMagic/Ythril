@@ -462,7 +462,10 @@ const FROZEN = {
   // NO DECOMPOSITION: the note below is the argument that applies — this is the client's single mirror of
   // the API's shapes and its consumers import one module deliberately. A third file holding one tuple
   // would be the split this one exists to avoid.
-  'client/src/app/core/api.types.ts': 659,
+  // RAISED 659 -> 660: ONE LINE, `WipeResult.links`. The wipe response gained a key on the server and this
+  // is the mirror of it; a mirror that is a field short is the shape that makes a client silently ignore
+  // part of a response. There is nowhere else a field of a response type can live.
+  'client/src/app/core/api.types.ts': 660,
 };
 
 describe('no file grows past what we already carry', () => {

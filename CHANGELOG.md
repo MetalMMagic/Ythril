@@ -731,6 +731,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The working-order gate found three of its rows by NUMBER, so a renumbered checklist lost checks in
+  silence.** It located the tests row with a literal `2`, the CHANGELOG row with `6` and the guides row with
+  `7`. Write the checklist with nine rows — the natural thing when a job has more than seven things worth
+  attesting — and `7 full suite` lands where the guides check looks, while whatever happens to be row 2
+  lands where the tests check looks.
+
+  Worse, a row that simply was not there answered `undefined` and every rule reading it then skipped itself.
+  A checklist with no guides row passed the guides check.
+
+  **Found by writing a nine-row checklist, and only because two of the three complained at once.** A
+  numbering that lined up differently would have passed with rows unread and nothing said. The rows ARE the
+  attestation this gate exists for, so losing two of them quietly is the gate reporting on something it
+  never looked at.
+
+  Rows are now found by NAME — `plan`, `tests first`, `CHANGELOG`, `guides` — and a checklist missing any
+  of them fails outright, which is what makes "absent" distinguishable from "empty". Measured both ways: with
+  a seven-row checklist whose last row is not the guides row, the gate as it shipped says nothing and the
+  fixed one says *"has no ticked row for: guides"*.
+
+  `tests first` rather than `tests`, because row 4 says "those tests pass" and attests something else. And
+  the body is captured to the next row rather than to the end of the line, so a reason that wraps survives —
+  the guides row's reason usually wraps, and it is the row whose reason has to be read.
+
+  This also removes the reason to keep the checklist at exactly seven rows, which was a constraint on the
+  writing rather than on the work.
+
 - **A mermaid diagram in a markdown preview was rendering unstyled, and had been since the preview was
   split out.** Its rule sat in the page's stylesheet while the diagram is drawn inside a child component —
   and a page cannot style into a child's template, let alone into content that child binds with

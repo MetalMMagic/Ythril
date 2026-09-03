@@ -797,19 +797,9 @@ describe('FileManagerComponent — what surrounds the upload queue', () => {
     expect(changed).toBe(0);
   });
 
-  it('picking the same file twice still uploads it — the input is cleared after each pick', () => {
-    confirmAnswer = true;
-    const fx = create();
-    const comp = fx.componentInstance;
-    const input = { files: fakeFileList(['a.txt']), value: 'C:/fake/a.txt' } as unknown as HTMLInputElement;
-
-    comp.onFileInput({ target: input } as unknown as Event);
-    fx.detectChanges();
-
-    // A file input fires `change` only when its value CHANGES. Left set, picking the same file again is
-    // silent — the row never appears and the upload never happens, with nothing on screen to explain it.
-    expect(input.value).toBe('');
-  });
+  // The file picker moved to `file-toolbar.component.ts` with the element it clears, and its case went
+  // with it — see `file-toolbar.component.spec.ts`. A test for a cleared input has to be able to reach the
+  // input.
 
   it('dismissing a finished row leaves the others alone', async () => {
     confirmAnswer = true;

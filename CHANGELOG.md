@@ -386,6 +386,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The toolbar is its own component — `G-3.3`, and the first cut into the page's TEMPLATE.**
+  `file-toolbar.component.ts` takes the space selector, the breadcrumb trail, the new-folder form, the
+  upload picker and the sidebar toggle: 764 → 682 code lines.
+
+  **Its style rules travelled with its markup, which is not a tidiness point.** Angular scopes a component's
+  styles to its own template, so a rule the page declares cannot reach an element a child renders — and the
+  failure is silent: no error, no warning, just an unstyled control that still works. `.rename-form` is
+  DUPLICATED rather than moved, because the in-table rename form uses the same class from
+  `file-listing.component.ts`; two consumers, so the rule exists in both places, which is how that was
+  learned the first time.
+
+  **The new-folder form is two-way rather than local state.** A refused create has to keep what was typed —
+  losing an edit to a failed request is the one outcome trying again cannot undo — so the page closes the
+  form on the ANSWER, not on the attempt. If the component owned that flag outright it would have to be told
+  the outcome, which is a second channel for a decision the page already makes.
+
+  **Read on a screenshot, not only in a test.** An isolated instance was booted and driven through three
+  states — the root, the form open in place of its button, and a nested folder — because a moved stylesheet
+  is exactly the change that measures correctly and looks wrong. `root / reports` renders with the
+  breadcrumb's accent, separator and current-segment rules intact, the sidebar toggle still sits hard right
+  on its `margin-left: auto`, and the run logged no console errors.
+
 - **The preview group is its own store — `G-3.2`, and the biggest of the remaining cuts.**
   `file-preview.store.ts` owns the eight signals, the view model that joins them, the fetch, both
   renderers, the blob-URL binding and the full-screen flag — and, above the class, the five extension

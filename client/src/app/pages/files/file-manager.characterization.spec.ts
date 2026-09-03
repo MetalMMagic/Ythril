@@ -618,11 +618,11 @@ describe('FileManagerComponent — what a write MEANS beyond the write (characte
   it('a REFUSED new folder keeps the name that was typed, and SAYS it failed', () => {
     const { c, toasted } = createWith({ createDir: () => throwError(() => new Error('nope')) });
     c.showNewFolder.set(true);
-    c.newFolderName = 'notes';
+    c.newFolderName.set('notes');
 
     c.createFolder();
 
-    expect(c.newFolderName).toBe('notes');
+    expect(c.newFolderName()).toBe('notes');
     expect(c.showNewFolder()).toBe(true);
     // The message is the page's, not the store's: the store reports WHICH write failed and nothing else.
     expect(toasted.length).toBe(1);
@@ -641,12 +641,12 @@ describe('FileManagerComponent — what a write MEANS beyond the write (characte
     });
     c.navigate('/docs');
     c.showNewFolder.set(true);
-    c.newFolderName = 'notes';
+    c.newFolderName.set('notes');
     listed.length = 0;
 
     c.createFolder();
 
-    expect(c.newFolderName).toBe('');
+    expect(c.newFolderName()).toBe('');
     expect(c.showNewFolder()).toBe(false);
     expect(listed).toContain('/docs');   // the folder we are in
     expect(listed).toContain('/');       // the tree's root
@@ -684,7 +684,7 @@ describe('FileManagerComponent — what a write MEANS beyond the write (characte
     let emitted = 0;
     c.filesChanged.subscribe(() => emitted++);
 
-    c.newFolderName = 'notes';
+    c.newFolderName.set('notes');
     c.createFolder();
     expect(emitted).toBe(0);
 

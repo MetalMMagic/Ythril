@@ -31,7 +31,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { matchIndexReference } from './todo-index-match.mjs';
-import { openItems, orderedHomeRows, itemIdIn, isNamedIn } from './todo-open-items.mjs';
+import { openItems, orderedHomeRows, itemIdIn, isNamedIn, workingOrderRow } from './todo-open-items.mjs';
 import { verifyLineOf, parseVerifyLine, evaluateClause } from './verify-line.mjs';
 import { resolvedHeadings, decidedButStillFiled, rulingsLeftOnThePage } from './parked-decisions-rules.mjs';
 
@@ -695,7 +695,7 @@ console.log(`\n${YELLOW}todo/ consistency${R}  ${DIM}(owner rules 2026-08-02 and
         // and has left the queue by the time this runs. Found the first time this checklist was used on a bug
         // fix, which was the change immediately after the one that added it. The CHANGELOG row still applies,
         // so the claim is not free.
-        const plan = src.match(/^\s*[-*]\s*\[[x~]\]\s*\**\s*1[^—\n]*—\s*(.+)$/m)?.[1]?.trim();
+        const plan = workingOrderRow(src, 'plan');
         if (plan && !/owner-directed/i.test(plan) && !/closed by this change/i.test(plan)) {
           const id = itemIdIn(plan);
           const known = id && orderedHomeRows(readFileSync(join(TODO, ORDERED), 'utf8')).some(r => r.id === id);
@@ -706,11 +706,22 @@ console.log(`\n${YELLOW}todo/ consistency${R}  ${DIM}(owner rules 2026-08-02 and
           }
         }
 
+        // EVERY NAMED ROW MUST EXIST. Until 2026-09-03 each of these rules answered `undefined` for a row
+        // it could not find and then skipped itself, so a checklist that simply omitted the guides row
+        // passed the guides check. Reading a row by name makes "absent" distinguishable from "empty", and
+        // absent is the case that used to be invisible.
+        const missing = ['plan', 'tests first', 'CHANGELOG', 'guides'].filter(r => workingOrderRow(src, r) === null);
+        if (missing.length) {
+          fail(`${WORKING} has no ticked row for: ${missing.join(', ')}.\n\n`
+            + '      The rows ARE the attestation. A checklist missing one is a checklist that claims\n'
+            + '      nothing about it, and every rule that reads it then has nothing to check.');
+        }
+
         // The tests row has to SAY something. Either the failure the test gave before the code existed — the
         // whole point of writing it first — or `NO NEW BEHAVIOUR:` naming the spec that already covers this,
         // which a pure extraction genuinely needs. A gate that cannot say "no new test was owed here" teaches
         // its own bypass, and the bypass then gets used for the cases that DID owe one.
-        const tests = src.match(/^\s*[-*]\s*\[[x~]\]\s*\**\s*2[^—\n]*—\s*(.+)$/m)?.[1]?.trim();
+        const tests = workingOrderRow(src, 'tests first');
         if (tests !== undefined) {
           const exempt = tests.match(/NO NEW BEHAVIOUR:\s*`?([^`\s,]+)`?/);
           if (exempt && !existsSync(join(ROOT, exempt[1]))) {
@@ -724,15 +735,15 @@ console.log(`\n${YELLOW}todo/ consistency${R}  ${DIM}(owner rules 2026-08-02 and
           }
         }
 
-        // Rows 6 and 7, both checked against the diff. Compared against the working tree rather than HEAD,
-        // because preflight runs before the commit as often as after it.
+        // The CHANGELOG and guides rows, both checked against the diff. Compared against the working tree
+        // rather than HEAD, because preflight runs before the commit as often as after it.
         let changed = '';
         try {
           changed = execFileSync('git', ['diff', '--name-only', 'main'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'ignore'] }).toString();
         } catch { /* main not present locally — nothing to compare against */ }
 
         // The CHANGELOG row: the one surface every change owes, without exception.
-        if (changed && /^\s*[-*]\s*\[[x~]\]\s*\**\s*6\b/m.test(src) && !/^CHANGELOG\.md$/m.test(changed)) {
+        if (changed && workingOrderRow(src, 'CHANGELOG') !== null && !/^CHANGELOG\.md$/m.test(changed)) {
           fail(`${WORKING} ticks the CHANGELOG row, but CHANGELOG.md does not differ from main.\n\n`
             + `      Every change owes an [Unreleased] entry — it is the surface the owner reads to know `
             + `what shipped.`);
@@ -748,8 +759,8 @@ console.log(`\n${YELLOW}todo/ consistency${R}  ${DIM}(owner rules 2026-08-02 and
         // way to say the change reaches no reader of either guide. `_THE_LOOP.md` already narrows that door:
         // a new parameter, a schema description, a UI control, a config key or anything an integrator could
         // build against does NOT fit through it, whatever the size of the diff.
-        const guides = src.match(/^\s*[-*]\s*\[[x~]\]\s*\**\s*7[^—\n]*—\s*([\s\S]*?)(?=\n\s*[-*]\s*\[|\n\n|$)/m)?.[1]?.trim();
-        if (changed && guides !== undefined) {
+        const guides = workingOrderRow(src, 'guides');
+        if (changed && guides !== null) {
           const exempt = guides.match(/NO GUIDE READER AFFECTED\s*[—:-]\s*(.+)/s)?.[1]?.trim();
           if (exempt) {
             if (exempt.length < 25) {

@@ -96,90 +96,18 @@ const FROZEN = {
   // NO DECOMPOSITION: 343 code lines is not a god file, and the raise was two lines moving a permission
   // pill onto the rights matrix. Splitting a page this size costs a reader more than it saves.
   'client/src/app/pages/settings/tokens.component.ts': 275,
-  // RAISED 1617 -> 1618 by one line: the Q-10 timestamp swap replaced a `| date:` cell with `<app-timestamp>` and
-  // needed an import, gaining an import line while losing none. At 1618 code lines this file is by far the largest
-  // here and wants splitting on its own terms — but not inside a one-cell rendering change, where the split would be
-  // the diff and the fix would be a footnote.
-  // DECOMPOSE: G-3. The largest file on this list at 1 618 code lines (1 999 total), and the one where the
-  // ratchet has been loudest for longest.
-  // 1618 -> 1545. G-3's first cut: the preview body became `file-preview.component.ts`, its styles moved with
-  // it into `file-manager.styles.ts`, and `formatSize` became a shared function rather than the second copy
-  // the extraction was about to create.
+  // `client/src/app/pages/files/file-manager.component.ts` WAS HERE, at 1 618 code lines, and it was the
+  // largest file in the repository. It came off this list on 2026-09-03 at 591 — under the ceiling, so it
+  // is no longer a god file and no longer needs an entry.
   //
-  // Lowered rather than deleted, and still by far the largest here. DECOMPOSE: G-3 stays open — the browser,
-  // the upload flow and the metadata drawer are the remaining seams, and each is its own change.
-  // 1545 -> 1422. G-3's second cut: the upload panel became `upload-queue.component.ts`. The QUEUE stayed —
-  // ordering, the one-at-a-time rule, the HTTP subscriptions — because an upload in flight owns a
-  // subscription, and a component that owned it would abort on destroy.
+  // **Thirteen cuts, and the entry is DELETED rather than kept at a low number**, because this map is what
+  // is large right now and not a monument to what used to be. The story of the cuts is in the CHANGELOG,
+  // which is where a reader goes for what happened; what belongs here is only what is still over the line.
   //
-  // DECOMPOSE: G-3 stays open. The browser and the metadata drawer are the seams left.
-  // 1422 -> 1397. G-3's third cut: the file-meta edit face became `file-meta-editor.component.ts`. Saving
-  // stayed on the page for the same reason the upload queue did — the request is the page's, and a component
-  // that owned it would cancel a save in flight when the pane closed.
-  //
-  // DECOMPOSE: G-3 stays open. The browser and its directory tree are what is left, and they are the largest
-  // remaining block by some way.
-  // 1397 -> 1326. G-3's fourth cut: the extract view — what retrieval actually sees for a file — became
-  // `file-extract-view.component.ts`, and `msRange` joined `formatSize` in `file-format.ts`.
-  //
-  // 1618 -> 1326 over four cuts, all of the detail pane. DECOMPOSE: G-3 stays open for the browser itself:
-  // the listing table and the directory tree are what is left, and they are one concern rather than two.
-  // 1326 -> 1216. G-3's fifth cut: the directory listing became `file-listing.component.ts` — the page's
-  // core, and the widest interface of the five. Nine bindings rather than sixteen, because the three per-row
-  // questions (`canRequeue`, is-renaming, is-requeueing) are answered on the page and arrive as row flags.
-  //
-  // 1216 -> 1118. G-3's sixth cut: the directory tree became `file-tree.component.ts` — the recursive
-  // template, six CSS rules and the `TreeNode` interface. The narrowest interface of the six (two inputs, one
-  // output), because the page keeps the tree's STATE and its requests: the sidebar sits inside an
-  // `@if (sidebarOpen())`, so a component owning the listing request would cancel it on close and lose the
-  // loaded tree. Ten characterization cases went in first, as #1114, and none needed editing.
-  //
-  // 1118 -> 1070. G-3's seventh cut, and the first STORE rather than a component: `file-tree.store.ts` owns the
-  // tree's state and its two requests. A store because the sidebar renders inside an `@if (sidebarOpen())`, so
-  // a component owning `listFiles` would cancel it on destroy and lose the loaded tree — a store the page
-  // provides has the page's lifetime. Navigation deliberately stayed behind: `onTreeClick` calls `navigate`
-  // and then `toggle`, which is one gesture with two effects, and the two calls side by side are what keep
-  // `G-10`'s duplicate listing findable.
-  //
-  // 1618 -> 1070 over seven cuts. DECOMPOSE: G-3 stays open. Eleven `filesApi` call sites remain — the
-  // directory listing with its load-versus-refresh rule, the preview, the extract tab, the file-meta editor —
-  // and each is a store of the same shape as this one.
-  // RAISED 1070 -> 1071: ONE LINE, the `[rootError]` binding that lets the sidebar say a tree could not
-  // load. Until 3.7 that failure was indistinguishable from a space with no folders.
-  //
-  // Raised without argument, for the reason written above `brain.component.ts`: a ratchet that made a
-  // never-rendered failure state negotiable would be a gate encouraging the wrong outcome. The tree's own
-  // state and its store are in `file-tree.component.ts` and `file-tree.store.ts`; what landed here is the
-  // binding, which belongs to the page that owns the sidebar. DECOMPOSE: G-3 still stands.
-  //
-  // RAISED 1071 -> 1078: SEVEN LINES, `G-13`. Clicking a folder listed it twice — once for the page and once
-  // for the tree — and the tree is fed from the page's listing now. What is here is the click's decision
-  // (does this expand need a listing, or are the children already loaded) and two hand-offs from the
-  // listing's success and error branches.
-  //
-  // **This gate is why the shape is right.** The first cut kept the whole rule here: a `pendingTreeNode`
-  // field, and a path check copied into both branches — fifteen lines, and tree-scoped state living in the
-  // largest file in the repo. That is the defect this codebase produces most, one rule with a copy in each
-  // place that touches it. It moved into `file-tree.store.ts`, which owns the waiting node; the page hands
-  // over a path and some entries and is told nothing. DECOMPOSE: G-3 still stands.
-  //
-  // RAISED 1078 -> 1079: ONE LINE, `G-14`. A folder whose listing failed showed the PREVIOUS folder's rows
-  // under the new folder's name, because the failure message renders in place of the "empty folder" state
-  // and rows on screen hide it. The line clears the rows. There is nowhere else it could go: the branch that
-  // knows a load from a refresh is this one, and the distinction is the whole fix. DECOMPOSE: G-3 stands.
-  //
-  // 1079 -> 1050, EIGHTH CUT: the directory listing is `file-listing.store.ts` — its five state signals, its
-  // five requests, and the load-versus-refresh rule that reads three of those signals to drive four flags.
-  //
-  // **Twenty-nine lines for a hundred moved, and the arithmetic is the honest part.** A store that PUBLISHES
-  // what it listed instead of reaching for the tree costs the page four subscriptions, and that is the trade
-  // the tree's own docblock asks for: the page owns the sidebar and the poll, so the page is where a landed
-  // listing gets its meaning. Counting only the delta would say this cut barely happened; what left is every
-  // request in the group and the one rule with six callers.
-  //
-  // DECOMPOSE: G-3 stays open — the preview's object URL, the extract tab and the file-meta editor are the
-  // three groups left, and each is a store of the same shape.
-  'client/src/app/pages/files/file-manager.component.ts': 682,
+  // Worth one sentence, because the shape will turn up again: the last four cuts were the ones that
+  // mattered and they were the ones nobody had taken. Chasing "how many API calls does this page still
+  // make" moved 65 lines; a THIRD of the file was its inline template and stylesheet, which no store
+  // extraction could reach, and taking those out as two components is what ended it.
   'client/src/app/pages/schema-library/schema-library.component.ts': 1112,
   'server/src/sync/engine.ts': 966,
   // 958 -> 684: the per-type editor body moved into `schema-type-editor.component` so the Brain Overview
